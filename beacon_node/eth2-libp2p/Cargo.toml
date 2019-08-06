@@ -7,8 +7,8 @@ edition = "2018"
 [dependencies]
 clap = "2.32.0"
 #SigP repository 
-libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "35104cca27231b9178e1fea5b3788ea41ba8af76" }
-enr =  { git = "https://github.com/SigP/rust-libp2p/", rev = "35104cca27231b9178e1fea5b3788ea41ba8af76", features = ["serde"] }
+libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "b0d3cf7b4b0fa6c555b64dbdd110673a05457abd" }
+enr =  { git = "https://github.com/SigP/rust-libp2p/", rev = "b0d3cf7b4b0fa6c555b64dbdd110673a05457abd", features = ["serde"] }
 types = { path =  "../../eth2/types" }
 serde = "1.0"
 serde_derive = "1.0"

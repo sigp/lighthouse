@@ -207,12 +207,26 @@ pub struct InteropEthSpec;
 
 impl EthSpec for InteropEthSpec {
     type ShardCount = U8;
-    type SlotsPerHistoricalRoot = U64;
-    type LatestRandaoMixesLength = U64;
-    type LatestActiveIndexRootsLength = U64;
-    type LatestSlashedExitLength = U64;
     type SlotsPerEpoch = U8;
-    type GenesisEpoch = U0;
+    type SlotsPerHistoricalRoot = U64;
+    type SlotsPerEth1VotingPeriod = U16;
+    type EpochsPerHistoricalVector = U64;
+    type EpochsPerSlashingsVector = U64;
+    type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
+
+    params_from_eth_spec!(MainnetEthSpec {
+        JustificationBitsLength,
+        MaxValidatorsPerCommittee,
+        GenesisEpoch,
+        HistoricalRootsLimit,
+        ValidatorRegistryLimit,
+        MaxProposerSlashings,
+        MaxAttesterSlashings,
+        MaxAttestations,
+        MaxDeposits,
+        MaxVoluntaryExits,
+        MaxTransfers
+    });
 
     fn default_spec() -> ChainSpec {
         ChainSpec::interop()

@@ -14,7 +14,7 @@ use slog::{debug, warn};
 use ssz::{Decode, DecodeError};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{BeaconBlockHeader, EthSpec};
+use types::{Attestation, BeaconBlock, BeaconBlockHeader};
 
 /// Handles messages received from the network and client and organises syncing.
 pub struct MessageHandler<T: BeaconChainTypes> {
@@ -23,14 +23,14 @@ pub struct MessageHandler<T: BeaconChainTypes> {
     /// The syncing framework.
     sync: SimpleSync<T>,
     /// The context required to send messages to, and process messages from peers.
-    network_context: NetworkContext<T::EthSpec>,
+    network_context: NetworkContext,
     /// The `MessageHandler` logger.
     log: slog::Logger,
 }
 
 /// Types of messages the handler can receive.
 #[derive(Debug)]
-pub enum HandlerMessage<E: EthSpec> {
+pub enum HandlerMessage {
     /// We have initiated a connection to a new peer.
     PeerDialed(PeerId),
     /// Peer has disconnected,
@@ -38,17 +38,17 @@ pub enum HandlerMessage<E: EthSpec> {
     /// An RPC response/request has been received.
     RPC(PeerId, RPCEvent),
     /// A gossip message has been received.
-    PubsubMessage(PeerId, Box<PubsubMessage<E>>),
+    PubsubMessage(PeerId, PubsubMessage),
 }
 
 impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     /// Initializes and runs the MessageHandler.
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,
-        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        network_send: mpsc::UnboundedSender<NetworkMessage>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
-    ) -> error::Result<mpsc::UnboundedSender<HandlerMessage<T::EthSpec>>> {
+    ) -> error::Result<mpsc::UnboundedSender<HandlerMessage>> {
         debug!(log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
@@ -78,7 +78,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     }
 
     /// Handle all messages incoming from the network service.
-    fn handle_message(&mut self, message: HandlerMessage<T::EthSpec>) {
+    fn handle_message(&mut self, message: HandlerMessage) {
         match message {
             // we have initiated a connection to a peer
             HandlerMessage::PeerDialed(peer_id) => {
@@ -94,7 +94,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             }
             // we have received an RPC message request/response
             HandlerMessage::PubsubMessage(peer_id, gossip) => {
-                self.handle_gossip(peer_id, *gossip);
+                self.handle_gossip(peer_id, gossip);
             }
         }
     }
@@ -218,6 +218,62 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         }
     }
 
+    /// Handle various RPC errors
+    fn handle_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
+        //TODO: Handle error correctly
+        warn!(self.log, "RPC Error"; "Peer" => format!("{:?}", peer_id), "Request Id" => format!("{}", request_id), "Error" => format!("{:?}", error));
+    }
+
+    /// Handle RPC messages
+    fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: PubsubMessage) {
+        match gossip_message {
+            PubsubMessage::Block(message) => match self.decode_gossip_block(message) {
+                Err(e) => {
+                    debug!(self.log, "Invalid Gossiped Beacon Block"; "Peer" => format!("{}", peer_id), "Error" => format!("{:?}", e));
+                }
+                Ok(block) => {
+                    let _should_forward_on =
+                        self.sync
+                            .on_block_gossip(peer_id, block, &mut self.network_context);
+                }
+            },
+            PubsubMessage::Attestation(message) => match self.decode_gossip_attestation(message) {
+                Err(e) => {
+                    debug!(self.log, "Invalid Gossiped Attestation"; "Peer" => format!("{}", peer_id), "Error" => format!("{:?}", e));
+                }
+                Ok(attestation) => {
+                    self.sync
+                        .on_attestation_gossip(peer_id, attestation, &mut self.network_context)
+                }
+            },
+            PubsubMessage::Unknown(message) => {
+                // Received a message from an unknown topic. Ignore for now
+                debug!(self.log, "Unknown Gossip Message"; "Peer" => format!("{}", peer_id), "Message" => format!("{:?}", message));
+            }
+        }
+    }
+
+    /* Decoding of blocks and attestations from the network.
+     *
+     * TODO: Apply efficient decoding/verification of these objects
+     */
+
+    fn decode_gossip_block(
+        &self,
+        beacon_block: Vec<u8>,
+    ) -> Result<BeaconBlock<T::EthSpec>, DecodeError> {
+        //TODO: Apply verification before decoding.
+        BeaconBlock::from_ssz_bytes(&beacon_block)
+    }
+
+    fn decode_gossip_attestation(
+        &self,
+        beacon_block: Vec<u8>,
+    ) -> Result<Attestation<T::EthSpec>, DecodeError> {
+        //TODO: Apply verification before decoding.
+        Attestation::from_ssz_bytes(&beacon_block)
+    }
+
     /// Verifies and decodes the ssz-encoded block bodies received from peers.
     fn decode_block_bodies(
         &self,
@@ -241,39 +297,18 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         //TODO: Implement faster header verification before decoding entirely
         Vec::from_ssz_bytes(&headers_response.headers)
     }
-
-    /// Handle various RPC errors
-    fn handle_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
-        //TODO: Handle error correctly
-        warn!(self.log, "RPC Error"; "Peer" => format!("{:?}", peer_id), "Request Id" => format!("{}", request_id), "Error" => format!("{:?}", error));
-    }
-
-    /// Handle RPC messages
-    fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: PubsubMessage<T::EthSpec>) {
-        match gossip_message {
-            PubsubMessage::Block(message) => {
-                let _should_forward_on =
-                    self.sync
-                        .on_block_gossip(peer_id, message, &mut self.network_context);
-            }
-            PubsubMessage::Attestation(message) => {
-                self.sync
-                    .on_attestation_gossip(peer_id, message, &mut self.network_context)
-            }
-        }
-    }
 }
 
 // TODO: RPC Rewrite makes this struct fairly pointless
-pub struct NetworkContext<E: EthSpec> {
+pub struct NetworkContext {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
+    network_send: mpsc::UnboundedSender<NetworkMessage>,
     /// The `MessageHandler` logger.
     log: slog::Logger,
 }
 
-impl<E: EthSpec> NetworkContext<E> {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<E>>, log: slog::Logger) -> Self {
+impl NetworkContext {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
         Self { network_send, log }
     }
 

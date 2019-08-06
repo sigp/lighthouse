@@ -214,7 +214,7 @@ fn main() {
             eth2_config,
             log.clone(),
         ),
-        "interop" => ValidatorService::<ValidatorServiceClient, Keypair>::start::<InteropEthSpec>(
+        "interop" => ValidatorService::<ValidatorServiceClient, Keypair, InteropEthSpec>::start(
             client_config,
             eth2_config,
             log.clone(),
