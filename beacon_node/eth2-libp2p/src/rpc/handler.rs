@@ -2,6 +2,7 @@ use super::methods::{RPCErrorResponse, RPCResponse, RequestId};
 use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
+use core::marker::PhantomData;
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use libp2p::core::protocols_handler::{
@@ -11,14 +12,16 @@ use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
 use smallvec::SmallVec;
 use std::time::{Duration, Instant};
 use tokio_io::{AsyncRead, AsyncWrite};
+use types::EthSpec;
 
 /// The time (in seconds) before a substream that is awaiting a response times out.
 pub const RESPONSE_TIMEOUT: u64 = 9;
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
-pub struct RPCHandler<TSubstream>
+pub struct RPCHandler<TSubstream, E>
 where
     TSubstream: AsyncRead + AsyncWrite,
+    E: EthSpec,
 {
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol>,
@@ -52,6 +55,9 @@ where
 
     /// After the given duration has elapsed, an inactive connection will shutdown.
     inactive_timeout: Duration,
+
+    /// Phantom EthSpec.
+    _phantom: PhantomData<E>,
 }
 
 /// An outbound substream is waiting a response from the user.
@@ -84,9 +90,10 @@ where
     },
 }
 
-impl<TSubstream> RPCHandler<TSubstream>
+impl<TSubstream, E> RPCHandler<TSubstream, E>
 where
     TSubstream: AsyncRead + AsyncWrite,
+    E: EthSpec,
 {
     pub fn new(
         listen_protocol: SubstreamProtocol<RPCProtocol>,
@@ -104,6 +111,7 @@ where
             max_dial_negotiated: 8,
             keep_alive: KeepAlive::Yes,
             inactive_timeout,
+            _phantom: PhantomData,
         }
     }
 
@@ -137,18 +145,20 @@ where
     }
 }
 
-impl<TSubstream> Default for RPCHandler<TSubstream>
+impl<TSubstream, E> Default for RPCHandler<TSubstream, E>
 where
     TSubstream: AsyncRead + AsyncWrite,
+    E: EthSpec,
 {
     fn default() -> Self {
         RPCHandler::new(SubstreamProtocol::new(RPCProtocol), Duration::from_secs(30))
     }
 }
 
-impl<TSubstream> ProtocolsHandler for RPCHandler<TSubstream>
+impl<TSubstream, E> ProtocolsHandler for RPCHandler<TSubstream, E>
 where
     TSubstream: AsyncRead + AsyncWrite,
+    E: EthSpec,
 {
     type InEvent = RPCEvent;
     type OutEvent = RPCEvent;
@@ -276,13 +286,8 @@ where
         }
 
         // remove any streams that have expired
-        self.waiting_substreams.retain(|_k, waiting_stream| {
-            if Instant::now() > waiting_stream.timeout {
-                false
-            } else {
-                true
-            }
-        });
+        self.waiting_substreams
+            .retain(|_k, waiting_stream| Instant::now() <= waiting_stream.timeout);
 
         // drive streams that need to be processed
         for n in (0..self.substreams.len()).rev() {
@@ -334,7 +339,7 @@ where
                     }
                     Err(e) => {
                         return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                            RPCEvent::Error(rpc_event.id(), e.into()),
+                            RPCEvent::Error(rpc_event.id(), e),
                         )))
                     }
                 },

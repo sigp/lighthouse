@@ -10,7 +10,7 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
 
 /// A block of the `BeaconChain`.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 #[derive(
     Debug,
     PartialEq,
@@ -24,38 +24,39 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     TestRandom,
     SignedRoot,
 )]
-pub struct BeaconBlock {
+#[serde(bound = "T: EthSpec")]
+pub struct BeaconBlock<T: EthSpec> {
     pub slot: Slot,
-    pub previous_block_root: Hash256,
+    pub parent_root: Hash256,
     pub state_root: Hash256,
-    pub body: BeaconBlockBody,
+    pub body: BeaconBlockBody<T>,
     #[signed_root(skip_hashing)]
     pub signature: Signature,
 }
 
-impl BeaconBlock {
+impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     ///
-    /// Spec v0.6.3
-    pub fn empty(spec: &ChainSpec) -> BeaconBlock {
+    /// Spec v0.8.1
+    pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlock {
             slot: spec.genesis_slot,
-            previous_block_root: spec.zero_hash,
-            state_root: spec.zero_hash,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
             body: BeaconBlockBody {
                 randao_reveal: Signature::empty_signature(),
                 eth1_data: Eth1Data {
-                    deposit_root: spec.zero_hash,
-                    block_hash: spec.zero_hash,
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
                     deposit_count: 0,
                 },
                 graffiti: [0; 32],
-                proposer_slashings: vec![],
-                attester_slashings: vec![],
-                attestations: vec![],
-                deposits: vec![],
-                voluntary_exits: vec![],
-                transfers: vec![],
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                transfers: VariableList::empty(),
             },
             signature: Signature::empty_signature(),
         }
@@ -63,7 +64,7 @@ impl BeaconBlock {
 
     /// Returns the `signed_root` of the block.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.signed_root()[..])
     }
@@ -75,23 +76,23 @@ impl BeaconBlock {
     ///
     /// Note: performs a full tree-hash of `self.body`.
     ///
-    /// Spec v0.6.3
+    /// Spec v0.8.1
     pub fn block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             slot: self.slot,
-            previous_block_root: self.previous_block_root,
+            parent_root: self.parent_root,
             state_root: self.state_root,
-            block_body_root: Hash256::from_slice(&self.body.tree_hash_root()[..]),
+            body_root: Hash256::from_slice(&self.body.tree_hash_root()[..]),
             signature: self.signature.clone(),
         }
     }
 
-    /// Returns a "temporary" header, where the `state_root` is `spec.zero_hash`.
+    /// Returns a "temporary" header, where the `state_root` is `Hash256::zero()`.
     ///
-    /// Spec v0.6.3
-    pub fn temporary_block_header(&self, spec: &ChainSpec) -> BeaconBlockHeader {
+    /// Spec v0.8.0
+    pub fn temporary_block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
-            state_root: spec.zero_hash,
+            state_root: Hash256::zero(),
             signature: Signature::empty_signature(),
             ..self.block_header()
         }
@@ -102,6 +103,6 @@ impl BeaconBlock {
 mod tests {
     use super::*;
 
-    ssz_tests!(BeaconBlock);
-    cached_tree_hash_tests!(BeaconBlock);
+    ssz_tests!(BeaconBlock<MainnetEthSpec>);
+    cached_tree_hash_tests!(BeaconBlock<MainnetEthSpec>);
 }

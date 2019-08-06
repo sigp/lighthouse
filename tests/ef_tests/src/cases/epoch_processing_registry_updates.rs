@@ -5,11 +5,10 @@ use state_processing::per_epoch_processing::registry_updates::process_registry_u
 use types::{BeaconState, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(bound = "E: EthSpec")]
 pub struct EpochProcessingRegistryUpdates<E: EthSpec> {
     pub description: String,
-    #[serde(bound = "E: EthSpec")]
     pub pre: BeaconState<E>,
-    #[serde(bound = "E: EthSpec")]
     pub post: Option<BeaconState<E>>,
 }
 

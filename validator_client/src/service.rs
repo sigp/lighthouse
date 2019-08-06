@@ -25,6 +25,7 @@ use protos::services_grpc::{
 };
 use slog::{error, info, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::{Duration, Instant, SystemTime};
@@ -41,7 +42,7 @@ const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(200);
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
 //TODO: Generalize the BeaconNode types to use testing
-pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static> {
+pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> {
     /// The node's current fork version we are processing on.
     fork: Fork,
     /// The slot clock for this service.
@@ -60,18 +61,19 @@ pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static> {
     attestation_client: Arc<AttestationServiceClient>,
     /// The validator client logger.
     log: slog::Logger,
+    _phantom: PhantomData<E>,
 }
 
-impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
+impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, S, E> {
     ///  Initial connection to the beacon node to determine its properties.
     ///
     ///  This tries to connect to a beacon node. Once connected, it initialised the gRPC clients
     ///  and returns an instance of the service.
-    fn initialize_service<T: EthSpec>(
+    fn initialize_service(
         client_config: ValidatorConfig,
         eth2_config: Eth2Config,
         log: slog::Logger,
-    ) -> error_chain::Result<Service<ValidatorServiceClient, Keypair>> {
+    ) -> error_chain::Result<Service<ValidatorServiceClient, Keypair, E>> {
         // initialise the beacon node client to check for a connection
 
         let env = Arc::new(EnvBuilder::new().build());
@@ -180,7 +182,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
             }
         };
 
-        let slots_per_epoch = T::slots_per_epoch();
+        let slots_per_epoch = E::slots_per_epoch();
 
         // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
         // https://github.com/sigp/lighthouse/issues/160
@@ -212,18 +214,19 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
             beacon_block_client,
             attestation_client,
             log,
+            _phantom: PhantomData,
         })
     }
 
     /// Initialise the service then run the core thread.
     // TODO: Improve handling of generic BeaconNode types, to stub grpcClient
-    pub fn start<T: EthSpec>(
+    pub fn start(
         client_config: ValidatorConfig,
         eth2_config: Eth2Config,
         log: slog::Logger,
     ) -> error_chain::Result<()> {
         // connect to the node and retrieve its properties and initialize the gRPC clients
-        let mut service = Service::<ValidatorServiceClient, Keypair>::initialize_service::<T>(
+        let mut service = Service::<ValidatorServiceClient, Keypair, E>::initialize_service(
             client_config,
             eth2_config,
             log,
@@ -351,6 +354,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                             beacon_node,
                             signer,
                             slots_per_epoch,
+                            _phantom: PhantomData::<E>,
                         };
                         block_producer.handle_produce_block(log);
                     });
@@ -374,6 +378,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static> Service<B, S> {
                             beacon_node,
                             signer,
                             slots_per_epoch,
+                            _phantom: PhantomData::<E>,
                         };
                         attestation_producer.handle_produce_attestation(log);
                     });

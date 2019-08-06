@@ -1,5 +1,5 @@
 use crate::*;
-use bls::get_withdrawal_credentials;
+use bls::{get_withdrawal_credentials, PublicKeyBytes, SignatureBytes};
 
 /// Builds an deposit to be used for testing purposes.
 ///
@@ -13,34 +13,28 @@ impl TestingDepositBuilder {
     pub fn new(pubkey: PublicKey, amount: u64) -> Self {
         let deposit = Deposit {
             proof: vec![].into(),
-            index: 0,
             data: DepositData {
-                pubkey,
+                pubkey: PublicKeyBytes::from(pubkey),
                 withdrawal_credentials: Hash256::zero(),
                 amount,
-                signature: Signature::empty_signature(),
+                signature: SignatureBytes::empty(),
             },
         };
 
         Self { deposit }
     }
 
-    /// Set the `deposit.index` value.
-    pub fn set_index(&mut self, index: u64) {
-        self.deposit.index = index;
-    }
-
     /// Signs the deposit, also setting the following values:
     ///
     /// - `pubkey` to the signing pubkey.
     /// - `withdrawal_credentials` to the signing pubkey.
-    /// - `proof_of_possesssion`
+    /// - `proof_of_possession`
     pub fn sign(&mut self, keypair: &Keypair, epoch: Epoch, fork: &Fork, spec: &ChainSpec) {
         let withdrawal_credentials = Hash256::from_slice(
             &get_withdrawal_credentials(&keypair.pk, spec.bls_withdrawal_prefix_byte)[..],
         );
 
-        self.deposit.data.pubkey = keypair.pk.clone();
+        self.deposit.data.pubkey = PublicKeyBytes::from(keypair.pk.clone());
         self.deposit.data.withdrawal_credentials = withdrawal_credentials;
 
         self.deposit.data.signature =

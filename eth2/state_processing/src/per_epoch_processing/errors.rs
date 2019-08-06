@@ -17,6 +17,7 @@ pub enum EpochProcessingError {
     InclusionSlotsInconsistent(usize),
     BeaconStateError(BeaconStateError),
     InclusionError(InclusionError),
+    SszTypesError(ssz_types::Error),
 }
 
 impl From<InclusionError> for EpochProcessingError {
@@ -28,6 +29,12 @@ impl From<InclusionError> for EpochProcessingError {
 impl From<BeaconStateError> for EpochProcessingError {
     fn from(e: BeaconStateError) -> EpochProcessingError {
         EpochProcessingError::BeaconStateError(e)
+    }
+}
+
+impl From<ssz_types::Error> for EpochProcessingError {
+    fn from(e: ssz_types::Error) -> EpochProcessingError {
+        EpochProcessingError::SszTypesError(e)
     }
 }
 

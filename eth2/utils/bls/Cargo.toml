@@ -14,6 +14,7 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_hex = { path = "../serde_hex" }
 eth2_ssz = { path = "../ssz" }
+eth2_ssz_types = { path = "../ssz_types" }
 tree_hash = { path = "../tree_hash" }
 
 [features]

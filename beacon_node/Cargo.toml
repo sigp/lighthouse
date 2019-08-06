@@ -7,12 +7,10 @@ edition = "2018"
 [dependencies]
 eth2_config = { path = "../eth2/utils/eth2_config" }
 types = { path = "../eth2/types" }
-toml = "^0.5"
 store = { path = "./store" }
 client = { path = "client" }
 version = { path = "version" }
 clap = "2.32.0"
-serde = "1.0"
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
@@ -21,6 +19,6 @@ tokio = "0.1.15"
 tokio-timer = "0.2.10"
 futures = "0.1.25"
 exit-future = "0.1.3"
-state_processing = { path = "../eth2/state_processing" }
 env_logger = "0.6.1"
 dirs = "2.0.1"
+logging = { path = "../eth2/utils/logging" }

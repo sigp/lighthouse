@@ -2,6 +2,7 @@ extern crate slog;
 
 mod beacon_chain_types;
 mod config;
+
 pub mod error;
 pub mod notifier;
 
@@ -39,6 +40,8 @@ pub struct Client<T: BeaconChainTypes> {
     pub http_exit_signal: Option<Signal>,
     /// Signal to terminate the slot timer.
     pub slot_timer_exit_signal: Option<Signal>,
+    /// Signal to terminate the API
+    pub api_exit_signal: Option<Signal>,
     /// The clients logger.
     log: slog::Logger,
     /// Marker to pin the beacon chain generics.
@@ -64,9 +67,10 @@ where
         // Load a `BeaconChain` from the store, or create a new one if it does not exist.
         let beacon_chain = Arc::new(T::initialise_beacon_chain(
             store,
+            &client_config,
             eth2_config.spec.clone(),
             log.clone(),
-        ));
+        )?);
         // Registry all beacon chain metrics with the global registry.
         beacon_chain
             .metrics
@@ -87,7 +91,7 @@ where
             let slots_since_genesis = beacon_chain.slots_since_genesis().unwrap();
             info!(
                 log,
-                "Initializing state";
+                "BeaconState cache init";
                 "state_slot" => state_slot,
                 "wall_clock_slot" => wall_clock_slot,
                 "slots_since_genesis" => slots_since_genesis,
@@ -95,12 +99,6 @@ where
             );
         }
         do_state_catchup(&beacon_chain, &log);
-        info!(
-            log,
-            "State initialized";
-            "state_slot" => beacon_chain.head().beacon_state.slot,
-            "wall_clock_slot" => beacon_chain.read_slot_clock().unwrap(),
-        );
 
         // Start the network service, libp2p and syncing threads
         // TODO: Add beacon_chain reference to network parameters
@@ -143,6 +141,24 @@ where
             None
         };
 
+        // Start the `rest_api` service
+        let api_exit_signal = if client_config.rest_api.enabled {
+            match rest_api::start_server(
+                &client_config.rest_api,
+                executor,
+                beacon_chain.clone(),
+                &log,
+            ) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    error!(log, "API service failed to start."; "error" => format!("{:?}",e));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let (slot_timer_exit_signal, exit) = exit_future::signal();
         if let Ok(Some(duration_to_next_slot)) = beacon_chain.slot_clock.duration_to_next_slot() {
             // set up the validator work interval - start at next slot and proceed every slot
@@ -175,6 +191,7 @@ where
             http_exit_signal,
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
+            api_exit_signal,
             log,
             network,
             phantom: PhantomData,
@@ -190,29 +207,38 @@ impl<T: BeaconChainTypes> Drop for Client<T> {
 }
 
 fn do_state_catchup<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog::Logger) {
-    if let Some(genesis_height) = chain.slots_since_genesis() {
-        let result = chain.catchup_state();
+    // Only attempt to `catchup_state` if we can read the slot clock.
+    if let Some(current_slot) = chain.read_slot_clock() {
+        let state_catchup_result = chain.catchup_state();
+
+        let best_slot = chain.head().beacon_block.slot;
+        let latest_block_root = chain.head().beacon_block_root;
 
         let common = o!(
-            "best_slot" => chain.head().beacon_block.slot,
-            "latest_block_root" => format!("{}", chain.head().beacon_block_root),
-            "wall_clock_slot" => chain.read_slot_clock().unwrap(),
-            "state_slot" => chain.head().beacon_state.slot,
-            "slots_since_genesis" => genesis_height,
+            "skip_slots" => current_slot.saturating_sub(best_slot),
+            "best_block_root" => format!("{}", latest_block_root),
+            "best_block_slot" => best_slot,
+            "slot" => current_slot,
         );
 
-        match result {
-            Ok(_) => info!(
+        if let Err(e) = state_catchup_result {
+            error!(
                 log,
-                "NewSlot";
-                common
-            ),
-            Err(e) => error!(
-                log,
-                "StateCatchupFailed";
+                "State catchup failed";
                 "error" => format!("{:?}", e),
                 common
-            ),
-        };
-    }
+            )
+        } else {
+            info!(
+                log,
+                "Slot start";
+                common
+            )
+        }
+    } else {
+        error!(
+            log,
+            "Beacon chain running whilst slot clock is unavailable."
+        );
+    };
 }

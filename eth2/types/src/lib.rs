@@ -1,5 +1,8 @@
 //! Ethereum 2.0 types
 
+// Required for big type-level numbers
+#![recursion_limit = "128"]
+
 #[macro_use]
 pub mod test_utils;
 
@@ -13,6 +16,8 @@ pub mod beacon_block_body;
 pub mod beacon_block_header;
 pub mod beacon_state;
 pub mod chain_spec;
+pub mod checkpoint;
+pub mod compact_committee;
 pub mod crosslink;
 pub mod crosslink_committee;
 pub mod deposit;
@@ -25,6 +30,7 @@ pub mod indexed_attestation;
 pub mod pending_attestation;
 pub mod proposer_slashing;
 pub mod transfer;
+pub mod utils;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
@@ -46,6 +52,8 @@ pub use crate::beacon_block_body::BeaconBlockBody;
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_state::{Error as BeaconStateError, *};
 pub use crate::chain_spec::{ChainSpec, Domain};
+pub use crate::checkpoint::Checkpoint;
+pub use crate::compact_committee::CompactCommittee;
 pub use crate::crosslink::Crosslink;
 pub use crate::crosslink_committee::{CrosslinkCommittee, OwnedCrosslinkCommittee};
 pub use crate::deposit::Deposit;
@@ -71,8 +79,6 @@ pub type CrosslinkCommittees = Vec<(Committee, u64)>;
 pub type Hash256 = H256;
 pub type Address = H160;
 pub type EthBalance = U256;
-pub type Bitfield = boolean_bitfield::BooleanBitfield;
-pub type BitfieldError = boolean_bitfield::Error;
 
 /// Maps a (slot, shard_id) to attestation_indices.
 pub type AttesterMap = HashMap<(u64, u64), Vec<usize>>;
@@ -81,4 +87,4 @@ pub type AttesterMap = HashMap<(u64, u64), Vec<usize>>;
 pub type ProposerMap = HashMap<u64, usize>;
 
 pub use bls::{AggregatePublicKey, AggregateSignature, Keypair, PublicKey, SecretKey, Signature};
-pub use fixed_len_vec::{typenum, typenum::Unsigned, FixedLenVec};
+pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};

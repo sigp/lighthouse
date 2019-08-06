@@ -2,30 +2,23 @@ use types::{BeaconStateError as Error, *};
 
 /// Process slashings.
 ///
-/// Spec v0.6.3
+/// Spec v0.8.0
 pub fn process_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
-    current_total_balance: u64,
+    total_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let current_epoch = state.current_epoch();
+    let epoch = state.current_epoch();
+    let sum_slashings = state.get_all_slashings().iter().sum::<u64>();
 
-    let total_at_start = state.get_slashed_balance(current_epoch + 1)?;
-    let total_at_end = state.get_slashed_balance(current_epoch)?;
-    let total_penalities = total_at_end - total_at_start;
-
-    for (index, validator) in state.validator_registry.iter().enumerate() {
-        let should_penalize = current_epoch.as_usize() + T::LatestSlashedExitLength::to_usize() / 2
-            == validator.withdrawable_epoch.as_usize();
-
-        if validator.slashed && should_penalize {
-            let effective_balance = state.get_effective_balance(index, spec)?;
-
-            let penalty = std::cmp::max(
-                effective_balance * std::cmp::min(total_penalities * 3, current_total_balance)
-                    / current_total_balance,
-                effective_balance / spec.min_slashing_penalty_quotient,
-            );
+    for (index, validator) in state.validators.iter().enumerate() {
+        if validator.slashed
+            && epoch + T::EpochsPerSlashingsVector::to_u64() / 2 == validator.withdrawable_epoch
+        {
+            let increment = spec.effective_balance_increment;
+            let penalty_numerator = validator.effective_balance / increment
+                * std::cmp::min(sum_slashings * 3, total_balance);
+            let penalty = penalty_numerator / total_balance * increment;
 
             safe_sub_assign!(state.balances[index], penalty);
         }

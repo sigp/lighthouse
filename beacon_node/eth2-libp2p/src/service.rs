@@ -21,24 +21,25 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
+use types::EthSpec;
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
-type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
+type Libp2pBehaviour<E> = Behaviour<Substream<StreamMuxerBox>, E>;
 
 const NETWORK_KEY_FILENAME: &str = "key";
 
 /// The configuration and state of the libp2p components for the beacon node.
-pub struct Service {
+pub struct Service<E: EthSpec> {
     /// The libp2p Swarm handler.
     //TODO: Make this private
-    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour>,
+    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour<E>>,
     /// This node's PeerId.
     _local_peer_id: PeerId,
     /// The libp2p logger handle.
     pub log: slog::Logger,
 }
 
-impl Service {
+impl<E: EthSpec> Service<E> {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
         debug!(log, "Network-libp2p Service starting");
 
@@ -103,8 +104,8 @@ impl Service {
     }
 }
 
-impl Stream for Service {
-    type Item = Libp2pEvent;
+impl<E: EthSpec> Stream for Service<E> {
+    type Item = Libp2pEvent<E>;
     type Error = crate::error::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -178,7 +179,7 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
 }
 
 /// Events that can be obtained from polling the Libp2p Service.
-pub enum Libp2pEvent {
+pub enum Libp2pEvent<E: EthSpec> {
     /// An RPC response request has been received on the swarm.
     RPC(PeerId, RPCEvent),
     /// Initiated the connection to a new peer.
@@ -189,7 +190,7 @@ pub enum Libp2pEvent {
     PubsubMessage {
         source: PeerId,
         topics: Vec<TopicHash>,
-        message: Box<PubsubMessage>,
+        message: Box<PubsubMessage<E>>,
     },
 }
 

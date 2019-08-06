@@ -11,6 +11,7 @@ before_install:
   - sudo chown -R $USER /usr/local/include/google
 script:
   - cargo build --verbose --all --release
+  - cargo fmt --all -- --check
 rust:
   - beta
   - nightly

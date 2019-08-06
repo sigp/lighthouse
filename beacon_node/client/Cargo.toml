@@ -7,10 +7,9 @@ edition = "2018"
 [dependencies]
 beacon_chain = { path = "../beacon_chain" }
 network = { path = "../network" }
-store = { path = "../store" }
 http_server = { path = "../http_server" }
-eth2-libp2p = { path = "../eth2-libp2p" }
 rpc = { path = "../rpc" }
+rest_api = { path = "../rest_api" }
 prometheus = "^0.6"
 types = { path = "../../eth2/types" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
@@ -19,11 +18,10 @@ slot_clock = { path = "../../eth2/utils/slot_clock" }
 serde = "1.0.93"
 serde_derive = "1.0"
 error-chain = "0.12.0"
-eth2_ssz = { path = "../../eth2/utils/ssz" }
+serde_yaml = "0.8"
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
 slog-async = "^2.3.0"
 slog-json = "^2.3"
-slog-term = "^2.4.0"
 tokio = "0.1.15"
 clap = "2.32.0"
 dirs = "1.0.3"

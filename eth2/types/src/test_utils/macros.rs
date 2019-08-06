@@ -1,17 +1,18 @@
 #[cfg(test)]
 #[macro_export]
 macro_rules! ssz_tests {
-    ($type: ident) => {
+    ($type: ty) => {
         #[test]
         pub fn test_ssz_round_trip() {
             use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
             use ssz::{ssz_encode, Decode};
 
             let mut rng = XorShiftRng::from_seed([42; 16]);
-            let original = $type::random_for_test(&mut rng);
+            let original = <$type>::random_for_test(&mut rng);
 
             let bytes = ssz_encode(&original);
-            let decoded = $type::from_ssz_bytes(&bytes).unwrap();
+            println!("bytes length: {}", bytes.len());
+            let decoded = <$type>::from_ssz_bytes(&bytes).unwrap();
 
             assert_eq!(original, decoded);
         }
@@ -22,7 +23,7 @@ macro_rules! ssz_tests {
             use tree_hash::TreeHash;
 
             let mut rng = XorShiftRng::from_seed([42; 16]);
-            let original = $type::random_for_test(&mut rng);
+            let original = <$type>::random_for_test(&mut rng);
 
             let result = original.tree_hash_root();
 
@@ -36,8 +37,10 @@ macro_rules! ssz_tests {
 #[cfg(test)]
 #[macro_export]
 macro_rules! cached_tree_hash_tests {
-    ($type: ident) => {
+    ($type: ty) => {
         #[test]
+        #[ignore]
+        // FIXME: re-enable https://github.com/sigp/lighthouse/issues/440
         pub fn test_cached_tree_hash() {
             use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
             use tree_hash::TreeHash;
@@ -45,7 +48,7 @@ macro_rules! cached_tree_hash_tests {
             let mut rng = XorShiftRng::from_seed([42; 16]);
 
             // Test the original hash
-            let original = $type::random_for_test(&mut rng);
+            let original = <$type>::random_for_test(&mut rng);
             let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
 
             assert_eq!(
@@ -55,7 +58,7 @@ macro_rules! cached_tree_hash_tests {
             );
 
             // Test the updated hash
-            let modified = $type::random_for_test(&mut rng);
+            let modified = <$type>::random_for_test(&mut rng);
             cache.update(&modified).unwrap();
             assert_eq!(
                 cache.tree_hash_root().unwrap().to_vec(),

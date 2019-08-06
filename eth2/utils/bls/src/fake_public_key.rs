@@ -1,13 +1,11 @@
 use super::{SecretKey, BLS_PUBLIC_KEY_BYTE_SIZE};
-use cached_tree_hash::cached_tree_hash_ssz_encoding_as_vector;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
-use ssz::{ssz_encode, Decode, DecodeError};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use std::default;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use tree_hash::tree_hash_ssz_encoding_as_vector;
 
 /// A single BLS signature.
 ///
@@ -84,6 +82,10 @@ impl default::Default for FakePublicKey {
 
 impl_ssz!(FakePublicKey, BLS_PUBLIC_KEY_BYTE_SIZE, "FakePublicKey");
 
+impl_tree_hash!(FakePublicKey, U48);
+
+impl_cached_tree_hash!(FakePublicKey, U48);
+
 impl Serialize for FakePublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -104,9 +106,6 @@ impl<'de> Deserialize<'de> for FakePublicKey {
         Ok(pubkey)
     }
 }
-
-tree_hash_ssz_encoding_as_vector!(FakePublicKey);
-cached_tree_hash_ssz_encoding_as_vector!(FakePublicKey, 48);
 
 impl PartialEq for FakePublicKey {
     fn eq(&self, other: &FakePublicKey) -> bool {

@@ -1,7 +1,5 @@
 use super::*;
-use crate::merkle_root;
 use ethereum_types::H256;
-use hashing::hash;
 use int_to_bytes::int_to_bytes32;
 
 macro_rules! impl_for_bitsize {
@@ -67,7 +65,7 @@ macro_rules! impl_for_u8_array {
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
-                merkle_root(&self[..])
+                merkle_root(&self[..], 0)
             }
         }
     };
@@ -90,10 +88,12 @@ impl TreeHash for H256 {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        merkle_root(&self.as_bytes().to_vec())
+        merkle_root(&self.as_bytes().to_vec(), 0)
     }
 }
 
+// TODO: this implementation always panics, it only exists to allow us to compile whilst
+// refactoring tree hash. Should be removed.
 macro_rules! impl_for_list {
     ($type: ty) => {
         impl<T> TreeHash for $type
@@ -101,23 +101,19 @@ macro_rules! impl_for_list {
             T: TreeHash,
         {
             fn tree_hash_type() -> TreeHashType {
-                TreeHashType::List
+                unimplemented!("TreeHash is not implemented for Vec or slice")
             }
 
             fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                unreachable!("List should never be packed.")
+                unimplemented!("TreeHash is not implemented for Vec or slice")
             }
 
             fn tree_hash_packing_factor() -> usize {
-                unreachable!("List should never be packed.")
+                unimplemented!("TreeHash is not implemented for Vec or slice")
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
-                let mut root_and_len = Vec::with_capacity(HASHSIZE * 2);
-                root_and_len.append(&mut vec_tree_hash_root(self));
-                root_and_len.append(&mut int_to_bytes32(self.len() as u64));
-
-                hash(&root_and_len)
+                unimplemented!("TreeHash is not implemented for Vec or slice")
             }
         }
     };
@@ -125,35 +121,6 @@ macro_rules! impl_for_list {
 
 impl_for_list!(Vec<T>);
 impl_for_list!(&[T]);
-
-pub fn vec_tree_hash_root<T>(vec: &[T]) -> Vec<u8>
-where
-    T: TreeHash,
-{
-    let leaves = match T::tree_hash_type() {
-        TreeHashType::Basic => {
-            let mut leaves =
-                Vec::with_capacity((HASHSIZE / T::tree_hash_packing_factor()) * vec.len());
-
-            for item in vec {
-                leaves.append(&mut item.tree_hash_packed_encoding());
-            }
-
-            leaves
-        }
-        TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
-            let mut leaves = Vec::with_capacity(vec.len() * HASHSIZE);
-
-            for item in vec {
-                leaves.append(&mut item.tree_hash_root())
-            }
-
-            leaves
-        }
-    };
-
-    merkle_root(&leaves)
-}
 
 #[cfg(test)]
 mod test {

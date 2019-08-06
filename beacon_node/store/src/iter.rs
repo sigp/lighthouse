@@ -3,6 +3,24 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use types::{BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot};
 
+/// Implemented for types that have ancestors (e.g., blocks, states) that may be iterated over.
+pub trait AncestorIter<U: Store, I: Iterator> {
+    /// Returns an iterator over the roots of the ancestors of `self`.
+    fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<I>;
+}
+
+impl<'a, U: Store, E: EthSpec> AncestorIter<U, BestBlockRootsIterator<'a, E, U>>
+    for BeaconBlock<E>
+{
+    /// Iterates across all the prior block roots of `self`, starting at the most recent and ending
+    /// at genesis.
+    fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<BestBlockRootsIterator<'a, E, U>> {
+        let state = store.get::<BeaconState<E>>(&self.state_root).ok()??;
+
+        Some(BestBlockRootsIterator::owned(store, state, self.slot))
+    }
+}
+
 #[derive(Clone)]
 pub struct StateRootsIterator<'a, T: EthSpec, U> {
     store: Arc<U>,
@@ -82,7 +100,7 @@ impl<'a, T: EthSpec, U: Store> BlockIterator<'a, T, U> {
 }
 
 impl<'a, T: EthSpec, U: Store> Iterator for BlockIterator<'a, T, U> {
-    type Item = BeaconBlock;
+    type Item = BeaconBlock<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let (root, _slot) = self.roots.next()?;
@@ -93,8 +111,8 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockIterator<'a, T, U> {
 /// Iterates backwards through block roots. If any specified slot is unable to be retrieved, the
 /// iterator returns `None` indefinitely.
 ///
-/// Uses the `latest_block_roots` field of `BeaconState` to as the source of block roots and will
-/// perform a lookup on the `Store` for a prior `BeaconState` if `latest_block_roots` has been
+/// Uses the `block_roots` field of `BeaconState` to as the source of block roots and will
+/// perform a lookup on the `Store` for a prior `BeaconState` if `block_roots` has been
 /// exhausted.
 ///
 /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
@@ -175,8 +193,8 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
 ///
 /// This is distinct from `BestBlockRootsIterator`.
 ///
-/// Uses the `latest_block_roots` field of `BeaconState` to as the source of block roots and will
-/// perform a lookup on the `Store` for a prior `BeaconState` if `latest_block_roots` has been
+/// Uses the `block_roots` field of `BeaconState` to as the source of block roots and will
+/// perform a lookup on the `Store` for a prior `BeaconState` if `block_roots` has been
 /// exhausted.
 ///
 /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
@@ -287,17 +305,17 @@ mod test {
         state_a.slot = Slot::from(slots_per_historical_root);
         state_b.slot = Slot::from(slots_per_historical_root * 2);
 
-        let mut hashes = (0..).into_iter().map(|i| Hash256::from(i));
+        let mut hashes = (0..).into_iter().map(|i| Hash256::from_low_u64_be(i));
 
-        for root in &mut state_a.latest_block_roots[..] {
+        for root in &mut state_a.block_roots[..] {
             *root = hashes.next().unwrap()
         }
-        for root in &mut state_b.latest_block_roots[..] {
+        for root in &mut state_b.block_roots[..] {
             *root = hashes.next().unwrap()
         }
 
         let state_a_root = hashes.next().unwrap();
-        state_b.latest_state_roots[0] = state_a_root;
+        state_b.state_roots[0] = state_a_root;
         store.put(&state_a_root, &state_a).unwrap();
 
         let iter = BlockRootsIterator::new(store.clone(), &state_b, state_b.slot - 1);
@@ -315,7 +333,7 @@ mod test {
         assert_eq!(collected.len(), expected_len);
 
         for i in 0..expected_len {
-            assert_eq!(collected[i].0, Hash256::from(i as u64));
+            assert_eq!(collected[i].0, Hash256::from_low_u64_be(i as u64));
         }
     }
 
@@ -330,17 +348,17 @@ mod test {
         state_a.slot = Slot::from(slots_per_historical_root);
         state_b.slot = Slot::from(slots_per_historical_root * 2);
 
-        let mut hashes = (0..).into_iter().map(|i| Hash256::from(i));
+        let mut hashes = (0..).into_iter().map(|i| Hash256::from_low_u64_be(i));
 
-        for root in &mut state_a.latest_block_roots[..] {
+        for root in &mut state_a.block_roots[..] {
             *root = hashes.next().unwrap()
         }
-        for root in &mut state_b.latest_block_roots[..] {
+        for root in &mut state_b.block_roots[..] {
             *root = hashes.next().unwrap()
         }
 
         let state_a_root = hashes.next().unwrap();
-        state_b.latest_state_roots[0] = state_a_root;
+        state_b.state_roots[0] = state_a_root;
         store.put(&state_a_root, &state_a).unwrap();
 
         let iter = BestBlockRootsIterator::new(store.clone(), &state_b, state_b.slot);
@@ -358,7 +376,7 @@ mod test {
         assert_eq!(collected.len(), expected_len);
 
         for i in 0..expected_len {
-            assert_eq!(collected[i].0, Hash256::from(i as u64));
+            assert_eq!(collected[i].0, Hash256::from_low_u64_be(i as u64));
         }
     }
 
@@ -373,7 +391,7 @@ mod test {
         state_a.slot = Slot::from(slots_per_historical_root);
         state_b.slot = Slot::from(slots_per_historical_root * 2);
 
-        let mut hashes = (0..).into_iter().map(|i| Hash256::from(i));
+        let mut hashes = (0..).into_iter().map(|i| Hash256::from_low_u64_be(i));
 
         for slot in 0..slots_per_historical_root {
             state_a
@@ -386,8 +404,8 @@ mod test {
                 .expect(&format!("should set state_b slot {}", slot));
         }
 
-        let state_a_root = Hash256::from(slots_per_historical_root as u64);
-        let state_b_root = Hash256::from(slots_per_historical_root as u64 * 2);
+        let state_a_root = Hash256::from_low_u64_be(slots_per_historical_root as u64);
+        let state_b_root = Hash256::from_low_u64_be(slots_per_historical_root as u64 * 2);
 
         store.put(&state_a_root, &state_a).unwrap();
         store.put(&state_b_root, &state_b).unwrap();
@@ -411,7 +429,12 @@ mod test {
 
             assert_eq!(slot, i as u64, "slot mismatch at {}: {} vs {}", i, slot, i);
 
-            assert_eq!(hash, Hash256::from(i as u64), "hash mismatch at {}", i);
+            assert_eq!(
+                hash,
+                Hash256::from_low_u64_be(i as u64),
+                "hash mismatch at {}",
+                i
+            );
         }
     }
 }

@@ -19,7 +19,7 @@ impl AttestationId {
         spec: &ChainSpec,
     ) -> Self {
         let mut bytes = ssz_encode(attestation);
-        let epoch = attestation.target_epoch;
+        let epoch = attestation.target.epoch;
         bytes.extend_from_slice(&AttestationId::compute_domain_bytes(epoch, state, spec));
         AttestationId { v: bytes }
     }

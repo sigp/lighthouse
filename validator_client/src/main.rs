@@ -11,7 +11,7 @@ use crate::service::Service as ValidatorService;
 use clap::{App, Arg};
 use eth2_config::{read_from_file, write_to_file, Eth2Config};
 use protos::services_grpc::ValidatorServiceClient;
-use slog::{crit, error, info, o, Drain};
+use slog::{crit, error, info, o, Drain, Level};
 use std::fs;
 use std::path::PathBuf;
 use types::{Keypair, MainnetEthSpec, MinimalEthSpec};
@@ -24,9 +24,9 @@ pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 fn main() {
     // Logging
     let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+    let decorator = logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
-    let mut log = slog::Logger::root(drain, o!());
 
     // CLI
     let matches = App::new("Lighthouse Validator Client")
@@ -73,7 +73,28 @@ fn main() {
                 .possible_values(&["mainnet", "minimal"])
                 .default_value("minimal"),
         )
+        .arg(
+            Arg::with_name("debug-level")
+                .long("debug-level")
+                .value_name("LEVEL")
+                .short("s")
+                .help("The title of the spec constants for chain config.")
+                .takes_value(true)
+                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .default_value("info"),
+        )
         .get_matches();
+
+    let drain = match matches.value_of("debug-level") {
+        Some("info") => drain.filter_level(Level::Info),
+        Some("debug") => drain.filter_level(Level::Debug),
+        Some("trace") => drain.filter_level(Level::Trace),
+        Some("warn") => drain.filter_level(Level::Warning),
+        Some("error") => drain.filter_level(Level::Error),
+        Some("crit") => drain.filter_level(Level::Critical),
+        _ => unreachable!("guarded by clap"),
+    };
+    let mut log = slog::Logger::root(drain.fuse(), o!());
 
     let data_dir = match matches
         .value_of("datadir")
@@ -90,7 +111,7 @@ fn main() {
                 }
             };
             default_dir.push(DEFAULT_DATA_DIR);
-            PathBuf::from(default_dir)
+            default_dir
         }
     };
 
@@ -183,12 +204,12 @@ fn main() {
     );
 
     let result = match eth2_config.spec_constants.as_str() {
-        "mainnet" => ValidatorService::<ValidatorServiceClient, Keypair>::start::<MainnetEthSpec>(
+        "mainnet" => ValidatorService::<ValidatorServiceClient, Keypair, MainnetEthSpec>::start(
             client_config,
             eth2_config,
             log.clone(),
         ),
-        "minimal" => ValidatorService::<ValidatorServiceClient, Keypair>::start::<MinimalEthSpec>(
+        "minimal" => ValidatorService::<ValidatorServiceClient, Keypair, MinimalEthSpec>::start(
             client_config,
             eth2_config,
             log.clone(),
