@@ -146,4 +146,13 @@ mod tests {
 
         assert_eq!(original, decoded);
     }
+
+    #[test]
+    pub fn test_byte_size() {
+        let sk = SecretKey::random();
+        let original = PublicKey::from_secret_key(&sk);
+
+        let bytes = ssz_encode(&original);
+        assert_eq!(bytes.len(), BLS_PUBLIC_KEY_BYTE_SIZE);
+    }
 }

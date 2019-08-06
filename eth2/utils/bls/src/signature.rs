@@ -153,6 +153,15 @@ mod tests {
     }
 
     #[test]
+    pub fn test_byte_size() {
+        let keypair = Keypair::random();
+
+        let signature = Signature::new(&[42, 42], 0, &keypair.sk);
+        let bytes = ssz_encode(&signature);
+        assert_eq!(bytes.len(), BLS_SIG_BYTE_SIZE);
+    }
+
+    #[test]
     pub fn test_empty_signature() {
         let sig = Signature::empty_signature();
 

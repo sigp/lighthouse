@@ -2,6 +2,7 @@ use crate::common::{initiate_validator_exit, slash_validator};
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use rayon::prelude::*;
 use std::collections::HashSet;
+use std::convert::TryInto;
 use std::iter::FromIterator;
 use tree_hash::{SignedRoot, TreeHash};
 use types::*;
@@ -396,9 +397,13 @@ pub fn process_deposit<T: EthSpec>(
     // depositing validator already exists in the registry.
     state.update_pubkey_cache()?;
 
+    let pubkey: PublicKey = match (&deposit.data.pubkey).try_into() {
+        Err(_) => return Ok(()), //bad public key => return early
+        Ok(k) => k,
+    };
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
-    let validator_index = get_existing_validator_index(state, deposit)
+    let validator_index = get_existing_validator_index(state, &pubkey)
         .map_err(|e| e.into_with_index(deposit_index))?;
 
     let amount = deposit.data.amount;
@@ -409,13 +414,13 @@ pub fn process_deposit<T: EthSpec>(
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
-        if verify_deposit_signature(state, deposit, spec).is_err() {
+        if verify_deposit_signature(state, deposit, spec, &pubkey).is_err() {
             return Ok(());
         }
 
         // Create a new validator.
         let validator = Validator {
-            pubkey: deposit.data.pubkey.clone(),
+            pubkey,
             withdrawal_credentials: deposit.data.withdrawal_credentials,
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,
