@@ -8,7 +8,7 @@ use lmd_ghost::ThreadSafeReducedTree;
 use rand::Rng;
 use store::{MemoryStore, Store};
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use types::{Deposit, EthSpec, Hash256, MinimalEthSpec, Slot, RelativeEpoch};
+use types::{Deposit, EthSpec, Hash256, MinimalEthSpec, RelativeEpoch, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 24;
@@ -270,20 +270,23 @@ fn free_attestations_added_to_fork_choice_some_none() {
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
     let slots: Vec<Slot> = validators
         .iter()
-        .map(|&v|
-            state.get_attestation_duties(v, RelativeEpoch::Current)
+        .map(|&v| {
+            state
+                .get_attestation_duties(v, RelativeEpoch::Current)
                 .expect("should get attester duties")
                 .unwrap()
                 .slot
-        ).collect();
+        })
+        .collect();
     let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
 
     for (validator, slot) in validator_slots.clone() {
         let latest_message = fork_choice.latest_message(*validator);
 
-        if slot <= num_blocks_produced && slot != 0{
+        if slot <= num_blocks_produced && slot != 0 {
             assert_eq!(
-                latest_message.unwrap().1, slot,
+                latest_message.unwrap().1,
+                slot,
                 "Latest message slot should be equal to attester duty."
             )
         } else {
@@ -313,28 +316,33 @@ fn free_attestations_added_to_fork_choice_all_updated() {
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
     let slots: Vec<Slot> = validators
         .iter()
-        .map(|&v|
-            state.get_attestation_duties(v, RelativeEpoch::Current)
+        .map(|&v| {
+            state
+                .get_attestation_duties(v, RelativeEpoch::Current)
                 .expect("should get attester duties")
                 .unwrap()
                 .slot
-        ).collect();
+        })
+        .collect();
     let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
 
     for (validator, slot) in validator_slots {
         let latest_message = fork_choice.latest_message(*validator);
 
         assert_eq!(
-            latest_message.unwrap().1, slot,
+            latest_message.unwrap().1,
+            slot,
             "Latest message slot should be equal to attester duty."
         );
 
         if slot != num_blocks_produced {
-            let block_root = state.get_block_root(slot)
+            let block_root = state
+                .get_block_root(slot)
                 .expect("Should get block root at slot");
 
             assert_eq!(
-                latest_message.unwrap().0, *block_root,
+                latest_message.unwrap().0,
+                *block_root,
                 "Latest message block root should be equal to block at slot."
             );
         }
