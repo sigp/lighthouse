@@ -520,8 +520,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(state) = self.get_attestation_state(&attestation) {
             if self.fork_choice.should_process_attestation(&state, &attestation)? {
-                let indexed_attestation = common::convert_to_indexed(&state, &attestation)?;
-                per_block_processing::verify_indexed_attestation(&state, &indexed_attestation, &self.spec)?;
+                let indexed_attestation = common::get_indexed_attestation(&state, &attestation)?;
+                per_block_processing::is_valid_indexed_attestation(&state, &indexed_attestation, &self.spec)?;
                 self.fork_choice.process_attestation(&state, &attestation)?;
             }
         }
@@ -540,14 +540,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Retrieves the `BeaconState` used to create the attestation.
-    fn get_attestation_state(&self, attestation: &Attestation) -> Option<BeaconState<T::EthSpec>> {
+    fn get_attestation_state(&self, attestation: &Attestation<T::EthSpec>) -> Option<BeaconState<T::EthSpec>> {
         // Current state is used if the attestation targets a historic block and a slot within an
         // equal or adjacent epoch.
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let min_slot = (self.state.read().slot.epoch(slots_per_epoch) - 1).start_slot(slots_per_epoch);
         let blocks = BestBlockRootsIterator::owned(self.store.clone(), self.state.read().clone(), self.state.read().slot.clone());
         for (root, slot) in blocks {
-            if root == attestation.data.target_root {
+            if root == attestation.data.target.root {
                 return Some(self.state.read().clone());
             }
 
@@ -557,7 +557,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // A different state is retrieved from the database.
-        match self.store.get::<BeaconBlock>(&attestation.data.target_root) {
+        match self.store.get::<BeaconBlock<T::EthSpec>>(&attestation.data.target.root) {
             Ok(Some(block)) => match self.store.get::<BeaconState<T::EthSpec>>(&block.state_root) {
                 Ok(state) => state,
                 _ => None

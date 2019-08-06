@@ -4,7 +4,6 @@ use state_processing::common::get_attesting_indices;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
 use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, Slot};
-use state_processing::common;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -172,14 +171,11 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     }
 
     /// Determines whether or not the given attestation contains a latest message.
-    pub fn should_process_attestation(&self, state: &BeaconState<T::EthSpec>, attestation: &Attestation) -> Result<bool> {
-        let validator_indices = common::get_attesting_indices_unsorted(
-            state,
-            &attestation.data,
-            &attestation.aggregation_bitfield,
-        )?;
+    pub fn should_process_attestation(&self, state: &BeaconState<T::EthSpec>, attestation: &Attestation<T::EthSpec>) -> Result<bool> {
+        let validator_indices =
+            get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
-        let block_slot = state.get_attestation_slot(&attestation.data)?;
+        let block_slot = state.get_attestation_data_slot(&attestation.data)?;
 
         Ok(validator_indices
             .iter()
