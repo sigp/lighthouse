@@ -6,7 +6,6 @@ edition = "2018"
 
 [dependencies]
 bls = { path = "../utils/bls" }
-cached_tree_hash = { path = "../utils/cached_tree_hash" }
 compare_fields = { path = "../utils/compare_fields" }
 compare_fields_derive = { path = "../utils/compare_fields_derive" }
 dirs = "1.0"
@@ -27,7 +26,7 @@ eth2_ssz_types = { path = "../utils/ssz_types" }
 swap_or_not_shuffle = { path = "../utils/swap_or_not_shuffle" }
 test_random_derive = { path = "../utils/test_random_derive" }
 tree_hash = "0.1"
-tree_hash_derive = "0.1"
+tree_hash_derive = "0.2"
 
 [dev-dependencies]
 env_logger = "0.6.0"

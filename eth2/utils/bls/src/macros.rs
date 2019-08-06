@@ -60,27 +60,3 @@ macro_rules! impl_tree_hash {
         }
     };
 }
-
-macro_rules! impl_cached_tree_hash {
-    ($type: ty, $byte_size: ident) => {
-        impl cached_tree_hash::CachedTreeHash for $type {
-            fn new_tree_hash_cache(
-                &self,
-                _depth: usize,
-            ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-                unimplemented!("CachedTreeHash is not implemented for BLS types")
-            }
-
-            fn tree_hash_cache_schema(&self, _depth: usize) -> cached_tree_hash::BTreeSchema {
-                unimplemented!("CachedTreeHash is not implemented for BLS types")
-            }
-
-            fn update_tree_hash_cache(
-                &self,
-                _cache: &mut cached_tree_hash::TreeHashCache,
-            ) -> Result<(), cached_tree_hash::Error> {
-                unimplemented!("CachedTreeHash is not implemented for BLS types")
-            }
-        }
-    };
-}

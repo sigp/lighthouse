@@ -6,7 +6,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::{SignedRoot, TreeHash};
-use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
+use tree_hash_derive::{SignedRoot, TreeHash};
 
 /// The data supplied by the user to the deposit contract.
 ///
@@ -21,7 +21,6 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     Decode,
     SignedRoot,
     TreeHash,
-    CachedTreeHash,
     TestRandom,
 )]
 pub struct DepositData {
@@ -55,5 +54,5 @@ mod tests {
     use super::*;
 
     ssz_tests!(DepositData);
-    cached_tree_hash_tests!(DepositData);
+
 }

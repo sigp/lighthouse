@@ -4,21 +4,10 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use test_random_derive::TestRandom;
-use tree_hash_derive::{CachedTreeHash, TreeHash};
+use tree_hash_derive::TreeHash;
 
 /// Spec v0.8.0
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    TreeHash,
-    CachedTreeHash,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    TestRandom,
-)]
+#[derive(Clone, Debug, PartialEq, TreeHash, Encode, Decode, Serialize, Deserialize, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct CompactCommittee<T: EthSpec> {
     pub pubkeys: VariableList<PublicKey, T::MaxValidatorsPerCommittee>,

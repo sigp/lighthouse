@@ -13,7 +13,7 @@ harness = false
 [dev-dependencies]
 criterion = "0.2"
 rand = "0.7"
-tree_hash_derive = "0.1"
+tree_hash_derive = "0.2"
 types = { path = "../../types" }
 
 [dependencies]
