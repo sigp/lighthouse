@@ -156,6 +156,15 @@ mod tests {
     }
 
     #[test]
+    pub fn test_byte_size() {
+        let keypair = Keypair::random();
+
+        let signature = Signature::new(&[42, 42], 0, &keypair.sk);
+        let bytes = ssz_encode(&signature);
+        assert_eq!(bytes.len(), BLS_SIG_BYTE_SIZE);
+    }
+
+    #[test]
     // TODO: once `CachedTreeHash` is fixed, this test should _not_ panic.
     #[should_panic]
     pub fn test_cached_tree_hash() {

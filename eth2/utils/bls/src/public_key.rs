@@ -151,6 +151,15 @@ mod tests {
     }
 
     #[test]
+    pub fn test_byte_size() {
+        let sk = SecretKey::random();
+        let original = PublicKey::from_secret_key(&sk);
+
+        let bytes = ssz_encode(&original);
+        assert_eq!(bytes.len(), BLS_PUBLIC_KEY_BYTE_SIZE);
+    }
+
+    #[test]
     // TODO: once `CachedTreeHash` is fixed, this test should _not_ panic.
     #[should_panic]
     pub fn test_cached_tree_hash() {
