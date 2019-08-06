@@ -134,13 +134,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Caching (not in the spec)
-    #[serde(default)]
+    #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     pub committee_caches: [CommitteeCache; CACHED_EPOCHS],
-    #[serde(default)]
+    #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]

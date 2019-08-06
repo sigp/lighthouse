@@ -1,4 +1,5 @@
-use crate::test_utils::{graffiti_from_hex_str, TestRandom};
+use crate::test_utils::TestRandom;
+use crate::utils::graffiti_from_hex_str;
 use crate::*;
 
 use serde_derive::{Deserialize, Serialize};

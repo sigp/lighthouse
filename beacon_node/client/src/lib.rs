@@ -67,9 +67,10 @@ where
         // Load a `BeaconChain` from the store, or create a new one if it does not exist.
         let beacon_chain = Arc::new(T::initialise_beacon_chain(
             store,
+            &client_config,
             eth2_config.spec.clone(),
             log.clone(),
-        ));
+        )?);
         // Registry all beacon chain metrics with the global registry.
         beacon_chain
             .metrics
@@ -90,7 +91,7 @@ where
             let slots_since_genesis = beacon_chain.slots_since_genesis().unwrap();
             info!(
                 log,
-                "Initializing state";
+                "BeaconState cache init";
                 "state_slot" => state_slot,
                 "wall_clock_slot" => wall_clock_slot,
                 "slots_since_genesis" => slots_since_genesis,
@@ -98,12 +99,6 @@ where
             );
         }
         do_state_catchup(&beacon_chain, &log);
-        info!(
-            log,
-            "State initialized";
-            "state_slot" => beacon_chain.head().beacon_state.slot,
-            "wall_clock_slot" => beacon_chain.read_slot_clock().unwrap(),
-        );
 
         // Start the network service, libp2p and syncing threads
         // TODO: Add beacon_chain reference to network parameters

@@ -11,6 +11,7 @@ compare_fields = { path = "../utils/compare_fields" }
 compare_fields_derive = { path = "../utils/compare_fields_derive" }
 dirs = "1.0"
 derivative = "1.0"
+eth2_interop_keypairs = { path = "../utils/eth2_interop_keypairs" }
 ethereum-types = "0.5"
 hashing = { path = "../utils/hashing" }
 hex = "0.3"
