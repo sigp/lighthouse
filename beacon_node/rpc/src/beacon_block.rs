@@ -1,5 +1,5 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-use eth2_libp2p::BEACON_PUBSUB_TOPIC;
+use eth2_libp2p::BEACON_BLOCK_TOPIC;
 use eth2_libp2p::{PubsubMessage, Topic};
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
@@ -11,7 +11,7 @@ use protos::services::{
 use protos::services_grpc::BeaconBlockService;
 use slog::Logger;
 use slog::{error, info, trace, warn};
-use ssz::{ssz_encode, Decode};
+use ssz::{ssz_encode, Decode, Encode};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{BeaconBlock, Signature, Slot};
@@ -19,7 +19,7 @@ use types::{BeaconBlock, Signature, Slot};
 #[derive(Clone)]
 pub struct BeaconBlockServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    pub network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
     pub log: Logger,
 }
 
@@ -106,14 +106,14 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                             );
 
                             // get the network topic to send on
-                            let topic = Topic::new(BEACON_PUBSUB_TOPIC.into());
-                            let message = PubsubMessage::Block(block);
+                            let topic = Topic::new(BEACON_BLOCK_TOPIC.into());
+                            let message = PubsubMessage::Block(block.as_ssz_bytes());
 
                             // Publish the block to the p2p network via gossipsub.
                             self.network_chan
                                 .try_send(NetworkMessage::Publish {
                                     topics: vec![topic],
-                                    message: Box::new(message),
+                                    message: message,
                                 })
                                 .unwrap_or_else(|e| {
                                     error!(

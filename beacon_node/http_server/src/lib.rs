@@ -76,7 +76,7 @@ pub fn create_iron_http_server<T: BeaconChainTypes + 'static>(
 pub fn start_service<T: BeaconChainTypes + 'static>(
     config: &HttpServerConfig,
     executor: &TaskExecutor,
-    _network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    _network_chan: mpsc::UnboundedSender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
     db_path: PathBuf,
     metrics_registry: Registry,

@@ -11,7 +11,7 @@ mod service;
 
 pub use behaviour::PubsubMessage;
 pub use config::{
-    Config as NetworkConfig, BEACON_ATTESTATION_TOPIC, BEACON_PUBSUB_TOPIC, SHARD_TOPIC_PREFIX,
+    Config as NetworkConfig, BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC, SHARD_TOPIC_PREFIX,
 };
 pub use libp2p::gossipsub::{Topic, TopicHash};
 pub use libp2p::multiaddr;

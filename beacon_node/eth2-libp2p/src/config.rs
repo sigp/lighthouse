@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 /// The beacon node topic string to subscribe to.
-pub const BEACON_PUBSUB_TOPIC: &str = "beacon_block";
+pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
 pub const BEACON_ATTESTATION_TOPIC: &str = "beacon_attestation";
 pub const SHARD_TOPIC_PREFIX: &str = "shard";
 

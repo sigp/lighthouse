@@ -2,6 +2,7 @@ use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
+use crate::{BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC};
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
@@ -13,11 +14,10 @@ use libp2p::{
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
-use slog::{debug, o, trace, warn};
-use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use slog::{debug, o, trace};
+use ssz::{ssz_encode, Encode};
 use std::num::NonZeroU32;
 use std::time::Duration;
-use types::{Attestation, BeaconBlock};
 
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
@@ -87,23 +87,12 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
             GossipsubEvent::Message(gs_msg) => {
                 trace!(self.log, "Received GossipEvent"; "msg" => format!("{:?}", gs_msg));
 
-                let pubsub_message = match PubsubMessage::from_ssz_bytes(&gs_msg.data) {
-                    //TODO: Punish peer on error
-                    Err(e) => {
-                        warn!(
-                            self.log,
-                            "Received undecodable message from Peer {:?} error", gs_msg.source;
-                            "error" => format!("{:?}", e)
-                        );
-                        return;
-                    }
-                    Ok(msg) => msg,
-                };
+                let msg = PubsubMessage::from_topics(&gs_msg.topics, gs_msg.data);
 
                 self.events.push(BehaviourEvent::GossipMessage {
                     source: gs_msg.source,
                     topics: gs_msg.topics,
-                    message: Box::new(pubsub_message),
+                    message: msg,
                 });
             }
             GossipsubEvent::Subscribed { .. } => {}
@@ -225,7 +214,7 @@ pub enum BehaviourEvent {
     GossipMessage {
         source: PeerId,
         topics: Vec<TopicHash>,
-        message: Box<PubsubMessage>,
+        message: PubsubMessage,
     },
 }
 
@@ -233,41 +222,50 @@ pub enum BehaviourEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage {
     /// Gossipsub message providing notification of a new block.
-    Block(BeaconBlock),
+    Block(Vec<u8>),
     /// Gossipsub message providing notification of a new attestation.
-    Attestation(Attestation),
+    Attestation(Vec<u8>),
+    /// Gossipsub message from an unknown topic.
+    Unknown(Vec<u8>),
 }
 
-//TODO: Correctly encode/decode enums. Prefixing with integer for now.
+impl PubsubMessage {
+    /* Note: This is assuming we are not hashing topics. If we choose to hash topics, these will
+     * need to be modified.
+     *
+     * Also note that a message can be associated with many topics. As soon as one of the topics is
+     * known we match. If none of the topics are known we return an unknown state.
+     */
+    fn from_topics(topics: &Vec<TopicHash>, data: Vec<u8>) -> Self {
+        for topic in topics {
+            match topic.as_str() {
+                BEACON_BLOCK_TOPIC => return PubsubMessage::Block(data),
+                BEACON_ATTESTATION_TOPIC => return PubsubMessage::Attestation(data),
+                _ => {}
+            }
+        }
+        PubsubMessage::Unknown(data)
+    }
+}
+
 impl Encode for PubsubMessage {
     fn is_ssz_fixed_len() -> bool {
         false
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        let offset = <u32 as Encode>::ssz_fixed_len() + <Vec<u8> as Encode>::ssz_fixed_len();
-
-        let mut encoder = ssz::SszEncoder::container(buf, offset);
-
         match self {
-            PubsubMessage::Block(block_gossip) => {
-                encoder.append(&0_u32);
-
+            PubsubMessage::Block(inner)
+            | PubsubMessage::Attestation(inner)
+            | PubsubMessage::Unknown(inner) => {
                 // Encode the gossip as a Vec<u8>;
-                encoder.append(&block_gossip.as_ssz_bytes());
-            }
-            PubsubMessage::Attestation(attestation_gossip) => {
-                encoder.append(&1_u32);
-
-                // Encode the gossip as a Vec<u8>;
-                encoder.append(&attestation_gossip.as_ssz_bytes());
+                buf.append(&mut inner.as_ssz_bytes());
             }
         }
-
-        encoder.finalize();
     }
 }
 
+/*
 impl Decode for PubsubMessage {
     fn is_ssz_fixed_len() -> bool {
         false
@@ -295,7 +293,9 @@ impl Decode for PubsubMessage {
         }
     }
 }
+*/
 
+/*
 #[cfg(test)]
 mod test {
     use super::*;
@@ -313,4 +313,6 @@ mod test {
 
         assert_eq!(original, decoded);
     }
+
 }
+*/
