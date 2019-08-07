@@ -4,7 +4,6 @@ use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::iter::{ReverseBlockRootIterator, ReverseStateRootIterator};
 use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
-use crate::BeaconChainError;
 use lmd_ghost::LmdGhost;
 use log::trace;
 use operation_pool::DepositInsertStatus;
@@ -615,7 +614,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
         state: &BeaconState<T::EthSpec>,
-        head_block: &BeaconBlock<T::EthSpec>,
+        _head_block: &BeaconBlock<T::EthSpec>,
     ) -> Result<AttestationProcessingOutcome, Error> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
@@ -647,19 +646,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         result
             .map(|_| AttestationProcessingOutcome::Processed)
             .map_err(|e| Error::AttestationValidationError(e))
-    }
-
-    fn state_can_process_attestation(
-        state: &BeaconState<T::EthSpec>,
-        data: &AttestationData,
-        head_block: &BeaconBlock<T::EthSpec>,
-    ) -> bool {
-        (state.current_epoch() - 1 <= data.target.epoch)
-            && (data.target.epoch <= state.current_epoch() + 1)
-            && state
-                .get_block_root(head_block.slot)
-                .map(|root| *root == data.beacon_block_root)
-                .unwrap_or_else(|_| false)
     }
 
     /*

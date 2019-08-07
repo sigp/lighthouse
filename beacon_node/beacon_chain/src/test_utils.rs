@@ -84,13 +84,29 @@ where
 {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(validator_count: usize) -> Self {
+        let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
+            validator_count,
+            &E::default_spec(),
+        );
+        let (genesis_state, keypairs) = state_builder.build();
+
+        Self::from_state_and_keypairs(genesis_state, keypairs)
+    }
+
+    /// Instantiate a new harness with an initial validator for each key supplied.
+    pub fn from_keypairs(keypairs: Vec<Keypair>) -> Self {
+        let state_builder = TestingBeaconStateBuilder::from_keypairs(keypairs, &E::default_spec());
+        let (genesis_state, keypairs) = state_builder.build();
+
+        Self::from_state_and_keypairs(genesis_state, keypairs)
+    }
+
+    /// Instantiate a new harness with the given genesis state and a keypair for each of the
+    /// initial validators in the given state.
+    pub fn from_state_and_keypairs(genesis_state: BeaconState<E>, keypairs: Vec<Keypair>) -> Self {
         let spec = E::default_spec();
 
         let store = Arc::new(MemoryStore::open());
-
-        let state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
-        let (genesis_state, keypairs) = state_builder.build();
 
         let mut genesis_block = BeaconBlock::empty(&spec);
         genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
