@@ -630,7 +630,12 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         _network: &mut NetworkContext<T::EthSpec>,
     ) {
         match self.chain.process_attestation(msg) {
-            Ok(()) => info!(self.log, "ImportedAttestation"; "source" => "gossip"),
+            Ok(outcome) => info!(
+                self.log,
+                "Processed attestation";
+                "source" => "gossip",
+                "outcome" => format!("{:?}", outcome)
+            ),
             Err(e) => {
                 warn!(self.log, "InvalidAttestation"; "source" => "gossip", "error" => format!("{:?}", e))
             }
