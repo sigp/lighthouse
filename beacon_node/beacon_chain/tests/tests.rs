@@ -1,5 +1,8 @@
 #![cfg(not(debug_assertions))]
 
+#[macro_use]
+extern crate lazy_static;
+
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, CommonTypes, PersistedBeaconChain,
     BEACON_CHAIN_DB_KEY,
@@ -9,17 +12,21 @@ use lmd_ghost::ThreadSafeReducedTree;
 use rand::Rng;
 use store::{MemoryStore, Store};
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use types::{Deposit, EthSpec, Hash256, MinimalEthSpec, RelativeEpoch, Slot};
+use types::{Deposit, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 24;
 
+lazy_static! {
+    /// A cached set of keys.
+    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
+}
+
 type TestForkChoice = ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>;
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<TestForkChoice, MinimalEthSpec> {
-    let harness = BeaconChainHarness::new(validator_count);
+    let harness = BeaconChainHarness::from_keypairs(KEYPAIRS[0..validator_count].to_vec());
 
-    // Move past the zero slot.
     harness.advance_slot();
 
     harness
@@ -300,7 +307,7 @@ fn free_attestations_added_to_fork_choice_some_none() {
 }
 
 #[test]
-fn free_attestations_over_slots() {
+fn attestations_with_increasing_slots() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
     let harness = get_harness(VALIDATOR_COUNT);
