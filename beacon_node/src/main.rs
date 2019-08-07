@@ -193,12 +193,9 @@ fn main() {
                 .long("default-spec")
                 .value_name("TITLE")
                 .short("default-spec")
-                .help("Specifies the default eth2 spec to be used. Overridden by any spec loaded
-                from disk. A spec will be written to disk after this flag is used, so it is
-                primarily used for creating eth2 spec files.")
+                .help("Specifies the default eth2 spec to be used. This will override any spec written to disk and will therefore be used by default in future instances.")
                 .takes_value(true)
                 .possible_values(&["mainnet", "minimal", "interop"])
-                .default_value("minimal"),
         )
         .arg(
             Arg::with_name("recent-genesis")
@@ -217,7 +214,7 @@ fn main() {
                 .help("The title of the spec constants for chain config.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
-                .default_value("info"),
+                .default_value("trace"),
         )
         .arg(
             Arg::with_name("verbosity")
@@ -316,26 +313,42 @@ fn main() {
 
     let eth2_config_path = data_dir.join(ETH2_CONFIG_FILENAME);
 
-    // Attempt to load the `Eth2Config` from file.
+    // Initialise the `Eth2Config`.
     //
-    // If the file doesn't exist, create a default one depending on the CLI flags.
-    let mut eth2_config = match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
-        Ok(Some(c)) => c,
-        Ok(None) => {
-            let default = match matches.value_of("default-spec") {
-                Some("mainnet") => Eth2Config::mainnet(),
-                Some("minimal") => Eth2Config::minimal(),
-                _ => unreachable!(), // Guarded by slog.
-            };
-            if let Err(e) = write_to_file(eth2_config_path, &default) {
+    // If a CLI parameter is set, overwrite any config file present.
+    // If a parameter is not set, use either the config file present or default to minimal.
+    let cli_config = match matches.value_of("default-spec") {
+        Some("mainnet") => Some(Eth2Config::mainnet()),
+        Some("minimal") => Some(Eth2Config::minimal()),
+        Some("interop") => Some(Eth2Config::interop()),
+        _ => None,
+    };
+    // if cli is specified, write the new config
+    let mut eth2_config = {
+        if let Some(cli_config) = cli_config {
+            if let Err(e) = write_to_file(eth2_config_path, &cli_config) {
                 crit!(log, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
                 return;
             }
-            default
-        }
-        Err(e) => {
-            crit!(log, "Failed to load/generate an Eth2Config"; "error" => format!("{:?}", e));
-            return;
+            cli_config
+        } else {
+            // config not specified, read from disk
+            match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
+                Ok(Some(c)) => c,
+                Ok(None) => {
+                    // set default to minimal
+                    let eth2_config = Eth2Config::minimal();
+                    if let Err(e) = write_to_file(eth2_config_path, &eth2_config) {
+                        crit!(log, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
+                        return;
+                    }
+                    eth2_config
+                }
+                Err(e) => {
+                    crit!(log, "Failed to instantiate an Eth2Config"; "error" => format!("{:?}", e));
+                    return;
+                }
+            }
         }
     };
 
@@ -347,6 +360,12 @@ fn main() {
             return;
         }
     };
+
+    // check to ensure the spec constants between the client and eth2_config match
+    if eth2_config.spec_constants != client_config.spec_constants {
+        crit!(log, "Specification constants do not match."; "Client Config" => format!("{}", client_config.spec_constants), "Eth2 Config" => format!("{}", eth2_config.spec_constants));
+        return;
+    }
 
     // Start the node using a `tokio` executor.
     match run::run_beacon_node(client_config, eth2_config, &log) {
