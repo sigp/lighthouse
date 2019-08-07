@@ -23,7 +23,7 @@ use protos::services_grpc::{
     AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
     ValidatorServiceClient,
 };
-use slog::{error, info, warn};
+use slog::{crit, error, info, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -37,7 +37,7 @@ use types::{ChainSpec, Epoch, EthSpec, Fork, Slot};
 
 /// A fixed amount of time after a slot to perform operations. This gives the node time to complete
 /// per-slot processes.
-const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(200);
+const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
 
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
@@ -106,7 +106,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                         );
                         return Err("Genesis time in the future".into());
                     }
-                    // verify the node's chain id
+                    // verify the node's network id
                     if eth2_config.spec.network_id != info.network_id as u8 {
                         error!(
                             log,
@@ -303,12 +303,16 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
         let current_epoch = current_slot.epoch(self.slots_per_epoch);
 
-        // this is a fatal error. If the slot clock repeats, there is something wrong with
-        // the timer, terminate immediately.
-        assert!(
-            current_slot > self.current_slot,
-            "The Timer should poll a new slot"
-        );
+        // this is a non-fatal error. If the slot clock repeats, the node could
+        // have been slow to process the previous slot and is now duplicating tasks.
+        // We ignore duplicated but raise a critical error.
+        if current_slot <= self.current_slot {
+            crit!(
+                self.log,
+                "The validator tried to duplicate a slot. Likely missed the previous slot"
+            );
+            return Err("Duplicate slot".into());
+        }
         self.current_slot = current_slot;
         info!(self.log, "Processing"; "slot" => current_slot.as_u64(), "epoch" => current_epoch.as_u64());
         Ok(())
