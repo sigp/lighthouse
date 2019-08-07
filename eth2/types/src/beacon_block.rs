@@ -62,6 +62,11 @@ impl<T: EthSpec> BeaconBlock<T> {
         }
     }
 
+    /// Returns the epoch corresponding to `self.slot`.
+    pub fn epoch(&self) -> Epoch {
+        self.slot.epoch(T::slots_per_epoch())
+    }
+
     /// Returns the `signed_root` of the block.
     ///
     /// Spec v0.8.1
