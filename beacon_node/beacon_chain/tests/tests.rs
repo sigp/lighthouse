@@ -4,6 +4,7 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, CommonTypes, PersistedBeaconChain,
     BEACON_CHAIN_DB_KEY,
 };
+use beacon_chain::AttestationProcessingOutcome;
 use lmd_ghost::ThreadSafeReducedTree;
 use rand::Rng;
 use store::{MemoryStore, Store};
@@ -295,6 +296,40 @@ fn free_attestations_added_to_fork_choice_some_none() {
                 "Latest message slot should be None."
             )
         }
+    }
+}
+
+#[test]
+fn free_attestations_over_slots() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    let mut attestations = vec![];
+
+    for _ in 0..num_blocks_produced {
+        harness.extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            // Don't produce & include any attestations (we'll collect them later).
+            AttestationStrategy::SomeValidators(vec![]),
+        );
+
+        attestations.append(&mut harness.get_free_attestations(
+            &AttestationStrategy::AllValidators,
+            &harness.chain.head().beacon_state,
+            harness.chain.head().beacon_block_root,
+            harness.chain.head().beacon_block.slot,
+        ));
+
+        harness.advance_slot();
+    }
+
+    for attestation in attestations {
+        assert_eq!(
+            harness.chain.process_attestation(attestation),
+            Ok(AttestationProcessingOutcome::Processed)
+        )
     }
 }
 

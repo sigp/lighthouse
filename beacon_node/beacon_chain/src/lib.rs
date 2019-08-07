@@ -7,7 +7,9 @@ mod metrics;
 mod persisted_beacon_chain;
 pub mod test_utils;
 
-pub use self::beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+pub use self::beacon_chain::{
+    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
+};
 pub use self::checkpoint::CheckPoint;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use lmd_ghost;
