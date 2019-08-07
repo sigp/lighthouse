@@ -1,3 +1,4 @@
+use crate::Eth2Config;
 use clap::ArgMatches;
 use http_server::HttpServerConfig;
 use network::NetworkConfig;
@@ -56,8 +57,6 @@ impl Default for Config {
             log_file: PathBuf::from(""),
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
-            // Note: there are no default bootnodes specified.
-            // Once bootnodes are established, add them here.
             network: NetworkConfig::new(),
             rpc: rpc::RPCConfig::default(),
             http: HttpServerConfig::default(),
@@ -128,6 +127,15 @@ impl Config {
         if let Some(dir) = args.value_of("datadir") {
             self.data_dir = PathBuf::from(dir);
         };
+
+        if let Some(default_spec) = args.value_of("default-spec") {
+            match default_spec {
+                "mainnet" => self.spec_constants = Eth2Config::mainnet().spec_constants,
+                "minimal" => self.spec_constants = Eth2Config::minimal().spec_constants,
+                "interop" => self.spec_constants = Eth2Config::interop().spec_constants,
+                _ => {} // not supported
+            }
+        }
 
         if let Some(dir) = args.value_of("db") {
             self.db_type = dir.to_string();
