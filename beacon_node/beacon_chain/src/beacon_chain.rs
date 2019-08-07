@@ -543,7 +543,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Attempt to process the attestation using the `self.head()` state.
             //
             // This is purely an effort to avoid loading a `BeaconState` unnecessarily from the DB.
-            let outcome: Option<Result<AttestationProcessingOutcome, Error>> = {
+            let optional_outcome: Option<Result<AttestationProcessingOutcome, Error>> = {
                 // Take a read lock on the head beacon state.
                 //
                 // The purpose of this whole `let processed ...` block is to ensure that the read
@@ -553,10 +553,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // If it turns out that the attestation was made using the head state, then there
                 // is no need to load a state from the database to process the attestation.
                 if state.current_epoch() == attestation_head_block.epoch()
-                    && state
+                    && (state
                         .get_block_root(attestation_head_block.slot)
                         .map(|root| *root == attestation.data.beacon_block_root)
                         .unwrap_or_else(|_| false)
+                        || attestation.data.beacon_block_root == self.head().beacon_block_root)
                 {
                     // The head state is able to be used to validate this attestation. No need to load
                     // anything from the database.
@@ -573,8 +574,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // TODO: we could try and see if the "speculative state" (e.g., self.state) can support
             // this, without needing to load it from the db.
 
-            if let Some(result) = outcome {
-                result
+            if let Some(outcome) = optional_outcome {
+                outcome
             } else {
                 // The state required to verify this attestation must be loaded from the database.
                 let mut state: BeaconState<T::EthSpec> = self
