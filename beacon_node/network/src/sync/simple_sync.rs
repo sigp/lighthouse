@@ -266,8 +266,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
     fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
         self.chain
-            .rev_iter_block_roots(target_slot)
-            .take(1)
+            .rev_iter_block_roots()
             .find(|(_root, slot)| *slot == target_slot)
             .map(|(root, _slot)| root)
     }
@@ -280,8 +279,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         req: BeaconBlockRootsRequest,
         network: &mut NetworkContext<T::EthSpec>,
     ) {
-        let state = &self.chain.head().beacon_state;
-
         debug!(
             self.log,
             "BlockRootsRequest";
@@ -292,8 +289,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         let mut roots: Vec<BlockRootSlot> = self
             .chain
-            .rev_iter_block_roots(std::cmp::min(req.start_slot + req.count, state.slot))
+            .rev_iter_block_roots()
             .take_while(|(_root, slot)| req.start_slot <= *slot)
+            .filter(|(_root, slot)| *slot < req.start_slot + req.count)
             .map(|(block_root, slot)| BlockRootSlot { slot, block_root })
             .collect();
 
@@ -391,8 +389,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         req: BeaconBlockHeadersRequest,
         network: &mut NetworkContext<T::EthSpec>,
     ) {
-        let state = &self.chain.head().beacon_state;
-
         debug!(
             self.log,
             "BlockHeadersRequest";
@@ -405,8 +401,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         // Collect the block roots.
         let mut roots: Vec<Hash256> = self
             .chain
-            .rev_iter_block_roots(std::cmp::min(req.start_slot + count, state.slot))
+            .rev_iter_block_roots()
             .take_while(|(_root, slot)| req.start_slot <= *slot)
+            .filter(|(_root, slot)| *slot < req.start_slot + count)
             .map(|(root, _slot)| root)
             .collect();
 

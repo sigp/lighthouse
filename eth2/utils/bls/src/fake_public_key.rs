@@ -84,8 +84,6 @@ impl_ssz!(FakePublicKey, BLS_PUBLIC_KEY_BYTE_SIZE, "FakePublicKey");
 
 impl_tree_hash!(FakePublicKey, U48);
 
-impl_cached_tree_hash!(FakePublicKey, U48);
-
 impl Serialize for FakePublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -129,7 +127,6 @@ impl Hash for FakePublicKey {
 mod tests {
     use super::*;
     use ssz::ssz_encode;
-    use tree_hash::TreeHash;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -140,28 +137,5 @@ mod tests {
         let decoded = FakePublicKey::from_ssz_bytes(&bytes).unwrap();
 
         assert_eq!(original, decoded);
-    }
-
-    #[test]
-    pub fn test_cached_tree_hash() {
-        let sk = SecretKey::random();
-        let original = FakePublicKey::from_secret_key(&sk);
-
-        let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
-
-        assert_eq!(
-            cache.tree_hash_root().unwrap().to_vec(),
-            original.tree_hash_root()
-        );
-
-        let sk = SecretKey::random();
-        let modified = FakePublicKey::from_secret_key(&sk);
-
-        cache.update(&modified).unwrap();
-
-        assert_eq!(
-            cache.tree_hash_root().unwrap().to_vec(),
-            modified.tree_hash_root()
-        );
     }
 }
