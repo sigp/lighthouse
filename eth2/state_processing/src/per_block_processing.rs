@@ -14,10 +14,7 @@ pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use is_valid_indexed_attestation::{
     is_valid_indexed_attestation, is_valid_indexed_attestation_without_signature,
 };
-pub use verify_attestation::{
-    verify_attestation, verify_attestation_time_independent_only,
-    verify_attestation_without_signature,
-};
+pub use verify_attestation::{verify_attestation_for_block, verify_attestation_for_state};
 pub use verify_deposit::{
     get_existing_validator_index, verify_deposit_merkle_proof, verify_deposit_signature,
 };
@@ -36,6 +33,12 @@ mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
 mod verify_transfer;
+
+#[derive(PartialEq)]
+pub enum VerifySignatures {
+    True,
+    False,
+}
 
 /// Updates the state for a new block, whilst validating that the block is valid.
 ///
@@ -312,7 +315,8 @@ pub fn process_attestations<T: EthSpec>(
         .par_iter()
         .enumerate()
         .try_for_each(|(i, attestation)| {
-            verify_attestation(state, attestation, spec).map_err(|e| e.into_with_index(i))
+            verify_attestation_for_block(state, attestation, spec, VerifySignatures::True)
+                .map_err(|e| e.into_with_index(i))
         })?;
 
     // Update the state in series.
