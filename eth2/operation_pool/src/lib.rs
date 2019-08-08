@@ -15,9 +15,10 @@ use state_processing::per_block_processing::errors::{
     ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
 };
 use state_processing::per_block_processing::{
-    get_slashable_indices_modular, verify_attestation, verify_attestation_time_independent_only,
+    get_slashable_indices_modular, verify_attestation_for_block_inclusion,
     verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
     verify_proposer_slashing, verify_transfer, verify_transfer_time_independent_only,
+    VerifySignatures,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
@@ -64,15 +65,16 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
+    ///
+    /// ## Note
+    ///
+    /// This function assumes the given `attestation` is valid.
     pub fn insert_attestation(
         &self,
         attestation: Attestation<T>,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), AttestationValidationError> {
-        // Check that attestation signatures are valid.
-        verify_attestation_time_independent_only(state, &attestation, spec)?;
-
         let id = AttestationId::from_data(&attestation.data, state, spec);
 
         // Take a write lock on the attestations map.
@@ -128,7 +130,15 @@ impl<T: EthSpec> OperationPool<T> {
             })
             .flat_map(|(_, attestations)| attestations)
             // That are valid...
-            .filter(|attestation| verify_attestation(state, attestation, spec).is_ok())
+            .filter(|attestation| {
+                verify_attestation_for_block_inclusion(
+                    state,
+                    attestation,
+                    spec,
+                    VerifySignatures::True,
+                )
+                .is_ok()
+            })
             .map(|att| AttMaxCover::new(att, earliest_attestation_validators(att, state)));
 
         maximum_cover(valid_attestations, T::MaxAttestations::to_usize())
