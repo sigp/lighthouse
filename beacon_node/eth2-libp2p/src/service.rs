@@ -40,13 +40,12 @@ pub struct Service {
 
 impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
-        debug!(log, "Network-libp2p Service starting");
+        trace!(log, "Libp2p Service starting");
 
         // load the private key from CLI flag, disk or generate a new one
         let local_private_key = load_private_key(&config, &log);
-
         let local_peer_id = PeerId::from(local_private_key.public());
-        info!(log, "Local peer id: {:?}", local_peer_id);
+        info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", local_peer_id));
 
         let mut swarm = {
             // Set up the transport - tcp/ws with secio and mplex/yamux
@@ -67,21 +66,21 @@ impl Service {
             Ok(_) => {
                 let mut log_address = listen_multiaddr;
                 log_address.push(Protocol::P2p(local_peer_id.clone().into()));
-                info!(log, "Listening on: {}", log_address);
+                info!(log, "Listening established"; "Address" => format!("{}", log_address));
             }
             Err(err) => warn!(
                 log,
-                "Cannot listen on: {} because: {:?}", listen_multiaddr, err
+                "Failed to listen on address"; "Address" => format!("{}", listen_multiaddr), "Error" => format!("{:?}", err)
             ),
         };
 
         // attempt to connect to user-input libp2p nodes
         for multiaddr in config.libp2p_nodes {
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
-                Ok(()) => debug!(log, "Dialing libp2p node: {}", multiaddr),
+                Ok(()) => debug!(log, "Dialing libp2p peer"; "Address" => format!("{}", multiaddr)),
                 Err(err) => debug!(
                     log,
-                    "Could not connect to node: {} error: {:?}", multiaddr, err
+                    "Could not connect to peer"; "Address" => format!("{}", multiaddr), "Error" => format!("{:?}", err)
                 ),
             };
         }
@@ -104,13 +103,13 @@ impl Service {
         let mut subscribed_topics = vec![];
         for topic in topics {
             if swarm.subscribe(topic.clone()) {
-                trace!(log, "Subscribed to topic: {:?}", topic);
+                trace!(log, "Subscribed to topic"; "Topic" => format!("{}", topic));
                 subscribed_topics.push(topic);
             } else {
-                warn!(log, "Could not subscribe to topic: {:?}", topic)
+                warn!(log, "Could not subscribe to topic"; "Topic" => format!("{}", topic));
             }
         }
-        info!(log, "Subscribed to topics: {:?}", subscribed_topics);
+        info!(log, "Subscribed to topics"; "Topics" => format!("{:?}", subscribed_topics.iter().map(|t| format!("{}", t)).collect::<Vec<String>>()));
 
         Ok(Service {
             _local_peer_id: local_peer_id,

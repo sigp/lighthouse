@@ -9,7 +9,7 @@ use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::enr::{Enr, EnrBuilder, NodeId};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
-use slog::{debug, info, o, warn};
+use slog::{debug, info, warn};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
@@ -63,7 +63,7 @@ impl<TSubstream> Discovery<TSubstream> {
         config: &NetworkConfig,
         log: &slog::Logger,
     ) -> error::Result<Self> {
-        let log = log.new(o!("Service" => "Libp2p-Discovery"));
+        let log = log.clone();
 
         // checks if current ENR matches that found on disk
         let local_enr = load_enr(local_key, config, &log)?;
@@ -73,19 +73,19 @@ impl<TSubstream> Discovery<TSubstream> {
             None => String::from(""),
         };
 
-        info!(log, "Local ENR: {}", local_enr.to_base64());
-        debug!(log, "Local Node Id: {}", local_enr.node_id());
-        debug!(log, "Local ENR seq: {}", local_enr.seq());
+        info!(log, "ENR Initialised"; "ENR" => local_enr.to_base64(), "Seq" => local_enr.seq());
+        debug!(log, "Discv5 Node ID Initialised"; "node_id" => format!("{}",local_enr.node_id()));
 
         let mut discovery = Discv5::new(local_enr, local_key.clone(), config.listen_address)
-            .map_err(|e| format!("Discv5 service failed: {:?}", e))?;
+            .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
         for bootnode_enr in config.boot_nodes.clone() {
             debug!(
                 log,
-                "Adding node to routing table: {}",
-                bootnode_enr.node_id()
+                "Adding node to routing table";
+                "Node ID" => format!("{}",
+                bootnode_enr.node_id())
             );
             discovery.add_enr(bootnode_enr);
         }
@@ -123,7 +123,7 @@ impl<TSubstream> Discovery<TSubstream> {
     fn find_peers(&mut self) {
         // pick a random NodeId
         let random_node = NodeId::random();
-        debug!(self.log, "Searching for peers...");
+        debug!(self.log, "Searching for peers");
         self.discovery.find_node(random_node);
 
         // update the time until next discovery
@@ -201,7 +201,7 @@ where
                 }
                 Ok(Async::NotReady) => break,
                 Err(e) => {
-                    warn!(self.log, "Discovery peer search failed: {:?}", e);
+                    warn!(self.log, "Discovery peer search failed"; "Error" => format!("{:?}", e));
                 }
             }
         }
@@ -227,16 +227,16 @@ where
                             });
                         }
                         Discv5Event::FindNodeResult { closer_peers, .. } => {
-                            debug!(self.log, "Discv5 query found {} peers", closer_peers.len());
+                            debug!(self.log, "Discovery query completed"; "peers_found" => closer_peers.len());
                             if closer_peers.is_empty() {
-                                debug!(self.log, "Discv5 random query yielded empty results");
+                                debug!(self.log, "Discovery random query found no peers");
                             }
                             for peer_id in closer_peers {
                                 // if we need more peers, attempt a connection
                                 if self.connected_peers.len() < self.max_peers
                                     && self.connected_peers.get(&peer_id).is_none()
                                 {
-                                    debug!(self.log, "Discv5: Peer discovered"; "Peer"=> format!("{:?}", peer_id));
+                                    debug!(self.log, "Peer discovered"; "peer_id"=> format!("{:?}", peer_id));
                                     return Async::Ready(NetworkBehaviourAction::DialPeer {
                                         peer_id,
                                     });
@@ -283,14 +283,12 @@ fn load_enr(
             Ok(_) => {
                 match Enr::from_str(&enr_string) {
                     Ok(enr) => {
-                        debug!(log, "ENR found in file: {:?}", enr_f);
-
                         if enr.node_id() == local_enr.node_id() {
                             if enr.ip() == config.discovery_address.into()
                                 && enr.tcp() == Some(config.libp2p_port)
                                 && enr.udp() == Some(config.discovery_port)
                             {
-                                debug!(log, "ENR loaded from file");
+                                debug!(log, "ENR loaded from file"; "File" => format!("{:?}", enr_f));
                                 // the stored ENR has the same configuration, use it
                                 return Ok(enr);
                             }
@@ -300,11 +298,11 @@ fn load_enr(
                             local_enr.set_seq(new_seq_no, local_key).map_err(|e| {
                                 format!("Could not update ENR sequence number: {:?}", e)
                             })?;
-                            debug!(log, "ENR sequence number increased to: {}", new_seq_no);
+                            debug!(log, "ENR sequence number increased"; "Seq" =>  new_seq_no);
                         }
                     }
                     Err(e) => {
-                        warn!(log, "ENR from file could not be decoded: {:?}", e);
+                        warn!(log, "ENR from file could not be decoded"; "Error" => format!("{:?}", e));
                     }
                 }
             }
@@ -327,7 +325,7 @@ fn save_enr_to_disc(dir: &Path, enr: &Enr, log: &slog::Logger) {
         Err(e) => {
             warn!(
                 log,
-                "Could not write ENR to file: {:?}{:?}. Error: {}", dir, ENR_FILENAME, e
+                "Could not write ENR to file"; "File" => format!("{:?}{:?}",dir, ENR_FILENAME),  "Error" => format!("{}", e)
             );
         }
     }
