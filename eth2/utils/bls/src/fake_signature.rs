@@ -84,8 +84,6 @@ impl_ssz!(FakeSignature, BLS_SIG_BYTE_SIZE, "FakeSignature");
 
 impl_tree_hash!(FakeSignature, U96);
 
-impl_cached_tree_hash!(FakeSignature, U96);
-
 impl Serialize for FakeSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

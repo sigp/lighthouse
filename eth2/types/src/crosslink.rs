@@ -4,7 +4,7 @@ use crate::{Epoch, Hash256};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash_derive::{CachedTreeHash, TreeHash};
+use tree_hash_derive::TreeHash;
 
 /// Specifies the block hash for a shard at an epoch.
 ///
@@ -21,7 +21,6 @@ use tree_hash_derive::{CachedTreeHash, TreeHash};
     Encode,
     Decode,
     TreeHash,
-    CachedTreeHash,
     TestRandom,
 )]
 pub struct Crosslink {
@@ -38,5 +37,5 @@ mod tests {
     use super::*;
 
     ssz_tests!(Crosslink);
-    cached_tree_hash_tests!(Crosslink);
+
 }

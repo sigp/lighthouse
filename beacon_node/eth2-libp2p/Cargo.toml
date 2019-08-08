@@ -12,8 +12,8 @@ enr =  { git = "https://github.com/SigP/rust-libp2p/", rev = "be5710bbde69d8c5be
 types = { path =  "../../eth2/types" }
 serde = "1.0"
 serde_derive = "1.0"
-eth2_ssz = { path = "../../eth2/utils/ssz" }
-eth2_ssz_derive = { path = "../../eth2/utils/ssz_derive" }
+eth2_ssz = "0.1"
+eth2_ssz_derive = "0.1"
 slog = { version = "^2.4.1" , features = ["max_level_trace"] }
 version = { path = "../version" }
 tokio = "0.1.16"

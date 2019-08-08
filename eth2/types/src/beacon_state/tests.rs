@@ -4,7 +4,6 @@ use crate::test_utils::*;
 use std::ops::RangeInclusive;
 
 ssz_tests!(FoundationBeaconState);
-cached_tree_hash_tests!(FoundationBeaconState);
 
 fn test_beacon_proposer_index<T: EthSpec>() {
     let spec = T::default_spec();

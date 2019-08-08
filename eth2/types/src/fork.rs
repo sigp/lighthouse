@@ -5,23 +5,13 @@ use crate::Epoch;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash_derive::{CachedTreeHash, TreeHash};
+use tree_hash_derive::TreeHash;
 
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
 /// Spec v0.8.1
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Default,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    CachedTreeHash,
-    TestRandom,
+    Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct Fork {
     #[serde(
@@ -65,7 +55,6 @@ mod tests {
     use super::*;
 
     ssz_tests!(Fork);
-    cached_tree_hash_tests!(Fork);
 
     fn test_genesis(epoch: Epoch) {
         let fork = Fork::genesis(epoch);

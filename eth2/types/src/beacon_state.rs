@@ -2,9 +2,8 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
-use cached_tree_hash::{Error as TreeHashCacheError, TreeHashCache};
 use compare_fields_derive::CompareFields;
-use hashing::hash;
+use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes32, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use serde_derive::{Deserialize, Serialize};
@@ -13,7 +12,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::{CachedTreeHash, TreeHash};
+use tree_hash_derive::TreeHash;
 
 pub use self::committee_cache::CommitteeCache;
 pub use beacon_state_types::*;
@@ -58,7 +57,6 @@ pub enum Error {
     CurrentCommitteeCacheUninitialized,
     RelativeEpochError(RelativeEpochError),
     CommitteeCacheUninitialized(RelativeEpoch),
-    TreeHashCacheError(TreeHashCacheError),
     SszTypesError(ssz_types::Error),
 }
 
@@ -76,7 +74,6 @@ pub enum Error {
     Decode,
     TreeHash,
     CompareFields,
-    CachedTreeHash,
 )]
 #[serde(bound = "T: EthSpec")]
 pub struct BeaconState<T>
@@ -151,12 +148,6 @@ where
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    pub tree_hash_cache: TreeHashCache,
-    #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[test_random(default)]
     pub exit_cache: ExitCache,
 }
 
@@ -218,7 +209,6 @@ impl<T: EthSpec> BeaconState<T> {
                 CommitteeCache::default(),
             ],
             pubkey_cache: PubkeyCache::default(),
-            tree_hash_cache: TreeHashCache::default(),
             exit_cache: ExitCache::default(),
         }
     }
@@ -929,22 +919,12 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Returns the `tree_hash_root` resulting from the update. This root can be considered the
     /// canonical root of `self`.
+    ///
+    /// ## Note
+    ///
+    /// Cache not currently implemented, just performs a full tree hash.
     pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
-        /* TODO(#440): re-enable cached tree hash
-        if self.tree_hash_cache.is_empty() {
-            self.tree_hash_cache = TreeHashCache::new(self)?;
-        } else {
-            // Move the cache outside of `self` to satisfy the borrow checker.
-            let mut cache = std::mem::replace(&mut self.tree_hash_cache, TreeHashCache::default());
-
-            cache.update(self)?;
-
-            // Move the updated cache back into `self`.
-            self.tree_hash_cache = cache
-        }
-
-        self.cached_tree_hash_root()
-        */
+        // TODO(#440): re-enable cached tree hash
         Ok(Hash256::from_slice(&self.tree_hash_root()))
     }
 
@@ -954,31 +934,28 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Returns an error if the cache is not initialized or if an error is encountered during the
     /// cache update.
+    ///
+    /// ## Note
+    ///
+    /// Cache not currently implemented, just performs a full tree hash.
     pub fn cached_tree_hash_root(&self) -> Result<Hash256, Error> {
-        /* TODO(#440): re-enable cached tree hash
-        self.tree_hash_cache
-            .tree_hash_root()
-            .and_then(|b| Ok(Hash256::from_slice(b)))
-            .map_err(Into::into)
-        */
+        // TODO(#440): re-enable cached tree hash
         Ok(Hash256::from_slice(&self.tree_hash_root()))
     }
 
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
+    ///
+    /// ## Note
+    ///
+    /// Cache not currently implemented, is a no-op.
     pub fn drop_tree_hash_cache(&mut self) {
-        self.tree_hash_cache = TreeHashCache::default()
+        // TODO(#440): re-enable cached tree hash
     }
 }
 
 impl From<RelativeEpochError> for Error {
     fn from(e: RelativeEpochError) -> Error {
         Error::RelativeEpochError(e)
-    }
-}
-
-impl From<TreeHashCacheError> for Error {
-    fn from(e: TreeHashCacheError) -> Error {
-        Error::TreeHashCacheError(e)
     }
 }
 
