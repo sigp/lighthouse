@@ -33,6 +33,73 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<TestForkChoice, Min
 }
 
 #[test]
+fn iterators() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        // No need to produce attestations for this test.
+        AttestationStrategy::SomeValidators(vec![]),
+    );
+
+    let block_roots: Vec<(Hash256, Slot)> = harness.chain.rev_iter_block_roots().collect();
+    let state_roots: Vec<(Hash256, Slot)> = harness.chain.rev_iter_state_roots().collect();
+
+    assert_eq!(
+        block_roots.len(),
+        state_roots.len(),
+        "should be an equal amount of block and state roots"
+    );
+
+    assert!(
+        block_roots.iter().any(|(_root, slot)| *slot == 0),
+        "should contain genesis block root"
+    );
+    assert!(
+        state_roots.iter().any(|(_root, slot)| *slot == 0),
+        "should contain genesis state root"
+    );
+
+    assert_eq!(
+        block_roots.len(),
+        num_blocks_produced as usize + 1,
+        "should contain all produced blocks, plus the genesis block"
+    );
+
+    block_roots.windows(2).for_each(|x| {
+        assert_eq!(
+            x[1].1,
+            x[0].1 - 1,
+            "block root slots should be decreasing by one"
+        )
+    });
+    state_roots.windows(2).for_each(|x| {
+        assert_eq!(
+            x[1].1,
+            x[0].1 - 1,
+            "state root slots should be decreasing by one"
+        )
+    });
+
+    let head = &harness.chain.head();
+
+    assert_eq!(
+        *block_roots.first().expect("should have some block roots"),
+        (head.beacon_block_root, head.beacon_block.slot),
+        "first block root and slot should be for the head block"
+    );
+
+    assert_eq!(
+        *state_roots.first().expect("should have some state roots"),
+        (head.beacon_state_root, head.beacon_state.slot),
+        "first state root and slot should be for the head state"
+    );
+}
+
+#[test]
 fn chooses_fork() {
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -326,7 +393,6 @@ fn attestations_with_increasing_slots() {
             &AttestationStrategy::AllValidators,
             &harness.chain.head().beacon_state,
             harness.chain.head().beacon_block_root,
-            harness.chain.head().beacon_block.slot,
         ));
 
         harness.advance_slot();

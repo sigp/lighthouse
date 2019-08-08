@@ -244,15 +244,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Because this iterator starts at the `head` of the chain (viz., the best block), the first slot
     /// returned may be earlier than the wall-clock slot.
-    pub fn rev_iter_block_roots(
-        &self,
-        slot: Slot,
-    ) -> ReverseBlockRootIterator<T::EthSpec, T::Store> {
+    pub fn rev_iter_block_roots(&self) -> ReverseBlockRootIterator<T::EthSpec, T::Store> {
         let state = &self.head().beacon_state;
         let block_root = self.head().beacon_block_root;
         let block_slot = state.slot;
 
-        let iter = BlockRootsIterator::owned(self.store.clone(), state.clone(), slot);
+        let iter = BlockRootsIterator::owned(self.store.clone(), state.clone());
 
         ReverseBlockRootIterator::new((block_root, block_slot), iter)
     }
@@ -267,15 +264,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Because this iterator starts at the `head` of the chain (viz., the best block), the first slot
     /// returned may be earlier than the wall-clock slot.
-    pub fn rev_iter_state_roots(
-        &self,
-        slot: Slot,
-    ) -> ReverseStateRootIterator<T::EthSpec, T::Store> {
+    pub fn rev_iter_state_roots(&self) -> ReverseStateRootIterator<T::EthSpec, T::Store> {
         let state = &self.head().beacon_state;
         let state_root = self.head().beacon_state_root;
         let state_slot = state.slot;
 
-        let iter = StateRootsIterator::owned(self.store.clone(), state.clone(), slot);
+        let iter = StateRootsIterator::owned(self.store.clone(), state.clone());
 
         ReverseStateRootIterator::new((state_root, state_slot), iter)
     }
@@ -448,9 +442,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn produce_attestation_data(&self, shard: u64) -> Result<AttestationData, Error> {
         let state = self.state.read();
         let head_block_root = self.head().beacon_block_root;
-        let head_block_slot = self.head().beacon_block.slot;
 
-        self.produce_attestation_data_for_block(shard, head_block_root, head_block_slot, &*state)
+        self.produce_attestation_data_for_block(shard, head_block_root, &*state)
     }
 
     /// Produce an `AttestationData` that attests to the chain denoted by `block_root` and `state`.
@@ -461,39 +454,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         shard: u64,
         head_block_root: Hash256,
-        head_block_slot: Slot,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<AttestationData, Error> {
         // Collect some metrics.
         self.metrics.attestation_production_requests.inc();
         let timer = self.metrics.attestation_production_times.start_timer();
 
-        let slots_per_epoch = T::EthSpec::slots_per_epoch();
-        let current_epoch_start_slot = state.current_epoch().start_slot(slots_per_epoch);
-
         // The `target_root` is the root of the first block of the current epoch.
-        //
-        // The `state` does not know the root of the block for it's current slot (it only knows
-        // about blocks from prior slots). This creates an edge-case when the state is on the first
-        // slot of the epoch -- we're unable to obtain the `target_root` because it is not a prior
-        // root.
-        //
-        // This edge case is handled in two ways:
-        //
-        // - If the head block is on the same slot as the state, we use it's root.
-        // - Otherwise, assume the current slot has been skipped and use the block root from the
-        // prior slot.
-        //
-        // For all other cases, we simply read the `target_root` from `state.latest_block_roots`.
-        let target_root = if state.slot == current_epoch_start_slot {
-            if head_block_slot == current_epoch_start_slot {
-                head_block_root
-            } else {
-                *state.get_block_root(current_epoch_start_slot - 1)?
-            }
-        } else {
-            *state.get_block_root(current_epoch_start_slot)?
-        };
+        let target_root = self
+            .rev_iter_block_roots()
+            .find(|(_root, slot)| *slot % T::EthSpec::slots_per_epoch() == 0)
+            .map(|(root, _slot)| root)
+            .ok_or_else(|| Error::UnableToFindTargetRoot(self.head().beacon_state.slot))?;
+
         let target = Checkpoint {
             epoch: state.current_epoch(),
             root: target_root,
@@ -523,7 +496,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Accept a new attestation from the network.
+    /// Accept a new, potentially invalid attestation from the network.
     ///
     /// If valid, the attestation is added to the `op_pool` and aggregated with another attestation
     /// if possible.
@@ -614,7 +587,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
         state: &BeaconState<T::EthSpec>,
-        _head_block: &BeaconBlock<T::EthSpec>,
+        block: &BeaconBlock<T::EthSpec>,
     ) -> Result<AttestationProcessingOutcome, Error> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
