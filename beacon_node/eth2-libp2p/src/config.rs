@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 /// The gossipsub topic names.
+// These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
+// For example /eth2/beacon_block/ssz
 pub const TOPIC_PREFIX: &str = "eth2";
 pub const TOPIC_ENCODING_POSTFIX: &str = "ssz";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
