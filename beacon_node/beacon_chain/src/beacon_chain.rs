@@ -11,12 +11,15 @@ use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{RwLock, RwLockReadGuard};
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
-use state_processing::per_block_processing::errors::{
-    AttesterSlashingValidationError, DepositValidationError, ExitValidationError,
-    ProposerSlashingValidationError, TransferValidationError,
+use state_processing::per_block_processing::{
+    errors::{
+        AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
+        ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
+    },
+    verify_attestation_for_state, VerifySignatures,
 };
 use state_processing::{
-    common, per_block_processing, per_block_processing_without_verifying_block_signature,
+    per_block_processing, per_block_processing_without_verifying_block_signature,
     per_slot_processing, BlockProcessingError,
 };
 use std::sync::Arc;
@@ -58,6 +61,7 @@ pub enum BlockProcessingOutcome {
 pub enum AttestationProcessingOutcome {
     Processed,
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    Invalid(AttestationValidationError),
 }
 
 pub trait BeaconChainTypes {
@@ -543,9 +547,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             };
 
-            // TODO: we could try and see if the "speculative state" (e.g., self.state) can support
-            // this, without needing to load it from the db.
-
             if let Some(outcome) = optional_outcome {
                 outcome
             } else {
@@ -583,6 +584,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Verifies the `attestation` against the `state` to which it is attesting.
+    ///
+    /// Updates fork choice with any new latest messages, but _does not_ find or update the head.
+    ///
+    /// ## Notes
+    ///
+    /// The given `state` must fulfil one of the following conditions:
+    ///
+    /// - `state` corresponds to the `block.state_root` identified by
+    /// `attestation.data.beacon_block_root`. (Viz., `attestation` was created using `state`.
+    /// - `state.slot` is in the same epoch as `block.slot` and
+    /// `attestation.data.beacon_block_root` is in `state.block_roots`. (Viz., the attestation was
+    /// attesting to an ancestor of `state` from the same epoch as `state`.
+    ///
+    /// Additionally, `attestation.data.beacon_block_root` **must** be available to read in
+    /// `self.store` _and_ be the root of the given `block`.
+    ///
+    /// If the given conditions are not fulfilled, the function may error or provide a false
+    /// negative (indicating that a given `attestation` is invalid when it is was validly formed).
     fn process_attestation_for_state_and_block(
         &self,
         attestation: Attestation<T::EthSpec>,
@@ -592,6 +612,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
 
+        let result = if let Err(e) =
+            verify_attestation_for_state(state, &attestation, &self.spec, VerifySignatures::True)
+        {
+            warn!(
+                self.log,
+                "Invalid attestation";
+                "state_epoch" => state.current_epoch(),
+                "error" => format!("{:?}", e),
+            );
+
+            Ok(AttestationProcessingOutcome::Invalid(e))
+        } else {
+            // Provide the attestation to fork choice, updating the validator latest messages but
+            // _without_ finding and updating the head.
+            self.fork_choice
+                .process_attestation(&state, &attestation, block)?;
+
+            // Provide the valid attestation to op pool, which may choose to retain the
+            // attestation for inclusion in a future block.
+            self.op_pool
+                .insert_attestation(attestation, state, &self.spec)?;
+
+            // Update the metrics.
+            self.metrics.attestation_processing_successes.inc();
+
+            Ok(AttestationProcessingOutcome::Processed)
+        };
+
+        timer.observe_duration();
+
+        result
+
+        /*
         if self
             .fork_choice
             .should_process_attestation(state, &attestation)?
@@ -619,6 +672,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         result
             .map(|_| AttestationProcessingOutcome::Processed)
             .map_err(|e| Error::AttestationValidationError(e))
+            */
     }
 
     /// Accept some deposit and queue it for inclusion in an appropriate block.

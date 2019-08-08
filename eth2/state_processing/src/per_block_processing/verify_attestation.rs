@@ -7,11 +7,13 @@ use crate::per_block_processing::{
 use tree_hash::TreeHash;
 use types::*;
 
-/// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the
-/// given state, optionally validating the aggregate signature.
+/// Returns `Ok(())` if the given `attestation` is valid to be included in a block that is applied
+/// to `state`. Otherwise, returns a descriptive `Err`.
+///
+/// Optionally verifies the aggregate signature, depending on `verify_signatures`.
 ///
 /// Spec v0.8.0
-pub fn verify_attestation_for_block<T: EthSpec>(
+pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
     spec: &ChainSpec,
@@ -41,7 +43,7 @@ pub fn verify_attestation_for_block<T: EthSpec>(
     verify_attestation_for_state(state, attestation, spec, verify_signatures)
 }
 
-/// Returns `Ok(())` if `attestation` is a valid attestation to the chain that preceeds the given
+/// Returns `Ok(())` if `attestation` is a valid attestation to the chain that precedes the given
 /// `state`.
 ///
 /// Returns a descriptive `Err` if the attestation is malformed or does not accurately reflect the

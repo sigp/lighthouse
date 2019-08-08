@@ -26,6 +26,7 @@ pub enum BeaconChainError {
         previous_epoch: Epoch,
         new_epoch: Epoch,
     },
+    UnableToFindTargetRoot(Slot),
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),
     DBError(store::Error),
