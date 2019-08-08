@@ -14,9 +14,9 @@ path = "src/lib.rs"
 
 [dependencies]
 bls = { path = "../eth2/utils/bls" }
-eth2_ssz = { path = "../eth2/utils/ssz" }
+eth2_ssz = "0.1"
 eth2_config = { path = "../eth2/utils/eth2_config" }
-tree_hash = { path = "../eth2/utils/tree_hash" }
+tree_hash = "0.1"
 clap = "2.32.0"
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
 protos = { path = "../protos" }

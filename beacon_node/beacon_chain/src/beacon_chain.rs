@@ -236,18 +236,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(headers?)
     }
 
-    /// Iterates through all the `BeaconBlock` roots and slots, first returning
-    /// `self.head().beacon_block` then all prior blocks until either genesis or if the database
-    /// fails to return a prior block.
+    /// Iterates across all `(block_root, slot)` pairs from the head of the chain (inclusive) to
+    /// the earliest reachable ancestor (may or may not be genesis).
     ///
-    /// Returns duplicate roots for skip-slots.
+    /// ## Notes
     ///
-    /// Iterator returns `(Hash256, Slot)`.
-    ///
-    /// ## Note
-    ///
-    /// Because this iterator starts at the `head` of the chain (viz., the best block), the first slot
-    /// returned may be earlier than the wall-clock slot.
+    /// `slot` always decreases by `1`.
+    /// - Skipped slots contain the root of the closest prior
+    ///     non-skipped slot (identical to the way they are stored in `state.block_roots`) .
+    /// - Iterator returns `(Hash256, Slot)`.
+    /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
+    ///     returned may be earlier than the wall-clock slot.
     pub fn rev_iter_block_roots(&self) -> ReverseBlockRootIterator<T::EthSpec, T::Store> {
         let state = &self.head().beacon_state;
         let block_root = self.head().beacon_block_root;
@@ -258,16 +257,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ReverseBlockRootIterator::new((block_root, block_slot), iter)
     }
 
-    /// Iterates through all the `BeaconState` roots and slots, first returning
-    /// `self.head().beacon_state` then all prior states until either genesis or if the database
-    /// fails to return a prior state.
+    /// Iterates across all `(state_root, slot)` pairs from the head of the chain (inclusive) to
+    /// the earliest reachable ancestor (may or may not be genesis).
     ///
-    /// Iterator returns `(Hash256, Slot)`.
+    /// ## Notes
     ///
-    /// ## Note
-    ///
-    /// Because this iterator starts at the `head` of the chain (viz., the best block), the first slot
-    /// returned may be earlier than the wall-clock slot.
+    /// `slot` always decreases by `1`.
+    /// - Iterator returns `(Hash256, Slot)`.
+    /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
+    ///     returned may be earlier than the wall-clock slot.
     pub fn rev_iter_state_roots(&self) -> ReverseStateRootIterator<T::EthSpec, T::Store> {
         let state = &self.head().beacon_state;
         let state_root = self.head().beacon_state_root;
@@ -293,8 +291,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns a read-lock guarded `BeaconState` which is the `canonical_head` that has been
     /// updated to match the current slot clock.
     pub fn speculative_state(&self) -> Result<RwLockReadGuard<BeaconState<T::EthSpec>>, Error> {
-        // TODO: ensure the state has done a catch-up.
-
         Ok(self.state.read())
     }
 

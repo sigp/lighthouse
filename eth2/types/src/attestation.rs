@@ -5,7 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
+use tree_hash_derive::{SignedRoot, TreeHash};
 
 /// Details an attestation that can be slashable.
 ///
@@ -19,7 +19,6 @@ use tree_hash_derive::{CachedTreeHash, SignedRoot, TreeHash};
     Encode,
     Decode,
     TreeHash,
-    CachedTreeHash,
     TestRandom,
     SignedRoot,
 )]
@@ -59,5 +58,5 @@ mod tests {
     use crate::*;
 
     ssz_tests!(Attestation<MainnetEthSpec>);
-    cached_tree_hash_tests!(Attestation<MainnetEthSpec>);
+
 }

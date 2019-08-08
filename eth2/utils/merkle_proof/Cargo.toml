@@ -6,4 +6,4 @@ edition = "2018"
 
 [dependencies]
 ethereum-types = "0.6"
-hashing = { path = "../hashing" }
+eth2_hashing = { path = "../eth2_hashing" }

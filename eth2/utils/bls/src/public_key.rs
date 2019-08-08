@@ -92,8 +92,6 @@ impl_ssz!(PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE, "PublicKey");
 
 impl_tree_hash!(PublicKey, U48);
 
-impl_cached_tree_hash!(PublicKey, U48);
-
 impl Serialize for PublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -137,7 +135,6 @@ impl Hash for PublicKey {
 mod tests {
     use super::*;
     use ssz::ssz_encode;
-    use tree_hash::TreeHash;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -157,30 +154,5 @@ mod tests {
 
         let bytes = ssz_encode(&original);
         assert_eq!(bytes.len(), BLS_PUBLIC_KEY_BYTE_SIZE);
-    }
-
-    #[test]
-    // TODO: once `CachedTreeHash` is fixed, this test should _not_ panic.
-    #[should_panic]
-    pub fn test_cached_tree_hash() {
-        let sk = SecretKey::random();
-        let original = PublicKey::from_secret_key(&sk);
-
-        let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
-
-        assert_eq!(
-            cache.tree_hash_root().unwrap().to_vec(),
-            original.tree_hash_root()
-        );
-
-        let sk = SecretKey::random();
-        let modified = PublicKey::from_secret_key(&sk);
-
-        cache.update(&modified).unwrap();
-
-        assert_eq!(
-            cache.tree_hash_root().unwrap().to_vec(),
-            modified.tree_hash_root()
-        );
     }
 }

@@ -12,7 +12,7 @@ rpc = { path = "../rpc" }
 rest_api = { path = "../rest_api" }
 prometheus = "^0.6"
 types = { path = "../../eth2/types" }
-tree_hash = { path = "../../eth2/utils/tree_hash" }
+tree_hash = "0.1"
 eth2_config = { path = "../../eth2/utils/eth2_config" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 serde = "1.0.93"

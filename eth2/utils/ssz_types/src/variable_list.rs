@@ -196,29 +196,6 @@ where
     }
 }
 
-impl<T, N: Unsigned> cached_tree_hash::CachedTreeHash for VariableList<T, N>
-where
-    T: cached_tree_hash::CachedTreeHash + tree_hash::TreeHash,
-{
-    fn new_tree_hash_cache(
-        &self,
-        _depth: usize,
-    ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-        unimplemented!("CachedTreeHash is not implemented for VariableList")
-    }
-
-    fn tree_hash_cache_schema(&self, _depth: usize) -> cached_tree_hash::BTreeSchema {
-        unimplemented!("CachedTreeHash is not implemented for VariableList")
-    }
-
-    fn update_tree_hash_cache(
-        &self,
-        _cache: &mut cached_tree_hash::TreeHashCache,
-    ) -> Result<(), cached_tree_hash::Error> {
-        unimplemented!("CachedTreeHash is not implemented for VariableList")
-    }
-}
-
 impl<T, N: Unsigned> ssz::Encode for VariableList<T, N>
 where
     T: ssz::Encode,
