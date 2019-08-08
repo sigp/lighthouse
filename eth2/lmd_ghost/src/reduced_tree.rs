@@ -611,11 +611,7 @@ where
         let block = self.get_block(child)?;
         let state = self.get_state(block.state_root)?;
 
-        Ok(BlockRootsIterator::owned(
-            self.store.clone(),
-            state,
-            block.slot - 1,
-        ))
+        Ok(BlockRootsIterator::owned(self.store.clone(), state))
     }
 
     /// Verify the integrity of `self`. Returns `Ok(())` if the tree has integrity, otherwise returns `Err(description)`.

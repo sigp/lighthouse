@@ -194,7 +194,7 @@ where
             if let BlockProcessingOutcome::Processed { block_root } = outcome {
                 head_block_root = Some(block_root);
 
-                self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
+                self.add_free_attestations(&attestation_strategy, &new_state, block_root);
             } else {
                 panic!("block should be successfully processed: {:?}", outcome);
             }
@@ -209,7 +209,7 @@ where
     fn get_state_at_slot(&self, state_slot: Slot) -> BeaconState<E> {
         let state_root = self
             .chain
-            .rev_iter_state_roots(self.chain.head().beacon_state.slot - 1)
+            .rev_iter_state_roots()
             .find(|(_hash, slot)| *slot == state_slot)
             .map(|(hash, _slot)| hash)
             .expect("could not find state root");
@@ -282,20 +282,14 @@ where
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
         head_block_root: Hash256,
-        head_block_slot: Slot,
     ) {
-        self.get_free_attestations(
-            attestation_strategy,
-            state,
-            head_block_root,
-            head_block_slot,
-        )
-        .into_iter()
-        .for_each(|attestation| {
-            self.chain
-                .process_attestation(attestation)
-                .expect("should process attestation");
-        });
+        self.get_free_attestations(attestation_strategy, state, head_block_root)
+            .into_iter()
+            .for_each(|attestation| {
+                self.chain
+                    .process_attestation(attestation)
+                    .expect("should process attestation");
+            });
     }
 
     /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
@@ -304,7 +298,6 @@ where
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
         head_block_root: Hash256,
-        head_block_slot: Slot,
     ) -> Vec<Attestation<E>> {
         let spec = &self.spec;
         let fork = &state.fork;
@@ -329,12 +322,7 @@ where
                     if attesting_validators.contains(validator_index) {
                         let data = self
                             .chain
-                            .produce_attestation_data_for_block(
-                                cc.shard,
-                                head_block_root,
-                                head_block_slot,
-                                state,
-                            )
+                            .produce_attestation_data_for_block(cc.shard, head_block_root, state)
                             .expect("should produce attestation data");
 
                         let mut aggregation_bits = BitList::with_capacity(committee_size).unwrap();
