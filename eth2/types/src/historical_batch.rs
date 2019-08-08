@@ -5,23 +5,12 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use test_random_derive::TestRandom;
-use tree_hash_derive::{CachedTreeHash, TreeHash};
+use tree_hash_derive::TreeHash;
 
 /// Historical block and state roots.
 ///
 /// Spec v0.8.1
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    CachedTreeHash,
-    TestRandom,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct HistoricalBatch<T: EthSpec> {
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
@@ -34,5 +23,5 @@ mod tests {
     pub type FoundationHistoricalBatch = HistoricalBatch<MainnetEthSpec>;
 
     ssz_tests!(FoundationHistoricalBatch);
-    cached_tree_hash_tests!(FoundationHistoricalBatch);
+
 }

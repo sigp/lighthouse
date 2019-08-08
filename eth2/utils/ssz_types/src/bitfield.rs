@@ -606,50 +606,6 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
     }
 }
 
-impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<Variable<N>> {
-    fn new_tree_hash_cache(
-        &self,
-        _depth: usize,
-    ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-        unimplemented!("CachedTreeHash is not implemented for BitList")
-    }
-
-    fn num_tree_hash_cache_chunks(&self) -> usize {
-        unimplemented!("CachedTreeHash is not implemented for BitList")
-    }
-
-    fn tree_hash_cache_schema(&self, _depth: usize) -> cached_tree_hash::BTreeSchema {
-        unimplemented!("CachedTreeHash is not implemented for BitList")
-    }
-
-    fn update_tree_hash_cache(
-        &self,
-        _cache: &mut cached_tree_hash::TreeHashCache,
-    ) -> Result<(), cached_tree_hash::Error> {
-        unimplemented!("CachedTreeHash is not implemented for BitList")
-    }
-}
-
-impl<N: Unsigned + Clone> cached_tree_hash::CachedTreeHash for Bitfield<Fixed<N>> {
-    fn new_tree_hash_cache(
-        &self,
-        _depth: usize,
-    ) -> Result<cached_tree_hash::TreeHashCache, cached_tree_hash::Error> {
-        unimplemented!("CachedTreeHash is not implemented for BitVec")
-    }
-
-    fn tree_hash_cache_schema(&self, _depth: usize) -> cached_tree_hash::BTreeSchema {
-        unimplemented!("CachedTreeHash is not implemented for BitVec")
-    }
-
-    fn update_tree_hash_cache(
-        &self,
-        _cache: &mut cached_tree_hash::TreeHashCache,
-    ) -> Result<(), cached_tree_hash::Error> {
-        unimplemented!("CachedTreeHash is not implemented for BitVec")
-    }
-}
-
 #[cfg(test)]
 mod bitvector {
     use super::*;

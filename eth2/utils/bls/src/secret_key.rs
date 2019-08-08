@@ -47,8 +47,6 @@ impl_ssz!(SecretKey, BLS_SECRET_KEY_BYTE_SIZE, "SecretKey");
 
 impl_tree_hash!(SecretKey, U48);
 
-impl_cached_tree_hash!(SecretKey, U48);
-
 impl Serialize for SecretKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

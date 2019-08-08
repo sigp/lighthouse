@@ -1,5 +1,5 @@
 use super::BYTES_PER_CHUNK;
-use hashing::hash;
+use eth2_hashing::hash;
 
 /// The size of the cache that stores padding nodes for a given height.
 ///
