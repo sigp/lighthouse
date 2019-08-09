@@ -60,7 +60,15 @@ pub enum BlockProcessingOutcome {
 #[derive(Debug, PartialEq)]
 pub enum AttestationProcessingOutcome {
     Processed,
-    UnknownHeadBlock { beacon_block_root: Hash256 },
+    UnknownHeadBlock {
+        beacon_block_root: Hash256,
+    },
+    /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
+    /// future).
+    AttestsToFutureState {
+        state: Slot,
+        attestation: Slot,
+    },
     Invalid(AttestationValidationError),
 }
 
@@ -582,11 +590,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     per_slot_processing(&mut state, &self.spec)?;
                 }
 
-                self.process_attestation_for_state_and_block(
-                    attestation,
-                    &state,
-                    &attestation_head_block,
-                )
+                let attestation_slot = state.get_attestation_data_slot(&attestation.data)?;
+
+                // Reject any attestation where the `state` loaded from `data.beacon_block_root`
+                // has a higher slot than the attestation.
+                //
+                // Permitting this would allow for attesters to vote on _future_ slots.
+                if attestation_slot > state.slot {
+                    Ok(AttestationProcessingOutcome::AttestsToFutureState {
+                        state: state.slot,
+                        attestation: attestation_slot,
+                    })
+                } else {
+                    self.process_attestation_for_state_and_block(
+                        attestation,
+                        &state,
+                        &attestation_head_block,
+                    )
+                }
             }
         } else {
             // Reject any block where we have not processed `attestation.data.beacon_block_root`.
