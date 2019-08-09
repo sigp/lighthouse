@@ -136,9 +136,6 @@ pub enum AttestationInvalid {
         delay: u64,
         attestation: Slot,
     },
-    /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
-    /// future).
-    AttestsToFutureState { state: Slot, attestation: Slot },
     /// Attestation slot is too far in the past to be included in a block.
     IncludedTooLate { state: Slot, attestation: Slot },
     /// Attestation target epoch does not match the current or previous epoch.
