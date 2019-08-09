@@ -62,6 +62,17 @@ pub fn verify_attestation_for_state<T: EthSpec>(
         Invalid::BadShard
     );
 
+    let attestation_slot = state.get_attestation_data_slot(&data)?;
+
+    // An attestation cannot attest to a state that is later than itself.
+    verify!(
+        attestation_slot <= state.slot,
+        Invalid::AttestsToFutureState {
+            state: state.slot,
+            attestation: attestation_slot
+        }
+    );
+
     // Verify the Casper FFG vote and crosslink data.
     let parent_crosslink = verify_casper_ffg_vote(attestation, state)?;
 

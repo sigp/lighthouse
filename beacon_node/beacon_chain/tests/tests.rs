@@ -342,27 +342,29 @@ fn free_attestations_added_to_fork_choice_some_none() {
     let state = &harness.chain.head().beacon_state;
     let fork_choice = &harness.chain.fork_choice;
 
-    let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
-    let slots: Vec<Slot> = validators
-        .iter()
-        .map(|&v| {
-            state
-                .get_attestation_duties(v, RelativeEpoch::Current)
+    let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
+        .into_iter()
+        .map(|validator_index| {
+            let slot = state
+                .get_attestation_duties(validator_index, RelativeEpoch::Current)
                 .expect("should get attester duties")
                 .unwrap()
-                .slot
+                .slot;
+
+            (validator_index, slot)
         })
         .collect();
-    let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
 
     for (validator, slot) in validator_slots.clone() {
-        let latest_message = fork_choice.latest_message(*validator);
+        let latest_message = fork_choice.latest_message(validator);
 
         if slot <= num_blocks_produced && slot != 0 {
             assert_eq!(
                 latest_message.unwrap().1,
                 slot,
-                "Latest message slot should be equal to attester duty."
+                "Latest message slot for {} should be equal to slot {}.",
+                validator,
+                slot
             )
         } else {
             assert!(

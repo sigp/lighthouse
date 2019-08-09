@@ -349,14 +349,12 @@ where
                             agg_sig
                         };
 
-                        let attestation = Attestation {
+                        vec.push(Attestation {
                             aggregation_bits,
                             data,
                             custody_bits,
                             signature,
-                        };
-
-                        vec.push(attestation)
+                        })
                     }
                 }
             });
