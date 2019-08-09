@@ -590,6 +590,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     per_slot_processing(&mut state, &self.spec)?;
                 }
 
+                state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+
                 let attestation_slot = state.get_attestation_data_slot(&attestation.data)?;
 
                 // Reject any attestation where the `state` loaded from `data.beacon_block_root`
