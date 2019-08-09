@@ -1,5 +1,5 @@
+use eth2_hashing::hash;
 use ethereum_types::H256;
-use hashing::hash;
 
 /// Verify a proof that `leaf` exists at `index` in a Merkle tree rooted at `root`.
 ///

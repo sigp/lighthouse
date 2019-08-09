@@ -1,6 +1,5 @@
 use super::*;
 use ethereum_types::H256;
-use int_to_bytes::int_to_bytes32;
 
 macro_rules! impl_for_bitsize {
     ($type: ident, $bit_size: expr) => {
@@ -122,6 +121,13 @@ macro_rules! impl_for_list {
 impl_for_list!(Vec<T>);
 impl_for_list!(&[T]);
 
+/// Returns `int` as little-endian bytes with a length of 32.
+fn int_to_bytes32(int: u64) -> Vec<u8> {
+    let mut vec = int.to_le_bytes().to_vec();
+    vec.resize(32, 0);
+    vec
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -137,4 +143,22 @@ mod test {
         assert_eq!(false.tree_hash_root(), false_bytes);
     }
 
+    #[test]
+    fn int_to_bytes() {
+        assert_eq!(&int_to_bytes32(0), &[0; 32]);
+        assert_eq!(
+            &int_to_bytes32(1),
+            &[
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0
+            ]
+        );
+        assert_eq!(
+            &int_to_bytes32(u64::max_value()),
+            &[
+                255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+            ]
+        );
+    }
 }

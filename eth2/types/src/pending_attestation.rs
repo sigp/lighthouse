@@ -4,23 +4,12 @@ use crate::{AttestationData, BitList, EthSpec};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash_derive::{CachedTreeHash, TreeHash};
+use tree_hash_derive::TreeHash;
 
 /// An attestation that has been included in the state but not yet fully processed.
 ///
 /// Spec v0.8.0
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    CachedTreeHash,
-    TestRandom,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct PendingAttestation<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
@@ -34,5 +23,5 @@ mod tests {
     use crate::*;
 
     ssz_tests!(PendingAttestation<MainnetEthSpec>);
-    cached_tree_hash_tests!(PendingAttestation<MainnetEthSpec>);
+
 }

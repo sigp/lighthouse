@@ -6,6 +6,6 @@ edition = "2018"
 
 [dependencies]
 bytes = "0.4.10"
-hashing = { path = "../utils/hashing" }
-eth2_ssz = { path = "../utils/ssz" }
+eth2_hashing = { path = "../utils/eth2_hashing" }
+eth2_ssz = "0.1"
 types = { path = "../types" }

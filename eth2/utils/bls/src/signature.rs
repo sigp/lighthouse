@@ -111,8 +111,6 @@ impl_ssz!(Signature, BLS_SIG_BYTE_SIZE, "Signature");
 
 impl_tree_hash!(Signature, U96);
 
-impl_cached_tree_hash!(Signature, U96);
-
 impl Serialize for Signature {
     /// Serde serialization is compliant the Ethereum YAML test format.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -141,7 +139,6 @@ mod tests {
     use super::super::Keypair;
     use super::*;
     use ssz::ssz_encode;
-    use tree_hash::TreeHash;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -162,30 +159,6 @@ mod tests {
         let signature = Signature::new(&[42, 42], 0, &keypair.sk);
         let bytes = ssz_encode(&signature);
         assert_eq!(bytes.len(), BLS_SIG_BYTE_SIZE);
-    }
-
-    #[test]
-    // TODO: once `CachedTreeHash` is fixed, this test should _not_ panic.
-    #[should_panic]
-    pub fn test_cached_tree_hash() {
-        let keypair = Keypair::random();
-        let original = Signature::new(&[42, 42], 0, &keypair.sk);
-
-        let mut cache = cached_tree_hash::TreeHashCache::new(&original).unwrap();
-
-        assert_eq!(
-            cache.tree_hash_root().unwrap().to_vec(),
-            original.tree_hash_root()
-        );
-
-        let modified = Signature::new(&[99, 99], 0, &keypair.sk);
-
-        cache.update(&modified).unwrap();
-
-        assert_eq!(
-            cache.tree_hash_root().unwrap().to_vec(),
-            modified.tree_hash_root()
-        );
     }
 
     #[test]

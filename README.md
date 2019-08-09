@@ -69,7 +69,7 @@ In this example we use the `account_manager` to create some keys, launch two
 `beacon_nodes` should stay in sync and build a Beacon Chain.
 
 First, clone this repository, [setup a development
-environment](docs/installation.md) and navigate to the root directory of this repository.
+environment](docs/env.md) and navigate to the root directory of this repository.
 
 Then, run `$ cargo build --all --release` and navigate to the `target/release`
 directory and follow the steps:
