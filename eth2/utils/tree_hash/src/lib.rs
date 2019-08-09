@@ -108,7 +108,7 @@ mod test {
             let mut preimage = vec![42; BYTES_PER_CHUNK];
             preimage.append(&mut vec![42]);
             preimage.append(&mut vec![0; BYTES_PER_CHUNK - 1]);
-            hashing::hash(&preimage)
+            eth2_hashing::hash(&preimage)
         };
 
         assert_eq!(mix_in_length(&[42; BYTES_PER_CHUNK], 42), hash);

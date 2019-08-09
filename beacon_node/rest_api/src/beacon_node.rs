@@ -54,7 +54,7 @@ fn get_version(_req: Request<Body>) -> APIResult {
 fn get_genesis_time<T: BeaconChainTypes + 'static>(req: Request<Body>) -> APIResult {
     let beacon_chain = req.extensions().get::<Arc<BeaconChain<T>>>().unwrap();
     let gen_time = {
-        let state = beacon_chain.current_state();
+        let state = &beacon_chain.head().beacon_state;
         state.genesis_time
     };
     let body = Body::from(

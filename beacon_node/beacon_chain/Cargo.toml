@@ -15,10 +15,10 @@ serde_derive = "1.0"
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
 sloggers = { version = "^0.3" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
-eth2_ssz = { path = "../../eth2/utils/ssz" }
-eth2_ssz_derive = { path = "../../eth2/utils/ssz_derive" }
+eth2_ssz = "0.1"
+eth2_ssz_derive = "0.1"
 state_processing = { path = "../../eth2/state_processing" }
-tree_hash = { path = "../../eth2/utils/tree_hash" }
+tree_hash = "0.1"
 types = { path = "../../eth2/types" }
 lmd_ghost = { path = "../../eth2/lmd_ghost" }
 

@@ -1,4 +1,4 @@
-use hashing::hash;
+use eth2_hashing::hash;
 use int_to_bytes::int_to_bytes4;
 
 const SEED_SIZE: usize = 32;

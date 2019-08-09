@@ -1,6 +1,5 @@
 use super::*;
 use crate::case_result::compare_result;
-use cached_tree_hash::CachedTreeHash;
 use serde_derive::Deserialize;
 use ssz::{Decode, Encode};
 use std::fmt::Debug;
@@ -103,7 +102,6 @@ where
         + PartialEq<T>
         + serde::de::DeserializeOwned
         + TreeHash
-        + CachedTreeHash
         + TestRandom,
 {
     // Verify we can decode SSZ in the same way we can decode YAML.

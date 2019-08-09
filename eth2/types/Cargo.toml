@@ -6,14 +6,13 @@ edition = "2018"
 
 [dependencies]
 bls = { path = "../utils/bls" }
-cached_tree_hash = { path = "../utils/cached_tree_hash" }
 compare_fields = { path = "../utils/compare_fields" }
 compare_fields_derive = { path = "../utils/compare_fields_derive" }
 dirs = "1.0"
 derivative = "1.0"
 eth2_interop_keypairs = { path = "../utils/eth2_interop_keypairs" }
 ethereum-types = "0.6"
-hashing = { path = "../utils/hashing" }
+eth2_hashing = { path = "../utils/eth2_hashing" }
 hex = "0.3"
 int_to_bytes = { path = "../utils/int_to_bytes" }
 log = "0.4"
@@ -22,13 +21,13 @@ rand = "0.5.5"
 serde = "1.0"
 serde_derive = "1.0"
 slog = "^2.2.3"
-eth2_ssz = { path = "../utils/ssz" }
-eth2_ssz_derive = { path = "../utils/ssz_derive" }
+eth2_ssz = "0.1"
+eth2_ssz_derive = "0.1"
 eth2_ssz_types = { path = "../utils/ssz_types" }
 swap_or_not_shuffle = { path = "../utils/swap_or_not_shuffle" }
 test_random_derive = { path = "../utils/test_random_derive" }
-tree_hash = { path = "../utils/tree_hash" }
-tree_hash_derive = { path = "../utils/tree_hash_derive" }
+tree_hash = "0.1"
+tree_hash_derive = "0.2"
 
 [dev-dependencies]
 env_logger = "0.6.0"

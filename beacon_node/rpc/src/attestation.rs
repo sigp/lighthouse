@@ -40,7 +40,11 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
         // verify the slot, drop lock on state afterwards
         {
             let slot_requested = req.get_slot();
-            let state = &self.chain.current_state();
+            // TODO: this whole module is legacy and not maintained well.
+            let state = &self
+                .chain
+                .speculative_state()
+                .expect("This is legacy code and should be removed");
 
             // Start by performing some checks
             // Check that the AttestationData is for the current slot (otherwise it will not be valid)

@@ -86,8 +86,6 @@ impl_ssz!(
 
 impl_tree_hash!(FakeAggregateSignature, U96);
 
-impl_cached_tree_hash!(FakeAggregateSignature, U96);
-
 impl Serialize for FakeAggregateSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

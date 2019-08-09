@@ -3,23 +3,12 @@ use crate::{test_utils::TestRandom, Epoch, Hash256, PublicKey};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash_derive::{CachedTreeHash, TreeHash};
+use tree_hash_derive::TreeHash;
 
 /// Information about a `BeaconChain` validator.
 ///
 /// Spec v0.8.0
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    TreeHash,
-    CachedTreeHash,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 pub struct Validator {
     pub pubkey: PublicKey,
     pub withdrawal_credentials: Hash256,
@@ -128,5 +117,5 @@ mod tests {
     }
 
     ssz_tests!(Validator);
-    cached_tree_hash_tests!(Validator);
+
 }
