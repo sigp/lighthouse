@@ -19,6 +19,7 @@ pub enum Error {
 }
 
 pub struct ForkChoice<T: BeaconChainTypes> {
+    store: Arc<T::Store>,
     backend: T::LmdGhost,
     /// Used for resolving the `0x00..00` alias back to genesis.
     ///
@@ -38,6 +39,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         genesis_block_root: Hash256,
     ) -> Self {
         Self {
+            store: store.clone(),
             backend: T::LmdGhost::new(store, genesis_block, genesis_block_root),
             genesis_block_root,
         }
@@ -117,9 +119,19 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         //
         // https://github.com/ethereum/eth2.0-specs/blob/v0.7.0/specs/core/0_fork-choice.md
         for attestation in &block.body.attestations {
-            self.process_attestation(state, attestation, block)?;
+            let block = self
+                .store
+                .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)?
+                .ok_or_else(|| Error::MissingBlock(attestation.data.beacon_block_root))?;
+
+            self.process_attestation(state, attestation, &block)?;
         }
 
+        // This does not apply a vote to the block, it just makes fork choice aware of the block so
+        // it can still be identified as the head even if it doesn't have any votes.
+        //
+        // A case where a block without any votes can be the head is where it is the only child of
+        // a block that has the majority of votes applied to it.
         self.backend.process_block(block, block_root)?;
 
         Ok(())

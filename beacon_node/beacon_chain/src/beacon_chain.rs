@@ -524,7 +524,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 // If it turns out that the attestation was made using the head state, then there
                 // is no need to load a state from the database to process the attestation.
-                if state.current_epoch() == attestation_head_block.epoch()
+                //
+                // Note: use the epoch of the target because it indicates which epoch the
+                // attestation was created in. You cannot use the epoch of the head block, because
+                // the block doesn't necessarily need to be in the same epoch as the attestation
+                // (e.g., if there are skip slots between the epoch the block was created in and
+                // the epoch for the attestation).
+                if state.current_epoch() == attestation.data.target.epoch
                     && (state
                         .get_block_root(attestation_head_block.slot)
                         .map(|root| *root == attestation.data.beacon_block_root)
@@ -546,7 +552,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if let Some(outcome) = optional_outcome {
                 outcome
             } else {
-                // The state required to verify this attestation must be loaded from the database.
+                // Use the `data.beacon_block_root` to load the state from the latest non-skipped
+                // slot preceding the attestations creation.
+                //
+                // This state is guaranteed to be in the same chain as the attestation, but it's
+                // not guaranteed to be from the same slot or epoch as the attestation.
                 let mut state: BeaconState<T::EthSpec> = self
                     .store
                     .get(&attestation_head_block.state_root)?
@@ -554,7 +564,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 // Ensure the state loaded from the database matches the state of the attestation
                 // head block.
-                for _ in state.slot.as_u64()..attestation_head_block.slot.as_u64() {
+                //
+                // The state needs to be advanced from the current slot through to the epoch in
+                // which the attestation was created in. It would be an error to try and use
+                // `state.get_attestation_data_slot(..)` because the state matching the
+                // `data.beacon_block_root` isn't necessarily in a nearby epoch to the attestation
+                // (e.g., if there were lots of skip slots since the head of the chain and the
+                // epoch creation epoch).
+                for _ in state.slot.as_u64()
+                    ..attestation
+                        .data
+                        .target
+                        .epoch
+                        .start_slot(T::EthSpec::slots_per_epoch())
+                        .as_u64()
+                {
                     per_slot_processing(&mut state, &self.spec)?;
                 }
 
@@ -639,36 +663,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         timer.observe_duration();
 
         result
-
-        /*
-        if self
-            .fork_choice
-            .should_process_attestation(state, &attestation)?
-        {
-            // TODO: check validation.
-            let indexed_attestation = common::get_indexed_attestation(state, &attestation)?;
-            per_block_processing::is_valid_indexed_attestation(
-                state,
-                &indexed_attestation,
-                &self.spec,
-            )?;
-            self.fork_choice.process_attestation(&state, &attestation)?;
-        }
-
-        let result = self
-            .op_pool
-            .insert_attestation(attestation, state, &self.spec);
-
-        timer.observe_duration();
-
-        if result.is_ok() {
-            self.metrics.attestation_processing_successes.inc();
-        }
-
-        result
-            .map(|_| AttestationProcessingOutcome::Processed)
-            .map_err(|e| Error::AttestationValidationError(e))
-            */
     }
 
     /// Accept some deposit and queue it for inclusion in an appropriate block.
@@ -735,7 +729,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BlockProcessingOutcome::GenesisBlock);
         }
 
-        let block_root = block.block_header().canonical_root();
+        let block_root = block.canonical_root();
 
         if block_root == self.genesis_block_root {
             return Ok(BlockProcessingOutcome::GenesisBlock);
@@ -781,6 +775,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             per_slot_processing(&mut state, &self.spec)?;
         }
 
+        state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         // Apply the received block to its parent state (which has been transitioned into this
