@@ -119,12 +119,14 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         //
         // https://github.com/ethereum/eth2.0-specs/blob/v0.7.0/specs/core/0_fork-choice.md
         for attestation in &block.body.attestations {
-            let block = self
+            // If the `data.beacon_block_root` block is not known to us, simply ignore the latest
+            // vote.
+            if let Some(block) = self
                 .store
                 .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)?
-                .ok_or_else(|| Error::MissingBlock(attestation.data.beacon_block_root))?;
-
-            self.process_attestation(state, attestation, &block)?;
+            {
+                self.process_attestation(state, attestation, &block)?;
+            }
         }
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
