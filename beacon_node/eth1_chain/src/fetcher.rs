@@ -1,3 +1,8 @@
+use parking_lot::RwLock;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use types::DepositData;
+use web3::futures::{Future};
 use web3::types::*;
 
 /// Interface for getting Eth1 chain data.
@@ -14,10 +19,10 @@ pub trait Eth1DataFetcher {
     /// Get `deposit_count` from DepositContract at given eth1 block_number.
     fn get_deposit_count(&self, block_number: Option<BlockNumber>) -> Option<u64>;
 
-    /// Get `DepositEvent` events in given range.
-    fn get_deposit_logs_in_range(
+    /// Returns a future which subscribes to `DepositEvent` events and inserts the
+    /// parsed deposit into the passed cache structure everytime an event is emitted.
+    fn get_deposit_logs_subscription(
         &self,
-        start_block: BlockNumber,
-        end_block: BlockNumber,
-    ) -> Option<Vec<Log>>;
+        cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
+    ) -> Box<dyn Future<Item = (), Error = ()>>;
 }

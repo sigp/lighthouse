@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 web3 = "0.8.0"
+parking_lot = "0.7"
 tokio-core = "0.1.17"
 ethabi = "8.0.0"
 types = { path = "../../eth2/types" }

@@ -1,14 +1,16 @@
-use bls::{PublicKeyBytes, SignatureBytes};
-use ethabi::{decode, ParamType, Token};
+use parking_lot::RwLock;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 use types::DepositData;
 use web3::contract::{Contract, Options};
-use web3::futures::Future;
+use web3::futures::{Future, Stream};
 use web3::transports::WebSocket;
 use web3::types::FilterBuilder;
 use web3::types::*;
 use web3::Web3;
 
 use crate::fetcher::Eth1DataFetcher;
+use crate::utils::*;
 
 /// Config for an Eth1 chain contract.
 #[derive(Debug, Clone)]
@@ -21,8 +23,8 @@ pub struct ContractConfig {
 
 /// Wrapper around web3 api.
 pub struct Web3DataFetcher {
-    _event_loop: web3::transports::EventLoopHandle,
-    web3: web3::api::Web3<web3::transports::ws::WebSocket>,
+    pub event_loop: web3::transports::EventLoopHandle,
+    pub web3: web3::api::Web3<web3::transports::ws::WebSocket>,
     /// Deposit contract config.
     contract: ContractConfig,
 }
@@ -33,10 +35,27 @@ impl Web3DataFetcher {
         let (event_loop, transport) = WebSocket::new(endpoint).unwrap();
         let web3 = Web3::new(transport);
         Web3DataFetcher {
-            _event_loop: event_loop,
+            event_loop: event_loop,
             web3,
             contract: deposit_contract,
         }
+    }
+
+    /// Return filter for subscribing to `DepositEvent` event.
+    fn get_deposit_logs_filter(&self) -> Filter {
+        /// Keccak256 hash of "DepositEvent" in bytes for passing to log filter.
+        const DEPOSIT_CONTRACT_HASH: &str =
+            "649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5";
+        let filter = FilterBuilder::default()
+            .address(vec![self.contract.address])
+            .topics(
+                Some(vec![DEPOSIT_CONTRACT_HASH.parse().unwrap()]),
+                None,
+                None,
+                None,
+            )
+            .build();
+        filter
     }
 }
 
@@ -88,77 +107,27 @@ impl Eth1DataFetcher for Web3DataFetcher {
         Some(H256::from_slice(&deposit_root))
     }
 
-    /// Get `DepositEvent` events in given range.
-    fn get_deposit_logs_in_range(
+    /// Returns a future which subscribes to `DepositEvent` events and inserts the
+    /// parsed deposit into the passed cache structure everytime an event is emitted.
+    fn get_deposit_logs_subscription(
         &self,
-        start_block: BlockNumber,
-        end_block: BlockNumber,
-    ) -> Option<Vec<Log>> {
-        /// Keccak256 hash of "DepositEvent" in bytes for passing to log filter.
-        const DEPOSIT_CONTRACT_HASH: &str =
-            "649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5";
-        let filter = FilterBuilder::default()
-            .address(vec![self.contract.address])
-            .topics(
-                Some(vec![DEPOSIT_CONTRACT_HASH.parse().unwrap()]),
-                None,
-                None,
-                None,
-            )
-            .from_block(start_block)
-            .to_block(end_block)
-            .build();
-        self.web3.eth().logs(filter).wait().ok()
-    }
-}
-
-// Converts a valid vector to a u64.
-fn vec_to_u64_le(bytes: &[u8]) -> Option<u64> {
-    let mut array = [0; 8];
-    if bytes.len() == 8 {
-        let bytes = &bytes[..array.len()];
-        array.copy_from_slice(bytes);
-        Some(u64::from_le_bytes(array))
-    } else {
-        None
-    }
-}
-
-/// Parse contract logs.
-fn parse_logs(log: Log, types: &[ParamType]) -> Option<Vec<Token>> {
-    decode(types, &log.data.0).ok()
-}
-
-/// Parse logs from deposit contract.
-pub fn parse_deposit_logs(log: Log) -> Option<DepositData> {
-    let deposit_event_params = &[
-        ParamType::FixedBytes(48), // pubkey
-        ParamType::FixedBytes(32), // withdrawal_credentials
-        ParamType::FixedBytes(8),  // amount
-        ParamType::FixedBytes(96), // signature
-        ParamType::FixedBytes(8),  // index
-    ];
-    let parsed_logs = parse_logs(log, deposit_event_params).unwrap();
-    // Convert from tokens to Vec<u8>.
-    let params = parsed_logs
-        .into_iter()
-        .map(|x| match x {
-            Token::FixedBytes(v) => Some(v),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()?;
-
-    // Event should have exactly 5 parameters.
-    if params.len() == 5 {
-        Some(DepositData {
-            pubkey: PublicKeyBytes::from_bytes(&params[0]).unwrap(),
-            withdrawal_credentials: H256::from_slice(&params[1]),
-            amount: vec_to_u64_le(&params[2])?,
-            signature: SignatureBytes::from_bytes(&params[3]).ok()?,
-            // How is index used?
-        })
-    } else {
-        None
+        cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
+    ) -> Box<dyn Future<Item = (), Error = ()>> {
+        let filter: Filter = self.get_deposit_logs_filter();
+        let event_future = self
+            .web3
+            .eth_subscribe()
+            .subscribe_logs(filter)
+            .then(move |sub| {
+                sub.unwrap().for_each(move |log| {
+                    let parsed_logs = parse_deposit_logs(log).unwrap();
+                    let mut logs = cache.write();
+                    logs.insert(parsed_logs.0, parsed_logs.1);
+                    Ok(())
+                })
+            })
+            .map_err(|_| ());
+        Box::new(event_future)
     }
 }
 
@@ -224,24 +193,6 @@ mod tests {
         .into();
         let deposit_root = w3.get_deposit_root(None);
         assert_eq!(deposit_root, Some(expected));
-    }
-
-    #[test]
-    fn test_deposit_contract_logs() {
-        let deposit_contract_address: Address =
-            "8c594691C0E592FFA21F153a16aE41db5beFcaaa".parse().unwrap();
-        let deposit_contract = ContractConfig {
-            address: deposit_contract_address,
-            abi: include_bytes!("deposit_contract.json").to_vec(),
-        };
-        let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract);
-        let logs = w3
-            .get_deposit_logs_in_range(BlockNumber::Earliest, BlockNumber::Latest)
-            .unwrap();
-
-        for log in logs {
-            assert!(parse_deposit_logs(log).is_some());
-        }
     }
 
 }
