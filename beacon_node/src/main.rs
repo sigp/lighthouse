@@ -4,7 +4,7 @@ use clap::{App, Arg};
 use client::{ClientConfig, Eth2Config};
 use env_logger::{Builder, Env};
 use eth2_config::{read_from_file, write_to_file};
-use slog::{crit, o, Drain, Level};
+use slog::{crit, o, warn, Drain, Level};
 use std::fs;
 use std::path::PathBuf;
 
@@ -323,19 +323,36 @@ fn main() {
         Some("interop") => Some(Eth2Config::interop()),
         _ => None,
     };
-    // if cli is specified, write the new config
+    // if a CLI flag is specified, write the new config if it doesn't exist,
+    // otherwise notify the user that the file will not be written.
+    let eth2_config_from_file = match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
+        Ok(config) => config,
+        Err(e) => {
+            crit!(log, "Failed to read the Eth2Config from file"; "error" => format!("{:?}", e));
+            return;
+        }
+    };
+
     let mut eth2_config = {
         if let Some(cli_config) = cli_config {
-            if let Err(e) = write_to_file(eth2_config_path, &cli_config) {
-                crit!(log, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
-                return;
+            if eth2_config_from_file.is_none() {
+                // write to file if one doesn't exist
+                if let Err(e) = write_to_file(eth2_config_path, &cli_config) {
+                    crit!(log, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
+                    return;
+                }
+            } else {
+                warn!(
+                    log,
+                    "Eth2Config file exists. Configuration file is ignored, using default"
+                );
             }
             cli_config
         } else {
-            // config not specified, read from disk
-            match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
-                Ok(Some(c)) => c,
-                Ok(None) => {
+            // CLI config not specified, read from disk
+            match eth2_config_from_file {
+                Some(config) => config,
+                None => {
                     // set default to minimal
                     let eth2_config = Eth2Config::minimal();
                     if let Err(e) = write_to_file(eth2_config_path, &eth2_config) {
@@ -343,10 +360,6 @@ fn main() {
                         return;
                     }
                     eth2_config
-                }
-                Err(e) => {
-                    crit!(log, "Failed to instantiate an Eth2Config"; "error" => format!("{:?}", e));
-                    return;
                 }
             }
         }
@@ -363,7 +376,7 @@ fn main() {
 
     // check to ensure the spec constants between the client and eth2_config match
     if eth2_config.spec_constants != client_config.spec_constants {
-        crit!(log, "Specification constants do not match."; "Client Config" => format!("{}", client_config.spec_constants), "Eth2 Config" => format!("{}", eth2_config.spec_constants));
+        crit!(log, "Specification constants do not match."; "client_config" => format!("{}", client_config.spec_constants), "eth2_config" => format!("{}", eth2_config.spec_constants));
         return;
     }
 

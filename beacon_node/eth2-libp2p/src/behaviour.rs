@@ -19,6 +19,8 @@ use ssz::{ssz_encode, Encode};
 use std::num::NonZeroU32;
 use std::time::Duration;
 
+const MAX_IDENTIFY_ADDRESSES: usize = 20;
+
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
 /// behaviours.
@@ -148,12 +150,12 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
             IdentifyEvent::Identified {
                 peer_id, mut info, ..
             } => {
-                if info.listen_addrs.len() > 20 {
+                if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
                     debug!(
                         self.log,
                         "More than 20 addresses have been identified, truncating"
                     );
-                    info.listen_addrs.truncate(20);
+                    info.listen_addrs.truncate(MAX_IDENTIFY_ADDRESSES);
                 }
                 debug!(self.log, "Identified Peer"; "Peer" => format!("{}", peer_id),
                 "Protocol Version" => info.protocol_version,
@@ -264,55 +266,3 @@ impl Encode for PubsubMessage {
         }
     }
 }
-
-/*
-impl Decode for PubsubMessage {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        let mut builder = ssz::SszDecoderBuilder::new(&bytes);
-
-        builder.register_type::<u32>()?;
-        builder.register_type::<Vec<u8>>()?;
-
-        let mut decoder = builder.build()?;
-
-        let id: u32 = decoder.decode_next()?;
-        let body: Vec<u8> = decoder.decode_next()?;
-
-        match id {
-            0 => Ok(PubsubMessage::Block(BeaconBlock::from_ssz_bytes(&body)?)),
-            1 => Ok(PubsubMessage::Attestation(Attestation::from_ssz_bytes(
-                &body,
-            )?)),
-            _ => Err(DecodeError::BytesInvalid(
-                "Invalid PubsubMessage id".to_string(),
-            )),
-        }
-    }
-}
-*/
-
-/*
-#[cfg(test)]
-mod test {
-    use super::*;
-    use types::*;
-
-    #[test]
-    fn ssz_encoding() {
-        let original = PubsubMessage::Block(BeaconBlock::<MainnetEthSpec>::empty(
-            &MainnetEthSpec::default_spec(),
-        ));
-
-        let encoded = ssz_encode(&original);
-
-        let decoded = PubsubMessage::from_ssz_bytes(&encoded).unwrap();
-
-        assert_eq!(original, decoded);
-    }
-
-}
-*/

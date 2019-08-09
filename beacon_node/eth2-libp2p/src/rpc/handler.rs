@@ -268,8 +268,11 @@ where
         Self::Error,
     > {
         if let Some(err) = self.pending_error.take() {
+            // Returning an error here will result in dropping any peer that doesn't support any of
+            // the RPC protocols. For our immediate purposes we permit this and simply log that an
+            // upgrade was not supported.
+            // TODO: Add a logger to the handler for trace output.
             dbg!(&err);
-            //return Err(err);
         }
 
         // return any events that need to be reported
