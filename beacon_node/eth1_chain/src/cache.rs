@@ -7,13 +7,13 @@ const START: u64 = 1024;
 const END: u64 = 3072;
 
 /// Cache for recent Eth1Data fetched from the Eth1 chain.
-pub struct Eth1Cache {
+pub struct Eth1DataCache {
     cache: BTreeMap<U256, Eth1Data>,
 }
 
-impl Eth1Cache {
+impl Eth1DataCache {
     pub fn new() -> Self {
-        Eth1Cache {
+        Eth1DataCache {
             cache: BTreeMap::new(),
         }
     }
@@ -57,7 +57,8 @@ impl Eth1Cache {
     }
 
     /// Returns a Vec<Eth1Data> corresponding to given distance range.
-    pub fn get_eth1_data_in_range<T: Eth1DataFetcher>(&mut self,
+    pub fn get_eth1_data_in_range<T: Eth1DataFetcher>(
+        &mut self,
         eth1_fetcher: &T,
         start: u64,
         end: u64,

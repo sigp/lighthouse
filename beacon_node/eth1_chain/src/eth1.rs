@@ -1,8 +1,7 @@
+use crate::cache::*;
+use crate::fetcher::Eth1DataFetcher;
 use std::cmp::Ordering;
 use types::*;
-use crate::fetcher::Eth1DataFetcher;
-use crate::cache::*;
-
 
 const ETH1_FOLLOW_DISTANCE: u64 = 1024; // Need to move this to eth2_config.toml
 
@@ -12,12 +11,18 @@ pub fn get_eth1_votes<T: EthSpec, F: Eth1DataFetcher>(
     state: BeaconState<T>,
     previous_eth1_distance: u64,
     eth1_fetcher: &F,
-    eth1_cache: &mut Eth1Cache,
+    eth1_cache: &mut Eth1DataCache,
 ) -> Eth1Data {
-    let new_eth1_data =
-        eth1_cache.get_eth1_data_in_range(eth1_fetcher, ETH1_FOLLOW_DISTANCE, 2 * ETH1_FOLLOW_DISTANCE);
-    let all_eth1_data =
-        eth1_cache.get_eth1_data_in_range(eth1_fetcher, ETH1_FOLLOW_DISTANCE, previous_eth1_distance);
+    let new_eth1_data = eth1_cache.get_eth1_data_in_range(
+        eth1_fetcher,
+        ETH1_FOLLOW_DISTANCE,
+        2 * ETH1_FOLLOW_DISTANCE,
+    );
+    let all_eth1_data = eth1_cache.get_eth1_data_in_range(
+        eth1_fetcher,
+        ETH1_FOLLOW_DISTANCE,
+        previous_eth1_distance,
+    );
     let mut valid_votes: Vec<Eth1Data> = vec![];
     for (slot, vote) in state.eth1_data_votes.iter().enumerate() {
         let period_tail: bool = (slot as u64 % T::SlotsPerEth1VotingPeriod::to_u64())
@@ -43,5 +48,9 @@ pub fn get_eth1_votes<T: EthSpec, F: Eth1DataFetcher>(
             }
             result
         })
-        .unwrap_or(eth1_cache.get_eth1_data(ETH1_FOLLOW_DISTANCE, eth1_fetcher).unwrap()) //TODO: Better error handling
+        .unwrap_or(
+            eth1_cache
+                .get_eth1_data(ETH1_FOLLOW_DISTANCE, eth1_fetcher)
+                .unwrap(),
+        ) //TODO: Better error handling
 }
