@@ -123,7 +123,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     /// Handle the connection of a new peer.
     ///
     /// Sends a `Hello` message to the peer.
-    pub fn on_connect(&self, peer_id: PeerId, network: &mut NetworkContext<T::EthSpec>) {
+    pub fn on_connect(&self, peer_id: PeerId, network: &mut NetworkContext) {
         info!(self.log, "PeerConnected"; "peer" => format!("{:?}", peer_id));
 
         network.send_rpc_request(peer_id, RPCRequest::Hello(hello_message(&self.chain)));
@@ -137,7 +137,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         peer_id: PeerId,
         request_id: RequestId,
         hello: HelloMessage,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         debug!(self.log, "HelloRequest"; "peer" => format!("{:?}", peer_id));
 
@@ -156,7 +156,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         hello: HelloMessage,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         debug!(self.log, "HelloResponse"; "peer" => format!("{:?}", peer_id));
 
@@ -171,7 +171,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         hello: HelloMessage,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         let remote = PeerSyncInfo::from(hello);
         let local = PeerSyncInfo::from(&self.chain);
@@ -278,7 +278,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         peer_id: PeerId,
         request_id: RequestId,
         req: BeaconBlockRootsRequest,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         let state = &self.chain.head().beacon_state;
 
@@ -325,7 +325,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         res: BeaconBlockRootsResponse,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         debug!(
             self.log,
@@ -389,7 +389,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         peer_id: PeerId,
         request_id: RequestId,
         req: BeaconBlockHeadersRequest,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         let state = &self.chain.head().beacon_state;
 
@@ -441,7 +441,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         headers: Vec<BeaconBlockHeader>,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         debug!(
             self.log,
@@ -473,7 +473,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         peer_id: PeerId,
         request_id: RequestId,
         req: BeaconBlockBodiesRequest,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         let block_bodies: Vec<BeaconBlockBody<_>> = req
             .block_roots
@@ -519,7 +519,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         res: DecodedBeaconBlockBodiesResponse<T::EthSpec>,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         debug!(
             self.log,
@@ -558,7 +558,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         block: BeaconBlock<T::EthSpec>,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) -> bool {
         if let Some(outcome) =
             self.process_block(peer_id.clone(), block.clone(), network, &"gossip")
@@ -628,7 +628,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         _peer_id: PeerId,
         msg: Attestation<T::EthSpec>,
-        _network: &mut NetworkContext<T::EthSpec>,
+        _network: &mut NetworkContext,
     ) {
         match self.chain.process_attestation(msg) {
             Ok(()) => info!(self.log, "ImportedAttestation"; "source" => "gossip"),
@@ -643,7 +643,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         req: BeaconBlockRootsRequest,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         // Potentially set state to sync.
         if self.state == SyncState::Idle && req.count > SLOT_IMPORT_TOLERANCE {
@@ -667,7 +667,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         req: BeaconBlockHeadersRequest,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         debug!(
             self.log,
@@ -684,7 +684,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         req: BeaconBlockBodiesRequest,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
     ) {
         debug!(
             self.log,
@@ -720,7 +720,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         block_root: Hash256,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
         source: &str,
     ) -> Option<BlockProcessingOutcome> {
         match self.import_queue.attempt_complete_block(block_root) {
@@ -813,7 +813,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         block: BeaconBlock<T::EthSpec>,
-        network: &mut NetworkContext<T::EthSpec>,
+        network: &mut NetworkContext,
         source: &str,
     ) -> Option<BlockProcessingOutcome> {
         let processing_result = self.chain.process_block(block.clone());
@@ -915,9 +915,9 @@ fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMes
     let state = &beacon_chain.head().beacon_state;
 
     HelloMessage {
-        //TODO: Correctly define the chain/network id
-        network_id: spec.chain_id,
-        chain_id: u64::from(spec.chain_id),
+        network_id: spec.network_id,
+        //TODO: Correctly define the chain id
+        chain_id: spec.network_id as u64,
         latest_finalized_root: state.finalized_checkpoint.root,
         latest_finalized_epoch: state.finalized_checkpoint.epoch,
         best_root: beacon_chain.head().beacon_block_root,
