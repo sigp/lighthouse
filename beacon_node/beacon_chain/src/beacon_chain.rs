@@ -69,6 +69,11 @@ pub enum AttestationProcessingOutcome {
         state: Slot,
         attestation: Slot,
     },
+    /// The slot is finalized, no need to import.
+    FinalizedSlot {
+        attestation: Epoch,
+        finalized: Epoch,
+    },
     Invalid(AttestationValidationError),
 }
 
@@ -550,6 +555,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .store
             .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)?
         {
+            let finalized_epoch = self.head().beacon_state.finalized_checkpoint.epoch;
+
+            if attestation_head_block.slot
+                <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch())
+            {
+                // Ignore any attestation where the slot of `data.beacon_block_root` is equal to or
+                // prior to the finalized epoch.
+                //
+                // For any valid attestation if the `beacon_block_root` is prior to finalization, then
+                // all other parameters (source, target, etc) must all be prior to finalization and
+                // therefore no longer interesting.
+                return Ok(AttestationProcessingOutcome::FinalizedSlot {
+                    attestation: attestation_head_block.epoch(),
+                    finalized: finalized_epoch,
+                });
+            }
+
             // Attempt to process the attestation using the `self.head()` state.
             //
             // This is purely an effort to avoid loading a `BeaconState` unnecessarily from the DB.
@@ -688,7 +710,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.metrics.attestation_processing_requests.inc();
         let timer = self.metrics.attestation_processing_times.start_timer();
 
-        let result = if let Err(e) =
+        // Find the highest between:
+        //
+        // - The highest valid finalized epoch we've ever seen (i.e., the head).
+        // - The finalized epoch that this attestation was created against.
+        let finalized_epoch = std::cmp::max(
+            self.head().beacon_state.finalized_checkpoint.epoch,
+            state.finalized_checkpoint.epoch,
+        );
+
+        let result = if block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()) {
+            // Ignore any attestation where the slot of `data.beacon_block_root` is equal to or
+            // prior to the finalized epoch.
+            //
+            // For any valid attestation if the `beacon_block_root` is prior to finalization, then
+            // all other parameters (source, target, etc) must all be prior to finalization and
+            // therefore no longer interesting.
+            Ok(AttestationProcessingOutcome::FinalizedSlot {
+                attestation: block.slot.epoch(T::EthSpec::slots_per_epoch()),
+                finalized: finalized_epoch,
+            })
+        } else if let Err(e) =
             verify_attestation_for_state(state, &attestation, &self.spec, VerifySignatures::True)
         {
             warn!(
