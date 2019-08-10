@@ -37,6 +37,13 @@ impl Eth2Config {
             spec: ChainSpec::minimal(),
         }
     }
+
+    pub fn interop() -> Self {
+        Self {
+            spec_constants: "interop".to_string(),
+            spec: ChainSpec::interop(),
+        }
+    }
 }
 
 impl Eth2Config {

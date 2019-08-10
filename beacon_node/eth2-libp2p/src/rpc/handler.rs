@@ -5,23 +5,21 @@ use crate::rpc::protocol::{InboundFramed, OutboundFramed};
 use core::marker::PhantomData;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use libp2p::core::protocols_handler::{
+use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
+use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
 use smallvec::SmallVec;
 use std::time::{Duration, Instant};
 use tokio_io::{AsyncRead, AsyncWrite};
-use types::EthSpec;
 
 /// The time (in seconds) before a substream that is awaiting a response times out.
 pub const RESPONSE_TIMEOUT: u64 = 9;
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
-pub struct RPCHandler<TSubstream, E>
+pub struct RPCHandler<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
-    E: EthSpec,
 {
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol>,
@@ -56,8 +54,8 @@ where
     /// After the given duration has elapsed, an inactive connection will shutdown.
     inactive_timeout: Duration,
 
-    /// Phantom EthSpec.
-    _phantom: PhantomData<E>,
+    /// Marker to pin the generic stream.
+    _phantom: PhantomData<TSubstream>,
 }
 
 /// An outbound substream is waiting a response from the user.
@@ -90,10 +88,9 @@ where
     },
 }
 
-impl<TSubstream, E> RPCHandler<TSubstream, E>
+impl<TSubstream> RPCHandler<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
-    E: EthSpec,
 {
     pub fn new(
         listen_protocol: SubstreamProtocol<RPCProtocol>,
@@ -145,20 +142,18 @@ where
     }
 }
 
-impl<TSubstream, E> Default for RPCHandler<TSubstream, E>
+impl<TSubstream> Default for RPCHandler<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
-    E: EthSpec,
 {
     fn default() -> Self {
         RPCHandler::new(SubstreamProtocol::new(RPCProtocol), Duration::from_secs(30))
     }
 }
 
-impl<TSubstream, E> ProtocolsHandler for RPCHandler<TSubstream, E>
+impl<TSubstream> ProtocolsHandler for RPCHandler<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
-    E: EthSpec,
 {
     type InEvent = RPCEvent;
     type OutEvent = RPCEvent;
@@ -273,7 +268,11 @@ where
         Self::Error,
     > {
         if let Some(err) = self.pending_error.take() {
-            return Err(err);
+            // Returning an error here will result in dropping any peer that doesn't support any of
+            // the RPC protocols. For our immediate purposes we permit this and simply log that an
+            // upgrade was not supported.
+            // TODO: Add a logger to the handler for trace output.
+            dbg!(&err);
         }
 
         // return any events that need to be reported

@@ -308,7 +308,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// It is important to note that the `beacon_state` returned may not match the present slot. It
     /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
-    pub fn head(&self) -> RwLockReadGuard<CheckPoint<T::EthSpec>> {
+    pub fn head<'a>(&'a self) -> RwLockReadGuard<'a, CheckPoint<T::EthSpec>> {
         self.canonical_head.read()
     }
 
