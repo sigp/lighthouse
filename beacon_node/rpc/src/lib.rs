@@ -25,7 +25,7 @@ use tokio::sync::mpsc;
 pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     config: &RPCConfig,
     executor: &TaskExecutor,
-    network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_chan: mpsc::UnboundedSender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
     log: &slog::Logger,
 ) -> exit_future::Signal {
