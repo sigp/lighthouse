@@ -178,27 +178,9 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         Ok(())
     }
 
-    /// Determines whether or not the given attestation contains a latest message.
-    pub fn should_process_attestation(
-        &self,
-        state: &BeaconState<T::EthSpec>,
-        attestation: &Attestation<T::EthSpec>,
-    ) -> Result<bool> {
-        let validator_indices =
-            get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
-
-        let block_slot = state.get_attestation_data_slot(&attestation.data)?;
-
-        Ok(validator_indices
-            .iter()
-            .find(|&&v| match self.backend.latest_message(v) {
-                Some((_, slot)) => block_slot > slot,
-                None => true,
-            })
-            .is_some())
-    }
-
-    // Returns the latest message for a given validator
+    /// Returns the latest message for a given validator, if any.
+    ///
+    /// Returns `(block_root, block_slot)`.
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
         self.backend.latest_message(validator_index)
     }
