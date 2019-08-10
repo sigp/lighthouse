@@ -539,11 +539,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // (e.g., if there are skip slots between the epoch the block was created in and
                 // the epoch for the attestation).
                 if state.current_epoch() == attestation.data.target.epoch
-                    && (state
-                        .get_block_root(attestation_head_block.slot)
-                        .map(|root| *root == attestation.data.beacon_block_root)
-                        .unwrap_or_else(|_| false)
-                        || attestation.data.beacon_block_root == self.head().beacon_block_root)
+                    && (attestation.data.beacon_block_root == self.head().beacon_block_root
+                        || state
+                            .get_block_root(attestation_head_block.slot)
+                            .map(|root| *root == attestation.data.beacon_block_root)
+                            .unwrap_or_else(|_| false))
                 {
                     // The head state is able to be used to validate this attestation. No need to load
                     // anything from the database.
@@ -558,6 +558,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             if let Some(outcome) = optional_outcome {
+                // Verification was already completed with an in-memory state. Return that result.
                 outcome
             } else {
                 // Use the `data.beacon_block_root` to load the state from the latest non-skipped
@@ -612,13 +613,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         } else {
-            // Reject any block where we have not processed `attestation.data.beacon_block_root`.
+            // Drop any attestation where we have not processed `attestation.data.beacon_block_root`.
             //
             // This is likely overly restrictive, we could store the attestation for later
             // processing.
             warn!(
                 self.log,
-                "Dropping attestation for unknown block";
+                "Dropped attestation for unknown block";
                 "block" => format!("{}", attestation.data.beacon_block_root)
             );
             Ok(AttestationProcessingOutcome::UnknownHeadBlock {
