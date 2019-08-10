@@ -111,7 +111,7 @@ where
     }
 
     fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
-        self.core.write().latest_message(validator_index)
+        self.core.read().latest_message(validator_index)
     }
 }
 
@@ -258,10 +258,10 @@ where
         Ok(head_node.block_hash)
     }
 
-    pub fn latest_message(&mut self, validator_index: usize) -> Option<(Hash256, Slot)> {
-        match self.latest_votes.get(validator_index) {
-            Some(v) => Some((v.hash.clone(), v.slot.clone())),
-            None => None,
+    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
+        match self.latest_votes.get_ref(validator_index) {
+            Some(Some(v)) => Some((v.hash.clone(), v.slot.clone())),
+            _ => None,
         }
     }
 
@@ -774,6 +774,14 @@ where
     pub fn get(&mut self, i: usize) -> &T {
         self.ensure(i);
         &self.0[i]
+    }
+
+    pub fn get_ref(&self, i: usize) -> Option<&T> {
+        if i < self.0.len() {
+            Some(&self.0[i])
+        } else {
+            None
+        }
     }
 
     pub fn insert(&mut self, i: usize, element: T) {
