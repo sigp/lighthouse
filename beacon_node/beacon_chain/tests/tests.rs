@@ -395,6 +395,7 @@ fn attestations_with_increasing_slots() {
             &AttestationStrategy::AllValidators,
             &harness.chain.head().beacon_state,
             harness.chain.head().beacon_block_root,
+            harness.chain.head().beacon_block.slot,
         ));
 
         harness.advance_slot();
