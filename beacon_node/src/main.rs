@@ -210,7 +210,6 @@ fn main() {
             Arg::with_name("debug-level")
                 .long("debug-level")
                 .value_name("LEVEL")
-                .short("s")
                 .help("The title of the spec constants for chain config.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])

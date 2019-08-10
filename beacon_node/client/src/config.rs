@@ -26,7 +26,7 @@ pub struct Config {
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub http: HttpServerConfig,
-    pub rest_api: rest_api::APIConfig,
+    pub rest_api: rest_api::ApiConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,7 +60,7 @@ impl Default for Config {
             network: NetworkConfig::new(),
             rpc: rpc::RPCConfig::default(),
             http: HttpServerConfig::default(),
-            rest_api: rest_api::APIConfig::default(),
+            rest_api: rest_api::ApiConfig::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
             genesis_state: GenesisState::RecentGenesis {
                 validator_count: TESTNET_VALIDATOR_COUNT,
