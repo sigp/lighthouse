@@ -506,8 +506,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Accept a new, potentially invalid attestation from the network.
     ///
-    /// If valid, the attestation is added to the `op_pool` and aggregated with another attestation
-    /// if possible.
+    /// If valid, the attestation is added to `self.op_pool` and `self.fork_choice`.
+    ///
+    /// Returns an `Ok(AttestationProcessingOutcome)` if the chain was able to make a determination
+    /// about the `attestation` (wether it was invalid or not). Returns an `Err` if the was an
+    /// error during this process and no determination was able to be made.
+    ///
+    /// ## Notes
+    ///
+    /// - Whilst the `attestation` is added to fork choice, the head is not updated. That must be
+    /// done separately.
     pub fn process_attestation(
         &self,
         attestation: Attestation<T::EthSpec>,
@@ -538,6 +546,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // the block doesn't necessarily need to be in the same epoch as the attestation
                 // (e.g., if there are skip slots between the epoch the block was created in and
                 // the epoch for the attestation).
+                //
+                // This check also ensures that the slot for `data.beacon_block_root` is not higher
+                // than `state.root` by ensuring that the block is in the history of `state`.
                 if state.current_epoch() == attestation.data.target.epoch
                     && (attestation.data.beacon_block_root == self.head().beacon_block_root
                         || state
@@ -638,9 +649,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// - `state` corresponds to the `block.state_root` identified by
     /// `attestation.data.beacon_block_root`. (Viz., `attestation` was created using `state`.
-    /// - `state.slot` is in the same epoch as `block.slot` and
-    /// `attestation.data.beacon_block_root` is in `state.block_roots`. (Viz., the attestation was
-    /// attesting to an ancestor of `state` from the same epoch as `state`.
+    /// - `state.slot` is in the same epoch as `data.target.epoch` and
+    /// `attestation.data.beacon_block_root` is in the history of `state`.
     ///
     /// Additionally, `attestation.data.beacon_block_root` **must** be available to read in
     /// `self.store` _and_ be the root of the given `block`.
