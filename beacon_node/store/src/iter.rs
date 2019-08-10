@@ -15,7 +15,7 @@ pub trait AncestorIter<U: Store, I: Iterator> {
 }
 
 impl<'a, U: Store, E: EthSpec> AncestorIter<U, BlockRootsIterator<'a, E, U>> for BeaconBlock<E> {
-    /// Iterates across all the prior block roots of `self`, starting at the most recent and ending
+    /// Iterates across all available prior block roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<BlockRootsIterator<'a, E, U>> {
         let state = store.get::<BeaconState<E>>(&self.state_root).ok()??;
@@ -25,11 +25,11 @@ impl<'a, U: Store, E: EthSpec> AncestorIter<U, BlockRootsIterator<'a, E, U>> for
 }
 
 impl<'a, U: Store, E: EthSpec> AncestorIter<U, StateRootsIterator<'a, E, U>> for BeaconState<E> {
-    /// Iterates across all the prior state roots of `self`, starting at the most recent and ending
+    /// Iterates across all available prior state roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<StateRootsIterator<'a, E, U>> {
         // The `self.clone()` here is wasteful.
-        Some(StateRootsIterator::owned(store, self.clone(), self.slot))
+        Some(StateRootsIterator::owned(store, self.clone()))
     }
 }
 
