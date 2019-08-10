@@ -12,8 +12,8 @@ harness = false
 criterion = "0.2"
 yaml-rust = "0.4.2"
 hex = "0.3"
-ethereum-types = "0.5"
+ethereum-types = "0.6"
 
 [dependencies]
-hashing = { path = "../hashing" }
+eth2_hashing = { path = "../eth2_hashing" }
 int_to_bytes = { path = "../int_to_bytes" }

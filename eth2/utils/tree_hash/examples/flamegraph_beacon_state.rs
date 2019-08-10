@@ -1,4 +1,3 @@
-use tree_hash::TreeHash;
 use types::test_utils::TestingBeaconStateBuilder;
 use types::{BeaconState, EthSpec, MainnetEthSpec};
 
@@ -29,7 +28,7 @@ fn main() {
     let mut vec = Vec::with_capacity(TREE_HASH_LOOPS);
 
     for _ in 0..TREE_HASH_LOOPS {
-        let root = state.tree_hash_root();
+        let root = state.canonical_root();
         vec.push(root[0]);
     }
 }

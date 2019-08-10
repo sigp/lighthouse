@@ -143,8 +143,6 @@ impl_ssz!(
 
 impl_tree_hash!(AggregateSignature, U96);
 
-impl_cached_tree_hash!(AggregateSignature, U96);
-
 impl Serialize for AggregateSignature {
     /// Serde serialization is compliant the Ethereum YAML test format.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

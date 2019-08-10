@@ -6,23 +6,12 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use test_random_derive::TestRandom;
-use tree_hash_derive::{CachedTreeHash, TreeHash};
+use tree_hash_derive::TreeHash;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
 /// Spec v0.8.0
-#[derive(
-    Debug,
-    PartialEq,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    CachedTreeHash,
-    TestRandom,
-)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct BeaconBlockBody<T: EthSpec> {
     pub randao_reveal: Signature,
@@ -42,5 +31,4 @@ mod tests {
     use super::*;
 
     ssz_tests!(BeaconBlockBody<MainnetEthSpec>);
-    cached_tree_hash_tests!(BeaconBlockBody<MainnetEthSpec>);
 }

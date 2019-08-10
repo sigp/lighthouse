@@ -10,7 +10,7 @@ use lmd_ghost::{LmdGhost, ThreadSafeReducedTree as BaseThreadSafeReducedTree};
 use rand::{prelude::*, rngs::StdRng};
 use std::sync::Arc;
 use store::{
-    iter::{AncestorIter, BestBlockRootsIterator},
+    iter::{AncestorIter, BlockRootsIterator},
     MemoryStore, Store,
 };
 use types::{BeaconBlock, EthSpec, Hash256, MinimalEthSpec, Slot};
@@ -159,7 +159,7 @@ fn get_ancestor_roots<E: EthSpec, U: Store>(
         .expect("block should exist")
         .expect("store should not error");
 
-    <BeaconBlock<TestEthSpec> as AncestorIter<_, BestBlockRootsIterator<TestEthSpec, _>>>::try_iter_ancestor_roots(
+    <BeaconBlock<TestEthSpec> as AncestorIter<_, BlockRootsIterator<TestEthSpec, _>>>::try_iter_ancestor_roots(
         &block, store,
     )
     .expect("should be able to create ancestor iter")

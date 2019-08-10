@@ -3,7 +3,7 @@ extern crate hashing;
 extern crate types;
 
 use bytes::{BufMut, BytesMut};
-use hashing::canonical_hash;
+use eth2_hashing::canonical_hash;
 use ssz::ssz_encode;
 use std::cmp::max;
 use types::{Hash256, ValidatorRecord, ValidatorStatus};

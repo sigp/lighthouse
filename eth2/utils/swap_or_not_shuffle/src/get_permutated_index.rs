@@ -1,4 +1,4 @@
-use hashing::hash;
+use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes1, int_to_bytes4};
 use std::cmp::max;
 

@@ -198,7 +198,7 @@ where
     fn get_state_at_slot(&self, state_slot: Slot) -> BeaconState<E> {
         let state_root = self
             .chain
-            .rev_iter_state_roots(self.chain.current_state().slot - 1)
+            .rev_iter_state_roots(self.chain.head().beacon_state.slot - 1)
             .find(|(_hash, slot)| *slot == state_slot)
             .map(|(hash, _slot)| hash)
             .expect("could not find state root");
