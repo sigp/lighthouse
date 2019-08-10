@@ -37,7 +37,7 @@ impl<T: BeaconChainTypes> BeaconNodeService for BeaconNodeServiceInstance<T> {
         node_info.set_fork(fork);
         node_info.set_genesis_time(genesis_time);
         node_info.set_genesis_slot(spec.genesis_slot.as_u64());
-        node_info.set_chain_id(u32::from(spec.chain_id));
+        node_info.set_network_id(u32::from(spec.network_id));
 
         // send the node_info the requester
         let error_log = self.log.clone();

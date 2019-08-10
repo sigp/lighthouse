@@ -3,8 +3,8 @@ use crate::error;
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
 use crate::NetworkConfig;
-use crate::{TopicBuilder, TopicHash};
-use crate::{BEACON_ATTESTATION_TOPIC, BEACON_PUBSUB_TOPIC};
+use crate::{Topic, TopicHash};
+use crate::{BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -21,25 +21,24 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
-use types::EthSpec;
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
-type Libp2pBehaviour<E> = Behaviour<Substream<StreamMuxerBox>, E>;
+type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
 
 const NETWORK_KEY_FILENAME: &str = "key";
 
 /// The configuration and state of the libp2p components for the beacon node.
-pub struct Service<E: EthSpec> {
+pub struct Service {
     /// The libp2p Swarm handler.
     //TODO: Make this private
-    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour<E>>,
+    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour>,
     /// This node's PeerId.
     _local_peer_id: PeerId,
     /// The libp2p logger handle.
     pub log: slog::Logger,
 }
 
-impl<E: EthSpec> Service<E> {
+impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
         debug!(log, "Network-libp2p Service starting");
 
@@ -76,18 +75,35 @@ impl<E: EthSpec> Service<E> {
             ),
         };
 
+        // attempt to connect to user-input libp2p nodes
+        for multiaddr in config.libp2p_nodes {
+            match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
+                Ok(()) => debug!(log, "Dialing libp2p node: {}", multiaddr),
+                Err(err) => debug!(
+                    log,
+                    "Could not connect to node: {} error: {:?}", multiaddr, err
+                ),
+            };
+        }
+
         // subscribe to default gossipsub topics
         let mut topics = vec![];
         //TODO: Handle multiple shard attestations. For now we simply use a separate topic for
-        //attestations
-        topics.push(BEACON_ATTESTATION_TOPIC.to_string());
-        topics.push(BEACON_PUBSUB_TOPIC.to_string());
-        topics.append(&mut config.topics.clone());
+        // attestations
+        topics.push(Topic::new(BEACON_ATTESTATION_TOPIC.into()));
+        topics.push(Topic::new(BEACON_BLOCK_TOPIC.into()));
+        topics.append(
+            &mut config
+                .topics
+                .iter()
+                .cloned()
+                .map(|s| Topic::new(s))
+                .collect(),
+        );
 
         let mut subscribed_topics = vec![];
         for topic in topics {
-            let t = TopicBuilder::new(topic.clone()).build();
-            if swarm.subscribe(t) {
+            if swarm.subscribe(topic.clone()) {
                 trace!(log, "Subscribed to topic: {:?}", topic);
                 subscribed_topics.push(topic);
             } else {
@@ -104,8 +120,8 @@ impl<E: EthSpec> Service<E> {
     }
 }
 
-impl<E: EthSpec> Stream for Service<E> {
-    type Item = Libp2pEvent<E>;
+impl Stream for Service {
+    type Item = Libp2pEvent;
     type Error = crate::error::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -119,7 +135,7 @@ impl<E: EthSpec> Stream for Service<E> {
                         topics,
                         message,
                     } => {
-                        trace!(self.log, "Pubsub message received: {:?}", message);
+                        trace!(self.log, "Gossipsub message received"; "Message" => format!("{:?}", message));
                         return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
                             source,
                             topics,
@@ -179,7 +195,7 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
 }
 
 /// Events that can be obtained from polling the Libp2p Service.
-pub enum Libp2pEvent<E: EthSpec> {
+pub enum Libp2pEvent {
     /// An RPC response request has been received on the swarm.
     RPC(PeerId, RPCEvent),
     /// Initiated the connection to a new peer.
@@ -190,7 +206,7 @@ pub enum Libp2pEvent<E: EthSpec> {
     PubsubMessage {
         source: PeerId,
         topics: Vec<TopicHash>,
-        message: Box<PubsubMessage<E>>,
+        message: PubsubMessage,
     },
 }
 
