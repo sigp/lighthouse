@@ -16,10 +16,7 @@ pub fn get_version(_req: Request<Body>) -> ApiResult {
 /// Read the genesis time from the current beacon chain state.
 pub fn get_genesis_time<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = req.extensions().get::<Arc<BeaconChain<T>>>().unwrap();
-    let gen_time = {
-        let state = beacon_chain.current_state();
-        state.genesis_time
-    };
+    let gen_time: u64 = beacon_chain.head().beacon_state.genesis_time;
     let body = Body::from(
         serde_json::to_string(&gen_time)
             .expect("Genesis should time always have a valid JSON serialization."),
