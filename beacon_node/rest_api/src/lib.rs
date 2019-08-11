@@ -3,6 +3,7 @@ extern crate hyper;
 mod beacon;
 mod config;
 mod helpers;
+mod metrics;
 mod node;
 mod url_query;
 
@@ -103,6 +104,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
             let result = match (req.method(), path.as_ref()) {
                 (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req),
                 (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req),
+                (&Method::GET, "/metrics") => metrics::get_prometheus(req),
                 (&Method::GET, "/node/version") => node::get_version(req),
                 (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
                 _ => Err(ApiError::MethodNotAllowed(path.clone())),

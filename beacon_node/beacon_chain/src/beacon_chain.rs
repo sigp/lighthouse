@@ -2,6 +2,7 @@ use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::iter::{ReverseBlockRootIterator, ReverseStateRootIterator};
+use crate::metrics;
 use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
@@ -848,6 +849,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
         }
 
+        // Records the time taken to load the block and state from the database during block
+        // processing.
+        let db_read_timer = metrics::BLOCK_PROCESSING_DB_READ.start_timer();
+
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
         let parent_block: BeaconBlock<T::EthSpec> = match self.store.get(&block.parent_root)? {
@@ -866,6 +871,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .store
             .get(&parent_state_root)?
             .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?;
+
+        db_read_timer.observe_duration();
 
         // Transition the parent state to the block slot.
         let mut state: BeaconState<T::EthSpec> = parent_state;

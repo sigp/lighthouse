@@ -1,6 +1,18 @@
 pub use prometheus::Error;
 use prometheus::{Histogram, HistogramOpts, IntCounter, Opts, Registry};
 
+lazy_static! {
+    pub static ref BLOCK_PROCESSING_DB_READ: Histogram = register_histogram!(
+        "block_processing_db_read_times",
+        "Time spent loading block and state from DB"
+    )
+    .unwrap();
+}
+
+pub fn gather_metrics() -> Vec<prometheus::proto::MetricFamily> {
+    prometheus::gather()
+}
+
 pub struct Metrics {
     pub block_processing_requests: IntCounter,
     pub block_processing_successes: IntCounter,
