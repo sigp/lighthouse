@@ -108,6 +108,10 @@ lazy_static! {
         "fork_choice_requests",
         "Count of occasions where fork choice has tried to find a head"
     );
+    pub static ref FORK_CHOICE_ERRORS: Result<IntCounter> = try_create_int_counter(
+        "fork_choice_errors",
+        "Count of occasions where fork choice has returned an error when trying to find a head"
+    );
     pub static ref FORK_CHOICE_CHANGED_HEAD: Result<IntCounter> = try_create_int_counter(
         "fork_choice_changed_head",
         "Count of occasions fork choice has found a new head"
@@ -118,4 +122,20 @@ lazy_static! {
     );
     pub static ref FORK_CHOICE_TIMES: Result<Histogram> =
         try_create_histogram("fork_choice_time", "Full runtime of fork choice");
+    pub static ref FORK_CHOICE_FIND_HEAD_TIMES: Result<Histogram> =
+        try_create_histogram("fork_choice_find_head_time", "Full runtime of fork choice find_head function");
+    pub static ref FORK_CHOICE_PROCESS_BLOCK_TIMES: Result<Histogram> = try_create_histogram(
+        "fork_choice_process_block_time",
+        "Time taken to add a block and all attestations to fork choice"
+    );
+    pub static ref FORK_CHOICE_PROCESS_ATTESTATION_TIMES: Result<Histogram> = try_create_histogram(
+        "fork_choice_process_attestation_time",
+        "Time taken to add an attestation to fork choice"
+    );
+
+    /*
+     * Head Updating
+     */
+    pub static ref UPDATE_HEAD_TIMES: Result<Histogram> =
+        try_create_histogram("update_head_times", "Time taken to update the canonical head");
 }

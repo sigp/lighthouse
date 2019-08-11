@@ -1060,11 +1060,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Determine the root of the block that is the head of the chain.
         let beacon_block_root = self.fork_choice.find_head(&self)?;
 
-        // End fork choice metrics timer.
-        metrics::stop_timer(timer);
-
         // If a new head was chosen.
-        if beacon_block_root != self.head().beacon_block_root {
+        let result = if beacon_block_root != self.head().beacon_block_root {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
             let beacon_block: BeaconBlock<T::EthSpec> = self
@@ -1127,11 +1124,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         } else {
             Ok(())
+        };
+
+        // End fork choice metrics timer.
+        metrics::stop_timer(timer);
+
+        if let Err(_) = result {
+            metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
         }
+
+        result
     }
 
     /// Update the canonical head to `new_head`.
     fn update_canonical_head(&self, new_head: CheckPoint<T::EthSpec>) -> Result<(), Error> {
+        let timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
+
         // Update the checkpoint that stores the head of the chain at the time it received the
         // block.
         *self.canonical_head.write() = new_head;
@@ -1157,6 +1165,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Save `self` to `self.store`.
         self.persist()?;
+
+        metrics::stop_timer(timer);
 
         Ok(())
     }
