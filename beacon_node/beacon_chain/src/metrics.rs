@@ -116,7 +116,3 @@ lazy_static! {
     pub static ref FORK_CHOICE_TIMES: Result<Histogram> =
         register_histogram!("fork_choice_time", "Full runtime of fork choice");
 }
-
-pub fn gather_metrics() -> Vec<prometheus::proto::MetricFamily> {
-    prometheus::gather()
-}

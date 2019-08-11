@@ -7,9 +7,7 @@ pub fn get_prometheus(_req: Request<Body>) -> ApiResult {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
 
-    encoder
-        .encode(&beacon_chain::gather_metrics(), &mut buffer)
-        .unwrap();
+    encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
 
     String::from_utf8(buffer)
         .map(|string| success_response(Body::from(string)))
