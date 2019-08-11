@@ -1199,6 +1199,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.fork_choice
                 .process_finalization(&finalized_block, finalized_block_root)?;
 
+            self.op_pool
+                .prune_all(&self.head().beacon_state, &self.spec);
+
             Ok(())
         }
     }
