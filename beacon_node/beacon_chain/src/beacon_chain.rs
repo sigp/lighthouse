@@ -468,8 +468,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<AttestationData, Error> {
         // Collect some metrics.
-        metrics::ATTESTATION_PRODUCTION_REQUESTS.inc();
-        let timer = metrics::ATTESTATION_PRODUCTION_TIMES.start_timer();
+        metrics::inc_counter(&metrics::ATTESTATION_PRODUCTION_REQUESTS);
+        let timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_TIMES);
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let current_epoch_start_slot = state.current_epoch().start_slot(slots_per_epoch);
@@ -516,8 +516,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Collect some metrics.
-        metrics::ATTESTATION_PRODUCTION_SUCCESSES.inc();
-        timer.observe_duration();
+        metrics::inc_counter(&metrics::ATTESTATION_PRODUCTION_SUCCESSES);
+        metrics::stop_timer(timer);
 
         Ok(AttestationData {
             beacon_block_root: head_block_root,
@@ -703,8 +703,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
         block: &BeaconBlock<T::EthSpec>,
     ) -> Result<AttestationProcessingOutcome, Error> {
-        metrics::ATTESTATION_PROCESSING_REQUESTS.inc();
-        let timer = metrics::ATTESTATION_PROCESSING_TIMES.start_timer();
+        metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
+        let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
 
         // Find the highest between:
         //
@@ -749,12 +749,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .insert_attestation(attestation, state, &self.spec)?;
 
             // Update the metrics.
-            metrics::ATTESTATION_PROCESSING_SUCCESSES.inc();
+            metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_SUCCESSES);
 
             Ok(AttestationProcessingOutcome::Processed)
         };
 
-        timer.observe_duration();
+        timer.map(|t| t.observe_duration());
 
         result
     }
@@ -805,8 +805,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block: BeaconBlock<T::EthSpec>,
     ) -> Result<BlockProcessingOutcome, Error> {
-        metrics::BLOCK_PROCESSING_REQUESTS.inc();
-        let timer = metrics::BLOCK_PROCESSING_TIMES.start_timer();
+        metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
+        let timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
         let finalized_slot = self
             .state
@@ -846,7 +846,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Records the time taken to load the block and state from the database during block
         // processing.
-        let db_read_timer = metrics::BLOCK_PROCESSING_DB_READ.start_timer();
+        let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
@@ -867,7 +867,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get(&parent_state_root)?
             .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?;
 
-        db_read_timer.observe_duration();
+        metrics::stop_timer(db_read_timer);
 
         // Transition the parent state to the block slot.
         let mut state: BeaconState<T::EthSpec> = parent_state;
@@ -921,9 +921,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
         };
 
-        metrics::BLOCK_PROCESSING_SUCCESSES.inc();
-        metrics::OPERATIONS_PER_BLOCK_ATTESTATION.observe(block.body.attestations.len() as f64);
-        timer.observe_duration();
+        metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
+        metrics::observe(
+            &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
+            block.body.attestations.len() as f64,
+        );
+        metrics::stop_timer(timer);
 
         Ok(BlockProcessingOutcome::Processed { block_root })
     }
@@ -958,8 +961,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
     ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
-        metrics::BLOCK_PRODUCTION_REQUESTS.inc();
-        let timer = metrics::BLOCK_PRODUCTION_TIMES.start_timer();
+        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
+        let timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
         // If required, transition the new state to the present slot.
         while state.slot < produce_at_slot {
@@ -1011,28 +1014,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         block.state_root = state_root;
 
-        metrics::BLOCK_PRODUCTION_SUCCESSES.inc();
-        timer.observe_duration();
+        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
+        metrics::stop_timer(timer);
 
         Ok((block, state))
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     pub fn fork_choice(&self) -> Result<(), Error> {
-        metrics::FORK_CHOICE_REQUESTS.inc();
+        metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
 
         // Start fork choice metrics timer.
-        let timer = metrics::FORK_CHOICE_TIMES.start_timer();
+        let timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
         // Determine the root of the block that is the head of the chain.
         let beacon_block_root = self.fork_choice.find_head(&self)?;
 
         // End fork choice metrics timer.
-        timer.observe_duration();
+        metrics::stop_timer(timer);
 
         // If a new head was chosen.
         if beacon_block_root != self.head().beacon_block_root {
-            metrics::FORK_CHOICE_CHANGED_HEAD.inc();
+            metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
             let beacon_block: BeaconBlock<T::EthSpec> = self
                 .store
@@ -1050,7 +1053,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // If we switched to a new chain (instead of building atop the present chain).
             if self.head().beacon_block_root != beacon_block.parent_root {
-                metrics::FORK_CHOICE_REORG_COUNT.inc();
+                metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
                 warn!(
                     self.log,
                     "Beacon chain re-org";
