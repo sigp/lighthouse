@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 store = { path = "../store" }
 parking_lot = "0.7"
-prometheus = "^0.6"
+lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
 log = "0.4"
 operation_pool = { path = "../../eth2/operation_pool" }
 serde = "1.0"
