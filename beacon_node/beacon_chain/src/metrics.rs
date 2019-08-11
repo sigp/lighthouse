@@ -138,4 +138,10 @@ lazy_static! {
      */
     pub static ref UPDATE_HEAD_TIMES: Result<Histogram> =
         try_create_histogram("update_head_times", "Time taken to update the canonical head");
+
+    /*
+     * Persisting BeaconChain to disk
+     */
+    pub static ref PERSIST_CHAIN: Result<Histogram> =
+        try_create_histogram("persist_chain", "Time taken to update the canonical head");
 }

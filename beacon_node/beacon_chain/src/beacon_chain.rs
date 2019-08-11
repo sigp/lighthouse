@@ -199,6 +199,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Attempt to save this instance to `self.store`.
     pub fn persist(&self) -> Result<(), Error> {
+        let timer = metrics::start_timer(&metrics::PERSIST_CHAIN);
+
         let p: PersistedBeaconChain<T> = PersistedBeaconChain {
             canonical_head: self.canonical_head.read().clone(),
             op_pool: PersistedOperationPool::from_operation_pool(&self.op_pool),
@@ -208,6 +210,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
         self.store.put(&key, &p)?;
+
+        metrics::stop_timer(timer);
 
         Ok(())
     }
