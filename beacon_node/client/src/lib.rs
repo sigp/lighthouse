@@ -71,11 +71,6 @@ where
             eth2_config.spec.clone(),
             log.clone(),
         )?);
-        // Registry all beacon chain metrics with the global registry.
-        beacon_chain
-            .metrics
-            .register(&metrics_registry)
-            .expect("Failed to registry metrics");
 
         if beacon_chain.read_slot_clock().is_none() {
             panic!("Cannot start client before genesis!")
