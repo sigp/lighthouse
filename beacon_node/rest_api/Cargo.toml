@@ -18,6 +18,7 @@ state_processing = { path = "../../eth2/state_processing" }
 types = { path = "../../eth2/types" }
 clap = "2.32.0"
 http = "^0.1.17"
+prometheus = { version = "^0.6", features = ["process"] }
 hyper = "0.12.32"
 futures = "0.1"
 exit-future = "0.1.3"
