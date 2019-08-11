@@ -19,7 +19,7 @@ lazy_static! {
         "Time spent loading block and state from DB for block processing"
     );
     pub static ref BLOCK_PROCESSING_CATCHUP_STATE: Result<Histogram> = try_create_histogram(
-        "block_processing_catch-up_state_times",
+        "block_processing_catch_up_state_times",
         "Time spent skipping slots on a state before processing a block."
     );
     pub static ref BLOCK_PROCESSING_COMMITTEE: Result<Histogram> = try_create_histogram(
