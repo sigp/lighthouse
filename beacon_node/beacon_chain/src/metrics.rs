@@ -4,10 +4,6 @@ lazy_static! {
     /*
      * Block Processing
      */
-    pub static ref BLOCK_PROCESSING_DB_READ: Result<Histogram> = try_create_histogram(
-        "block_processing_db_read_times",
-        "Time spent loading block and state from DB"
-    );
     pub static ref BLOCK_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
         "block_processing_requests",
         "Count of blocks submitted for processing"
@@ -18,6 +14,38 @@ lazy_static! {
     );
     pub static ref BLOCK_PROCESSING_TIMES: Result<Histogram> =
         try_create_histogram("block_processing_times", "Full runtime of block processing");
+    pub static ref BLOCK_PROCESSING_DB_READ: Result<Histogram> = try_create_histogram(
+        "block_processing_db_read_times",
+        "Time spent loading block and state from DB for block processing"
+    );
+    pub static ref BLOCK_PROCESSING_CATCHUP_STATE: Result<Histogram> = try_create_histogram(
+        "block_processing_catch-up_state_times",
+        "Time spent skipping slots on a state before processing a block."
+    );
+    pub static ref BLOCK_PROCESSING_COMMITTEE: Result<Histogram> = try_create_histogram(
+        "block_processing_committee_building_times",
+        "Time spent building/obtaining committees for block processing."
+    );
+    pub static ref BLOCK_PROCESSING_CORE: Result<Histogram> = try_create_histogram(
+        "block_processing_core_times",
+        "Time spent doing the core per_block_processing state processing."
+    );
+    pub static ref BLOCK_PROCESSING_STATE_ROOT: Result<Histogram> = try_create_histogram(
+        "block_processing_state_root_times",
+        "Time spent calculating the state root when processing a block."
+    );
+    pub static ref BLOCK_PROCESSING_DB_WRITE: Result<Histogram> = try_create_histogram(
+        "block_processing_db_write_times",
+        "Time spent writing a newly processed block and state to DB"
+    );
+    pub static ref BLOCK_PROCESSING_FORK_CHOICE_REGISTER: Result<Histogram> = try_create_histogram(
+        "block_processing_fork_choice_register_times",
+        "Time spent registering the new block with fork choice (but not finding head)"
+    );
+    pub static ref BLOCK_PROCESSING_FORK_CHOICE_FIND_HEAD: Result<Histogram> = try_create_histogram(
+        "block_processing_fork_choice_find_head_times",
+        "Time spent finding the new head after processing a new block"
+    );
 
     /*
      * Block Production

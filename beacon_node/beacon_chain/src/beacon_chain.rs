@@ -806,7 +806,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlock<T::EthSpec>,
     ) -> Result<BlockProcessingOutcome, Error> {
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
-        let timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
+        let full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
         let finalized_slot = self
             .state
@@ -869,14 +869,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(db_read_timer);
 
+        let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
+
         // Transition the parent state to the block slot.
         let mut state: BeaconState<T::EthSpec> = parent_state;
         for _ in state.slot.as_u64()..block.slot.as_u64() {
             per_slot_processing(&mut state, &self.spec)?;
         }
 
+        metrics::stop_timer(catchup_timer);
+
+        let commitee_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_COMMITTEE);
+
         state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+
+        metrics::stop_timer(commitee_timer);
+
+        let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).
@@ -888,15 +898,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             _ => {}
         }
 
+        metrics::stop_timer(core_timer);
+
+        let state_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_STATE_ROOT);
+
         let state_root = state.canonical_root();
 
         if block.state_root != state_root {
             return Ok(BlockProcessingOutcome::StateRootMismatch);
         }
 
+        metrics::stop_timer(state_root_timer);
+
+        let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
+
         // Store the block and state.
         self.store.put(&block_root, &block)?;
         self.store.put(&state_root, &state)?;
+
+        metrics::stop_timer(db_write_timer);
+
+        let fork_choice_register_timer =
+            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
 
         // Register the new block with the fork choice service.
         if let Err(e) = self.fork_choice.process_block(&state, &block, block_root) {
@@ -908,6 +931,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "block_slot" => format!("{}", block.slot)
             )
         }
+
+        metrics::stop_timer(fork_choice_register_timer);
+
+        let find_head_timer =
+            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_FIND_HEAD);
 
         // Execute the fork choice algorithm, enthroning a new head if discovered.
         //
@@ -921,12 +949,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
         };
 
+        metrics::stop_timer(find_head_timer);
+
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
             block.body.attestations.len() as f64,
         );
-        metrics::stop_timer(timer);
+        metrics::stop_timer(full_timer);
 
         Ok(BlockProcessingOutcome::Processed { block_root })
     }
