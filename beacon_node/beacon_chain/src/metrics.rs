@@ -7,45 +7,45 @@ lazy_static! {
      * Block Processing
      */
     pub static ref BLOCK_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
-        "beacon_block_processing_requests",
+        "beacon_block_processing_requests_total",
         "Count of blocks submitted for processing"
     );
     pub static ref BLOCK_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
-        "beacon_block_processing_successes",
+        "beacon_block_processing_successes_total",
         "Count of blocks processed without error"
     );
     pub static ref BLOCK_PROCESSING_TIMES: Result<Histogram> =
-        try_create_histogram("block_processing_times", "Full runtime of block processing");
+        try_create_histogram("block_processing_seconds", "Full runtime of block processing");
     pub static ref BLOCK_PROCESSING_DB_READ: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_db_read_times",
+        "beacon_block_processing_db_read_seconds",
         "Time spent loading block and state from DB for block processing"
     );
     pub static ref BLOCK_PROCESSING_CATCHUP_STATE: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_catch_up_state_times",
+        "beacon_block_processing_catch_up_state_seconds",
         "Time spent skipping slots on a state before processing a block."
     );
     pub static ref BLOCK_PROCESSING_COMMITTEE: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_committee_building_times",
+        "beacon_block_processing_committee_building_seconds",
         "Time spent building/obtaining committees for block processing."
     );
     pub static ref BLOCK_PROCESSING_CORE: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_core_times",
+        "beacon_block_processing_core_seconds",
         "Time spent doing the core per_block_processing state processing."
     );
     pub static ref BLOCK_PROCESSING_STATE_ROOT: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_state_root_times",
+        "beacon_block_processing_state_root_seconds",
         "Time spent calculating the state root when processing a block."
     );
     pub static ref BLOCK_PROCESSING_DB_WRITE: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_db_write_times",
+        "beacon_block_processing_db_write_seconds",
         "Time spent writing a newly processed block and state to DB"
     );
     pub static ref BLOCK_PROCESSING_FORK_CHOICE_REGISTER: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_fork_choice_register_times",
+        "beacon_block_processing_fork_choice_register_seconds",
         "Time spent registering the new block with fork choice (but not finding head)"
     );
     pub static ref BLOCK_PROCESSING_FORK_CHOICE_FIND_HEAD: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_fork_choice_find_head_times",
+        "beacon_block_processing_fork_choice_find_head_seconds",
         "Time spent finding the new head after processing a new block"
     );
 
@@ -53,21 +53,21 @@ lazy_static! {
      * Block Production
      */
     pub static ref BLOCK_PRODUCTION_REQUESTS: Result<IntCounter> = try_create_int_counter(
-        "beacon_block_production_requests",
+        "beacon_block_production_requests_total",
         "Count of all block production requests"
     );
     pub static ref BLOCK_PRODUCTION_SUCCESSES: Result<IntCounter> = try_create_int_counter(
-        "beacon_block_production_successes",
+        "beacon_block_production_successes_total",
         "Count of blocks successfully produced."
     );
     pub static ref BLOCK_PRODUCTION_TIMES: Result<Histogram> =
-        try_create_histogram("beacon_block_production_times", "Full runtime of block production");
+        try_create_histogram("beacon_block_production_seconds", "Full runtime of block production");
 
     /*
      * Block Statistics
      */
     pub static ref OPERATIONS_PER_BLOCK_ATTESTATION: Result<Histogram> = try_create_histogram(
-        "beacon_operations_per_block_attestation",
+        "beacon_operations_per_block_attestation_total",
         "Number of attestations in a block"
     );
 
@@ -75,15 +75,15 @@ lazy_static! {
      * Attestation Processing
      */
     pub static ref ATTESTATION_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
-        "beacon_attestation_processing_requests",
+        "beacon_attestation_processing_requests_total",
         "Count of all attestations submitted for processing"
     );
     pub static ref ATTESTATION_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
-        "beacon_attestation_processing_successes",
+        "beacon_attestation_processing_successes_total",
         "total_attestation_processing_successes"
     );
     pub static ref ATTESTATION_PROCESSING_TIMES: Result<Histogram> = try_create_histogram(
-        "beacon_attestation_processing_times",
+        "beacon_attestation_processing_seconds",
         "Full runtime of attestation processing"
     );
 
@@ -91,15 +91,15 @@ lazy_static! {
      * Attestation Production
      */
     pub static ref ATTESTATION_PRODUCTION_REQUESTS: Result<IntCounter> = try_create_int_counter(
-        "beacon_attestation_production_requests",
+        "beacon_attestation_production_requests_total",
         "Count of all attestation production requests"
     );
     pub static ref ATTESTATION_PRODUCTION_SUCCESSES: Result<IntCounter> = try_create_int_counter(
-        "beacon_attestation_production_successes",
+        "beacon_attestation_production_successes_total",
         "Count of attestations processed without error"
     );
     pub static ref ATTESTATION_PRODUCTION_TIMES: Result<Histogram> = try_create_histogram(
-        "beacon_attestation_production_times",
+        "beacon_attestation_production_seconds",
         "Full runtime of attestation production"
     );
 
@@ -107,19 +107,19 @@ lazy_static! {
      * Fork Choice
      */
     pub static ref FORK_CHOICE_REQUESTS: Result<IntCounter> = try_create_int_counter(
-        "beacon_fork_choice_requests",
+        "beacon_fork_choice_requests_total",
         "Count of occasions where fork choice has tried to find a head"
     );
     pub static ref FORK_CHOICE_ERRORS: Result<IntCounter> = try_create_int_counter(
-        "beacon_fork_choice_errors",
+        "beacon_fork_choice_errors_total",
         "Count of occasions where fork choice has returned an error when trying to find a head"
     );
     pub static ref FORK_CHOICE_CHANGED_HEAD: Result<IntCounter> = try_create_int_counter(
-        "beacon_fork_choice_changed_head",
+        "beacon_fork_choice_changed_head_total",
         "Count of occasions fork choice has found a new head"
     );
     pub static ref FORK_CHOICE_REORG_COUNT: Result<IntCounter> = try_create_int_counter(
-        "beacon_fork_choice_reorg_count",
+        "beacon_fork_choice_reorg_total",
         "Count of occasions fork choice has switched to a different chain"
     );
     pub static ref FORK_CHOICE_TIMES: Result<Histogram> =
@@ -156,7 +156,7 @@ lazy_static! {
      * Chain Head
      */
     pub static ref UPDATE_HEAD_TIMES: Result<Histogram> =
-        try_create_histogram("beacon_update_head_times", "Time taken to update the canonical head");
+        try_create_histogram("beacon_update_head_seconds", "Time taken to update the canonical head");
     pub static ref HEAD_STATE_SLOT: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_slot", "Slot of the block at the head of the chain");
     pub static ref HEAD_STATE_ROOT: Result<IntGauge> =
@@ -175,16 +175,18 @@ lazy_static! {
         try_create_int_gauge("beacon_head_state_finalized_root", "Finalized root at the head of the chain");
     pub static ref HEAD_STATE_FINALIZED_EPOCH: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_finalized_epoch", "Finalized epoch at the head of the chain");
+    pub static ref HEAD_STATE_SHARDS: Result<IntGauge> =
+        try_create_int_gauge("beacon_head_state_shard_total", "Count of shards in the beacon chain");
     pub static ref HEAD_STATE_TOTAL_VALIDATORS: Result<IntGauge> =
-        try_create_int_gauge("beacon_head_state_total_validators", "Count of validators at the head of the chain");
+        try_create_int_gauge("beacon_head_state_total_validators_total", "Count of validators at the head of the chain");
     pub static ref HEAD_STATE_ACTIVE_VALIDATORS: Result<IntGauge> =
-        try_create_int_gauge("beacon_head_state_active_validators", "Count of active validators at the head of the chain");
+        try_create_int_gauge("beacon_head_state_active_validators_total", "Count of active validators at the head of the chain");
     pub static ref HEAD_STATE_VALIDATOR_BALANCES: Result<IntGauge> =
-        try_create_int_gauge("beacon_head_state_validator_balances", "Sum of all validator balances at the head of the chain");
+        try_create_int_gauge("beacon_head_state_validator_balances_total", "Sum of all validator balances at the head of the chain");
     pub static ref HEAD_STATE_SLASHED_VALIDATORS: Result<IntGauge> =
-        try_create_int_gauge("beacon_head_state_slashed_validators", "Count of all slashed validators at the head of the chain");
+        try_create_int_gauge("beacon_head_state_slashed_validators_total", "Count of all slashed validators at the head of the chain");
     pub static ref HEAD_STATE_WITHDRAWN_VALIDATORS: Result<IntGauge> =
-        try_create_int_gauge("beacon_head_state_withdrawn_validators", "Sum of all validator balances at the head of the chain");
+        try_create_int_gauge("beacon_head_state_withdrawn_validators_total", "Sum of all validator balances at the head of the chain");
     pub static ref HEAD_STATE_ETH1_DEPOSIT_INDEX: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_eth1_deposit_index", "Eth1 deposit index at the head of the chain");
 }
@@ -242,6 +244,7 @@ fn scrape_head_state<T: BeaconChainTypes>(state: &BeaconState<T::EthSpec>, state
         &HEAD_STATE_FINALIZED_EPOCH,
         state.finalized_checkpoint.epoch,
     );
+    set_gauge_by_usize(&HEAD_STATE_SHARDS, state.previous_crosslinks.len());
     set_gauge_by_usize(&HEAD_STATE_TOTAL_VALIDATORS, state.validators.len());
     set_gauge_by_u64(
         &HEAD_STATE_VALIDATOR_BALANCES,

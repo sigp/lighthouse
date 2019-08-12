@@ -7,27 +7,27 @@ lazy_static! {
     pub static ref DISK_DB_SIZE: Result<IntGauge> =
         try_create_int_gauge("store_disk_db_size", "Size of the on-disk database (bytes)");
     pub static ref DISK_DB_WRITE_BYTES: Result<IntCounter> = try_create_int_counter(
-        "store_disk_db_write_bytes",
+        "store_disk_db_write_bytes_total",
         "Number of bytes attempted to be written to the on-disk DB"
     );
     pub static ref DISK_DB_READ_BYTES: Result<IntCounter> = try_create_int_counter(
-        "store_disk_db_read_bytes",
+        "store_disk_db_read_bytes_total",
         "Number of bytes read from the on-disk DB"
     );
     pub static ref DISK_DB_READ_COUNT: Result<IntCounter> = try_create_int_counter(
-        "store_disk_db_read_count",
+        "store_disk_db_read_count_total",
         "Total number of reads to the on-disk DB"
     );
     pub static ref DISK_DB_WRITE_COUNT: Result<IntCounter> = try_create_int_counter(
-        "store_disk_db_write_count",
+        "store_disk_db_write_count_total",
         "Total number of writes to the on-disk DB"
     );
     pub static ref DISK_DB_EXISTS_COUNT: Result<IntCounter> = try_create_int_counter(
-        "store_disk_db_exists_count",
+        "store_disk_db_exists_count_total",
         "Total number of checks if a key is in the on-disk DB"
     );
     pub static ref DISK_DB_DELETE_COUNT: Result<IntCounter> = try_create_int_counter(
-        "store_disk_db_delete_count",
+        "store_disk_db_delete_count_total",
         "Total number of deletions from the on-disk DB"
     );
 }

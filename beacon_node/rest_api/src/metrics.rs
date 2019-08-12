@@ -8,15 +8,15 @@ pub use lighthouse_metrics::*;
 
 lazy_static! {
     pub static ref REQUEST_RESPONSE_TIME: Result<Histogram> = try_create_histogram(
-        "http_server_request_response_time",
+        "http_server_request_duration_seconds",
         "Time taken to build a response to a HTTP request"
     );
     pub static ref REQUEST_COUNT: Result<IntCounter> = try_create_int_counter(
-        "http_server_request_count",
+        "http_server_request_total",
         "Total count of HTTP requests received"
     );
     pub static ref SUCCESS_COUNT: Result<IntCounter> = try_create_int_counter(
-        "http_server_success_count",
+        "http_server_success_total",
         "Total count of HTTP 200 responses sent"
     );
 }
