@@ -1,5 +1,6 @@
-extern crate futures;
-extern crate hyper;
+#[macro_use]
+extern crate lazy_static;
+
 mod beacon;
 mod config;
 mod helpers;
@@ -100,6 +101,9 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
 
         // Create a simple handler for the router, inject our stateful objects into the request.
         service_fn_ok(move |mut req| {
+            metrics::inc_counter(&metrics::REQUEST_COUNT);
+            let timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
+
             req.extensions_mut().insert::<slog::Logger>(log.clone());
             req.extensions_mut()
                 .insert::<Arc<BeaconChain<T>>>(beacon_chain.clone());
@@ -117,9 +121,10 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
                 _ => Err(ApiError::MethodNotAllowed(path.clone())),
             };
 
-            match result {
+            let response = match result {
                 // Return the `hyper::Response`.
                 Ok(response) => {
+                    metrics::inc_counter(&metrics::SUCCESS_COUNT);
                     slog::debug!(log, "Request successful: {:?}", path);
                     response
                 }
@@ -128,7 +133,11 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
                     slog::debug!(log, "Request failure: {:?}", path);
                     e.into()
                 }
-            }
+            };
+
+            metrics::stop_timer(timer);
+
+            response
         })
     };
 
