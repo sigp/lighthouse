@@ -142,6 +142,7 @@ where
                 &client_config.rest_api,
                 executor,
                 beacon_chain.clone(),
+                client_config.db_path().expect("unable to read datadir"),
                 &log,
             ) {
                 Ok(s) => Some(s),
