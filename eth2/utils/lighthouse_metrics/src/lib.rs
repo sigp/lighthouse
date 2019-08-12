@@ -1,12 +1,19 @@
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
-pub use prometheus::{Histogram, IntCounter, Result};
+pub use prometheus::{Histogram, IntCounter, IntGauge, Result};
 
 pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
     let opts = Opts::new(name, help);
     let counter = IntCounter::with_opts(opts)?;
     prometheus::register(Box::new(counter.clone()))?;
     Ok(counter)
+}
+
+pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
+    let opts = Opts::new(name, help);
+    let gauge = IntGauge::with_opts(opts)?;
+    prometheus::register(Box::new(gauge.clone()))?;
+    Ok(gauge)
 }
 
 pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
@@ -31,6 +38,12 @@ pub fn stop_timer(timer: Option<HistogramTimer>) {
 pub fn inc_counter(counter: &Result<IntCounter>) {
     if let Ok(counter) = counter {
         counter.inc();
+    }
+}
+
+pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
+    if let Ok(gauge) = gauge {
+        gauge.set(value);
     }
 }
 
