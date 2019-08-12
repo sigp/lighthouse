@@ -2,6 +2,10 @@ use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
 pub use prometheus::{Histogram, IntCounter, IntGauge, Result};
 
+pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
+    prometheus::gather()
+}
+
 pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
     let opts = Opts::new(name, help);
     let counter = IntCounter::with_opts(opts)?;
