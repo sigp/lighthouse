@@ -46,20 +46,22 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     // - Statically updated: things which are only updated at the time of the scrape (used where we
     // can avoid cluttering up code with metrics calls).
     //
-    // The `prometheus` crate has a `DEFAULT_REGISTRY` global singleton (via `lazy_static`) which
-    // keeps the state of all the metrics. Dynamically updated things will already be up-to-date in
-    // the registry (because they update themselves) however statically updated things need to be
-    // "scraped".
+    // The `lighthouse_metrics` crate has a `DEFAULT_REGISTRY` global singleton (via `lazy_static`)
+    // which keeps the state of all the metrics. Dynamically updated things will already be
+    // up-to-date in the registry (because they update themselves) however statically updated
+    // things need to be "scraped".
     //
     // We proceed by, first updating all the static metrics using `scrape_for_metrics(..)`. Then,
-    // using `prometheus::gather(..)` to collect the global `DEFAULT_REGISTRY` metrics into a
-    // string that can be returned via HTTP.
+    // using `lighthouse_metrics::gather(..)` to collect the global `DEFAULT_REGISTRY` metrics into
+    // a string that can be returned via HTTP.
 
     slot_clock::scrape_for_metrics::<T::EthSpec, T::SlotClock>(&beacon_chain.slot_clock);
     store::scrape_for_metrics(&db_path);
     beacon_chain::scrape_for_metrics(&beacon_chain);
 
-    encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
+    encoder
+        .encode(&lighthouse_metrics::gather(), &mut buffer)
+        .unwrap();
 
     String::from_utf8(buffer)
         .map(|string| success_response(Body::from(string)))
