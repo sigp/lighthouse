@@ -5,7 +5,31 @@ use std::path::PathBuf;
 
 lazy_static! {
     pub static ref DISK_DB_SIZE: Result<IntGauge> =
-        try_create_int_gauge("database_size", "Size of the on-disk database (bytes)");
+        try_create_int_gauge("store_disk_db_size", "Size of the on-disk database (bytes)");
+    pub static ref DISK_DB_WRITE_BYTES: Result<IntCounter> = try_create_int_counter(
+        "store_disk_db_write_bytes",
+        "Number of bytes attempted to be written to the on-disk DB"
+    );
+    pub static ref DISK_DB_READ_BYTES: Result<IntCounter> = try_create_int_counter(
+        "store_disk_db_read_bytes",
+        "Number of bytes read from the on-disk DB"
+    );
+    pub static ref DISK_DB_READ_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_disk_db_read_count",
+        "Total number of reads to the on-disk DB"
+    );
+    pub static ref DISK_DB_WRITE_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_disk_db_write_count",
+        "Total number of writes to the on-disk DB"
+    );
+    pub static ref DISK_DB_EXISTS_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_disk_db_exists_count",
+        "Total number of checks if a key is in the on-disk DB"
+    );
+    pub static ref DISK_DB_DELETE_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_disk_db_delete_count",
+        "Total number of deletions from the on-disk DB"
+    );
 }
 
 /// Updates the global metrics registry with store-related information.
