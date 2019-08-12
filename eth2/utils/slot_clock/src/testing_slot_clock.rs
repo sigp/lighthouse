@@ -40,6 +40,10 @@ impl SlotClock for TestingSlotClock {
     fn duration_to_next_slot(&self) -> Result<Option<Duration>, Error> {
         Ok(Some(Duration::from_secs(1)))
     }
+
+    fn slot_duration_millis(&self) -> u64 {
+        0
+    }
 }
 
 #[cfg(test)]

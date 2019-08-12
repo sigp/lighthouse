@@ -1,3 +1,4 @@
+#![recursion_limit = "128"] // For lazy-static
 #[macro_use]
 extern crate lazy_static;
 

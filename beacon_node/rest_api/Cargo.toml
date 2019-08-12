@@ -26,3 +26,4 @@ tokio = "0.1.17"
 url = "2.0"
 lazy_static = "1.3.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
+slot_clock = { path = "../../eth2/utils/slot_clock" }
