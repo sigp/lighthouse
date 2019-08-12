@@ -17,7 +17,7 @@ use types::{
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: u64 = 100;
 
-/// The amount of seconds a block (or partial block) may exist in the import queue.
+/// The amount of seconds a block may exist in the import queue.
 const QUEUE_STALE_SECS: u64 = 100;
 
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
@@ -30,23 +30,23 @@ const SHOULD_NOT_FORWARD_GOSSIP_BLOCK: bool = false;
 /// Keeps track of syncing information for known connected peers.
 #[derive(Clone, Copy, Debug)]
 pub struct PeerSyncInfo {
-    network_id: u8,
-    chain_id: u64,
-    latest_finalized_root: Hash256,
-    latest_finalized_epoch: Epoch,
-    best_root: Hash256,
-    best_slot: Slot,
+    fork_version: [u8,4],
+    finalized_root: Hash256,
+    finalized_epoch: Epoch,
+    head_root: Hash256,
+    head_slot: Slot,
+    requested_slot_skip: Option<(Slot, usize)>,
 }
 
 impl From<HelloMessage> for PeerSyncInfo {
     fn from(hello: HelloMessage) -> PeerSyncInfo {
         PeerSyncInfo {
-            network_id: hello.network_id,
-            chain_id: hello.chain_id,
-            latest_finalized_root: hello.latest_finalized_root,
-            latest_finalized_epoch: hello.latest_finalized_epoch,
-            best_root: hello.best_root,
-            best_slot: hello.best_slot,
+            fork_version: hello.fork_version,
+            finalized_root: hello.finalized_root,
+            finalized_epoch: hello.finalized_epoch,
+            head_root: hello.head_root,
+            head_slot: hello.head_slot,
+            requested_slot_skip: None,
         }
     }
 }
@@ -71,8 +71,6 @@ pub struct SimpleSync<T: BeaconChainTypes> {
     chain: Arc<BeaconChain<T>>,
     /// A mapping of Peers to their respective PeerSyncInfo.
     known_peers: HashMap<PeerId, PeerSyncInfo>,
-    /// A queue to allow importing of blocks
-    import_queue: ImportQueue<T>,
     /// The current state of the syncing protocol.
     state: SyncState,
     log: slog::Logger,
@@ -178,8 +176,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
-        if local.network_id != remote.network_id {
-            // The node is on a different network, disconnect them.
+        if local.fork_version != remote.fork_version {
+            // The node is on a different network/fork, disconnect them.
             info!(
                 self.log, "HandshakeFailure";
                 "peer" => format!("{:?}", peer_id),
@@ -187,9 +185,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             );
 
             network.disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
-        } else if remote.latest_finalized_epoch <= local.latest_finalized_epoch
-            && remote.latest_finalized_root != Hash256::zero()
-            && local.latest_finalized_root != Hash256::zero()
+        } else if remote.finalized_epoch <= local.finalized_epoch
+            && remote.finalized_root != Hash256::zero()
+            && local.finalized_root != Hash256::zero()
             && (self.root_at_slot(start_slot(remote.latest_finalized_epoch))
                 != Some(remote.latest_finalized_root))
         {
@@ -248,21 +246,36 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "remote_latest_finalized_epoch" => remote.latest_finalized_epoch,
             );
 
-            let start_slot = local
-                .latest_finalized_epoch
-                .start_slot(T::EthSpec::slots_per_epoch());
-            let required_slots = remote.best_slot - start_slot;
 
-            self.request_block_roots(
-                peer_id,
-                BeaconBlockRootsRequest {
-                    start_slot,
-                    count: required_slots.as_u64(),
-                },
-                network,
-            );
+            self.process_sync();
         }
     }
+
+    self.proess_sync(&mut self) {
+        loop {
+            match self.sync_manager.poll() {
+                SyncManagerState::RequestBlocks(peer_id, req) {
+                    debug!(
+                        self.log,
+                        "RPCRequest(BeaconBlockBodies)";
+                        "count" => req.block_roots.len(),
+                        "peer" => format!("{:?}", peer_id)
+                    );
+                    network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlocks(req));
+                },
+                SyncManagerState::Stalled {
+                    // need more peers to continue sync
+                    warn!(self.log, "No useable peers for sync");
+                    break;
+                },
+                SyncManagerState::Idle {
+                    // nothing to do
+                    break;
+                }
+            }
+        }
+    }
+
 
     fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
         self.chain
@@ -272,213 +285,27 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             .map(|(root, _slot)| root)
     }
 
-    /// Handle a `BeaconBlockRoots` request from the peer.
-    pub fn on_beacon_block_roots_request(
+    /// Handle a `BeaconBlocks` request from the peer.
+    pub fn on_beacon_blocks_request(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        req: BeaconBlockRootsRequest,
+        req: BeaconBlocksRequest,
         network: &mut NetworkContext,
     ) {
         let state = &self.chain.head().beacon_state;
 
         debug!(
             self.log,
-            "BlockRootsRequest";
+            "BeaconBlocksRequest";
             "peer" => format!("{:?}", peer_id),
             "count" => req.count,
             "start_slot" => req.start_slot,
         );
 
-        let mut roots: Vec<BlockRootSlot> = self
-            .chain
-            .rev_iter_block_roots(std::cmp::min(req.start_slot + req.count, state.slot))
-            .take_while(|(_root, slot)| req.start_slot <= *slot)
-            .map(|(block_root, slot)| BlockRootSlot { slot, block_root })
-            .collect();
-
-        if roots.len() as u64 != req.count {
-            debug!(
-                self.log,
-                "BlockRootsRequest";
-                "peer" => format!("{:?}", peer_id),
-                "msg" => "Failed to return all requested hashes",
-                "start_slot" => req.start_slot,
-                "current_slot" => self.chain.present_slot(),
-                "requested" => req.count,
-                "returned" => roots.len(),
-            );
-        }
-
-        roots.reverse();
-        roots.dedup_by_key(|brs| brs.block_root);
-
-        network.send_rpc_response(
-            peer_id,
-            request_id,
-            RPCResponse::BeaconBlockRoots(BeaconBlockRootsResponse { roots }),
-        )
-    }
-
-    /// Handle a `BeaconBlockRoots` response from the peer.
-    pub fn on_beacon_block_roots_response(
-        &mut self,
-        peer_id: PeerId,
-        res: BeaconBlockRootsResponse,
-        network: &mut NetworkContext,
-    ) {
-        debug!(
-            self.log,
-            "BlockRootsResponse";
-            "peer" => format!("{:?}", peer_id),
-            "count" => res.roots.len(),
-        );
-
-        if res.roots.is_empty() {
-            warn!(
-                self.log,
-                "Peer returned empty block roots response";
-                "peer_id" => format!("{:?}", peer_id)
-            );
-            return;
-        }
-
-        // The wire protocol specifies that slots must be in ascending order.
-        if !res.slots_are_ascending() {
-            warn!(
-                self.log,
-                "Peer returned block roots response with bad slot ordering";
-                "peer_id" => format!("{:?}", peer_id)
-            );
-            return;
-        }
-
-        let new_roots = self
-            .import_queue
-            .enqueue_block_roots(&res.roots, peer_id.clone());
-
-        // No new roots means nothing to do.
-        //
-        // This check protects against future panics.
-        if new_roots.is_empty() {
-            return;
-        }
-
-        // Determine the first (earliest) and last (latest) `BlockRootSlot` items.
-        //
-        // This logic relies upon slots to be in ascending order, which is enforced earlier.
-        let first = new_roots.first().expect("Non-empty list must have first");
-        let last = new_roots.last().expect("Non-empty list must have last");
-
-        // Request all headers between the earliest and latest new `BlockRootSlot` items.
-        self.request_block_headers(
-            peer_id,
-            BeaconBlockHeadersRequest {
-                start_root: first.block_root,
-                start_slot: first.slot,
-                max_headers: (last.slot - first.slot + 1).as_u64(),
-                skip_slots: 0,
-            },
-            network,
-        )
-    }
-
-    /// Handle a `BeaconBlockHeaders` request from the peer.
-    pub fn on_beacon_block_headers_request(
-        &mut self,
-        peer_id: PeerId,
-        request_id: RequestId,
-        req: BeaconBlockHeadersRequest,
-        network: &mut NetworkContext,
-    ) {
-        let state = &self.chain.head().beacon_state;
-
-        debug!(
-            self.log,
-            "BlockHeadersRequest";
-            "peer" => format!("{:?}", peer_id),
-            "count" => req.max_headers,
-        );
-
-        let count = req.max_headers;
-
-        // Collect the block roots.
-        let mut roots: Vec<Hash256> = self
-            .chain
-            .rev_iter_block_roots(std::cmp::min(req.start_slot + count, state.slot))
-            .take_while(|(_root, slot)| req.start_slot <= *slot)
-            .map(|(root, _slot)| root)
-            .collect();
-
-        roots.reverse();
-        roots.dedup();
-
-        let headers: Vec<BeaconBlockHeader> = roots
-            .into_iter()
-            .step_by(req.skip_slots as usize + 1)
-            .filter_map(|root| {
-                let block = self
-                    .chain
-                    .store
-                    .get::<BeaconBlock<T::EthSpec>>(&root)
-                    .ok()?;
-                Some(block?.block_header())
-            })
-            .collect();
-
-        // ssz-encode the headers
-        let headers = headers.as_ssz_bytes();
-
-        network.send_rpc_response(
-            peer_id,
-            request_id,
-            RPCResponse::BeaconBlockHeaders(BeaconBlockHeadersResponse { headers }),
-        )
-    }
-
-    /// Handle a `BeaconBlockHeaders` response from the peer.
-    pub fn on_beacon_block_headers_response(
-        &mut self,
-        peer_id: PeerId,
-        headers: Vec<BeaconBlockHeader>,
-        network: &mut NetworkContext,
-    ) {
-        debug!(
-            self.log,
-            "BlockHeadersResponse";
-            "peer" => format!("{:?}", peer_id),
-            "count" => headers.len(),
-        );
-
-        if headers.is_empty() {
-            warn!(
-                self.log,
-                "Peer returned empty block headers response. PeerId: {:?}", peer_id
-            );
-            return;
-        }
-
-        // Enqueue the headers, obtaining a list of the roots of the headers which were newly added
-        // to the queue.
-        let block_roots = self.import_queue.enqueue_headers(headers, peer_id.clone());
-
-        if !block_roots.is_empty() {
-            self.request_block_bodies(peer_id, BeaconBlockBodiesRequest { block_roots }, network);
-        }
-    }
-
-    /// Handle a `BeaconBlockBodies` request from the peer.
-    pub fn on_beacon_block_bodies_request(
-        &mut self,
-        peer_id: PeerId,
-        request_id: RequestId,
-        req: BeaconBlockBodiesRequest,
-        network: &mut NetworkContext,
-    ) {
-        let block_bodies: Vec<BeaconBlockBody<_>> = req
-            .block_roots
-            .iter()
-            .filter_map(|root| {
+        let blocks = Vec<BeaconBlock<T::EthSpec>> = self
+            .chain.rev_iter_block_roots().filter(|(_root, slot) req.start_slot <= slot && req.start_slot + req.count >= slot).take_while(|(_root, slot) req.start_slot <= *slot)
+            .filter_map(|root, slot| {
                 if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
                     Some(block.body)
                 } else {
@@ -494,59 +321,49 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             })
             .collect();
 
-        debug!(
-            self.log,
-            "BlockBodiesRequest";
-            "peer" => format!("{:?}", peer_id),
-            "requested" => req.block_roots.len(),
-            "returned" => block_bodies.len(),
-        );
+        roots.reverse();
+        roots.dedup_by_key(|brs| brs.block_root);
 
-        let bytes = block_bodies.as_ssz_bytes();
+        if roots.len() as u64 != req.count {
+            debug!(
+                self.log,
+                "BeaconBlocksRequest";
+                "peer" => format!("{:?}", peer_id),
+                "msg" => "Failed to return all requested hashes",
+                "start_slot" => req.start_slot,
+                "current_slot" => self.chain.present_slot(),
+                "requested" => req.count,
+                "returned" => roots.len(),
+            );
+        }
 
         network.send_rpc_response(
             peer_id,
             request_id,
-            RPCResponse::BeaconBlockBodies(BeaconBlockBodiesResponse {
-                block_bodies: bytes,
-                block_roots: None,
-            }),
+            RPCResponse::BeaconBlocks(blocks.as_ssz_bytes()),
         )
     }
 
-    /// Handle a `BeaconBlockBodies` response from the peer.
-    pub fn on_beacon_block_bodies_response(
+
+    /// Handle a `BeaconBlocks` response from the peer.
+    pub fn on_beacon_blocks_response(
         &mut self,
         peer_id: PeerId,
-        res: DecodedBeaconBlockBodiesResponse<T::EthSpec>,
+        res: Vec<BeaconBlock<T::EthSpec>>,
         network: &mut NetworkContext,
     ) {
         debug!(
             self.log,
-            "BlockBodiesResponse";
+            "BeaconBlocksResponse";
             "peer" => format!("{:?}", peer_id),
             "count" => res.block_bodies.len(),
         );
 
-        if !res.block_bodies.is_empty() {
-            // Import all blocks to queue
-            let last_root = self
-                .import_queue
-                .enqueue_bodies(res.block_bodies, peer_id.clone());
-
-            // Attempt to process all received bodies by recursively processing the latest block
-            if let Some(root) = last_root {
-                if let Some(BlockProcessingOutcome::Processed { .. }) =
-                    self.attempt_process_partial_block(peer_id, root, network, &"rpc")
-                {
-                    // If processing is successful remove from `import_queue`
-                    self.import_queue.remove(root);
-                }
-            }
+        if !res.is_empty() {
+            self.sync_manager.add_blocks(peer_id, blocks);
         }
 
-        // Clear out old entries
-        self.import_queue.remove_stale();
+        self.process_sync();
     }
 
     /// Process a gossip message declaring a new block.
@@ -679,22 +496,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlockHeaders(req));
     }
 
-    /// Request some `BeaconBlockBodies` from the remote peer.
-    fn request_block_bodies(
-        &mut self,
-        peer_id: PeerId,
-        req: BeaconBlockBodiesRequest,
-        network: &mut NetworkContext,
-    ) {
-        debug!(
-            self.log,
-            "RPCRequest(BeaconBlockBodies)";
-            "count" => req.block_roots.len(),
-            "peer" => format!("{:?}", peer_id)
-        );
-
-        network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlockBodies(req));
-    }
 
     /// Returns `true` if `self.chain` has not yet processed this block.
     pub fn chain_has_seen_block(&self, block_root: &Hash256) -> bool {

@@ -14,9 +14,7 @@ use slog::{debug, trace, warn};
 use ssz::{Decode, DecodeError};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockHeader, ProposerSlashing, VoluntaryExit,
-};
+use types::{Attestation, AttesterSlashing, BeaconBlock, ProposerSlashing, VoluntaryExit};
 
 /// Handles messages received from the network and client and organises syncing.
 pub struct MessageHandler<T: BeaconChainTypes> {
@@ -56,9 +54,9 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
         // Initialise sync and begin processing in thread
-        // generate the Message handler
         let sync = SimpleSync::new(beacon_chain.clone(), &log);
 
+        // generate the Message handler
         let mut handler = MessageHandler {
             _chain: beacon_chain.clone(),
             sync,
@@ -66,7 +64,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             log: log.clone(),
         };
 
-        // spawn handler task
+        // spawn handler task and move the message handler instance into the spawned thread
         executor.spawn(
             handler_recv
                 .for_each(move |msg| Ok(handler.handle_message(msg)))
@@ -89,11 +87,11 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             HandlerMessage::PeerDisconnected(peer_id) => {
                 self.sync.on_disconnect(peer_id);
             }
-            // we have received an RPC message request/response
+            // An RPC message request/response has been received
             HandlerMessage::RPC(peer_id, rpc_event) => {
                 self.handle_rpc_message(peer_id, rpc_event);
             }
-            // we have received an RPC message request/response
+            // An RPC message request/response has been received
             HandlerMessage::PubsubMessage(peer_id, gossip) => {
                 self.handle_gossip(peer_id, gossip);
             }
@@ -106,7 +104,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     fn handle_rpc_message(&mut self, peer_id: PeerId, rpc_message: RPCEvent) {
         match rpc_message {
             RPCEvent::Request(id, req) => self.handle_rpc_request(peer_id, id, req),
-            RPCEvent::Response(_id, resp) => self.handle_rpc_response(peer_id, resp),
+            RPCEvent::Response(id, resp) => self.handle_rpc_response(peer_id, id, resp),
             RPCEvent::Error(id, error) => self.handle_rpc_error(peer_id, id, error),
         }
     }
@@ -121,46 +119,39 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                 &mut self.network_context,
             ),
             RPCRequest::Goodbye(goodbye_reason) => self.sync.on_goodbye(peer_id, goodbye_reason),
-            RPCRequest::BeaconBlockRoots(request) => self.sync.on_beacon_block_roots_request(
+            RPCRequest::BeaconBlocks(request) => self.sync.on_beacon_blocks_request(
                 peer_id,
                 request_id,
                 request,
                 &mut self.network_context,
             ),
-            RPCRequest::BeaconBlockHeaders(request) => self.sync.on_beacon_block_headers_request(
+            RPCRequest::RecentBeaconBlocks(request) => self.sync.on_recent_beacon_blocks_request(
                 peer_id,
                 request_id,
                 request,
                 &mut self.network_context,
             ),
-            RPCRequest::BeaconBlockBodies(request) => self.sync.on_beacon_block_bodies_request(
-                peer_id,
-                request_id,
-                request,
-                &mut self.network_context,
-            ),
-            RPCRequest::BeaconChainState(_) => {
-                // We do not implement this endpoint, it is not required and will only likely be
-                // useful for light-client support in later phases.
-                warn!(self.log, "BeaconChainState RPC call is not supported.");
-            }
         }
     }
 
     /// An RPC response has been received from the network.
     // we match on id and ignore responses past the timeout.
-    fn handle_rpc_response(&mut self, peer_id: PeerId, error_response: RPCErrorResponse) {
+    fn handle_rpc_response(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        error_response: RPCErrorResponse,
+    ) {
         // an error could have occurred.
-        // TODO: Handle Error gracefully
         match error_response {
             RPCErrorResponse::InvalidRequest(error) => {
-                warn!(self.log, "";"peer" => format!("{:?}", peer_id), "Invalid Request" => error.as_string())
+                warn!(self.log, "Peer indicated invalid request";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string())
             }
             RPCErrorResponse::ServerError(error) => {
-                warn!(self.log, "";"peer" => format!("{:?}", peer_id), "Server Error" => error.as_string())
+                warn!(self.log, "Peer internal server error";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string())
             }
             RPCErrorResponse::Unknown(error) => {
-                warn!(self.log, "";"peer" => format!("{:?}", peer_id), "Unknown Error" => error.as_string())
+                warn!(self.log, "Unknown peer error";"peer" => format!("{:?}", peer_id), "error" => error.as_string())
             }
             RPCErrorResponse::Success(response) => {
                 match response {
@@ -171,48 +162,36 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                             &mut self.network_context,
                         );
                     }
-                    RPCResponse::BeaconBlockRoots(response) => {
-                        self.sync.on_beacon_block_roots_response(
-                            peer_id,
-                            response,
-                            &mut self.network_context,
-                        );
-                    }
-                    RPCResponse::BeaconBlockHeaders(response) => {
-                        match self.decode_block_headers(response) {
-                            Ok(decoded_block_headers) => {
-                                self.sync.on_beacon_block_headers_response(
+                    RPCResponse::BeaconBlocks(response) => {
+                        match self.decode_beacon_blocks(response) {
+                            Ok(beacon_blocks) => {
+                                self.sync.on_beacon_blocks_response(
                                     peer_id,
-                                    decoded_block_headers,
+                                    beacon_blocks,
                                     &mut self.network_context,
                                 );
                             }
-                            Err(_e) => {
-                                warn!(self.log, "Peer sent invalid block headers";"peer" => format!("{:?}", peer_id))
+                            Err(e) => {
+                                // TODO: Down-vote Peer
+                                warn!(self.log, "Peer sent invalid BEACON_BLOCKS response";"peer" => format!("{:?}", peer_id), "error" => format!("{:?}", e));
                             }
                         }
                     }
-                    RPCResponse::BeaconBlockBodies(response) => {
-                        match self.decode_block_bodies(response) {
-                            Ok(decoded_block_bodies) => {
-                                self.sync.on_beacon_block_bodies_response(
+                    RPCResponse::RecentBeaconBlocks(response) => {
+                        match self.decode_beacon_blocks(response) {
+                            Ok(beacon_blocks) => {
+                                self.sync.on_recent_beacon_blocks_response(
+                                    request_id,
                                     peer_id,
-                                    decoded_block_bodies,
+                                    beacon_blocks,
                                     &mut self.network_context,
                                 );
                             }
-                            Err(_e) => {
-                                warn!(self.log, "Peer sent invalid block bodies";"peer" => format!("{:?}", peer_id))
+                            Err(e) => {
+                                // TODO: Down-vote Peer
+                                warn!(self.log, "Peer sent invalid BEACON_BLOCKS response";"peer" => format!("{:?}", peer_id), "error" => format!("{:?}", e));
                             }
                         }
-                    }
-                    RPCResponse::BeaconChainState(_) => {
-                        // We do not implement this endpoint, it is not required and will only likely be
-                        // useful for light-client support in later phases.
-                        //
-                        // Theoretically, we shouldn't reach this code because we should never send a
-                        // beacon state RPC request.
-                        warn!(self.log, "BeaconChainState RPC call is not supported.");
                     }
                 }
             }
@@ -334,36 +313,22 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 
     /* Req/Resp Domain Decoding  */
 
-    /// Verifies and decodes the ssz-encoded block bodies received from peers.
-    fn decode_block_bodies(
+    /// Verifies and decodes an ssz-encoded list of `BeaconBlock`s. This list may contain empty
+    /// entries encoded with an SSZ NULL.
+    fn decode_beacon_blocks(
         &self,
-        bodies_response: BeaconBlockBodiesResponse,
-    ) -> Result<DecodedBeaconBlockBodiesResponse<T::EthSpec>, DecodeError> {
+        beacon_blocks: &[u8],
+    ) -> Result<Vec<BeaconBlock<T::EthSpec>>, DecodeError> {
         //TODO: Implement faster block verification before decoding entirely
-        let block_bodies = Vec::from_ssz_bytes(&bodies_response.block_bodies)?;
-        Ok(DecodedBeaconBlockBodiesResponse {
-            block_roots: bodies_response
-                .block_roots
-                .expect("Responses must have associated roots"),
-            block_bodies,
-        })
-    }
-
-    /// Verifies and decodes the ssz-encoded block headers received from peers.
-    fn decode_block_headers(
-        &self,
-        headers_response: BeaconBlockHeadersResponse,
-    ) -> Result<Vec<BeaconBlockHeader>, DecodeError> {
-        //TODO: Implement faster header verification before decoding entirely
-        Vec::from_ssz_bytes(&headers_response.headers)
+        Vec::from_ssz_bytes(&beacon_blocks)
     }
 }
 
-// TODO: RPC Rewrite makes this struct fairly pointless
+/// Wraps a Network Channel to employ various RPC/Sync related network functionality.
 pub struct NetworkContext {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage>,
-    /// The `MessageHandler` logger.
+    /// Logger for the `NetworkContext`.
     log: slog::Logger,
 }
 
@@ -388,7 +353,7 @@ impl NetworkContext {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        rpc_response: RPCResponse,
+        rpc_response: RPCErrorResponse,
     ) {
         self.send_rpc_event(
             peer_id,
