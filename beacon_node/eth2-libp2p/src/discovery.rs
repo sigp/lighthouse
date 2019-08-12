@@ -1,3 +1,4 @@
+use crate::metrics;
 use crate::{error, NetworkConfig};
 /// This manages the discovery and management of peers.
 ///
@@ -158,10 +159,12 @@ where
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
+        metrics::inc_counter(&metrics::PEER_CONNECT_COUNT);
         self.connected_peers.insert(peer_id);
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, _endpoint: ConnectedPoint) {
+        metrics::inc_counter(&metrics::PEER_DISCONNECT_COUNT);
         self.connected_peers.remove(peer_id);
     }
 
@@ -217,6 +220,7 @@ where
                         }
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "IP" => format!("{}",socket.ip()));
+                            metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             let mut address = Multiaddr::from(socket.ip());
                             address.push(Protocol::Tcp(self.tcp_port));
                             let enr = self.discovery.local_enr();
