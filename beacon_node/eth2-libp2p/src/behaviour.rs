@@ -3,6 +3,7 @@ use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
+use crate::{BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC};
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
@@ -15,6 +16,7 @@ use libp2p::{
     NetworkBehaviour, PeerId,
 };
 use slog::{debug, o, trace};
+use ssz::{ssz_encode, Encode};
 use std::num::NonZeroU32;
 use std::time::Duration;
 
