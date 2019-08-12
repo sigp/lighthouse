@@ -15,21 +15,21 @@ pub trait AncestorIter<U: Store, I: Iterator> {
 }
 
 impl<'a, U: Store, E: EthSpec> AncestorIter<U, BlockRootsIterator<'a, E, U>> for BeaconBlock<E> {
-    /// Iterates across all the prior block roots of `self`, starting at the most recent and ending
+    /// Iterates across all available prior block roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<BlockRootsIterator<'a, E, U>> {
         let state = store.get::<BeaconState<E>>(&self.state_root).ok()??;
 
-        Some(BlockRootsIterator::owned(store, state, self.slot))
+        Some(BlockRootsIterator::owned(store, state))
     }
 }
 
 impl<'a, U: Store, E: EthSpec> AncestorIter<U, StateRootsIterator<'a, E, U>> for BeaconState<E> {
-    /// Iterates across all the prior state roots of `self`, starting at the most recent and ending
+    /// Iterates across all available prior state roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<StateRootsIterator<'a, E, U>> {
         // The `self.clone()` here is wasteful.
-        Some(StateRootsIterator::owned(store, self.clone(), self.slot))
+        Some(StateRootsIterator::owned(store, self.clone()))
     }
 }
 
@@ -41,19 +41,19 @@ pub struct StateRootsIterator<'a, T: EthSpec, U> {
 }
 
 impl<'a, T: EthSpec, U: Store> StateRootsIterator<'a, T, U> {
-    pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>, start_slot: Slot) -> Self {
+    pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
             store,
+            slot: beacon_state.slot,
             beacon_state: Cow::Borrowed(beacon_state),
-            slot: start_slot + 1,
         }
     }
 
-    pub fn owned(store: Arc<U>, beacon_state: BeaconState<T>, start_slot: Slot) -> Self {
+    pub fn owned(store: Arc<U>, beacon_state: BeaconState<T>) -> Self {
         Self {
             store,
+            slot: beacon_state.slot,
             beacon_state: Cow::Owned(beacon_state),
-            slot: start_slot + 1,
         }
     }
 }
@@ -97,16 +97,16 @@ pub struct BlockIterator<'a, T: EthSpec, U> {
 
 impl<'a, T: EthSpec, U: Store> BlockIterator<'a, T, U> {
     /// Create a new iterator over all blocks in the given `beacon_state` and prior states.
-    pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>, start_slot: Slot) -> Self {
+    pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
-            roots: BlockRootsIterator::new(store, beacon_state, start_slot),
+            roots: BlockRootsIterator::new(store, beacon_state),
         }
     }
 
     /// Create a new iterator over all blocks in the given `beacon_state` and prior states.
-    pub fn owned(store: Arc<U>, beacon_state: BeaconState<T>, start_slot: Slot) -> Self {
+    pub fn owned(store: Arc<U>, beacon_state: BeaconState<T>) -> Self {
         Self {
-            roots: BlockRootsIterator::owned(store, beacon_state, start_slot),
+            roots: BlockRootsIterator::owned(store, beacon_state),
         }
     }
 }
@@ -137,20 +137,20 @@ pub struct BlockRootsIterator<'a, T: EthSpec, U> {
 
 impl<'a, T: EthSpec, U: Store> BlockRootsIterator<'a, T, U> {
     /// Create a new iterator over all block roots in the given `beacon_state` and prior states.
-    pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>, start_slot: Slot) -> Self {
+    pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
             store,
+            slot: beacon_state.slot,
             beacon_state: Cow::Borrowed(beacon_state),
-            slot: start_slot + 1,
         }
     }
 
     /// Create a new iterator over all block roots in the given `beacon_state` and prior states.
-    pub fn owned(store: Arc<U>, beacon_state: BeaconState<T>, start_slot: Slot) -> Self {
+    pub fn owned(store: Arc<U>, beacon_state: BeaconState<T>) -> Self {
         Self {
             store,
+            slot: beacon_state.slot,
             beacon_state: Cow::Owned(beacon_state),
-            slot: start_slot + 1,
         }
     }
 }
@@ -227,7 +227,7 @@ mod test {
         state_b.state_roots[0] = state_a_root;
         store.put(&state_a_root, &state_a).unwrap();
 
-        let iter = BlockRootsIterator::new(store.clone(), &state_b, state_b.slot - 1);
+        let iter = BlockRootsIterator::new(store.clone(), &state_b);
 
         assert!(
             iter.clone().find(|(_root, slot)| *slot == 0).is_some(),
@@ -276,7 +276,7 @@ mod test {
         store.put(&state_a_root, &state_a).unwrap();
         store.put(&state_b_root, &state_b).unwrap();
 
-        let iter = StateRootsIterator::new(store.clone(), &state_b, state_b.slot - 1);
+        let iter = StateRootsIterator::new(store.clone(), &state_b);
 
         assert!(
             iter.clone().find(|(_root, slot)| *slot == 0).is_some(),

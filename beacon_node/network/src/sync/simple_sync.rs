@@ -279,8 +279,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
     fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
         self.chain
-            .rev_iter_block_roots(target_slot)
-            .take(1)
+            .rev_iter_block_roots()
             .find(|(_root, slot)| *slot == target_slot)
             .map(|(root, _slot)| root)
     }
@@ -293,8 +292,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         req: BeaconBlocksRequest,
         network: &mut NetworkContext,
     ) {
-        let state = &self.chain.head().beacon_state;
-
         debug!(
             self.log,
             "BeaconBlocksRequest";
@@ -448,7 +445,12 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         _network: &mut NetworkContext,
     ) {
         match self.chain.process_attestation(msg) {
-            Ok(()) => info!(self.log, "ImportedAttestation"; "source" => "gossip"),
+            Ok(outcome) => info!(
+                self.log,
+                "Processed attestation";
+                "source" => "gossip",
+                "outcome" => format!("{:?}", outcome)
+            ),
             Err(e) => {
                 warn!(self.log, "InvalidAttestation"; "source" => "gossip", "error" => format!("{:?}", e))
             }
