@@ -1,6 +1,6 @@
 use crate::{BeaconChain, BeaconChainTypes};
 pub use lighthouse_metrics::*;
-use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconState, Epoch, Hash256, Slot};
 
 lazy_static! {
     /*
@@ -140,17 +140,6 @@ lazy_static! {
      */
     pub static ref PERSIST_CHAIN: Result<Histogram> =
         try_create_histogram("beacon_persist_chain", "Time taken to update the canonical head");
-}
-
-// Lazy-static is split so we don't reach the crate-level recursion limit.
-lazy_static! {
-    /*
-     * Slot Clock
-     */
-    pub static ref PRESENT_SLOT: Result<IntGauge> =
-        try_create_int_gauge("beacon_present_slot", "The present slot, according to system time");
-    pub static ref PRESENT_EPOCH: Result<IntGauge> =
-        try_create_int_gauge("beacon_present_epoch", "The present epoch, according to system time");
 
     /*
      * Chain Head
@@ -194,21 +183,6 @@ lazy_static! {
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
 /// head state info, etc) and update the Prometheus `DEFAULT_REGISTRY`.
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
-    set_gauge_by_slot(
-        &PRESENT_SLOT,
-        beacon_chain
-            .read_slot_clock()
-            .unwrap_or_else(|| Slot::new(0)),
-    );
-
-    set_gauge_by_epoch(
-        &PRESENT_EPOCH,
-        beacon_chain
-            .read_slot_clock()
-            .map(|s| s.epoch(T::EthSpec::slots_per_epoch()))
-            .unwrap_or_else(|| Epoch::new(0)),
-    );
-
     scrape_head_state::<T>(
         &beacon_chain.head().beacon_state,
         beacon_chain.head().beacon_state_root,
