@@ -1,4 +1,4 @@
-use super::methods::{RPCErrorResponse, RPCResponse, RequestId};
+use super::methods::RequestId;
 use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
@@ -13,8 +13,8 @@ use smallvec::SmallVec;
 use std::time::{Duration, Instant};
 use tokio_io::{AsyncRead, AsyncWrite};
 
-/// The time (in seconds) before a substream that is awaiting a response times out.
-pub const RESPONSE_TIMEOUT: u64 = 9;
+/// The time (in seconds) before a substream that is awaiting a response from the user times out.
+pub const RESPONSE_TIMEOUT: u64 = 10;
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
 pub struct RPCHandler<TSubstream>
@@ -314,7 +314,7 @@ where
                     Ok(Async::Ready(response)) => {
                         if let Some(response) = response {
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                                build_response(rpc_event, response),
+                                RPCEvent::Response(rpc_event.id(), response),
                             )));
                         } else {
                             // stream closed early
@@ -363,33 +363,5 @@ where
             self.dial_queue.shrink_to_fit();
         }
         Ok(Async::NotReady)
-    }
-}
-
-/// Given a response back from a peer and the request that sent it, construct a response to send
-/// back to the user. This allows for some data manipulation of responses given requests.
-fn build_response(rpc_event: RPCEvent, rpc_response: RPCErrorResponse) -> RPCEvent {
-    let id = rpc_event.id();
-
-    // handle the types of responses
-    match rpc_response {
-        RPCErrorResponse::Success(response) => {
-            match response {
-                // if the response is block roots, tag on the extra request data
-                RPCResponse::BeaconBlockBodies(mut resp) => {
-                    if let RPCEvent::Request(_id, RPCRequest::BeaconBlockBodies(bodies_req)) =
-                        rpc_event
-                    {
-                        resp.block_roots = Some(bodies_req.block_roots);
-                    }
-                    RPCEvent::Response(
-                        id,
-                        RPCErrorResponse::Success(RPCResponse::BeaconBlockBodies(resp)),
-                    )
-                }
-                _ => RPCEvent::Response(id, RPCErrorResponse::Success(response)),
-            }
-        }
-        _ => RPCEvent::Response(id, rpc_response),
     }
 }
