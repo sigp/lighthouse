@@ -15,7 +15,7 @@ lazy_static! {
         "Count of blocks processed without error"
     );
     pub static ref BLOCK_PROCESSING_TIMES: Result<Histogram> =
-        try_create_histogram("block_processing_seconds", "Full runtime of block processing");
+        try_create_histogram("beacon_block_processing_seconds", "Full runtime of block processing");
     pub static ref BLOCK_PROCESSING_DB_READ: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_db_read_seconds",
         "Time spent loading block and state from DB for block processing"
@@ -123,15 +123,15 @@ lazy_static! {
         "Count of occasions fork choice has switched to a different chain"
     );
     pub static ref FORK_CHOICE_TIMES: Result<Histogram> =
-        try_create_histogram("beacon_fork_choice_time", "Full runtime of fork choice");
+        try_create_histogram("beacon_fork_choice_seconds", "Full runtime of fork choice");
     pub static ref FORK_CHOICE_FIND_HEAD_TIMES: Result<Histogram> =
-        try_create_histogram("beacon_fork_choice_find_head_time", "Full runtime of fork choice find_head function");
+        try_create_histogram("beacon_fork_choice_find_head_seconds", "Full runtime of fork choice find_head function");
     pub static ref FORK_CHOICE_PROCESS_BLOCK_TIMES: Result<Histogram> = try_create_histogram(
-        "beacon_fork_choice_process_block_time",
+        "beacon_fork_choice_process_block_seconds",
         "Time taken to add a block and all attestations to fork choice"
     );
     pub static ref FORK_CHOICE_PROCESS_ATTESTATION_TIMES: Result<Histogram> = try_create_histogram(
-        "beacon_fork_choice_process_attestation_time",
+        "beacon_fork_choice_process_attestation_seconds",
         "Time taken to add an attestation to fork choice"
     );
 
