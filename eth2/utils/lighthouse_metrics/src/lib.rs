@@ -41,6 +41,12 @@ pub fn inc_counter(counter: &Result<IntCounter>) {
     }
 }
 
+pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
+    if let Ok(counter) = counter {
+        counter.inc_by(value);
+    }
+}
+
 pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
     if let Ok(gauge) = gauge {
         gauge.set(value);
