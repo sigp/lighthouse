@@ -777,11 +777,7 @@ where
     }
 
     pub fn get_ref(&self, i: usize) -> Option<&T> {
-        if i < self.0.len() {
-            Some(&self.0[i])
-        } else {
-            None
-        }
+        self.0.get(i)
     }
 
     pub fn insert(&mut self, i: usize, element: T) {
