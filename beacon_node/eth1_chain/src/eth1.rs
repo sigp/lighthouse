@@ -1,6 +1,6 @@
 use crate::cache::*;
 use crate::deposits::*;
-use crate::types::{Eth1DataFetcher};
+use crate::types::Eth1DataFetcher;
 use slog::{info, o, warn};
 use std::cmp::Ordering;
 use std::sync::Arc;

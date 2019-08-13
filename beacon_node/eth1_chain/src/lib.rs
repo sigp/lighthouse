@@ -1,6 +1,5 @@
-pub mod cache;
-pub mod deposits;
-pub mod utils;
+mod cache;
+mod deposits;
 pub mod eth1;
-pub mod fetcher;
+mod types;
 pub mod web3_fetcher;

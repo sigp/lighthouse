@@ -221,7 +221,7 @@ mod tests {
         };
         let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract);
         let deposit_count = w3.get_deposit_count(None);
-        assert_eq!(deposit_count, Some(10));
+        assert_eq!(deposit_count, Some(0));
     }
 
     #[test]
