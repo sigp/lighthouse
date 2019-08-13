@@ -547,11 +547,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
     ) -> Result<AttestationProcessingOutcome, Error> {
+        metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
+        let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
+
         // From the store, load the attestation's "head block".
         //
         // An honest validator would have set this block to be the head of the chain (i.e., the
         // result of running fork choice).
-        if let Some(attestation_head_block) = self
+        let result = if let Some(attestation_head_block) = self
             .store
             .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)?
         {
@@ -680,7 +683,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(AttestationProcessingOutcome::UnknownHeadBlock {
                 beacon_block_root: attestation.data.beacon_block_root,
             })
+        };
+
+        metrics::stop_timer(timer);
+
+        if let Ok(AttestationProcessingOutcome::Processed) = &result {
+            metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_SUCCESSES);
         }
+
+        result
     }
 
     /// Verifies the `attestation` against the `state` to which it is attesting.
@@ -707,9 +718,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
         block: &BeaconBlock<T::EthSpec>,
     ) -> Result<AttestationProcessingOutcome, Error> {
-        metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
-        let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
-
         // Find the highest between:
         //
         // - The highest valid finalized epoch we've ever seen (i.e., the head).
@@ -718,6 +726,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.head().beacon_state.finalized_checkpoint.epoch,
             state.finalized_checkpoint.epoch,
         );
+
+        // A helper function to allow attestation processing to be metered.
+        let verify_attestation_for_state = |state, attestation, spec, verify_signatures| {
+            let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_CORE);
+
+            let result = verify_attestation_for_state(state, attestation, spec, verify_signatures);
+
+            metrics::stop_timer(timer);
+            result
+        };
 
         let result = if block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()) {
             // Ignore any attestation where the slot of `data.beacon_block_root` is equal to or
@@ -757,8 +775,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             Ok(AttestationProcessingOutcome::Processed)
         };
-
-        timer.map(|t| t.observe_duration());
 
         result
     }
