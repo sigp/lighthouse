@@ -16,6 +16,10 @@ lazy_static! {
     );
     pub static ref BLOCK_PROCESSING_TIMES: Result<Histogram> =
         try_create_histogram("beacon_block_processing_seconds", "Full runtime of block processing");
+    pub static ref BLOCK_PROCESSING_BLOCK_ROOT: Result<Histogram> = try_create_histogram(
+        "beacon_block_processing_block_root_seconds",
+        "Time spent calculating the block root when processing a block."
+    );
     pub static ref BLOCK_PROCESSING_DB_READ: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_db_read_seconds",
         "Time spent loading block and state from DB for block processing"

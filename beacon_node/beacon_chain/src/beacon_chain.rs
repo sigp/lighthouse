@@ -827,7 +827,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BlockProcessingOutcome::GenesisBlock);
         }
 
+        let block_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOCK_ROOT);
+
         let block_root = block.canonical_root();
+
+        metrics::stop_timer(block_root_timer);
 
         if block_root == self.genesis_block_root {
             return Ok(BlockProcessingOutcome::GenesisBlock);
