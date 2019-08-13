@@ -159,13 +159,17 @@ where
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
-        metrics::inc_counter(&metrics::PEER_CONNECT_COUNT);
         self.connected_peers.insert(peer_id);
+
+        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, _endpoint: ConnectedPoint) {
-        metrics::inc_counter(&metrics::PEER_DISCONNECT_COUNT);
         self.connected_peers.remove(peer_id);
+
+        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
     }
 
     fn inject_replaced(
