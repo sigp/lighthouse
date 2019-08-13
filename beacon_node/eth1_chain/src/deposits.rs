@@ -1,23 +1,27 @@
-use crate::fetcher::Eth1DataFetcher;
+use crate::types::Eth1DataFetcher;
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
+use std::marker::Send;
 use std::sync::Arc;
 use types::DepositData;
-use web3::futures::{Future};
+use web3::futures::Future;
 
 /// Cache for all deposits received in DepositContract.
-pub struct DepositCache {
+#[derive(Clone, Debug)]
+pub struct DepositCache<F: Eth1DataFetcher> {
     /// Deposit index to deposit
     pub deposits: Arc<RwLock<BTreeMap<u64, DepositData>>>,
     /// Last deposit index queried by beacon chain
     last_index: u64,
+    fetcher: Arc<F>,
 }
 
-impl DepositCache {
-    pub fn new() -> Self {
+impl<F: Eth1DataFetcher> DepositCache<F> {
+    pub fn new(fetcher: Arc<F>) -> Self {
         DepositCache {
             deposits: Arc::new(RwLock::new(BTreeMap::new())),
             last_index: 0,
+            fetcher,
         }
     }
 
@@ -35,12 +39,10 @@ impl DepositCache {
         Some(deposit_data)
     }
 
-    pub fn subscribe_deposit_logs<T: Eth1DataFetcher>(
-        &self,
-        w3: &T,
-    ) -> impl Future<Item = (), Error = ()> {
+    /// Returns a future that adds entries into the deposits map with new events.
+    pub fn subscribe_deposit_logs(&self) -> Box<Future<Item = (), Error = ()> + Send> {
         let cache = self.deposits.clone();
-        let event_future = w3.get_deposit_logs_subscription(cache);
+        let event_future = self.fetcher.get_deposit_logs_subscription(cache);
         event_future
     }
 }
@@ -48,12 +50,13 @@ impl DepositCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::web3_fetcher::{ContractConfig, Web3DataFetcher};
+    use crate::types::ContractConfig;
+    use crate::web3_fetcher::Web3DataFetcher;
     use std::time::{Duration, Instant};
     use tokio::timer::Interval;
     use tokio_core::reactor::Core;
-    use web3::types::Address;
     use web3::futures::Stream;
+    use web3::types::Address;
 
     #[test]
     fn test_logs_updation() {
@@ -63,8 +66,8 @@ mod tests {
             address: deposit_contract_address,
             abi: include_bytes!("deposit_contract.json").to_vec(),
         };
-        let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract);
-        let cache = Arc::new(DepositCache::new());
+        let w3 = Arc::new(Web3DataFetcher::new("ws://localhost:8545", deposit_contract));
+        let cache = Arc::new(DepositCache::new(w3));
         let new_cache = cache.clone();
 
         let task = Interval::new(Instant::now(), Duration::from_millis(1000))
@@ -74,7 +77,7 @@ mod tests {
                 Ok(())
             })
             .map_err(|_| ());
-        let event_future = cache.subscribe_deposit_logs(&w3);
+        let event_future = cache.subscribe_deposit_logs();
         let pair = task.join(event_future).map_err(|_| ());
         let mut core = Core::new().unwrap();
         core.run(pair).unwrap();
