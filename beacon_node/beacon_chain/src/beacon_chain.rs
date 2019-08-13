@@ -536,7 +536,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// If valid, the attestation is added to `self.op_pool` and `self.fork_choice`.
     ///
     /// Returns an `Ok(AttestationProcessingOutcome)` if the chain was able to make a determination
-    /// about the `attestation` (wether it was invalid or not). Returns an `Err` if the was an
+    /// about the `attestation` (whether it was invalid or not). Returns an `Err` if there was an
     /// error during this process and no determination was able to be made.
     ///
     /// ## Notes
@@ -620,7 +620,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 outcome
             } else {
                 // Use the `data.beacon_block_root` to load the state from the latest non-skipped
-                // slot preceding the attestations creation.
+                // slot preceding the attestation's creation.
                 //
                 // This state is guaranteed to be in the same chain as the attestation, but it's
                 // not guaranteed to be from the same slot or epoch as the attestation.
@@ -703,7 +703,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The given `state` must fulfil one of the following conditions:
     ///
     /// - `state` corresponds to the `block.state_root` identified by
-    /// `attestation.data.beacon_block_root`. (Viz., `attestation` was created using `state`.
+    /// `attestation.data.beacon_block_root`. (Viz., `attestation` was created using `state`).
     /// - `state.slot` is in the same epoch as `data.target.epoch` and
     /// `attestation.data.beacon_block_root` is in the history of `state`.
     ///
