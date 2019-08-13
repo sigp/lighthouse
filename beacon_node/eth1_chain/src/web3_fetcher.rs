@@ -2,6 +2,7 @@ use bls::{PublicKeyBytes, SignatureBytes};
 use ethabi::{decode, ParamType, Token};
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
+use std::marker::Send;
 use std::sync::Arc;
 use types::DepositData;
 use web3::contract::{Contract, Options};
@@ -11,21 +12,14 @@ use web3::types::FilterBuilder;
 use web3::types::*;
 use web3::Web3;
 
-use crate::fetcher::Eth1DataFetcher;
-
-/// Config for an Eth1 chain contract.
-#[derive(Debug, Clone)]
-pub struct ContractConfig {
-    /// Deployed address in eth1 chain.
-    pub address: Address,
-    /// Contract abi.
-    pub abi: Vec<u8>,
-}
+use crate::types::{ContractConfig, Eth1DataFetcher};
 
 /// Wrapper around web3 api.
+#[derive(Clone, Debug)]
 pub struct Web3DataFetcher {
-    pub event_loop: web3::transports::EventLoopHandle,
-    pub web3: web3::api::Web3<web3::transports::ws::WebSocket>,
+    event_loop: Arc<web3::transports::EventLoopHandle>,
+    /// Websocket transport object. Needed for logs subscription.
+    web3: Arc<web3::api::Web3<web3::transports::ws::WebSocket>>,
     /// Deposit contract config.
     contract: ContractConfig,
 }
@@ -36,8 +30,8 @@ impl Web3DataFetcher {
         let (event_loop, transport) = WebSocket::new(endpoint).unwrap();
         let web3 = Web3::new(transport);
         Web3DataFetcher {
-            event_loop: event_loop,
-            web3,
+            event_loop: Arc::new(event_loop),
+            web3: Arc::new(web3),
             contract: deposit_contract,
         }
     }
@@ -113,7 +107,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
     fn get_deposit_logs_subscription(
         &self,
         cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
-    ) -> Box<dyn Future<Item = (), Error = ()>> {
+    ) -> Box<Future<Item = (), Error = ()> + Send> {
         let filter: Filter = self.get_deposit_logs_filter();
         let event_future = self
             .web3
