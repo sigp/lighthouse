@@ -1,12 +1,13 @@
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
+use std::marker::{Send, Sync};
 use std::sync::Arc;
 use types::DepositData;
-use web3::futures::{Future};
+use web3::futures::Future;
 use web3::types::*;
 
 /// Interface for getting Eth1 chain data.
-pub trait Eth1DataFetcher {
+pub trait Eth1DataFetcher: Send + Sync + Clone {
     /// Get block_header of the head of the chain.
     fn get_current_block_number(&self) -> Option<U256>;
 
@@ -24,5 +25,14 @@ pub trait Eth1DataFetcher {
     fn get_deposit_logs_subscription(
         &self,
         cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
-    ) -> Box<dyn Future<Item = (), Error = ()>>;
+    ) -> Box<Future<Item = (), Error = ()> + Send>;
+}
+
+/// Config for an Eth1 chain contract.
+#[derive(Debug, Clone)]
+pub struct ContractConfig {
+    /// Deployed address in eth1 chain.
+    pub address: Address,
+    /// Contract abi.
+    pub abi: Vec<u8>,
 }
