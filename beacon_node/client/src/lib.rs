@@ -2,6 +2,7 @@ extern crate slog;
 
 mod beacon_chain_types;
 mod config;
+mod local_bootstrap;
 
 pub mod error;
 pub mod notifier;

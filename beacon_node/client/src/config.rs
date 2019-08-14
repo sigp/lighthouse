@@ -48,6 +48,8 @@ pub enum GenesisState {
     },
     /// Load a YAML-encoded genesis state from a file.
     Yaml { file: PathBuf },
+    /// Use a HTTP server (running our REST-API) to load genesis and finalized states and blocks.
+    HttpBootstrap { server: String },
 }
 
 impl Default for Config {

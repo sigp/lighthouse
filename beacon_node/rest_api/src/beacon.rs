@@ -58,3 +58,24 @@ pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 
     Ok(success_response(Body::from(json)))
 }
+
+/// HTTP handler to return the highest finalized slot.
+pub fn get_latest_finalized_checkpoint<T: BeaconChainTypes + 'static>(
+    req: Request<Body>,
+) -> ApiResult {
+    let beacon_chain = req
+        .extensions()
+        .get::<Arc<BeaconChain<T>>>()
+        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+
+    let checkpoint = beacon_chain
+        .head()
+        .beacon_state
+        .finalized_checkpoint
+        .clone();
+
+    let json: String = serde_json::to_string(&checkpoint)
+        .map_err(|e| ApiError::ServerError(format!("Unable to serialize checkpoint: {:?}", e)))?;
+
+    Ok(success_response(Body::from(json)))
+}
