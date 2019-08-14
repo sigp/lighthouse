@@ -1,3 +1,4 @@
+use eth2_libp2p::Enr;
 use reqwest::{Error as HttpError, Url};
 use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Slot};
 
@@ -18,6 +19,7 @@ pub struct BootstrapParams<T: EthSpec> {
     pub finalized_state: BeaconState<T>,
     pub genesis_block: BeaconBlock<T>,
     pub genesis_state: BeaconState<T>,
+    pub enr: Enr,
 }
 
 impl<T: EthSpec> BootstrapParams<T> {
@@ -37,6 +39,7 @@ impl<T: EthSpec> BootstrapParams<T> {
                 .map_err(|e| format!("Unable to get genesis block: {:?}", e))?,
             genesis_state: get_state(url.clone(), genesis_slot)
                 .map_err(|e| format!("Unable to get genesis state: {:?}", e))?,
+            enr: get_enr(url.clone()).map_err(|e| format!("Unable to get ENR: {:?}", e))?,
         })
     }
 }
@@ -91,6 +94,19 @@ fn get_block<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconBlock<T>, Err
 
     url.query_pairs_mut()
         .append_pair("slot", &format!("{}", slot.as_u64()));
+
+    reqwest::get(url)?
+        .error_for_status()?
+        .json()
+        .map_err(Into::into)
+}
+
+fn get_enr(mut url: Url) -> Result<Enr, Error> {
+    url.path_segments_mut()
+        .map(|mut url| {
+            url.push("node").push("network").push("enr");
+        })
+        .map_err(|_| Error::UrlCannotBeBase)?;
 
     reqwest::get(url)?
         .error_for_status()?

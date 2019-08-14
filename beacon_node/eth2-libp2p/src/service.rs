@@ -15,7 +15,7 @@ use libp2p::core::{
     transport::boxed::Boxed,
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
-use libp2p::{core, secio, PeerId, Swarm, Transport};
+use libp2p::{core, enr::Enr, secio, PeerId, Swarm, Transport};
 use slog::{debug, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;

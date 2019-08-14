@@ -5,7 +5,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::Topic;
-use eth2_libp2p::{Libp2pEvent, PeerId};
+use eth2_libp2p::{Enr, Libp2pEvent, PeerId};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
@@ -62,6 +62,30 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
         };
 
         Ok((Arc::new(network_service), network_send))
+    }
+
+    pub fn local_enr(&self) -> Enr {
+        self.libp2p_service
+            .lock()
+            .swarm
+            .discovery()
+            .local_enr()
+            .clone()
+    }
+
+    pub fn connected_peers(&self) -> usize {
+        self.libp2p_service.lock().swarm.connected_peers()
+    }
+
+    pub fn connected_peer_set(&self) -> Vec<PeerId> {
+        self.libp2p_service
+            .lock()
+            .swarm
+            .discovery()
+            .connected_peer_set()
+            .iter()
+            .cloned()
+            .collect()
     }
 
     pub fn libp2p_service(&self) -> Arc<Mutex<LibP2PService>> {
