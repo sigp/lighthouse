@@ -4,6 +4,7 @@ mod beacon;
 mod config;
 mod helpers;
 mod node;
+mod spec;
 mod url_query;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -101,10 +102,15 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
 
             // Route the request to the correct handler.
             let result = match (req.method(), path.as_ref()) {
+                (&Method::GET, "/beacon/latest_finalized_checkpoint") => {
+                    beacon::get_latest_finalized_checkpoint::<T>(req)
+                }
                 (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req),
                 (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req),
                 (&Method::GET, "/node/version") => node::get_version(req),
                 (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
+                (&Method::GET, "/spec") => spec::get_spec::<T>(req),
+                (&Method::GET, "/spec/slots_per_epoch") => spec::get_slots_per_epoch::<T>(req),
                 _ => Err(ApiError::MethodNotAllowed(path.clone())),
             };
 
