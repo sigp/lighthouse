@@ -1,6 +1,5 @@
 use crate::Eth2Config;
 use clap::ArgMatches;
-use http_server::HttpServerConfig;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use slog::{info, o, Drain};
@@ -25,7 +24,6 @@ pub struct Config {
     pub genesis_state: GenesisState,
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
-    pub http: HttpServerConfig,
     pub rest_api: rest_api::ApiConfig,
 }
 
@@ -61,7 +59,6 @@ impl Default for Config {
             db_name: "chain_db".to_string(),
             network: NetworkConfig::new(),
             rpc: rpc::RPCConfig::default(),
-            http: HttpServerConfig::default(),
             rest_api: rest_api::ApiConfig::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
             genesis_state: GenesisState::RecentGenesis {
@@ -145,7 +142,6 @@ impl Config {
 
         self.network.apply_cli_args(args)?;
         self.rpc.apply_cli_args(args)?;
-        self.http.apply_cli_args(args)?;
         self.rest_api.apply_cli_args(args)?;
 
         if let Some(log_file) = args.value_of("logfile") {

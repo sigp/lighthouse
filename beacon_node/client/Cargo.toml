@@ -7,7 +7,6 @@ edition = "2018"
 [dependencies]
 beacon_chain = { path = "../beacon_chain" }
 network = { path = "../network" }
-http_server = { path = "../http_server" }
 rpc = { path = "../rpc" }
 rest_api = { path = "../rest_api" }
 prometheus = "^0.6"
