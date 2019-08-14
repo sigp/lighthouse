@@ -7,7 +7,6 @@ use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
     discv5::Discv5Event,
-    enr::Enr,
     gossipsub::{Gossipsub, GossipsubEvent},
     identify::{Identify, IdentifyEvent},
     ping::{Ping, PingConfig, PingEvent},
