@@ -3,7 +3,9 @@ use lmd_ghost::LmdGhost;
 use state_processing::common::get_attesting_indices;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
-use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256};
+use types::{
+    Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, Slot,
+};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -17,8 +19,8 @@ pub enum Error {
 }
 
 pub struct ForkChoice<T: BeaconChainTypes> {
-    backend: T::LmdGhost,
     store: Arc<T::Store>,
+    backend: T::LmdGhost,
     /// Used for resolving the `0x00..00` alias back to genesis.
     ///
     /// Does not necessarily need to be the _actual_ genesis, it suffices to be the finalized root
@@ -117,18 +119,34 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         //
         // https://github.com/ethereum/eth2.0-specs/blob/v0.7.0/specs/core/0_fork-choice.md
         for attestation in &block.body.attestations {
-            self.process_attestation_from_block(state, attestation)?;
+            // If the `data.beacon_block_root` block is not known to us, simply ignore the latest
+            // vote.
+            if let Some(block) = self
+                .store
+                .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)?
+            {
+                self.process_attestation(state, attestation, &block)?;
+            }
         }
 
+        // This does not apply a vote to the block, it just makes fork choice aware of the block so
+        // it can still be identified as the head even if it doesn't have any votes.
+        //
+        // A case where a block without any votes can be the head is where it is the only child of
+        // a block that has the majority of votes applied to it.
         self.backend.process_block(block, block_root)?;
 
         Ok(())
     }
 
-    fn process_attestation_from_block(
+    /// Process an attestation which references `block` in `attestation.data.beacon_block_root`.
+    ///
+    /// Assumes the attestation is valid.
+    pub fn process_attestation(
         &self,
         state: &BeaconState<T::EthSpec>,
         attestation: &Attestation<T::EthSpec>,
+        block: &BeaconBlock<T::EthSpec>,
     ) -> Result<()> {
         let block_hash = attestation.data.beacon_block_root;
 
@@ -147,24 +165,24 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         // to genesis just by being present in the chain.
         //
         // Additionally, don't add any block hash to fork choice unless we have imported the block.
-        if block_hash != Hash256::zero()
-            && self
-                .store
-                .exists::<BeaconBlock<T::EthSpec>>(&block_hash)
-                .unwrap_or(false)
-        {
+        if block_hash != Hash256::zero() {
             let validator_indices =
                 get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
-            let block_slot = state.get_attestation_data_slot(&attestation.data)?;
-
             for validator_index in validator_indices {
                 self.backend
-                    .process_attestation(validator_index, block_hash, block_slot)?;
+                    .process_attestation(validator_index, block_hash, block.slot)?;
             }
         }
 
         Ok(())
+    }
+
+    /// Returns the latest message for a given validator, if any.
+    ///
+    /// Returns `(block_root, block_slot)`.
+    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
+        self.backend.latest_message(validator_index)
     }
 
     /// Inform the fork choice that the given block (and corresponding root) have been finalized so

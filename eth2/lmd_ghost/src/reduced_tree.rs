@@ -109,6 +109,10 @@ where
             .update_root(new_block.slot, new_root)
             .map_err(|e| format!("update_finalized_root failed: {:?}", e))
     }
+
+    fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
+        self.core.read().latest_message(validator_index)
+    }
 }
 
 struct ReducedTree<T, E> {
@@ -252,6 +256,13 @@ where
         let head_node = self.find_head_from(start_node)?;
 
         Ok(head_node.block_hash)
+    }
+
+    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
+        match self.latest_votes.get_ref(validator_index) {
+            Some(Some(v)) => Some((v.hash.clone(), v.slot.clone())),
+            _ => None,
+        }
     }
 
     fn find_head_from<'a>(&'a self, start_node: &'a Node) -> Result<&'a Node> {
@@ -600,11 +611,7 @@ where
         let block = self.get_block(child)?;
         let state = self.get_state(block.state_root)?;
 
-        Ok(BlockRootsIterator::owned(
-            self.store.clone(),
-            state,
-            block.slot - 1,
-        ))
+        Ok(BlockRootsIterator::owned(self.store.clone(), state))
     }
 
     /// Verify the integrity of `self`. Returns `Ok(())` if the tree has integrity, otherwise returns `Err(description)`.
@@ -767,6 +774,10 @@ where
     pub fn get(&mut self, i: usize) -> &T {
         self.ensure(i);
         &self.0[i]
+    }
+
+    pub fn get_ref(&self, i: usize) -> Option<&T> {
+        self.0.get(i)
     }
 
     pub fn insert(&mut self, i: usize, element: T) {
