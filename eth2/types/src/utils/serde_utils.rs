@@ -46,8 +46,20 @@ where
     Ok(array)
 }
 
-// #[allow(clippy::trivially_copy_pass_by_ref)] // Serde requires the `byte` to be a ref.
-pub fn fork_to_hex_str<S>(bytes: &[u8; 4], serializer: S) -> Result<S::Ok, S::Error>
+pub fn fork_to_hex_str<S>(bytes: &[u8; FORK_BYTES_LEN], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut hex_string: String = "0x".to_string();
+    hex_string.push_str(&hex::encode(&bytes));
+
+    serializer.serialize_str(&hex_string)
+}
+
+pub fn graffiti_to_hex_str<S>(
+    bytes: &[u8; GRAFFITI_BYTES_LEN],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
