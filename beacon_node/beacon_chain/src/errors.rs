@@ -1,5 +1,4 @@
 use crate::fork_choice::Error as ForkChoiceError;
-use crate::metrics::Error as MetricsError;
 use state_processing::per_block_processing::errors::{
     AttestationValidationError, IndexedAttestationValidationError,
 };
@@ -34,7 +33,6 @@ pub enum BeaconChainError {
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
     SlotProcessingError(SlotProcessingError),
-    MetricsError(String),
     NoStateForAttestation {
         beacon_block_root: Hash256,
     },
@@ -43,12 +41,6 @@ pub enum BeaconChainError {
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
-
-impl From<MetricsError> for BeaconChainError {
-    fn from(e: MetricsError) -> BeaconChainError {
-        BeaconChainError::MetricsError(format!("{:?}", e))
-    }
-}
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {
