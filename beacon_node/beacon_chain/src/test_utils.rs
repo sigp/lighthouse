@@ -84,13 +84,29 @@ where
 {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(validator_count: usize) -> Self {
+        let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
+            validator_count,
+            &E::default_spec(),
+        );
+        let (genesis_state, keypairs) = state_builder.build();
+
+        Self::from_state_and_keypairs(genesis_state, keypairs)
+    }
+
+    /// Instantiate a new harness with an initial validator for each key supplied.
+    pub fn from_keypairs(keypairs: Vec<Keypair>) -> Self {
+        let state_builder = TestingBeaconStateBuilder::from_keypairs(keypairs, &E::default_spec());
+        let (genesis_state, keypairs) = state_builder.build();
+
+        Self::from_state_and_keypairs(genesis_state, keypairs)
+    }
+
+    /// Instantiate a new harness with the given genesis state and a keypair for each of the
+    /// initial validators in the given state.
+    pub fn from_state_and_keypairs(genesis_state: BeaconState<E>, keypairs: Vec<Keypair>) -> Self {
         let spec = E::default_spec();
 
         let store = Arc::new(MemoryStore::open());
-
-        let state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
-        let (genesis_state, keypairs) = state_builder.build();
 
         let mut genesis_block = BeaconBlock::empty(&spec);
         genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
@@ -178,12 +194,7 @@ where
             if let BlockProcessingOutcome::Processed { block_root } = outcome {
                 head_block_root = Some(block_root);
 
-                self.add_attestations_to_op_pool(
-                    &attestation_strategy,
-                    &new_state,
-                    block_root,
-                    slot,
-                );
+                self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
             } else {
                 panic!("block should be successfully processed: {:?}", outcome);
             }
@@ -198,7 +209,7 @@ where
     fn get_state_at_slot(&self, state_slot: Slot) -> BeaconState<E> {
         let state_root = self
             .chain
-            .rev_iter_state_roots(self.chain.head().beacon_state.slot - 1)
+            .rev_iter_state_roots()
             .find(|(_hash, slot)| *slot == state_slot)
             .map(|(hash, _slot)| hash)
             .expect("could not find state root");
@@ -263,16 +274,38 @@ where
         (block, state)
     }
 
-    /// Adds attestations to the `BeaconChain` operations pool to be included in future blocks.
+    /// Adds attestations to the `BeaconChain` operations pool and fork choice.
     ///
     /// The `attestation_strategy` dictates which validators should attest.
-    fn add_attestations_to_op_pool(
+    fn add_free_attestations(
         &self,
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
         head_block_root: Hash256,
         head_block_slot: Slot,
     ) {
+        self.get_free_attestations(
+            attestation_strategy,
+            state,
+            head_block_root,
+            head_block_slot,
+        )
+        .into_iter()
+        .for_each(|attestation| {
+            self.chain
+                .process_attestation(attestation)
+                .expect("should process attestation");
+        });
+    }
+
+    /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
+    pub fn get_free_attestations(
+        &self,
+        attestation_strategy: &AttestationStrategy,
+        state: &BeaconState<E>,
+        head_block_root: Hash256,
+        head_block_slot: Slot,
+    ) -> Vec<Attestation<E>> {
         let spec = &self.spec;
         let fork = &state.fork;
 
@@ -280,6 +313,8 @@ where
             AttestationStrategy::AllValidators => (0..self.keypairs.len()).collect(),
             AttestationStrategy::SomeValidators(vec) => vec.clone(),
         };
+
+        let mut vec = vec![];
 
         state
             .get_crosslink_committees_at_slot(state.slot)
@@ -326,19 +361,17 @@ where
                             agg_sig
                         };
 
-                        let attestation = Attestation {
+                        vec.push(Attestation {
                             aggregation_bits,
                             data,
                             custody_bits,
                             signature,
-                        };
-
-                        self.chain
-                            .process_attestation(attestation)
-                            .expect("should process attestation");
+                        })
                     }
                 }
             });
+
+        vec
     }
 
     /// Creates two forks:
