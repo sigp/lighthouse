@@ -121,6 +121,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + Send + Sync + 'static>(
 
             // Route the request to the correct handler.
             let result = match (req.method(), path.as_ref()) {
+                (&Method::GET, "/beacon/best_slot") => beacon::get_best_slot::<T>(req),
                 (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),
                 (&Method::GET, "/beacon/block_root") => beacon::get_block_root::<T>(req),
                 (&Method::GET, "/beacon/latest_finalized_checkpoint") => {

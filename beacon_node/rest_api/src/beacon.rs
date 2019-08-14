@@ -7,6 +7,21 @@ use store::Store;
 use types::{BeaconBlock, BeaconState};
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
+pub fn get_best_slot<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+    let beacon_chain = req
+        .extensions()
+        .get::<Arc<BeaconChain<T>>>()
+        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+
+    let slot = beacon_chain.head().beacon_state.slot;
+
+    let json: String = serde_json::to_string(&slot)
+        .map_err(|e| ApiError::ServerError(format!("Unable to serialize Slot: {:?}", e)))?;
+
+    Ok(success_response(Body::from(json)))
+}
+
+/// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
 pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = req
         .extensions()
