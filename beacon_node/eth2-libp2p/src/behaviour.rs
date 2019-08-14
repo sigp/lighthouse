@@ -7,6 +7,7 @@ use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
     discv5::Discv5Event,
+    enr::Enr,
     gossipsub::{Gossipsub, GossipsubEvent},
     identify::{Identify, IdentifyEvent},
     ping::{Ping, PingConfig, PingEvent},
@@ -77,6 +78,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
             events: Vec::new(),
             log: behaviour_log,
         })
+    }
+
+    pub fn discovery(&self) -> &Discovery<TSubstream> {
+        &self.discovery
     }
 }
 

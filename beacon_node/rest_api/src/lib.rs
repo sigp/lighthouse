@@ -1,15 +1,18 @@
 #[macro_use]
 extern crate lazy_static;
+extern crate network as client_network;
 
 mod beacon;
 mod config;
 mod helpers;
 mod metrics;
+mod network;
 mod node;
 mod spec;
 mod url_query;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use client_network::Service as NetworkService;
 pub use config::Config as ApiConfig;
 use hyper::rt::Future;
 use hyper::service::service_fn_ok;
@@ -68,10 +71,11 @@ impl From<state_processing::per_slot_processing::Error> for ApiError {
     }
 }
 
-pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
+pub fn start_server<T: BeaconChainTypes + Clone + Send + Sync + 'static>(
     config: &ApiConfig,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
+    network_service: Arc<NetworkService<T>>,
     db_path: PathBuf,
     log: &slog::Logger,
 ) -> Result<exit_future::Signal, hyper::Error> {
@@ -99,6 +103,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
         let log = server_log.clone();
         let beacon_chain = server_bc.clone();
         let db_path = db_path.clone();
+        let network_service = network_service.clone();
 
         // Create a simple handler for the router, inject our stateful objects into the request.
         service_fn_ok(move |mut req| {
@@ -109,6 +114,8 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
             req.extensions_mut()
                 .insert::<Arc<BeaconChain<T>>>(beacon_chain.clone());
             req.extensions_mut().insert::<DBPath>(db_path.clone());
+            req.extensions_mut()
+                .insert::<Arc<NetworkService<T>>>(network_service.clone());
 
             let path = req.uri().path().to_string();
 
@@ -124,6 +131,9 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
                 (&Method::GET, "/metrics") => metrics::get_prometheus::<T>(req),
                 (&Method::GET, "/node/version") => node::get_version(req),
                 (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
+                (&Method::GET, "/node/network/enr") => network::get_enr::<T>(req),
+                (&Method::GET, "/node/network/peer_count") => network::get_peer_count::<T>(req),
+                (&Method::GET, "/node/network/peers") => network::get_peer_list::<T>(req),
                 (&Method::GET, "/spec") => spec::get_spec::<T>(req),
                 (&Method::GET, "/spec/slots_per_epoch") => spec::get_slots_per_epoch::<T>(req),
                 _ => Err(ApiError::MethodNotAllowed(path.clone())),

@@ -48,7 +48,7 @@ pub struct Client<T: BeaconChainTypes> {
 
 impl<T> Client<T>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + 'static,
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + Send + Sync + 'static,
 {
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
@@ -122,6 +122,7 @@ where
                 &client_config.rest_api,
                 executor,
                 beacon_chain.clone(),
+                network.clone(),
                 client_config.db_path().expect("unable to read datadir"),
                 &log,
             ) {
