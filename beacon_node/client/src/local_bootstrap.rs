@@ -2,7 +2,7 @@ use reqwest::{Error as HttpError, Url};
 use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Slot};
 
 #[derive(Debug)]
-pub enum Error {
+enum Error {
     UrlCannotBeBase,
     HttpError(HttpError),
 }
@@ -21,16 +21,22 @@ pub struct BootstrapParams<T: EthSpec> {
 }
 
 impl<T: EthSpec> BootstrapParams<T> {
-    pub fn from_http_api(url: Url) -> Result<Self, Error> {
-        let slots_per_epoch = get_slots_per_epoch(url.clone())?;
+    pub fn from_http_api(url: Url) -> Result<Self, String> {
+        let slots_per_epoch = get_slots_per_epoch(url.clone())
+            .map_err(|e| format!("Unable to get slots per epoch: {:?}", e))?;
         let genesis_slot = Slot::new(0);
-        let finalized_slot = get_finalized_slot(url.clone(), slots_per_epoch.as_u64())?;
+        let finalized_slot = get_finalized_slot(url.clone(), slots_per_epoch.as_u64())
+            .map_err(|e| format!("Unable to get finalized slot: {:?}", e))?;
 
         Ok(Self {
-            finalized_block: get_block(url.clone(), finalized_slot)?,
-            finalized_state: get_state(url.clone(), finalized_slot)?,
-            genesis_block: get_block(url.clone(), genesis_slot)?,
-            genesis_state: get_state(url.clone(), genesis_slot)?,
+            finalized_block: get_block(url.clone(), finalized_slot)
+                .map_err(|e| format!("Unable to get finalized block: {:?}", e))?,
+            finalized_state: get_state(url.clone(), finalized_slot)
+                .map_err(|e| format!("Unable to get finalized state: {:?}", e))?,
+            genesis_block: get_block(url.clone(), genesis_slot)
+                .map_err(|e| format!("Unable to get genesis block: {:?}", e))?,
+            genesis_state: get_state(url.clone(), genesis_slot)
+                .map_err(|e| format!("Unable to get genesis state: {:?}", e))?,
         })
     }
 }
