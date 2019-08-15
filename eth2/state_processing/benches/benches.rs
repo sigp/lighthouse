@@ -1,59 +1,33 @@
 #[macro_use]
 extern crate lazy_static;
+extern crate env_logger;
+
+mod benching_block_builder;
 
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
+use benching_block_builder::BenchingBlockBuidler;
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 use store::{MemoryStore, Store};
-use types::{BeaconBlock, BeaconState, EthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::test_utils::TestingBeaconStateBuilder;
+use types::{BeaconBlock, BeaconState, EthSpec, MainnetEthSpec, MinimalEthSpec, Slot};
 
 const INITIAL_HARNESS_BLOCKS: u64 = 8 * 2 - 1;
-const VALIDATOR_COUNT: usize = 32_768;
+const VALIDATOR_COUNT: usize = 3_768;
 
 type TestEthSpec = MinimalEthSpec;
 type ThreadSafeReducedTree<T> = lmd_ghost::ThreadSafeReducedTree<MemoryStore, T>;
 type BeaconChainHarness<T> =
     beacon_chain::test_utils::BeaconChainHarness<ThreadSafeReducedTree<T>, T>;
 
-lazy_static! {
-    static ref MINIMAL_HARNESS: BeaconChainHarness<MinimalEthSpec> = { get_harness() };
-    static ref MAINNET_HARNESS: BeaconChainHarness<MainnetEthSpec> = { get_harness() };
-}
+lazy_static! {}
 
-fn get_harness<T: EthSpec>() -> BeaconChainHarness<T> {
-    let harness = BeaconChainHarness::new(VALIDATOR_COUNT);
-
-    harness.advance_slot();
-
-    harness.extend_chain(
-        INITIAL_HARNESS_BLOCKS as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
-
-    harness
-}
-
-fn bench_suite<T: EthSpec>(
-    c: &mut Criterion,
-    spec_desc: &str,
-    harness: &'static BeaconChainHarness<T>,
-) {
+fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
     let spec = TestEthSpec::default_spec();
-    let block: BeaconBlock<T> = harness.chain.head().beacon_block.clone();
-    let mut state = {
-        let store = &harness.chain.store;
-        let parent_block: BeaconBlock<T> = store
-            .get(&block.parent_root)
-            .expect("db should not error")
-            .expect("parent block should exist");
-        store
-            .get::<BeaconState<T>>(&parent_block.state_root)
-            .expect("db should not error")
-            .expect("parent state should exist")
-    };
-    state_processing::per_slot_processing::<T>(&mut state, &spec)
-        .expect("per slot processing should succeed");
+    let mut builder: BenchingBlockBuidler<T> = BenchingBlockBuidler::new(VALIDATOR_COUNT, &spec);
+    builder.set_slot(Slot::from(T::slots_per_epoch() * 3 - 2), &spec);
+    builder.build_caches(&spec);
+    let (block, state) = builder.build(&spec);
 
     c.bench(
         &format!("{}/{}_validators", spec_desc, VALIDATOR_COUNT),
@@ -74,8 +48,9 @@ fn bench_suite<T: EthSpec>(
 }
 
 fn all_benches(c: &mut Criterion) {
-    bench_suite(c, "minimal", &MINIMAL_HARNESS);
-    // bench_suite(c, "mainnet", &MAINNET_HARNESS);
+    env_logger::init();
+
+    bench_suite::<MinimalEthSpec>(c, "minimal");
 }
 
 criterion_group!(benches, all_benches,);
