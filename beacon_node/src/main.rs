@@ -1,7 +1,7 @@
 mod run;
 
 use clap::{App, Arg};
-use client::{ClientConfig, Eth2Config};
+use client::{ClientConfig, Eth2Config, GenesisState};
 use env_logger::{Builder, Env};
 use eth2_config::{read_from_file, write_to_file};
 use slog::{crit, o, warn, Drain, Level};
@@ -200,6 +200,16 @@ fn main() {
                 .help("Sets the verbosity level")
                 .takes_value(true),
         )
+        /*
+         * Bootstrap.
+         */
+        .arg(
+            Arg::with_name("bootstrap")
+                .long("bootstrap")
+                .value_name("HTTP_SERVER")
+                .help("Load the genesis state and libp2p address from the HTTP API of another Lighthouse node.")
+                .takes_value(true)
+        )
         .get_matches();
 
     // build the initial logger
@@ -287,6 +297,13 @@ fn main() {
             return;
         }
     };
+
+    // If the `--bootstrap` flag is provided, overwrite the default configuration.
+    if let Some(server) = matches.value_of("bootstrap") {
+        client_config.genesis_state = GenesisState::HttpBootstrap {
+            server: server.to_string(),
+        };
+    }
 
     let eth2_config_path = data_dir.join(ETH2_CONFIG_FILENAME);
 
