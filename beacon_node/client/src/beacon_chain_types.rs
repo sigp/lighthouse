@@ -1,5 +1,5 @@
+use crate::bootstrapper::Bootstrapper;
 use crate::error::Result;
-use crate::local_bootstrap::BootstrapParams;
 use crate::{config::GenesisState, ClientConfig};
 use beacon_chain::{
     lmd_ghost::{LmdGhost, ThreadSafeReducedTree},
@@ -7,7 +7,6 @@ use beacon_chain::{
     store::Store,
     BeaconChain, BeaconChainTypes,
 };
-use reqwest::Url;
 use slog::{crit, info, Logger};
 use slot_clock::SlotClock;
 use std::fs::File;
@@ -77,13 +76,14 @@ where
                 .map_err(|e| format!("Unable to parse YAML genesis state file: {:?}", e))?
         }
         GenesisState::HttpBootstrap { server } => {
-            let url: Url =
-                Url::parse(&server).map_err(|e| format!("Invalid bootstrap server url: {}", e))?;
+            let bootstrapper = Bootstrapper::from_server_string(server.to_string())
+                .map_err(|e| format!("Failed to initialize bootstrap client: {}", e))?;
 
-            let params = BootstrapParams::from_http_api(url)
-                .map_err(|e| format!("Failed to bootstrap from HTTP server: {:?}", e))?;
+            let (state, _block) = bootstrapper
+                .genesis()
+                .map_err(|e| format!("Failed to bootstrap genesis state: {}", e))?;
 
-            params.genesis_state
+            state
         }
     };
 

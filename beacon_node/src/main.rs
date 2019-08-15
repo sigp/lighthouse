@@ -1,7 +1,7 @@
 mod run;
 
 use clap::{App, Arg};
-use client::{ClientConfig, Eth2Config, GenesisState};
+use client::{Bootstrapper, ClientConfig, Eth2Config, GenesisState};
 use env_logger::{Builder, Env};
 use eth2_config::{read_from_file, write_to_file};
 use slog::{crit, o, warn, Drain, Level};
@@ -300,9 +300,28 @@ fn main() {
 
     // If the `--bootstrap` flag is provided, overwrite the default configuration.
     if let Some(server) = matches.value_of("bootstrap") {
+        // Set the genesis state source.
         client_config.genesis_state = GenesisState::HttpBootstrap {
             server: server.to_string(),
         };
+
+        let bootstrapper = match Bootstrapper::from_server_string(server.to_string()) {
+            Ok(b) => b,
+            Err(e) => {
+                crit!(log, "Failed to load bootstrapper"; "error" => format!("{:?}", e));
+                return;
+            }
+        };
+
+        let enr = match bootstrapper.enr() {
+            Ok(b) => b,
+            Err(e) => {
+                crit!(log, "Failed to read ENR from bootstrap server"; "error" => format!("{:?}", e));
+                return;
+            }
+        };
+
+        client_config.network.boot_nodes.push(enr);
     }
 
     let eth2_config_path = data_dir.join(ETH2_CONFIG_FILENAME);

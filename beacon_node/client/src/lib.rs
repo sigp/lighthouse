@@ -1,8 +1,8 @@
 extern crate slog;
 
 mod beacon_chain_types;
+mod bootstrapper;
 mod config;
-mod local_bootstrap;
 
 pub mod error;
 pub mod notifier;
@@ -22,6 +22,7 @@ use tokio::timer::Interval;
 pub use beacon_chain::BeaconChainTypes;
 pub use beacon_chain_types::ClientType;
 pub use beacon_chain_types::InitialiseBeaconChain;
+pub use bootstrapper::Bootstrapper;
 pub use config::{Config as ClientConfig, GenesisState};
 pub use eth2_config::Eth2Config;
 
