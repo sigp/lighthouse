@@ -1,8 +1,9 @@
-use crate::Eth2Config;
+use crate::{Bootstrapper, Eth2Config};
 use clap::ArgMatches;
+use eth2_libp2p::multiaddr::{Multiaddr, Protocol};
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
-use slog::{info, o, Drain};
+use slog::{info, o, warn, Drain};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -149,6 +150,43 @@ impl Config {
             self.update_logger(log)?;
         };
 
+        // If the `--bootstrap` flag is provided, overwrite the default configuration.
+        if let Some(server) = args.value_of("bootstrap") {
+            do_bootstrapping(self, server.to_string(), &log)?;
+        }
+
         Ok(())
     }
+}
+
+fn do_bootstrapping(config: &mut Config, server: String, log: &slog::Logger) -> Result<(), String> {
+    // Set the genesis state source.
+    config.genesis_state = GenesisState::HttpBootstrap {
+        server: server.to_string(),
+    };
+
+    let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
+
+    config.network.boot_nodes.push(bootstrapper.enr()?);
+
+    if let Some(server_ip) = bootstrapper.server_ipv4_addr() {
+        let server_multiaddr: Multiaddr = bootstrapper
+            .listen_addresses()?
+            .first()
+            .ok_or_else(|| "Bootstrap peer returned an empty list of listen addresses")?
+            // Iterate through the components of the Multiaddr, replacing any Ipv4 address with the
+            // server address.
+            .iter()
+            .map(|protocol| match protocol {
+                Protocol::Ip4(_) => Protocol::Ip4(server_ip),
+                _ => protocol,
+            })
+            .collect::<Multiaddr>();
+
+        config.network.libp2p_nodes.push(server_multiaddr);
+    } else {
+        warn!(log, "Unable to determine bootstrap server Ipv4 address. Unable to add server as libp2p peer.");
+    }
+
+    Ok(())
 }

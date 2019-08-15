@@ -1,8 +1,27 @@
 use crate::{success_response, ApiError, ApiResult, NetworkService};
 use beacon_chain::BeaconChainTypes;
-use eth2_libp2p::{Enr, PeerId};
+use eth2_libp2p::{Enr, Multiaddr, PeerId};
 use hyper::{Body, Request};
 use std::sync::Arc;
+
+/// HTTP handle to return the list of libp2p multiaddr the client is listening on.
+///
+/// Returns a list of `Multiaddr`, serialized according to their `serde` impl.
+pub fn get_listen_addresses<T: BeaconChainTypes + Send + Sync + 'static>(
+    req: Request<Body>,
+) -> ApiResult {
+    let network = req
+        .extensions()
+        .get::<Arc<NetworkService<T>>>()
+        .ok_or_else(|| ApiError::ServerError("NetworkService extension missing".to_string()))?;
+
+    let multiaddresses: Vec<Multiaddr> = network.listen_multiaddrs();
+
+    Ok(success_response(Body::from(
+        serde_json::to_string(&multiaddresses)
+            .map_err(|e| ApiError::ServerError(format!("Unable to serialize Enr: {:?}", e)))?,
+    )))
+}
 
 /// HTTP handle to return the Discv5 ENR from the client's libp2p service.
 ///

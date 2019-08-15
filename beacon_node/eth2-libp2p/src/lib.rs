@@ -23,7 +23,7 @@ pub use libp2p::multiaddr;
 pub use libp2p::Multiaddr;
 pub use libp2p::{
     gossipsub::{GossipsubConfig, GossipsubConfigBuilder},
-    PeerId,
+    PeerId, Swarm,
 };
 pub use rpc::RPCEvent;
 pub use service::Libp2pEvent;
