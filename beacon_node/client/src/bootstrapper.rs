@@ -1,6 +1,8 @@
-use eth2_libp2p::Enr;
+use eth2_libp2p::{Enr, Multiaddr};
 use reqwest::{Error as HttpError, Url};
+use std::net::Ipv4Addr;
 use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Slot};
+use url::Host;
 
 #[derive(Debug)]
 enum Error {
@@ -25,8 +27,20 @@ impl Bootstrapper {
         })
     }
 
+    pub fn server_ipv4_addr(&self) -> Option<Ipv4Addr> {
+        match self.url.host()? {
+            Host::Ipv4(addr) => Some(addr),
+            _ => None,
+        }
+    }
+
     pub fn enr(&self) -> Result<Enr, String> {
         get_enr(self.url.clone()).map_err(|e| format!("Unable to get ENR: {:?}", e))
+    }
+
+    pub fn listen_addresses(&self) -> Result<Vec<Multiaddr>, String> {
+        get_listen_addresses(self.url.clone())
+            .map_err(|e| format!("Unable to get listen addresses: {:?}", e))
     }
 
     pub fn genesis<T: EthSpec>(&self) -> Result<(BeaconState<T>, BeaconBlock<T>), String> {
@@ -116,6 +130,19 @@ fn get_enr(mut url: Url) -> Result<Enr, Error> {
     url.path_segments_mut()
         .map(|mut url| {
             url.push("node").push("network").push("enr");
+        })
+        .map_err(|_| Error::UrlCannotBeBase)?;
+
+    reqwest::get(url)?
+        .error_for_status()?
+        .json()
+        .map_err(Into::into)
+}
+
+fn get_listen_addresses(mut url: Url) -> Result<Vec<Multiaddr>, Error> {
+    url.path_segments_mut()
+        .map(|mut url| {
+            url.push("node").push("network").push("listen_addresses");
         })
         .map_err(|_| Error::UrlCannotBeBase)?;
 

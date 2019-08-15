@@ -135,6 +135,9 @@ pub fn start_server<T: BeaconChainTypes + Clone + Send + Sync + 'static>(
                 (&Method::GET, "/node/network/enr") => network::get_enr::<T>(req),
                 (&Method::GET, "/node/network/peer_count") => network::get_peer_count::<T>(req),
                 (&Method::GET, "/node/network/peers") => network::get_peer_list::<T>(req),
+                (&Method::GET, "/node/network/listen_addresses") => {
+                    network::get_listen_addresses::<T>(req)
+                }
                 (&Method::GET, "/spec") => spec::get_spec::<T>(req),
                 (&Method::GET, "/spec/slots_per_epoch") => spec::get_slots_per_epoch::<T>(req),
                 _ => Err(ApiError::MethodNotAllowed(path.clone())),
