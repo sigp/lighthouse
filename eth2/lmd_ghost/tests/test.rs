@@ -51,7 +51,6 @@ struct ForkedHarness {
 impl ForkedHarness {
     /// A new standard instance of with constant parameters.
     pub fn new() -> Self {
-        // let (harness, honest_roots, faulty_roots) = get_harness_containing_two_forks();
         let harness = BeaconChainHarness::new(VALIDATOR_COUNT);
 
         // Move past the zero slot.

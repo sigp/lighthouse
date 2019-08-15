@@ -4,11 +4,21 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
+[[bench]]
+name = "benches"
+harness = false
+
 [dev-dependencies]
+criterion = "0.2"
 env_logger = "0.6.0"
 serde = "1.0"
 serde_derive = "1.0"
+lazy_static = "0.1"
 serde_yaml = "0.8"
+beacon_chain = { path = "../../beacon_node/beacon_chain" }
+store = { path = "../../beacon_node/store" }
+lmd_ghost = { path = "../lmd_ghost" }
+
 
 [dependencies]
 bls = { path = "../utils/bls" }
