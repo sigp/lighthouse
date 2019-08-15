@@ -1,6 +1,5 @@
 use crate::{Bootstrapper, Eth2Config};
 use clap::ArgMatches;
-use eth2_libp2p::multiaddr::{Multiaddr, Protocol};
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use slog::{info, o, warn, Drain};
@@ -169,23 +168,18 @@ fn do_bootstrapping(config: &mut Config, server: String, log: &slog::Logger) -> 
 
     config.network.boot_nodes.push(bootstrapper.enr()?);
 
-    if let Some(server_ip) = bootstrapper.server_ipv4_addr() {
-        let server_multiaddr: Multiaddr = bootstrapper
-            .listen_addresses()?
-            .first()
-            .ok_or_else(|| "Bootstrap peer returned an empty list of listen addresses")?
-            // Iterate through the components of the Multiaddr, replacing any Ipv4 address with the
-            // server address.
-            .iter()
-            .map(|protocol| match protocol {
-                Protocol::Ip4(_) => Protocol::Ip4(server_ip),
-                _ => protocol,
-            })
-            .collect::<Multiaddr>();
-
+    if let Some(server_multiaddr) = bootstrapper.best_effort_multiaddr() {
+        info!(
+            log,
+            "Estimated bootstrapper libp2p address";
+            "multiaddr" => format!("{:?}", server_multiaddr)
+        );
         config.network.libp2p_nodes.push(server_multiaddr);
     } else {
-        warn!(log, "Unable to determine bootstrap server Ipv4 address. Unable to add server as libp2p peer.");
+        warn!(
+            log,
+            "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
+        );
     }
 
     Ok(())

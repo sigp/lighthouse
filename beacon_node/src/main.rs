@@ -237,6 +237,11 @@ fn main() {
 
     let mut log = slog::Logger::root(drain.fuse(), o!());
 
+    warn!(
+        log,
+        "Ethereum 2.0 is pre-release. This software is experimental."
+    );
+
     let data_dir = match matches
         .value_of("datadir")
         .and_then(|v| Some(PathBuf::from(v)))
