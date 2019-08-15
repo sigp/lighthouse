@@ -1,5 +1,9 @@
-use eth2_libp2p::{Enr, Multiaddr};
+use eth2_libp2p::{
+    multiaddr::{Multiaddr, Protocol},
+    Enr,
+};
 use reqwest::{Error as HttpError, Url};
+use std::borrow::Cow;
 use std::net::Ipv4Addr;
 use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Slot};
 use url::Host;
@@ -24,6 +28,31 @@ impl Bootstrapper {
     pub fn from_server_string(server: String) -> Result<Self, String> {
         Ok(Self {
             url: Url::parse(&server).map_err(|e| format!("Invalid bootstrap server url: {}", e))?,
+        })
+    }
+
+    pub fn best_effort_multiaddr(&self) -> Option<Multiaddr> {
+        let tcp_port = self.first_listening_tcp_port()?;
+
+        let mut multiaddr = Multiaddr::with_capacity(2);
+
+        match self.url.host()? {
+            Host::Ipv4(addr) => multiaddr.push(Protocol::Ip4(addr)),
+            Host::Domain(s) => multiaddr.push(Protocol::Dns4(Cow::Borrowed(s))),
+            _ => return None,
+        };
+
+        multiaddr.push(Protocol::Tcp(tcp_port));
+
+        Some(multiaddr)
+    }
+
+    fn first_listening_tcp_port(&self) -> Option<u16> {
+        self.listen_addresses().ok()?.iter().find_map(|multiaddr| {
+            multiaddr.iter().find_map(|protocol| match protocol {
+                Protocol::Tcp(port) => Some(port),
+                _ => None,
+            })
         })
     }
 
