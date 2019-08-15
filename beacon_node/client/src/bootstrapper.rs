@@ -14,33 +14,44 @@ impl From<HttpError> for Error {
     }
 }
 
-pub struct BootstrapParams<T: EthSpec> {
-    pub finalized_block: BeaconBlock<T>,
-    pub finalized_state: BeaconState<T>,
-    pub genesis_block: BeaconBlock<T>,
-    pub genesis_state: BeaconState<T>,
-    pub enr: Enr,
+pub struct Bootstrapper {
+    url: Url,
 }
 
-impl<T: EthSpec> BootstrapParams<T> {
-    pub fn from_http_api(url: Url) -> Result<Self, String> {
-        let slots_per_epoch = get_slots_per_epoch(url.clone())
-            .map_err(|e| format!("Unable to get slots per epoch: {:?}", e))?;
+impl Bootstrapper {
+    pub fn from_server_string(server: String) -> Result<Self, String> {
+        Ok(Self {
+            url: Url::parse(&server).map_err(|e| format!("Invalid bootstrap server url: {}", e))?,
+        })
+    }
+
+    pub fn enr(&self) -> Result<Enr, String> {
+        get_enr(self.url.clone()).map_err(|e| format!("Unable to get ENR: {:?}", e))
+    }
+
+    pub fn genesis<T: EthSpec>(&self) -> Result<(BeaconState<T>, BeaconBlock<T>), String> {
         let genesis_slot = Slot::new(0);
-        let finalized_slot = get_finalized_slot(url.clone(), slots_per_epoch.as_u64())
+
+        let block = get_block(self.url.clone(), genesis_slot)
+            .map_err(|e| format!("Unable to get genesis block: {:?}", e))?;
+        let state = get_state(self.url.clone(), genesis_slot)
+            .map_err(|e| format!("Unable to get genesis state: {:?}", e))?;
+
+        Ok((state, block))
+    }
+
+    pub fn finalized<T: EthSpec>(&self) -> Result<(BeaconState<T>, BeaconBlock<T>), String> {
+        let slots_per_epoch = get_slots_per_epoch(self.url.clone())
+            .map_err(|e| format!("Unable to get slots per epoch: {:?}", e))?;
+        let finalized_slot = get_finalized_slot(self.url.clone(), slots_per_epoch.as_u64())
             .map_err(|e| format!("Unable to get finalized slot: {:?}", e))?;
 
-        Ok(Self {
-            finalized_block: get_block(url.clone(), finalized_slot)
-                .map_err(|e| format!("Unable to get finalized block: {:?}", e))?,
-            finalized_state: get_state(url.clone(), finalized_slot)
-                .map_err(|e| format!("Unable to get finalized state: {:?}", e))?,
-            genesis_block: get_block(url.clone(), genesis_slot)
-                .map_err(|e| format!("Unable to get genesis block: {:?}", e))?,
-            genesis_state: get_state(url.clone(), genesis_slot)
-                .map_err(|e| format!("Unable to get genesis state: {:?}", e))?,
-            enr: get_enr(url.clone()).map_err(|e| format!("Unable to get ENR: {:?}", e))?,
-        })
+        let block = get_block(self.url.clone(), finalized_slot)
+            .map_err(|e| format!("Unable to get finalized block: {:?}", e))?;
+        let state = get_state(self.url.clone(), finalized_slot)
+            .map_err(|e| format!("Unable to get finalized state: {:?}", e))?;
+
+        Ok((state, block))
     }
 }
 
