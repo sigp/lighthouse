@@ -69,6 +69,28 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
     let local_spec = spec.clone();
     c.bench(
         &format!("{}/{}_validators", spec_desc, VALIDATOR_COUNT),
+        Benchmark::new("verify_block_signature", move |b| {
+            b.iter_batched_ref(
+                || (local_spec.clone(), local_state.clone(), local_block.clone()),
+                |(spec, ref mut state, block)| {
+                    black_box(
+                        state_processing::per_block_processing::verify_block_signature::<T>(
+                            state, &block, &spec,
+                        )
+                        .expect("verify_block_signature should succeed"),
+                    )
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        })
+        .sample_size(10),
+    );
+
+    let local_block = block.clone();
+    let local_state = state.clone();
+    let local_spec = spec.clone();
+    c.bench(
+        &format!("{}/{}_validators", spec_desc, VALIDATOR_COUNT),
         Benchmark::new("process_attestations", move |b| {
             b.iter_batched_ref(
                 || (local_spec.clone(), local_state.clone(), local_block.clone()),
