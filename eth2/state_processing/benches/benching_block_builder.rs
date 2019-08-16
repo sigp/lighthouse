@@ -36,7 +36,7 @@ impl<T: EthSpec> BenchingBlockBuidler<T> {
         }
     }
 
-    pub fn maximize_block_operations(&mut self, spec: &ChainSpec) {
+    pub fn maximize_block_operations(&mut self) {
         self.num_proposer_slashings = T::MaxProposerSlashings::to_usize();
         /*
         self.num_attester_slashings = spec.max_attester_slashings as usize;
@@ -48,7 +48,7 @@ impl<T: EthSpec> BenchingBlockBuidler<T> {
         */
     }
 
-    pub fn set_slot(&mut self, slot: Slot, spec: &ChainSpec) {
+    pub fn set_slot(&mut self, slot: Slot) {
         self.state_builder.teleport_to_slot(slot);
     }
 
@@ -66,9 +66,13 @@ impl<T: EthSpec> BenchingBlockBuidler<T> {
         let proposer_index = state
             .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
             .unwrap();
-        let keypair = &keypairs[proposer_index];
 
-        builder.set_randao_reveal(&keypair.sk, &state.fork, spec);
+        let proposer_keypair = &keypairs[proposer_index];
+
+        builder.set_randao_reveal(&proposer_keypair.sk, &state.fork, spec);
+
+        let parent_root = state.latest_block_header.canonical_root();
+        builder.set_parent_root(parent_root);
 
         // Used as a stream of validator indices for use in slashings, exits, etc.
         let mut validators_iter = (0..keypairs.len() as u64).into_iter();
@@ -170,10 +174,12 @@ impl<T: EthSpec> BenchingBlockBuidler<T> {
         }
         info!("Inserted {} transfers.", builder.block.body.transfers.len());
 
-        let mut block = self.block_builder.build(&keypair.sk, &state.fork, spec);
-
         // Set the eth1 data to be different from the state.
-        block.body.eth1_data.block_hash = Hash256::from_slice(&vec![42; 32]);
+        self.block_builder.block.body.eth1_data.block_hash = Hash256::from_slice(&vec![42; 32]);
+
+        let block = self
+            .block_builder
+            .build(&proposer_keypair.sk, &state.fork, spec);
 
         (block, state)
     }
