@@ -34,6 +34,7 @@ mod verify_attestation;
 mod verify_attester_slashing;
 mod verify_deposit;
 mod verify_exit;
+mod verify_multiple_signatures;
 mod verify_proposer_slashing;
 mod verify_transfer;
 
