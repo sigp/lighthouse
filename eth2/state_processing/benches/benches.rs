@@ -4,23 +4,12 @@ extern crate env_logger;
 
 mod benching_block_builder;
 
-use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
 use benching_block_builder::BenchingBlockBuidler;
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
-use store::{MemoryStore, Store};
-use types::test_utils::TestingBeaconStateBuilder;
-use types::{BeaconBlock, BeaconState, EthSpec, MainnetEthSpec, MinimalEthSpec, Slot, Unsigned};
+use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, Slot, Unsigned};
 
-const INITIAL_HARNESS_BLOCKS: u64 = 8 * 2 - 1;
 const VALIDATOR_COUNT: usize = 300_032;
-
-/*
-type TestEthSpec = MinimalEthSpec;
-type ThreadSafeReducedTree<T> = lmd_ghost::ThreadSafeReducedTree<MemoryStore, T>;
-type BeaconChainHarness<T> =
-    beacon_chain::test_utils::BeaconChainHarness<ThreadSafeReducedTree<T>, T>;
-*/
 
 lazy_static! {}
 
@@ -45,6 +34,28 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
                     black_box(
                         state_processing::per_block_processing::<T>(state, &block, &spec)
                             .expect("block processing should succeed"),
+                    )
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        })
+        .sample_size(10),
+    );
+
+    let local_block = block.clone();
+    let local_state = state.clone();
+    let local_spec = spec.clone();
+    c.bench(
+        &format!("{}/{}_validators", spec_desc, VALIDATOR_COUNT),
+        Benchmark::new("process_block_header", move |b| {
+            b.iter_batched_ref(
+                || (local_spec.clone(), local_state.clone(), local_block.clone()),
+                |(spec, ref mut state, block)| {
+                    black_box(
+                        state_processing::per_block_processing::process_block_header::<T>(
+                            state, &block, &spec, true,
+                        )
+                        .expect("process_block_header should succeed"),
                     )
                 },
                 criterion::BatchSize::SmallInput,
@@ -133,7 +144,7 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
     let local_spec = spec.clone();
     c.bench(
         &format!("{}/{}_validators", spec_desc, VALIDATOR_COUNT),
-        Benchmark::new("is_valid_indexed_attestation", move |b| {
+        Benchmark::new("is_valid_indexed_attestation_with_signature", move |b| {
             b.iter_batched_ref(
                 || {
                     let attestation = &local_block.body.attestations[0];
