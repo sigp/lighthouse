@@ -14,6 +14,14 @@ impl FakeAggregatePublicKey {
         Self::zero()
     }
 
+    pub fn add_without_affine(&mut self, public_key: &PublicKey) {
+        // No nothing.
+    }
+
+    pub fn affine(&mut self) {
+        // No nothing.
+    }
+
     /// Creates a new all-zero's aggregate public key
     pub fn zero() -> Self {
         Self {

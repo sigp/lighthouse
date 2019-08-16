@@ -13,6 +13,14 @@ impl AggregatePublicKey {
         AggregatePublicKey(RawAggregatePublicKey::new())
     }
 
+    pub fn add_without_affine(&mut self, public_key: &PublicKey) {
+        self.0.point.add(&public_key.as_raw().point)
+    }
+
+    pub fn affine(&mut self) {
+        self.0.point.affine()
+    }
+
     pub fn add(&mut self, public_key: &PublicKey) {
         self.0.add(public_key.as_raw())
     }

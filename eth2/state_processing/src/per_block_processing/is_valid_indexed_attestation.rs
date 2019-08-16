@@ -88,7 +88,7 @@ where
     I: IntoIterator<Item = &'a u64>,
     T: EthSpec,
 {
-    validator_indices.into_iter().try_fold(
+    let mut aggregate_pubkey = validator_indices.into_iter().try_fold(
         AggregatePublicKey::new(),
         |mut aggregate_pubkey, &validator_idx| {
             state
@@ -96,11 +96,15 @@ where
                 .get(validator_idx as usize)
                 .ok_or_else(|| Error::Invalid(Invalid::UnknownValidator(validator_idx)))
                 .map(|validator| {
-                    aggregate_pubkey.add(&validator.pubkey);
+                    aggregate_pubkey.add_without_affine(&validator.pubkey);
                     aggregate_pubkey
                 })
         },
-    )
+    )?;
+
+    aggregate_pubkey.affine();
+
+    Ok(aggregate_pubkey)
 }
 
 /// Verify the signature of an IndexedAttestation.
