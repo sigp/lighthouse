@@ -118,7 +118,14 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                 hello_message,
                 &mut self.network_context,
             ),
-            RPCRequest::Goodbye(goodbye_reason) => self.sync.on_goodbye(peer_id, goodbye_reason),
+            RPCRequest::Goodbye(goodbye_reason) => {
+                debug!(
+                    self.log, "PeerGoodbye";
+                    "peer" => format!("{:?}", peer_id),
+                    "reason" => format!("{:?}", reason),
+                );
+                self.sync.on_disconnect(peer_id),
+            },
             RPCRequest::BeaconBlocks(request) => self.sync.on_beacon_blocks_request(
                 peer_id,
                 request_id,
@@ -167,6 +174,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                             Ok(beacon_blocks) => {
                                 self.sync.on_beacon_blocks_response(
                                     peer_id,
+                                    request_id,
                                     beacon_blocks,
                                     &mut self.network_context,
                                 );
