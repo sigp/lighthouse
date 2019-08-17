@@ -112,6 +112,11 @@ impl AggregateSignature {
         Ok(Self::empty_signature())
     }
 
+    /// Returns the underlying signature.
+    pub fn as_raw(&self) -> &RawAggregateSignature {
+        &self.aggregate_signature
+    }
+
     /// Returns if the AggregateSignature `is_empty`
     pub fn is_empty(&self) -> bool {
         self.is_empty
