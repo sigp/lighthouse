@@ -138,6 +138,7 @@ impl<T: EthSpec> BlockBuilder<T> {
                 spec,
             );
         }
+        state.eth1_data.deposit_count += self.num_deposits as u64;
         info!("Inserted {} deposits.", builder.block.body.deposits.len());
 
         // Insert the maximum possible number of `Exit` objects.
