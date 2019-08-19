@@ -1,24 +1,81 @@
 use crate::{AggregatePublicKey, AggregateSignature, PublicKey, Signature};
 use milagro_bls::{G1Point, G2Point};
 
+type Message = Vec<u8>;
+type Domain = u64;
+
+#[derive(Clone)]
+pub struct SignedMessage<'a> {
+    signing_keys: Vec<&'a G1Point>,
+    message: Message,
+}
+
+impl<'a> SignedMessage<'a> {
+    pub fn new<T>(signing_keys: Vec<&'a T>, message: Message) -> Self
+    where
+        T: G1Ref,
+    {
+        Self {
+            signing_keys: signing_keys.iter().map(|k| k.g1_ref()).collect(),
+            message,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct SignatureSet<'a> {
-    sig: &'a G2Point,
-    keys: Vec<&'a G1Point>,
-    msgs: Vec<Vec<u8>>,
-    domain: u64,
+    pub signature: &'a G2Point,
+    signed_messages: Vec<SignedMessage<'a>>,
+    domain: Domain,
 }
 
 impl<'a> SignatureSet<'a> {
-    pub fn new<S, K>(sig: &'a S, keys: Vec<&'a K>, msgs: Vec<Vec<u8>>, domain: u64) -> Self
+    pub fn simple<S, T>(
+        signature: &'a S,
+        signing_key: &'a T,
+        message: Message,
+        domain: Domain,
+    ) -> Self
     where
+        T: G1Ref,
         S: G2Ref,
-        K: G1Ref,
     {
         Self {
-            sig: sig.g2_ref(),
-            keys: keys.into_iter().map(|k| k.g1_ref()).collect(),
-            msgs,
+            signature: signature.g2_ref(),
+            signed_messages: vec![SignedMessage::new(vec![signing_key], message)],
+            domain,
+        }
+    }
+
+    pub fn attestation<S, T>(
+        signature: &'a S,
+        message_0: Message,
+        message_0_signing_keys: Vec<&'a T>,
+        message_1: Message,
+        message_1_signing_keys: Vec<&'a T>,
+        domain: Domain,
+    ) -> Self
+    where
+        T: G1Ref,
+        S: G2Ref,
+    {
+        Self {
+            signature: signature.g2_ref(),
+            signed_messages: vec![
+                SignedMessage::new(message_0_signing_keys, message_0),
+                SignedMessage::new(message_1_signing_keys, message_1),
+            ],
+            domain,
+        }
+    }
+
+    pub fn new<S>(signature: &'a S, signed_messages: Vec<SignedMessage<'a>>, domain: Domain) -> Self
+    where
+        S: G2Ref,
+    {
+        Self {
+            signature: signature.g2_ref(),
+            signed_messages,
             domain,
         }
     }
@@ -39,13 +96,39 @@ type VerifySet<'a> = (G2Point, Vec<G1Point>, Vec<Vec<u8>>, u64);
 
 impl<'a> Into<VerifySet<'a>> for SignatureSet<'a> {
     fn into(self) -> VerifySet<'a> {
-        (
-            self.sig.clone(),
-            self.keys.into_iter().cloned().collect(),
-            self.msgs,
-            self.domain,
-        )
+        let signature = self.signature.clone();
+
+        let (pubkeys, messages): (Vec<G1Point>, Vec<Message>) = self
+            .signed_messages
+            .into_iter()
+            .map(|signed_message| {
+                let key = if signed_message.signing_keys.len() == 1 {
+                    signed_message.signing_keys[0].clone()
+                } else {
+                    aggregate_public_keys(&signed_message.signing_keys)
+                };
+
+                (key, signed_message.message)
+            })
+            .unzip();
+
+        (signature, pubkeys, messages, self.domain)
     }
+}
+
+/// Create an aggregate public key for a list of validators, failing if any key can't be found.
+fn aggregate_public_keys<'a>(public_keys: &'a [&'a G1Point]) -> G1Point {
+    let mut aggregate =
+        public_keys
+            .iter()
+            .fold(AggregatePublicKey::new(), |mut aggregate, &pubkey| {
+                aggregate.add_point(pubkey);
+                aggregate
+            });
+
+    aggregate.affine();
+
+    aggregate.into_raw().point
 }
 
 pub trait G1Ref {

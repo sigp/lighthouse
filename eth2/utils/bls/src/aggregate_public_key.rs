@@ -1,5 +1,5 @@
 use super::PublicKey;
-use milagro_bls::AggregatePublicKey as RawAggregatePublicKey;
+use milagro_bls::{AggregatePublicKey as RawAggregatePublicKey, G1Point};
 
 /// A BLS aggregate public key.
 ///
@@ -25,9 +25,17 @@ impl AggregatePublicKey {
         self.0.add(public_key.as_raw())
     }
 
+    pub fn add_point(&mut self, point: &G1Point) {
+        self.0.point.add(point)
+    }
+
     /// Returns the underlying public key.
     pub fn as_raw(&self) -> &RawAggregatePublicKey {
         &self.0
+    }
+
+    pub fn into_raw(self) -> Self {
+        self
     }
 
     /// Return a hex string representation of this key's bytes.

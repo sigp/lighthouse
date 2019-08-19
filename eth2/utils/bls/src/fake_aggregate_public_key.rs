@@ -37,8 +37,16 @@ impl FakeAggregatePublicKey {
         // No nothing.
     }
 
+    pub fn add_point(&mut self, _point: &G1Point) {
+        // No nothing.
+    }
+
     pub fn as_raw(&self) -> &Self {
         &self
+    }
+
+    pub fn into_raw(self) -> Self {
+        self
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
