@@ -2,7 +2,7 @@ use crate::{BeaconChainTypes, CheckPoint};
 use operation_pool::PersistedOperationPool;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use store::{DBColumn, Error as StoreError, StoreItem};
+use store::{DBColumn, Error as StoreError, SimpleStoreItem};
 use types::{BeaconState, Hash256};
 
 /// 32-byte key for accessing the `PersistedBeaconChain`.
@@ -16,7 +16,7 @@ pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub state: BeaconState<T::EthSpec>,
 }
 
-impl<T: BeaconChainTypes> StoreItem for PersistedBeaconChain<T> {
+impl<T: BeaconChainTypes> SimpleStoreItem for PersistedBeaconChain<T> {
     fn db_column() -> DBColumn {
         DBColumn::BeaconChain
     }
@@ -25,7 +25,7 @@ impl<T: BeaconChainTypes> StoreItem for PersistedBeaconChain<T> {
         self.as_ssz_bytes()
     }
 
-    fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, StoreError> {
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
         Self::from_ssz_bytes(bytes).map_err(Into::into)
     }
 }

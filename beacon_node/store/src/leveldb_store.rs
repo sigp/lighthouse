@@ -93,6 +93,25 @@ impl Store for LevelDB {
             .delete(self.write_options(), column_key)
             .map_err(Into::into)
     }
+
+    /// Store a state in the store.
+    fn put_state<E: EthSpec>(
+        &self,
+        state_root: &Hash256,
+        state: &BeaconState<E>,
+    ) -> Result<(), Error> {
+        let to_store = (state.clone(), ());
+        self.put(state_root, &to_store)
+    }
+
+    /// Fetch a state from the store.
+    fn get_state<E: EthSpec>(
+        &self,
+        state_root: &Hash256,
+        _: Option<Slot>,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        Ok(self.get(state_root)?.map(|x: (_, ())| x.0))
+    }
 }
 
 impl From<LevelDBError> for Error {

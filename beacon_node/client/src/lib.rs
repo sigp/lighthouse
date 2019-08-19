@@ -10,6 +10,7 @@ use beacon_chain::BeaconChain;
 use exit_future::Signal;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
+use parking_lot::RwLock;
 use prometheus::Registry;
 use slog::{error, info, o};
 use slot_clock::SlotClock;
@@ -61,7 +62,7 @@ where
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
         let metrics_registry = Registry::new();
-        let store = Arc::new(store);
+        let store = Arc::new(RwLock::new(store));
         let seconds_per_slot = eth2_config.spec.seconds_per_slot;
 
         // Load a `BeaconChain` from the store, or create a new one if it does not exist.

@@ -58,7 +58,7 @@ where
     T: Store,
     E: EthSpec,
 {
-    fn new(store: Arc<T>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
+    fn new(store: Arc<RwLock<T>>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
         ThreadSafeReducedTree {
             core: RwLock::new(ReducedTree::new(store, genesis_block, genesis_root)),
         }
@@ -116,7 +116,7 @@ where
 }
 
 struct ReducedTree<T, E> {
-    store: Arc<T>,
+    store: Arc<RwLock<T>>,
     /// Stores all nodes of the tree, keyed by the block hash contained in the node.
     nodes: HashMap<Hash256, Node>,
     /// Maps validator indices to their latest votes.
@@ -137,7 +137,11 @@ where
     T: Store,
     E: EthSpec,
 {
-    pub fn new(store: Arc<T>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
+    pub fn new(
+        store: Arc<RwLock<T>>,
+        genesis_block: &BeaconBlock<E>,
+        genesis_root: Hash256,
+    ) -> Self {
         let mut nodes = HashMap::new();
 
         // Insert the genesis node.
@@ -682,13 +686,15 @@ where
 
     fn get_block(&self, block_root: Hash256) -> Result<BeaconBlock<E>> {
         self.store
+            .read()
             .get::<BeaconBlock<E>>(&block_root)?
             .ok_or_else(|| Error::MissingBlock(block_root))
     }
 
     fn get_state(&self, state_root: Hash256) -> Result<BeaconState<E>> {
         self.store
-            .get::<BeaconState<E>>(&state_root)?
+            .read()
+            .get_state(&state_root, None)?
             .ok_or_else(|| Error::MissingState(state_root))
     }
 

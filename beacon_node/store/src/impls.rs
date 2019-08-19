@@ -2,8 +2,9 @@ use crate::*;
 use ssz::{Decode, Encode};
 
 mod beacon_state;
+mod partial_beacon_state;
 
-impl<T: EthSpec> StoreItem for BeaconBlock<T> {
+impl<T: EthSpec> SimpleStoreItem for BeaconBlock<T> {
     fn db_column() -> DBColumn {
         DBColumn::BeaconBlock
     }
@@ -12,7 +13,7 @@ impl<T: EthSpec> StoreItem for BeaconBlock<T> {
         self.as_ssz_bytes()
     }
 
-    fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, Error> {
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Self::from_ssz_bytes(bytes).map_err(Into::into)
     }
 }

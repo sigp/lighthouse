@@ -9,15 +9,23 @@
 //! tests for implementation examples.
 
 mod block_at_slot;
+pub mod chunked_vector;
 mod errors;
+mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
+mod partial_beacon_state;
 
 pub mod iter;
 
+use parking_lot::RwLock;
+use std::sync::Arc;
+
+pub use self::hot_cold_store::HotColdDB;
 pub use self::leveldb_store::LevelDB as DiskStore;
 pub use self::memory_store::MemoryStore;
+pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use types::*;
 
@@ -27,8 +35,20 @@ pub use types::*;
 /// columns. A simple column implementation might involve prefixing a key with some bytes unique to
 /// each column.
 pub trait Store: Sync + Send + Sized {
+    /// Retrieve some bytes in `column` with `key`.
+    fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
+
+    /// Store some `value` in `column`, indexed with `key`.
+    fn put_bytes(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
+
+    /// Return `true` if `key` exists in `column`.
+    fn key_exists(&self, column: &str, key: &[u8]) -> Result<bool, Error>;
+
+    /// Removes `key` from `column`.
+    fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
+
     /// Store an item in `Self`.
-    fn put(&self, key: &Hash256, item: &impl StoreItem) -> Result<(), Error> {
+    fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         item.db_put(self, key)
     }
 
@@ -47,11 +67,26 @@ pub trait Store: Sync + Send + Sized {
         I::db_delete(self, key)
     }
 
+    /// Store a state in the store.
+    fn put_state<E: EthSpec>(
+        &self,
+        state_root: &Hash256,
+        state: &BeaconState<E>,
+    ) -> Result<(), Error>;
+
+    /// Fetch a state from the store.
+    fn get_state<E: EthSpec>(
+        &self,
+        state_root: &Hash256,
+        slot: Option<Slot>,
+    ) -> Result<Option<BeaconState<E>>, Error>;
+
     /// Given the root of an existing block in the store (`start_block_root`), return a parent
     /// block with the specified `slot`.
     ///
     /// Returns `None` if no parent block exists at that slot, or if `slot` is greater than the
     /// slot of `start_block_root`.
+    // FIXME(michael): does this really belong here?
     fn get_block_at_preceeding_slot<E: EthSpec>(
         &self,
         start_block_root: Hash256,
@@ -60,42 +95,48 @@ pub trait Store: Sync + Send + Sized {
         block_at_slot::get_block_at_preceeding_slot::<_, E>(self, slot, start_block_root)
     }
 
-    /// Retrieve some bytes in `column` with `key`.
-    fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
-
-    /// Store some `value` in `column`, indexed with `key`.
-    fn put_bytes(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
-
-    /// Return `true` if `key` exists in `column`.
-    fn key_exists(&self, column: &str, key: &[u8]) -> Result<bool, Error>;
-
-    /// Removes `key` from `column`.
-    fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
+    /// (Optionally) Move all data before the frozen slot to the freezer database.
+    fn freeze_to_state<E: EthSpec>(
+        _store: Arc<RwLock<Self>>,
+        _frozen_head: &BeaconState<E>,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 /// A unique column identifier.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DBColumn {
     BeaconBlock,
     BeaconState,
     BeaconChain,
+    BeaconBlockRoots,
+    BeaconStateRoots,
+    BeaconHistoricalRoots,
+    BeaconRandaoMixes,
+    BeaconActiveIndexRoots,
+    BeaconCompactCommitteesRoots,
 }
 
-impl<'a> Into<&'a str> for DBColumn {
+impl Into<&'static str> for DBColumn {
     /// Returns a `&str` that can be used for keying a key-value data base.
-    fn into(self) -> &'a str {
+    fn into(self) -> &'static str {
         match self {
-            DBColumn::BeaconBlock => &"blk",
-            DBColumn::BeaconState => &"ste",
-            DBColumn::BeaconChain => &"bch",
+            DBColumn::BeaconBlock => "blk",
+            DBColumn::BeaconState => "ste",
+            DBColumn::BeaconChain => "bch",
+            DBColumn::BeaconBlockRoots => "bbr",
+            DBColumn::BeaconStateRoots => "bsr",
+            DBColumn::BeaconHistoricalRoots => "bhr",
+            DBColumn::BeaconRandaoMixes => "brm",
+            DBColumn::BeaconActiveIndexRoots => "bai",
+            DBColumn::BeaconCompactCommitteesRoots => "bcc",
         }
     }
 }
 
-/// An item that may be stored in a `Store`.
-///
-/// Provides default methods that are suitable for most applications, however when overridden they
-/// provide full customizability of `Store` operations.
-pub trait StoreItem: Sized {
+/// An item that may stored in a `Store` by serializing and deserializing from bytes.
+pub trait SimpleStoreItem: Sized {
     /// Identifies which column this item should be placed in.
     fn db_column() -> DBColumn;
 
@@ -103,10 +144,32 @@ pub trait StoreItem: Sized {
     fn as_store_bytes(&self) -> Vec<u8>;
 
     /// De-serialize `self` from bytes.
-    fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, Error>;
+    ///
+    /// Return an instance of the type and the number of bytes that were read.
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
+}
 
+/// An item that may be stored in a `Store`.
+pub trait StoreItem: Sized {
     /// Store `self`.
-    fn db_put(&self, store: &impl Store, key: &Hash256) -> Result<(), Error> {
+    fn db_put<S: Store>(&self, store: &S, key: &Hash256) -> Result<(), Error>;
+
+    /// Retrieve an instance of `Self` from `store`.
+    fn db_get<S: Store>(store: &S, key: &Hash256) -> Result<Option<Self>, Error>;
+
+    /// Return `true` if an instance of `Self` exists in `store`.
+    fn db_exists<S: Store>(store: &S, key: &Hash256) -> Result<bool, Error>;
+
+    /// Delete an instance of `Self` from `store`.
+    fn db_delete<S: Store>(store: &S, key: &Hash256) -> Result<(), Error>;
+}
+
+impl<T> StoreItem for T
+where
+    T: SimpleStoreItem,
+{
+    /// Store `self`.
+    fn db_put<S: Store>(&self, store: &S, key: &Hash256) -> Result<(), Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
@@ -116,18 +179,18 @@ pub trait StoreItem: Sized {
     }
 
     /// Retrieve an instance of `Self`.
-    fn db_get(store: &impl Store, key: &Hash256) -> Result<Option<Self>, Error> {
+    fn db_get<S: Store>(store: &S, key: &Hash256) -> Result<Option<Self>, Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
         match store.get_bytes(column, key)? {
-            Some(mut bytes) => Ok(Some(Self::from_store_bytes(&mut bytes[..])?)),
+            Some(bytes) => Ok(Some(Self::from_store_bytes(&bytes[..])?)),
             None => Ok(None),
         }
     }
 
     /// Return `true` if an instance of `Self` exists in `Store`.
-    fn db_exists(store: &impl Store, key: &Hash256) -> Result<bool, Error> {
+    fn db_exists<S: Store>(store: &S, key: &Hash256) -> Result<bool, Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
@@ -135,7 +198,7 @@ pub trait StoreItem: Sized {
     }
 
     /// Delete `self` from the `Store`.
-    fn db_delete(store: &impl Store, key: &Hash256) -> Result<(), Error> {
+    fn db_delete<S: Store>(store: &S, key: &Hash256) -> Result<(), Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
@@ -143,6 +206,7 @@ pub trait StoreItem: Sized {
     }
 }
 
+/* FIXME(michael)
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,7 +229,7 @@ mod tests {
             self.as_ssz_bytes()
         }
 
-        fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, Error> {
+        fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
             Self::from_ssz_bytes(bytes).map_err(Into::into)
         }
     }
@@ -223,3 +287,4 @@ mod tests {
         assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
     }
 }
+*/

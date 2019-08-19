@@ -1,5 +1,6 @@
 mod reduced_tree;
 
+use parking_lot::RwLock;
 use std::sync::Arc;
 use store::Store;
 use types::{BeaconBlock, EthSpec, Hash256, Slot};
@@ -10,7 +11,11 @@ pub type Result<T> = std::result::Result<T, String>;
 
 pub trait LmdGhost<S: Store, E: EthSpec>: Send + Sync {
     /// Create a new instance, with the given `store` and `finalized_root`.
-    fn new(store: Arc<S>, finalized_block: &BeaconBlock<E>, finalized_root: Hash256) -> Self;
+    fn new(
+        store: Arc<RwLock<S>>,
+        finalized_block: &BeaconBlock<E>,
+        finalized_root: Hash256,
+    ) -> Self;
 
     /// Process an attestation message from some validator that attests to some `block_hash`
     /// representing a block at some `block_slot`.

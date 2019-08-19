@@ -1,14 +1,31 @@
+use crate::chunked_vector::ChunkError;
 use ssz::DecodeError;
+use types::BeaconStateError;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SszDecodeError(DecodeError),
+    VectorChunkError(ChunkError),
+    BeaconStateError(BeaconStateError),
+    PartialBeaconStateError,
     DBError { message: String },
 }
 
 impl From<DecodeError> for Error {
     fn from(e: DecodeError) -> Error {
         Error::SszDecodeError(e)
+    }
+}
+
+impl From<ChunkError> for Error {
+    fn from(e: ChunkError) -> Error {
+        Error::VectorChunkError(e)
+    }
+}
+
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Error {
+        Error::BeaconStateError(e)
     }
 }
 

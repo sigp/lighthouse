@@ -226,6 +226,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         } else if self
             .chain
             .store
+            .read()
             .exists::<BeaconBlock<T::EthSpec>>(&remote.best_root)
             .unwrap_or_else(|_| false)
         {
@@ -417,6 +418,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 let block = self
                     .chain
                     .store
+                    .read()
                     .get::<BeaconBlock<T::EthSpec>>(&root)
                     .ok()?;
                 Some(block?.block_header())
@@ -476,7 +478,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             .block_roots
             .iter()
             .filter_map(|root| {
-                if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
+                if let Ok(Some(block)) =
+                    self.chain.store.read().get::<BeaconBlock<T::EthSpec>>(root)
+                {
                     Some(block.body)
                 } else {
                     debug!(

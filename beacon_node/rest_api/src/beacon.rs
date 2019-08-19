@@ -26,7 +26,8 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
 
             beacon_chain
                 .store
-                .get(root)?
+                .read()
+                .get_state(root, None)?
                 .ok_or_else(|| ApiError::NotFound(format!("No state for root: {}", root)))?
         }
         _ => unreachable!("Guarded by UrlQuery::from_request()"),

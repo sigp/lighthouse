@@ -1,5 +1,6 @@
 use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use lmd_ghost::LmdGhost;
+use parking_lot::RwLock;
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::SlotClock;
 use slot_clock::TestingSlotClock;
@@ -106,7 +107,7 @@ where
     pub fn from_state_and_keypairs(genesis_state: BeaconState<E>, keypairs: Vec<Keypair>) -> Self {
         let spec = E::default_spec();
 
-        let store = Arc::new(MemoryStore::open());
+        let store = Arc::new(RwLock::new(MemoryStore::open()));
 
         let mut genesis_block = BeaconBlock::empty(&spec);
         genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
@@ -216,7 +217,8 @@ where
 
         self.chain
             .store
-            .get(&state_root)
+            .read()
+            .get_state(&state_root, Some(state_slot))
             .expect("should read db")
             .expect("should find state root")
     }

@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 store = { path = "../store" }
-parking_lot = "0.7"
+parking_lot = "0.9.0"
 prometheus = "^0.6"
 log = "0.4"
 operation_pool = { path = "../../eth2/operation_pool" }
@@ -25,3 +25,6 @@ lmd_ghost = { path = "../../eth2/lmd_ghost" }
 [dev-dependencies]
 rand = "0.5.5"
 lazy_static = "1.3.0"
+
+[features]
+freezer_db = []

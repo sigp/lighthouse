@@ -58,6 +58,7 @@ fn get_at_preceeding_slot<T: Store, E: EthSpec>(
     }
 }
 
+/* FIXME(michael)
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,3 +194,4 @@ mod tests {
             .is_none());
     }
 }
+*/
