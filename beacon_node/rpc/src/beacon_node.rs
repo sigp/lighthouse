@@ -6,10 +6,19 @@ use protos::services_grpc::BeaconNodeService;
 use slog::{trace, warn};
 use std::sync::Arc;
 
-#[derive(Clone)]
 pub struct BeaconNodeServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub log: slog::Logger,
+}
+
+// NOTE: Deriving Clone puts bogus bounds on T, so we implement it manually.
+impl<T: BeaconChainTypes> Clone for BeaconNodeServiceInstance<T> {
+    fn clone(&self) -> Self {
+        Self {
+            chain: self.chain.clone(),
+            log: self.log.clone(),
+        }
+    }
 }
 
 impl<T: BeaconChainTypes> BeaconNodeService for BeaconNodeServiceInstance<T> {

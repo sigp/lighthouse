@@ -22,7 +22,7 @@ use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 
-pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
+pub fn start_server<T: BeaconChainTypes + 'static>(
     config: &RPCConfig,
     executor: &TaskExecutor,
     network_chan: mpsc::UnboundedSender<NetworkMessage>,

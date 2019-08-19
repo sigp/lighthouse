@@ -124,7 +124,7 @@ fn run<T>(
     log: &slog::Logger,
 ) -> error::Result<()>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + Send + Sync + 'static,
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + Send + Sync + 'static,
     T::Store: OpenDatabase,
 {
     // FIXME(michael): make the client use this spec as well?

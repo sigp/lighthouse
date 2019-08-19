@@ -63,7 +63,7 @@ impl From<state_processing::per_slot_processing::Error> for ApiError {
     }
 }
 
-pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
+pub fn start_server<T: BeaconChainTypes + 'static>(
     config: &ApiConfig,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,

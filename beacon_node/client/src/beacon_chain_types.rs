@@ -30,13 +30,11 @@ pub trait InitialiseBeaconChain<T: BeaconChainTypes> {
     }
 }
 
-#[derive(Clone)]
 pub struct ClientType<S: Store, E: EthSpec> {
-    _phantom_t: PhantomData<S>,
-    _phantom_u: PhantomData<E>,
+    _phantom: PhantomData<(S, E)>,
 }
 
-impl<S: Store, E: EthSpec + Clone> BeaconChainTypes for ClientType<S, E> {
+impl<S: Store, E: EthSpec> BeaconChainTypes for ClientType<S, E> {
     type Store = S;
     type SlotClock = SystemTimeSlotClock;
     type LmdGhost = ThreadSafeReducedTree<S, E>;

@@ -51,7 +51,7 @@ pub struct Client<T: BeaconChainTypes> {
 
 impl<T> Client<T>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + 'static,
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + 'static,
 {
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
