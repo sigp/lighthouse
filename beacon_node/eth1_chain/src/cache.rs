@@ -2,6 +2,7 @@ use crate::types::Eth1DataFetcher;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use types::*;
+use web3::futures::Future;
 use web3::types::*;
 
 /// Cache for recent Eth1Data fetched from the Eth1 chain.
@@ -24,7 +25,7 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
 
     /// Called periodically to populate the cache with Eth1Data from most recent blocks.
     pub fn update_cache(&mut self) -> Option<()> {
-        let current_block_number: U256 = self.fetcher.get_current_block_number()?;
+        let current_block_number = self.fetcher.get_current_block_number().wait().ok()?;
         for i in self.last_block..current_block_number.as_u64() {
             if !self.cache.contains_key(&U256::from(i)) {
                 if let Some((block_number, data)) = self.fetch_eth1_data(i, current_block_number) {
@@ -40,7 +41,7 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
     /// Get `Eth1Data` object at a distance of `distance` from the perceived head of the currrent Eth1 chain.
     /// Returns the object from the cache if present, else fetches from Eth1Fetcher.
     pub fn get_eth1_data(&mut self, distance: u64) -> Option<Eth1Data> {
-        let current_block_number: U256 = self.fetcher.get_current_block_number()?;
+        let current_block_number: U256 = self.fetcher.get_current_block_number().wait().ok()?;
         let block_number: U256 = current_block_number.checked_sub(distance.into())?;
         if self.cache.contains_key(&block_number) {
             return Some(self.cache.get(&block_number)?.clone());
@@ -69,20 +70,29 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
         distance: u64,
         current_block_number: U256,
     ) -> Option<(U256, Eth1Data)> {
-        let block_number: U256 = current_block_number.checked_sub(distance.into())?;
-        Some((
-            block_number,
-            Eth1Data {
-                deposit_root: self
-                    .fetcher
-                    .get_deposit_root(Some(BlockNumber::Number(block_number.as_u64())))?,
-                deposit_count: self
-                    .fetcher
-                    .get_deposit_count(Some(BlockNumber::Number(block_number.as_u64())))?,
-                block_hash: self
-                    .fetcher
-                    .get_block_hash_by_height(block_number.as_u64())?,
-            },
-        ))
+        let block_number: U256 = current_block_number
+            .checked_sub(distance.into())
+            .unwrap_or(U256::zero());
+        let deposit_root = self
+            .fetcher
+            .get_deposit_root(Some(BlockNumber::Number(block_number.as_u64())))
+            .wait()
+            .ok()?;
+        let deposit_count = self
+            .fetcher
+            .get_deposit_count(Some(BlockNumber::Number(block_number.as_u64())))
+            .wait()
+            .ok()??;
+        let block_hash = self
+            .fetcher
+            .get_block_hash_by_height(block_number.as_u64())
+            .wait()
+            .ok()??;
+        let eth1_data = Eth1Data {
+            deposit_root,
+            deposit_count,
+            block_hash,
+        };
+        Some((block_number, eth1_data))
     }
 }

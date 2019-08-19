@@ -4,6 +4,8 @@ use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::marker::Send;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::prelude::*;
 use types::DepositData;
 use web3::contract::{Contract, Options};
 use web3::futures::{Future, Stream};
@@ -65,6 +67,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
             self.web3
                 .eth()
                 .block_number()
+                .timeout(Duration::from_secs(10))
                 .map_err(|e| println!("Error getting block number {:?}", e)),
         )
     }
@@ -79,6 +82,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 .eth()
                 .block(BlockId::Number(BlockNumber::Number(height)))
                 .map(|x| x.and_then(|b| b.hash))
+                .timeout(Duration::from_secs(10))
                 .map_err(|e| println!("Error getting block hash {:?}", e)),
         )
     }
@@ -101,6 +105,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     let data: Vec<u8> = x;
                     vec_to_u64_le(&data)
                 })
+                .timeout(Duration::from_secs(10))
                 .map_err(|e| println!("Error getting deposit count {:?}", e)),
         )
     }
@@ -120,6 +125,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     block_number,
                 )
                 .map(|x: Vec<u8>| H256::from_slice(&x))
+                .timeout(Duration::from_secs(10))
                 .map_err(|e| println!("Error getting deposit root {:?}", e)),
         )
     }
@@ -203,6 +209,8 @@ pub fn parse_deposit_logs(log: Log) -> Option<(u64, DepositData)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
+    use tokio::timer::Delay;
 
     // Note: Running tests using ganache-cli instance with config
     // from https://github.com/ChainSafe/lodestar#starting-private-eth1-chain
@@ -220,9 +228,21 @@ mod tests {
 
     #[test]
     fn test_get_current_block_number() {
+        let mut runtime = tokio::runtime::Runtime::new().unwrap();
         let w3 = setup();
-        let block_number = w3.get_current_block_number().wait().ok();
-        assert!(block_number.is_some());
+        let when = Instant::now() + Duration::from_millis(5000);
+        let task = Delay::new(when)
+            .and_then(|_| {
+                println!("Hello world!");
+                Ok(())
+            })
+            .map_err(|e| panic!("delay errored; err={:?}", e));
+
+        let _ = runtime.block_on(task);
+        let block_number = runtime.block_on(w3.get_current_block_number());
+        // let block_number = w3.get_current_block_number().wait();
+        println!("{:?}", block_number);
+        assert!(block_number.is_ok());
     }
 
     #[test]
