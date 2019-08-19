@@ -1,4 +1,5 @@
 use super::{PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
+use milagro_bls::G1Point;
 
 /// A BLS aggregate public key.
 ///
@@ -7,6 +8,8 @@ use super::{PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
 #[derive(Debug, Clone, Default)]
 pub struct FakeAggregatePublicKey {
     bytes: Vec<u8>,
+    /// Never used, only use for compatibility with "real" `AggregatePublicKey`.
+    pub point: G1Point,
 }
 
 impl FakeAggregatePublicKey {
@@ -14,7 +17,7 @@ impl FakeAggregatePublicKey {
         Self::zero()
     }
 
-    pub fn add_without_affine(&mut self, public_key: &PublicKey) {
+    pub fn add_without_affine(&mut self, _public_key: &PublicKey) {
         // No nothing.
     }
 
@@ -26,6 +29,7 @@ impl FakeAggregatePublicKey {
     pub fn zero() -> Self {
         Self {
             bytes: vec![0; BLS_PUBLIC_KEY_BYTE_SIZE],
+            point: G1Point::new(),
         }
     }
 
@@ -33,7 +37,7 @@ impl FakeAggregatePublicKey {
         // No nothing.
     }
 
-    pub fn as_raw(&self) -> &FakeAggregatePublicKey {
+    pub fn as_raw(&self) -> &Self {
         &self
     }
 
