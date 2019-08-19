@@ -75,6 +75,7 @@ pub enum BlockInvalid {
     },
     ProposerSlashed(usize),
     BadSignature,
+    BulkSignatureVerificationFailed,
     BadRandaoSignature,
     MaxAttestationsExceeded,
     MaxAttesterSlashingsExceed,

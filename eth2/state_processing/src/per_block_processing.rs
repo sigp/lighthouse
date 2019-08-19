@@ -55,6 +55,10 @@ impl SignatureStrategy {
     pub fn is_individual(&self) -> bool {
         *self == SignatureStrategy::VerifyIndividual
     }
+
+    pub fn is_bulk(&self) -> bool {
+        *self == SignatureStrategy::VerifyBulk
+    }
 }
 
 /*
@@ -103,6 +107,12 @@ pub fn per_block_processing<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // TODO: bulk signature verification.
+    if signature_strategy.is_bulk() {
+        verify!(
+            BlockSignatureVerifier::verify_entire_block(state, block, spec).is_ok(),
+            Invalid::BulkSignatureVerificationFailed
+        );
+    }
 
     process_block_header(state, block, signature_strategy, spec)?;
 

@@ -1,4 +1,7 @@
-use state_processing::{per_block_processing, test_utils::BlockBuilder, SignatureStrategy};
+use state_processing::{
+    per_block_processing, per_block_processing::errors::BlockInvalid, test_utils::BlockBuilder,
+    BlockProcessingError, SignatureStrategy,
+};
 use types::{
     AggregateSignature, BeaconBlock, BeaconState, ChainSpec, EthSpec, Keypair, MinimalEthSpec,
     Signature, Slot,
@@ -42,6 +45,17 @@ where
         "valid block should pass with verify individual"
     );
 
+    assert_eq!(
+        per_block_processing(
+            &mut state.clone(),
+            &block,
+            SignatureStrategy::VerifyBulk,
+            spec
+        ),
+        Ok(()),
+        "valid block should pass with verify bulk"
+    );
+
     invalidate_block(&mut block);
 
     /*
@@ -57,6 +71,19 @@ where
         )
         .is_err(),
         "invalid block should fail with verify individual"
+    );
+
+    assert_eq!(
+        per_block_processing(
+            &mut state.clone(),
+            &block,
+            SignatureStrategy::VerifyBulk,
+            spec
+        ),
+        Err(BlockProcessingError::Invalid(
+            BlockInvalid::BulkSignatureVerificationFailed
+        )),
+        "invalid block should fail with verify bulk"
     );
 }
 
