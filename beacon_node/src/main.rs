@@ -128,28 +128,6 @@ fn main() {
                 .help("Listen port for RPC endpoint.")
                 .takes_value(true),
         )
-        /*
-         * HTTP server parameters.
-         */
-        .arg(
-            Arg::with_name("http")
-                .long("http")
-                .help("Enable the HTTP server.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("http-address")
-                .long("http-address")
-                .value_name("Address")
-                .help("Listen address for the HTTP server.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("http-port")
-                .long("http-port")
-                .help("Listen port for the HTTP server.")
-                .takes_value(true),
-        )
         /* Client related arguments */
         .arg(
             Arg::with_name("api")

@@ -6,3 +6,5 @@ edition = "2018"
 
 [dependencies]
 types = { path = "../../types" }
+lazy_static = "1.3.0"
+lighthouse_metrics = { path = "../lighthouse_metrics" }

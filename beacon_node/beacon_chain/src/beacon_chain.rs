@@ -2,7 +2,7 @@ use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::iter::{ReverseBlockRootIterator, ReverseStateRootIterator};
-use crate::metrics::Metrics;
+use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
 use log::trace;
@@ -106,8 +106,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A state-machine that is updated with information from the network and chooses a canonical
     /// head block.
     pub fork_choice: ForkChoice<T>,
-    /// Stores metrics about this `BeaconChain`.
-    pub metrics: Metrics,
     /// Logging to CLI, etc.
     log: Logger,
 }
@@ -157,7 +155,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             canonical_head,
             genesis_block_root,
             fork_choice: ForkChoice::new(store.clone(), &genesis_block, genesis_block_root),
-            metrics: Metrics::new()?,
             store,
             log,
         })
@@ -195,7 +192,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             canonical_head: RwLock::new(p.canonical_head),
             state: RwLock::new(p.state),
             genesis_block_root: p.genesis_block_root,
-            metrics: Metrics::new()?,
             store,
             log,
         }))
@@ -203,6 +199,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Attempt to save this instance to `self.store`.
     pub fn persist(&self) -> Result<(), Error> {
+        let timer = metrics::start_timer(&metrics::PERSIST_CHAIN);
+
         let p: PersistedBeaconChain<T> = PersistedBeaconChain {
             canonical_head: self.canonical_head.read().clone(),
             op_pool: PersistedOperationPool::from_operation_pool(&self.op_pool),
@@ -212,6 +210,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
         self.store.put(&key, &p)?;
+
+        metrics::stop_timer(timer);
 
         Ok(())
     }
@@ -472,8 +472,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<AttestationData, Error> {
         // Collect some metrics.
-        self.metrics.attestation_production_requests.inc();
-        let timer = self.metrics.attestation_production_times.start_timer();
+        metrics::inc_counter(&metrics::ATTESTATION_PRODUCTION_REQUESTS);
+        let timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_TIMES);
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let current_epoch_start_slot = state.current_epoch().start_slot(slots_per_epoch);
@@ -520,8 +520,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Collect some metrics.
-        self.metrics.attestation_production_successes.inc();
-        timer.observe_duration();
+        metrics::inc_counter(&metrics::ATTESTATION_PRODUCTION_SUCCESSES);
+        metrics::stop_timer(timer);
 
         Ok(AttestationData {
             beacon_block_root: head_block_root,
@@ -547,11 +547,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
     ) -> Result<AttestationProcessingOutcome, Error> {
+        metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
+        let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
+
         // From the store, load the attestation's "head block".
         //
         // An honest validator would have set this block to be the head of the chain (i.e., the
         // result of running fork choice).
-        if let Some(attestation_head_block) = self
+        let result = if let Some(attestation_head_block) = self
             .store
             .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)?
         {
@@ -657,7 +660,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(AttestationProcessingOutcome::UnknownHeadBlock {
                 beacon_block_root: attestation.data.beacon_block_root,
             })
+        };
+
+        metrics::stop_timer(timer);
+
+        if let Ok(AttestationProcessingOutcome::Processed) = &result {
+            metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_SUCCESSES);
         }
+
+        result
     }
 
     /// Verifies the `attestation` against the `state` to which it is attesting.
@@ -684,9 +695,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
         block: &BeaconBlock<T::EthSpec>,
     ) -> Result<AttestationProcessingOutcome, Error> {
-        self.metrics.attestation_processing_requests.inc();
-        let timer = self.metrics.attestation_processing_times.start_timer();
-
         // Find the highest between:
         //
         // - The highest valid finalized epoch we've ever seen (i.e., the head).
@@ -696,7 +704,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.finalized_checkpoint.epoch,
         );
 
-        let result = if block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()) {
+        // A helper function to allow attestation processing to be metered.
+        let verify_attestation_for_state = |state, attestation, spec, verify_signatures| {
+            let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_CORE);
+
+            let result = verify_attestation_for_state(state, attestation, spec, verify_signatures);
+
+            metrics::stop_timer(timer);
+            result
+        };
+
+        if block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()) {
             // Ignore any attestation where the slot of `data.beacon_block_root` is equal to or
             // prior to the finalized epoch.
             //
@@ -730,14 +748,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .insert_attestation(attestation, state, &self.spec)?;
 
             // Update the metrics.
-            self.metrics.attestation_processing_successes.inc();
+            metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_SUCCESSES);
 
             Ok(AttestationProcessingOutcome::Processed)
-        };
-
-        timer.observe_duration();
-
-        result
+        }
     }
 
     /// Accept some deposit and queue it for inclusion in an appropriate block.
@@ -786,8 +800,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block: BeaconBlock<T::EthSpec>,
     ) -> Result<BlockProcessingOutcome, Error> {
-        self.metrics.block_processing_requests.inc();
-        let timer = self.metrics.block_processing_times.start_timer();
+        metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
+        let full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
         let finalized_slot = self
             .state
@@ -804,7 +818,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BlockProcessingOutcome::GenesisBlock);
         }
 
+        let block_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOCK_ROOT);
+
         let block_root = block.canonical_root();
+
+        metrics::stop_timer(block_root_timer);
 
         if block_root == self.genesis_block_root {
             return Ok(BlockProcessingOutcome::GenesisBlock);
@@ -825,6 +843,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
         }
 
+        // Records the time taken to load the block and state from the database during block
+        // processing.
+        let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
+
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
         let parent_block: BeaconBlock<T::EthSpec> = match self.store.get(&block.parent_root)? {
@@ -844,14 +866,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get(&parent_state_root)?
             .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?;
 
+        metrics::stop_timer(db_read_timer);
+
+        let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
+
         // Transition the parent state to the block slot.
         let mut state: BeaconState<T::EthSpec> = parent_state;
         for _ in state.slot.as_u64()..block.slot.as_u64() {
             per_slot_processing(&mut state, &self.spec)?;
         }
 
+        metrics::stop_timer(catchup_timer);
+
+        let committee_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_COMMITTEE);
+
         state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+
+        metrics::stop_timer(committee_timer);
+
+        let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).
@@ -863,15 +897,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             _ => {}
         }
 
+        metrics::stop_timer(core_timer);
+
+        let state_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_STATE_ROOT);
+
         let state_root = state.canonical_root();
 
         if block.state_root != state_root {
             return Ok(BlockProcessingOutcome::StateRootMismatch);
         }
 
+        metrics::stop_timer(state_root_timer);
+
+        let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
+
         // Store the block and state.
         self.store.put(&block_root, &block)?;
         self.store.put(&state_root, &state)?;
+
+        metrics::stop_timer(db_write_timer);
+
+        let fork_choice_register_timer =
+            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
 
         // Register the new block with the fork choice service.
         if let Err(e) = self.fork_choice.process_block(&state, &block, block_root) {
@@ -883,6 +930,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "block_slot" => format!("{}", block.slot)
             )
         }
+
+        metrics::stop_timer(fork_choice_register_timer);
+
+        let find_head_timer =
+            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_FIND_HEAD);
 
         // Execute the fork choice algorithm, enthroning a new head if discovered.
         //
@@ -896,11 +948,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
         };
 
-        self.metrics.block_processing_successes.inc();
-        self.metrics
-            .operations_per_block_attestation
-            .observe(block.body.attestations.len() as f64);
-        timer.observe_duration();
+        metrics::stop_timer(find_head_timer);
+
+        metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
+        metrics::observe(
+            &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
+            block.body.attestations.len() as f64,
+        );
+        metrics::stop_timer(full_timer);
 
         Ok(BlockProcessingOutcome::Processed { block_root })
     }
@@ -935,8 +990,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
     ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
-        self.metrics.block_production_requests.inc();
-        let timer = self.metrics.block_production_times.start_timer();
+        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
+        let timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
         // If required, transition the new state to the present slot.
         while state.slot < produce_at_slot {
@@ -988,28 +1043,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         block.state_root = state_root;
 
-        self.metrics.block_production_successes.inc();
-        timer.observe_duration();
+        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
+        metrics::stop_timer(timer);
 
         Ok((block, state))
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     pub fn fork_choice(&self) -> Result<(), Error> {
-        self.metrics.fork_choice_requests.inc();
+        metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
 
         // Start fork choice metrics timer.
-        let timer = self.metrics.fork_choice_times.start_timer();
+        let timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
         // Determine the root of the block that is the head of the chain.
         let beacon_block_root = self.fork_choice.find_head(&self)?;
 
-        // End fork choice metrics timer.
-        timer.observe_duration();
-
         // If a new head was chosen.
-        if beacon_block_root != self.head().beacon_block_root {
-            self.metrics.fork_choice_changed_head.inc();
+        let result = if beacon_block_root != self.head().beacon_block_root {
+            metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
             let beacon_block: BeaconBlock<T::EthSpec> = self
                 .store
@@ -1027,7 +1079,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // If we switched to a new chain (instead of building atop the present chain).
             if self.head().beacon_block_root != beacon_block.parent_root {
-                self.metrics.fork_choice_reorg_count.inc();
+                metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
                 warn!(
                     self.log,
                     "Beacon chain re-org";
@@ -1071,11 +1123,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         } else {
             Ok(())
+        };
+
+        // End fork choice metrics timer.
+        metrics::stop_timer(timer);
+
+        if let Err(_) = result {
+            metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
         }
+
+        result
     }
 
     /// Update the canonical head to `new_head`.
     fn update_canonical_head(&self, new_head: CheckPoint<T::EthSpec>) -> Result<(), Error> {
+        let timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
+
         // Update the checkpoint that stores the head of the chain at the time it received the
         // block.
         *self.canonical_head.write() = new_head;
@@ -1101,6 +1164,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Save `self` to `self.store`.
         self.persist()?;
+
+        metrics::stop_timer(timer);
 
         Ok(())
     }
@@ -1128,6 +1193,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             self.fork_choice
                 .process_finalization(&finalized_block, finalized_block_root)?;
+
+            let finalized_state = self
+                .store
+                .get::<BeaconState<T::EthSpec>>(&finalized_block.state_root)?
+                .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
+
+            self.op_pool.prune_all(&finalized_state, &self.spec);
 
             Ok(())
         }
