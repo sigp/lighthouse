@@ -10,7 +10,7 @@ pub mod per_slot_processing;
 pub use genesis::{initialize_beacon_state_from_eth1, is_valid_genesis_state};
 pub use per_block_processing::{
     errors::{BlockInvalid, BlockProcessingError},
-    per_block_processing, per_block_processing_without_verifying_block_signature,
+    per_block_processing, SignatureStrategy,
 };
 pub use per_epoch_processing::{errors::EpochProcessingError, per_epoch_processing};
 pub use per_slot_processing::{per_slot_processing, Error as SlotProcessingError};

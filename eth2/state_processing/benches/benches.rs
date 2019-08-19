@@ -7,6 +7,7 @@ mod benching_block_builder;
 use benching_block_builder::BenchingBlockBuidler;
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
+use state_processing::SignatureStrategy;
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, Slot, Unsigned};
 
 const VALIDATOR_COUNT: usize = 300_032;
@@ -32,8 +33,13 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
                 || (local_spec.clone(), local_state.clone(), local_block.clone()),
                 |(spec, ref mut state, block)| {
                     black_box(
-                        state_processing::per_block_processing::<T>(state, &block, &spec)
-                            .expect("block processing should succeed"),
+                        state_processing::per_block_processing::<T>(
+                            state,
+                            &block,
+                            SignatureStrategy::VerifyIndividual,
+                            &spec,
+                        )
+                        .expect("block processing should succeed"),
                     )
                 },
                 criterion::BatchSize::SmallInput,
@@ -53,7 +59,10 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
                 |(spec, ref mut state, block)| {
                     black_box(
                         state_processing::per_block_processing::process_block_header::<T>(
-                            state, &block, &spec, true,
+                            state,
+                            &block,
+                            SignatureStrategy::VerifyIndividual,
+                            &spec,
                         )
                         .expect("process_block_header should succeed"),
                     )

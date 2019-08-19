@@ -34,8 +34,8 @@ impl AggregatePublicKey {
         &self.0
     }
 
-    pub fn into_raw(self) -> Self {
-        self
+    pub fn into_raw(self) -> RawAggregatePublicKey {
+        self.0
     }
 
     /// Return a hex string representation of this key's bytes.

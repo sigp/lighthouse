@@ -16,8 +16,7 @@ use state_processing::per_block_processing::errors::{
     ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
 };
 use state_processing::{
-    per_block_processing, per_block_processing_without_verifying_block_signature,
-    per_slot_processing, BlockProcessingError,
+    per_block_processing, per_slot_processing, BlockProcessingError, SignatureStrategy,
 };
 use std::sync::Arc;
 use store::iter::{BlockRootsIterator, StateRootsIterator};
@@ -662,7 +661,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).
-        match per_block_processing(&mut state, &block, &self.spec) {
+        match per_block_processing(
+            &mut state,
+            &block,
+            SignatureStrategy::VerifyIndividual,
+            &self.spec,
+        ) {
             Err(BlockProcessingError::BeaconStateError(e)) => {
                 return Err(Error::BeaconStateError(e))
             }
@@ -789,7 +793,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
         };
 
-        per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec)?;
+        per_block_processing(
+            &mut state,
+            &block,
+            SignatureStrategy::NoVerification,
+            &self.spec,
+        )?;
 
         let state_root = state.canonical_root();
 

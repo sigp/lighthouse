@@ -1,6 +1,9 @@
 use crate::{AggregatePublicKey, AggregateSignature, PublicKey, Signature};
 use milagro_bls::{G1Point, G2Point};
 
+#[cfg(not(feature = "fake_crypto"))]
+use milagro_bls::AggregateSignature as RawAggregateSignature;
+
 type Message = Vec<u8>;
 type Domain = u64;
 

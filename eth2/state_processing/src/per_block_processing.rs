@@ -40,6 +40,24 @@ mod verify_exit;
 mod verify_proposer_slashing;
 mod verify_transfer;
 
+/// The strategy to be used when validating the block's signatures.
+#[derive(PartialEq, Clone, Copy)]
+pub enum SignatureStrategy {
+    /// Do not validate any signature. Use with caution.
+    NoVerification,
+    /// Validate each signature individually, as it's object is being processed.
+    VerifyIndividual,
+    /// Verify all signatures in bulk at the beginning of block processing.
+    VerifyBulk,
+}
+
+impl SignatureStrategy {
+    pub fn is_individual(&self) -> bool {
+        *self == SignatureStrategy::VerifyIndividual
+    }
+}
+
+/*
 /// Updates the state for a new block, whilst validating that the block is valid.
 ///
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
@@ -49,9 +67,10 @@ mod verify_transfer;
 pub fn per_block_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
+    signature_strategy: SignatureStrategy,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    per_block_processing_signature_optional(state, block, true, spec)
+    per_block_processing_signature_optional(state, block, signature_strategy, spec)
 }
 
 /// Updates the state for a new block, whilst validating that the block is valid, without actually
@@ -68,6 +87,7 @@ pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
 ) -> Result<(), Error> {
     per_block_processing_signature_optional(state, block, false, spec)
 }
+*/
 
 /// Updates the state for a new block, whilst validating that the block is valid, optionally
 /// checking the block proposer signature.
@@ -76,13 +96,15 @@ pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
 /// Spec v0.8.0
-fn per_block_processing_signature_optional<T: EthSpec>(
+pub fn per_block_processing<T: EthSpec>(
     mut state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
-    should_verify_block_signature: bool,
+    signature_strategy: SignatureStrategy,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    process_block_header(state, block, spec, should_verify_block_signature)?;
+    // TODO: bulk signature verification.
+
+    process_block_header(state, block, signature_strategy, spec)?;
 
     // Ensure the current and previous epoch caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
@@ -106,8 +128,8 @@ fn per_block_processing_signature_optional<T: EthSpec>(
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
+    signature_strategy: SignatureStrategy,
     spec: &ChainSpec,
-    should_verify_block_signature: bool,
 ) -> Result<(), Error> {
     verify!(block.slot == state.slot, Invalid::StateSlotMismatch);
 
@@ -128,7 +150,7 @@ pub fn process_block_header<T: EthSpec>(
     let proposer = &state.validators[proposer_idx];
     verify!(!proposer.slashed, Invalid::ProposerSlashed(proposer_idx));
 
-    if should_verify_block_signature {
+    if signature_strategy.is_individual() {
         verify_block_signature(&state, &block, &spec)?;
     }
 
