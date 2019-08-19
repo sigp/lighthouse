@@ -6,9 +6,9 @@ use std::convert::TryInto;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
     AggregatePublicKey, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
-    BeaconBlockHeader, BeaconState, BeaconStateError, ChainSpec, Deposit, DepositData, Domain,
-    EthSpec, Fork, IndexedAttestation, ProposerSlashing, PublicKey, RelativeEpoch, Signature,
-    Transfer, VoluntaryExit,
+    BeaconBlockHeader, BeaconState, BeaconStateError, ChainSpec, Deposit, Domain, EthSpec, Fork,
+    IndexedAttestation, ProposerSlashing, PublicKey, RelativeEpoch, Signature, Transfer,
+    VoluntaryExit,
 };
 
 type Message = Vec<u8>;
@@ -16,16 +16,17 @@ type Message = Vec<u8>;
 const SIGNATURES_PER_PROPOSER_SLASHING: usize = 2;
 const SIGNATURES_PER_INDEXED_ATTESTATION: usize = 2;
 const INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING: usize = 2;
-const SIGNATURES_PER_ATTESTER_SLASHING: usize =
-    SIGNATURES_PER_INDEXED_ATTESTATION * INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING;
-// FIXME: set this to something reasonable.
-const MAX_POSSIBLE_AGGREGATE_PUBKEYS: usize = 10;
+
+pub type IndexedAttestationPublicKeys = [AggregatePublicKey; SIGNATURES_PER_INDEXED_ATTESTATION];
+pub type AttesterSlashingPublicKeys =
+    [IndexedAttestationPublicKeys; INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING];
 
 pub enum Error {
     BeaconStateError(BeaconStateError),
     AttestationValidationError(AttestationValidationError),
     InsufficentPubkeys,
     ValidatorUnknown(u64),
+    MismatchedPublicKeyLen { pubkey_len: usize, other_len: usize },
 }
 
 impl From<BeaconStateError> for Error {
@@ -70,9 +71,11 @@ impl<'a, T: EthSpec> EntireBlockSignatureVerifier<'a, T> {
         s.include_randao_reveal()?;
         s.include_proposer_slashings()?;
 
-        // FIXME: attester slashings.
+        let attester_slashing_aggregate_public_keys =
+            s.produce_attester_slashings_aggregate_public_keys()?;
+        s.include_attester_slashing_indexed_attestations(&attester_slashing_aggregate_public_keys)?;
 
-        // Attestation signatures
+        // ## Attestation signatures
         //
         // Map `block.body.attestations` to `IndexedAttestations`, then produce the respective `AggregatePublicKeys`
         //  and add the signature sets to `s`.
@@ -88,7 +91,7 @@ impl<'a, T: EthSpec> EntireBlockSignatureVerifier<'a, T> {
             &indexed_attestation_aggregate_public_keys,
         )?;
 
-        // Deposit signatures
+        // ## Deposit signatures
         //
         // Collect all the valid pubkeys, signatures and messages from the block, then include them
         // in `s`.
@@ -136,12 +139,7 @@ impl<'a, T: EthSpec> EntireBlockSignatureVerifier<'a, T> {
 
     pub fn produce_attester_slashings_aggregate_public_keys(
         &self,
-    ) -> Result<
-        Vec<
-            [[AggregatePublicKey; SIGNATURES_PER_INDEXED_ATTESTATION];
-                INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING],
-        >,
-    > {
+    ) -> Result<Vec<AttesterSlashingPublicKeys>> {
         self.block
             .body
             .attester_slashings
@@ -155,7 +153,45 @@ impl<'a, T: EthSpec> EntireBlockSignatureVerifier<'a, T> {
             .collect::<Result<_>>()
     }
 
-    // FIXME: attester slashings
+    pub fn include_attester_slashing_indexed_attestations(
+        &mut self,
+        attester_slashings_aggregate_public_keys: &'a [AttesterSlashingPublicKeys],
+    ) -> Result<()> {
+        let pubkey_len = attester_slashings_aggregate_public_keys.len();
+        let other_len = self.block.body.attester_slashings.len();
+
+        if pubkey_len != other_len {
+            return Err(Error::MismatchedPublicKeyLen {
+                pubkey_len,
+                other_len,
+            });
+        }
+
+        let mut sets: Vec<SignatureSet> = self
+            .block
+            .body
+            .attester_slashings
+            .iter()
+            .zip(attester_slashings_aggregate_public_keys)
+            .map(|(attester_slashing, public_keys)| {
+                attester_slashing_signature_set(
+                    &self.state,
+                    &attester_slashing,
+                    public_keys,
+                    &self.spec,
+                )
+                .map(|set| set.to_vec())
+            })
+            .collect::<Result<Vec<Vec<SignatureSet>>>>()?
+            .iter()
+            .flatten()
+            .cloned()
+            .collect();
+
+        self.sets.append(&mut sets);
+
+        Ok(())
+    }
 
     pub fn produce_indexed_attestations(&mut self) -> Result<Vec<IndexedAttestation<T>>> {
         self.block
@@ -171,7 +207,7 @@ impl<'a, T: EthSpec> EntireBlockSignatureVerifier<'a, T> {
     pub fn produce_indexed_attestation_aggregate_public_keys(
         &mut self,
         indexed_attestations: &'a [IndexedAttestation<T>],
-    ) -> Result<Vec<[AggregatePublicKey; SIGNATURES_PER_INDEXED_ATTESTATION]>> {
+    ) -> Result<Vec<IndexedAttestationPublicKeys>> {
         indexed_attestations
             .iter()
             .map(|indexed_attestation| indexed_attestation_pubkeys(self.state, indexed_attestation))
@@ -181,10 +217,17 @@ impl<'a, T: EthSpec> EntireBlockSignatureVerifier<'a, T> {
     pub fn include_indexed_attestations(
         &mut self,
         indexed_attestations: &'a [IndexedAttestation<T>],
-        indexed_attestation_aggregate_public_keys: &'a [[AggregatePublicKey;
-                 SIGNATURES_PER_INDEXED_ATTESTATION]],
+        indexed_attestation_aggregate_public_keys: &'a [IndexedAttestationPublicKeys],
     ) -> Result<()> {
-        // FIXME: compare input lengths
+        let pubkey_len = indexed_attestation_aggregate_public_keys.len();
+        let other_len = self.block.body.attestations.len();
+
+        if pubkey_len != other_len {
+            return Err(Error::MismatchedPublicKeyLen {
+                pubkey_len,
+                other_len,
+            });
+        }
 
         let mut sets: Vec<SignatureSet> = indexed_attestations
             .into_iter()
@@ -349,7 +392,7 @@ fn block_header_signature_set<'a, T: EthSpec>(
 fn indexed_attestation_pubkeys<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     indexed_attestation: &'a IndexedAttestation<T>,
-) -> Result<[AggregatePublicKey; SIGNATURES_PER_INDEXED_ATTESTATION]> {
+) -> Result<IndexedAttestationPublicKeys> {
     Ok([
         create_aggregate_pubkey(state, &indexed_attestation.custody_bit_0_indices)?,
         create_aggregate_pubkey(state, &indexed_attestation.custody_bit_1_indices)?,
@@ -359,7 +402,7 @@ fn indexed_attestation_pubkeys<'a, T: EthSpec>(
 fn indexed_attestation_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     indexed_attestation: &'a IndexedAttestation<T>,
-    pubkeys: &'a [AggregatePublicKey; SIGNATURES_PER_INDEXED_ATTESTATION],
+    pubkeys: &'a IndexedAttestationPublicKeys,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
     let message_0 = AttestationDataAndCustodyBit {
@@ -385,6 +428,28 @@ fn indexed_attestation_signature_set<'a, T: EthSpec>(
         vec![message_0, message_1],
         domain,
     ))
+}
+
+fn attester_slashing_signature_set<'a, T: EthSpec>(
+    state: &'a BeaconState<T>,
+    attester_slashing: &'a AttesterSlashing<T>,
+    pubkeys: &'a AttesterSlashingPublicKeys,
+    spec: &'a ChainSpec,
+) -> Result<[SignatureSet<'a>; INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING]> {
+    Ok([
+        indexed_attestation_signature_set(
+            state,
+            &attester_slashing.attestation_1,
+            &pubkeys[0],
+            spec,
+        )?,
+        indexed_attestation_signature_set(
+            state,
+            &attester_slashing.attestation_2,
+            &pubkeys[1],
+            spec,
+        )?,
+    ])
 }
 
 fn deposit_pubkeys_signatures_messages(
