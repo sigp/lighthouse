@@ -1,8 +1,10 @@
-extern crate futures;
-extern crate hyper;
+#[macro_use]
+extern crate lazy_static;
+
 mod beacon;
 mod config;
 mod helpers;
+mod metrics;
 mod node;
 mod url_query;
 
@@ -12,6 +14,8 @@ use hyper::rt::Future;
 use hyper::service::service_fn_ok;
 use hyper::{Body, Method, Response, Server, StatusCode};
 use slog::{info, o, warn};
+use std::ops::Deref;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use url_query::UrlQuery;
@@ -67,6 +71,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     config: &ApiConfig,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
+    db_path: PathBuf,
     log: &slog::Logger,
 ) -> Result<exit_future::Signal, hyper::Error> {
     let log = log.new(o!("Service" => "Api"));
@@ -80,6 +85,8 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
         Ok(())
     });
 
+    let db_path = DBPath(db_path);
+
     // Get the address to bind to
     let bind_addr = (config.listen_address, config.port).into();
 
@@ -90,12 +97,17 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     let service = move || {
         let log = server_log.clone();
         let beacon_chain = server_bc.clone();
+        let db_path = db_path.clone();
 
         // Create a simple handler for the router, inject our stateful objects into the request.
         service_fn_ok(move |mut req| {
+            metrics::inc_counter(&metrics::REQUEST_COUNT);
+            let timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
+
             req.extensions_mut().insert::<slog::Logger>(log.clone());
             req.extensions_mut()
                 .insert::<Arc<BeaconChain<T>>>(beacon_chain.clone());
+            req.extensions_mut().insert::<DBPath>(db_path.clone());
 
             let path = req.uri().path().to_string();
 
@@ -103,14 +115,16 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
             let result = match (req.method(), path.as_ref()) {
                 (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req),
                 (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req),
+                (&Method::GET, "/metrics") => metrics::get_prometheus::<T>(req),
                 (&Method::GET, "/node/version") => node::get_version(req),
                 (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
                 _ => Err(ApiError::MethodNotAllowed(path.clone())),
             };
 
-            match result {
+            let response = match result {
                 // Return the `hyper::Response`.
                 Ok(response) => {
+                    metrics::inc_counter(&metrics::SUCCESS_COUNT);
                     slog::debug!(log, "Request successful: {:?}", path);
                     response
                 }
@@ -119,7 +133,11 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
                     slog::debug!(log, "Request failure: {:?}", path);
                     e.into()
                 }
-            }
+            };
+
+            metrics::stop_timer(timer);
+
+            response
         })
     };
 
@@ -151,4 +169,15 @@ fn success_response(body: Body) -> Response<Body> {
         .status(StatusCode::OK)
         .body(body)
         .expect("We should always be able to make response from the success body.")
+}
+
+#[derive(Clone)]
+pub struct DBPath(PathBuf);
+
+impl Deref for DBPath {
+    type Target = PathBuf;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }

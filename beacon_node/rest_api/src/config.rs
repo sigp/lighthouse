@@ -18,7 +18,7 @@ impl Default for Config {
         Config {
             enabled: true, // rest_api enabled by default
             listen_address: Ipv4Addr::new(127, 0, 0, 1),
-            port: 1248,
+            port: 5052,
         }
     }
 }
