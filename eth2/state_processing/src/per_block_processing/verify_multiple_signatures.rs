@@ -1,15 +1,23 @@
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::AttestationValidationError;
-use bls::{G1Point, SignatureSet};
+use bls::{verify_signature_sets, SignatureSet};
+use core::borrow::Borrow;
+use std::convert::TryInto;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    AggregatePublicKey, AggregateSignature, AttestationDataAndCustodyBit, BeaconBlock,
-    BeaconBlockHeader, BeaconState, BeaconStateError, ChainSpec, Domain, EthSpec, Hash256,
-    IndexedAttestation, ProposerSlashing, PublicKey, RelativeEpoch, SecretKey, Signature,
+    AggregatePublicKey, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
+    BeaconBlockHeader, BeaconState, BeaconStateError, ChainSpec, Deposit, DepositData, Domain,
+    EthSpec, Fork, IndexedAttestation, ProposerSlashing, PublicKey, RelativeEpoch, Signature,
+    Transfer, VoluntaryExit,
 };
+
+type Message = Vec<u8>;
 
 const SIGNATURES_PER_PROPOSER_SLASHING: usize = 2;
 const SIGNATURES_PER_INDEXED_ATTESTATION: usize = 2;
+const INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING: usize = 2;
+const SIGNATURES_PER_ATTESTER_SLASHING: usize =
+    SIGNATURES_PER_INDEXED_ATTESTATION * INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING;
 // FIXME: set this to something reasonable.
 const MAX_POSSIBLE_AGGREGATE_PUBKEYS: usize = 10;
 
@@ -17,6 +25,7 @@ pub enum Error {
     BeaconStateError(BeaconStateError),
     AttestationValidationError(AttestationValidationError),
     InsufficentPubkeys,
+    ValidatorUnknown(u64),
 }
 
 impl From<BeaconStateError> for Error {
@@ -48,6 +57,49 @@ impl<'a, T: EthSpec> EntireBlockSignatureVerifier<'a, T> {
             spec,
             sets: vec![],
         }
+    }
+
+    pub fn verify_all(
+        state: &'a BeaconState<T>,
+        block: &'a BeaconBlock<T>,
+        spec: &'a ChainSpec,
+    ) -> Result<bool> {
+        let mut s = Self::new(state, block, spec);
+
+        s.include_block_proposal()?;
+        s.include_randao_reveal()?;
+        s.include_proposer_slashings()?;
+
+        // FIXME: attester slashings.
+
+        // Attestation signatures
+        //
+        // Map `block.body.attestations` to `IndexedAttestations`, then produce the respective `AggregatePublicKeys`
+        //  and add the signature sets to `s`.
+        //
+        // The reason for the 3-step process for attestation verification is to ensure that the
+        // `Signature` from `IndexedAttestation` and the newly-created `AggregatePublicKey` can
+        // live long enough.
+        let indexed_attestations = s.produce_indexed_attestations()?;
+        let indexed_attestation_aggregate_public_keys =
+            s.produce_indexed_attestation_aggregate_public_keys(&indexed_attestations)?;
+        s.include_indexed_attestations(
+            &indexed_attestations,
+            &indexed_attestation_aggregate_public_keys,
+        )?;
+
+        // Deposit signatures
+        //
+        // Collect all the valid pubkeys, signatures and messages from the block, then include them
+        // in `s`.
+        //
+        // Deposits with invalid pubkeys/signatures are simply ignored here. It is important to
+        // ensure that the downstream function checks again to ensure a validators key/sig is
+        // valid. Otherwise, it may be possible to induct validators with invalid keys/sigs.
+        let deposit_pubkeys_signatures_messages = s.produce_deposit_pubkeys_and_signatures();
+        s.include_deposits(&deposit_pubkeys_signatures_messages)?;
+
+        Ok(verify_signature_sets(s.into_iter()))
     }
 
     pub fn include_block_proposal(&mut self) -> Result<()> {
@@ -82,6 +134,27 @@ impl<'a, T: EthSpec> EntireBlockSignatureVerifier<'a, T> {
         Ok(())
     }
 
+    pub fn produce_attester_slashings_aggregate_public_keys(
+        &self,
+    ) -> Result<
+        Vec<
+            [[AggregatePublicKey; SIGNATURES_PER_INDEXED_ATTESTATION];
+                INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING],
+        >,
+    > {
+        self.block
+            .body
+            .attester_slashings
+            .iter()
+            .map(|attester_slashing| {
+                Ok([
+                    indexed_attestation_pubkeys(&self.state, &attester_slashing.attestation_1)?,
+                    indexed_attestation_pubkeys(&self.state, &attester_slashing.attestation_2)?,
+                ])
+            })
+            .collect::<Result<_>>()
+    }
+
     // FIXME: attester slashings
 
     pub fn produce_indexed_attestations(&mut self) -> Result<Vec<IndexedAttestation<T>>> {
@@ -108,7 +181,7 @@ impl<'a, T: EthSpec> EntireBlockSignatureVerifier<'a, T> {
     pub fn include_indexed_attestations(
         &mut self,
         indexed_attestations: &'a [IndexedAttestation<T>],
-        indexed_attestation_aggregate_public_keys: &'a [[&'a AggregatePublicKey;
+        indexed_attestation_aggregate_public_keys: &'a [[AggregatePublicKey;
                  SIGNATURES_PER_INDEXED_ATTESTATION]],
     ) -> Result<()> {
         // FIXME: compare input lengths
@@ -124,6 +197,56 @@ impl<'a, T: EthSpec> EntireBlockSignatureVerifier<'a, T> {
                     self.spec,
                 )
             })
+            .collect::<Result<_>>()?;
+
+        self.sets.append(&mut sets);
+
+        Ok(())
+    }
+
+    pub fn produce_deposit_pubkeys_and_signatures(
+        &mut self,
+    ) -> Vec<(PublicKey, Signature, Message)> {
+        deposit_pubkeys_signatures_messages(&self.block.body.deposits)
+    }
+
+    pub fn include_deposits(
+        &mut self,
+        pubkeys_signatures_messages: &'a [(PublicKey, Signature, Message)],
+    ) -> Result<()> {
+        let mut sets = pubkeys_signatures_messages
+            .iter()
+            .map(|pubkey_signature_message| {
+                deposit_signature_set(&self.state, pubkey_signature_message, &self.spec)
+            })
+            .collect();
+
+        self.sets.append(&mut sets);
+
+        Ok(())
+    }
+
+    pub fn include_exits(&mut self) -> Result<()> {
+        let mut sets = self
+            .block
+            .body
+            .voluntary_exits
+            .iter()
+            .map(|exit| exit_signature_set(&self.state, exit, &self.spec))
+            .collect::<Result<_>>()?;
+
+        self.sets.append(&mut sets);
+
+        Ok(())
+    }
+
+    pub fn include_transfers(&mut self) -> Result<()> {
+        let mut sets = self
+            .block
+            .body
+            .transfers
+            .iter()
+            .map(|transfer| transfer_signature_set(&self.state, transfer, &self.spec))
             .collect::<Result<_>>()?;
 
         self.sets.append(&mut sets);
@@ -193,7 +316,7 @@ fn proposer_slashing_signature_set<'a, T: EthSpec>(
     let proposer = state
         .validators
         .get(proposer_slashing.proposer_index as usize)
-        .ok_or_else(|| BeaconStateError::UnknownValidator)?;
+        .ok_or_else(|| Error::ValidatorUnknown(proposer_slashing.proposer_index))?;
 
     Ok([
         block_header_signature_set(state, &proposer_slashing.header_1, &proposer.pubkey, spec)?,
@@ -236,7 +359,7 @@ fn indexed_attestation_pubkeys<'a, T: EthSpec>(
 fn indexed_attestation_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     indexed_attestation: &'a IndexedAttestation<T>,
-    pubkeys: &'a [&'a AggregatePublicKey; SIGNATURES_PER_INDEXED_ATTESTATION],
+    pubkeys: &'a [AggregatePublicKey; SIGNATURES_PER_INDEXED_ATTESTATION],
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
     let message_0 = AttestationDataAndCustodyBit {
@@ -258,8 +381,78 @@ fn indexed_attestation_signature_set<'a, T: EthSpec>(
 
     Ok(SignatureSet::new(
         &indexed_attestation.signature,
-        pubkeys.to_vec(),
+        pubkeys.iter().map(Borrow::borrow).collect(),
         vec![message_0, message_1],
+        domain,
+    ))
+}
+
+fn deposit_pubkeys_signatures_messages(
+    deposits: &[Deposit],
+) -> Vec<(PublicKey, Signature, Message)> {
+    deposits
+        .iter()
+        .filter_map(|deposit| {
+            let pubkey = (&deposit.data.pubkey).try_into().ok()?;
+            let signature = (&deposit.data.signature).try_into().ok()?;
+            let message = deposit.data.signed_root();
+            Some((pubkey, signature, message))
+        })
+        .collect()
+}
+
+fn deposit_signature_set<'a, T: EthSpec>(
+    state: &'a BeaconState<T>,
+    pubkey_signature_message: &'a (PublicKey, Signature, Message),
+    spec: &'a ChainSpec,
+) -> SignatureSet<'a> {
+    // Note: Deposits are valid across forks, thus the deposit domain is computed
+    // with the fork zeroed.
+    let domain = spec.get_domain(state.current_epoch(), Domain::Deposit, &Fork::default());
+    let (pubkey, signature, message) = pubkey_signature_message;
+
+    SignatureSet::new(signature, vec![pubkey], vec![message.clone()], domain)
+}
+
+fn exit_signature_set<'a, T: EthSpec>(
+    state: &'a BeaconState<T>,
+    exit: &'a VoluntaryExit,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>> {
+    let validator = state
+        .validators
+        .get(exit.validator_index as usize)
+        .ok_or_else(|| Error::ValidatorUnknown(exit.validator_index))?;
+
+    let domain = spec.get_domain(exit.epoch, Domain::VoluntaryExit, &state.fork);
+
+    let message = exit.signed_root();
+
+    Ok(SignatureSet::new(
+        &exit.signature,
+        vec![&validator.pubkey],
+        vec![message],
+        domain,
+    ))
+}
+
+fn transfer_signature_set<'a, T: EthSpec>(
+    state: &'a BeaconState<T>,
+    transfer: &'a Transfer,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>> {
+    let domain = spec.get_domain(
+        transfer.slot.epoch(T::slots_per_epoch()),
+        Domain::Transfer,
+        &state.fork,
+    );
+
+    let message = transfer.signed_root();
+
+    Ok(SignatureSet::new(
+        &transfer.signature,
+        vec![&transfer.pubkey],
+        vec![message],
         domain,
     ))
 }
@@ -279,7 +472,7 @@ where
             state
                 .validators
                 .get(validator_idx as usize)
-                .ok_or_else(|| BeaconStateError::UnknownValidator)
+                .ok_or_else(|| Error::ValidatorUnknown(validator_idx))
                 .map(|validator| {
                     aggregate_pubkey.add_without_affine(&validator.pubkey);
                     aggregate_pubkey

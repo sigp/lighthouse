@@ -1,5 +1,5 @@
 use crate::{AggregatePublicKey, AggregateSignature, PublicKey, Signature};
-use milagro_bls::{G1Point, G2Point};
+use milagro_bls::{AggregateSignature as RawAggregateSignature, G1Point, G2Point};
 
 #[derive(Clone)]
 pub struct SignatureSet<'a> {
@@ -21,6 +21,24 @@ impl<'a> SignatureSet<'a> {
             msgs,
             domain,
         }
+    }
+}
+
+pub fn verify_signature_sets<'a>(iter: impl Iterator<Item = SignatureSet<'a>>) -> bool {
+    let rng = &mut rand::thread_rng();
+    RawAggregateSignature::verify_multiple_signatures(rng, iter.map(Into::into))
+}
+
+type VerifySet<'a> = (G2Point, Vec<G1Point>, Vec<Vec<u8>>, u64);
+
+impl<'a> Into<VerifySet<'a>> for SignatureSet<'a> {
+    fn into(self) -> VerifySet<'a> {
+        (
+            self.sig.clone(),
+            self.keys.into_iter().cloned().collect(),
+            self.msgs,
+            self.domain,
+        )
     }
 }
 

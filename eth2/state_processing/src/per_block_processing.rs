@@ -22,6 +22,7 @@ pub use verify_deposit::{
     get_existing_validator_index, verify_deposit_merkle_proof, verify_deposit_signature,
 };
 pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
+pub use verify_multiple_signatures::EntireBlockSignatureVerifier;
 pub use verify_transfer::{
     execute_transfer, verify_transfer, verify_transfer_time_independent_only,
 };
