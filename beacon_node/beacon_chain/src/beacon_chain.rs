@@ -1,7 +1,6 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
-use crate::iter::{ReverseBlockRootIterator, ReverseStateRootIterator};
 use crate::metrics::Metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
@@ -23,7 +22,9 @@ use state_processing::{
     per_slot_processing, BlockProcessingError,
 };
 use std::sync::Arc;
-use store::iter::{BlockRootsIterator, StateRootsIterator};
+use store::iter::{
+    BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
+};
 use store::{Error as DBError, Store};
 use tree_hash::TreeHash;
 use types::*;
@@ -1155,7 +1156,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // FIXME(michael): this shouldn't necessarily happen every finalization,
             // and should definitely happen in a separate thread.
-            T::Store::freeze_to_state(self.store.clone(), &finalized_state)?;
+            T::Store::freeze_to_state(
+                self.store.clone(),
+                finalized_block.state_root,
+                &finalized_state,
+            )?;
 
             Ok(())
         }

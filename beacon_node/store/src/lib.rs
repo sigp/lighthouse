@@ -98,6 +98,7 @@ pub trait Store: Sync + Send + Sized {
     /// (Optionally) Move all data before the frozen slot to the freezer database.
     fn freeze_to_state<E: EthSpec>(
         _store: Arc<RwLock<Self>>,
+        _frozen_head_root: Hash256,
         _frozen_head: &BeaconState<E>,
     ) -> Result<(), Error> {
         Ok(())

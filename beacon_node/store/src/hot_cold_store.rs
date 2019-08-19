@@ -2,7 +2,7 @@ use crate::chunked_vector::{
     store_updated_vector, ActiveIndexRoots, BlockRoots, CompactCommitteesRoots, HistoricalRoots,
     RandaoMixes, StateRoots,
 };
-use crate::iter::AncestorIter;
+use crate::iter::{ReverseStateRootIterator, StateRootsIterator};
 use crate::{leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, Store, StoreItem};
 use parking_lot::RwLock;
 use std::convert::TryInto;
@@ -10,8 +10,6 @@ use std::path::Path;
 use std::sync::Arc;
 use types::*;
 
-// FIXME(michael): this probably shouldn't need to be clone?
-#[derive(Clone)]
 pub struct HotColdDB {
     /// The slot before which all data is stored in the cold database.
     ///
@@ -24,6 +22,14 @@ pub struct HotColdDB {
     hot_db: LevelDB,
     /// Chain spec.
     spec: Arc<ChainSpec>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum HotColdDbError {
+    FreezeSlotError {
+        current_split_slot: Slot,
+        proposed_split_slot: Slot,
+    },
 }
 
 impl Store for HotColdDB {
@@ -81,47 +87,49 @@ impl Store for HotColdDB {
 
     fn freeze_to_state<E: EthSpec>(
         store: Arc<RwLock<Self>>,
+        frozen_head_root: Hash256,
         frozen_head: &BeaconState<E>,
     ) -> Result<(), Error> {
-        // 1. Copy all of the states between the head and the split slot from the hot DB
+        // 1. Copy all of the states between the head and the split slot, from the hot DB
         // to the cold DB.
         let reader = store.read();
         let current_split_slot = reader.split_slot;
 
-        // FIXME(michael): make this an error
         if frozen_head.slot <= current_split_slot {
-            panic!(
-                "can't decrease split slot: new slot {} <= existing slot {}",
-                frozen_head.slot, current_split_slot
-            );
+            Err(HotColdDbError::FreezeSlotError {
+                current_split_slot,
+                proposed_split_slot: frozen_head.slot,
+            })?;
         }
 
-        // TODO(michael): optimise for skipped slots
-        // FIXME(michael): raise errors
+        println!("Freezing up to slot: {}", frozen_head.slot);
+
+        let state_root_iter = {
+            let iter = StateRootsIterator::new(store.clone(), frozen_head);
+            ReverseStateRootIterator::new((frozen_head_root, frozen_head.slot), iter)
+        };
+
         let mut to_delete = vec![];
-        for (state_root, slot) in frozen_head
-            .try_iter_ancestor_roots(store.clone())
-            .expect("BeaconState roots iterator is always Some")
-            .take_while(|&(_, slot)| slot >= current_split_slot)
+        for (state_root, slot) in
+            state_root_iter.take_while(|&(_, slot)| slot >= current_split_slot)
         {
             println!("Freezing state at slot {} ({:?})", slot, state_root);
             let state: BeaconState<E> = match reader.hot_db.get_state(&state_root, None)? {
                 Some(s) => s,
-                // FIXME(michael): this is how we handle skip slots
+                // If there's no state it could be a skip slot, which is fine, our job is just
+                // to move everything that was in the hot DB to the cold.
                 None => continue,
             };
 
             to_delete.push(state_root);
 
-            reader
-                .store_archive_state(&state_root, &state)
-                .expect("work bitch!");
+            reader.store_archive_state(&state_root, &state)?;
         }
 
         drop(reader);
 
         // 2. Update the split slot
-        store.write().split_slot = dbg!(frozen_head.slot + 1);
+        store.write().split_slot = frozen_head.slot + 1;
 
         // 3. Delete from the hot DB
         let reader = store.read();
@@ -227,5 +235,3 @@ impl HotColdDB {
         Ok(Some(state))
     }
 }
-
-mod test {}
