@@ -1,4 +1,6 @@
 use super::errors::{ProposerSlashingInvalid as Invalid, ProposerSlashingValidationError as Error};
+use super::signature_sets::proposer_slashing_signature_set;
+use crate::SignatureStrategy;
 use tree_hash::SignedRoot;
 use types::*;
 
@@ -11,6 +13,7 @@ use types::*;
 pub fn verify_proposer_slashing<T: EthSpec>(
     proposer_slashing: &ProposerSlashing,
     state: &BeaconState<T>,
+    signature_strategy: SignatureStrategy,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let proposer = state
@@ -42,24 +45,11 @@ pub fn verify_proposer_slashing<T: EthSpec>(
         Invalid::ProposerNotSlashable(proposer_slashing.proposer_index)
     );
 
-    verify!(
-        verify_header_signature::<T>(
-            &proposer_slashing.header_1,
-            &proposer.pubkey,
-            &state.fork,
-            spec
-        ),
-        Invalid::BadProposal1Signature
-    );
-    verify!(
-        verify_header_signature::<T>(
-            &proposer_slashing.header_2,
-            &proposer.pubkey,
-            &state.fork,
-            spec
-        ),
-        Invalid::BadProposal2Signature
-    );
+    if signature_strategy.is_individual() {
+        let signatures = proposer_slashing_signature_set(state, proposer_slashing, spec)?;
+        verify!(signatures[0].is_valid(), Invalid::BadProposal1Signature);
+        verify!(signatures[1].is_valid(), Invalid::BadProposal2Signature);
+    }
 
     Ok(())
 }

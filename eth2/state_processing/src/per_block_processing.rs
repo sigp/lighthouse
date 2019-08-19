@@ -1,10 +1,11 @@
 use crate::common::{initiate_validator_exit, slash_validator};
 use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
 use rayon::prelude::*;
+use signature_sets::{block_proposal_signature_set, randao_signature_set};
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::iter::FromIterator;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::SignedRoot;
 use types::*;
 
 pub use self::verify_attester_slashing::{
@@ -120,7 +121,7 @@ pub fn per_block_processing<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
-    process_randao(&mut state, &block, &spec)?;
+    process_randao(&mut state, &block, signature_strategy, &spec)?;
     process_eth1_data(&mut state, &block.body.eth1_data)?;
     process_proposer_slashings(&mut state, &block.body.proposer_slashings, spec)?;
     process_attester_slashings(&mut state, &block.body.attester_slashings, spec)?;
@@ -175,19 +176,8 @@ pub fn verify_block_signature<T: EthSpec>(
     block: &BeaconBlock<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let block_proposer = &state.validators
-        [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
-
-    let domain = spec.get_domain(
-        block.slot.epoch(T::slots_per_epoch()),
-        Domain::BeaconProposer,
-        &state.fork,
-    );
-
     verify!(
-        block
-            .signature
-            .verify(&block.signed_root()[..], domain, &block_proposer.pubkey),
+        block_proposal_signature_set(state, block, spec)?.is_valid(),
         Invalid::BadSignature
     );
 
@@ -201,24 +191,16 @@ pub fn verify_block_signature<T: EthSpec>(
 pub fn process_randao<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
+    signature_strategy: SignatureStrategy,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let block_proposer = &state.validators
-        [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
-
-    // Verify RANDAO reveal.
-    verify!(
-        block.body.randao_reveal.verify(
-            &state.current_epoch().tree_hash_root()[..],
-            spec.get_domain(
-                block.slot.epoch(T::slots_per_epoch()),
-                Domain::Randao,
-                &state.fork
-            ),
-            &block_proposer.pubkey
-        ),
-        Invalid::BadRandaoSignature
-    );
+    if signature_strategy.is_individual() {
+        // Verify RANDAO reveal signature.
+        verify!(
+            randao_signature_set(state, block, spec)?.is_valid(),
+            Invalid::BadRandaoSignature
+        );
+    }
 
     // Update the current epoch RANDAO mix.
     state.update_randao_mix(state.current_epoch(), &block.body.randao_reveal)?;

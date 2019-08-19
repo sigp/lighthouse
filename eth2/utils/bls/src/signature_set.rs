@@ -82,6 +82,32 @@ impl<'a> SignatureSet<'a> {
             domain,
         }
     }
+
+    pub fn is_valid(&self) -> bool {
+        let sig = milagro_bls::AggregateSignature {
+            point: self.signature.clone(),
+        };
+
+        let mut message = vec![];
+        let mut pubkeys = vec![];
+
+        self.signed_messages.iter().for_each(|signed_message| {
+            message.append(&mut signed_message.message.clone());
+
+            let point = if signed_message.signing_keys.len() == 1 {
+                signed_message.signing_keys[0].clone()
+            } else {
+                aggregate_public_keys(&signed_message.signing_keys)
+            };
+
+            pubkeys.push(milagro_bls::AggregatePublicKey { point });
+        });
+
+        let pubkey_refs: Vec<&milagro_bls::AggregatePublicKey> =
+            pubkeys.iter().map(std::borrow::Borrow::borrow).collect();
+
+        sig.verify_multiple(&message, self.domain, &pubkey_refs)
+    }
 }
 
 #[cfg(not(feature = "fake_crypto"))]

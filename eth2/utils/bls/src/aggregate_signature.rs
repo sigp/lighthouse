@@ -1,6 +1,7 @@
 use super::*;
 use milagro_bls::{
     AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
+    G2Point,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -115,6 +116,15 @@ impl AggregateSignature {
     /// Returns the underlying signature.
     pub fn as_raw(&self) -> &RawAggregateSignature {
         &self.aggregate_signature
+    }
+
+    /// Returns the underlying signature.
+    pub fn from_point(point: G2Point) -> Self {
+        Self {
+            aggregate_signature: RawAggregateSignature { point },
+            // FIXME: check to ensure it is empty.
+            is_empty: false,
+        }
     }
 
     /// Returns if the AggregateSignature `is_empty`

@@ -12,6 +12,7 @@ const INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING: usize = 2;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// Signature verification failed. The block is invalid.
     SignatureInvalid,

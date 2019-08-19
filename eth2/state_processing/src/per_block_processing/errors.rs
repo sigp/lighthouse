@@ -1,3 +1,4 @@
+use super::signature_sets::Error as SignatureSetError;
 use types::*;
 
 macro_rules! impl_from_beacon_state_error {
@@ -5,6 +6,16 @@ macro_rules! impl_from_beacon_state_error {
         impl From<BeaconStateError> for $type {
             fn from(e: BeaconStateError) -> $type {
                 $type::BeaconStateError(e)
+            }
+        }
+    };
+}
+
+macro_rules! impl_from_signature_set_error {
+    ($type: ident) => {
+        impl From<SignatureSetError> for $type {
+            fn from(e: SignatureSetError) -> $type {
+                $type::SignatureSetError(e)
             }
         }
     };
@@ -61,9 +72,11 @@ pub enum BlockProcessingError {
     BeaconStateError(BeaconStateError),
     /// Encountered an `ssz_types::Error` whilst attempting to determine validity.
     SszTypesError(ssz_types::Error),
+    SignatureSetError(SignatureSetError),
 }
 
 impl_from_beacon_state_error!(BlockProcessingError);
+impl_from_signature_set_error!(BlockProcessingError);
 
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
@@ -189,6 +202,7 @@ pub enum AttestationInvalid {
 
 impl_from_beacon_state_error!(AttestationValidationError);
 impl_into_with_index_with_beacon_error!(AttestationValidationError, AttestationInvalid);
+impl_from_signature_set_error!(AttestationValidationError);
 
 impl From<IndexedAttestationValidationError> for AttestationValidationError {
     fn from(err: IndexedAttestationValidationError) -> Self {
@@ -237,6 +251,7 @@ pub enum AttesterSlashingInvalid {
 
 impl_from_beacon_state_error!(AttesterSlashingValidationError);
 impl_into_with_index_with_beacon_error!(AttesterSlashingValidationError, AttesterSlashingInvalid);
+impl_from_signature_set_error!(AttesterSlashingValidationError);
 
 /*
  * `IndexedAttestation` Validation
@@ -329,6 +344,7 @@ impl_into_with_index_without_beacon_error!(
     ProposerSlashingValidationError,
     ProposerSlashingInvalid
 );
+impl_from_signature_set_error!(ProposerSlashingValidationError);
 
 /*
  * `Deposit` Validation
@@ -394,6 +410,7 @@ pub enum ExitInvalid {
 }
 
 impl_into_with_index_without_beacon_error!(ExitValidationError, ExitInvalid);
+impl_from_signature_set_error!(ExitValidationError);
 
 /*
  * `Transfer` Validation
@@ -464,3 +481,4 @@ pub enum TransferInvalid {
 
 impl_from_beacon_state_error!(TransferValidationError);
 impl_into_with_index_with_beacon_error!(TransferValidationError, TransferInvalid);
+impl_from_signature_set_error!(TransferValidationError);
