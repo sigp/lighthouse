@@ -9,23 +9,32 @@ use web3::types::*;
 /// Interface for getting Eth1 chain data.
 pub trait Eth1DataFetcher: Send + Sync + Clone {
     /// Get block_header of the head of the chain.
-    fn get_current_block_number(&self) -> Option<U256>;
+    fn get_current_block_number(&self) -> Box<dyn Future<Item = U256, Error = ()> + Send>;
 
     /// Get block_hash at given height.
-    fn get_block_hash_by_height(&self, height: u64) -> Option<H256>;
+    fn get_block_hash_by_height(
+        &self,
+        height: u64,
+    ) -> Box<dyn Future<Item = Option<H256>, Error = ()> + Send>;
 
     /// Get deposit contract root at given eth1 block-number.
-    fn get_deposit_root(&self, block_number: Option<BlockNumber>) -> Option<H256>;
+    fn get_deposit_root(
+        &self,
+        block_number: Option<BlockNumber>,
+    ) -> Box<dyn Future<Item = H256, Error = ()> + Send>;
 
     /// Get `deposit_count` from DepositContract at given eth1 block_number.
-    fn get_deposit_count(&self, block_number: Option<BlockNumber>) -> Option<u64>;
+    fn get_deposit_count(
+        &self,
+        block_number: Option<BlockNumber>,
+    ) -> Box<dyn Future<Item = Option<u64>, Error = ()> + Send>;
 
     /// Returns a future which subscribes to `DepositEvent` events and inserts the
     /// parsed deposit into the passed cache structure everytime an event is emitted.
     fn get_deposit_logs_subscription(
         &self,
         cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
-    ) -> Box<Future<Item = (), Error = ()> + Send>;
+    ) -> Box<dyn Future<Item = (), Error = ()> + Send>;
 }
 
 /// Config for an Eth1 chain contract.
