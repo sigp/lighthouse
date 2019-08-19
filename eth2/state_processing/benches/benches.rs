@@ -2,12 +2,9 @@
 extern crate lazy_static;
 extern crate env_logger;
 
-mod benching_block_builder;
-
-use benching_block_builder::BenchingBlockBuidler;
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
-use state_processing::SignatureStrategy;
+use state_processing::{test_utils::BlockBuilder, SignatureStrategy};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, Slot, Unsigned};
 
 const VALIDATOR_COUNT: usize = 300_032;
@@ -16,7 +13,7 @@ lazy_static! {}
 
 fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
     let spec = T::default_spec();
-    let mut builder: BenchingBlockBuidler<T> = BenchingBlockBuidler::new(VALIDATOR_COUNT, &spec);
+    let mut builder: BlockBuilder<T> = BlockBuilder::new(VALIDATOR_COUNT, &spec);
     // builder.num_attestations = T::MaxAttestations::to_usize();
     builder.num_attestations = 16;
     builder.set_slot(Slot::from(T::slots_per_epoch() * 3 - 2));

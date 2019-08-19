@@ -13,7 +13,6 @@ criterion = "0.2"
 env_logger = "0.6.0"
 serde = "1.0"
 serde_derive = "1.0"
-log = "0.4"
 lazy_static = "0.1"
 serde_yaml = "0.8"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
@@ -27,6 +26,7 @@ integer-sqrt = "0.1"
 itertools = "0.8"
 eth2_ssz_types = { path = "../utils/ssz_types" }
 merkle_proof = { path = "../utils/merkle_proof" }
+log = "0.4"
 tree_hash = "0.1"
 tree_hash_derive = "0.2"
 types = { path = "../types" }

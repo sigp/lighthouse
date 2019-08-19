@@ -2,7 +2,7 @@ use log::info;
 use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::{EthSpec, *};
 
-pub struct BenchingBlockBuidler<T: EthSpec> {
+pub struct BlockBuilder<T: EthSpec> {
     pub state_builder: TestingBeaconStateBuilder<T>,
     pub block_builder: TestingBeaconBlockBuilder<T>,
 
@@ -16,7 +16,7 @@ pub struct BenchingBlockBuidler<T: EthSpec> {
     pub num_transfers: usize,
 }
 
-impl<T: EthSpec> BenchingBlockBuidler<T> {
+impl<T: EthSpec> BlockBuilder<T> {
     pub fn new(num_validators: usize, spec: &ChainSpec) -> Self {
         let state_builder =
             TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(num_validators, &spec);
