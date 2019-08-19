@@ -11,6 +11,7 @@ pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
 };
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
+pub use block_signature_verifier::BlockSignatureVerifier;
 pub use is_valid_indexed_attestation::{
     is_valid_indexed_attestation, is_valid_indexed_attestation_without_signature,
 };
@@ -22,20 +23,20 @@ pub use verify_deposit::{
     get_existing_validator_index, verify_deposit_merkle_proof, verify_deposit_signature,
 };
 pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
-pub use verify_multiple_signatures::EntireBlockSignatureVerifier;
 pub use verify_transfer::{
     execute_transfer, verify_transfer, verify_transfer_time_independent_only,
 };
 
 pub mod block_processing_builder;
+mod block_signature_verifier;
 pub mod errors;
 mod is_valid_indexed_attestation;
+mod signature_sets;
 pub mod tests;
 mod verify_attestation;
 mod verify_attester_slashing;
 mod verify_deposit;
 mod verify_exit;
-mod verify_multiple_signatures;
 mod verify_proposer_slashing;
 mod verify_transfer;
 
