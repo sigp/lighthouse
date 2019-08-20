@@ -4,7 +4,7 @@ extern crate env_logger;
 
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
-use state_processing::{test_utils::BlockBuilder, SignatureStrategy};
+use state_processing::{test_utils::BlockBuilder, BlockSignatureStrategy, VerifySignatures};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, Slot, Unsigned};
 
 const VALIDATOR_COUNT: usize = 300_032;
@@ -25,7 +25,63 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
     let local_spec = spec.clone();
     c.bench(
         &format!("{}/{}_validators", spec_desc, VALIDATOR_COUNT),
-        Benchmark::new("per_block_processing", move |b| {
+        Benchmark::new(
+            "per_block_processing/individual_signature_verification",
+            move |b| {
+                b.iter_batched_ref(
+                    || (local_spec.clone(), local_state.clone(), local_block.clone()),
+                    |(spec, ref mut state, block)| {
+                        black_box(
+                            state_processing::per_block_processing::<T>(
+                                state,
+                                &block,
+                                BlockSignatureStrategy::VerifyIndividual,
+                                &spec,
+                            )
+                            .expect("block processing should succeed"),
+                        )
+                    },
+                    criterion::BatchSize::SmallInput,
+                )
+            },
+        )
+        .sample_size(10),
+    );
+
+    let local_block = block.clone();
+    let local_state = state.clone();
+    let local_spec = spec.clone();
+    c.bench(
+        &format!("{}/{}_validators", spec_desc, VALIDATOR_COUNT),
+        Benchmark::new(
+            "per_block_processing/bulk_signature_verification",
+            move |b| {
+                b.iter_batched_ref(
+                    || (local_spec.clone(), local_state.clone(), local_block.clone()),
+                    |(spec, ref mut state, block)| {
+                        black_box(
+                            state_processing::per_block_processing::<T>(
+                                state,
+                                &block,
+                                BlockSignatureStrategy::VerifyBulk,
+                                &spec,
+                            )
+                            .expect("block processing should succeed"),
+                        )
+                    },
+                    criterion::BatchSize::SmallInput,
+                )
+            },
+        )
+        .sample_size(10),
+    );
+
+    let local_block = block.clone();
+    let local_state = state.clone();
+    let local_spec = spec.clone();
+    c.bench(
+        &format!("{}/{}_validators", spec_desc, VALIDATOR_COUNT),
+        Benchmark::new("per_block_processing/no_signature_verification", move |b| {
             b.iter_batched_ref(
                 || (local_spec.clone(), local_state.clone(), local_block.clone()),
                 |(spec, ref mut state, block)| {
@@ -33,7 +89,7 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
                         state_processing::per_block_processing::<T>(
                             state,
                             &block,
-                            SignatureStrategy::VerifyIndividual,
+                            BlockSignatureStrategy::NoVerification,
                             &spec,
                         )
                         .expect("block processing should succeed"),
@@ -58,7 +114,7 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
                         state_processing::per_block_processing::process_block_header::<T>(
                             state,
                             &block,
-                            SignatureStrategy::VerifyIndividual,
+                            VerifySignatures::True,
                             &spec,
                         )
                         .expect("process_block_header should succeed"),
@@ -105,6 +161,7 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
                         state_processing::per_block_processing::process_attestations::<T>(
                             state,
                             &block.body.attestations,
+                            VerifySignatures::True,
                             &spec,
                         )
                         .expect("attestation processing should succeed"),
@@ -130,9 +187,10 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
                 },
                 |(spec, ref mut state, attestation)| {
                     black_box(
-                        state_processing::per_block_processing::verify_attestation(
+                        state_processing::per_block_processing::verify_attestation_for_block_inclusion(
                             state,
                             &attestation,
+                            VerifySignatures::True,
                             spec,
                         )
                         .expect("should verify attestation"),
@@ -193,6 +251,7 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
                         state_processing::per_block_processing::is_valid_indexed_attestation(
                             state,
                             &indexed_attestation,
+                            VerifySignatures::True,
                             spec,
                         )
                         .expect("should run is_valid_indexed_attestation"),
@@ -227,9 +286,10 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str) {
                 },
                 |(spec, ref mut state, indexed_attestation)| {
                     black_box(
-                        state_processing::per_block_processing::is_valid_indexed_attestation_without_signature(
+                        state_processing::per_block_processing::is_valid_indexed_attestation(
                             state,
                             &indexed_attestation,
+                            VerifySignatures::False,
                             spec,
                         )
                         .expect("should run is_valid_indexed_attestation_without_signature"),
