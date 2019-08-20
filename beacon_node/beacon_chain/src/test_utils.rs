@@ -7,7 +7,6 @@ use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::MemoryStore;
 use store::Store;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
@@ -44,21 +43,22 @@ pub enum AttestationStrategy {
 }
 
 /// Used to make the `BeaconChainHarness` generic over some types.
-pub struct CommonTypes<L, E>
+pub struct CommonTypes<L, E, S>
 where
-    L: LmdGhost<MemoryStore, E>,
+    L: LmdGhost<S, E>,
     E: EthSpec,
+    S: Store,
 {
-    _phantom_l: PhantomData<L>,
-    _phantom_e: PhantomData<E>,
+    _phantom: PhantomData<(L, E, S)>,
 }
 
-impl<L, E> BeaconChainTypes for CommonTypes<L, E>
+impl<L, E, S> BeaconChainTypes for CommonTypes<L, E, S>
 where
-    L: LmdGhost<MemoryStore, E>,
+    L: LmdGhost<S, E>,
     E: EthSpec,
+    S: Store,
 {
-    type Store = MemoryStore;
+    type Store = S;
     type SlotClock = TestingSlotClock;
     type LmdGhost = L;
     type EthSpec = E;
@@ -68,46 +68,50 @@ where
 /// attestations.
 ///
 /// Used for testing.
-pub struct BeaconChainHarness<L, E>
+pub struct BeaconChainHarness<L, E, S>
 where
-    L: LmdGhost<MemoryStore, E>,
+    L: LmdGhost<S, E>,
     E: EthSpec,
+    S: Store,
 {
-    pub chain: BeaconChain<CommonTypes<L, E>>,
+    pub chain: BeaconChain<CommonTypes<L, E, S>>,
     pub keypairs: Vec<Keypair>,
     pub spec: ChainSpec,
 }
 
-impl<L, E> BeaconChainHarness<L, E>
+impl<L, E, S> BeaconChainHarness<L, E, S>
 where
-    L: LmdGhost<MemoryStore, E>,
+    L: LmdGhost<S, E>,
     E: EthSpec,
+    S: Store,
 {
     /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn new(validator_count: usize) -> Self {
+    pub fn new(validator_count: usize, store: Arc<RwLock<S>>) -> Self {
         let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
             validator_count,
             &E::default_spec(),
         );
         let (genesis_state, keypairs) = state_builder.build();
 
-        Self::from_state_and_keypairs(genesis_state, keypairs)
+        Self::from_state_and_keypairs(genesis_state, keypairs, store)
     }
 
     /// Instantiate a new harness with an initial validator for each key supplied.
-    pub fn from_keypairs(keypairs: Vec<Keypair>) -> Self {
+    pub fn from_keypairs(keypairs: Vec<Keypair>, store: Arc<RwLock<S>>) -> Self {
         let state_builder = TestingBeaconStateBuilder::from_keypairs(keypairs, &E::default_spec());
         let (genesis_state, keypairs) = state_builder.build();
 
-        Self::from_state_and_keypairs(genesis_state, keypairs)
+        Self::from_state_and_keypairs(genesis_state, keypairs, store)
     }
 
     /// Instantiate a new harness with the given genesis state and a keypair for each of the
     /// initial validators in the given state.
-    pub fn from_state_and_keypairs(genesis_state: BeaconState<E>, keypairs: Vec<Keypair>) -> Self {
+    pub fn from_state_and_keypairs(
+        genesis_state: BeaconState<E>,
+        keypairs: Vec<Keypair>,
+        store: Arc<RwLock<S>>,
+    ) -> Self {
         let spec = E::default_spec();
-
-        let store = Arc::new(RwLock::new(MemoryStore::open()));
 
         let mut genesis_block = BeaconBlock::empty(&spec);
         genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());

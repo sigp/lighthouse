@@ -56,8 +56,8 @@ impl Store for HotColdDB {
         state_root: &Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
-        if state.slot < self.split_slot {
-            println!("Storing at state at slot {} in the archival DB", state.slot);
+        if state.slot <= self.split_slot {
+            // println!("Storing at state at slot {} in the archival DB", state.slot);
             self.store_archive_state(state_root, state)
         } else {
             self.hot_db.put_state(state_root, state)
@@ -70,9 +70,9 @@ impl Store for HotColdDB {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
-        println!("Getting a state from slot {:?}", slot);
+        // println!("Getting a state from slot {:?}", slot);
         if let Some(slot) = slot {
-            if slot < self.split_slot {
+            if slot <= self.split_slot {
                 self.load_archive_state(state_root)
             } else {
                 self.hot_db.get_state(state_root, None)
@@ -95,14 +95,14 @@ impl Store for HotColdDB {
         let reader = store.read();
         let current_split_slot = reader.split_slot;
 
-        if frozen_head.slot <= current_split_slot {
+        if frozen_head.slot < current_split_slot {
             Err(HotColdDbError::FreezeSlotError {
                 current_split_slot,
                 proposed_split_slot: frozen_head.slot,
             })?;
         }
 
-        println!("Freezing up to slot: {}", frozen_head.slot);
+        // println!("Freezing up to slot: {}", frozen_head.slot);
 
         let state_root_iter = {
             let iter = StateRootsIterator::new(store.clone(), frozen_head);
@@ -113,7 +113,7 @@ impl Store for HotColdDB {
         for (state_root, slot) in
             state_root_iter.take_while(|&(_, slot)| slot >= current_split_slot)
         {
-            println!("Freezing state at slot {} ({:?})", slot, state_root);
+            // println!("Freezing state at slot {} ({:?})", slot, state_root);
             let state: BeaconState<E> = match reader.hot_db.get_state(&state_root, None)? {
                 Some(s) => s,
                 // If there's no state it could be a skip slot, which is fine, our job is just
@@ -129,7 +129,7 @@ impl Store for HotColdDB {
         drop(reader);
 
         // 2. Update the split slot
-        store.write().split_slot = frozen_head.slot + 1;
+        store.write().split_slot = frozen_head.slot;
 
         // 3. Delete from the hot DB
         let reader = store.read();
@@ -171,40 +171,6 @@ impl HotColdDB {
         store_updated_vector(ActiveIndexRoots, db, state, &self.spec)?;
         store_updated_vector(CompactCommitteesRoots, db, state, &self.spec)?;
 
-        // FIXME(michael): debugging
-        use compare_fields::{CompareFields, Comparison, FieldComparison};
-        let mut stored_state = self
-            .load_archive_state(state_root)
-            .expect("just stored")
-            .expect("valid state");
-
-        stored_state
-            .build_all_caches(&self.spec)
-            .expect("cache should build");
-
-        let mut full_state = state.clone();
-        full_state
-            .build_all_caches(&self.spec)
-            .expect("cache should build");
-
-        let mut mismatching_fields: Vec<Comparison> = full_state
-            .compare_fields(&stored_state)
-            .into_iter()
-            .filter(Comparison::not_equal)
-            .collect();
-
-        mismatching_fields
-            .iter_mut()
-            .for_each(|f| f.retain_children(FieldComparison::not_equal));
-
-        if !mismatching_fields.is_empty() {
-            println!(
-                "Fields not equal (a = actual, b = stored): {:#?}",
-                mismatching_fields
-            );
-            assert!(false);
-        }
-
         Ok(())
     }
 
@@ -217,10 +183,12 @@ impl HotColdDB {
             None => return Ok(None),
         };
 
+        /*
         println!(
             "Loading archive state at slot {}: {:?}",
             partial_state.slot, state_root
         );
+        */
 
         // Fill in the fields of the partial state.
         partial_state.load_block_roots(&self.cold_db, &self.spec)?;
@@ -233,5 +201,9 @@ impl HotColdDB {
         let state: BeaconState<E> = partial_state.try_into()?;
 
         Ok(Some(state))
+    }
+
+    pub fn get_split_slot(&self) -> Slot {
+        self.split_slot
     }
 }
