@@ -1,7 +1,13 @@
-use super::errors::{TransferInvalid as Invalid, TransferValidationError as Error};
+use super::errors::{BlockOperationError, TransferInvalid as Invalid};
 use bls::get_withdrawal_credentials;
 use tree_hash::SignedRoot;
 use types::*;
+
+type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
+
+fn error(reason: Invalid) -> BlockOperationError<Invalid> {
+    BlockOperationError::invalid(reason)
+}
 
 /// Indicates if a `Transfer` is valid to be included in a block in the current epoch of the given
 /// state.
@@ -13,7 +19,7 @@ pub fn verify_transfer<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<()> {
     verify_transfer_parametric(state, transfer, spec, false)
 }
 
@@ -24,7 +30,7 @@ pub fn verify_transfer_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<()> {
     verify_transfer_parametric(state, transfer, spec, true)
 }
 
@@ -43,22 +49,22 @@ fn verify_transfer_parametric<T: EthSpec>(
     transfer: &Transfer,
     spec: &ChainSpec,
     time_independent_only: bool,
-) -> Result<(), Error> {
+) -> Result<()> {
     let sender_balance = *state
         .balances
         .get(transfer.sender as usize)
-        .ok_or_else(|| Error::Invalid(Invalid::FromValidatorUnknown(transfer.sender)))?;
+        .ok_or_else(|| error(Invalid::FromValidatorUnknown(transfer.sender)))?;
 
     let recipient_balance = *state
         .balances
         .get(transfer.recipient as usize)
-        .ok_or_else(|| Error::Invalid(Invalid::FromValidatorUnknown(transfer.recipient)))?;
+        .ok_or_else(|| error(Invalid::FromValidatorUnknown(transfer.recipient)))?;
 
     // Safely determine `amount + fee`.
     let total_amount = transfer
         .amount
         .checked_add(transfer.fee)
-        .ok_or_else(|| Error::Invalid(Invalid::FeeOverflow(transfer.amount, transfer.fee)))?;
+        .ok_or_else(|| error(Invalid::FeeOverflow(transfer.amount, transfer.fee)))?;
 
     // Verify the sender has adequate balance.
     verify!(
@@ -99,7 +105,7 @@ fn verify_transfer_parametric<T: EthSpec>(
     let sender_validator = state
         .validators
         .get(transfer.sender as usize)
-        .ok_or_else(|| Error::Invalid(Invalid::FromValidatorUnknown(transfer.sender)))?;
+        .ok_or_else(|| error(Invalid::FromValidatorUnknown(transfer.sender)))?;
 
     // Ensure one of the following is met:
     //
@@ -157,15 +163,15 @@ pub fn execute_transfer<T: EthSpec>(
     state: &mut BeaconState<T>,
     transfer: &Transfer,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<()> {
     let sender_balance = *state
         .balances
         .get(transfer.sender as usize)
-        .ok_or_else(|| Error::Invalid(Invalid::FromValidatorUnknown(transfer.sender)))?;
+        .ok_or_else(|| error(Invalid::FromValidatorUnknown(transfer.sender)))?;
     let recipient_balance = *state
         .balances
         .get(transfer.recipient as usize)
-        .ok_or_else(|| Error::Invalid(Invalid::ToValidatorUnknown(transfer.recipient)))?;
+        .ok_or_else(|| error(Invalid::ToValidatorUnknown(transfer.recipient)))?;
 
     let proposer_index =
         state.get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)?;
@@ -174,11 +180,11 @@ pub fn execute_transfer<T: EthSpec>(
     let total_amount = transfer
         .amount
         .checked_add(transfer.fee)
-        .ok_or_else(|| Error::Invalid(Invalid::FeeOverflow(transfer.amount, transfer.fee)))?;
+        .ok_or_else(|| error(Invalid::FeeOverflow(transfer.amount, transfer.fee)))?;
 
     state.balances[transfer.sender as usize] =
         sender_balance.checked_sub(total_amount).ok_or_else(|| {
-            Error::Invalid(Invalid::FromBalanceInsufficient(
+            error(Invalid::FromBalanceInsufficient(
                 total_amount,
                 sender_balance,
             ))
@@ -187,7 +193,7 @@ pub fn execute_transfer<T: EthSpec>(
     state.balances[transfer.recipient as usize] = recipient_balance
         .checked_add(transfer.amount)
         .ok_or_else(|| {
-            Error::Invalid(Invalid::ToBalanceOverflow(
+            error(Invalid::ToBalanceOverflow(
                 recipient_balance,
                 transfer.amount,
             ))
@@ -195,7 +201,7 @@ pub fn execute_transfer<T: EthSpec>(
 
     state.balances[proposer_index] =
         proposer_balance.checked_add(transfer.fee).ok_or_else(|| {
-            Error::Invalid(Invalid::ProposerBalanceOverflow(
+            error(Invalid::ProposerBalanceOverflow(
                 proposer_balance,
                 transfer.fee,
             ))

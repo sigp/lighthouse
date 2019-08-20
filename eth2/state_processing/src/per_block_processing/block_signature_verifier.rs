@@ -1,7 +1,41 @@
-use super::signature_sets::*;
+use super::signature_sets::{Error as SignatureSetError, Result as SignatureSetResult, *};
 use crate::common::get_indexed_attestation;
+use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use bls::{verify_signature_sets, SignatureSet};
-use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, IndexedAttestation};
+use types::{BeaconBlock, BeaconState, BeaconStateError, ChainSpec, EthSpec, IndexedAttestation};
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    /// All public keys were found but signature verification failed. The block is invalid.
+    SignatureInvalid,
+    /// An attestation in the block was invalid. The block is invalid.
+    AttestationValidationError(BlockOperationError<AttestationInvalid>),
+    /// There was an error attempting to read from a `BeaconState`. Block
+    /// validity was not determined.
+    BeaconStateError(BeaconStateError),
+    /// Failed to load a signature set. The block may been invalid, or we failed to process it.
+    SignatureSetError(SignatureSetError),
+}
+
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Error {
+        Error::BeaconStateError(e)
+    }
+}
+
+impl From<SignatureSetError> for Error {
+    fn from(e: SignatureSetError) -> Error {
+        Error::SignatureSetError(e)
+    }
+}
+
+impl From<BlockOperationError<AttestationInvalid>> for Error {
+    fn from(e: BlockOperationError<AttestationInvalid>) -> Error {
+        Error::AttestationValidationError(e)
+    }
+}
 
 /// Reads the BLS signatures and keys from a `BeaconBlock`, storing them as a `Vec<SignatureSet>`.
 ///
@@ -85,7 +119,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
                 proposer_slashing_signature_set(self.state, proposer_slashing, self.spec)
                     .map(|a| a.to_vec())
             })
-            .collect::<Result<Vec<Vec<SignatureSet>>>>()?
+            .collect::<SignatureSetResult<Vec<Vec<SignatureSet>>>>()?
             .iter()
             .flatten()
             .cloned()
@@ -137,7 +171,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             .voluntary_exits
             .iter()
             .map(|exit| exit_signature_set(&self.state, exit, &self.spec))
-            .collect::<Result<_>>()?;
+            .collect::<SignatureSetResult<_>>()?;
 
         self.sets.append(&mut sets);
 
@@ -151,7 +185,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             .transfers
             .iter()
             .map(|transfer| transfer_signature_set(&self.state, transfer, &self.spec))
-            .collect::<Result<_>>()?;
+            .collect::<SignatureSetResult<_>>()?;
 
         self.sets.append(&mut sets);
 

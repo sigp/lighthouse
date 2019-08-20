@@ -1,10 +1,16 @@
-use super::errors::{AttestationInvalid as Invalid, AttestationValidationError as Error};
+use super::errors::{AttestationInvalid as Invalid, BlockOperationError};
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::{
     is_valid_indexed_attestation, is_valid_indexed_attestation_without_signature,
 };
 use tree_hash::TreeHash;
 use types::*;
+
+type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
+
+fn error(reason: Invalid) -> BlockOperationError<Invalid> {
+    BlockOperationError::invalid(reason)
+}
 
 /// Indicates if an `Attestation` is valid to be included in a block in the current epoch of the
 /// given state.
@@ -16,7 +22,7 @@ pub fn verify_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<()> {
     verify_attestation_parametric(state, attestation, spec, true, false)
 }
 
@@ -25,7 +31,7 @@ pub fn verify_attestation_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<()> {
     verify_attestation_parametric(state, attestation, spec, true, true)
 }
 
@@ -39,7 +45,7 @@ pub fn verify_attestation_without_signature<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<()> {
     verify_attestation_parametric(state, attestation, spec, false, false)
 }
 
@@ -54,7 +60,7 @@ fn verify_attestation_parametric<T: EthSpec>(
     spec: &ChainSpec,
     verify_signature: bool,
     time_independent_only: bool,
-) -> Result<(), Error> {
+) -> Result<()> {
     let data = &attestation.data;
     verify!(
         data.crosslink.shard < T::ShardCount::to_u64(),
@@ -128,7 +134,7 @@ fn verify_attestation_parametric<T: EthSpec>(
 fn verify_casper_ffg_vote<'a, T: EthSpec>(
     attestation: &Attestation<T>,
     state: &'a BeaconState<T>,
-) -> Result<&'a Crosslink, Error> {
+) -> Result<&'a Crosslink> {
     let data = &attestation.data;
     if data.target.epoch == state.current_epoch() {
         verify!(
@@ -151,6 +157,6 @@ fn verify_casper_ffg_vote<'a, T: EthSpec>(
         );
         Ok(state.get_previous_crosslink(data.crosslink.shard)?)
     } else {
-        invalid!(Invalid::BadTargetEpoch)
+        Err(error(Invalid::BadTargetEpoch))
     }
 }

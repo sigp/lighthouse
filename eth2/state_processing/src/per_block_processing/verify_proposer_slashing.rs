@@ -1,8 +1,14 @@
-use super::errors::{ProposerSlashingInvalid as Invalid, ProposerSlashingValidationError as Error};
+use super::errors::{BlockOperationError, ProposerSlashingInvalid as Invalid};
 use super::signature_sets::proposer_slashing_signature_set;
 use crate::SignatureStrategy;
 use tree_hash::SignedRoot;
 use types::*;
+
+type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
+
+fn error(reason: Invalid) -> BlockOperationError<Invalid> {
+    BlockOperationError::invalid(reason)
+}
 
 /// Indicates if a `ProposerSlashing` is valid to be included in a block in the current epoch of the given
 /// state.
@@ -15,13 +21,11 @@ pub fn verify_proposer_slashing<T: EthSpec>(
     state: &BeaconState<T>,
     signature_strategy: SignatureStrategy,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<()> {
     let proposer = state
         .validators
         .get(proposer_slashing.proposer_index as usize)
-        .ok_or_else(|| {
-            Error::Invalid(Invalid::ProposerUnknown(proposer_slashing.proposer_index))
-        })?;
+        .ok_or_else(|| error(Invalid::ProposerUnknown(proposer_slashing.proposer_index)))?;
 
     // Verify that the epoch is the same
     verify!(

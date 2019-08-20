@@ -1,4 +1,7 @@
-use crate::per_block_processing::errors::AttestationValidationError;
+//! A `SignatureSet` is an abstraction over the components of a signature. A `SignatureSet` may be
+//! validated individually, or alongside in others in a potentially cheaper bulk operation.
+//!
+//! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
 use bls::SignatureSet;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
@@ -19,8 +22,6 @@ pub enum Error {
     /// There was an error attempting to read from a `BeaconState`. Block
     /// validity was not determined.
     BeaconStateError(BeaconStateError),
-    /// An attestation in the block was invalid. The block is invalid.
-    AttestationValidationError(AttestationValidationError),
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorUnknown(u64),
@@ -32,12 +33,6 @@ pub enum Error {
 impl From<BeaconStateError> for Error {
     fn from(e: BeaconStateError) -> Error {
         Error::BeaconStateError(e)
-    }
-}
-
-impl From<AttestationValidationError> for Error {
-    fn from(e: AttestationValidationError) -> Error {
-        Error::AttestationValidationError(e)
     }
 }
 

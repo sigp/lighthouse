@@ -41,9 +41,9 @@ fn invalid_block_header_state_slot() {
 
     assert_eq!(
         result,
-        Err(BlockProcessingError::Invalid(
-            BlockInvalid::StateSlotMismatch
-        ))
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::StateSlotMismatch
+        })
     );
 }
 
@@ -63,12 +63,12 @@ fn invalid_parent_block_root() {
 
     assert_eq!(
         result,
-        Err(BlockProcessingError::Invalid(
-            BlockInvalid::ParentBlockRootMismatch {
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::ParentBlockRootMismatch {
                 state: Hash256::from_slice(&state.latest_block_header.signed_root()),
                 block: block.parent_root
             }
-        ))
+        })
     );
 }
 
@@ -96,7 +96,9 @@ fn invalid_block_signature() {
     // should get a BadSignature error
     assert_eq!(
         result,
-        Err(BlockProcessingError::Invalid(BlockInvalid::BadSignature))
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::ProposalSignatureInvalid
+        })
     );
 }
 
@@ -117,12 +119,7 @@ fn invalid_randao_reveal_signature() {
     );
 
     // should get a BadRandaoSignature error
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::Invalid(
-            BlockInvalid::BadRandaoSignature
-        ))
-    );
+    assert_eq!(result, Err(BlockProcessingError::RandaoSignatureInvalid));
 }
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {

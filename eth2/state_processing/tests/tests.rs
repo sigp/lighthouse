@@ -1,6 +1,5 @@
 use state_processing::{
-    per_block_processing, per_block_processing::errors::BlockInvalid, test_utils::BlockBuilder,
-    BlockProcessingError, SignatureStrategy,
+    per_block_processing, test_utils::BlockBuilder, BlockProcessingError, SignatureStrategy,
 };
 use types::{
     AggregateSignature, BeaconBlock, BeaconState, ChainSpec, EthSpec, Keypair, MinimalEthSpec,
@@ -80,9 +79,7 @@ where
             SignatureStrategy::VerifyBulk,
             spec
         ),
-        Err(BlockProcessingError::Invalid(
-            BlockInvalid::BulkSignatureVerificationFailed
-        )),
+        Err(BlockProcessingError::BulkSignatureVerificationFailed),
         "invalid block should fail with verify bulk"
     );
 }

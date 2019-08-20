@@ -1,53 +1,81 @@
 use super::signature_sets::Error as SignatureSetError;
 use types::*;
 
-macro_rules! impl_from_beacon_state_error {
-    ($type: ident) => {
-        impl From<BeaconStateError> for $type {
-            fn from(e: BeaconStateError) -> $type {
-                $type::BeaconStateError(e)
-            }
-        }
-    };
+#[derive(Debug, PartialEq)]
+pub enum BlockProcessingError {
+    RandaoSignatureInvalid,
+    BulkSignatureVerificationFailed,
+    StateRootMismatch,
+    DepositCountInvalid {
+        expected: usize,
+        found: usize,
+    },
+    DuplicateTransfers {
+        duplicates: usize,
+    },
+    HeaderInvalid {
+        reason: HeaderInvalid,
+    },
+    ProposerSlashingInvalid {
+        index: usize,
+        reason: ProposerSlashingInvalid,
+    },
+    AttesterSlashingInvalid {
+        index: usize,
+        reason: AttesterSlashingInvalid,
+    },
+    IndexedAttestationInvalid {
+        index: usize,
+        reason: IndexedAttestationInvalid,
+    },
+    AttestationInvalid {
+        index: usize,
+        reason: AttestationInvalid,
+    },
+    DepositInvalid {
+        index: usize,
+        reason: DepositInvalid,
+    },
+    ExitInvalid {
+        index: usize,
+        reason: ExitInvalid,
+    },
+    TransferInvalid {
+        index: usize,
+        reason: TransferInvalid,
+    },
+    BeaconStateError(BeaconStateError),
+    SignatureSetError(SignatureSetError),
+    SszTypesError(ssz_types::Error),
 }
 
-macro_rules! impl_from_signature_set_error {
-    ($type: ident) => {
-        impl From<SignatureSetError> for $type {
-            fn from(e: SignatureSetError) -> $type {
-                $type::SignatureSetError(e)
-            }
-        }
-    };
+impl From<BeaconStateError> for BlockProcessingError {
+    fn from(e: BeaconStateError) -> Self {
+        BlockProcessingError::BeaconStateError(e)
+    }
 }
 
-macro_rules! impl_into_with_index_with_beacon_error {
-    ($error_type: ident, $invalid_type: ident) => {
-        impl IntoWithIndex<BlockProcessingError> for $error_type {
-            fn into_with_index(self, i: usize) -> BlockProcessingError {
-                match self {
-                    $error_type::Invalid(e) => {
-                        BlockProcessingError::Invalid(BlockInvalid::$invalid_type(i, e))
-                    }
-                    $error_type::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
-                }
-            }
-        }
-    };
+impl From<SignatureSetError> for BlockProcessingError {
+    fn from(e: SignatureSetError) -> Self {
+        BlockProcessingError::SignatureSetError(e)
+    }
 }
 
-macro_rules! impl_into_with_index_without_beacon_error {
-    ($error_type: ident, $invalid_type: ident) => {
-        impl IntoWithIndex<BlockProcessingError> for $error_type {
-            fn into_with_index(self, i: usize) -> BlockProcessingError {
-                match self {
-                    $error_type::Invalid(e) => {
-                        BlockProcessingError::Invalid(BlockInvalid::$invalid_type(i, e))
-                    }
-                }
-            }
+impl From<ssz_types::Error> for BlockProcessingError {
+    fn from(error: ssz_types::Error) -> Self {
+        BlockProcessingError::SszTypesError(error)
+    }
+}
+
+impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
+    fn from(e: BlockOperationError<HeaderInvalid>) -> BlockProcessingError {
+        match e {
+            BlockOperationError::Invalid(reason) => BlockProcessingError::HeaderInvalid { reason },
+            BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
+            BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
+            BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
         }
-    };
+    }
 }
 
 /// A conversion that consumes `self` and adds an `index` variable to resulting struct.
@@ -59,84 +87,117 @@ pub trait IntoWithIndex<T>: Sized {
     fn into_with_index(self, index: usize) -> T;
 }
 
-/*
- * Block Validation
- */
+macro_rules! impl_into_block_processing_error_with_index {
+    ($($type: ident),*) => {
+        $(
+            impl IntoWithIndex<BlockProcessingError> for BlockOperationError<$type> {
+                fn into_with_index(self, index: usize) -> BlockProcessingError {
+                    match self {
+                        BlockOperationError::Invalid(reason) => BlockProcessingError::$type {
+                            index,
+                            reason
+                        },
+                        BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
+                        BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
+                        BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+                    }
+                }
+            }
+        )*
+    };
+}
 
-/// The object is invalid or validation failed.
+impl_into_block_processing_error_with_index!(
+    ProposerSlashingInvalid,
+    AttesterSlashingInvalid,
+    IndexedAttestationInvalid,
+    AttestationInvalid,
+    DepositInvalid,
+    ExitInvalid,
+    TransferInvalid
+);
+
+pub type HeaderValidationError = BlockOperationError<HeaderInvalid>;
+pub type AttesterSlashingValidationError = BlockOperationError<AttesterSlashingInvalid>;
+pub type ProposerSlashingValidationError = BlockOperationError<ProposerSlashingInvalid>;
+pub type AttestationValidationError = BlockOperationError<AttestationInvalid>;
+pub type DepositValidationError = BlockOperationError<DepositInvalid>;
+pub type ExitValidationError = BlockOperationError<ExitInvalid>;
+pub type TransferValidationError = BlockOperationError<TransferInvalid>;
+
 #[derive(Debug, PartialEq)]
-pub enum BlockProcessingError {
-    /// Validation completed successfully and the object is invalid.
-    Invalid(BlockInvalid),
-    /// Encountered a `BeaconStateError` whilst attempting to determine validity.
+pub enum BlockOperationError<T> {
+    Invalid(T),
     BeaconStateError(BeaconStateError),
-    /// Encountered an `ssz_types::Error` whilst attempting to determine validity.
-    SszTypesError(ssz_types::Error),
     SignatureSetError(SignatureSetError),
+    SszTypesError(ssz_types::Error),
 }
 
-impl_from_beacon_state_error!(BlockProcessingError);
-impl_from_signature_set_error!(BlockProcessingError);
-
-/// Describes why an object is invalid.
-#[derive(Debug, PartialEq)]
-pub enum BlockInvalid {
-    StateSlotMismatch,
-    ParentBlockRootMismatch {
-        state: Hash256,
-        block: Hash256,
-    },
-    ProposerSlashed(usize),
-    BadSignature,
-    BulkSignatureVerificationFailed,
-    BadRandaoSignature,
-    MaxAttestationsExceeded,
-    MaxAttesterSlashingsExceed,
-    MaxProposerSlashingsExceeded,
-    DepositCountInvalid,
-    DuplicateTransfers,
-    MaxExitsExceeded,
-    MaxTransfersExceed,
-    AttestationInvalid(usize, AttestationInvalid),
-    /// A `IndexedAttestation` inside an `AttesterSlashing` was invalid.
-    ///
-    /// To determine the offending `AttesterSlashing` index, divide the error message `usize` by two.
-    IndexedAttestationInvalid(usize, IndexedAttestationInvalid),
-    AttesterSlashingInvalid(usize, AttesterSlashingInvalid),
-    ProposerSlashingInvalid(usize, ProposerSlashingInvalid),
-    DepositInvalid(usize, DepositInvalid),
-    // TODO: merge this into the `DepositInvalid` error.
-    DepositProcessingFailed(usize),
-    ExitInvalid(usize, ExitInvalid),
-    TransferInvalid(usize, TransferInvalid),
-    // NOTE: this is only used in tests, normally a state root mismatch is handled
-    // in the beacon_chain rather than in state_processing
-    StateRootMismatch,
+impl<T> BlockOperationError<T> {
+    pub fn invalid(reason: T) -> BlockOperationError<T> {
+        BlockOperationError::Invalid(reason)
+    }
 }
 
-impl From<ssz_types::Error> for BlockProcessingError {
+impl<T> From<BeaconStateError> for BlockOperationError<T> {
+    fn from(e: BeaconStateError) -> Self {
+        BlockOperationError::BeaconStateError(e)
+    }
+}
+impl<T> From<SignatureSetError> for BlockOperationError<T> {
+    fn from(e: SignatureSetError) -> Self {
+        BlockOperationError::SignatureSetError(e)
+    }
+}
+
+impl<T> From<ssz_types::Error> for BlockOperationError<T> {
     fn from(error: ssz_types::Error) -> Self {
-        BlockProcessingError::SszTypesError(error)
+        BlockOperationError::SszTypesError(error)
     }
 }
 
-impl Into<BlockProcessingError> for BlockInvalid {
-    fn into(self) -> BlockProcessingError {
-        BlockProcessingError::Invalid(self)
-    }
-}
-
-/*
- * Attestation Validation
- */
-
-/// The object is invalid or validation failed.
 #[derive(Debug, PartialEq)]
-pub enum AttestationValidationError {
-    /// Validation completed successfully and the object is invalid.
-    Invalid(AttestationInvalid),
-    /// Encountered a `BeaconStateError` whilst attempting to determine validity.
-    BeaconStateError(BeaconStateError),
+pub enum HeaderInvalid {
+    ProposalSignatureInvalid,
+    StateSlotMismatch,
+    ParentBlockRootMismatch { state: Hash256, block: Hash256 },
+    ProposerSlashed(usize),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ProposerSlashingInvalid {
+    /// The proposer index is not a known validator.
+    ProposerUnknown(u64),
+    /// The two proposal have different epochs.
+    ///
+    /// (proposal_1_slot, proposal_2_slot)
+    ProposalEpochMismatch(Slot, Slot),
+    /// The proposals are identical and therefore not slashable.
+    ProposalsIdentical,
+    /// The specified proposer cannot be slashed because they are already slashed, or not active.
+    ProposerNotSlashable(u64),
+    /// The first proposal signature was invalid.
+    BadProposal1Signature,
+    /// The second proposal signature was invalid.
+    BadProposal2Signature,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum AttesterSlashingInvalid {
+    /// The attestation data is identical, an attestation cannot conflict with itself.
+    AttestationDataIdentical,
+    /// The attestations were not in conflict.
+    NotSlashable,
+    /// The first `IndexedAttestation` was invalid.
+    IndexedAttestation1Invalid(BlockOperationError<IndexedAttestationInvalid>),
+    /// The second `IndexedAttestation` was invalid.
+    IndexedAttestation2Invalid(BlockOperationError<IndexedAttestationInvalid>),
+    /// The validator index is unknown. One cannot slash one who does not exist.
+    UnknownValidator(u64),
+    /// The specified validator has already been withdrawn.
+    ValidatorAlreadyWithdrawn(u64),
+    /// There were no indices able to be slashed.
+    NoSlashableIndices,
 }
 
 /// Describes why an object is invalid.
@@ -200,71 +261,21 @@ pub enum AttestationInvalid {
     BadIndexedAttestation(IndexedAttestationInvalid),
 }
 
-impl_from_beacon_state_error!(AttestationValidationError);
-impl_into_with_index_with_beacon_error!(AttestationValidationError, AttestationInvalid);
-impl_from_signature_set_error!(AttestationValidationError);
-
-impl From<IndexedAttestationValidationError> for AttestationValidationError {
-    fn from(err: IndexedAttestationValidationError) -> Self {
-        let IndexedAttestationValidationError::Invalid(e) = err;
-        AttestationValidationError::Invalid(AttestationInvalid::BadIndexedAttestation(e))
+impl From<BlockOperationError<IndexedAttestationInvalid>>
+    for BlockOperationError<AttestationInvalid>
+{
+    fn from(e: BlockOperationError<IndexedAttestationInvalid>) -> Self {
+        match e {
+            BlockOperationError::Invalid(e) => {
+                BlockOperationError::invalid(AttestationInvalid::BadIndexedAttestation(e))
+            }
+            BlockOperationError::BeaconStateError(e) => BlockOperationError::BeaconStateError(e),
+            BlockOperationError::SignatureSetError(e) => BlockOperationError::SignatureSetError(e),
+            BlockOperationError::SszTypesError(e) => BlockOperationError::SszTypesError(e),
+        }
     }
 }
 
-impl From<ssz_types::Error> for AttestationValidationError {
-    fn from(error: ssz_types::Error) -> Self {
-        Self::from(IndexedAttestationValidationError::from(error))
-    }
-}
-
-/*
- * `AttesterSlashing` Validation
- */
-
-/// The object is invalid or validation failed.
-#[derive(Debug, PartialEq)]
-pub enum AttesterSlashingValidationError {
-    /// Validation completed successfully and the object is invalid.
-    Invalid(AttesterSlashingInvalid),
-    /// Encountered a `BeaconStateError` whilst attempting to determine validity.
-    BeaconStateError(BeaconStateError),
-}
-
-/// Describes why an object is invalid.
-#[derive(Debug, PartialEq)]
-pub enum AttesterSlashingInvalid {
-    /// The attestation data is identical, an attestation cannot conflict with itself.
-    AttestationDataIdentical,
-    /// The attestations were not in conflict.
-    NotSlashable,
-    /// The first `IndexedAttestation` was invalid.
-    IndexedAttestation1Invalid(IndexedAttestationInvalid),
-    /// The second `IndexedAttestation` was invalid.
-    IndexedAttestation2Invalid(IndexedAttestationInvalid),
-    /// The validator index is unknown. One cannot slash one who does not exist.
-    UnknownValidator(u64),
-    /// The specified validator has already been withdrawn.
-    ValidatorAlreadyWithdrawn(u64),
-    /// There were no indices able to be slashed.
-    NoSlashableIndices,
-}
-
-impl_from_beacon_state_error!(AttesterSlashingValidationError);
-impl_into_with_index_with_beacon_error!(AttesterSlashingValidationError, AttesterSlashingInvalid);
-impl_from_signature_set_error!(AttesterSlashingValidationError);
-
-/*
- * `IndexedAttestation` Validation
- */
-
-/// The object is invalid or validation failed.
-#[derive(Debug, PartialEq)]
-pub enum IndexedAttestationValidationError {
-    /// Validation completed successfully and the object is invalid.
-    Invalid(IndexedAttestationInvalid),
-}
-
-/// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
 pub enum IndexedAttestationInvalid {
     /// The custody bit 0 validators intersect with the bit 1 validators.
@@ -287,79 +298,11 @@ pub enum IndexedAttestationInvalid {
     UnknownValidator(u64),
     /// The indexed attestation aggregate signature was not valid.
     BadSignature,
+    /// There was an error whilst attempting to get a set of signatures. The signatures may have
+    /// been invalid or an internal error occurred.
+    SignatureSetError(SignatureSetError),
 }
 
-impl Into<IndexedAttestationInvalid> for IndexedAttestationValidationError {
-    fn into(self) -> IndexedAttestationInvalid {
-        match self {
-            IndexedAttestationValidationError::Invalid(e) => e,
-        }
-    }
-}
-
-impl From<ssz_types::Error> for IndexedAttestationValidationError {
-    fn from(error: ssz_types::Error) -> Self {
-        IndexedAttestationValidationError::Invalid(
-            IndexedAttestationInvalid::CustodyBitfieldBoundsError(error),
-        )
-    }
-}
-
-impl_into_with_index_without_beacon_error!(
-    IndexedAttestationValidationError,
-    IndexedAttestationInvalid
-);
-
-/*
- * `ProposerSlashing` Validation
- */
-
-/// The object is invalid or validation failed.
-#[derive(Debug, PartialEq)]
-pub enum ProposerSlashingValidationError {
-    /// Validation completed successfully and the object is invalid.
-    Invalid(ProposerSlashingInvalid),
-}
-
-/// Describes why an object is invalid.
-#[derive(Debug, PartialEq)]
-pub enum ProposerSlashingInvalid {
-    /// The proposer index is not a known validator.
-    ProposerUnknown(u64),
-    /// The two proposal have different epochs.
-    ///
-    /// (proposal_1_slot, proposal_2_slot)
-    ProposalEpochMismatch(Slot, Slot),
-    /// The proposals are identical and therefore not slashable.
-    ProposalsIdentical,
-    /// The specified proposer cannot be slashed because they are already slashed, or not active.
-    ProposerNotSlashable(u64),
-    /// The first proposal signature was invalid.
-    BadProposal1Signature,
-    /// The second proposal signature was invalid.
-    BadProposal2Signature,
-}
-
-impl_into_with_index_without_beacon_error!(
-    ProposerSlashingValidationError,
-    ProposerSlashingInvalid
-);
-impl_from_signature_set_error!(ProposerSlashingValidationError);
-
-/*
- * `Deposit` Validation
- */
-
-/// The object is invalid or validation failed.
-#[derive(Debug, PartialEq)]
-pub enum DepositValidationError {
-    /// Validation completed successfully and the object is invalid.
-    Invalid(DepositInvalid),
-    /// Encountered a `BeaconStateError` whilst attempting to determine validity.
-    BeaconStateError(BeaconStateError),
-}
-
-/// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
 pub enum DepositInvalid {
     /// The deposit index does not match the state index.
@@ -373,21 +316,6 @@ pub enum DepositInvalid {
     BadMerkleProof,
 }
 
-impl_from_beacon_state_error!(DepositValidationError);
-impl_into_with_index_with_beacon_error!(DepositValidationError, DepositInvalid);
-
-/*
- * `Exit` Validation
- */
-
-/// The object is invalid or validation failed.
-#[derive(Debug, PartialEq)]
-pub enum ExitValidationError {
-    /// Validation completed successfully and the object is invalid.
-    Invalid(ExitInvalid),
-}
-
-/// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
 pub enum ExitInvalid {
     /// The specified validator is not active.
@@ -407,25 +335,11 @@ pub enum ExitInvalid {
     },
     /// The exit signature was not signed by the validator.
     BadSignature,
+    /// There was an error whilst attempting to get a set of signatures. The signatures may have
+    /// been invalid or an internal error occurred.
+    SignatureSetError(SignatureSetError),
 }
 
-impl_into_with_index_without_beacon_error!(ExitValidationError, ExitInvalid);
-impl_from_signature_set_error!(ExitValidationError);
-
-/*
- * `Transfer` Validation
- */
-
-/// The object is invalid or validation failed.
-#[derive(Debug, PartialEq)]
-pub enum TransferValidationError {
-    /// Validation completed successfully and the object is invalid.
-    Invalid(TransferInvalid),
-    /// Encountered a `BeaconStateError` whilst attempting to determine validity.
-    BeaconStateError(BeaconStateError),
-}
-
-/// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
 pub enum TransferInvalid {
     /// The validator indicated by `transfer.from` is unknown.
@@ -478,7 +392,3 @@ pub enum TransferInvalid {
     /// (proposer_balance, transfer_fee)
     ProposerBalanceOverflow(u64, u64),
 }
-
-impl_from_beacon_state_error!(TransferValidationError);
-impl_into_with_index_with_beacon_error!(TransferValidationError, TransferInvalid);
-impl_from_signature_set_error!(TransferValidationError);

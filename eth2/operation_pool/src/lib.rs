@@ -18,6 +18,7 @@ use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation, verify_attestation_time_independent_only,
     verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
     verify_proposer_slashing, verify_transfer, verify_transfer_time_independent_only,
+    SignatureStrategy,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
@@ -210,7 +211,7 @@ impl<T: EthSpec> OperationPool<T> {
     ) -> Result<(), ProposerSlashingValidationError> {
         // TODO: should maybe insert anyway if the proposer is unknown in the validator index,
         // because they could *become* known later
-        verify_proposer_slashing(&slashing, state, spec)?;
+        verify_proposer_slashing(&slashing, state, SignatureStrategy::VerifyIndividual, spec)?;
         self.proposer_slashings
             .write()
             .insert(slashing.proposer_index, slashing);
