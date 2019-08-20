@@ -32,15 +32,6 @@ pub enum UpdatePattern {
     OncePerNSlotsPrev { n: u64 },
 }
 
-impl UpdatePattern {
-    fn value_exists_at_end_vindex(self, end_vindex: usize) -> bool {
-        match self {
-            OncePerSlotPrev | OncePerNSlotsPrev { .. } => end_vindex != 0,
-            OncePerEpoch | Air => true,
-        }
-    }
-}
-
 pub trait Field<E: EthSpec>: Copy {
     /// The `Default` impl will be used to fill extra vector entries.
     type Value: Decode + Encode + Default + Clone + PartialEq;
@@ -73,24 +64,23 @@ pub trait Field<E: EthSpec>: Copy {
         // Take advantage of saturating subtraction on slots and epochs
         match Self::update_pattern() {
             OncePerSlotPrev => {
-                let end_slot = current_slot - 1;
-                let start_slot = end_slot - (Self::Length::to_u64() - 1);
-                (start_slot.as_usize(), end_slot.as_usize())
+                let start_slot = current_slot - Self::Length::to_u64();
+                (start_slot.as_usize(), current_slot.as_usize())
             }
             OncePerEpoch => {
-                let end_epoch = current_slot.epoch(E::slots_per_epoch());
-                let start_epoch = end_epoch - (Self::Length::to_u64() - 1);
+                let end_epoch = current_slot.epoch(E::slots_per_epoch()) + 1;
+                let start_epoch = end_epoch - Self::Length::to_u64();
                 (start_epoch.as_usize(), end_epoch.as_usize())
             }
             Air => {
                 let current_epoch = current_slot.epoch(E::slots_per_epoch());
-                let end_epoch = current_epoch + spec.activation_exit_delay;
-                let start_epoch = end_epoch - (Self::Length::to_u64() - 1);
+                let end_epoch = current_epoch + spec.activation_exit_delay + 1;
+                let start_epoch = end_epoch - Self::Length::to_u64();
                 (start_epoch.as_usize(), end_epoch.as_usize())
             }
             OncePerNSlotsPrev { n } => {
-                let end_vindex = (current_slot.as_u64() / n).saturating_sub(1);
-                let start_vindex = end_vindex.saturating_sub(Self::Length::to_u64() - 1);
+                let end_vindex = current_slot.as_u64() / n;
+                let start_vindex = end_vindex.saturating_sub(Self::Length::to_u64());
                 (start_vindex as usize, end_vindex as usize)
             }
         }
@@ -110,10 +100,7 @@ pub trait Field<E: EthSpec>: Copy {
 
         for i in 0..chunk_size {
             let vindex = chunk_index * chunk_size + i;
-            if vindex >= start_vindex
-                && vindex <= end_vindex
-                && Self::update_pattern().value_exists_at_end_vindex(end_vindex)
-            {
+            if vindex >= start_vindex && vindex < end_vindex {
                 let vector_value = Self::get_value(state, vindex as u64, spec)?;
                 new_chunk.values[i] = vector_value;
             } else {
@@ -347,8 +334,8 @@ fn stitch<F: Field<E>, E: EthSpec>(
     chunk_size: usize,
     length: usize,
 ) -> Result<Vec<F::Value>, ChunkError> {
-    // We include both the start and end vector index, so check we won't have too many values
-    if end_vindex - start_vindex >= length {
+    if end_vindex - start_vindex > length {
+        // FIXME(michael): change this error
         return Err(ChunkError::SlotIntervalTooLarge);
     }
 
@@ -367,10 +354,7 @@ fn stitch<F: Field<E>, E: EthSpec>(
         for (i, value) in chunk.values.into_iter().enumerate() {
             let vindex = chunk_index * chunk_size + i;
 
-            if vindex >= start_vindex
-                && vindex <= end_vindex
-                && F::update_pattern().value_exists_at_end_vindex(end_vindex)
-            {
+            if vindex >= start_vindex && vindex < end_vindex {
                 result[vindex % length] = value;
             }
         }
@@ -404,7 +388,7 @@ pub fn load_vector_from_db<F: Field<E>, E: EthSpec, S: Store>(
 }
 
 /// The historical roots are stored in vector chunks, despite not actually being a vector.
-pub fn load_variable_list_from_db<F: Field<E, Value = Hash256>, E: EthSpec, S: Store>(
+pub fn load_variable_list_from_db<F: Field<E>, E: EthSpec, S: Store>(
     store: &S,
     slot: Slot,
     spec: &ChainSpec,
@@ -416,14 +400,16 @@ pub fn load_variable_list_from_db<F: Field<E, Value = Hash256>, E: EthSpec, S: S
 
     let chunks: Vec<Chunk<F::Value>> = range_query(store, F::column(), start_tindex, end_tindex)?;
 
-    let mut result = vec![];
-    for chunk in chunks {
-        result.extend(chunk.values);
-    }
+    let mut result = Vec::with_capacity(chunk_size * chunks.len());
 
-    // Drop zero values from the end
-    while result.last().map(|hash| hash.is_zero()).unwrap_or(false) {
-        result.pop();
+    for (chunk_index, chunk) in chunks.into_iter().enumerate() {
+        for (i, value) in chunk.values.into_iter().enumerate() {
+            let vindex = chunk_index * chunk_size + i;
+
+            if vindex >= start_vindex && vindex < end_vindex {
+                result.push(value);
+            }
+        }
     }
 
     Ok(result.into())
