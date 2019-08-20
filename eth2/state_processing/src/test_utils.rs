@@ -38,14 +38,11 @@ impl<T: EthSpec> BlockBuilder<T> {
 
     pub fn maximize_block_operations(&mut self) {
         self.num_proposer_slashings = T::MaxProposerSlashings::to_usize();
-        /*
-        self.num_attester_slashings = spec.max_attester_slashings as usize;
-        self.num_indices_per_slashable_vote = spec.max_indices_per_slashable_vote as usize;
-        self.num_attestations = spec.max_attestations as usize;
-        self.num_deposits = spec.max_deposits as usize;
-        self.num_exits = spec.max_voluntary_exits as usize;
-        self.num_transfers = spec.max_transfers as usize;
-        */
+        self.num_attester_slashings = T::MaxAttesterSlashings::to_usize();
+        self.num_attestations = T::MaxAttestations::to_usize();
+        self.num_deposits = T::MaxDeposits::to_usize();
+        self.num_exits = T::MaxVoluntaryExits::to_usize();
+        self.num_transfers = T::MaxTransfers::to_usize();
     }
 
     pub fn set_slot(&mut self, slot: Slot) {
