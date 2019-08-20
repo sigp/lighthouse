@@ -1,7 +1,9 @@
 use super::errors::{BlockOperationError, DepositInvalid};
+use crate::per_block_processing::signature_sets::{
+    deposit_pubkey_signature_message, deposit_signature_set,
+};
 use merkle_proof::verify_merkle_proof;
-use std::convert::TryInto;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::TreeHash;
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<DepositInvalid>>;
@@ -17,17 +19,12 @@ pub fn verify_deposit_signature<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
     spec: &ChainSpec,
-    pubkey: &PublicKey,
 ) -> Result<()> {
-    // Note: Deposits are valid across forks, thus the deposit domain is computed
-    // with the fork zeroed.
-    let domain = spec.get_domain(state.current_epoch(), Domain::Deposit, &Fork::default());
-    let signature: Signature = (&deposit.data.signature)
-        .try_into()
-        .map_err(|_| error(DepositInvalid::BadSignatureBytes))?;
+    let deposit_signature_message = deposit_pubkey_signature_message(deposit)
+        .ok_or_else(|| error(DepositInvalid::BadBlsBytes))?;
 
     verify!(
-        signature.verify(&deposit.data.signed_root(), domain, pubkey),
+        deposit_signature_set(state, &deposit_signature_message, spec).is_valid(),
         DepositInvalid::BadSignature
     );
 

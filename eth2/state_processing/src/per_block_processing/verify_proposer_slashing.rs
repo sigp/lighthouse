@@ -1,7 +1,6 @@
 use super::errors::{BlockOperationError, ProposerSlashingInvalid as Invalid};
 use super::signature_sets::proposer_slashing_signature_set;
-use crate::SignatureStrategy;
-use tree_hash::SignedRoot;
+use crate::VerifySignatures;
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
@@ -19,7 +18,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 pub fn verify_proposer_slashing<T: EthSpec>(
     proposer_slashing: &ProposerSlashing,
     state: &BeaconState<T>,
-    signature_strategy: SignatureStrategy,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
     let proposer = state
@@ -49,7 +48,7 @@ pub fn verify_proposer_slashing<T: EthSpec>(
         Invalid::ProposerNotSlashable(proposer_slashing.proposer_index)
     );
 
-    if signature_strategy.is_individual() {
+    if verify_signatures.is_true() {
         let (signature_set_1, signature_set_2) =
             proposer_slashing_signature_set(state, proposer_slashing, spec)?;
         verify!(signature_set_1.is_valid(), Invalid::BadProposal1Signature);

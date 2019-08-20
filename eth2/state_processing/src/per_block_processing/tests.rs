@@ -1,7 +1,7 @@
 #![cfg(all(test, not(feature = "fake_crypto")))]
 use super::block_processing_builder::BlockProcessingBuilder;
 use super::errors::*;
-use crate::{per_block_processing, SignatureStrategy};
+use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
 use types::*;
 
@@ -16,7 +16,7 @@ fn valid_block_ok() {
     let result = per_block_processing(
         &mut state,
         &block,
-        SignatureStrategy::VerifyIndividual,
+        BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );
 
@@ -35,7 +35,7 @@ fn invalid_block_header_state_slot() {
     let result = per_block_processing(
         &mut state,
         &block,
-        SignatureStrategy::VerifyIndividual,
+        BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );
 
@@ -57,7 +57,7 @@ fn invalid_parent_block_root() {
     let result = per_block_processing(
         &mut state,
         &block,
-        SignatureStrategy::VerifyIndividual,
+        BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );
 
@@ -89,7 +89,7 @@ fn invalid_block_signature() {
     let result = per_block_processing(
         &mut state,
         &block,
-        SignatureStrategy::VerifyIndividual,
+        BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );
 
@@ -114,7 +114,7 @@ fn invalid_randao_reveal_signature() {
     let result = per_block_processing(
         &mut state,
         &block,
-        SignatureStrategy::VerifyIndividual,
+        BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );
 

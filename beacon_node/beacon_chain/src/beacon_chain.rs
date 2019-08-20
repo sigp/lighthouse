@@ -16,7 +16,7 @@ use state_processing::per_block_processing::errors::{
     ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
 };
 use state_processing::{
-    per_block_processing, per_slot_processing, BlockProcessingError, SignatureStrategy,
+    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
 };
 use std::sync::Arc;
 use store::iter::{BlockRootsIterator, StateRootsIterator};
@@ -664,7 +664,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match per_block_processing(
             &mut state,
             &block,
-            SignatureStrategy::VerifyIndividual,
+            BlockSignatureStrategy::VerifyIndividual,
             &self.spec,
         ) {
             Err(BlockProcessingError::BeaconStateError(e)) => {
@@ -796,7 +796,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         per_block_processing(
             &mut state,
             &block,
-            SignatureStrategy::NoVerification,
+            BlockSignatureStrategy::NoVerification,
             &self.spec,
         )?;
 

@@ -1,6 +1,7 @@
 use super::errors::{BlockOperationError, TransferInvalid as Invalid};
+use crate::per_block_processing::signature_sets::transfer_signature_set;
+use crate::per_block_processing::VerifySignatures;
 use bls::get_withdrawal_credentials;
-use tree_hash::SignedRoot;
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
@@ -18,9 +19,10 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 pub fn verify_transfer<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
-    verify_transfer_parametric(state, transfer, spec, false)
+    verify_transfer_parametric(state, transfer, verify_signatures, spec, false)
 }
 
 /// Like `verify_transfer` but doesn't run checks which may become true in future states.
@@ -29,9 +31,10 @@ pub fn verify_transfer<T: EthSpec>(
 pub fn verify_transfer_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
-    verify_transfer_parametric(state, transfer, spec, true)
+    verify_transfer_parametric(state, transfer, verify_signatures, spec, true)
 }
 
 /// Parametric version of `verify_transfer` that allows some checks to be skipped.
@@ -47,6 +50,7 @@ pub fn verify_transfer_time_independent_only<T: EthSpec>(
 fn verify_transfer_parametric<T: EthSpec>(
     state: &BeaconState<T>,
     transfer: &Transfer,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
     time_independent_only: bool,
 ) -> Result<()> {
@@ -137,19 +141,12 @@ fn verify_transfer_parametric<T: EthSpec>(
         )
     );
 
-    // Verify the transfer signature.
-    let message = transfer.signed_root();
-    let domain = spec.get_domain(
-        transfer.slot.epoch(T::slots_per_epoch()),
-        Domain::Transfer,
-        &state.fork,
-    );
-    verify!(
-        transfer
-            .signature
-            .verify(&message[..], domain, &transfer.pubkey),
-        Invalid::BadSignature
-    );
+    if verify_signatures.is_true() {
+        verify!(
+            transfer_signature_set(state, transfer, spec)?.is_valid(),
+            Invalid::BadSignature
+        );
+    }
 
     Ok(())
 }

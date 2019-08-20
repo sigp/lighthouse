@@ -1,5 +1,6 @@
 use super::errors::{AttesterSlashingInvalid as Invalid, BlockOperationError};
 use super::is_valid_indexed_attestation::is_valid_indexed_attestation;
+use crate::per_block_processing::VerifySignatures;
 use std::collections::BTreeSet;
 use types::*;
 
@@ -19,6 +20,7 @@ pub fn verify_attester_slashing<T: EthSpec>(
     state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing<T>,
     should_verify_indexed_attestations: bool,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
     let attestation_1 = &attester_slashing.attestation_1;
@@ -32,9 +34,9 @@ pub fn verify_attester_slashing<T: EthSpec>(
     );
 
     if should_verify_indexed_attestations {
-        is_valid_indexed_attestation(state, &attestation_1, spec)
+        is_valid_indexed_attestation(state, &attestation_1, verify_signatures, spec)
             .map_err(|e| error(Invalid::IndexedAttestation1Invalid(e)))?;
-        is_valid_indexed_attestation(state, &attestation_2, spec)
+        is_valid_indexed_attestation(state, &attestation_2, verify_signatures, spec)
             .map_err(|e| error(Invalid::IndexedAttestation2Invalid(e)))?;
     }
 

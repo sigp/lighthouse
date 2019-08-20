@@ -1,5 +1,5 @@
 use state_processing::{
-    per_block_processing, test_utils::BlockBuilder, BlockProcessingError, SignatureStrategy,
+    per_block_processing, test_utils::BlockBuilder, BlockProcessingError, BlockSignatureStrategy,
 };
 use types::{
     AggregateSignature, BeaconBlock, BeaconState, ChainSpec, EthSpec, Keypair, MinimalEthSpec,
@@ -37,7 +37,7 @@ where
         per_block_processing(
             &mut state.clone(),
             &block,
-            SignatureStrategy::VerifyIndividual,
+            BlockSignatureStrategy::VerifyIndividual,
             spec
         ),
         Ok(()),
@@ -48,7 +48,7 @@ where
         per_block_processing(
             &mut state.clone(),
             &block,
-            SignatureStrategy::VerifyBulk,
+            BlockSignatureStrategy::VerifyBulk,
             spec
         ),
         Ok(()),
@@ -65,7 +65,7 @@ where
         per_block_processing(
             &mut state.clone(),
             &block,
-            SignatureStrategy::VerifyIndividual,
+            BlockSignatureStrategy::VerifyIndividual,
             spec
         )
         .is_err(),
@@ -76,7 +76,7 @@ where
         per_block_processing(
             &mut state.clone(),
             &block,
-            SignatureStrategy::VerifyBulk,
+            BlockSignatureStrategy::VerifyBulk,
             spec
         ),
         Err(BlockProcessingError::BulkSignatureVerificationFailed),
