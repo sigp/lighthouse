@@ -2,7 +2,7 @@ use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use serde_derive::Deserialize;
-use state_processing::per_block_processing::{process_proposer_slashings, SignatureStrategy};
+use state_processing::per_block_processing::{process_proposer_slashings, VerifySignatures};
 use types::{BeaconState, EthSpec, ProposerSlashing};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -39,7 +39,7 @@ impl<E: EthSpec> Case for OperationsProposerSlashing<E> {
         let result = process_proposer_slashings(
             &mut state,
             &[proposer_slashing],
-            SignatureStrategy::VerifyIndividual,
+            VerifySignatures::True,
             &E::default_spec(),
         );
 

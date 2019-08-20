@@ -2,7 +2,7 @@ use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use serde_derive::Deserialize;
-use state_processing::per_block_processing::process_exits;
+use state_processing::per_block_processing::{process_exits, VerifySignatures};
 use types::{BeaconState, EthSpec, VoluntaryExit};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,7 +36,12 @@ impl<E: EthSpec> Case for OperationsExit<E> {
         // Exit processing requires the epoch cache.
         state.build_all_caches(&E::default_spec()).unwrap();
 
-        let result = process_exits(&mut state, &[exit], &E::default_spec());
+        let result = process_exits(
+            &mut state,
+            &[exit],
+            VerifySignatures::True,
+            &E::default_spec(),
+        );
 
         let mut result = result.and_then(|_| Ok(state));
 

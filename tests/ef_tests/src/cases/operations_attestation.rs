@@ -2,7 +2,7 @@ use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use serde_derive::Deserialize;
-use state_processing::per_block_processing::process_attestations;
+use state_processing::per_block_processing::{process_attestations, VerifySignatures};
 use types::{Attestation, BeaconState, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -38,7 +38,7 @@ impl<E: EthSpec> Case for OperationsAttestation<E> {
         // Processing requires the epoch cache.
         state.build_all_caches(spec).unwrap();
 
-        let result = process_attestations(&mut state, &[attestation], spec);
+        let result = process_attestations(&mut state, &[attestation], VerifySignatures::True, spec);
 
         let mut result = result.and_then(|_| Ok(state));
 
