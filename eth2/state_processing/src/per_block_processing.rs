@@ -62,38 +62,6 @@ impl SignatureStrategy {
     }
 }
 
-/*
-/// Updates the state for a new block, whilst validating that the block is valid.
-///
-/// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
-/// returns an error describing why the block was invalid or how the function failed to execute.
-///
-/// Spec v0.8.0
-pub fn per_block_processing<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    block: &BeaconBlock<T>,
-    signature_strategy: SignatureStrategy,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    per_block_processing_signature_optional(state, block, signature_strategy, spec)
-}
-
-/// Updates the state for a new block, whilst validating that the block is valid, without actually
-/// checking the block proposer signature.
-///
-/// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
-/// returns an error describing why the block was invalid or how the function failed to execute.
-///
-/// Spec v0.8.0
-pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    block: &BeaconBlock<T>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    per_block_processing_signature_optional(state, block, false, spec)
-}
-*/
-
 /// Updates the state for a new block, whilst validating that the block is valid, optionally
 /// checking the block proposer signature.
 ///

@@ -58,23 +58,3 @@ pub fn verify_proposer_slashing<T: EthSpec>(
 
     Ok(())
 }
-
-/// Verifies the signature of a proposal.
-///
-/// Returns `true` if the signature is valid.
-///
-/// Spec v0.8.0
-fn verify_header_signature<T: EthSpec>(
-    header: &BeaconBlockHeader,
-    pubkey: &PublicKey,
-    fork: &Fork,
-    spec: &ChainSpec,
-) -> bool {
-    let message = header.signed_root();
-    let domain = spec.get_domain(
-        header.slot.epoch(T::slots_per_epoch()),
-        Domain::BeaconProposer,
-        fork,
-    );
-    header.signature.verify(&message[..], domain, pubkey)
-}
