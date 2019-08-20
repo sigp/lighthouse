@@ -2,6 +2,7 @@ use super::signature_sets::{Error as SignatureSetError, Result as SignatureSetRe
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use bls::{verify_signature_sets, SignatureSet};
+use rayon::prelude::*;
 use types::{BeaconBlock, BeaconState, BeaconStateError, ChainSpec, EthSpec, IndexedAttestation};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -90,7 +91,15 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
         verifier.include_exits()?;
         verifier.include_transfers()?;
 
-        if verify_signature_sets(verifier.into_iter()) {
+        let num_sets = verifier.sets.len();
+        let result: bool = verifier
+            .sets
+            .into_par_iter()
+            .chunks(num_sets / rayon::current_num_threads())
+            .map(|chunk| verify_signature_sets(chunk.into_iter()))
+            .reduce(|| true, |current, this| current && this);
+
+        if result {
             Ok(())
         } else {
             Err(Error::SignatureInvalid)
