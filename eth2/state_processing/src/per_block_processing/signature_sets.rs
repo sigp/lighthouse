@@ -10,9 +10,6 @@ use types::{
     IndexedAttestation, ProposerSlashing, PublicKey, RelativeEpoch, Transfer, VoluntaryExit,
 };
 
-const SIGNATURES_PER_PROPOSER_SLASHING: usize = 2;
-const INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING: usize = 2;
-
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, PartialEq)]
@@ -92,16 +89,16 @@ pub fn proposer_slashing_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     proposer_slashing: &'a ProposerSlashing,
     spec: &'a ChainSpec,
-) -> Result<[SignatureSet<'a>; SIGNATURES_PER_PROPOSER_SLASHING]> {
+) -> Result<(SignatureSet<'a>, SignatureSet<'a>)> {
     let proposer = state
         .validators
         .get(proposer_slashing.proposer_index as usize)
         .ok_or_else(|| Error::ValidatorUnknown(proposer_slashing.proposer_index))?;
 
-    Ok([
+    Ok((
         block_header_signature_set(state, &proposer_slashing.header_1, &proposer.pubkey, spec)?,
         block_header_signature_set(state, &proposer_slashing.header_2, &proposer.pubkey, spec)?,
-    ])
+    ))
 }
 
 /// Returns a signature set that is valid if the given `pubkey` signed the `header`.
@@ -167,8 +164,8 @@ pub fn attester_slashing_signature_sets<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     attester_slashing: &'a AttesterSlashing<T>,
     spec: &'a ChainSpec,
-) -> Result<[SignatureSet<'a>; INDEXED_ATTESTATIONS_PER_ATTESTER_SLASHING]> {
-    Ok([
+) -> Result<(SignatureSet<'a>, SignatureSet<'a>)> {
+    Ok((
         indexed_attestation_signature_set(
             state,
             &attester_slashing.attestation_1.signature,
@@ -181,7 +178,7 @@ pub fn attester_slashing_signature_sets<'a, T: EthSpec>(
             &attester_slashing.attestation_2,
             spec,
         )?,
-    ])
+    ))
 }
 
 /* Not used yet.

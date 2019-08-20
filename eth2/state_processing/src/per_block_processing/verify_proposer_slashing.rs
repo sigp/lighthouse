@@ -50,9 +50,10 @@ pub fn verify_proposer_slashing<T: EthSpec>(
     );
 
     if signature_strategy.is_individual() {
-        let signatures = proposer_slashing_signature_set(state, proposer_slashing, spec)?;
-        verify!(signatures[0].is_valid(), Invalid::BadProposal1Signature);
-        verify!(signatures[1].is_valid(), Invalid::BadProposal2Signature);
+        let (signature_set_1, signature_set_2) =
+            proposer_slashing_signature_set(state, proposer_slashing, spec)?;
+        verify!(signature_set_1.is_valid(), Invalid::BadProposal1Signature);
+        verify!(signature_set_2.is_valid(), Invalid::BadProposal2Signature);
     }
 
     Ok(())

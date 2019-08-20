@@ -116,8 +116,9 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             .proposer_slashings
             .iter()
             .map(|proposer_slashing| {
-                proposer_slashing_signature_set(self.state, proposer_slashing, self.spec)
-                    .map(|a| a.to_vec())
+                let (set_1, set_2) =
+                    proposer_slashing_signature_set(self.state, proposer_slashing, self.spec)?;
+                Ok(vec![set_1, set_2])
             })
             .collect::<SignatureSetResult<Vec<Vec<SignatureSet>>>>()?
             .iter()
@@ -135,9 +136,11 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             .attester_slashings
             .iter()
             .try_for_each(|attester_slashing| {
-                attester_slashing_signature_sets(&self.state, attester_slashing, &self.spec)?
-                    .into_iter()
-                    .for_each(|set| self.sets.push(set.clone()));
+                let (set_1, set_2) =
+                    attester_slashing_signature_sets(&self.state, attester_slashing, &self.spec)?;
+
+                self.sets.push(set_1);
+                self.sets.push(set_2);
 
                 Ok(())
             })
