@@ -1,5 +1,5 @@
+use crate::Eth2Config;
 use clap::ArgMatches;
-use http_server::HttpServerConfig;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use slog::{info, o, Drain};
@@ -24,8 +24,7 @@ pub struct Config {
     pub genesis_state: GenesisState,
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
-    pub http: HttpServerConfig,
-    pub rest_api: rest_api::APIConfig,
+    pub rest_api: rest_api::ApiConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,12 +55,9 @@ impl Default for Config {
             log_file: PathBuf::from(""),
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
-            // Note: there are no default bootnodes specified.
-            // Once bootnodes are established, add them here.
             network: NetworkConfig::new(),
             rpc: rpc::RPCConfig::default(),
-            http: HttpServerConfig::default(),
-            rest_api: rest_api::APIConfig::default(),
+            rest_api: rest_api::ApiConfig::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
             genesis_state: GenesisState::RecentGenesis {
                 validator_count: TESTNET_VALIDATOR_COUNT,
@@ -129,13 +125,21 @@ impl Config {
             self.data_dir = PathBuf::from(dir);
         };
 
+        if let Some(default_spec) = args.value_of("default-spec") {
+            match default_spec {
+                "mainnet" => self.spec_constants = Eth2Config::mainnet().spec_constants,
+                "minimal" => self.spec_constants = Eth2Config::minimal().spec_constants,
+                "interop" => self.spec_constants = Eth2Config::interop().spec_constants,
+                _ => {} // not supported
+            }
+        }
+
         if let Some(dir) = args.value_of("db") {
             self.db_type = dir.to_string();
         };
 
         self.network.apply_cli_args(args)?;
         self.rpc.apply_cli_args(args)?;
-        self.http.apply_cli_args(args)?;
         self.rest_api.apply_cli_args(args)?;
 
         if let Some(log_file) = args.value_of("logfile") {

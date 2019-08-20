@@ -1,5 +1,5 @@
 use crate::fork_choice::Error as ForkChoiceError;
-use crate::metrics::Error as MetricsError;
+use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
 use types::*;
@@ -23,6 +23,7 @@ pub enum BeaconChainError {
         previous_epoch: Epoch,
         new_epoch: Epoch,
     },
+    UnableToFindTargetRoot(Slot),
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),
     DBError(store::Error),
@@ -30,16 +31,13 @@ pub enum BeaconChainError {
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
     SlotProcessingError(SlotProcessingError),
-    MetricsError(String),
+    NoStateForAttestation {
+        beacon_block_root: Hash256,
+    },
+    AttestationValidationError(AttestationValidationError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
-
-impl From<MetricsError> for BeaconChainError {
-    fn from(e: MetricsError) -> BeaconChainError {
-        BeaconChainError::MetricsError(format!("{:?}", e))
-    }
-}
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {
@@ -53,3 +51,4 @@ pub enum BlockProductionError {
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
+easy_from_to!(AttestationValidationError, BeaconChainError);

@@ -11,10 +11,10 @@ use crate::service::Service as ValidatorService;
 use clap::{App, Arg};
 use eth2_config::{read_from_file, write_to_file, Eth2Config};
 use protos::services_grpc::ValidatorServiceClient;
-use slog::{crit, error, info, o, Drain, Level};
+use slog::{crit, error, info, o, warn, Drain, Level};
 use std::fs;
 use std::path::PathBuf;
-use types::{Keypair, MainnetEthSpec, MinimalEthSpec};
+use types::{InteropEthSpec, Keypair, MainnetEthSpec, MinimalEthSpec};
 
 pub const DEFAULT_SPEC: &str = "minimal";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
@@ -64,14 +64,13 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("spec-constants")
-                .long("spec-constants")
+            Arg::with_name("default-spec")
+                .long("default-spec")
                 .value_name("TITLE")
-                .short("s")
-                .help("The title of the spec constants for chain config.")
+                .short("default-spec")
+                .help("Specifies the default eth2 spec to be used. This will override any spec written to disk and will therefore be used by default in future instances.")
                 .takes_value(true)
-                .possible_values(&["mainnet", "minimal"])
-                .default_value("minimal"),
+                .possible_values(&["mainnet", "minimal", "interop"])
         )
         .arg(
             Arg::with_name("debug-level")
@@ -126,7 +125,7 @@ fn main() {
 
     let client_config_path = data_dir.join(CLIENT_CONFIG_FILENAME);
 
-    // Attempt to lead the `ClientConfig` from disk.
+    // Attempt to load the `ClientConfig` from disk.
     //
     // If file doesn't exist, create a new, default one.
     let mut client_config = match read_from_file::<ValidatorClientConfig>(
@@ -164,26 +163,55 @@ fn main() {
         .and_then(|s| Some(PathBuf::from(s)))
         .unwrap_or_else(|| data_dir.join(ETH2_CONFIG_FILENAME));
 
-    // Attempt to load the `Eth2Config` from file.
+    // Initialise the `Eth2Config`.
     //
-    // If the file doesn't exist, create a default one depending on the CLI flags.
-    let mut eth2_config = match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
-        Ok(Some(c)) => c,
-        Ok(None) => {
-            let default = match matches.value_of("spec-constants") {
-                Some("mainnet") => Eth2Config::mainnet(),
-                Some("minimal") => Eth2Config::minimal(),
-                _ => unreachable!(), // Guarded by slog.
-            };
-            if let Err(e) = write_to_file(eth2_config_path, &default) {
-                crit!(log, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
-                return;
-            }
-            default
-        }
+    // If a CLI parameter is set, overwrite any config file present.
+    // If a parameter is not set, use either the config file present or default to minimal.
+    let cli_config = match matches.value_of("default-spec") {
+        Some("mainnet") => Some(Eth2Config::mainnet()),
+        Some("minimal") => Some(Eth2Config::minimal()),
+        Some("interop") => Some(Eth2Config::interop()),
+        _ => None,
+    };
+    // if a CLI flag is specified, write the new config if it doesn't exist,
+    // otherwise notify the user that the file will not be written.
+    let eth2_config_from_file = match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
+        Ok(config) => config,
         Err(e) => {
-            crit!(log, "Failed to instantiate an Eth2Config"; "error" => format!("{:?}", e));
+            crit!(log, "Failed to read the Eth2Config from file"; "error" => format!("{:?}", e));
             return;
+        }
+    };
+
+    let mut eth2_config = {
+        if let Some(cli_config) = cli_config {
+            if eth2_config_from_file.is_none() {
+                // write to file if one doesn't exist
+                if let Err(e) = write_to_file(eth2_config_path, &cli_config) {
+                    crit!(log, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
+                    return;
+                }
+            } else {
+                warn!(
+                    log,
+                    "Eth2Config file exists. Configuration file is ignored, using default"
+                );
+            }
+            cli_config
+        } else {
+            // CLI config not specified, read from disk
+            match eth2_config_from_file {
+                Some(config) => config,
+                None => {
+                    // set default to minimal
+                    let eth2_config = Eth2Config::minimal();
+                    if let Err(e) = write_to_file(eth2_config_path, &eth2_config) {
+                        crit!(log, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
+                        return;
+                    }
+                    eth2_config
+                }
+            }
         }
     };
 
@@ -210,6 +238,11 @@ fn main() {
             log.clone(),
         ),
         "minimal" => ValidatorService::<ValidatorServiceClient, Keypair, MinimalEthSpec>::start(
+            client_config,
+            eth2_config,
+            log.clone(),
+        ),
+        "interop" => ValidatorService::<ValidatorServiceClient, Keypair, InteropEthSpec>::start(
             client_config,
             eth2_config,
             log.clone(),

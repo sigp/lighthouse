@@ -65,6 +65,10 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
+    ///
+    /// ## Note
+    ///
+    /// This function assumes the given `attestation` is valid.
     pub fn insert_attestation(
         &self,
         attestation: Attestation<T>,
@@ -133,7 +137,7 @@ impl<T: EthSpec> OperationPool<T> {
                 verify_attestation_for_block_inclusion(
                     state,
                     attestation,
-                    VerifySignatures::False,
+                    VerifySignatures::True,
                     spec,
                 )
                 .is_ok()

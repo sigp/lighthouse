@@ -1,16 +1,15 @@
+use crate::metrics;
 use crate::{error, NetworkConfig};
 /// This manages the discovery and management of peers.
 ///
 /// Currently using discv5 for peer discovery.
 ///
 use futures::prelude::*;
-use libp2p::core::swarm::{
-    ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-};
-use libp2p::core::{identity::Keypair, Multiaddr, PeerId, ProtocolsHandler};
+use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::enr::{Enr, EnrBuilder, NodeId};
 use libp2p::multiaddr::Protocol;
+use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 use slog::{debug, info, o, warn};
 use std::collections::HashSet;
 use std::fs::File;
@@ -37,6 +36,9 @@ pub struct Discovery<TSubstream> {
     /// The target number of connected peers on the libp2p interface.
     max_peers: usize,
 
+    /// directory to save ENR to
+    enr_dir: String,
+
     /// The delay between peer discovery searches.
     peer_discovery_delay: Delay,
 
@@ -54,9 +56,6 @@ pub struct Discovery<TSubstream> {
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
-
-    /// directory to save ENR to
-    enr_dir: String,
 }
 
 impl<TSubstream> Discovery<TSubstream> {
@@ -161,10 +160,16 @@ where
 
     fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
         self.connected_peers.insert(peer_id);
+
+        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, _endpoint: ConnectedPoint) {
         self.connected_peers.remove(peer_id);
+
+        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
     }
 
     fn inject_replaced(
@@ -219,6 +224,7 @@ where
                         }
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "IP" => format!("{}",socket.ip()));
+                            metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             let mut address = Multiaddr::from(socket.ip());
                             address.push(Protocol::Tcp(self.tcp_port));
                             let enr = self.discovery.local_enr();

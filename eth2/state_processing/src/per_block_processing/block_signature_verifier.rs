@@ -203,8 +203,4 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
 
         Ok(())
     }
-
-    fn into_iter(self) -> impl Iterator<Item = SignatureSet<'a>> {
-        self.sets.into_iter()
-    }
 }
