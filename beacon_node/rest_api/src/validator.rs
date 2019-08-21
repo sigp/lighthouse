@@ -66,13 +66,15 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
     let relative_epoch = RelativeEpoch::from_epoch(current_epoch, epoch)
         .map_err(|e| ApiError::InvalidQueryParams(format!("Cannot get RelativeEpoch: {:?}", e)))?;
     //TODO: Handle an array of validators, currently only takes one
-    let mut queried_validators = match query.first_of(&["validator_pubkeys"]) {
-        Ok((_, v)) => parse_pubkey(&v)?,
+    let mut validators: Vec<PublicKey> = match query.all_of("validator_pubkeys") {
+        Ok(v) => v
+            .iter()
+            .map(|pk| parse_pubkey(pk))
+            .collect::<Result<Vec<_>, _>>()?,
         Err(e) => {
             return Err(e);
         }
     };
-    let validators = vec![queried_validators];
     let mut duties: Vec<ValidatorDuty> = Vec::new();
 
     // Get a list of all validators for this epoch
