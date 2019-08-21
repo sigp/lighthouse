@@ -885,12 +885,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(catchup_timer);
 
-        let commitee_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_COMMITTEE);
+        let committee_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_COMMITTEE);
 
         state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
-        metrics::stop_timer(commitee_timer);
+        metrics::stop_timer(committee_timer);
 
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
