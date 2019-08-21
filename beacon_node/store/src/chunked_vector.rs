@@ -109,7 +109,7 @@ pub trait Field<E: EthSpec>: Copy {
                 let (lookahead, lag) = offset.lookahead_and_lag();
                 let current_epoch = current_slot.epoch(E::slots_per_epoch());
                 let end_epoch = current_epoch + 1 + lookahead - lag;
-                let start_epoch = end_epoch - Self::Length::to_u64();
+                let start_epoch = end_epoch + lag - Self::Length::to_u64();
                 (start_epoch.as_usize(), end_epoch.as_usize())
             }
         }
