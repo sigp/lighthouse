@@ -4,6 +4,31 @@ use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
 use types::beacon_state::{CommitteeCache, CACHED_EPOCHS};
 
+pub fn store_full_state<S: Store, E: EthSpec>(
+    store: &S,
+    state_root: &Hash256,
+    state: &BeaconState<E>,
+) -> Result<(), Error> {
+    store.put_bytes(
+        DBColumn::BeaconState.into(),
+        state_root.as_bytes(),
+        &StorageContainer::new(state).as_ssz_bytes(),
+    )
+}
+
+pub fn get_full_state<S: Store, E: EthSpec>(
+    store: &S,
+    state_root: &Hash256,
+) -> Result<Option<BeaconState<E>>, Error> {
+    match store.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
+        Some(bytes) => {
+            let container = StorageContainer::from_ssz_bytes(&bytes)?;
+            Ok(Some(container.try_into()?))
+        }
+        None => Ok(None),
+    }
+}
+
 /// A container for storing `BeaconState` components.
 #[derive(Encode, Decode)]
 struct StorageContainer {
@@ -44,22 +69,5 @@ impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer {
         }
 
         Ok(state)
-    }
-}
-
-// FIXME(michael): disallow this?
-impl<T: EthSpec> SimpleStoreItem for (BeaconState<T>, ()) {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconState
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        let container = StorageContainer::new(&self.0);
-        container.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let container = StorageContainer::from_ssz_bytes(bytes)?;
-        Ok((container.try_into()?, ()))
     }
 }

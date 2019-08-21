@@ -1,8 +1,8 @@
 use crate::*;
 use ssz::{Decode, Encode};
 
-mod beacon_state;
-mod partial_beacon_state;
+pub mod beacon_state;
+pub mod partial_beacon_state;
 
 impl<T: EthSpec> SimpleStoreItem for BeaconBlock<T> {
     fn db_column() -> DBColumn {

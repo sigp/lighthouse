@@ -1,4 +1,5 @@
 use super::{Error, Store};
+use crate::impls::beacon_state::{get_full_state, store_full_state};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use types::*;
@@ -68,8 +69,7 @@ impl Store for MemoryStore {
         state_root: &Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
-        let to_store = (state.clone(), ());
-        self.put(state_root, &to_store)
+        store_full_state(self, state_root, state)
     }
 
     /// Fetch a state from the store.
@@ -78,6 +78,6 @@ impl Store for MemoryStore {
         state_root: &Hash256,
         _: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
-        Ok(self.get(state_root)?.map(|x: (_, ())| x.0))
+        get_full_state(self, state_root)
     }
 }
