@@ -602,6 +602,8 @@ mod test {
             Chunk::new(vec![v(8), v(9), v(10), v(11)]),
         ];
 
+        let stitch = stitch::<BlockRoots, MinimalEthSpec>;
+
         assert_eq!(
             stitch(chunks.clone(), 0, 11, chunk_size, 12).unwrap(),
             (0..12).map(v).collect::<Vec<_>>()

@@ -86,7 +86,6 @@ pub trait Store: Sync + Send + Sized {
     ///
     /// Returns `None` if no parent block exists at that slot, or if `slot` is greater than the
     /// slot of `start_block_root`.
-    // FIXME(michael): does this really belong here?
     fn get_block_at_preceeding_slot<E: EthSpec>(
         &self,
         start_block_root: Hash256,
@@ -207,7 +206,6 @@ where
     }
 }
 
-/* FIXME(michael)
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,7 +219,7 @@ mod tests {
         b: u64,
     }
 
-    impl StoreItem for StorableThing {
+    impl SimpleStoreItem for StorableThing {
         fn db_column() -> DBColumn {
             DBColumn::BeaconBlock
         }
@@ -288,4 +286,3 @@ mod tests {
         assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
     }
 }
-*/

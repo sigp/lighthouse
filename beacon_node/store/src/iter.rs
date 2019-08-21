@@ -43,11 +43,20 @@ impl<'a, U: Store, E: EthSpec> AncestorIter<U, StateRootsIterator<'a, E, U>> for
     }
 }
 
-#[derive(Clone)]
 pub struct StateRootsIterator<'a, T: EthSpec, U> {
     store: Arc<RwLock<U>>,
     beacon_state: Cow<'a, BeaconState<T>>,
     slot: Slot,
+}
+
+impl<'a, T: EthSpec, U> Clone for StateRootsIterator<'a, T, U> {
+    fn clone(&self) -> Self {
+        Self {
+            store: self.store.clone(),
+            beacon_state: self.beacon_state.clone(),
+            slot: self.slot,
+        }
+    }
 }
 
 impl<'a, T: EthSpec, U: Store> StateRootsIterator<'a, T, U> {
@@ -138,11 +147,20 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockIterator<'a, T, U> {
 /// exhausted.
 ///
 /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
-#[derive(Clone)]
 pub struct BlockRootsIterator<'a, T: EthSpec, U> {
     store: Arc<RwLock<U>>,
     beacon_state: Cow<'a, BeaconState<T>>,
     slot: Slot,
+}
+
+impl<'a, T: EthSpec, U> Clone for BlockRootsIterator<'a, T, U> {
+    fn clone(&self) -> Self {
+        Self {
+            store: self.store.clone(),
+            beacon_state: self.beacon_state.clone(),
+            slot: self.slot,
+        }
+    }
 }
 
 impl<'a, T: EthSpec, U: Store> BlockRootsIterator<'a, T, U> {
@@ -247,6 +265,7 @@ where
 mod test {
     use super::*;
     use crate::MemoryStore;
+    use parking_lot::RwLock;
     use types::{test_utils::TestingBeaconStateBuilder, Keypair, MainnetEthSpec};
 
     fn get_state<T: EthSpec>() -> BeaconState<T> {
@@ -261,7 +280,7 @@ mod test {
 
     #[test]
     fn block_root_iter() {
-        let store = Arc::new(MemoryStore::open());
+        let store = Arc::new(RwLock::new(MemoryStore::open()));
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -281,7 +300,7 @@ mod test {
 
         let state_a_root = hashes.next().unwrap();
         state_b.state_roots[0] = state_a_root;
-        store.put(&state_a_root, &state_a).unwrap();
+        store.read().put_state(&state_a_root, &state_a).unwrap();
 
         let iter = BlockRootsIterator::new(store.clone(), &state_b);
 
@@ -304,7 +323,7 @@ mod test {
 
     #[test]
     fn state_root_iter() {
-        let store = Arc::new(MemoryStore::open());
+        let store = Arc::new(RwLock::new(MemoryStore::open()));
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -329,8 +348,8 @@ mod test {
         let state_a_root = Hash256::from_low_u64_be(slots_per_historical_root as u64);
         let state_b_root = Hash256::from_low_u64_be(slots_per_historical_root as u64 * 2);
 
-        store.put(&state_a_root, &state_a).unwrap();
-        store.put(&state_b_root, &state_b).unwrap();
+        store.read().put_state(&state_a_root, &state_a).unwrap();
+        store.read().put_state(&state_b_root, &state_b).unwrap();
 
         let iter = StateRootsIterator::new(store.clone(), &state_b);
 
