@@ -2,6 +2,8 @@ use crate::ApiError;
 use hyper::Request;
 
 /// Provides handy functions for parsing the query parameters of a URL.
+
+#[derive(Clone, Copy)]
 pub struct UrlQuery<'a>(url::form_urlencoded::Parse<'a>);
 
 impl<'a> UrlQuery<'a> {
@@ -11,9 +13,7 @@ impl<'a> UrlQuery<'a> {
     pub fn from_request<T>(req: &'a Request<T>) -> Result<Self, ApiError> {
         let query_str = req.uri().query().ok_or_else(|| {
             ApiError::InvalidQueryParams(
-                "URL query must be valid and contain at least one
-                                         key."
-                    .to_string(),
+                "URL query must be valid and contain at least one key.".to_string(),
             )
         })?;
 
