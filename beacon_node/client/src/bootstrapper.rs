@@ -20,17 +20,31 @@ impl From<HttpError> for Error {
     }
 }
 
+/// Used to load "bootstrap" information from the HTTP API of another Lighthouse beacon node.
+///
+/// Bootstrapping information includes things like genesis and finalized states and blocks, and
+/// libp2p connection details.
 pub struct Bootstrapper {
     url: Url,
 }
 
 impl Bootstrapper {
+    /// Parses the given `server` as a URL, instantiating `Self`.
     pub fn from_server_string(server: String) -> Result<Self, String> {
         Ok(Self {
             url: Url::parse(&server).map_err(|e| format!("Invalid bootstrap server url: {}", e))?,
         })
     }
 
+    /// Build a multiaddr using the HTTP server URL that is not guaranteed to be correct.
+    ///
+    /// The address is created by querying the HTTP server for it's listening libp2p addresses.
+    /// Then, we find the first TCP port in those addresses and combine the port with the URL of
+    /// the server.
+    ///
+    /// For example, the server `http://192.168.0.1` might end up with a `best_effort_multiaddr` of
+    /// `/ipv4/192.168.0.1/tcp/9000` if the server advertises a listening address of
+    /// `/ipv4/172.0.0.1/tcp/9000`.
     pub fn best_effort_multiaddr(&self) -> Option<Multiaddr> {
         let tcp_port = self.first_listening_tcp_port()?;
 
@@ -47,6 +61,8 @@ impl Bootstrapper {
         Some(multiaddr)
     }
 
+    /// Reads the server's listening libp2p addresses and returns the first TCP port protocol it
+    /// finds, if any.
     fn first_listening_tcp_port(&self) -> Option<u16> {
         self.listen_addresses().ok()?.iter().find_map(|multiaddr| {
             multiaddr.iter().find_map(|protocol| match protocol {
@@ -56,6 +72,7 @@ impl Bootstrapper {
         })
     }
 
+    /// Returns the IPv4 address of the server URL, unless it contains a FQDN.
     pub fn server_ipv4_addr(&self) -> Option<Ipv4Addr> {
         match self.url.host()? {
             Host::Ipv4(addr) => Some(addr),
@@ -63,15 +80,18 @@ impl Bootstrapper {
         }
     }
 
+    /// Returns the servers ENR address.
     pub fn enr(&self) -> Result<Enr, String> {
         get_enr(self.url.clone()).map_err(|e| format!("Unable to get ENR: {:?}", e))
     }
 
+    /// Returns the servers listening libp2p addresses.
     pub fn listen_addresses(&self) -> Result<Vec<Multiaddr>, String> {
         get_listen_addresses(self.url.clone())
             .map_err(|e| format!("Unable to get listen addresses: {:?}", e))
     }
 
+    /// Returns the genesis block and state.
     pub fn genesis<T: EthSpec>(&self) -> Result<(BeaconState<T>, BeaconBlock<T>), String> {
         let genesis_slot = Slot::new(0);
 
@@ -83,6 +103,7 @@ impl Bootstrapper {
         Ok((state, block))
     }
 
+    /// Returns the most recent finalized state and block.
     pub fn finalized<T: EthSpec>(&self) -> Result<(BeaconState<T>, BeaconBlock<T>), String> {
         let slots_per_epoch = get_slots_per_epoch(self.url.clone())
             .map_err(|e| format!("Unable to get slots per epoch: {:?}", e))?;
