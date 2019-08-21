@@ -6,7 +6,8 @@ use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use store::Store;
-use types::{BeaconBlock, BeaconState, Epoch};
+use types::beacon_state::EthSpec;
+use types::{BeaconBlock, BeaconState, Epoch, RelativeEpoch, Shard, Slot};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatorDuty {
@@ -15,13 +16,13 @@ pub struct ValidatorDuty {
     pub validator_pubkey: String,
     /// The slot at which the validator must attest.
     #[serde(rename = "attestation_slot")]
-    pub attestation_slot: Option<i32>,
+    pub attestation_slot: Option<Slot>,
     /// The shard in which the validator must attest.
     #[serde(rename = "attestation_shard")]
-    pub attestation_shard: Option<i32>,
+    pub attestation_shard: Option<Shard>,
     /// The slot in which a validator must propose a block, or `null` if block production is not required.
     #[serde(rename = "block_proposal_slot")]
-    pub block_proposal_slot: Option<i32>,
+    pub block_proposal_slot: Option<Slot>,
 }
 
 impl ValidatorDuty {
@@ -42,35 +43,64 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
         .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
-    let head_state = &beacon_chain.head().beacon_state;
+    beacon_chain.ensure_state_caches_are_built();
+    let head_state = beacon_chain
+        .speculative_state()
+        .expect("This is legacy code and should be removed.");
 
     // Parse and check query parameters
     let query = UrlQuery::from_request(&req)?;
-    let queried_epoch = match query.first_of(&["epoch"]) {
-        Ok((k, v)) => Epoch::new(v.parse::<u64>().map_err(|e| {
+
+    let current_epoch = beacon_chain.head().beacon_state.current_epoch();
+    let epoch = match query.first_of(&["epoch"]) {
+        Ok((_, v)) => Epoch::new(v.parse::<u64>().map_err(|e| {
             ApiError::InvalidQueryParams(format!("Invalid epoch parameter, must be a u64. {:?}", e))
         })?),
-        Err(e) => {
+        Err(_) => {
             // epoch not supplied, use the current epoch
-            beacon_chain.head().beacon_state.current_epoch()
+            current_epoch
         }
     };
+    let relative_epoch = RelativeEpoch::from_epoch(current_epoch, epoch)
+        .map_err(|e| ApiError::InvalidQueryParams(format!("Cannot get RelativeEpoch: {:?}", e)))?;
     //TODO: Handle an array of validators, currently only takes one
     let mut queried_validators = match query.first_of(&["validator_pubkeys"]) {
-        Ok((k, v)) => parse_pubkey(&v)?,
+        Ok((_, v)) => parse_pubkey(&v)?,
         Err(e) => {
             return Err(e);
         }
     };
-    let mut validators = vec![queried_validators];
+    let validators = vec![queried_validators];
     let mut duties: Vec<ValidatorDuty> = Vec::new();
+
+    // Get a list of all validators for this epoch
+    let validator_proposers: Result<Vec<usize>, _> = epoch
+        .slot_iter(T::EthSpec::slots_per_epoch())
+        .map(|slot| head_state.get_beacon_proposer_index(slot, relative_epoch, &beacon_chain.spec))
+        .collect();
+    let validator_proposers = match validator_proposers {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(ApiError::ServerError(format!(
+                "Unable to read list of validator proposers: {:?}",
+                e
+            )));
+        }
+    };
 
     // Look up duties for each validator
     for val_pk in validators {
         let mut duty = ValidatorDuty::new();
+        duty.validator_pubkey = val_pk.as_hex_string();
 
-        let val_index_opt = match head_state.get_validator_index(&val_pk) {
-            Ok(i) => i,
+        // Get the validator index
+        // If it does not exist in the index, just add a null duty and move on.
+        let val_index: usize = match head_state.get_validator_index(&val_pk) {
+            Ok(Some(i)) => i,
+            Ok(None) => {
+                duties.append(&mut vec![duty]);
+                continue;
+            }
             Err(e) => {
                 return Err(ApiError::ServerError(format!(
                     "Unable to read validator index cache. {:?}",
@@ -79,8 +109,31 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
             }
         };
 
-        //TODO add the 0x again?
-        duty.validator_pubkey = hex::encode(val_pk.as_bytes());
+        // Set attestation duties
+        match head_state.get_attestation_duties(val_index, relative_epoch) {
+            Ok(Some(d)) => {
+                duty.attestation_slot = Some(d.slot);
+                duty.attestation_shard = Some(d.shard);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                return Err(ApiError::ServerError(format!(
+                    "unable to read cache for attestation duties: {:?}",
+                    e
+                )))
+            }
+        };
+
+        // If the validator is to propose a block, identify the slot
+        if let Some(slot) = validator_proposers.iter().position(|&v| val_index == v) {
+            duty.block_proposal_slot = Some(Slot::new(
+                relative_epoch
+                    .into_epoch(current_epoch)
+                    .start_slot(T::EthSpec::slots_per_epoch())
+                    .as_u64()
+                    + slot as u64,
+            ));
+        }
 
         duties.append(&mut vec![duty]);
     }
