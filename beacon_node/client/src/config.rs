@@ -158,6 +158,8 @@ impl Config {
     }
 }
 
+/// Perform the HTTP bootstrapping procedure, reading an ENR and multiaddr from the HTTP server and
+/// adding them to the `config`.
 fn do_bootstrapping(config: &mut Config, server: String, log: &slog::Logger) -> Result<(), String> {
     // Set the genesis state source.
     config.genesis_state = GenesisState::HttpBootstrap {
