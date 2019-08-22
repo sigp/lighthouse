@@ -8,8 +8,7 @@ use slog::{error, info, warn};
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
-use store::{DiskStore, HotColdDB, MemoryStore};
+use store::{DiskStore, MemoryStore, SimpleDiskStore};
 use tokio::runtime::Builder;
 use tokio::runtime::Runtime;
 use tokio::runtime::TaskExecutor;
@@ -59,7 +58,15 @@ pub fn run_beacon_node(
     );
 
     match (db_type.as_str(), spec_constants.as_str()) {
-        ("disk", "minimal") => run::<ClientType<HotColdDB, MinimalEthSpec>>(
+        ("disk", "minimal") => run::<ClientType<DiskStore, MinimalEthSpec>>(
+            &db_path,
+            client_config,
+            eth2_config,
+            executor,
+            runtime,
+            log,
+        ),
+        ("simple-disk", "minimal") => run::<ClientType<SimpleDiskStore, MinimalEthSpec>>(
             &db_path,
             client_config,
             eth2_config,
@@ -83,6 +90,14 @@ pub fn run_beacon_node(
             runtime,
             log,
         ),
+        ("simple-disk", "mainnet") => run::<ClientType<SimpleDiskStore, MainnetEthSpec>>(
+            &db_path,
+            client_config,
+            eth2_config,
+            executor,
+            runtime,
+            log,
+        ),
         ("memory", "mainnet") => run::<ClientType<MemoryStore, MainnetEthSpec>>(
             &db_path,
             client_config,
@@ -92,6 +107,14 @@ pub fn run_beacon_node(
             log,
         ),
         ("disk", "interop") => run::<ClientType<DiskStore, InteropEthSpec>>(
+            &db_path,
+            client_config,
+            eth2_config,
+            executor,
+            runtime,
+            log,
+        ),
+        ("simple-disk", "interop") => run::<ClientType<SimpleDiskStore, InteropEthSpec>>(
             &db_path,
             client_config,
             eth2_config,
@@ -127,9 +150,7 @@ where
     T: BeaconChainTypes + InitialiseBeaconChain<T> + Send + Sync + 'static,
     T::Store: OpenDatabase,
 {
-    // FIXME(michael): make the client use this spec as well?
-    let spec = Arc::new(eth2_config.spec.clone());
-    let store = T::Store::open_database(&db_path, spec)?;
+    let store = T::Store::open_database(&db_path, &client_config, &eth2_config.spec)?;
 
     let client: Client<T> = Client::new(client_config, eth2_config, store, log.clone(), &executor)?;
 
@@ -165,26 +186,37 @@ where
 ///
 /// Panics if unable to open the database.
 pub trait OpenDatabase: Sized {
-    fn open_database(path: &Path, spec: Arc<ChainSpec>) -> error::Result<Self>;
+    fn open_database(
+        path: &Path,
+        client_config: &ClientConfig,
+        spec: &ChainSpec,
+    ) -> error::Result<Self>;
 }
 
 impl OpenDatabase for MemoryStore {
-    fn open_database(_path: &Path, _: Arc<ChainSpec>) -> error::Result<Self> {
+    fn open_database(_path: &Path, _: &ClientConfig, _: &ChainSpec) -> error::Result<Self> {
         Ok(MemoryStore::open())
     }
 }
 
-impl OpenDatabase for DiskStore {
-    fn open_database(path: &Path, _: Arc<ChainSpec>) -> error::Result<Self> {
-        DiskStore::open(path).map_err(|e| format!("Unable to open database: {:?}", e).into())
+impl OpenDatabase for SimpleDiskStore {
+    fn open_database(path: &Path, _: &ClientConfig, _: &ChainSpec) -> error::Result<Self> {
+        SimpleDiskStore::open(path).map_err(|e| format!("Unable to open database: {:?}", e).into())
     }
 }
 
-impl OpenDatabase for HotColdDB {
-    fn open_database(path: &Path, spec: Arc<ChainSpec>) -> error::Result<Self> {
+impl OpenDatabase for DiskStore {
+    fn open_database(
+        path: &Path,
+        client_config: &ClientConfig,
+        spec: &ChainSpec,
+    ) -> error::Result<Self> {
         let hot_path = path.with_extension("hot");
-        let cold_path = path.with_extension("cold");
-        HotColdDB::open(&hot_path, &cold_path, spec)
+        let cold_path = match client_config.freezer_db_path() {
+            Some(freezer_path) => freezer_path,
+            None => path.with_extension("cold"),
+        };
+        DiskStore::open(&hot_path, &cold_path, spec.clone())
             .map_err(|e| format!("Unable to open database: {:?}", e).into())
     }
 }

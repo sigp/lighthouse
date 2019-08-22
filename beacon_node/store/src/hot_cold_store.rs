@@ -21,7 +21,7 @@ pub struct HotColdDB {
     /// Hot database containing duplicated but quick-to-access recent data.
     hot_db: LevelDB,
     /// Chain spec.
-    spec: Arc<ChainSpec>,
+    spec: ChainSpec,
 }
 
 #[derive(Debug, PartialEq)]
@@ -139,12 +139,14 @@ impl Store for HotColdDB {
                 .key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())?;
         }
 
+        println!("Split slot is now: {}", store.read().split_slot);
+
         Ok(())
     }
 }
 
 impl HotColdDB {
-    pub fn open(hot_path: &Path, cold_path: &Path, spec: Arc<ChainSpec>) -> Result<Self, Error> {
+    pub fn open(hot_path: &Path, cold_path: &Path, spec: ChainSpec) -> Result<Self, Error> {
         Ok(HotColdDB {
             split_slot: Slot::new(0),
             cold_db: LevelDB::open(cold_path)?,

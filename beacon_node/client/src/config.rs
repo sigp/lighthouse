@@ -20,6 +20,7 @@ pub struct Config {
     pub data_dir: PathBuf,
     pub db_type: String,
     db_name: String,
+    freezer_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
     pub spec_constants: String,
     pub genesis_state: GenesisState,
@@ -57,6 +58,7 @@ impl Default for Config {
             log_file: PathBuf::from(""),
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
+            freezer_db_path: None,
             network: NetworkConfig::new(),
             rpc: rpc::RPCConfig::default(),
             http: HttpServerConfig::default(),
@@ -72,8 +74,12 @@ impl Default for Config {
 impl Config {
     /// Returns the path to which the client may initialize an on-disk database.
     pub fn db_path(&self) -> Option<PathBuf> {
-        self.data_dir()
-            .and_then(|path| Some(path.join(&self.db_name)))
+        self.data_dir().map(|path| path.join(&self.db_name))
+    }
+
+    /// Returns the user-configured path to the freezer database, if set.
+    pub fn freezer_db_path(&self) -> Option<PathBuf> {
+        self.freezer_db_path.clone()
     }
 
     /// Returns the core path for the client.
@@ -137,9 +143,19 @@ impl Config {
             }
         }
 
-        if let Some(dir) = args.value_of("db") {
-            self.db_type = dir.to_string();
-        };
+        if let Some(db_type) = args.value_of("db") {
+            self.db_type = db_type.to_string();
+        }
+
+        if let Some(freezer_db_path) = args.value_of("db-freezer-path") {
+            if self.db_type != "disk" {
+                return Err(format!(
+                    "Incorrect database type for freezer DB: expected 'disk', got '{}'",
+                    self.db_type
+                ));
+            }
+            self.freezer_db_path = Some(PathBuf::from(freezer_db_path));
+        }
 
         self.network.apply_cli_args(args)?;
         self.rpc.apply_cli_args(args)?;

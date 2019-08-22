@@ -182,8 +182,15 @@ fn main() {
                 .value_name("DB")
                 .help("Type of database to use.")
                 .takes_value(true)
-                .possible_values(&["disk", "memory"])
+                .possible_values(&["disk", "simple-disk", "memory"])
                 .default_value("memory"),
+        )
+        .arg(
+            Arg::with_name("db-freezer-path")
+                .long("db-freezer-path")
+                .takes_value(true)
+                .value_name("DIR")
+                .help("Data directory for archival (freezer) database.")
         )
         /*
          * Specification/testnet params.

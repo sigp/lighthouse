@@ -22,8 +22,8 @@ pub mod iter;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-pub use self::hot_cold_store::HotColdDB;
-pub use self::leveldb_store::LevelDB as DiskStore;
+pub use self::hot_cold_store::HotColdDB as DiskStore;
+pub use self::leveldb_store::LevelDB as SimpleDiskStore;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
