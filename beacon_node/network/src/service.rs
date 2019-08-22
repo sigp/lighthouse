@@ -75,6 +75,11 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
             .clone()
     }
 
+    /// Returns the local libp2p PeerID.
+    pub fn local_peer_id(&self) -> PeerId {
+        self.libp2p_service.lock().local_peer_id.clone()
+    }
+
     /// Returns the list of `Multiaddr` that the underlying libp2p instance is listening on.
     pub fn listen_multiaddrs(&self) -> Vec<Multiaddr> {
         Swarm::listeners(&self.libp2p_service.lock().swarm)

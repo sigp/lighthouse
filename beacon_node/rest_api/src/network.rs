@@ -40,6 +40,23 @@ pub fn get_enr<T: BeaconChainTypes + Send + Sync + 'static>(req: Request<Body>) 
     )))
 }
 
+/// HTTP handle to return the `PeerId` from the client's libp2p service.
+///
+/// PeerId is encoded as base58 string.
+pub fn get_peer_id<T: BeaconChainTypes + Send + Sync + 'static>(req: Request<Body>) -> ApiResult {
+    let network = req
+        .extensions()
+        .get::<Arc<NetworkService<T>>>()
+        .ok_or_else(|| ApiError::ServerError("NetworkService extension missing".to_string()))?;
+
+    let peer_id: PeerId = network.local_peer_id();
+
+    Ok(success_response(Body::from(
+        serde_json::to_string(&peer_id.to_base58())
+            .map_err(|e| ApiError::ServerError(format!("Unable to serialize Enr: {:?}", e)))?,
+    )))
+}
+
 /// HTTP handle to return the number of peers connected in the client's libp2p service.
 pub fn get_peer_count<T: BeaconChainTypes + Send + Sync + 'static>(
     req: Request<Body>,

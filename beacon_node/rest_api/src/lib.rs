@@ -123,8 +123,9 @@ pub fn start_server<T: BeaconChainTypes + Clone + Send + Sync + 'static>(
             // Route the request to the correct handler.
             let result = match (req.method(), path.as_ref()) {
                 // Methods for Beacon Node
-                // TODO: should these be moved under /chain/beacon (to make way for shards)
-                (&Method::GET, "/beacon/best_slot") => beacon::get_best_slot::<T>(req),
+                //TODO: Remove?
+                //(&Method::GET, "/beacon/best_slot") => beacon::get_best_slot::<T>(req),
+                (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
                 (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),
                 (&Method::GET, "/beacon/blocks") => helpers::implementation_pending_response(req),
                 //TODO Is the below replaced by finalized_checkpoint?
@@ -151,9 +152,11 @@ pub fn start_server<T: BeaconChainTypes + Clone + Send + Sync + 'static>(
                 (&Method::GET, "/node/fork") => helpers::implementation_pending_response(req),
 
                 // Methods for Network
-                (&Method::GET, "/node/network/enr") => network::get_enr::<T>(req),
-                (&Method::GET, "/node/network/peers") => network::get_peer_list::<T>(req),
-                (&Method::GET, "/node/network/listen_addresses") => {
+                (&Method::GET, "/network/enr") => network::get_enr::<T>(req),
+                (&Method::GET, "/network/peer_count") => network::get_peer_count::<T>(req),
+                (&Method::GET, "/network/peer_id") => network::get_peer_id::<T>(req),
+                (&Method::GET, "/network/peers") => network::get_peer_list::<T>(req),
+                (&Method::GET, "/network/listen_addresses") => {
                     network::get_listen_addresses::<T>(req)
                 }
 
@@ -170,7 +173,6 @@ pub fn start_server<T: BeaconChainTypes + Clone + Send + Sync + 'static>(
                     helpers::implementation_pending_response(req)
                 }
 
-                // Methods for Syncing?
                 (&Method::GET, "/spec") => spec::get_spec::<T>(req),
                 (&Method::GET, "/spec/slots_per_epoch") => spec::get_slots_per_epoch::<T>(req),
 
