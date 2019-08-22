@@ -31,22 +31,40 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
     }
 }
 
-/// Returns a `BeaconState` in the canonical chain of `beacon_chain` at the given `slot`, if
-/// possible.
+/// Returns the root of the `BeaconBlock` in the canonical chain of `beacon_chain` at the given
+/// `slot`, if possible.
+///
+/// May return a root for a previous slot, in the case of skip slots.
+pub fn block_root_at_slot<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+    target: Slot,
+) -> Option<Hash256> {
+    beacon_chain
+        .rev_iter_block_roots()
+        .take_while(|(_root, slot)| *slot >= target)
+        .find(|(_root, slot)| *slot == target)
+        .map(|(root, _slot)| root)
+}
+
+/// Returns a `BeaconState` and it's root in the canonical chain of `beacon_chain` at the given
+/// `slot`, if possible.
 ///
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
 pub fn state_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     slot: Slot,
-) -> Result<BeaconState<T::EthSpec>, ApiError> {
+) -> Result<(Hash256, BeaconState<T::EthSpec>), ApiError> {
     let head_state = &beacon_chain.head().beacon_state;
 
     if head_state.slot == slot {
         // The request slot is the same as the best block (head) slot.
 
         // I'm not sure if this `.clone()` will be optimized out. If not, it seems unnecessary.
-        Ok(beacon_chain.head().beacon_state.clone())
+        Ok((
+            beacon_chain.head().beacon_state_root,
+            beacon_chain.head().beacon_state.clone(),
+        ))
     } else {
         let root = state_root_at_slot(beacon_chain, slot)?;
 
@@ -55,7 +73,7 @@ pub fn state_at_slot<T: BeaconChainTypes>(
             .get(&root)?
             .ok_or_else(|| ApiError::NotFound(format!("Unable to find state at root {}", root)))?;
 
-        Ok(state)
+        Ok((root, state))
     }
 }
 
