@@ -2,23 +2,42 @@ use super::{success_response, ApiResult};
 use crate::{helpers::*, ApiError, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use hyper::{Body, Request};
+use serde::Serialize;
 use std::sync::Arc;
 use store::Store;
-use types::{BeaconBlock, BeaconState};
+use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
+
+#[derive(Serialize)]
+struct HeadResponse {
+    pub slot: Slot,
+    pub block_root: Hash256,
+    pub state_root: Hash256,
+}
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
-pub fn get_best_slot<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
         .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
 
-    let slot = beacon_chain.head().beacon_state.slot;
+    let head = HeadResponse {
+        slot: beacon_chain.head().beacon_state.slot,
+        block_root: beacon_chain.head().beacon_block_root,
+        state_root: beacon_chain.head().beacon_state_root,
+    };
 
-    let json: String = serde_json::to_string(&slot)
-        .map_err(|e| ApiError::ServerError(format!("Unable to serialize Slot: {:?}", e)))?;
+    let json: String = serde_json::to_string(&head)
+        .map_err(|e| ApiError::ServerError(format!("Unable to serialize HeadResponse: {:?}", e)))?;
 
     Ok(success_response(Body::from(json)))
+}
+
+#[derive(Serialize)]
+#[serde(bound = "T: EthSpec")]
+struct BlockResponse<T: EthSpec> {
+    pub root: Hash256,
+    pub beacon_block: BeaconBlock<T>,
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
@@ -58,8 +77,14 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
             ))
         })?;
 
-    let json: String = serde_json::to_string(&block)
-        .map_err(|e| ApiError::ServerError(format!("Unable to serialize BeaconBlock: {:?}", e)))?;
+    let response = BlockResponse {
+        root: block_root,
+        beacon_block: block,
+    };
+
+    let json: String = serde_json::to_string(&response).map_err(|e| {
+        ApiError::ServerError(format!("Unable to serialize BlockResponse: {:?}", e))
+    })?;
 
     Ok(success_response(Body::from(json)))
 }
@@ -89,6 +114,13 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     Ok(success_response(Body::from(json)))
 }
 
+#[derive(Serialize)]
+#[serde(bound = "T: EthSpec")]
+struct StateResponse<T: EthSpec> {
+    pub root: Hash256,
+    pub beacon_state: BeaconState<T>,
+}
+
 /// HTTP handler to return a `BeaconState` at a given `root` or `slot`.
 ///
 /// Will not return a state if the request slot is in the future. Will return states higher than
@@ -102,21 +134,29 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
     let query_params = ["root", "slot"];
     let (key, value) = UrlQuery::from_request(&req)?.first_of(&query_params)?;
 
-    let state: BeaconState<T::EthSpec> = match (key.as_ref(), value) {
+    let (root, state): (Hash256, BeaconState<T::EthSpec>) = match (key.as_ref(), value) {
         ("slot", value) => state_at_slot(&beacon_chain, parse_slot(&value)?)?,
         ("root", value) => {
             let root = &parse_root(&value)?;
 
-            beacon_chain
+            let state = beacon_chain
                 .store
                 .get(root)?
-                .ok_or_else(|| ApiError::NotFound(format!("No state for root: {}", root)))?
+                .ok_or_else(|| ApiError::NotFound(format!("No state for root: {}", root)))?;
+
+            (*root, state)
         }
         _ => return Err(ApiError::ServerError("Unexpected query parameter".into())),
     };
 
-    let json: String = serde_json::to_string(&state)
-        .map_err(|e| ApiError::ServerError(format!("Unable to serialize BeaconState: {:?}", e)))?;
+    let response = StateResponse {
+        root,
+        beacon_state: state,
+    };
+
+    let json: String = serde_json::to_string(&response).map_err(|e| {
+        ApiError::ServerError(format!("Unable to serialize StateResponse: {:?}", e))
+    })?;
 
     Ok(success_response(Body::from(json)))
 }
