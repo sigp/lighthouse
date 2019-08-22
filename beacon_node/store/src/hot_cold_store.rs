@@ -5,6 +5,7 @@ use crate::chunked_vector::{
 use crate::iter::{ReverseStateRootIterator, StateRootsIterator};
 use crate::{leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, Store, StoreItem};
 use parking_lot::RwLock;
+use slog::{info, trace, Logger};
 use std::convert::TryInto;
 use std::path::Path;
 use std::sync::Arc;
@@ -22,6 +23,8 @@ pub struct HotColdDB {
     hot_db: LevelDB,
     /// Chain spec.
     spec: ChainSpec,
+    /// Logger.
+    log: Logger,
 }
 
 #[derive(Debug, PartialEq)]
@@ -90,6 +93,12 @@ impl Store for HotColdDB {
         frozen_head_root: Hash256,
         frozen_head: &BeaconState<E>,
     ) -> Result<(), Error> {
+        info!(
+            store.read().log,
+            "Freezer migration started";
+            "slot" => frozen_head.slot
+        );
+
         // 1. Copy all of the states between the head and the split slot, from the hot DB
         // to the cold DB.
         let reader = store.read();
@@ -102,8 +111,6 @@ impl Store for HotColdDB {
             })?;
         }
 
-        // println!("Freezing up to slot: {}", frozen_head.slot);
-
         let state_root_iter = {
             let iter = StateRootsIterator::new(store.clone(), frozen_head);
             ReverseStateRootIterator::new((frozen_head_root, frozen_head.slot), iter)
@@ -113,7 +120,10 @@ impl Store for HotColdDB {
         for (state_root, slot) in
             state_root_iter.take_while(|&(_, slot)| slot >= current_split_slot)
         {
-            // println!("Freezing state at slot {} ({:?})", slot, state_root);
+            trace!(reader.log, "Freezing";
+                   "slot" => slot,
+                   "state_root" => format!("{}", state_root));
+
             let state: BeaconState<E> = match reader.hot_db.get_state(&state_root, None)? {
                 Some(s) => s,
                 // If there's no state it could be a skip slot, which is fine, our job is just
@@ -139,19 +149,29 @@ impl Store for HotColdDB {
                 .key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())?;
         }
 
-        println!("Split slot is now: {}", store.read().split_slot);
+        info!(
+            store.read().log,
+            "Freezer migration complete";
+            "slot" => frozen_head.slot
+        );
 
         Ok(())
     }
 }
 
 impl HotColdDB {
-    pub fn open(hot_path: &Path, cold_path: &Path, spec: ChainSpec) -> Result<Self, Error> {
+    pub fn open(
+        hot_path: &Path,
+        cold_path: &Path,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> Result<Self, Error> {
         Ok(HotColdDB {
             split_slot: Slot::new(0),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             spec,
+            log,
         })
     }
 

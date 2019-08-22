@@ -133,11 +133,13 @@ pub trait Field<E: EthSpec>: Copy {
                 let vector_value = Self::get_value(state, vindex as u64, spec)?;
 
                 if let Some(existing_value) = existing_chunk.values.get(i) {
-                    if existing_value != &Self::Value::default() {
-                        assert_eq!(
-                            existing_value, &vector_value,
-                            "existing value should be equal"
-                        );
+                    if *existing_value != vector_value && *existing_value != Self::Value::default()
+                    {
+                        return Err(ChunkError::Inconsistent {
+                            field: Self::column(),
+                            chunk_index,
+                        }
+                        .into());
                     }
                 }
 
@@ -272,14 +274,10 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // println!("Storing vector for {:?}", F::column());
     let chunk_size = F::chunk_size();
     let (start_vindex, end_vindex) = F::start_and_end_vindex(state.slot, spec);
     let start_cindex = start_vindex / chunk_size;
     let end_cindex = end_vindex / chunk_size;
-
-    // println!("start_vindex: {}, end_vindex: {}", start_vindex, end_vindex);
-    // println!("start_cindex: {}, end_cindex: {}", start_cindex, end_cindex);
 
     // Start by iterating backwards from the last chunk, storing new chunks in the database.
     // Stop once a chunk in the database matches what we were about to store, this indicates
@@ -328,8 +326,6 @@ where
     I: Iterator<Item = usize>,
 {
     for chunk_index in range {
-        // println!("Checking the chunk at cindex {}", chunk_index);
-
         let chunk_key = &integer_key(chunk_index as u64)[..];
 
         let existing_chunk =
@@ -345,7 +341,6 @@ where
         )?;
 
         if new_chunk == existing_chunk {
-            // println!("Duplicate chunk found, exiting");
             return Ok(false);
         }
 
@@ -369,12 +364,9 @@ fn range_query<S: Store, T: Decode + Encode>(
 ) -> Result<Vec<Chunk<T>>, Error> {
     let mut result = vec![];
 
-    // println!("{:?}: ranging over {}..={}", column, start_index, end_index);
-
     for chunk_index in start_index..=end_index {
         let key = &integer_key(chunk_index as u64)[..];
-        let chunk =
-            Chunk::load(store, column, key)?.ok_or(ChunkError::MissingChunk { chunk_index })?;
+        let chunk = Chunk::load(store, column, key)?.ok_or(ChunkError::Missing { chunk_index })?;
         result.push(chunk);
     }
 
@@ -404,7 +396,7 @@ fn stitch<F: Field<E>, E: EthSpec>(
     for (chunk_index, chunk) in (start_cindex..=end_cindex).zip(chunks.into_iter()) {
         // All chunks but the last chunk must be full-sized
         if chunk_index != end_cindex && chunk.values.len() != chunk_size {
-            return Err(ChunkError::InvalidChunkSize {
+            return Err(ChunkError::InvalidSize {
                 chunk_index,
                 expected: chunk_size,
                 actual: chunk.values.len(),
@@ -516,7 +508,7 @@ where
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         // NOTE: could have a sub-trait for fixed length SSZ types?
         if !<T as Decode>::is_ssz_fixed_len() {
-            return Err(Error::from(ChunkError::ChunkTypeInvalid));
+            return Err(Error::from(ChunkError::InvalidType));
         }
 
         // Read the appropriate number of values
@@ -548,7 +540,7 @@ where
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
         // NOTE: could have a sub-trait for fixed length SSZ types?
         if !<T as Decode>::is_ssz_fixed_len() {
-            return Err(Error::from(ChunkError::ChunkTypeInvalid));
+            return Err(Error::from(ChunkError::InvalidType));
         }
 
         let mut result = Vec::with_capacity(self.encoded_size());
@@ -568,15 +560,19 @@ pub enum ChunkError {
         i: usize,
         len: usize,
     },
-    InvalidChunkSize {
+    InvalidSize {
         chunk_index: usize,
         expected: usize,
         actual: usize,
     },
-    MissingChunk {
+    Missing {
         chunk_index: usize,
     },
-    ChunkTypeInvalid,
+    Inconsistent {
+        field: DBColumn,
+        chunk_index: usize,
+    },
+    InvalidType,
     OversizedRange {
         start_vindex: usize,
         end_vindex: usize,
@@ -588,6 +584,7 @@ pub enum ChunkError {
 mod test {
     use super::*;
 
+    // FIXME(michael): make this pass
     #[test]
     fn stitch_basic() {
         fn v(i: u64) -> Hash256 {

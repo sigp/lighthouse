@@ -4,7 +4,7 @@ use client::{
 };
 use futures::sync::oneshot;
 use futures::Future;
-use slog::{error, info, warn};
+use slog::{error, info, o, warn};
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
@@ -150,7 +150,8 @@ where
     T: BeaconChainTypes + InitialiseBeaconChain<T> + Send + Sync + 'static,
     T::Store: OpenDatabase,
 {
-    let store = T::Store::open_database(&db_path, &client_config, &eth2_config.spec)?;
+    let store_logger = log.new(o!("Service" => "Database"));
+    let store = T::Store::open_database(&db_path, &client_config, &eth2_config.spec, store_logger)?;
 
     let client: Client<T> = Client::new(client_config, eth2_config, store, log.clone(), &executor)?;
 
@@ -190,17 +191,28 @@ pub trait OpenDatabase: Sized {
         path: &Path,
         client_config: &ClientConfig,
         spec: &ChainSpec,
+        log: slog::Logger,
     ) -> error::Result<Self>;
 }
 
 impl OpenDatabase for MemoryStore {
-    fn open_database(_path: &Path, _: &ClientConfig, _: &ChainSpec) -> error::Result<Self> {
+    fn open_database(
+        _path: &Path,
+        _: &ClientConfig,
+        _: &ChainSpec,
+        _: slog::Logger,
+    ) -> error::Result<Self> {
         Ok(MemoryStore::open())
     }
 }
 
 impl OpenDatabase for SimpleDiskStore {
-    fn open_database(path: &Path, _: &ClientConfig, _: &ChainSpec) -> error::Result<Self> {
+    fn open_database(
+        path: &Path,
+        _: &ClientConfig,
+        _: &ChainSpec,
+        _: slog::Logger,
+    ) -> error::Result<Self> {
         SimpleDiskStore::open(path).map_err(|e| format!("Unable to open database: {:?}", e).into())
     }
 }
@@ -210,13 +222,14 @@ impl OpenDatabase for DiskStore {
         path: &Path,
         client_config: &ClientConfig,
         spec: &ChainSpec,
+        log: slog::Logger,
     ) -> error::Result<Self> {
         let hot_path = path.with_extension("hot");
         let cold_path = match client_config.freezer_db_path() {
             Some(freezer_path) => freezer_path,
             None => path.with_extension("cold"),
         };
-        DiskStore::open(&hot_path, &cold_path, spec.clone())
+        DiskStore::open(&hot_path, &cold_path, spec.clone(), log)
             .map_err(|e| format!("Unable to open database: {:?}", e).into())
     }
 }

@@ -16,3 +16,4 @@ eth2_ssz_derive = "0.1"
 tree_hash = "0.1"
 types = { path =  "../../eth2/types" }
 compare_fields = { path = "../../eth2/utils/compare_fields" }
+slog = "2.2.3"
