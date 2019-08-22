@@ -121,7 +121,7 @@ pub fn start_server<T: BeaconChainTypes + Clone + Send + Sync + 'static>(
 
             // Route the request to the correct handler.
             let result = match (req.method(), path.as_ref()) {
-                (&Method::GET, "/beacon/best_slot") => beacon::get_best_slot::<T>(req),
+                (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
                 (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),
                 (&Method::GET, "/beacon/block_root") => beacon::get_block_root::<T>(req),
                 (&Method::GET, "/beacon/latest_finalized_checkpoint") => {
@@ -130,14 +130,15 @@ pub fn start_server<T: BeaconChainTypes + Clone + Send + Sync + 'static>(
                 (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req),
                 (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req),
                 (&Method::GET, "/metrics") => metrics::get_prometheus::<T>(req),
-                (&Method::GET, "/node/version") => node::get_version(req),
-                (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
-                (&Method::GET, "/node/network/enr") => network::get_enr::<T>(req),
-                (&Method::GET, "/node/network/peer_count") => network::get_peer_count::<T>(req),
-                (&Method::GET, "/node/network/peers") => network::get_peer_list::<T>(req),
-                (&Method::GET, "/node/network/listen_addresses") => {
+                (&Method::GET, "/network/enr") => network::get_enr::<T>(req),
+                (&Method::GET, "/network/peer_count") => network::get_peer_count::<T>(req),
+                (&Method::GET, "/network/peer_id") => network::get_peer_id::<T>(req),
+                (&Method::GET, "/network/peers") => network::get_peer_list::<T>(req),
+                (&Method::GET, "/network/listen_addresses") => {
                     network::get_listen_addresses::<T>(req)
                 }
+                (&Method::GET, "/node/version") => node::get_version(req),
+                (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
                 (&Method::GET, "/spec") => spec::get_spec::<T>(req),
                 (&Method::GET, "/spec/slots_per_epoch") => spec::get_slots_per_epoch::<T>(req),
                 _ => Err(ApiError::MethodNotAllowed(path.clone())),
