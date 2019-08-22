@@ -54,8 +54,8 @@ where
 
 impl<L, E> BeaconChainTypes for CommonTypes<L, E>
 where
-    L: LmdGhost<MemoryStore, E>,
-    E: EthSpec,
+    L: LmdGhost<MemoryStore, E> + 'static,
+    E: EthSpec + 'static,
 {
     type Store = MemoryStore;
     type SlotClock = TestingSlotClock;
@@ -69,8 +69,8 @@ where
 /// Used for testing.
 pub struct BeaconChainHarness<L, E>
 where
-    L: LmdGhost<MemoryStore, E>,
-    E: EthSpec,
+    L: LmdGhost<MemoryStore, E> + 'static,
+    E: EthSpec + 'static,
 {
     pub chain: BeaconChain<CommonTypes<L, E>>,
     pub keypairs: Vec<Keypair>,

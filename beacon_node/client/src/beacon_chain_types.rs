@@ -36,7 +36,11 @@ pub struct ClientType<S: Store, E: EthSpec> {
     _phantom_u: PhantomData<E>,
 }
 
-impl<S: Store, E: EthSpec + Clone> BeaconChainTypes for ClientType<S, E> {
+impl<S, E> BeaconChainTypes for ClientType<S, E>
+where
+    S: Store + 'static,
+    E: EthSpec + 'static + Clone,
+{
     type Store = S;
     type SlotClock = SystemTimeSlotClock;
     type LmdGhost = ThreadSafeReducedTree<S, E>;
