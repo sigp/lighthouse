@@ -54,14 +54,9 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         ("slot", value) => {
             let target = parse_slot(&value)?;
 
-            beacon_chain
-                .rev_iter_block_roots()
-                .take_while(|(_root, slot)| *slot >= target)
-                .find(|(_root, slot)| *slot == target)
-                .map(|(root, _slot)| root)
-                .ok_or_else(|| {
-                    ApiError::NotFound(format!("Unable to find BeaconBlock for slot {}", target))
-                })?
+            block_root_at_slot(&beacon_chain, target).ok_or_else(|| {
+                ApiError::NotFound(format!("Unable to find BeaconBlock for slot {}", target))
+            })?
         }
         ("root", value) => parse_root(&value)?,
         _ => return Err(ApiError::ServerError("Unexpected query parameter".into())),
@@ -99,14 +94,9 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let target = parse_slot(&slot_string)?;
 
-    let root = beacon_chain
-        .rev_iter_block_roots()
-        .take_while(|(_root, slot)| *slot >= target)
-        .find(|(_root, slot)| *slot == target)
-        .map(|(root, _slot)| root)
-        .ok_or_else(|| {
-            ApiError::NotFound(format!("Unable to find BeaconBlock for slot {}", target))
-        })?;
+    let root = block_root_at_slot(&beacon_chain, target).ok_or_else(|| {
+        ApiError::NotFound(format!("Unable to find BeaconBlock for slot {}", target))
+    })?;
 
     let json: String = serde_json::to_string(&root)
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize root: {:?}", e)))?;

@@ -31,6 +31,21 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
     }
 }
 
+/// Returns the root of the `BeaconBlock` in the canonical chain of `beacon_chain` at the given
+/// `slot`, if possible.
+///
+/// May return a root for a previous slot, in the case of skip slots.
+pub fn block_root_at_slot<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+    target: Slot,
+) -> Option<Hash256> {
+    beacon_chain
+        .rev_iter_block_roots()
+        .take_while(|(_root, slot)| *slot >= target)
+        .find(|(_root, slot)| *slot == target)
+        .map(|(root, _slot)| root)
+}
+
 /// Returns a `BeaconState` and it's root in the canonical chain of `beacon_chain` at the given
 /// `slot`, if possible.
 ///
