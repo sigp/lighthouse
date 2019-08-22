@@ -33,7 +33,7 @@ pub struct Service {
     //TODO: Make this private
     pub swarm: Swarm<Libp2pStream, Libp2pBehaviour>,
     /// This node's PeerId.
-    _local_peer_id: PeerId,
+    pub local_peer_id: PeerId,
     /// The libp2p logger handle.
     pub log: slog::Logger,
 }
@@ -113,7 +113,7 @@ impl Service {
         info!(log, "Subscribed to topics: {:?}", subscribed_topics);
 
         Ok(Service {
-            _local_peer_id: local_peer_id,
+            local_peer_id,
             swarm,
             log,
         })

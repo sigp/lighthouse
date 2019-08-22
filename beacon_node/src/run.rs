@@ -118,7 +118,7 @@ fn run<T>(
     log: &slog::Logger,
 ) -> error::Result<()>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + Send + Sync + 'static,
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone,
     T::Store: OpenDatabase,
 {
     let store = T::Store::open_database(&db_path)?;

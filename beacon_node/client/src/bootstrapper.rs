@@ -10,7 +10,7 @@ use url::Host;
 
 #[derive(Debug)]
 enum Error {
-    UrlCannotBeBase,
+    InvalidUrl,
     HttpError(HttpError),
 }
 
@@ -38,7 +38,7 @@ impl Bootstrapper {
 
     /// Build a multiaddr using the HTTP server URL that is not guaranteed to be correct.
     ///
-    /// The address is created by querying the HTTP server for it's listening libp2p addresses.
+    /// The address is created by querying the HTTP server for its listening libp2p addresses.
     /// Then, we find the first TCP port in those addresses and combine the port with the URL of
     /// the server.
     ///
@@ -124,7 +124,7 @@ fn get_slots_per_epoch(mut url: Url) -> Result<Slot, Error> {
         .map(|mut url| {
             url.push("spec").push("slots_per_epoch");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     reqwest::get(url)?
         .error_for_status()?
@@ -137,7 +137,7 @@ fn get_finalized_slot(mut url: Url, slots_per_epoch: u64) -> Result<Slot, Error>
         .map(|mut url| {
             url.push("beacon").push("latest_finalized_checkpoint");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     let checkpoint: Checkpoint = reqwest::get(url)?.error_for_status()?.json()?;
 
@@ -149,7 +149,7 @@ fn get_state<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconState<T>, Err
         .map(|mut url| {
             url.push("beacon").push("state");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     url.query_pairs_mut()
         .append_pair("slot", &format!("{}", slot.as_u64()));
@@ -165,7 +165,7 @@ fn get_block<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconBlock<T>, Err
         .map(|mut url| {
             url.push("beacon").push("block");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     url.query_pairs_mut()
         .append_pair("slot", &format!("{}", slot.as_u64()));
@@ -181,7 +181,7 @@ fn get_enr(mut url: Url) -> Result<Enr, Error> {
         .map(|mut url| {
             url.push("node").push("network").push("enr");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     reqwest::get(url)?
         .error_for_status()?
@@ -194,7 +194,7 @@ fn get_listen_addresses(mut url: Url) -> Result<Vec<Multiaddr>, Error> {
         .map(|mut url| {
             url.push("node").push("network").push("listen_addresses");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     reqwest::get(url)?
         .error_for_status()?

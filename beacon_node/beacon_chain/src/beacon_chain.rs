@@ -77,7 +77,7 @@ pub enum AttestationProcessingOutcome {
     Invalid(AttestationValidationError),
 }
 
-pub trait BeaconChainTypes {
+pub trait BeaconChainTypes: Send + Sync + 'static {
     type Store: store::Store;
     type SlotClock: slot_clock::SlotClock;
     type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;
