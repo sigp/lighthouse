@@ -22,8 +22,6 @@ pub struct MessageHandler<T: BeaconChainTypes> {
     _chain: Arc<BeaconChain<T>>,
     /// The syncing framework.
     sync: SimpleSync<T>,
-    /// The context required to send messages to, and process messages from peers.
-    network_context: NetworkContext,
     /// The `MessageHandler` logger.
     log: slog::Logger,
 }
@@ -52,15 +50,13 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         trace!(log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
-
         // Initialise sync and begin processing in thread
-        let sync = SimpleSync::new(beacon_chain.clone(), &log);
+        let sync = SimpleSync::new(beacon_chain.clone(), network_send, &log);
 
         // generate the Message handler
         let mut handler = MessageHandler {
             _chain: beacon_chain.clone(),
             sync,
-            network_context: NetworkContext::new(network_send, log.clone()),
             log: log.clone(),
         };
 
@@ -81,7 +77,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         match message {
             // we have initiated a connection to a peer
             HandlerMessage::PeerDialed(peer_id) => {
-                self.sync.on_connect(peer_id, &mut self.network_context);
+                self.sync.on_connect(peer_id);
             }
             // A peer has disconnected
             HandlerMessage::PeerDisconnected(peer_id) => {
@@ -112,32 +108,24 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     /// A new RPC request has been received from the network.
     fn handle_rpc_request(&mut self, peer_id: PeerId, request_id: RequestId, request: RPCRequest) {
         match request {
-            RPCRequest::Hello(hello_message) => self.sync.on_hello_request(
-                peer_id,
-                request_id,
-                hello_message,
-                &mut self.network_context,
-            ),
+            RPCRequest::Hello(hello_message) => {
+                self.sync
+                    .on_hello_request(peer_id, request_id, hello_message)
+            }
             RPCRequest::Goodbye(goodbye_reason) => {
                 debug!(
                     self.log, "PeerGoodbye";
                     "peer" => format!("{:?}", peer_id),
-                    "reason" => format!("{:?}", reason),
+                    "reason" => format!("{:?}", goodbye_reason),
                 );
-                self.sync.on_disconnect(peer_id),
-            },
-            RPCRequest::BeaconBlocks(request) => self.sync.on_beacon_blocks_request(
-                peer_id,
-                request_id,
-                request,
-                &mut self.network_context,
-            ),
-            RPCRequest::RecentBeaconBlocks(request) => self.sync.on_recent_beacon_blocks_request(
-                peer_id,
-                request_id,
-                request,
-                &mut self.network_context,
-            ),
+                self.sync.on_disconnect(peer_id);
+            }
+            RPCRequest::BeaconBlocks(request) => self
+                .sync
+                .on_beacon_blocks_request(peer_id, request_id, request),
+            RPCRequest::RecentBeaconBlocks(request) => self
+                .sync
+                .on_recent_beacon_blocks_request(peer_id, request_id, request),
         }
     }
 
@@ -163,20 +151,15 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             RPCErrorResponse::Success(response) => {
                 match response {
                     RPCResponse::Hello(hello_message) => {
-                        self.sync.on_hello_response(
-                            peer_id,
-                            hello_message,
-                            &mut self.network_context,
-                        );
+                        self.sync.on_hello_response(peer_id, hello_message);
                     }
                     RPCResponse::BeaconBlocks(response) => {
-                        match self.decode_beacon_blocks(response) {
+                        match self.decode_beacon_blocks(&response) {
                             Ok(beacon_blocks) => {
                                 self.sync.on_beacon_blocks_response(
                                     peer_id,
                                     request_id,
                                     beacon_blocks,
-                                    &mut self.network_context,
                                 );
                             }
                             Err(e) => {
@@ -186,13 +169,12 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                         }
                     }
                     RPCResponse::RecentBeaconBlocks(response) => {
-                        match self.decode_beacon_blocks(response) {
+                        match self.decode_beacon_blocks(&response) {
                             Ok(beacon_blocks) => {
                                 self.sync.on_recent_beacon_blocks_response(
-                                    request_id,
                                     peer_id,
+                                    request_id,
                                     beacon_blocks,
-                                    &mut self.network_context,
                                 );
                             }
                             Err(e) => {
@@ -217,19 +199,14 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         match gossip_message {
             PubsubMessage::Block(message) => match self.decode_gossip_block(message) {
                 Ok(block) => {
-                    let _should_forward_on =
-                        self.sync
-                            .on_block_gossip(peer_id, block, &mut self.network_context);
+                    let _should_forward_on = self.sync.on_block_gossip(peer_id, block);
                 }
                 Err(e) => {
                     debug!(self.log, "Invalid gossiped beacon block"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
                 }
             },
             PubsubMessage::Attestation(message) => match self.decode_gossip_attestation(message) {
-                Ok(attestation) => {
-                    self.sync
-                        .on_attestation_gossip(peer_id, attestation, &mut self.network_context)
-                }
+                Ok(attestation) => self.sync.on_attestation_gossip(peer_id, attestation),
                 Err(e) => {
                     debug!(self.log, "Invalid gossiped attestation"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
                 }
@@ -329,58 +306,5 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     ) -> Result<Vec<BeaconBlock<T::EthSpec>>, DecodeError> {
         //TODO: Implement faster block verification before decoding entirely
         Vec::from_ssz_bytes(&beacon_blocks)
-    }
-}
-
-/// Wraps a Network Channel to employ various RPC/Sync related network functionality.
-pub struct NetworkContext {
-    /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
-    /// Logger for the `NetworkContext`.
-    log: slog::Logger,
-}
-
-impl NetworkContext {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
-        Self { network_send, log }
-    }
-
-    pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        self.send_rpc_request(peer_id, RPCRequest::Goodbye(reason))
-        // TODO: disconnect peers.
-    }
-
-    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest) {
-        // Note: There is currently no use of keeping track of requests. However the functionality
-        // is left here for future revisions.
-        self.send_rpc_event(peer_id, RPCEvent::Request(0, rpc_request));
-    }
-
-    //TODO: Handle Error responses
-    pub fn send_rpc_response(
-        &mut self,
-        peer_id: PeerId,
-        request_id: RequestId,
-        rpc_response: RPCErrorResponse,
-    ) {
-        self.send_rpc_event(
-            peer_id,
-            RPCEvent::Response(request_id, RPCErrorResponse::Success(rpc_response)),
-        );
-    }
-
-    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
-        self.send(peer_id, OutgoingMessage::RPC(rpc_event))
-    }
-
-    fn send(&mut self, peer_id: PeerId, outgoing_message: OutgoingMessage) {
-        self.network_send
-            .try_send(NetworkMessage::Send(peer_id, outgoing_message))
-            .unwrap_or_else(|_| {
-                warn!(
-                    self.log,
-                    "Could not send RPC message to the network service"
-                )
-            });
     }
 }
