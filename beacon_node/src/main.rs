@@ -200,6 +200,16 @@ fn main() {
                 .help("Sets the verbosity level")
                 .takes_value(true),
         )
+        /*
+         * Bootstrap.
+         */
+        .arg(
+            Arg::with_name("bootstrap")
+                .long("bootstrap")
+                .value_name("HTTP_SERVER")
+                .help("Load the genesis state and libp2p address from the HTTP API of another Lighthouse node.")
+                .takes_value(true)
+        )
         .get_matches();
 
     // build the initial logger
@@ -226,6 +236,11 @@ fn main() {
     };
 
     let mut log = slog::Logger::root(drain.fuse(), o!());
+
+    warn!(
+        log,
+        "Ethereum 2.0 is pre-release. This software is experimental."
+    );
 
     let data_dir = match matches
         .value_of("datadir")

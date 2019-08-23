@@ -4,7 +4,7 @@ use client::{
 };
 use futures::sync::oneshot;
 use futures::Future;
-use slog::{error, info, warn};
+use slog::{error, info};
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
@@ -41,11 +41,6 @@ pub fn run_beacon_node(
     let spec_constants = eth2_config.spec_constants.clone();
 
     let other_client_config = client_config.clone();
-
-    warn!(
-        log,
-        "Ethereum 2.0 is pre-release. This software is experimental."
-    );
 
     info!(
         log,
@@ -123,7 +118,7 @@ fn run<T>(
     log: &slog::Logger,
 ) -> error::Result<()>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + Send + Sync + 'static,
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone,
     T::Store: OpenDatabase,
 {
     let store = T::Store::open_database(&db_path)?;

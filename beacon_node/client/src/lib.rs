@@ -1,6 +1,7 @@
 extern crate slog;
 
 mod beacon_chain_types;
+mod bootstrapper;
 mod config;
 
 pub mod error;
@@ -21,7 +22,8 @@ use tokio::timer::Interval;
 pub use beacon_chain::BeaconChainTypes;
 pub use beacon_chain_types::ClientType;
 pub use beacon_chain_types::InitialiseBeaconChain;
-pub use config::Config as ClientConfig;
+pub use bootstrapper::Bootstrapper;
+pub use config::{Config as ClientConfig, GenesisState};
 pub use eth2_config::Eth2Config;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
@@ -47,7 +49,7 @@ pub struct Client<T: BeaconChainTypes> {
 
 impl<T> Client<T>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + 'static,
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone,
 {
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
@@ -121,6 +123,7 @@ where
                 &client_config.rest_api,
                 executor,
                 beacon_chain.clone(),
+                network.clone(),
                 client_config.db_path().expect("unable to read datadir"),
                 &log,
             ) {
