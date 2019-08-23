@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use client::{ClientConfig, Eth2Config};
+use client::{Bootstrapper, ClientConfig, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use rand::{distributions::Alphanumeric, Rng};
 use slog::{crit, info, Logger};
@@ -30,6 +30,41 @@ pub fn get_configs(matches: &ArgMatches, log: &Logger) -> Result<Config> {
             );
 
             builder.update_spec_from_subcommand(&sub_matches)?;
+
+            match sub_matches.subcommand() {
+                // The bootstrap testnet method requires inserting a libp2p address into the
+                // network config.
+                ("bootstrap", Some(sub_matches)) => {
+                    let server = sub_matches
+                        .value_of("server")
+                        .ok_or_else(|| "No bootstrap server specified".into())?;
+
+                    let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
+
+                    if let Some(server_multiaddr) =
+                        bootstrapper.best_effort_multiaddr(sub_matches.value_of("libp2p_port"))
+                    {
+                        info!(
+                            log,
+                            "Estimated bootstrapper libp2p address";
+                            "multiaddr" => format!("{:?}", server_multiaddr)
+                        );
+
+                        builder
+                            .client_config
+                            .network
+                            .libp2p_nodes
+                            .push(server_multiaddr);
+                    } else {
+                        warn!(
+                            log,
+                            "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
+                        );
+                    };
+                }
+                _ => (),
+            };
+
             builder.write_configs_to_new_datadir()?;
         }
         _ => {
@@ -53,8 +88,8 @@ struct ConfigBuilder<'a> {
     matches: &'a ArgMatches<'a>,
     log: &'a Logger,
     pub data_dir: PathBuf,
-    eth2_config: Eth2Config,
-    client_config: ClientConfig,
+    pub eth2_config: Eth2Config,
+    pub client_config: ClientConfig,
 }
 
 impl<'a> ConfigBuilder<'a> {

@@ -46,8 +46,12 @@ impl Bootstrapper {
     /// For example, the server `http://192.168.0.1` might end up with a `best_effort_multiaddr` of
     /// `/ipv4/192.168.0.1/tcp/9000` if the server advertises a listening address of
     /// `/ipv4/172.0.0.1/tcp/9000`.
-    pub fn best_effort_multiaddr(&self) -> Option<Multiaddr> {
-        let tcp_port = self.listen_port().ok()?;
+    pub fn best_effort_multiaddr(&self, port: Option<u16>) -> Option<Multiaddr> {
+        let tcp_port = if let Some(port) = port {
+            port
+        } else {
+            self.listen_port().ok()?
+        };
 
         let mut multiaddr = Multiaddr::with_capacity(2);
 

@@ -21,14 +21,42 @@ pub struct Config {
     db_name: String,
     pub log_file: PathBuf,
     pub spec_constants: String,
-    pub genesis_state: GenesisState,
+    #[serde(skip)]
+    pub boot_method: BootMethod,
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub rest_api: rest_api::ApiConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[derive(Debug, Clone)]
+pub enum BootMethod {
+    /// Resume from an existing database.
+    Resume,
+    /// Generate a state with `validator_count` validators, all with well-known secret keys.
+    ///
+    /// Set the genesis time to be the start of the previous 30-minute window.
+    RecentGenesis { validator_count: usize },
+    /// Generate a state with `genesis_time` and `validator_count` validators, all with well-known
+    /// secret keys.
+    Generated {
+        validator_count: usize,
+        genesis_time: u64,
+    },
+    /// Load a YAML-encoded genesis state from a file.
+    Yaml { file: PathBuf },
+    /// Use a HTTP server (running our REST-API) to load genesis and finalized states and blocks.
+    HttpBootstrap {
+        server: String,
+        port: Option<String>,
+    },
+}
+
+impl Default for BootMethod {
+    fn default() -> Self {
+        BootMethod::Resume
+    }
+}
+
 pub enum GenesisState {
     /// Use the mainnet genesis state.
     ///
@@ -61,9 +89,7 @@ impl Default for Config {
             rpc: rpc::RPCConfig::default(),
             rest_api: rest_api::ApiConfig::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
-            genesis_state: GenesisState::RecentGenesis {
-                validator_count: TESTNET_VALIDATOR_COUNT,
-            },
+            boot_method: BootMethod::default(),
         }
     }
 }
@@ -140,40 +166,6 @@ impl Config {
             self.update_logger(log)?;
         };
 
-        // If the `--bootstrap` flag is provided, overwrite the default configuration.
-        if let Some(server) = args.value_of("bootstrap") {
-            do_bootstrapping(self, server.to_string(), &log)?;
-        }
-
         Ok(())
     }
-}
-
-/// Perform the HTTP bootstrapping procedure, reading an ENR and multiaddr from the HTTP server and
-/// adding them to the `config`.
-fn do_bootstrapping(config: &mut Config, server: String, log: &slog::Logger) -> Result<(), String> {
-    // Set the genesis state source.
-    config.genesis_state = GenesisState::HttpBootstrap {
-        server: server.to_string(),
-    };
-
-    let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
-
-    config.network.boot_nodes.push(bootstrapper.enr()?);
-
-    if let Some(server_multiaddr) = bootstrapper.best_effort_multiaddr() {
-        info!(
-            log,
-            "Estimated bootstrapper libp2p address";
-            "multiaddr" => format!("{:?}", server_multiaddr)
-        );
-        config.network.libp2p_nodes.push(server_multiaddr);
-    } else {
-        warn!(
-            log,
-            "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
-        );
-    }
-
-    Ok(())
 }
