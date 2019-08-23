@@ -103,6 +103,10 @@ impl<TSubstream> Discovery<TSubstream> {
         })
     }
 
+    pub fn local_enr(&self) -> &Enr {
+        self.discovery.local_enr()
+    }
+
     /// Manually search for peers. This restarts the discovery round, sparking multiple rapid
     /// queries.
     pub fn discover_peers(&mut self) {
@@ -118,6 +122,11 @@ impl<TSubstream> Discovery<TSubstream> {
     /// The current number of connected libp2p peers.
     pub fn connected_peers(&self) -> usize {
         self.connected_peers.len()
+    }
+
+    /// The current number of connected libp2p peers.
+    pub fn connected_peer_set(&self) -> &HashSet<PeerId> {
+        &self.connected_peers
     }
 
     /// Search for new peers using the underlying discovery mechanism.

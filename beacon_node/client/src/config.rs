@@ -1,8 +1,8 @@
-use crate::Eth2Config;
+use crate::{Bootstrapper, Eth2Config};
 use clap::ArgMatches;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
-use slog::{info, o, Drain};
+use slog::{info, o, warn, Drain};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -46,6 +46,8 @@ pub enum GenesisState {
     },
     /// Load a YAML-encoded genesis state from a file.
     Yaml { file: PathBuf },
+    /// Use a HTTP server (running our REST-API) to load genesis and finalized states and blocks.
+    HttpBootstrap { server: String },
 }
 
 impl Default for Config {
@@ -147,6 +149,40 @@ impl Config {
             self.update_logger(log)?;
         };
 
+        // If the `--bootstrap` flag is provided, overwrite the default configuration.
+        if let Some(server) = args.value_of("bootstrap") {
+            do_bootstrapping(self, server.to_string(), &log)?;
+        }
+
         Ok(())
     }
+}
+
+/// Perform the HTTP bootstrapping procedure, reading an ENR and multiaddr from the HTTP server and
+/// adding them to the `config`.
+fn do_bootstrapping(config: &mut Config, server: String, log: &slog::Logger) -> Result<(), String> {
+    // Set the genesis state source.
+    config.genesis_state = GenesisState::HttpBootstrap {
+        server: server.to_string(),
+    };
+
+    let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
+
+    config.network.boot_nodes.push(bootstrapper.enr()?);
+
+    if let Some(server_multiaddr) = bootstrapper.best_effort_multiaddr() {
+        info!(
+            log,
+            "Estimated bootstrapper libp2p address";
+            "multiaddr" => format!("{:?}", server_multiaddr)
+        );
+        config.network.libp2p_nodes.push(server_multiaddr);
+    } else {
+        warn!(
+            log,
+            "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
+        );
+    }
+
+    Ok(())
 }

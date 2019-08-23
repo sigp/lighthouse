@@ -78,6 +78,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
             log: behaviour_log,
         })
     }
+
+    pub fn discovery(&self) -> &Discovery<TSubstream> {
+        &self.discovery
+    }
 }
 
 // Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour

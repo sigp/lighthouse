@@ -77,7 +77,7 @@ pub enum AttestationProcessingOutcome {
     Invalid(AttestationValidationError),
 }
 
-pub trait BeaconChainTypes {
+pub trait BeaconChainTypes: Send + Sync + 'static {
     type Store: store::Store;
     type SlotClock: slot_clock::SlotClock;
     type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;
@@ -870,9 +870,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
+        // Keep a list of any states that were "skipped" (block-less) in between the parent state
+        // slot and the block slot. These will need to be stored in the database.
+        let mut intermediate_states = vec![];
+
         // Transition the parent state to the block slot.
         let mut state: BeaconState<T::EthSpec> = parent_state;
-        for _ in state.slot.as_u64()..block.slot.as_u64() {
+        for i in state.slot.as_u64()..block.slot.as_u64() {
+            if i > 0 {
+                intermediate_states.push(state.clone());
+            }
             per_slot_processing(&mut state, &self.spec)?;
         }
 
@@ -910,6 +917,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(state_root_timer);
 
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
+
+        // Store all the states between the parent block state and this blocks slot before storing
+        // the final state.
+        for (i, intermediate_state) in intermediate_states.iter().enumerate() {
+            // To avoid doing an unnecessary tree hash, use the following (slot + 1) state's
+            // state_roots field to find the root.
+            let following_state = match intermediate_states.get(i + 1) {
+                Some(following_state) => following_state,
+                None => &state,
+            };
+            let intermediate_state_root =
+                following_state.get_state_root(intermediate_state.slot)?;
+
+            self.store
+                .put(&intermediate_state_root, intermediate_state)?;
+        }
 
         // Store the block and state.
         self.store.put(&block_root, &block)?;

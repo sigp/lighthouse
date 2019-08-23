@@ -17,12 +17,13 @@ pub use behaviour::PubsubMessage;
 pub use config::{
     Config as NetworkConfig, BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC, SHARD_TOPIC_PREFIX,
 };
+pub use libp2p::enr::Enr;
 pub use libp2p::gossipsub::{Topic, TopicHash};
 pub use libp2p::multiaddr;
 pub use libp2p::Multiaddr;
 pub use libp2p::{
     gossipsub::{GossipsubConfig, GossipsubConfigBuilder},
-    PeerId,
+    PeerId, Swarm,
 };
 pub use rpc::RPCEvent;
 pub use service::Libp2pEvent;
