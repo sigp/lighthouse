@@ -46,7 +46,6 @@ pub fn run_beacon_node(
         log,
         "BeaconNode init";
         "p2p_listen_address" => format!("{:?}", &other_client_config.network.listen_address),
-        "data_dir" => format!("{:?}", other_client_config.data_dir()),
         "network_dir" => format!("{:?}", other_client_config.network.network_dir),
         "spec_constants" => &spec_constants,
         "db_type" => &other_client_config.db_type,

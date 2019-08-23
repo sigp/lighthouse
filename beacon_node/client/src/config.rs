@@ -1,4 +1,4 @@
-use crate::{Bootstrapper, Eth2Config};
+use crate::Bootstrapper;
 use clap::ArgMatches;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
@@ -126,15 +126,6 @@ impl Config {
         if let Some(dir) = args.value_of("datadir") {
             self.data_dir = PathBuf::from(dir);
         };
-
-        if let Some(default_spec) = args.value_of("default-spec") {
-            match default_spec {
-                "mainnet" => self.spec_constants = Eth2Config::mainnet().spec_constants,
-                "minimal" => self.spec_constants = Eth2Config::minimal().spec_constants,
-                "interop" => self.spec_constants = Eth2Config::interop().spec_constants,
-                _ => {} // not supported
-            }
-        }
 
         if let Some(dir) = args.value_of("db") {
             self.db_type = dir.to_string();
