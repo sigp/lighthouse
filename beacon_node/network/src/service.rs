@@ -18,6 +18,7 @@ use tokio::sync::{mpsc, oneshot};
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service<T: BeaconChainTypes> {
     libp2p_service: Arc<Mutex<LibP2PService>>,
+    libp2p_port: u16,
     _libp2p_exit: oneshot::Sender<()>,
     _network_send: mpsc::UnboundedSender<NetworkMessage>,
     _phantom: PhantomData<T>, //message_handler: MessageHandler,
@@ -56,6 +57,7 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
         )?;
         let network_service = Service {
             libp2p_service,
+            libp2p_port: config.libp2p_port,
             _libp2p_exit: libp2p_exit,
             _network_send: network_send.clone(),
             _phantom: PhantomData,
@@ -85,6 +87,11 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
         Swarm::listeners(&self.libp2p_service.lock().swarm)
             .cloned()
             .collect()
+    }
+
+    /// Returns the libp2p port that this node has been configured to listen using.
+    pub fn listen_port(&self) -> u16 {
+        self.libp2p_port
     }
 
     /// Returns the number of libp2p connected peers.

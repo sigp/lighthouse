@@ -16,7 +16,7 @@ use libp2p::core::{
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
 use libp2p::{core, secio, PeerId, Swarm, Transport};
-use slog::{debug, info, trace, warn};
+use slog::{crit, debug, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
@@ -69,10 +69,15 @@ impl Service {
                 log_address.push(Protocol::P2p(local_peer_id.clone().into()));
                 info!(log, "Listening on: {}", log_address);
             }
-            Err(err) => warn!(
-                log,
-                "Cannot listen on: {} because: {:?}", listen_multiaddr, err
-            ),
+            Err(err) => {
+                crit!(
+                    log,
+                    "Unable to listen on libp2p address";
+                    "error" => format!("{:?}", err),
+                    "listen_multiaddr" => format!("{}", listen_multiaddr),
+                );
+                return Err("Libp2p was unable to listen on the given listen address.".into());
+            }
         };
 
         // attempt to connect to user-input libp2p nodes
