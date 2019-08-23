@@ -3,9 +3,10 @@ use eth2_libp2p::{
     Enr,
 };
 use reqwest::{Error as HttpError, Url};
+use serde::Deserialize;
 use std::borrow::Cow;
 use std::net::Ipv4Addr;
-use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Slot};
+use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 use url::Host;
 
 #[derive(Debug)]
@@ -84,9 +85,11 @@ impl Bootstrapper {
         let genesis_slot = Slot::new(0);
 
         let block = get_block(self.url.clone(), genesis_slot)
-            .map_err(|e| format!("Unable to get genesis block: {:?}", e))?;
+            .map_err(|e| format!("Unable to get genesis block: {:?}", e))?
+            .beacon_block;
         let state = get_state(self.url.clone(), genesis_slot)
-            .map_err(|e| format!("Unable to get genesis state: {:?}", e))?;
+            .map_err(|e| format!("Unable to get genesis state: {:?}", e))?
+            .beacon_state;
 
         Ok((state, block))
     }
@@ -99,9 +102,11 @@ impl Bootstrapper {
             .map_err(|e| format!("Unable to get finalized slot: {:?}", e))?;
 
         let block = get_block(self.url.clone(), finalized_slot)
-            .map_err(|e| format!("Unable to get finalized block: {:?}", e))?;
+            .map_err(|e| format!("Unable to get finalized block: {:?}", e))?
+            .beacon_block;
         let state = get_state(self.url.clone(), finalized_slot)
-            .map_err(|e| format!("Unable to get finalized state: {:?}", e))?;
+            .map_err(|e| format!("Unable to get finalized state: {:?}", e))?
+            .beacon_state;
 
         Ok((state, block))
     }
@@ -132,7 +137,14 @@ fn get_finalized_slot(mut url: Url, slots_per_epoch: u64) -> Result<Slot, Error>
     Ok(checkpoint.epoch.start_slot(slots_per_epoch))
 }
 
-fn get_state<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconState<T>, Error> {
+#[derive(Deserialize)]
+#[serde(bound = "T: EthSpec")]
+pub struct StateResponse<T: EthSpec> {
+    pub root: Hash256,
+    pub beacon_state: BeaconState<T>,
+}
+
+fn get_state<T: EthSpec>(mut url: Url, slot: Slot) -> Result<StateResponse<T>, Error> {
     url.path_segments_mut()
         .map(|mut url| {
             url.push("beacon").push("state");
@@ -148,7 +160,14 @@ fn get_state<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconState<T>, Err
         .map_err(Into::into)
 }
 
-fn get_block<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconBlock<T>, Error> {
+#[derive(Deserialize)]
+#[serde(bound = "T: EthSpec")]
+pub struct BlockResponse<T: EthSpec> {
+    pub root: Hash256,
+    pub beacon_block: BeaconBlock<T>,
+}
+
+fn get_block<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BlockResponse<T>, Error> {
     url.path_segments_mut()
         .map(|mut url| {
             url.push("beacon").push("block");
