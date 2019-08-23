@@ -1,4 +1,4 @@
-use crate::{BeaconChain, BeaconChainTypes};
+use crate::{metrics, BeaconChain, BeaconChainTypes};
 use lmd_ghost::LmdGhost;
 use parking_lot::RwLock;
 use state_processing::common::get_attesting_indices;
@@ -47,6 +47,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     }
 
     pub fn find_head(&self, chain: &BeaconChain<T>) -> Result<Hash256> {
+        let timer = metrics::start_timer(&metrics::FORK_CHOICE_FIND_HEAD_TIMES);
+
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
         // From the specification:
@@ -100,9 +102,14 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
                 .map(|v| v.effective_balance)
         };
 
-        self.backend
+        let result = self
+            .backend
             .find_head(start_block_slot, start_block_root, weight)
-            .map_err(Into::into)
+            .map_err(Into::into);
+
+        metrics::stop_timer(timer);
+
+        result
     }
 
     /// Process all attestations in the given `block`.
@@ -115,6 +122,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         block: &BeaconBlock<T::EthSpec>,
         block_root: Hash256,
     ) -> Result<()> {
+        let timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
         // Note: we never count the block as a latest message, only attestations.
         //
         // I (Paul H) do not have an explicit reference to this, but I derive it from this
@@ -140,6 +148,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         // a block that has the majority of votes applied to it.
         self.backend.process_block(block, block_root)?;
 
+        metrics::stop_timer(timer);
+
         Ok(())
     }
 
@@ -152,6 +162,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         attestation: &Attestation<T::EthSpec>,
         block: &BeaconBlock<T::EthSpec>,
     ) -> Result<()> {
+        let timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
+
         let block_hash = attestation.data.beacon_block_root;
 
         // Ignore any attestations to the zero hash.
@@ -178,6 +190,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
                     .process_attestation(validator_index, block_hash, block.slot)?;
             }
         }
+
+        metrics::stop_timer(timer);
 
         Ok(())
     }

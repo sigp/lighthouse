@@ -130,28 +130,6 @@ fn main() {
                 .help("Listen port for RPC endpoint.")
                 .takes_value(true),
         )
-        /*
-         * HTTP server parameters.
-         */
-        .arg(
-            Arg::with_name("http")
-                .long("http")
-                .help("Enable the HTTP server.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("http-address")
-                .long("http-address")
-                .value_name("Address")
-                .help("Listen address for the HTTP server.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("http-port")
-                .long("http-port")
-                .help("Listen port for the HTTP server.")
-                .takes_value(true),
-        )
         /* Client related arguments */
         .arg(
             Arg::with_name("api")
@@ -231,6 +209,16 @@ fn main() {
                 .help("Sets the verbosity level")
                 .takes_value(true),
         )
+        /*
+         * Bootstrap.
+         */
+        .arg(
+            Arg::with_name("bootstrap")
+                .long("bootstrap")
+                .value_name("HTTP_SERVER")
+                .help("Load the genesis state and libp2p address from the HTTP API of another Lighthouse node.")
+                .takes_value(true)
+        )
         .get_matches();
 
     // build the initial logger
@@ -257,6 +245,11 @@ fn main() {
     };
 
     let mut log = slog::Logger::root(drain.fuse(), o!());
+
+    warn!(
+        log,
+        "Ethereum 2.0 is pre-release. This software is experimental."
+    );
 
     let data_dir = match matches
         .value_of("datadir")

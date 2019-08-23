@@ -9,24 +9,40 @@ pub fn store_full_state<S: Store, E: EthSpec>(
     state_root: &Hash256,
     state: &BeaconState<E>,
 ) -> Result<(), Error> {
-    store.put_bytes(
+    let timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_TIMES);
+
+    let result = store.put_bytes(
         DBColumn::BeaconState.into(),
         state_root.as_bytes(),
         &StorageContainer::new(state).as_ssz_bytes(),
     )
+
+    metrics::stop_timer(timer);
+    metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
+    metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as i64);
+
+    result
 }
 
 pub fn get_full_state<S: Store, E: EthSpec>(
     store: &S,
     state_root: &Hash256,
 ) -> Result<Option<BeaconState<E>>, Error> {
-    match store.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
+    let timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
+
+    let result = match store.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
         Some(bytes) => {
             let container = StorageContainer::from_ssz_bytes(&bytes)?;
             Ok(Some(container.try_into()?))
         }
         None => Ok(None),
     }
+
+    metrics::stop_timer(timer);
+    metrics::inc_counter(&metrics::BEACON_STATE_READ_COUNT);
+    metrics::inc_counter_by(&metrics::BEACON_STATE_READ_BYTES, len as i64);
+
+    result
 }
 
 /// A container for storing `BeaconState` components.

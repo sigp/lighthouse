@@ -42,11 +42,6 @@ pub fn run_beacon_node(
 
     let other_client_config = client_config.clone();
 
-    warn!(
-        log,
-        "Ethereum 2.0 is pre-release. This software is experimental."
-    );
-
     info!(
         log,
         "BeaconNode init";
@@ -147,7 +142,7 @@ fn run<T>(
     log: &slog::Logger,
 ) -> error::Result<()>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Send + Sync + 'static,
+    T: BeaconChainTypes + InitialiseBeaconChain<T>,
     T::Store: OpenDatabase,
 {
     let store_logger = log.new(o!("Service" => "Database"));

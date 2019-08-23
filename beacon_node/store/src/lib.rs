@@ -7,6 +7,8 @@
 //!
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
+#[macro_use]
+extern crate lazy_static;
 
 mod block_at_slot;
 pub mod chunked_vector;
@@ -15,6 +17,7 @@ mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
+mod metrics;
 mod partial_beacon_state;
 
 pub mod iter;
@@ -29,6 +32,7 @@ pub use self::memory_store::MemoryStore;
 pub use self::migrate::Migrate;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
+pub use metrics::scrape_for_metrics;
 pub use types::*;
 
 /// An object capable of storing and retrieving objects implementing `StoreItem`.

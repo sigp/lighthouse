@@ -1,3 +1,4 @@
+use crate::bootstrapper::Bootstrapper;
 use crate::error::Result;
 use crate::{config::GenesisState, ClientConfig};
 use beacon_chain::{
@@ -34,7 +35,12 @@ pub struct ClientType<S: Store, E: EthSpec, M: Migrate<S, E> = NullMigrator> {
     _phantom: PhantomData<(S, E, M)>,
 }
 
-impl<S: Store, E: EthSpec, M: Migrate<S, E>> BeaconChainTypes for ClientType<S, E, M> {
+impl<S, E, M> BeaconChainTypes for ClientType<S, E, M>
+where
+    S: Store,
+    E: EthSpec,
+    M: Migrate<S, E>,
+{
     type Store = S;
     type StoreMigrator = M;
     type SlotClock = SystemTimeSlotClock;
@@ -77,6 +83,16 @@ where
 
             serde_yaml::from_reader(file)
                 .map_err(|e| format!("Unable to parse YAML genesis state file: {:?}", e))?
+        }
+        GenesisState::HttpBootstrap { server } => {
+            let bootstrapper = Bootstrapper::from_server_string(server.to_string())
+                .map_err(|e| format!("Failed to initialize bootstrap client: {}", e))?;
+
+            let (state, _block) = bootstrapper
+                .genesis()
+                .map_err(|e| format!("Failed to bootstrap genesis state: {}", e))?;
+
+            state
         }
     };
 

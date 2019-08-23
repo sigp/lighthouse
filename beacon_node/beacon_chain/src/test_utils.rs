@@ -54,7 +54,7 @@ where
 
 impl<L, E, S> BeaconChainTypes for CommonTypes<L, E, S>
 where
-    L: LmdGhost<S, E>,
+    L: LmdGhost<S, E> + 'static,
     E: EthSpec,
     S: Store,
 {
@@ -71,7 +71,7 @@ where
 /// Used for testing.
 pub struct BeaconChainHarness<L, E, S>
 where
-    L: LmdGhost<S, E>,
+    L: LmdGhost<S, E> + 'static,
     E: EthSpec,
     S: Store,
 {

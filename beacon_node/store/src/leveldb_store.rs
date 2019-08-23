@@ -1,5 +1,6 @@
 use super::*;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
+use crate::metrics;
 use db_key::Key;
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
@@ -59,14 +60,26 @@ impl Store for LevelDB {
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = Self::get_key_for_col(col, key);
 
-        self.db
+        metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
+
+        let result = self
+            .db
             .get(self.read_options(), column_key)
-            .map_err(Into::into)
+            .map_err(Into::into);
+
+        if let Ok(Some(bytes)) = &result {
+            metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, bytes.len() as i64)
+        }
+
+        result
     }
 
     /// Store some `value` in `column`, indexed with `key`.
     fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
         let column_key = Self::get_key_for_col(col, key);
+
+        metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
+        metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as i64);
 
         self.db
             .put(self.write_options(), column_key, val)
@@ -77,6 +90,8 @@ impl Store for LevelDB {
     fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
         let column_key = Self::get_key_for_col(col, key);
 
+        metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
+
         self.db
             .get(self.read_options(), column_key)
             .map_err(Into::into)
@@ -86,6 +101,9 @@ impl Store for LevelDB {
     /// Removes `key` from `column`.
     fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
         let column_key = Self::get_key_for_col(col, key);
+
+        metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
+
         self.db
             .delete(self.write_options(), column_key)
             .map_err(Into::into)
