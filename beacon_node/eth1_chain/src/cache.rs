@@ -15,18 +15,18 @@ pub struct Eth1DataCache<F: Eth1DataFetcher> {
     fetcher: Arc<F>,
 }
 
-impl<F: Eth1DataFetcher + 'static> Eth1DataCache<F> {
-    pub fn new(fetcher: F) -> Self {
+impl<F: Eth1DataFetcher> Eth1DataCache<F> {
+    pub fn new(fetcher: Arc<F>) -> Self {
         Eth1DataCache {
             cache: Arc::new(RwLock::new(BTreeMap::new())),
             // Note: Should ideally start from block where Eth1 chain starts accepting deposits.
             last_block: Arc::new(RwLock::new(0)),
-            fetcher: Arc::new(fetcher),
+            fetcher: fetcher,
         }
     }
 
     /// Called periodically to populate the cache with Eth1Data from most recent blocks.
-    pub fn update_cache(&self) -> Box<dyn Future<Item = (), Error = ()> + Send> {
+    pub fn update_cache(&self) -> impl Future<Item = (), Error = ()> + Send {
         let cache_updated = self.cache.clone();
         let last_block = self.last_block.clone();
         let fetcher = self.fetcher.clone();
@@ -50,7 +50,7 @@ impl<F: Eth1DataFetcher + 'static> Eth1DataCache<F> {
                     })
             })
             .map_err(|e| println!("Reading current block number failed failed {:?}", e));
-        Box::new(my_future)
+        my_future
     }
 
     /// Get `Eth1Data` object at a distance of `distance` from the perceived head of the currrent Eth1 chain.
@@ -168,7 +168,7 @@ mod tests {
             Interval::new(Instant::now(), update_duration).map_err(|e| println!("{:?}", e))
         };
 
-        let cache = Eth1DataCache::new(w3);
+        let cache = Eth1DataCache::new(Arc::new(w3));
         let cache_inside = cache.cache.clone();
         let task = interval.take(1).for_each(move |_| {
             let c = cache_inside.clone();
