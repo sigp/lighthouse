@@ -90,11 +90,11 @@ fn test_active_index<T: EthSpec>(state_slot: Slot) {
 
     // Test the start and end of the range.
     assert_eq!(
-        state.get_active_index_root_index(*range.start(), &spec),
+        state.get_active_index_root_index(*range.start(), &spec, AllowNextEpoch::False),
         Ok(modulo(*range.start()))
     );
     assert_eq!(
-        state.get_active_index_root_index(*range.end(), &spec),
+        state.get_active_index_root_index(*range.end(), &spec, AllowNextEpoch::False),
         Ok(modulo(*range.end()))
     );
 
@@ -102,12 +102,12 @@ fn test_active_index<T: EthSpec>(state_slot: Slot) {
     if state.current_epoch() > 0 {
         // Test is invalid on epoch zero, cannot subtract from zero.
         assert_eq!(
-            state.get_active_index_root_index(*range.start() - 1, &spec),
+            state.get_active_index_root_index(*range.start() - 1, &spec, AllowNextEpoch::False),
             Err(Error::EpochOutOfBounds)
         );
     }
     assert_eq!(
-        state.get_active_index_root_index(*range.end() + 1, &spec),
+        state.get_active_index_root_index(*range.end() + 1, &spec, AllowNextEpoch::False),
         Err(Error::EpochOutOfBounds)
     );
 }
