@@ -1,7 +1,7 @@
 use crate::cache::*;
 use crate::deposits::*;
 use crate::types::Eth1DataFetcher;
-use slog::{info, o, warn};
+use slog::{debug, info, o, warn};
 use std::cmp::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -89,22 +89,23 @@ pub fn run<F: Eth1DataFetcher>(
     // Run a task for calling `update_cache` periodically.
     let eth1_block_time_seconds: u64 = 15;
     let eth1_block_interval: u64 = 15;
+    let interval_log = log.clone();
     let interval = {
         // Set the interval to start every 15 blocks
         let update_duration = Duration::from_secs(eth1_block_interval * eth1_block_time_seconds);
         Interval::new(Instant::now(), update_duration)
+            .map_err(move |_| warn!(interval_log, "Interval timer failing"))
     };
-    let mut eth1_data_cache = eth1.eth1_data_cache.clone();
+    let eth1_data_cache = eth1.eth1_data_cache.clone();
     let cache_log = log.clone();
     info!(cache_log, "Cache updation service started..");
-    executor.spawn(
-        interval
-            .for_each(move |_| {
-                eth1_data_cache.update_cache();
-                Ok(())
-            })
-            .map_err(move |_| warn!(cache_log, "Error running cache updation service..")),
-    );
+    executor.spawn(interval.for_each(move |_| {
+        let cache_log = cache_log.clone();
+        eth1_data_cache.update_cache().and_then(move |_| {
+            debug!(cache_log.clone(), "Updating eth1 data cache..");
+            Ok(())
+        })
+    }));
 
     // Run a task for listening to contract events and updating deposits cache.
     let eth1_deposit_cache = eth1.deposit_cache.clone();
