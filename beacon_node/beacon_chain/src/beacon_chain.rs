@@ -25,7 +25,7 @@ use std::sync::Arc;
 use store::iter::{
     BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
 };
-use store::{Error as DBError, Store};
+use store::{Error as DBError, Migrate, Store};
 use tree_hash::TreeHash;
 use types::*;
 
@@ -80,6 +80,7 @@ pub enum AttestationProcessingOutcome {
 
 pub trait BeaconChainTypes {
     type Store: store::Store;
+    type StoreMigrator: store::Migrate<Self::Store, Self::EthSpec>;
     type SlotClock: slot_clock::SlotClock;
     type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;
     type EthSpec: types::EthSpec;
@@ -91,6 +92,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub spec: ChainSpec,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
     pub store: Arc<RwLock<T::Store>>,
+    /// Database migrator for running background maintenance on the store.
+    store_migrator: T::StoreMigrator,
     /// Reports the current slot, typically based upon the system clock.
     pub slot_clock: T::SlotClock,
     /// Stores all operations (e.g., `Attestation`, `Deposit`, etc) that are candidates for
@@ -127,17 +130,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let genesis_state_root = genesis_state.canonical_root();
         store
-            .write()
+            .read()
             .put_state(&genesis_state_root, &genesis_state)?;
 
         genesis_block.state_root = genesis_state_root;
 
         let genesis_block_root = genesis_block.block_header().canonical_root();
-        store.write().put(&genesis_block_root, &genesis_block)?;
+        store.read().put(&genesis_block_root, &genesis_block)?;
 
         // Also store the genesis block under the `ZERO_HASH` key.
         let genesis_block_root = genesis_block.canonical_root();
-        store.write().put(&Hash256::zero(), &genesis_block)?;
+        store.read().put(&Hash256::zero(), &genesis_block)?;
 
         let canonical_head = RwLock::new(CheckPoint::new(
             genesis_block.clone(),
@@ -161,6 +164,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             genesis_block_root,
             fork_choice: ForkChoice::new(store.clone(), &genesis_block, genesis_block_root),
             metrics: Metrics::new()?,
+            store_migrator: T::StoreMigrator::new(store.clone()),
             store,
             log,
         })
@@ -199,6 +203,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state: RwLock::new(p.state),
             genesis_block_root: p.genesis_block_root,
             metrics: Metrics::new()?,
+            store_migrator: T::StoreMigrator::new(store.clone()),
             store,
             log,
         }))
@@ -214,7 +219,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
-        self.store.write().put(&key, &p)?;
+        self.store.read().put(&key, &p)?;
 
         Ok(())
     }
@@ -884,8 +889,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Store the block and state.
-        self.store.write().put(&block_root, &block)?;
-        self.store.write().put_state(&state_root, &state)?;
+        self.store.read().put(&block_root, &block)?;
+        self.store.read().put_state(&state_root, &state)?;
 
         // Register the new block with the fork choice service.
         if let Err(e) = self.fork_choice.process_block(&state, &block, block_root) {
@@ -1154,13 +1159,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.op_pool.prune_all(&finalized_state, &self.spec);
 
-            // FIXME(michael): this shouldn't necessarily happen every finalization,
-            // and should definitely happen in a separate thread.
-            T::Store::freeze_to_state(
-                self.store.clone(),
+            // TODO: configurable max finality distance
+            let max_finality_distance = 0;
+            self.store_migrator.freeze_to_state(
                 finalized_block.state_root,
-                &finalized_state,
-            )?;
+                finalized_state,
+                max_finality_distance,
+            );
 
             Ok(())
         }

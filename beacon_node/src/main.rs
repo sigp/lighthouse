@@ -1,3 +1,5 @@
+#![recursion_limit = "128"]
+
 mod run;
 
 use clap::{App, Arg};

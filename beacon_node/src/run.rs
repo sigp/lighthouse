@@ -8,7 +8,7 @@ use slog::{error, info, o, warn};
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
-use store::{DiskStore, MemoryStore, SimpleDiskStore};
+use store::{migrate::BackgroundMigrator, DiskStore, MemoryStore, SimpleDiskStore};
 use tokio::runtime::Builder;
 use tokio::runtime::Runtime;
 use tokio::runtime::TaskExecutor;
@@ -58,7 +58,7 @@ pub fn run_beacon_node(
     );
 
     match (db_type.as_str(), spec_constants.as_str()) {
-        ("disk", "minimal") => run::<ClientType<DiskStore, MinimalEthSpec>>(
+        ("disk", "minimal") => run::<ClientType<DiskStore, MinimalEthSpec, BackgroundMigrator<_>>>(
             &db_path,
             client_config,
             eth2_config,
@@ -82,7 +82,7 @@ pub fn run_beacon_node(
             runtime,
             log,
         ),
-        ("disk", "mainnet") => run::<ClientType<DiskStore, MainnetEthSpec>>(
+        ("disk", "mainnet") => run::<ClientType<DiskStore, MainnetEthSpec, BackgroundMigrator<_>>>(
             &db_path,
             client_config,
             eth2_config,
@@ -106,7 +106,7 @@ pub fn run_beacon_node(
             runtime,
             log,
         ),
-        ("disk", "interop") => run::<ClientType<DiskStore, InteropEthSpec>>(
+        ("disk", "interop") => run::<ClientType<DiskStore, InteropEthSpec, BackgroundMigrator<_>>>(
             &db_path,
             client_config,
             eth2_config,

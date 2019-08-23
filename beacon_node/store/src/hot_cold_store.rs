@@ -24,7 +24,7 @@ pub struct HotColdDB {
     /// Chain spec.
     spec: ChainSpec,
     /// Logger.
-    log: Logger,
+    pub(crate) log: Logger,
 }
 
 #[derive(Debug, PartialEq)]

@@ -59,6 +59,7 @@ where
     S: Store,
 {
     type Store = S;
+    type StoreMigrator = store::migrate::BlockingMigrator<S>;
     type SlotClock = TestingSlotClock;
     type LmdGhost = L;
     type EthSpec = E;

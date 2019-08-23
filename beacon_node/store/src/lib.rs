@@ -15,10 +15,10 @@ mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
-mod migrator;
 mod partial_beacon_state;
 
 pub mod iter;
+pub mod migrate;
 
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -26,7 +26,7 @@ use std::sync::Arc;
 pub use self::hot_cold_store::HotColdDB as DiskStore;
 pub use self::leveldb_store::LevelDB as SimpleDiskStore;
 pub use self::memory_store::MemoryStore;
-pub use self::migrator::Migrator;
+pub use self::migrate::Migrate;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use types::*;
@@ -36,7 +36,7 @@ pub use types::*;
 /// A `Store` is fundamentally backed by a key-value database, however it provides support for
 /// columns. A simple column implementation might involve prefixing a key with some bytes unique to
 /// each column.
-pub trait Store: Sync + Send + Sized {
+pub trait Store: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 

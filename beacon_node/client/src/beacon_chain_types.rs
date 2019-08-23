@@ -3,7 +3,7 @@ use crate::{config::GenesisState, ClientConfig};
 use beacon_chain::{
     lmd_ghost::{LmdGhost, ThreadSafeReducedTree},
     slot_clock::SystemTimeSlotClock,
-    store::Store,
+    store::{migrate::NullMigrator, Migrate, Store},
     BeaconChain, BeaconChainTypes,
 };
 use parking_lot::RwLock;
@@ -30,17 +30,21 @@ pub trait InitialiseBeaconChain<T: BeaconChainTypes> {
     }
 }
 
-pub struct ClientType<S: Store, E: EthSpec> {
-    _phantom: PhantomData<(S, E)>,
+pub struct ClientType<S: Store, E: EthSpec, M: Migrate<S, E> = NullMigrator> {
+    _phantom: PhantomData<(S, E, M)>,
 }
 
-impl<S: Store, E: EthSpec> BeaconChainTypes for ClientType<S, E> {
+impl<S: Store, E: EthSpec, M: Migrate<S, E>> BeaconChainTypes for ClientType<S, E, M> {
     type Store = S;
+    type StoreMigrator = M;
     type SlotClock = SystemTimeSlotClock;
     type LmdGhost = ThreadSafeReducedTree<S, E>;
     type EthSpec = E;
 }
-impl<T: Store, E: EthSpec, X: BeaconChainTypes> InitialiseBeaconChain<X> for ClientType<T, E> {}
+impl<S: Store, E: EthSpec, M: Migrate<S, E>, X: BeaconChainTypes> InitialiseBeaconChain<X>
+    for ClientType<S, E, M>
+{
+}
 
 /// Loads a `BeaconChain` from `store`, if it exists. Otherwise, create a new chain from genesis.
 fn maybe_load_from_store_for_testnet<T, U: Store, V: EthSpec>(
@@ -52,6 +56,7 @@ fn maybe_load_from_store_for_testnet<T, U: Store, V: EthSpec>(
 where
     T: BeaconChainTypes<Store = U, EthSpec = V>,
     T::LmdGhost: LmdGhost<U, V>,
+    T::StoreMigrator: Migrate<U, V>,
 {
     let genesis_state = match &config.genesis_state {
         GenesisState::Mainnet => {
