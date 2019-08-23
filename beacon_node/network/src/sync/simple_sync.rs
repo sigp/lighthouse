@@ -1,8 +1,9 @@
-use super::import_queue::{ImportQueue, PartialBeaconBlockCompletion};
-use crate::message_handler::NetworkContext;
+use super::manager::{ImportManager, ImportManagerOutcome};
+use crate::service::{NetworkMessage, OutgoingMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
+use eth2_libp2p::rpc::methods::*;
+use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, info, o, trace, warn};
 use ssz::Encode;
@@ -10,14 +11,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use store::Store;
+use tokio::sync::mpsc;
 use types::{
     Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot,
 };
 
-
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
-const FUTURE_SLOT_TOLERANCE: u64 = 1;
+pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
 const SHOULD_FORWARD_GOSSIP_BLOCK: bool = true;
 const SHOULD_NOT_FORWARD_GOSSIP_BLOCK: bool = false;
@@ -25,15 +26,12 @@ const SHOULD_NOT_FORWARD_GOSSIP_BLOCK: bool = false;
 /// Keeps track of syncing information for known connected peers.
 #[derive(Clone, Copy, Debug)]
 pub struct PeerSyncInfo {
-    fork_version: [u8,4],
-    finalized_root: Hash256,
-    finalized_epoch: Epoch,
-    head_root: Hash256,
-    head_slot: Slot,
+    fork_version: [u8; 4],
+    pub finalized_root: Hash256,
+    pub finalized_epoch: Epoch,
+    pub head_root: Hash256,
+    pub head_slot: Slot,
 }
-
-
-
 
 impl From<HelloMessage> for PeerSyncInfo {
     fn from(hello: HelloMessage) -> PeerSyncInfo {
@@ -43,7 +41,6 @@ impl From<HelloMessage> for PeerSyncInfo {
             finalized_epoch: hello.finalized_epoch,
             head_root: hello.head_root,
             head_slot: hello.head_slot,
-            requested_slot_skip: None,
         }
     }
 }
@@ -66,18 +63,24 @@ pub enum SyncState {
 pub struct SimpleSync<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
-    manager: ImportManager,
+    manager: ImportManager<T>,
+    network: NetworkContext,
     log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> SimpleSync<T> {
     /// Instantiate a `SimpleSync` instance, with no peers and an empty queue.
-    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: &slog::Logger) -> Self {
+    pub fn new(
+        beacon_chain: Arc<BeaconChain<T>>,
+        network_send: mpsc::UnboundedSender<NetworkMessage>,
+        log: &slog::Logger,
+    ) -> Self {
         let sync_logger = log.new(o!("Service"=> "Sync"));
 
         SimpleSync {
             chain: beacon_chain.clone(),
-            manager: ImportManager::new(),
+            manager: ImportManager::new(beacon_chain, log),
+            network: NetworkContext::new(network_send, log.clone()),
             log: sync_logger,
         }
     }
@@ -92,8 +95,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     /// Handle the connection of a new peer.
     ///
     /// Sends a `Hello` message to the peer.
-    pub fn on_connect(&self, peer_id: PeerId, network: &mut NetworkContext) {
-        network.send_rpc_request(peer_id, RPCRequest::Hello(hello_message(&self.chain)));
+    pub fn on_connect(&mut self, peer_id: PeerId) {
+        self.network
+            .send_rpc_request(peer_id, RPCRequest::Hello(hello_message(&self.chain)));
     }
 
     /// Handle a `Hello` request.
@@ -104,42 +108,31 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         peer_id: PeerId,
         request_id: RequestId,
         hello: HelloMessage,
-        network: &mut NetworkContext,
     ) {
         trace!(self.log, "HelloRequest"; "peer" => format!("{:?}", peer_id));
 
         // Say hello back.
-        network.send_rpc_response(
+        self.network.send_rpc_response(
             peer_id.clone(),
             request_id,
             RPCResponse::Hello(hello_message(&self.chain)),
         );
 
-        self.process_hello(peer_id, hello, network);
+        self.process_hello(peer_id, hello);
     }
 
     /// Process a `Hello` response from a peer.
-    pub fn on_hello_response(
-        &mut self,
-        peer_id: PeerId,
-        hello: HelloMessage,
-        network: &mut NetworkContext,
-    ) {
+    pub fn on_hello_response(&mut self, peer_id: PeerId, hello: HelloMessage) {
         trace!(self.log, "HelloResponse"; "peer" => format!("{:?}", peer_id));
 
         // Process the hello message, without sending back another hello.
-        self.process_hello(peer_id, hello, network);
+        self.process_hello(peer_id, hello);
     }
 
     /// Process a `Hello` message, requesting new blocks if appropriate.
     ///
     /// Disconnects the peer if required.
-    fn process_hello(
-        &mut self,
-        peer_id: PeerId,
-        hello: HelloMessage,
-        network: &mut NetworkContext,
-    ) {
+    fn process_hello(&mut self, peer_id: PeerId, hello: HelloMessage) {
         let remote = PeerSyncInfo::from(hello);
         let local = PeerSyncInfo::from(&self.chain);
 
@@ -153,12 +146,13 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "reason" => "network_id"
             );
 
-            network.disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+            self.network
+                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
         } else if remote.finalized_epoch <= local.finalized_epoch
             && remote.finalized_root != Hash256::zero()
             && local.finalized_root != Hash256::zero()
-            && (self.root_at_slot(start_slot(remote.latest_finalized_epoch))
-                != Some(remote.latest_finalized_root))
+            && (self.root_at_slot(start_slot(remote.finalized_epoch))
+                != Some(remote.finalized_root))
         {
             // The remotes finalized epoch is less than or greater than ours, but the block root is
             // different to the one in our chain.
@@ -169,8 +163,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "peer" => format!("{:?}", peer_id),
                 "reason" => "different finalized chain"
             );
-            network.disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
-        } else if remote.latest_finalized_epoch < local.latest_finalized_epoch {
+            self.network
+                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+        } else if remote.finalized_epoch < local.finalized_epoch {
             // The node has a lower finalized epoch, their chain is not useful to us. There are two
             // cases where a node can have a lower finalized epoch:
             //
@@ -193,12 +188,12 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         } else if self
             .chain
             .store
-            .exists::<BeaconBlock<T::EthSpec>>(&remote.best_root)
+            .exists::<BeaconBlock<T::EthSpec>>(&remote.head_root)
             .unwrap_or_else(|_| false)
         {
             // If the node's best-block is already known to us and they are close to our current
             // head, treat them as a fully sync'd peer.
-            self.import_manager.add_full_peer(peer_id);
+            self.manager.add_full_peer(peer_id);
             self.process_sync();
         } else {
             // The remote node has an equal or great finalized epoch and we don't know it's head.
@@ -208,29 +203,45 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             debug!(
                 self.log, "UsefulPeer";
                 "peer" => format!("{:?}", peer_id),
-                "local_finalized_epoch" => local.latest_finalized_epoch,
-                "remote_latest_finalized_epoch" => remote.latest_finalized_epoch,
+                "local_finalized_epoch" => local.finalized_epoch,
+                "remote_latest_finalized_epoch" => remote.finalized_epoch,
             );
 
-            self.import_manager.add_peer(peer_id, remote);
+            self.manager.add_peer(peer_id, remote);
             self.process_sync();
         }
     }
 
-    self.proess_sync(&mut self) {
+    fn process_sync(&mut self) {
         loop {
-            match self.import_manager.poll() {
-                ImportManagerOutcome::RequestBlocks(peer_id, req) {
+            match self.manager.poll() {
+                ImportManagerOutcome::Hello(peer_id) => {
+                    trace!(
+                        self.log,
+                        "RPC Request";
+                        "method" => "HELLO",
+                        "peer" => format!("{:?}", peer_id)
+                    );
+                    self.network
+                        .send_rpc_request(peer_id, RPCRequest::Hello(hello_message(&self.chain)));
+                }
+                ImportManagerOutcome::RequestBlocks {
+                    peer_id,
+                    request_id,
+                    request,
+                } => {
                     trace!(
                         self.log,
                         "RPC Request";
                         "method" => "BeaconBlocks",
-                        "count" => req.count,
+                        "id" => request_id,
+                        "count" => request.count,
                         "peer" => format!("{:?}", peer_id)
                     );
-                    network.send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlocks(req));
-                },
-                ImportManagerOutcome::RecentRequest(peer_id, req) {
+                    self.network
+                        .send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlocks(request));
+                }
+                ImportManagerOutcome::RecentRequest(peer_id, req) => {
                     trace!(
                         self.log,
                         "RPC Request";
@@ -238,18 +249,20 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                         "count" => req.block_roots.len(),
                         "peer" => format!("{:?}", peer_id)
                     );
-                    network.send_rpc_request(peer_id.clone(), RPCRequest::RecentBeaconBlocks(req));
-                },
-                ImportManagerOutcome::DownvotePeer(peer_id) {
+                    self.network
+                        .send_rpc_request(peer_id.clone(), RPCRequest::RecentBeaconBlocks(req));
+                }
+                ImportManagerOutcome::DownvotePeer(peer_id) => {
                     trace!(
                         self.log,
                         "Peer downvoted";
                         "peer" => format!("{:?}", peer_id)
                     );
                     // TODO: Implement reputation
-                    network.disconnect(peer_id.clone(), GoodbyeReason::Fault);
-                },
-                SyncManagerState::Idle {
+                    self.network
+                        .disconnect(peer_id.clone(), GoodbyeReason::Fault);
+                }
+                ImportManagerOutcome::Idle => {
                     // nothing to do
                     return;
                 }
@@ -257,37 +270,26 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         }
     }
 
-
-    /*
     fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
         self.chain
             .rev_iter_block_roots()
             .find(|(_root, slot)| *slot == target_slot)
             .map(|(root, _slot)| root)
     }
-    */
 
-    /// Handle a `BeaconBlocks` request from the peer.
-    pub fn on_beacon_blocks_request(
+    /// Handle a `RecentBeaconBlocks` request from the peer.
+    pub fn on_recent_beacon_blocks_request(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        req: BeaconBlocksRequest,
-        network: &mut NetworkContext,
+        request: RecentBeaconBlocksRequest,
     ) {
-        debug!(
-            self.log,
-            "BeaconBlocksRequest";
-            "peer" => format!("{:?}", peer_id),
-            "count" => req.count,
-            "start_slot" => req.start_slot,
-        );
-
-        let blocks = Vec<BeaconBlock<T::EthSpec>> = self
-            .chain.rev_iter_block_roots().filter(|(_root, slot) req.start_slot <= slot && req.start_slot + req.count >= slot).take_while(|(_root, slot) req.start_slot <= *slot)
-            .filter_map(|root, slot| {
+        let blocks: Vec<BeaconBlock<_>> = request
+            .block_roots
+            .iter()
+            .filter_map(|root| {
                 if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
-                    Some(block.body)
+                    Some(block)
                 } else {
                     debug!(
                         self.log,
@@ -301,10 +303,63 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             })
             .collect();
 
-        roots.reverse();
-        roots.dedup_by_key(|brs| brs.block_root);
+        debug!(
+            self.log,
+            "BlockBodiesRequest";
+            "peer" => format!("{:?}", peer_id),
+            "requested" => request.block_roots.len(),
+            "returned" => blocks.len(),
+        );
 
-        if roots.len() as u64 != req.count {
+        self.network.send_rpc_response(
+            peer_id,
+            request_id,
+            RPCResponse::BeaconBlocks(blocks.as_ssz_bytes()),
+        )
+    }
+
+    /// Handle a `BeaconBlocks` request from the peer.
+    pub fn on_beacon_blocks_request(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        req: BeaconBlocksRequest,
+    ) {
+        debug!(
+            self.log,
+            "BeaconBlocksRequest";
+            "peer" => format!("{:?}", peer_id),
+            "count" => req.count,
+            "start_slot" => req.start_slot,
+        );
+
+        let mut blocks: Vec<BeaconBlock<T::EthSpec>> = self
+            .chain
+            .rev_iter_block_roots()
+            .filter(|(_root, slot)| {
+                req.start_slot <= slot.as_u64() && req.start_slot + req.count >= slot.as_u64()
+            })
+            .take_while(|(_root, slot)| req.start_slot <= slot.as_u64())
+            .filter_map(|(root, _slot)| {
+                if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
+                    Some(block)
+                } else {
+                    debug!(
+                        self.log,
+                        "Peer requested unknown block";
+                        "peer" => format!("{:?}", peer_id),
+                        "request_root" => format!("{:}", root),
+                    );
+
+                    None
+                }
+            })
+            .collect();
+
+        blocks.reverse();
+        blocks.dedup_by_key(|brs| brs.slot);
+
+        if blocks.len() as u64 != req.count {
             debug!(
                 self.log,
                 "BeaconBlocksRequest";
@@ -313,33 +368,33 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "start_slot" => req.start_slot,
                 "current_slot" => self.chain.present_slot(),
                 "requested" => req.count,
-                "returned" => roots.len(),
+                "returned" => blocks.len(),
             );
         }
 
-        network.send_rpc_response(
+        self.network.send_rpc_response(
             peer_id,
             request_id,
             RPCResponse::BeaconBlocks(blocks.as_ssz_bytes()),
         )
     }
 
-
     /// Handle a `BeaconBlocks` response from the peer.
     pub fn on_beacon_blocks_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        res: Vec<BeaconBlock<T::EthSpec>>,
+        beacon_blocks: Vec<BeaconBlock<T::EthSpec>>,
     ) {
         debug!(
             self.log,
             "BeaconBlocksResponse";
             "peer" => format!("{:?}", peer_id),
-            "count" => res.block_bodies.len(),
+            "count" => beacon_blocks.len(),
         );
 
-        self.import_manager.beacon_blocks_response(peer_id, request_id, blocks);
+        self.manager
+            .beacon_blocks_response(peer_id, request_id, beacon_blocks);
 
         self.process_sync();
     }
@@ -349,16 +404,17 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        res: Vec<BeaconBlock<T::EthSpec>>,
+        beacon_blocks: Vec<BeaconBlock<T::EthSpec>>,
     ) {
         debug!(
             self.log,
             "BeaconBlocksResponse";
             "peer" => format!("{:?}", peer_id),
-            "count" => res.block_bodies.len(),
+            "count" => beacon_blocks.len(),
         );
 
-        self.import_manager.recent_blocks_response(peer_id, request_id, blocks);
+        self.manager
+            .recent_blocks_response(peer_id, request_id, beacon_blocks);
 
         self.process_sync();
     }
@@ -368,19 +424,13 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     /// Attempts to apply to block to the beacon chain. May queue the block for later processing.
     ///
     /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers.
-    pub fn on_block_gossip(
-        &mut self,
-        peer_id: PeerId,
-        block: BeaconBlock<T::EthSpec>,
-    ) -> bool {
-        if let Some(outcome) =
-            self.process_block(peer_id.clone(), block.clone(), network, &"gossip")
-        {
+    pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) -> bool {
+        if let Ok(outcome) = self.chain.process_block(block.clone()) {
             match outcome {
                 BlockProcessingOutcome::Processed { .. } => SHOULD_FORWARD_GOSSIP_BLOCK,
-                BlockProcessingOutcome::ParentUnknown { parent } => {
+                BlockProcessingOutcome::ParentUnknown { parent: _ } => {
                     // Inform the sync manager to find parents for this block
-                    self.import_manager.add_unknown_block(block.clone());
+                    self.manager.add_unknown_block(block.clone(), peer_id);
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::FutureSlot {
@@ -401,12 +451,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     /// Process a gossip message declaring a new attestation.
     ///
     /// Not currently implemented.
-    pub fn on_attestation_gossip(
-        &mut self,
-        _peer_id: PeerId,
-        msg: Attestation<T::EthSpec>,
-        _network: &mut NetworkContext,
-    ) {
+    pub fn on_attestation_gossip(&mut self, _peer_id: PeerId, msg: Attestation<T::EthSpec>) {
         match self.chain.process_attestation(msg) {
             Ok(outcome) => info!(
                 self.log,
@@ -420,39 +465,74 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         }
     }
 
-
-/*    
-    /// Returns `true` if `self.chain` has not yet processed this block.
-    pub fn chain_has_seen_block(&self, block_root: &Hash256) -> bool {
-        !self
-            .chain
-            .is_new_block_root(&block_root)
-            .unwrap_or_else(|_| {
-                error!(self.log, "Unable to determine if block is new.");
-                false
-            })
-    }
-    */
-
     /// Generates our current state in the form of a HELLO RPC message.
     pub fn generate_hello(&self) -> HelloMessage {
         hello_message(&self.chain)
     }
-
 }
 
 /// Build a `HelloMessage` representing the state of the given `beacon_chain`.
 fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMessage {
-    let spec = &beacon_chain.spec;
     let state = &beacon_chain.head().beacon_state;
 
     HelloMessage {
-        network_id: spec.network_id,
-        //TODO: Correctly define the chain id
-        chain_id: spec.network_id as u64,
-        latest_finalized_root: state.finalized_checkpoint.root,
-        latest_finalized_epoch: state.finalized_checkpoint.epoch,
-        best_root: beacon_chain.head().beacon_block_root,
-        best_slot: state.slot,
+        fork_version: state.fork.current_version,
+        finalized_root: state.finalized_checkpoint.root,
+        finalized_epoch: state.finalized_checkpoint.epoch,
+        head_root: beacon_chain.head().beacon_block_root,
+        head_slot: state.slot,
+    }
+}
+
+/// Wraps a Network Channel to employ various RPC/Sync related network functionality.
+pub struct NetworkContext {
+    /// The network channel to relay messages to the Network service.
+    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    /// Logger for the `NetworkContext`.
+    log: slog::Logger,
+}
+
+impl NetworkContext {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
+        Self { network_send, log }
+    }
+
+    pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        self.send_rpc_request(peer_id, RPCRequest::Goodbye(reason))
+        // TODO: disconnect peers.
+    }
+
+    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest) {
+        // Note: There is currently no use of keeping track of requests. However the functionality
+        // is left here for future revisions.
+        self.send_rpc_event(peer_id, RPCEvent::Request(0, rpc_request));
+    }
+
+    //TODO: Handle Error responses
+    pub fn send_rpc_response(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        rpc_response: RPCResponse,
+    ) {
+        self.send_rpc_event(
+            peer_id,
+            RPCEvent::Response(request_id, RPCErrorResponse::Success(rpc_response)),
+        );
+    }
+
+    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
+        self.send(peer_id, OutgoingMessage::RPC(rpc_event))
+    }
+
+    fn send(&mut self, peer_id: PeerId, outgoing_message: OutgoingMessage) {
+        self.network_send
+            .try_send(NetworkMessage::Send(peer_id, outgoing_message))
+            .unwrap_or_else(|_| {
+                warn!(
+                    self.log,
+                    "Could not send RPC message to the network service"
+                )
+            });
     }
 }
