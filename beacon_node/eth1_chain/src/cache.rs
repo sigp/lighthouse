@@ -2,9 +2,9 @@ use crate::types::Eth1DataFetcher;
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use tokio;
 use types::*;
 use web3::futures::*;
-// use futures::*;
 use web3::types::*;
 
 /// Cache for recent Eth1Data fetched from the Eth1 chain.
@@ -27,7 +27,6 @@ impl<F: Eth1DataFetcher + 'static> Eth1DataCache<F> {
 
     /// Called periodically to populate the cache with Eth1Data from most recent blocks.
     pub fn update_cache(&self) -> Box<dyn Future<Item = (), Error = ()> + Send> {
-        // Make tasks and communicate between them using channels
         let cache_updated = self.cache.clone();
         let last_block = self.last_block.clone();
         let fetcher = self.fetcher.clone();
@@ -42,7 +41,7 @@ impl<F: Eth1DataFetcher + 'static> Eth1DataCache<F> {
                         eth1_cache.insert(data.0, data.1);
                         Ok(())
                     })
-                    .map_err(|e| println!("Some error {:?}", e))
+                    .map_err(|e| println!("Fetching in range failed {:?}", e))
                     .and_then(move |_| {
                         let mut last_block_updated = last_block.write();
                         *last_block_updated = curr_block_number.as_u64();
@@ -50,38 +49,43 @@ impl<F: Eth1DataFetcher + 'static> Eth1DataCache<F> {
                         Ok(())
                     })
             })
-            .map_err(|e| println!("Reading from fetch failed {:?}", e));
+            .map_err(|e| println!("Reading current block number failed failed {:?}", e));
         Box::new(my_future)
     }
 
-    // /// Get `Eth1Data` object at a distance of `distance` from the perceived head of the currrent Eth1 chain.
-    // /// Returns the object from the cache if present, else fetches from Eth1Fetcher.
-    // pub fn get_eth1_data(&mut self, distance: u64) -> Option<Eth1Data> {
-    //     let current_block_number: U256 = self.fetcher.get_current_block_number().wait().ok()?;
-    //     let block_number: U256 = current_block_number.checked_sub(distance.into())?;
-    //     if self.cache.read().contains_key(&block_number) {
-    //         return Some(self.cache.read().get(&block_number)?.clone());
-    //     } else {
-    //         if let Some((block_number, eth1_data)) =
-    //             self.fetch_eth1_data(distance, current_block_number)
-    //         {
-    //             self.cache.insert(block_number, eth1_data);
-    //             return Some(self.cache.get(&block_number)?.clone());
-    //         }
-    //     }
-    //     None
-    // }
+    /// Get `Eth1Data` object at a distance of `distance` from the perceived head of the currrent Eth1 chain.
+    /// Returns the object from the cache if present, else fetches from Eth1Fetcher.
+    pub fn get_eth1_data(&mut self, distance: u64) -> Option<Eth1Data> {
+        let current_block_number: U256 = self.fetcher.get_current_block_number().wait().ok()?;
+        let block_number: U256 = current_block_number.checked_sub(distance.into())?;
+        if self.cache.read().contains_key(&block_number) {
+            return Some(self.cache.read().get(&block_number)?.clone());
+        } else {
+            // Note: current_thread::block_on_all() might not be safe here since
+            // it waits for other spawned futures to complete on current therad.
+            if let Some((block_number, eth1_data)) = tokio::runtime::current_thread::block_on_all(
+                fetch_eth1_data(distance, current_block_number, self.fetcher.clone()),
+            )
+            .ok()?
+            {
+                let mut cache_write = self.cache.write();
+                cache_write.insert(block_number, eth1_data);
+                return Some(cache_write.get(&block_number)?.clone());
+            }
+        }
+        None
+    }
 
-    // /// Returns a Vec<Eth1Data> corresponding to given distance range.
-    // pub fn get_eth1_data_in_range(&mut self, start: u64, end: u64) -> Vec<Eth1Data> {
-    //     (start..end)
-    //         .map(|h| self.get_eth1_data(h))
-    //         .flatten() // Chuck None values
-    //         .collect::<Vec<Eth1Data>>()
-    // }
+    /// Returns a Vec<Eth1Data> corresponding to given distance range.
+    pub fn get_eth1_data_in_range(&mut self, start: u64, end: u64) -> Vec<Eth1Data> {
+        (start..end)
+            .map(|h| self.get_eth1_data(h))
+            .flatten() // Chuck None values
+            .collect::<Vec<Eth1Data>>()
+    }
 }
 
-pub fn fetch_eth1_data_in_range<F: Eth1DataFetcher>(
+fn fetch_eth1_data_in_range<F: Eth1DataFetcher>(
     start: u64,
     end: u64,
     current_block_number: U256,
@@ -93,7 +97,7 @@ pub fn fetch_eth1_data_in_range<F: Eth1DataFetcher>(
 }
 
 /// Fetches Eth1 data from the Eth1Data fetcher object.
-pub fn fetch_eth1_data<F: Eth1DataFetcher>(
+fn fetch_eth1_data<F: Eth1DataFetcher>(
     distance: u64,
     current_block_number: U256,
     fetcher: Arc<F>,
