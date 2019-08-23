@@ -19,7 +19,7 @@ impl<F: Eth1DataFetcher + 'static> Eth1DataCache<F> {
     pub fn new(fetcher: F) -> Self {
         Eth1DataCache {
             cache: Arc::new(RwLock::new(BTreeMap::new())),
-            // Should ideally start from block where Eth1 chain starts accepting deposits.
+            // Note: Should ideally start from block where Eth1 chain starts accepting deposits.
             last_block: Arc::new(RwLock::new(0)),
             fetcher: Arc::new(fetcher),
         }
@@ -40,7 +40,6 @@ impl<F: Eth1DataFetcher + 'static> Eth1DataCache<F> {
                         let data = data.unwrap();
                         let mut eth1_cache = cache_updated.write();
                         eth1_cache.insert(data.0, data.1);
-                        println!("Hello from inside {:?}", *eth1_cache);
                         Ok(())
                     })
                     .map_err(|e| println!("Some error {:?}", e))
@@ -60,8 +59,8 @@ impl<F: Eth1DataFetcher + 'static> Eth1DataCache<F> {
     // pub fn get_eth1_data(&mut self, distance: u64) -> Option<Eth1Data> {
     //     let current_block_number: U256 = self.fetcher.get_current_block_number().wait().ok()?;
     //     let block_number: U256 = current_block_number.checked_sub(distance.into())?;
-    //     if self.cache.contains_key(&block_number) {
-    //         return Some(self.cache.get(&block_number)?.clone());
+    //     if self.cache.read().contains_key(&block_number) {
+    //         return Some(self.cache.read().get(&block_number)?.clone());
     //     } else {
     //         if let Some((block_number, eth1_data)) =
     //             self.fetch_eth1_data(distance, current_block_number)
@@ -142,7 +141,6 @@ mod tests {
     #[test]
     fn test_fetch() {
         let w3 = setup();
-        // let cache = Eth1DataCache::new(Arc::new(w3));
         let when = Instant::now() + Duration::from_millis(5000);
         let task1 = Delay::new(when)
             .and_then(|_| {
@@ -161,24 +159,20 @@ mod tests {
     #[test]
     fn test_cache() {
         let w3 = setup();
-        // let task = Delay::new(Instant::now() + Duration::from_secs(5))
-        //     .and_then(|_| {
-        //         println!("Done 1");
-        //         Delay::new(Instant::now() + Duration::from_secs(5)).and_then(|_| {
-        //             println!("Done 2");
-        //             Ok(())
-        //         })
-        //     })
-        //     .map_err(|_| println!("Whatevs"));
+        let interval = {
+            let update_duration = Duration::from_secs(5);
+            Interval::new(Instant::now(), update_duration).map_err(|e| println!("{:?}", e))
+        };
 
-        // let task = fetch_eth1_data_in_range(0, 10, 11.into(), &w3)
-        //     .for_each(|data| {
-        //         println!("{:?}", data);
-        //         Ok(())
-        //     })
-        //     .map_err(|_| println!("We are not here to fuck spiders"));
         let cache = Eth1DataCache::new(w3);
-        let task = cache.update_cache();
+        let cache_inside = cache.cache.clone();
+        let task = interval.take(1).for_each(move |_| {
+            let c = cache_inside.clone();
+            cache.update_cache().and_then(move |_| {
+                println!("Cache contents: {:#?}", *c.read());
+                Ok(())
+            })
+        });
         tokio::run(task);
     }
 }
