@@ -46,7 +46,7 @@ impl Bootstrapper {
     /// `/ipv4/192.168.0.1/tcp/9000` if the server advertises a listening address of
     /// `/ipv4/172.0.0.1/tcp/9000`.
     pub fn best_effort_multiaddr(&self) -> Option<Multiaddr> {
-        let tcp_port = self.first_listening_tcp_port()?;
+        let tcp_port = self.listen_port().ok()?;
 
         let mut multiaddr = Multiaddr::with_capacity(2);
 
@@ -59,17 +59,6 @@ impl Bootstrapper {
         multiaddr.push(Protocol::Tcp(tcp_port));
 
         Some(multiaddr)
-    }
-
-    /// Reads the server's listening libp2p addresses and returns the first TCP port protocol it
-    /// finds, if any.
-    fn first_listening_tcp_port(&self) -> Option<u16> {
-        self.listen_addresses().ok()?.iter().find_map(|multiaddr| {
-            multiaddr.iter().find_map(|protocol| match protocol {
-                Protocol::Tcp(port) => Some(port),
-                _ => None,
-            })
-        })
     }
 
     /// Returns the IPv4 address of the server URL, unless it contains a FQDN.
@@ -86,9 +75,8 @@ impl Bootstrapper {
     }
 
     /// Returns the servers listening libp2p addresses.
-    pub fn listen_addresses(&self) -> Result<Vec<Multiaddr>, String> {
-        get_listen_addresses(self.url.clone())
-            .map_err(|e| format!("Unable to get listen addresses: {:?}", e))
+    pub fn listen_port(&self) -> Result<u16, String> {
+        get_listen_port(self.url.clone()).map_err(|e| format!("Unable to get listen port: {:?}", e))
     }
 
     /// Returns the genesis block and state.
@@ -179,7 +167,7 @@ fn get_block<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconBlock<T>, Err
 fn get_enr(mut url: Url) -> Result<Enr, Error> {
     url.path_segments_mut()
         .map(|mut url| {
-            url.push("node").push("network").push("enr");
+            url.push("network").push("enr");
         })
         .map_err(|_| Error::InvalidUrl)?;
 
@@ -189,10 +177,10 @@ fn get_enr(mut url: Url) -> Result<Enr, Error> {
         .map_err(Into::into)
 }
 
-fn get_listen_addresses(mut url: Url) -> Result<Vec<Multiaddr>, Error> {
+fn get_listen_port(mut url: Url) -> Result<u16, Error> {
     url.path_segments_mut()
         .map(|mut url| {
-            url.push("node").push("network").push("listen_addresses");
+            url.push("network").push("listen_port");
         })
         .map_err(|_| Error::InvalidUrl)?;
 

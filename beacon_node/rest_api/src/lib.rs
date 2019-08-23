@@ -134,6 +134,7 @@ pub fn start_server<T: BeaconChainTypes>(
                 (&Method::GET, "/network/peer_count") => network::get_peer_count::<T>(req),
                 (&Method::GET, "/network/peer_id") => network::get_peer_id::<T>(req),
                 (&Method::GET, "/network/peers") => network::get_peer_list::<T>(req),
+                (&Method::GET, "/network/listen_port") => network::get_listen_port::<T>(req),
                 (&Method::GET, "/network/listen_addresses") => {
                     network::get_listen_addresses::<T>(req)
                 }
