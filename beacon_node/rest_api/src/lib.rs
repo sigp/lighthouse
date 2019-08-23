@@ -13,7 +13,6 @@ mod url_query;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::Service as NetworkService;
-pub use config::Config as ApiConfig;
 use hyper::rt::Future;
 use hyper::service::service_fn_ok;
 use hyper::{Body, Method, Response, Server, StatusCode};
@@ -23,6 +22,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use url_query::UrlQuery;
+
+pub use beacon::{BlockResponse, HeadResponse, StateResponse};
+pub use config::Config as ApiConfig;
 
 #[derive(PartialEq, Debug)]
 pub enum ApiError {
