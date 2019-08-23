@@ -373,13 +373,13 @@ fn range_query<S: Store, T: Decode + Encode>(
     Ok(result)
 }
 
-fn stitch<F: Field<E>, E: EthSpec>(
-    chunks: Vec<Chunk<F::Value>>,
+fn stitch<T: Default + Clone>(
+    chunks: Vec<Chunk<T>>,
     start_vindex: usize,
     end_vindex: usize,
     chunk_size: usize,
     length: usize,
-) -> Result<Vec<F::Value>, ChunkError> {
+) -> Result<Vec<T>, ChunkError> {
     if start_vindex + length < end_vindex {
         return Err(ChunkError::OversizedRange {
             start_vindex,
@@ -391,7 +391,7 @@ fn stitch<F: Field<E>, E: EthSpec>(
     let start_cindex = start_vindex / chunk_size;
     let end_cindex = end_vindex / chunk_size;
 
-    let mut result = vec![F::Value::default(); length];
+    let mut result = vec![T::default(); length];
 
     for (chunk_index, chunk) in (start_cindex..=end_cindex).zip(chunks.into_iter()) {
         // All chunks but the last chunk must be full-sized
@@ -429,7 +429,7 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store>(
 
     let chunks = range_query(store, F::column(), start_cindex, end_cindex)?;
 
-    let result = stitch::<F, E>(
+    let result = stitch(
         chunks,
         start_vindex,
         end_vindex,
@@ -470,7 +470,7 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: Stor
 
 /// A chunk of a fixed-size vector from the `BeaconState`, stored in the database.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Chunk<T: Decode + Encode> {
+pub struct Chunk<T> {
     /// A vector of up-to `chunk_size` values.
     pub values: Vec<T>,
 }
@@ -584,7 +584,6 @@ pub enum ChunkError {
 mod test {
     use super::*;
 
-    // FIXME(michael): make this pass
     #[test]
     fn stitch_basic() {
         fn v(i: u64) -> Hash256 {
@@ -599,15 +598,13 @@ mod test {
             Chunk::new(vec![v(8), v(9), v(10), v(11)]),
         ];
 
-        let stitch = stitch::<BlockRoots, MinimalEthSpec>;
-
         assert_eq!(
-            stitch(chunks.clone(), 0, 11, chunk_size, 12).unwrap(),
+            stitch(chunks.clone(), 0, 12, chunk_size, 12).unwrap(),
             (0..12).map(v).collect::<Vec<_>>()
         );
 
         assert_eq!(
-            stitch(chunks.clone(), 2, 9, chunk_size, 8).unwrap(),
+            stitch(chunks.clone(), 2, 10, chunk_size, 8).unwrap(),
             vec![v(8), v(9), v(2), v(3), v(4), v(5), v(6), v(7)]
         );
     }

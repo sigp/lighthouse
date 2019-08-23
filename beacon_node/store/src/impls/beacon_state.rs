@@ -11,11 +11,8 @@ pub fn store_full_state<S: Store, E: EthSpec>(
 ) -> Result<(), Error> {
     let timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_TIMES);
 
-    let result = store.put_bytes(
-        DBColumn::BeaconState.into(),
-        state_root.as_bytes(),
-        &StorageContainer::new(state).as_ssz_bytes(),
-    )
+    let bytes = StorageContainer::new(state).as_ssz_bytes();
+    let result = store.put_bytes(DBColumn::BeaconState.into(), state_root.as_bytes(), &bytes);
 
     metrics::stop_timer(timer);
     metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
@@ -33,14 +30,15 @@ pub fn get_full_state<S: Store, E: EthSpec>(
     let result = match store.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
         Some(bytes) => {
             let container = StorageContainer::from_ssz_bytes(&bytes)?;
+
+            metrics::stop_timer(timer);
+            metrics::inc_counter(&metrics::BEACON_STATE_READ_COUNT);
+            metrics::inc_counter_by(&metrics::BEACON_STATE_READ_BYTES, bytes.len() as i64);
+
             Ok(Some(container.try_into()?))
         }
         None => Ok(None),
-    }
-
-    metrics::stop_timer(timer);
-    metrics::inc_counter(&metrics::BEACON_STATE_READ_COUNT);
-    metrics::inc_counter_by(&metrics::BEACON_STATE_READ_BYTES, len as i64);
+    };
 
     result
 }

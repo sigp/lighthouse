@@ -205,13 +205,6 @@ impl HotColdDB {
             None => return Ok(None),
         };
 
-        /*
-        println!(
-            "Loading archive state at slot {}: {:?}",
-            partial_state.slot, state_root
-        );
-        */
-
         // Fill in the fields of the partial state.
         partial_state.load_block_roots(&self.cold_db, &self.spec)?;
         partial_state.load_state_roots(&self.cold_db, &self.spec)?;

@@ -261,9 +261,22 @@ mod tests {
 
     #[test]
     fn diskdb() {
+        use sloggers::{null::NullLoggerBuilder, Build};
+
+        let hot_dir = tempdir().unwrap();
+        let cold_dir = tempdir().unwrap();
+        let spec = MinimalEthSpec::default_spec();
+        let log = NullLoggerBuilder.build().unwrap();
+        let store = DiskStore::open(&hot_dir.path(), &cold_dir.path(), spec, log).unwrap();
+
+        test_impl(store);
+    }
+
+    #[test]
+    fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = DiskStore::open(&path).unwrap();
+        let store = SimpleDiskStore::open(&path).unwrap();
 
         test_impl(store);
     }

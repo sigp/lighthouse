@@ -950,7 +950,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 following_state.get_state_root(intermediate_state.slot)?;
 
             self.store
-                .put(&intermediate_state_root, intermediate_state)?;
+                .read()
+                .put_state(&intermediate_state_root, intermediate_state)?;
         }
 
         // Store the block and state.

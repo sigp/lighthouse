@@ -64,6 +64,7 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
 
     let block = beacon_chain
         .store
+        .read()
         .get::<BeaconBlock<T::EthSpec>>(&block_root)?
         .ok_or_else(|| {
             ApiError::NotFound(format!(

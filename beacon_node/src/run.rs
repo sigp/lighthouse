@@ -4,7 +4,7 @@ use client::{
 };
 use futures::sync::oneshot;
 use futures::Future;
-use slog::{error, info, o, warn};
+use slog::{error, info, o};
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;

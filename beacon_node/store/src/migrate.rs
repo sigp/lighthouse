@@ -80,7 +80,7 @@ impl<E: EthSpec> Migrate<DiskStore, E> for BackgroundMigrator<E> {
         finalized_state: BeaconState<E>,
         max_finality_distance: u64,
     ) {
-        if !self.needs_migration(state.slot, max_finality_distance) {
+        if !self.needs_migration(finalized_state.slot, max_finality_distance) {
             return;
         }
 
