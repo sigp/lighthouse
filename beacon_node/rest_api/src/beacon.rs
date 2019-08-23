@@ -8,7 +8,7 @@ use store::Store;
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
 
 #[derive(Serialize)]
-struct HeadResponse {
+pub struct HeadResponse {
     pub slot: Slot,
     pub block_root: Hash256,
     pub state_root: Hash256,
@@ -35,7 +35,7 @@ pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
 
 #[derive(Serialize)]
 #[serde(bound = "T: EthSpec")]
-struct BlockResponse<T: EthSpec> {
+pub struct BlockResponse<T: EthSpec> {
     pub root: Hash256,
     pub beacon_block: BeaconBlock<T>,
 }
@@ -106,7 +106,7 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 
 #[derive(Serialize)]
 #[serde(bound = "T: EthSpec")]
-struct StateResponse<T: EthSpec> {
+pub struct StateResponse<T: EthSpec> {
     pub root: Hash256,
     pub beacon_state: BeaconState<T>,
 }

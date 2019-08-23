@@ -39,7 +39,7 @@ pub struct ClientType<S: Store, E: EthSpec> {
 impl<S, E> BeaconChainTypes for ClientType<S, E>
 where
     S: Store + 'static,
-    E: EthSpec + 'static + Clone,
+    E: EthSpec,
 {
     type Store = S;
     type SlotClock = SystemTimeSlotClock;
