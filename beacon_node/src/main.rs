@@ -227,7 +227,9 @@ fn main() {
                     .short("p")
                     .long("port")
                     .value_name("TCP_PORT")
-                    .help("A libp2p listen port used to peer with the bootstrap server"))
+                    .help("A libp2p listen port used to peer with the bootstrap server. This flag is useful \
+                           when port-fowarding is used: you may connect using a different port than \
+                           the one the server is immediately listening on."))
             )
             .subcommand(SubCommand::with_name("recent")
                 .about("Creates a new genesis state where the genesis time was at the previous \

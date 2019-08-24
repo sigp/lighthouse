@@ -1,6 +1,6 @@
 use crate::bootstrapper::Bootstrapper;
 use crate::error::Result;
-use crate::{config::GenesisState, ClientConfig};
+use crate::{config::BeaconChainStartMethod, ClientConfig};
 use beacon_chain::{
     lmd_ghost::{LmdGhost, ThreadSafeReducedTree},
     slot_clock::SystemTimeSlotClock,
@@ -59,19 +59,19 @@ where
     T: BeaconChainTypes<Store = U, EthSpec = V>,
     T::LmdGhost: LmdGhost<U, V>,
 {
-    let genesis_state = match &config.genesis_state {
-        GenesisState::Mainnet => {
+    let genesis_state = match &config.beacon_chain_start_method {
+        BeaconChainStartMethod::Resume => {
             crit!(log, "This release does not support mainnet genesis state.");
             return Err("Mainnet is unsupported".into());
         }
-        GenesisState::RecentGenesis { validator_count } => {
+        BeaconChainStartMethod::RecentGenesis { validator_count } => {
             generate_testnet_genesis_state(*validator_count, recent_genesis_time(), &spec)
         }
-        GenesisState::Generated {
+        BeaconChainStartMethod::Generated {
             validator_count,
             genesis_time,
         } => generate_testnet_genesis_state(*validator_count, *genesis_time, &spec),
-        GenesisState::Yaml { file } => {
+        BeaconChainStartMethod::Yaml { file } => {
             let file = File::open(file).map_err(|e| {
                 format!("Unable to open YAML genesis state file {:?}: {:?}", file, e)
             })?;
@@ -79,7 +79,7 @@ where
             serde_yaml::from_reader(file)
                 .map_err(|e| format!("Unable to parse YAML genesis state file: {:?}", e))?
         }
-        GenesisState::HttpBootstrap { server } => {
+        BeaconChainStartMethod::HttpBootstrap { server, .. } => {
             let bootstrapper = Bootstrapper::from_server_string(server.to_string())
                 .map_err(|e| format!("Failed to initialize bootstrap client: {}", e))?;
 

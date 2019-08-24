@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use client::{Bootstrapper, ClientConfig, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use rand::{distributions::Alphanumeric, Rng};
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use std::fs;
 use std::path::PathBuf;
 
@@ -35,15 +35,16 @@ pub fn get_configs(matches: &ArgMatches, log: &Logger) -> Result<Config> {
                 // The bootstrap testnet method requires inserting a libp2p address into the
                 // network config.
                 ("bootstrap", Some(sub_matches)) => {
-                    let server = sub_matches
+                    let server: String = sub_matches
                         .value_of("server")
-                        .ok_or_else(|| "No bootstrap server specified".into())?;
+                        .ok_or_else(|| "No bootstrap server specified")?
+                        .to_string();
 
                     let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
 
-                    if let Some(server_multiaddr) =
-                        bootstrapper.best_effort_multiaddr(sub_matches.value_of("libp2p_port"))
-                    {
+                    if let Some(server_multiaddr) = bootstrapper.best_effort_multiaddr(
+                        parse_port_option(sub_matches.value_of("libp2p_port")),
+                    ) {
                         info!(
                             log,
                             "Estimated bootstrapper libp2p address";
@@ -81,6 +82,11 @@ pub fn get_configs(matches: &ArgMatches, log: &Logger) -> Result<Config> {
     };
 
     builder.build()
+}
+
+/// Decodes an optional string into an optional u16.
+fn parse_port_option(o: Option<&str>) -> Option<u16> {
+    o.and_then(|s| s.parse::<u16>().ok())
 }
 
 /// Allows for building a set of configurations based upon `clap` arguments.
