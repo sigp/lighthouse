@@ -1,8 +1,7 @@
 use crate::error;
-use crate::service::{NetworkMessage, OutgoingMessage};
+use crate::service::NetworkMessage;
 use crate::sync::SimpleSync;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::{
     behaviour::PubsubMessage,
     rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId},
@@ -304,6 +303,9 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         &self,
         beacon_blocks: &[u8],
     ) -> Result<Vec<BeaconBlock<T::EthSpec>>, DecodeError> {
+        if beacon_blocks.is_empty() {
+            return Ok(Vec::new());
+        }
         //TODO: Implement faster block verification before decoding entirely
         Vec::from_ssz_bytes(&beacon_blocks)
     }

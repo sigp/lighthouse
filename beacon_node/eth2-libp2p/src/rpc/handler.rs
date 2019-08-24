@@ -317,11 +317,11 @@ where
                                 RPCEvent::Response(rpc_event.id(), response),
                             )));
                         } else {
-                            // stream closed early
+                            // stream closed early or nothing was sent
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                                 RPCEvent::Error(
                                     rpc_event.id(),
-                                    RPCError::Custom("Stream Closed Early".into()),
+                                    RPCError::Custom("Stream closed early. Empty response".into()),
                                 ),
                             )));
                         }

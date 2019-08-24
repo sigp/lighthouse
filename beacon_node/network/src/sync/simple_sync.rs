@@ -2,24 +2,22 @@ use super::manager::{ImportManager, ImportManagerOutcome};
 use crate::service::{NetworkMessage, OutgoingMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{debug, error, info, o, trace, warn};
+use slog::{debug, info, o, trace, warn};
 use ssz::Encode;
-use std::collections::HashMap;
+use std::ops::Sub;
 use std::sync::Arc;
-use std::time::Duration;
 use store::Store;
 use tokio::sync::mpsc;
-use types::{
-    Attestation, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot,
-};
+use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
 
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
+/// The number of slots behind our head that we still treat a peer as a fully synced peer.
+const FULL_PEER_TOLERANCE: u64 = 10;
 const SHOULD_FORWARD_GOSSIP_BLOCK: bool = true;
 const SHOULD_NOT_FORWARD_GOSSIP_BLOCK: bool = false;
 
@@ -54,8 +52,8 @@ impl<T: BeaconChainTypes> From<&Arc<BeaconChain<T>>> for PeerSyncInfo {
 /// The current syncing state.
 #[derive(PartialEq)]
 pub enum SyncState {
-    Idle,
-    Downloading,
+    _Idle,
+    _Downloading,
     _Stopped,
 }
 
@@ -97,7 +95,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     /// Sends a `Hello` message to the peer.
     pub fn on_connect(&mut self, peer_id: PeerId) {
         self.network
-            .send_rpc_request(peer_id, RPCRequest::Hello(hello_message(&self.chain)));
+            .send_rpc_request(None, peer_id, RPCRequest::Hello(hello_message(&self.chain)));
     }
 
     /// Handle a `Hello` request.
@@ -193,8 +191,16 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         {
             // If the node's best-block is already known to us and they are close to our current
             // head, treat them as a fully sync'd peer.
-            self.manager.add_full_peer(peer_id);
-            self.process_sync();
+            if self.chain.best_slot().sub(remote.head_slot).as_u64() < FULL_PEER_TOLERANCE {
+                self.manager.add_full_peer(peer_id);
+                self.process_sync();
+            } else {
+                debug!(
+                    self.log,
+                    "Out of sync peer connected";
+                    "peer" => format!("{:?}", peer_id),
+                );
+            }
         } else {
             // The remote node has an equal or great finalized epoch and we don't know it's head.
             //
@@ -222,8 +228,11 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                         "method" => "HELLO",
                         "peer" => format!("{:?}", peer_id)
                     );
-                    self.network
-                        .send_rpc_request(peer_id, RPCRequest::Hello(hello_message(&self.chain)));
+                    self.network.send_rpc_request(
+                        None,
+                        peer_id,
+                        RPCRequest::Hello(hello_message(&self.chain)),
+                    );
                 }
                 ImportManagerOutcome::RequestBlocks {
                     peer_id,
@@ -238,8 +247,11 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                         "count" => request.count,
                         "peer" => format!("{:?}", peer_id)
                     );
-                    self.network
-                        .send_rpc_request(peer_id.clone(), RPCRequest::BeaconBlocks(request));
+                    self.network.send_rpc_request(
+                        Some(request_id),
+                        peer_id.clone(),
+                        RPCRequest::BeaconBlocks(request),
+                    );
                 }
                 ImportManagerOutcome::RecentRequest(peer_id, req) => {
                     trace!(
@@ -249,8 +261,11 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                         "count" => req.block_roots.len(),
                         "peer" => format!("{:?}", peer_id)
                     );
-                    self.network
-                        .send_rpc_request(peer_id.clone(), RPCRequest::RecentBeaconBlocks(req));
+                    self.network.send_rpc_request(
+                        None,
+                        peer_id.clone(),
+                        RPCRequest::RecentBeaconBlocks(req),
+                    );
                 }
                 ImportManagerOutcome::DownvotePeer(peer_id) => {
                     trace!(
@@ -270,6 +285,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         }
     }
 
+    //TODO: Move to beacon chain
     fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
         self.chain
             .rev_iter_block_roots()
@@ -333,28 +349,50 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "start_slot" => req.start_slot,
         );
 
+        //TODO: Optimize this
+        // Currently for skipped slots, the blocks returned could be less than the requested range.
+        // In the current implementation we read from the db then filter out out-of-range blocks.
+        // Improving the db schema to prevent this would be ideal.
+
         let mut blocks: Vec<BeaconBlock<T::EthSpec>> = self
             .chain
             .rev_iter_block_roots()
             .filter(|(_root, slot)| {
-                req.start_slot <= slot.as_u64() && req.start_slot + req.count >= slot.as_u64()
+                req.start_slot <= slot.as_u64() && req.start_slot + req.count > slot.as_u64()
             })
             .take_while(|(_root, slot)| req.start_slot <= slot.as_u64())
             .filter_map(|(root, _slot)| {
                 if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
                     Some(block)
                 } else {
-                    debug!(
+                    warn!(
                         self.log,
-                        "Peer requested unknown block";
-                        "peer" => format!("{:?}", peer_id),
+                        "Block in the chain is not in the store";
                         "request_root" => format!("{:}", root),
                     );
 
                     None
                 }
             })
+            .filter(|block| block.slot >= req.start_slot)
             .collect();
+
+        // TODO: Again find a more elegant way to include genesis if needed
+        // if the genesis is requested, add it in
+        if req.start_slot == 0 {
+            if let Ok(Some(genesis)) = self
+                .chain
+                .store
+                .get::<BeaconBlock<T::EthSpec>>(&self.chain.genesis_block_root)
+            {
+                blocks.push(genesis);
+            } else {
+                warn!(
+                    self.log,
+                    "Requested genesis, which is not in the chain store";
+                );
+            }
+        }
 
         blocks.reverse();
         blocks.dedup_by_key(|brs| brs.slot);
@@ -362,7 +400,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         if blocks.len() as u64 != req.count {
             debug!(
                 self.log,
-                "BeaconBlocksRequest";
+                "BeaconBlocksRequest response";
                 "peer" => format!("{:?}", peer_id),
                 "msg" => "Failed to return all requested hashes",
                 "start_slot" => req.start_slot,
@@ -498,14 +536,19 @@ impl NetworkContext {
     }
 
     pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        self.send_rpc_request(peer_id, RPCRequest::Goodbye(reason))
+        self.send_rpc_request(None, peer_id, RPCRequest::Goodbye(reason))
         // TODO: disconnect peers.
     }
 
-    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest) {
-        // Note: There is currently no use of keeping track of requests. However the functionality
-        // is left here for future revisions.
-        self.send_rpc_event(peer_id, RPCEvent::Request(0, rpc_request));
+    pub fn send_rpc_request(
+        &mut self,
+        request_id: Option<RequestId>,
+        peer_id: PeerId,
+        rpc_request: RPCRequest,
+    ) {
+        // use 0 as the default request id, when an ID is not required.
+        let request_id = request_id.unwrap_or_else(|| 0);
+        self.send_rpc_event(peer_id, RPCEvent::Request(request_id, rpc_request));
     }
 
     //TODO: Handle Error responses
