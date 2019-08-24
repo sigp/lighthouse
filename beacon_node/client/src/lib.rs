@@ -1,6 +1,7 @@
 extern crate slog;
 
 mod beacon_chain_types;
+mod bootstrapper;
 mod config;
 
 pub mod error;
@@ -10,7 +11,6 @@ use beacon_chain::BeaconChain;
 use exit_future::Signal;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
-use prometheus::Registry;
 use slog::{error, info, o};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
@@ -22,7 +22,8 @@ use tokio::timer::Interval;
 pub use beacon_chain::BeaconChainTypes;
 pub use beacon_chain_types::ClientType;
 pub use beacon_chain_types::InitialiseBeaconChain;
-pub use config::Config as ClientConfig;
+pub use bootstrapper::Bootstrapper;
+pub use config::{Config as ClientConfig, GenesisState};
 pub use eth2_config::Eth2Config;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
@@ -36,8 +37,6 @@ pub struct Client<T: BeaconChainTypes> {
     pub network: Arc<NetworkService<T>>,
     /// Signal to terminate the RPC server.
     pub rpc_exit_signal: Option<Signal>,
-    /// Signal to terminate the HTTP server.
-    pub http_exit_signal: Option<Signal>,
     /// Signal to terminate the slot timer.
     pub slot_timer_exit_signal: Option<Signal>,
     /// Signal to terminate the API
@@ -50,7 +49,7 @@ pub struct Client<T: BeaconChainTypes> {
 
 impl<T> Client<T>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone + 'static,
+    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone,
 {
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
@@ -60,7 +59,6 @@ where
         log: slog::Logger,
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
-        let metrics_registry = Registry::new();
         let store = Arc::new(store);
         let seconds_per_slot = eth2_config.spec.seconds_per_slot;
 
@@ -71,11 +69,6 @@ where
             eth2_config.spec.clone(),
             log.clone(),
         )?);
-        // Registry all beacon chain metrics with the global registry.
-        beacon_chain
-            .metrics
-            .register(&metrics_registry)
-            .expect("Failed to registry metrics");
 
         if beacon_chain.read_slot_clock().is_none() {
             panic!("Cannot start client before genesis!")
@@ -117,29 +110,14 @@ where
             None
         };
 
-        // Start the `http_server` service.
-        //
-        // Note: presently we are ignoring the config and _always_ starting a HTTP server.
-        let http_exit_signal = if client_config.http.enabled {
-            Some(http_server::start_service(
-                &client_config.http,
-                executor,
-                network_send,
-                beacon_chain.clone(),
-                client_config.db_path().expect("unable to read datadir"),
-                metrics_registry,
-                &log,
-            ))
-        } else {
-            None
-        };
-
         // Start the `rest_api` service
         let api_exit_signal = if client_config.rest_api.enabled {
             match rest_api::start_server(
                 &client_config.rest_api,
                 executor,
                 beacon_chain.clone(),
+                network.clone(),
+                client_config.db_path().expect("unable to read datadir"),
                 &log,
             ) {
                 Ok(s) => Some(s),
@@ -181,7 +159,6 @@ where
         Ok(Client {
             _client_config: client_config,
             beacon_chain,
-            http_exit_signal,
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
             api_exit_signal,

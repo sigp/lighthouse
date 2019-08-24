@@ -7,6 +7,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 beacon_chain = { path = "../beacon_chain" }
+network = { path = "../network" }
+eth2-libp2p = { path = "../eth2-libp2p" }
 store = { path = "../store" }
 version = { path = "../version" }
 serde = { version = "1.0", features = ["derive"] }
@@ -18,8 +20,12 @@ state_processing = { path = "../../eth2/state_processing" }
 types = { path = "../../eth2/types" }
 clap = "2.32.0"
 http = "^0.1.17"
+prometheus = { version = "^0.6", features = ["process"] }
 hyper = "0.12.32"
 futures = "0.1"
 exit-future = "0.1.3"
 tokio = "0.1.17"
 url = "2.0"
+lazy_static = "1.3.0"
+lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
+slot_clock = { path = "../../eth2/utils/slot_clock" }
