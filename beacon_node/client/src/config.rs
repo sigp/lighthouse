@@ -1,14 +1,10 @@
-use crate::Bootstrapper;
 use clap::ArgMatches;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
-use slog::{info, o, warn, Drain};
+use slog::{info, o, Drain};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Mutex;
-
-/// The number initial validators when starting the `Minimal`.
-const TESTNET_VALIDATOR_COUNT: usize = 16;
 
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
@@ -21,61 +17,50 @@ pub struct Config {
     db_name: String,
     pub log_file: PathBuf,
     pub spec_constants: String,
+    /// Defines how we should initialize a BeaconChain instances.
+    ///
+    /// This field is not serialized, there for it will not be written to (or loaded from) config
+    /// files. It can only be configured via the CLI.
     #[serde(skip)]
-    pub boot_method: BootMethod,
+    pub beacon_chain_start_method: BeaconChainStartMethod,
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub rest_api: rest_api::ApiConfig,
 }
 
+/// Defines how the client should initialize a BeaconChain.
+///
+/// In general, there are two methods:
+///  - resuming a new chain, or
+///  - initializing a new one.
 #[derive(Debug, Clone)]
-pub enum BootMethod {
-    /// Resume from an existing database.
+pub enum BeaconChainStartMethod {
+    /// Resume from an existing BeaconChain, loaded from the existing local database.
     Resume,
-    /// Generate a state with `validator_count` validators, all with well-known secret keys.
+    /// Create a new beacon chain with `validator_count` validators, all with well-known secret keys.
     ///
     /// Set the genesis time to be the start of the previous 30-minute window.
     RecentGenesis { validator_count: usize },
-    /// Generate a state with `genesis_time` and `validator_count` validators, all with well-known
+    /// Create a new beacon chain with `genesis_time` and `validator_count` validators, all with well-known
     /// secret keys.
     Generated {
         validator_count: usize,
         genesis_time: u64,
     },
-    /// Load a YAML-encoded genesis state from a file.
+    /// Create a new beacon chain by loading a YAML-encoded genesis state from a file.
     Yaml { file: PathBuf },
-    /// Use a HTTP server (running our REST-API) to load genesis and finalized states and blocks.
+    /// Create a new beacon chain by using a HTTP server (running our REST-API) to load genesis and
+    /// finalized states and blocks.
     HttpBootstrap {
         server: String,
         port: Option<String>,
     },
 }
 
-impl Default for BootMethod {
+impl Default for BeaconChainStartMethod {
     fn default() -> Self {
-        BootMethod::Resume
+        BeaconChainStartMethod::Resume
     }
-}
-
-pub enum GenesisState {
-    /// Use the mainnet genesis state.
-    ///
-    /// Mainnet genesis state is not presently known, so this is a place-holder.
-    Mainnet,
-    /// Generate a state with `validator_count` validators, all with well-known secret keys.
-    ///
-    /// Set the genesis time to be the start of the previous 30-minute window.
-    RecentGenesis { validator_count: usize },
-    /// Generate a state with `genesis_time` and `validator_count` validators, all with well-known
-    /// secret keys.
-    Generated {
-        validator_count: usize,
-        genesis_time: u64,
-    },
-    /// Load a YAML-encoded genesis state from a file.
-    Yaml { file: PathBuf },
-    /// Use a HTTP server (running our REST-API) to load genesis and finalized states and blocks.
-    HttpBootstrap { server: String },
 }
 
 impl Default for Config {
@@ -86,10 +71,10 @@ impl Default for Config {
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
             network: NetworkConfig::new(),
-            rpc: rpc::RPCConfig::default(),
-            rest_api: rest_api::ApiConfig::default(),
+            rpc: <_>::default(),
+            rest_api: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
-            boot_method: BootMethod::default(),
+            beacon_chain_start_method: <_>::default(),
         }
     }
 }
