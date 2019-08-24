@@ -17,11 +17,7 @@ pub const WARN_PEER_COUNT: usize = 1;
 /// durations.
 ///
 /// Presently unused, but remains for future use.
-pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
-    client: &Client<T>,
-    executor: TaskExecutor,
-    exit: Exit,
-) {
+pub fn run<T: BeaconChainTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exit) {
     // notification heartbeat
     let interval = Interval::new(
         Instant::now(),

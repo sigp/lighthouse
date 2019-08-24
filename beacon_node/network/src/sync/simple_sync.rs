@@ -377,23 +377,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             .filter(|block| block.slot >= req.start_slot)
             .collect();
 
-        // TODO: Again find a more elegant way to include genesis if needed
-        // if the genesis is requested, add it in
-        if req.start_slot == 0 {
-            if let Ok(Some(genesis)) = self
-                .chain
-                .store
-                .get::<BeaconBlock<T::EthSpec>>(&self.chain.genesis_block_root)
-            {
-                blocks.push(genesis);
-            } else {
-                warn!(
-                    self.log,
-                    "Requested genesis, which is not in the chain store";
-                );
-            }
-        }
-
         blocks.reverse();
         blocks.dedup_by_key(|brs| brs.slot);
 

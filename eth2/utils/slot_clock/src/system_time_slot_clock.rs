@@ -52,6 +52,10 @@ impl SlotClock for SystemTimeSlotClock {
     fn duration_to_next_slot(&self) -> Result<Option<Duration>, Error> {
         duration_to_next_slot(self.genesis_seconds, self.slot_duration_seconds)
     }
+
+    fn slot_duration_millis(&self) -> u64 {
+        self.slot_duration_seconds * 1000
+    }
 }
 
 impl From<SystemTimeError> for Error {

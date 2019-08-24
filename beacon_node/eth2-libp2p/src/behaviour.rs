@@ -78,6 +78,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
             log: behaviour_log,
         })
     }
+
+    pub fn discovery(&self) -> &Discovery<TSubstream> {
+        &self.discovery
+    }
 }
 
 // Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour
@@ -87,7 +91,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message(gs_msg) => {
-                trace!(self.log, "Received GossipEvent"; "msg" => format!("{:?}", gs_msg));
+                trace!(self.log, "Received GossipEvent");
 
                 let msg = PubsubMessage::from_topics(&gs_msg.topics, gs_msg.data);
 

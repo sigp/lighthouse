@@ -16,7 +16,7 @@ use libp2p::core::{
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
 use libp2p::{core, secio, PeerId, Swarm, Transport};
-use slog::{debug, info, trace, warn};
+use slog::{crit, debug, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
@@ -33,7 +33,7 @@ pub struct Service {
     //TODO: Make this private
     pub swarm: Swarm<Libp2pStream, Libp2pBehaviour>,
     /// This node's PeerId.
-    _local_peer_id: PeerId,
+    pub local_peer_id: PeerId,
     /// The libp2p logger handle.
     pub log: slog::Logger,
 }
@@ -68,10 +68,15 @@ impl Service {
                 log_address.push(Protocol::P2p(local_peer_id.clone().into()));
                 info!(log, "Listening established"; "Address" => format!("{}", log_address));
             }
-            Err(err) => warn!(
-                log,
-                "Failed to listen on address"; "Address" => format!("{}", listen_multiaddr), "Error" => format!("{:?}", err)
-            ),
+            Err(err) => {
+                crit!(
+                    log,
+                    "Unable to listen on libp2p address";
+                    "error" => format!("{:?}", err),
+                    "listen_multiaddr" => format!("{}", listen_multiaddr),
+                );
+                return Err("Libp2p was unable to listen on the given listen address.".into());
+            }
         };
 
         // attempt to connect to user-input libp2p nodes
@@ -126,7 +131,7 @@ impl Service {
         info!(log, "Subscribed to topics"; "Topics" => format!("{:?}", subscribed_topics.iter().map(|t| format!("{}", t)).collect::<Vec<String>>()));
 
         Ok(Service {
-            _local_peer_id: local_peer_id,
+            local_peer_id,
             swarm,
             log,
         })

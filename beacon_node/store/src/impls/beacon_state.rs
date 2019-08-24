@@ -53,12 +53,29 @@ impl<T: EthSpec> StoreItem for BeaconState<T> {
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {
+        let timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_TIMES);
+
         let container = StorageContainer::new(self);
-        container.as_ssz_bytes()
+        let bytes = container.as_ssz_bytes();
+
+        metrics::stop_timer(timer);
+        metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
+        metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as i64);
+
+        bytes
     }
 
     fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, Error> {
+        let timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
+
+        let len = bytes.len();
         let container = StorageContainer::from_ssz_bytes(bytes)?;
-        container.try_into()
+        let result = container.try_into();
+
+        metrics::stop_timer(timer);
+        metrics::inc_counter(&metrics::BEACON_STATE_READ_COUNT);
+        metrics::inc_counter_by(&metrics::BEACON_STATE_READ_BYTES, len as i64);
+
+        result
     }
 }
