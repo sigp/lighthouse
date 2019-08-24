@@ -41,7 +41,7 @@ pub struct Client<T: BeaconChainTypes> {
     /// Signal to terminate the slot timer.
     pub slot_timer_exit_signal: Option<Signal>,
     /// Signal to terminate the API
-    //    pub api_exit_signal: Option<Signal>,
+    pub api_exit_signal: Option<Signal>,
     /// The clients logger.
     log: slog::Logger,
     /// Marker to pin the beacon chain generics.
@@ -134,7 +134,6 @@ where
             None
         };
 
-        /*
         // Start the `rest_api` service
         let api_exit_signal = if client_config.rest_api.enabled {
             match rest_api::start_server(
@@ -152,7 +151,6 @@ where
         } else {
             None
         };
-        */
 
         let (slot_timer_exit_signal, exit) = exit_future::signal();
         if let Ok(Some(duration_to_next_slot)) = beacon_chain.slot_clock.duration_to_next_slot() {
@@ -186,7 +184,7 @@ where
             http_exit_signal,
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
-            //api_exit_signal,
+            api_exit_signal,
             log,
             network,
             phantom: PhantomData,

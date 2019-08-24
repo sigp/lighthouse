@@ -148,7 +148,7 @@ impl Stream for Service {
                         topics,
                         message,
                     } => {
-                        trace!(self.log, "Gossipsub message received"; "Message" => format!("{:?}", message));
+                        trace!(self.log, "Gossipsub message received"; "service" => "Swarm");
                         return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
                             source,
                             topics,

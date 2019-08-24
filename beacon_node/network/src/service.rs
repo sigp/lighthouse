@@ -119,7 +119,7 @@ fn network_service(
                     },
                     NetworkMessage::Publish { topics, message } => {
                         debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
-                        libp2p_service.lock().swarm.publish(topics, message);
+                        libp2p_service.lock().swarm.publish(&topics, message);
                     }
                 },
                 Ok(Async::NotReady) => break,

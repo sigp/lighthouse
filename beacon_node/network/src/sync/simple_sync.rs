@@ -465,9 +465,15 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) -> bool {
         if let Ok(outcome) = self.chain.process_block(block.clone()) {
             match outcome {
-                BlockProcessingOutcome::Processed { .. } => SHOULD_FORWARD_GOSSIP_BLOCK,
+                BlockProcessingOutcome::Processed { .. } => {
+                    trace!(self.log, "Gossipsub block processed";
+                            "peer_id" => format!("{:?}",peer_id));
+                    SHOULD_FORWARD_GOSSIP_BLOCK
+                }
                 BlockProcessingOutcome::ParentUnknown { parent: _ } => {
                     // Inform the sync manager to find parents for this block
+                    trace!(self.log, "Unknown parent gossip";
+                            "peer_id" => format!("{:?}",peer_id));
                     self.manager.add_unknown_block(block.clone(), peer_id);
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
