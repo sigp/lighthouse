@@ -13,14 +13,12 @@ const MAX_BLOCKS_PER_REQUEST: u64 = 10;
 
 /// The number of slots that we can import blocks ahead of us, before going into full Sync mode.
 const SLOT_IMPORT_TOLERANCE: usize = 10;
-
 const PARENT_FAIL_TOLERANCE: usize = 3;
 const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 
 #[derive(PartialEq)]
 enum BlockRequestsState {
-    QueuedForward,
-    QueuedBackward,
+    Queued,
     Pending(RequestId),
     Complete,
     Failed,
@@ -31,6 +29,10 @@ struct BlockRequests<T: EthSpec> {
     target_head_root: Hash256,
     downloaded_blocks: Vec<BeaconBlock<T>>,
     state: BlockRequestsState,
+    /// Specifies whether the current state is syncing forwards or backwards.
+    forward_sync: bool,
+    /// The current `start_slot` of the batched block request.
+    current_start_slot: Slot,
 }
 
 struct ParentRequests<T: EthSpec> {
@@ -43,25 +45,13 @@ struct ParentRequests<T: EthSpec> {
 impl<T: EthSpec> BlockRequests<T> {
     // gets the start slot for next batch
     // last block slot downloaded plus 1
-    fn next_start_slot(&self) -> Option<Slot> {
-        if !self.downloaded_blocks.is_empty() {
-            match self.state {
-                BlockRequestsState::QueuedForward => {
-                    let last_element_index = self.downloaded_blocks.len() - 1;
-                    Some(self.downloaded_blocks[last_element_index].slot.add(1))
-                }
-                BlockRequestsState::QueuedBackward => {
-                    let earliest_known_slot = self.downloaded_blocks[0].slot;
-                    Some(earliest_known_slot.add(1).sub(MAX_BLOCKS_PER_REQUEST))
-                }
-                _ => {
-                    // pending/complete/failed
-                    None
-                }
-            }
+    fn update_start_slot(&mut self) {
+        if self.forward_sync {
+            self.current_start_slot += Slot::from(MAX_BLOCKS_PER_REQUEST);
         } else {
-            None
+            self.current_start_slot -= Slot::from(MAX_BLOCKS_PER_REQUEST);
         }
+        self.state = BlockRequestsState::Queued;
     }
 }
 
@@ -117,7 +107,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
 
         let local = PeerSyncInfo::from(&self.chain);
 
-        // If a peer is within SLOT_IMPORT_TOLERANCE from out head slot, ignore a batch sync
+        // If a peer is within SLOT_IMPORT_TOLERANCE from our head slot, ignore a batch sync
         if remote.head_slot.sub(local.head_slot).as_usize() < SLOT_IMPORT_TOLERANCE {
             trace!(self.log, "Ignoring full sync with peer";
             "peer" => format!("{:?}", peer_id),
@@ -139,7 +129,9 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                 target_head_slot: remote.head_slot, // this should be larger than the current head. It is checked in the SyncManager before add_peer is called
                 target_head_root: remote.head_root,
                 downloaded_blocks: Vec::new(),
-                state: BlockRequestsState::QueuedForward,
+                state: BlockRequestsState::Queued,
+                forward_sync: true,
+                current_start_slot: self.chain.best_slot(),
             };
             self.import_queue.insert(peer_id, block_requests);
         }
@@ -165,8 +157,6 @@ impl<T: BeaconChainTypes> ImportManager<T> {
             }
         };
 
-        // The response should contain at least one block.
-        //
         // If we are syncing up to a target head block, at least the target head block should be
         // returned. If we are syncing back to our last finalized block the request should return
         // at least the last block we received (last known block). In diagram form:
@@ -176,33 +166,30 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         // ^finalized slot     ^ requested start slot   ^ last known block       ^ remote head
 
         if blocks.is_empty() {
-            warn!(self.log, "BeaconBlocks response was empty"; "request_id" => request_id);
-            block_requests.state = BlockRequestsState::Failed;
+            debug!(self.log, "BeaconBlocks response was empty"; "request_id" => request_id);
+            block_requests.update_start_slot();
             return;
         }
 
-        // Add the newly downloaded blocks to the current list of downloaded blocks. This also
-        // determines if we are syncing forward or backward.
-        let syncing_forwards = {
-            if block_requests.downloaded_blocks.is_empty() {
-                block_requests.downloaded_blocks.append(&mut blocks);
-                true
-            } else if block_requests.downloaded_blocks[0].slot < blocks[0].slot {
-                // syncing forwards
-                // verify the peer hasn't sent overlapping blocks - ensuring the strictly
-                // increasing blocks in a batch will be verified during the processing
-                if block_requests.next_start_slot() > Some(blocks[0].slot) {
-                    warn!(self.log, "BeaconBlocks response returned duplicate blocks"; "request_id" => request_id, "response_initial_slot" => blocks[0].slot, "requested_initial_slot" => block_requests.next_start_slot());
-                    block_requests.state = BlockRequestsState::Failed;
-                    return;
-                }
-
-                block_requests.downloaded_blocks.append(&mut blocks);
-                true
-            } else {
-                false
-            }
-        };
+        // verify the range of received blocks
+        // Note that the order of blocks is verified in block processing
+        let last_sent_slot = blocks[blocks.len() - 1].slot;
+        if block_requests.current_start_slot > blocks[0].slot
+            || block_requests
+                .current_start_slot
+                .add(MAX_BLOCKS_PER_REQUEST)
+                < last_sent_slot
+        {
+            //TODO: Downvote peer - add a reason to failed
+            dbg!(&blocks);
+            warn!(self.log, "BeaconBlocks response returned out of range blocks"; 
+                          "request_id" => request_id, 
+                          "response_initial_slot" => blocks[0].slot, 
+                          "requested_initial_slot" => block_requests.current_start_slot);
+            // consider this sync failed
+            block_requests.state = BlockRequestsState::Failed;
+            return;
+        }
 
         // Determine if more blocks need to be downloaded. There are a few cases:
         // - We have downloaded a batch from our head_slot, which has not reached the remotes head
@@ -216,61 +203,60 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         //      chain. If so, process the blocks, if not, request more blocks all the way up to
         //      our last finalized slot.
 
-        if syncing_forwards {
-            // does the batch contain the target_head_slot
-            let last_element_index = block_requests.downloaded_blocks.len() - 1;
-            if block_requests.downloaded_blocks[last_element_index].slot
-                >= block_requests.target_head_slot
-            {
-                // if the batch is on our chain, this is complete and we can then process.
-                // Otherwise start backwards syncing until we reach a common chain.
-                let earliest_slot = block_requests.downloaded_blocks[0].slot;
-                //TODO: Decide which is faster. Reading block from db and comparing or calculating
-                //the hash tree root and comparing.
-                if Some(block_requests.downloaded_blocks[0].canonical_root())
-                    == root_at_slot(self.chain, earliest_slot)
-                {
-                    block_requests.state = BlockRequestsState::Complete;
-                    return;
-                }
-
-                // not on the same chain, request blocks backwards
-                let state = &self.chain.head().beacon_state;
-                let local_finalized_slot = state
-                    .finalized_checkpoint
-                    .epoch
-                    .start_slot(T::EthSpec::slots_per_epoch());
-
-                // check that the request hasn't failed by having no common chain
-                if local_finalized_slot >= block_requests.downloaded_blocks[0].slot {
-                    warn!(self.log, "Peer returned an unknown chain."; "request_id" => request_id);
-                    block_requests.state = BlockRequestsState::Failed;
-                    return;
-                }
-
-                // Start a backwards sync by requesting earlier blocks
-                // There can be duplication in downloaded blocks here if there are a large number
-                // of skip slots. In all cases we at least re-download the earliest known block.
-                // It is unlikely that a backwards sync in required, so we accept this duplication
-                // for now.
-                block_requests.state = BlockRequestsState::QueuedBackward;
-            } else {
-                // batch doesn't contain the head slot, request the next batch
-                block_requests.state = BlockRequestsState::QueuedForward;
-            }
+        if block_requests.forward_sync {
+            // append blocks if syncing forward
+            block_requests.downloaded_blocks.append(&mut blocks);
         } else {
-            // syncing backwards
+            // prepend blocks if syncing backwards
+            block_requests.downloaded_blocks.splice(..0, blocks);
+        }
+
+        // does the batch contain the target_head_slot
+        let last_element_index = block_requests.downloaded_blocks.len() - 1;
+        if block_requests.downloaded_blocks[last_element_index].slot
+            >= block_requests.target_head_slot
+            || !block_requests.forward_sync
+        {
             // if the batch is on our chain, this is complete and we can then process.
-            // Otherwise continue backwards
+            // Otherwise start backwards syncing until we reach a common chain.
             let earliest_slot = block_requests.downloaded_blocks[0].slot;
+            //TODO: Decide which is faster. Reading block from db and comparing or calculating
+            //the hash tree root and comparing.
             if Some(block_requests.downloaded_blocks[0].canonical_root())
-                == root_at_slot(self.chain, earliest_slot)
+                == root_at_slot(&self.chain, earliest_slot)
             {
                 block_requests.state = BlockRequestsState::Complete;
                 return;
             }
-            block_requests.state = BlockRequestsState::QueuedBackward;
+
+            // not on the same chain, request blocks backwards
+            let state = &self.chain.head().beacon_state;
+            let local_finalized_slot = state
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch());
+
+            // check that the request hasn't failed by having no common chain
+            if local_finalized_slot >= block_requests.current_start_slot {
+                warn!(self.log, "Peer returned an unknown chain."; "request_id" => request_id);
+                block_requests.state = BlockRequestsState::Failed;
+                return;
+            }
+
+            // if this is a forward sync, then we have reached the head without a common chain
+            // and we need to start syncing backwards.
+            if block_requests.forward_sync {
+                // Start a backwards sync by requesting earlier blocks
+                block_requests.forward_sync = false;
+                block_requests.current_start_slot = std::cmp::min(
+                    self.chain.best_slot(),
+                    block_requests.downloaded_blocks[0].slot,
+                );
+            }
         }
+
+        // update the start slot and re-queue the batch
+        block_requests.update_start_slot();
     }
 
     pub fn recent_blocks_response(
@@ -296,7 +282,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         // if an empty response is given, the peer didn't have the requested block, try again
         if blocks.is_empty() {
             parent_request.failed_attempts += 1;
-            parent_request.state = BlockRequestsState::QueuedForward;
+            parent_request.state = BlockRequestsState::Queued;
             parent_request.last_submitted_peer = peer_id;
             return;
         }
@@ -316,7 +302,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         parent_request.state = BlockRequestsState::Complete;
     }
 
-    pub fn inject_error(peer_id: PeerId, id: RequestId) {
+    pub fn _inject_error(_peer_id: PeerId, _id: RequestId) {
         //TODO: Remove block state from pending
     }
 
@@ -358,13 +344,13 @@ impl<T: BeaconChainTypes> ImportManager<T> {
             downloaded_blocks: vec![block],
             failed_attempts: 0,
             last_submitted_peer: peer_id,
-            state: BlockRequestsState::QueuedBackward,
+            state: BlockRequestsState::Queued,
         };
 
         self.parent_queue.push(req);
     }
 
-    pub fn poll(&mut self) -> ImportManagerOutcome {
+    pub(crate) fn poll(&mut self) -> ImportManagerOutcome {
         loop {
             // update the state of the manager
             self.update_state();
@@ -385,12 +371,11 @@ impl<T: BeaconChainTypes> ImportManager<T> {
             }
 
             // process any complete parent lookups
-            if let (re_run, outcome) = self.process_complete_parent_requests() {
-                if let Some(outcome) = outcome {
-                    return outcome;
-                } else if !re_run {
-                    break;
-                }
+            let (re_run, outcome) = self.process_complete_parent_requests();
+            if let Some(outcome) = outcome {
+                return outcome;
+            } else if !re_run {
+                break;
             }
         }
 
@@ -423,9 +408,10 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         // If any in queued state we submit a request.
 
         // remove any failed batches
+        let debug_log = &self.log;
         self.import_queue.retain(|peer_id, block_request| {
             if let BlockRequestsState::Failed = block_request.state {
-                debug!(self.log, "Block import from peer failed";
+                debug!(debug_log, "Block import from peer failed";
                 "peer_id" => format!("{:?}", peer_id),
                 "downloaded_blocks" => block_request.downloaded_blocks.len()
                 );
@@ -436,20 +422,18 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         });
 
         // process queued block requests
-        for (peer_id, block_requests) in self.import_queue.iter_mut().find(|(_peer_id, req)| {
-            req.state == BlockRequestsState::QueuedForward
-                || req.state == BlockRequestsState::QueuedBackward
-        }) {
+        for (peer_id, block_requests) in self
+            .import_queue
+            .iter_mut()
+            .find(|(_peer_id, req)| req.state == BlockRequestsState::Queued)
+        {
             let request_id = self.current_req_id;
             block_requests.state = BlockRequestsState::Pending(request_id);
             self.current_req_id += 1;
 
             let request = BeaconBlocksRequest {
                 head_block_root: block_requests.target_head_root,
-                start_slot: block_requests
-                    .next_start_slot()
-                    .unwrap_or_else(|| self.chain.best_slot())
-                    .as_u64(),
+                start_slot: block_requests.current_start_slot.as_u64(),
                 count: MAX_BLOCKS_PER_REQUEST,
                 step: 0,
             };
@@ -504,9 +488,10 @@ impl<T: BeaconChainTypes> ImportManager<T> {
 
     fn process_parent_requests(&mut self) -> Option<ImportManagerOutcome> {
         // remove any failed requests
+        let debug_log = &self.log;
         self.parent_queue.retain(|parent_request| {
             if parent_request.state == BlockRequestsState::Failed {
-                debug!(self.log, "Parent import failed";
+                debug!(debug_log, "Parent import failed";
                 "block" => format!("{:?}",parent_request.downloaded_blocks[0].canonical_root()),
                 "ancestors_found" => parent_request.downloaded_blocks.len()
                 );
@@ -524,9 +509,15 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         // check if parents need to be searched for
         for parent_request in self.parent_queue.iter_mut() {
             if parent_request.failed_attempts >= PARENT_FAIL_TOLERANCE {
-                parent_request.state == BlockRequestsState::Failed;
+                parent_request.state = BlockRequestsState::Failed;
                 continue;
-            } else if parent_request.state == BlockRequestsState::QueuedForward {
+            } else if parent_request.state == BlockRequestsState::Queued {
+                // check the depth isn't too large
+                if parent_request.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE {
+                    parent_request.state = BlockRequestsState::Failed;
+                    continue;
+                }
+
                 parent_request.state = BlockRequestsState::Pending(self.current_req_id);
                 self.current_req_id += 1;
                 let last_element_index = parent_request.downloaded_blocks.len() - 1;
@@ -564,7 +555,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
             if block_hash != expected_hash {
                 // remove the head block
                 let _ = completed_request.downloaded_blocks.pop();
-                completed_request.state = BlockRequestsState::QueuedForward;
+                completed_request.state = BlockRequestsState::Queued;
                 //TODO: Potentially downvote the peer
                 let peer = completed_request.last_submitted_peer.clone();
                 debug!(self.log, "Peer sent invalid parent. Ignoring";
@@ -585,7 +576,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                     Ok(BlockProcessingOutcome::ParentUnknown { parent: _ }) => {
                         // need to keep looking for parents
                         completed_request.downloaded_blocks.push(block);
-                        completed_request.state == BlockRequestsState::QueuedForward;
+                        completed_request.state = BlockRequestsState::Queued;
                         re_run = true;
                         break;
                     }
@@ -598,7 +589,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                             "outcome" => format!("{:?}", outcome),
                             "peer" => format!("{:?}", completed_request.last_submitted_peer),
                         );
-                        completed_request.state == BlockRequestsState::QueuedForward;
+                        completed_request.state = BlockRequestsState::Queued;
                         re_run = true;
                         return (
                             re_run,
@@ -613,7 +604,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                             self.log, "Parent processing error";
                             "error" => format!("{:?}", e)
                         );
-                        completed_request.state == BlockRequestsState::QueuedForward;
+                        completed_request.state = BlockRequestsState::Queued;
                         re_run = true;
                         return (
                             re_run,
@@ -691,6 +682,13 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                             );
                         }
                     }
+                    BlockProcessingOutcome::FinalizedSlot => {
+                        trace!(
+                            self.log, "Finalized or earlier block processed";
+                            "outcome" => format!("{:?}", outcome),
+                        );
+                        // block reached our finalized slot or was earlier, move to the next block
+                    }
                     _ => {
                         trace!(
                             self.log, "InvalidBlock";
@@ -717,7 +715,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
 }
 
 fn root_at_slot<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
+    chain: &Arc<BeaconChain<T>>,
     target_slot: Slot,
 ) -> Option<Hash256> {
     chain

@@ -171,7 +171,25 @@ impl Decoder for SSZOutboundCodec {
                 },
                 _ => unreachable!("Cannot negotiate an unknown protocol"),
             },
-            Ok(None) => Ok(None),
+            Ok(None) => {
+                // the object sent could be a empty. We return the empty object if this is the case
+                match self.protocol.message_name.as_str() {
+                    "hello" => match self.protocol.version.as_str() {
+                        "1" => Ok(None), // cannot have an empty HELLO message. The stream has terminated unexpectedly
+                        _ => unreachable!("Cannot negotiate an unknown version"),
+                    },
+                    "goodbye" => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
+                    "beacon_blocks" => match self.protocol.version.as_str() {
+                        "1" => Ok(Some(RPCResponse::BeaconBlocks(Vec::new()))),
+                        _ => unreachable!("Cannot negotiate an unknown version"),
+                    },
+                    "recent_beacon_blocks" => match self.protocol.version.as_str() {
+                        "1" => Ok(Some(RPCResponse::RecentBeaconBlocks(Vec::new()))),
+                        _ => unreachable!("Cannot negotiate an unknown version"),
+                    },
+                    _ => unreachable!("Cannot negotiate an unknown protocol"),
+                }
+            }
             Err(e) => Err(e),
         }
     }
