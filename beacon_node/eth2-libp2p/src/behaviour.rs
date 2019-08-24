@@ -16,7 +16,6 @@ use libp2p::{
     NetworkBehaviour, PeerId,
 };
 use slog::{debug, o, trace};
-use ssz::{ssz_encode, Encode};
 use std::num::NonZeroU32;
 use std::time::Duration;
 
@@ -189,7 +188,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     }
 
     /// Publishes a message on the pubsub (gossipsub) behaviour.
-    pub fn publish(&mut self, topics: Vec<Topic>, message: PubsubMessage) {
+    pub fn publish(&mut self, topics: &[Topic], message: PubsubMessage) {
         let message_data = message.to_data();
         for topic in topics {
             self.gossipsub.publish(topic, message_data.clone());
