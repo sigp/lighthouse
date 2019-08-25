@@ -60,9 +60,10 @@ where
     T::LmdGhost: LmdGhost<U, V>,
 {
     let genesis_state = match &config.beacon_chain_start_method {
-        BeaconChainStartMethod::Resume => {
-            crit!(log, "This release does not support mainnet genesis state.");
-            return Err("Mainnet is unsupported".into());
+        BeaconChainStartMethod::Resume => unimplemented!("No resume code yet"),
+        BeaconChainStartMethod::Mainnet => {
+            crit!(log, "No mainnet beacon chain startup specification.");
+            return Err("Mainnet is not yet specified. We're working on it.".into());
         }
         BeaconChainStartMethod::RecentGenesis { validator_count } => {
             generate_testnet_genesis_state(*validator_count, recent_genesis_time(), &spec)
