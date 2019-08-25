@@ -14,12 +14,12 @@ type Result<T> = std::result::Result<T, String>;
 type Config = (ClientConfig, Eth2Config);
 
 /// Gets the fully-initialized global client and eth2 configuration objects.
-pub fn get_configs(matches: &ArgMatches, log: &Logger) -> Result<Config> {
-    let mut builder = ConfigBuilder::new(matches, log)?;
+pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
+    let mut builder = ConfigBuilder::new(cli_args, log)?;
 
-    match matches.subcommand() {
-        ("testnet", Some(sub_matches)) => {
-            if sub_matches.is_present("random-datadir") {
+    match cli_args.subcommand() {
+        ("testnet", Some(sub_cmd_args)) => {
+            if sub_cmd_args.is_present("random-datadir") {
                 builder.set_random_datadir()?;
             }
 
@@ -29,39 +29,13 @@ pub fn get_configs(matches: &ArgMatches, log: &Logger) -> Result<Config> {
                 "path" => format!("{:?}", builder.data_dir)
             );
 
-            builder.update_spec_from_subcommand(&sub_matches)?;
+            builder.update_spec_from_subcommand(&sub_cmd_args)?;
 
-            match sub_matches.subcommand() {
+            match sub_cmd_args.subcommand() {
                 // The bootstrap testnet method requires inserting a libp2p address into the
                 // network config.
-                ("bootstrap", Some(sub_matches)) => {
-                    let server: String = sub_matches
-                        .value_of("server")
-                        .ok_or_else(|| "No bootstrap server specified")?
-                        .to_string();
-
-                    let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
-
-                    if let Some(server_multiaddr) = bootstrapper.best_effort_multiaddr(
-                        parse_port_option(sub_matches.value_of("libp2p_port")),
-                    ) {
-                        info!(
-                            log,
-                            "Estimated bootstrapper libp2p address";
-                            "multiaddr" => format!("{:?}", server_multiaddr)
-                        );
-
-                        builder
-                            .client_config
-                            .network
-                            .libp2p_nodes
-                            .push(server_multiaddr);
-                    } else {
-                        warn!(
-                            log,
-                            "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
-                        );
-                    };
+                ("bootstrap", Some(sub_cmd_args)) => {
+                    builder.import_bootstrap_libp2p_address(&sub_cmd_args)?;
                 }
                 _ => (),
             };
@@ -81,7 +55,7 @@ pub fn get_configs(matches: &ArgMatches, log: &Logger) -> Result<Config> {
         }
     };
 
-    builder.build()
+    builder.build(cli_args)
 }
 
 /// Decodes an optional string into an optional u16.
@@ -91,21 +65,20 @@ fn parse_port_option(o: Option<&str>) -> Option<u16> {
 
 /// Allows for building a set of configurations based upon `clap` arguments.
 struct ConfigBuilder<'a> {
-    matches: &'a ArgMatches<'a>,
     log: &'a Logger,
     pub data_dir: PathBuf,
-    pub eth2_config: Eth2Config,
-    pub client_config: ClientConfig,
+    eth2_config: Eth2Config,
+    client_config: ClientConfig,
 }
 
 impl<'a> ConfigBuilder<'a> {
     /// Create a new builder with default settings.
-    pub fn new(matches: &'a ArgMatches, log: &'a Logger) -> Result<Self> {
+    pub fn new(cli_args: &'a ArgMatches, log: &'a Logger) -> Result<Self> {
         // Read the `--datadir` flag.
         //
         // If it's not present, try and find the home directory (`~`) and push the default data
         // directory onto it.
-        let data_dir: PathBuf = matches
+        let data_dir: PathBuf = cli_args
             .value_of("datadir")
             .map(|string| PathBuf::from(string))
             .or_else(|| {
@@ -117,7 +90,6 @@ impl<'a> ConfigBuilder<'a> {
             .ok_or_else(|| "Unable to find a home directory for the datadir".to_string())?;
 
         Ok(Self {
-            matches,
             log,
             data_dir,
             eth2_config: Eth2Config::minimal(),
@@ -125,23 +97,47 @@ impl<'a> ConfigBuilder<'a> {
         })
     }
 
-    /// Consumes self, returning the configs.
-    pub fn build(mut self) -> Result<Config> {
-        self.eth2_config.apply_cli_args(&self.matches)?;
-        self.client_config
-            .apply_cli_args(&self.matches, &mut self.log.clone())?;
+    pub fn set_beacon_chain_start_method(&mut self, cli_args: &ArgMatches) -> Result<()> {
+        //
+    }
 
-        if self.eth2_config.spec_constants != self.client_config.spec_constants {
-            crit!(self.log, "Specification constants do not match.";
-                  "client_config" => format!("{}", self.client_config.spec_constants),
-                  "eth2_config" => format!("{}", self.eth2_config.spec_constants)
+    /// Reads a `server` flag from `cli_args` and attempts to generate a libp2p `Multiaddr` that
+    /// this client can use to connect to the given `server`.
+    ///
+    /// Also reads for a `libp2p_port` flag in `cli_args`, using that as the port for the
+    /// `Multiaddr`. If `libp2p_port` is not in `cli_args`, attempts to connect to `server` via HTTP
+    /// and retrieve it's libp2p listen port.
+    ///
+    /// Returns an error if the `server` flag is not present in `cli_args`.
+    pub fn import_bootstrap_libp2p_address(&mut self, cli_args: &ArgMatches) -> Result<()> {
+        let server: String = cli_args
+            .value_of("server")
+            .ok_or_else(|| "No bootstrap server specified")?
+            .to_string();
+
+        let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
+
+        if let Some(server_multiaddr) =
+            bootstrapper.best_effort_multiaddr(parse_port_option(cli_args.value_of("libp2p_port")))
+        {
+            info!(
+                self.log,
+                "Estimated bootstrapper libp2p address";
+                "multiaddr" => format!("{:?}", server_multiaddr)
             );
-            return Err("Specification constant mismatch".into());
-        }
 
-        self.client_config.data_dir = self.data_dir;
+            self.client_config
+                .network
+                .libp2p_nodes
+                .push(server_multiaddr);
+        } else {
+            warn!(
+                        self.log,
+                        "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
+                    );
+        };
 
-        Ok((self.client_config, self.eth2_config))
+        Ok(())
     }
 
     /// Set the config data_dir to be an random directory.
@@ -165,20 +161,20 @@ impl<'a> ConfigBuilder<'a> {
 
     /// Reads the subcommand and tries to update `self.eth2_config` based up on the `--spec` flag.
     ///
-    /// Returns an error if the `--spec` flag is not present.
-    pub fn update_spec_from_subcommand(&mut self, sub_matches: &ArgMatches) -> Result<()> {
+    /// Returns an error if the `--spec` flag is not present in the given `cli_args`.
+    pub fn update_spec_from_subcommand(&mut self, cli_args: &ArgMatches) -> Result<()> {
         // Re-initialise the `Eth2Config`.
         //
         // If a CLI parameter is set, overwrite any config file present.
         // If a parameter is not set, use either the config file present or default to minimal.
-        let eth2_config = match sub_matches.value_of("spec") {
+        let eth2_config = match cli_args.value_of("spec") {
             Some("mainnet") => Eth2Config::mainnet(),
             Some("minimal") => Eth2Config::minimal(),
             Some("interop") => Eth2Config::interop(),
             _ => return Err("Unable to determine specification type.".into()),
         };
 
-        self.client_config.spec_constants = sub_matches
+        self.client_config.spec_constants = cli_args
             .value_of("spec")
             .expect("Guarded by prior match statement")
             .to_string();
@@ -243,5 +239,27 @@ impl<'a> ConfigBuilder<'a> {
                 .ok_or_else(|| format!("{} file does not exist", ETH2_CONFIG_FILENAME))?;
 
         Ok(())
+    }
+
+    /// Consumes self, returning the configs.
+    ///
+    /// The supplied `cli_args` should be the base-level `clap` cli_args (i.e., not a subcommand
+    /// cli_args).
+    pub fn build(mut self, cli_args: &ArgMatches) -> Result<Config> {
+        self.eth2_config.apply_cli_args(cli_args)?;
+        self.client_config
+            .apply_cli_args(cli_args, &mut self.log.clone())?;
+
+        if self.eth2_config.spec_constants != self.client_config.spec_constants {
+            crit!(self.log, "Specification constants do not match.";
+                  "client_config" => format!("{}", self.client_config.spec_constants),
+                  "eth2_config" => format!("{}", self.eth2_config.spec_constants)
+            );
+            return Err("Specification constant mismatch".into());
+        }
+
+        self.client_config.data_dir = self.data_dir;
+
+        Ok((self.client_config, self.eth2_config))
     }
 }
