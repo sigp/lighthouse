@@ -89,17 +89,6 @@ pub struct BeaconBlocksRequest {
     pub step: u64,
 }
 
-// TODO: Currently handle encoding/decoding of blocks in the message handler. Leave this struct
-// here in case encoding/decoding of ssz requires an object.
-/*
-/// Response containing a number of beacon block roots from a peer.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BeaconBlocksResponse {
-    /// List of requested blocks and associated slots.
-    pub beacon_blocks: Vec<u8>,
-}
-*/
-
 /// Request a number of beacon block bodies from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct RecentBeaconBlocksRequest {
