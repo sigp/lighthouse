@@ -161,7 +161,7 @@ fn main() {
                 .help("Type of database to use.")
                 .takes_value(true)
                 .possible_values(&["disk", "memory"])
-                .default_value("memory"),
+                .default_value("disk"),
         )
         /*
          * Logging.
@@ -207,15 +207,20 @@ fn main() {
                           iteration.")
             )
             .arg(
-                Arg::with_name("force-create")
-                    .long("force-create")
+                Arg::with_name("force")
+                    .long("force")
                     .short("f")
-                    .help("If present, will delete any existing datadir before creating a new one. Cannot be \
+                    .help("If present, will backup any existing config files before creating new ones. Cannot be \
                           used when specifying --random-datadir (logic error).")
                     .conflicts_with("random-datadir")
             )
             /*
              * Testnet sub-commands.
+             *
+             * `boostrap`
+             *
+             * Start a new node by downloading genesis and network info from another node via the
+             * HTTP API.
              */
             .subcommand(SubCommand::with_name("bootstrap")
                 .about("Connects to the given HTTP server, downloads a genesis state and attempts to peer with it.")
@@ -231,6 +236,12 @@ fn main() {
                            when port-fowarding is used: you may connect using a different port than \
                            the one the server is immediately listening on."))
             )
+            /*
+             * `recent`
+             *
+             * Start a new node, with a specified number of validators with a genesis time in the last
+             * 30-minutes.
+             */
             .subcommand(SubCommand::with_name("recent")
                 .about("Creates a new genesis state where the genesis time was at the previous \
                        30-minute boundary (e.g., 12:00, 12:30, 13:00, etc.)")

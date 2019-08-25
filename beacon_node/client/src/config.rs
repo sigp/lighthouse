@@ -37,7 +37,9 @@ pub struct Config {
 pub enum BeaconChainStartMethod {
     /// Resume from an existing BeaconChain, loaded from the existing local database.
     Resume,
-    /// Create a new beacon chain with `validator_count` validators, all with well-known secret keys.
+    /// Resume from an existing BeaconChain, loaded from the existing local database.
+    Mainnet,
+    /// Create a new beacon chain that can connect to mainnet.
     ///
     /// Set the genesis time to be the start of the previous 30-minute window.
     RecentGenesis { validator_count: usize },
@@ -51,10 +53,7 @@ pub enum BeaconChainStartMethod {
     Yaml { file: PathBuf },
     /// Create a new beacon chain by using a HTTP server (running our REST-API) to load genesis and
     /// finalized states and blocks.
-    HttpBootstrap {
-        server: String,
-        port: Option<String>,
-    },
+    HttpBootstrap { server: String, port: Option<u16> },
 }
 
 impl Default for BeaconChainStartMethod {

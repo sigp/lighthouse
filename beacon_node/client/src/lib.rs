@@ -23,7 +23,7 @@ pub use beacon_chain::BeaconChainTypes;
 pub use beacon_chain_types::ClientType;
 pub use beacon_chain_types::InitialiseBeaconChain;
 pub use bootstrapper::Bootstrapper;
-pub use config::Config as ClientConfig;
+pub use config::{BeaconChainStartMethod, Config as ClientConfig};
 pub use eth2_config::Eth2Config;
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients

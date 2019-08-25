@@ -1,10 +1,10 @@
 use clap::ArgMatches;
-use client::{Bootstrapper, ClientConfig, Eth2Config};
+use client::{BeaconChainStartMethod, Bootstrapper, ClientConfig, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use rand::{distributions::Alphanumeric, Rng};
 use slog::{crit, info, warn, Logger};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
@@ -19,35 +19,29 @@ pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
 
     match cli_args.subcommand() {
         ("testnet", Some(sub_cmd_args)) => {
-            if sub_cmd_args.is_present("random-datadir") {
-                builder.set_random_datadir()?;
-            }
-
-            info!(
-                log,
-                "Creating new datadir";
-                "path" => format!("{:?}", builder.data_dir)
-            );
-
-            builder.update_spec_from_subcommand(&sub_cmd_args)?;
-
-            match sub_cmd_args.subcommand() {
-                // The bootstrap testnet method requires inserting a libp2p address into the
-                // network config.
-                ("bootstrap", Some(sub_cmd_args)) => {
-                    builder.import_bootstrap_libp2p_address(&sub_cmd_args)?;
-                }
-                _ => (),
-            };
-
-            builder.write_configs_to_new_datadir()?;
+            process_testnet_subcommand(&mut builder, sub_cmd_args, log)?
         }
+        // No sub-command assumes a resume operation.
         _ => {
             info!(
                 log,
                 "Resuming from existing datadir";
                 "path" => format!("{:?}", builder.data_dir)
             );
+
+            // If no primary subcommand was given, start the beacon chain from an existing
+            // database.
+            builder.set_beacon_chain_start_method(BeaconChainStartMethod::Resume);
+
+            // Whilst there is no large testnet or mainnet force the user to specify how they want
+            // to start a new chain (e.g., from a genesis YAML file, another node, etc).
+            if !builder.data_dir.exists() {
+                return Err(
+                    "No datadir found. To start a new beacon chain, see `testnet --help`. \
+                     Use `--datadir` to specify a different directory"
+                        .into(),
+                );
+            }
 
             // If the `testnet` command was not provided, attempt to load an existing datadir and
             // continue with an existing chain.
@@ -58,9 +52,62 @@ pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
     builder.build(cli_args)
 }
 
-/// Decodes an optional string into an optional u16.
-fn parse_port_option(o: Option<&str>) -> Option<u16> {
-    o.and_then(|s| s.parse::<u16>().ok())
+/// Process the `testnet` CLI subcommand arguments, updating the `builder`.
+fn process_testnet_subcommand(
+    builder: &mut ConfigBuilder,
+    cli_args: &ArgMatches,
+    log: &Logger,
+) -> Result<()> {
+    if cli_args.is_present("random-datadir") {
+        builder.set_random_datadir()?;
+    }
+
+    if cli_args.is_present("force") {
+        builder.clean_datadir()?;
+    }
+
+    info!(
+        log,
+        "Creating new datadir";
+        "path" => format!("{:?}", builder.data_dir)
+    );
+
+    builder.update_spec_from_subcommand(&cli_args)?;
+
+    // Start matching on the second subcommand (e.g., `testnet bootstrap ...`)
+    match cli_args.subcommand() {
+        ("bootstrap", Some(cli_args)) => {
+            let server = cli_args
+                .value_of("server")
+                .ok_or_else(|| "No bootstrap server specified")?;
+            let port: Option<u16> = cli_args
+                .value_of("port")
+                .and_then(|s| s.parse::<u16>().ok());
+
+            builder.import_bootstrap_libp2p_address(server, port)?;
+
+            builder.set_beacon_chain_start_method(BeaconChainStartMethod::HttpBootstrap {
+                server: server.to_string(),
+                port,
+            })
+        }
+        ("recent", Some(cli_args)) => {
+            let validator_count = cli_args
+                .value_of("validator_count")
+                .ok_or_else(|| "No validator_count specified")?
+                .parse::<usize>()
+                .map_err(|e| format!("Unable to parse validator_count: {:?}", e))?;
+
+            builder.set_beacon_chain_start_method(BeaconChainStartMethod::RecentGenesis {
+                validator_count,
+            })
+        }
+        _ => return Err("No testnet method specified. See 'testnet --help'.".into()),
+    };
+
+    builder.write_configs_to_new_datadir()?;
+
+    Ok(())
 }
 
 /// Allows for building a set of configurations based upon `clap` arguments.
@@ -97,29 +144,65 @@ impl<'a> ConfigBuilder<'a> {
         })
     }
 
-    pub fn set_beacon_chain_start_method(&mut self, cli_args: &ArgMatches) -> Result<()> {
-        //
+    /// Clears any configuration files that would interfere with writing new configs.
+    ///
+    /// Moves the following files in `data_dir` into a backup directory:
+    ///
+    /// - Client config
+    /// - Eth2 config
+    /// - The entire database directory
+    pub fn clean_datadir(&mut self) -> Result<()> {
+        let backup_dir = {
+            let mut s = String::from("backup_");
+            s.push_str(&random_string(6));
+            self.data_dir.join(s)
+        };
+
+        fs::create_dir_all(&backup_dir)
+            .map_err(|e| format!("Unable to create config backup dir: {:?}", e))?;
+
+        let move_to_backup_dir = |path: &Path| -> Result<()> {
+            let file_name = path
+                .file_name()
+                .ok_or_else(|| "Invalid path found during datadir clean (no filename).")?;
+
+            let mut new = path.to_path_buf();
+            new.pop();
+            new.push(backup_dir.clone());
+            new.push(file_name);
+
+            let _ = fs::rename(path, new);
+
+            Ok(())
+        };
+
+        move_to_backup_dir(&self.data_dir.join(CLIENT_CONFIG_FILENAME))?;
+        move_to_backup_dir(&self.data_dir.join(ETH2_CONFIG_FILENAME))?;
+
+        if let Some(db_path) = self.client_config.db_path() {
+            move_to_backup_dir(&db_path)?;
+        }
+
+        Ok(())
     }
 
-    /// Reads a `server` flag from `cli_args` and attempts to generate a libp2p `Multiaddr` that
-    /// this client can use to connect to the given `server`.
-    ///
-    /// Also reads for a `libp2p_port` flag in `cli_args`, using that as the port for the
-    /// `Multiaddr`. If `libp2p_port` is not in `cli_args`, attempts to connect to `server` via HTTP
-    /// and retrieve it's libp2p listen port.
-    ///
-    /// Returns an error if the `server` flag is not present in `cli_args`.
-    pub fn import_bootstrap_libp2p_address(&mut self, cli_args: &ArgMatches) -> Result<()> {
-        let server: String = cli_args
-            .value_of("server")
-            .ok_or_else(|| "No bootstrap server specified")?
-            .to_string();
+    /// Sets the method for starting the beacon chain.
+    pub fn set_beacon_chain_start_method(&mut self, method: BeaconChainStartMethod) {
+        self.client_config.beacon_chain_start_method = method;
+    }
 
+    /// Import the libp2p address for `server` into the list of bootnodes in `self`.
+    ///
+    /// If `port` is `Some`, it is used as the port for the `Multiaddr`. If `port` is `None`,
+    /// attempts to connect to the `server` via HTTP and retrieve it's libp2p listen port.
+    pub fn import_bootstrap_libp2p_address(
+        &mut self,
+        server: &str,
+        port: Option<u16>,
+    ) -> Result<()> {
         let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
 
-        if let Some(server_multiaddr) =
-            bootstrapper.best_effort_multiaddr(parse_port_option(cli_args.value_of("libp2p_port")))
-        {
+        if let Some(server_multiaddr) = bootstrapper.best_effort_multiaddr(port) {
             info!(
                 self.log,
                 "Estimated bootstrapper libp2p address";
@@ -132,9 +215,9 @@ impl<'a> ConfigBuilder<'a> {
                 .push(server_multiaddr);
         } else {
             warn!(
-                        self.log,
-                        "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
-                    );
+                self.log,
+                "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
+            );
         };
 
         Ok(())
@@ -144,14 +227,9 @@ impl<'a> ConfigBuilder<'a> {
     ///
     /// Useful for easily spinning up ephemeral testnets.
     pub fn set_random_datadir(&mut self) -> Result<()> {
-        let random = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(10)
-            .collect::<String>();
-
         let mut s = DEFAULT_DATA_DIR.to_string();
         s.push_str("_random_");
-        s.push_str(&random);
+        s.push_str(&random_string(6));
 
         self.data_dir.pop();
         self.data_dir.push(s);
@@ -187,12 +265,15 @@ impl<'a> ConfigBuilder<'a> {
     ///
     /// Returns an error if `self.data_dir` already exists.
     pub fn write_configs_to_new_datadir(&mut self) -> Result<()> {
+        let db_exists = self
+            .client_config
+            .db_path()
+            .map(|d| d.exists())
+            .unwrap_or_else(|| false);
+
         // Do not permit creating a new config when the datadir exists.
-        if self.data_dir.exists() {
-            return Err(
-                "Datadir already exists, will not overwrite. Remove the directory or use --datadir."
-                    .into(),
-            );
+        if db_exists {
+            return Err("Database already exists. See `-f` in `testnet --help`".into());
         }
 
         // Create `datadir` and any non-existing parent directories.
@@ -201,16 +282,35 @@ impl<'a> ConfigBuilder<'a> {
             format!("{}", e)
         })?;
 
-        // Write the client config to a TOML file in the datadir.
-        write_to_file(
-            self.data_dir.join(CLIENT_CONFIG_FILENAME),
-            &self.client_config,
-        )
-        .map_err(|e| format!("Unable to write {} file: {:?}", CLIENT_CONFIG_FILENAME, e))?;
+        let client_config_file = self.data_dir.join(CLIENT_CONFIG_FILENAME);
+        if client_config_file.exists() {
+            return Err(format!(
+                "Datadir is not clean, {} exists. See `-f` in `testnet --help`.",
+                CLIENT_CONFIG_FILENAME
+            ));
+        } else {
+            // Write the onfig to a TOML file in the datadir.
+            write_to_file(
+                self.data_dir.join(CLIENT_CONFIG_FILENAME),
+                &self.client_config,
+            )
+            .map_err(|e| format!("Unable to write {} file: {:?}", CLIENT_CONFIG_FILENAME, e))?;
+        }
 
-        // Write the eth2 config to a TOML file in the datadir.
-        write_to_file(self.data_dir.join(ETH2_CONFIG_FILENAME), &self.eth2_config)
+        let eth2_config_file = self.data_dir.join(ETH2_CONFIG_FILENAME);
+        if eth2_config_file.exists() {
+            return Err(format!(
+                "Datadir is not clean, {} exists. See `-f` in `testnet --help`.",
+                ETH2_CONFIG_FILENAME
+            ));
+        } else {
+            // Write the config to a TOML file in the datadir.
+            write_to_file(
+                self.data_dir.join(ETH2_CONFIG_FILENAME),
+                &self.client_config,
+            )
             .map_err(|e| format!("Unable to write {} file: {:?}", ETH2_CONFIG_FILENAME, e))?;
+        }
 
         Ok(())
     }
@@ -225,7 +325,22 @@ impl<'a> ConfigBuilder<'a> {
         // public testnet or mainnet).
         if !self.data_dir.exists() {
             return Err(
-                "No datadir found. Use the 'testnet' sub-command to select a testnet type.".into(),
+                "No datadir found. Either create a new testnet or specify a different `--datadir`."
+                    .into(),
+            );
+        }
+
+        // If there is a path to a databse in the config, ensure it exists.
+        if !self
+            .client_config
+            .db_path()
+            .map(|path| path.exists())
+            .unwrap_or_else(|| true)
+        {
+            return Err(
+                "No database found in datadir. Use the 'testnet -f' sub-command to overwrite the \
+                 existing datadir, or specify a different `--datadir`."
+                    .into(),
             );
         }
 
@@ -262,4 +377,11 @@ impl<'a> ConfigBuilder<'a> {
 
         Ok((self.client_config, self.eth2_config))
     }
+}
+
+fn random_string(len: usize) -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(len)
+        .collect::<String>()
 }
