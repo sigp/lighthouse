@@ -175,9 +175,7 @@ pub fn get_state_root<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
 }
 
 /// HTTP handler to return the highest finalized slot.
-pub fn get_latest_finalized_checkpoint<T: BeaconChainTypes>(
-    req: Request<Body>,
-) -> ApiResult {
+pub fn get_latest_finalized_checkpoint<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
