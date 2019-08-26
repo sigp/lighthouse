@@ -209,8 +209,8 @@ fn main() {
                     .conflicts_with("spec")
             )
             .arg(
-                Arg::with_name("config")
-                    .long("config")
+                Arg::with_name("client-config")
+                    .long("client-config")
                     .value_name("TOML_FILE")
                     .help("An existing beacon_node TOML file (e.g., beacon_node.toml).")
                     .takes_value(true)
