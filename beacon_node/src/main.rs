@@ -198,6 +198,22 @@ fn main() {
                     .takes_value(true)
                     .required(true)
                     .possible_values(&["mainnet", "minimal", "interop"])
+                    .default_value("minimal")
+            )
+            .arg(
+                Arg::with_name("eth2-config")
+                    .long("eth2-config")
+                    .value_name("TOML_FILE")
+                    .help("A existing eth2_spec TOML file (e.g., eth2_spec.toml).")
+                    .takes_value(true)
+                    .conflicts_with("spec")
+            )
+            .arg(
+                Arg::with_name("config")
+                    .long("config")
+                    .value_name("TOML_FILE")
+                    .help("An existing beacon_node TOML file (e.g., beacon_node.toml).")
+                    .takes_value(true)
             )
             .arg(
                 Arg::with_name("random-datadir")
@@ -210,8 +226,8 @@ fn main() {
                 Arg::with_name("force")
                     .long("force")
                     .short("f")
-                    .help("If present, will backup any existing config files before creating new ones. Cannot be \
-                          used when specifying --random-datadir (logic error).")
+                    .help("If present, will create new config and database files and move the any existing to a \
+                           backup directory.")
                     .conflicts_with("random-datadir")
             )
             /*
