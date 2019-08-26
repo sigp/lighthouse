@@ -23,7 +23,7 @@ pub struct Eth1<F: Eth1DataFetcher> {
     fetcher: Arc<F>,
 }
 
-impl<F: Eth1DataFetcher> Eth1<F> {
+impl<F: Eth1DataFetcher + 'static> Eth1<F> {
     pub fn new(fetcher: F) -> Self {
         let fetcher_arc = Arc::new(fetcher);
         Eth1 {
@@ -79,16 +79,16 @@ impl<F: Eth1DataFetcher> Eth1<F> {
     }
 }
 
-pub fn run<F: Eth1DataFetcher>(
-    eth1: &'static mut Eth1<F>,
+pub fn run<F: Eth1DataFetcher + 'static>(
+    eth1: Eth1<F>,
     executor: &TaskExecutor,
     log: &slog::Logger,
 ) {
     let log = log.new(o!("service" => "eth1_chain"));
 
     // Run a task for calling `update_cache` periodically.
-    let eth1_block_time_seconds: u64 = 15;
-    let eth1_block_interval: u64 = 15;
+    let eth1_block_time_seconds: u64 = 5;
+    let eth1_block_interval: u64 = 3;
     let interval_log = log.clone();
     let interval = {
         // Set the interval to start every 15 blocks
@@ -98,22 +98,67 @@ pub fn run<F: Eth1DataFetcher>(
     };
     let eth1_data_cache = eth1.eth1_data_cache.clone();
     let cache_log = log.clone();
-    info!(cache_log, "Cache updation service started..");
+    info!(cache_log, "Cache updation service started");
     executor.spawn(interval.for_each(move |_| {
         let cache_log = cache_log.clone();
-        eth1_data_cache.update_cache().and_then(move |_| {
-            debug!(cache_log.clone(), "Updating eth1 data cache..");
-            Ok(())
-        })
+        eth1_data_cache
+            .update_cache(eth1_block_interval + 1) // distance of block_interval + safety_interval
+            .and_then(move |_| {
+                debug!(cache_log.clone(), "Updating eth1 data cache..");
+                Ok(())
+            })
     }));
 
     // Run a task for listening to contract events and updating deposits cache.
     let eth1_deposit_cache = eth1.deposit_cache.clone();
     let deposit_log = log.clone();
-    info!(deposit_log, "Deposit service started..");
-    executor.spawn(
-        eth1_deposit_cache
-            .subscribe_deposit_logs()
-            .map_err(move |_| warn!(deposit_log, "Error running deposit service..")),
-    );
+    info!(deposit_log, "Deposit service started");
+    executor.spawn(eth1_deposit_cache.subscribe_deposit_logs());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio;
+    #[macro_use]
+    use slog;
+    use crate::types::ContractConfig;
+    use crate::web3_fetcher::Web3DataFetcher;
+    use slog_async;
+    use slog_term;
+    use web3::types::Address;
+
+    use slog::Drain;
+
+    fn setup_log() -> slog::Logger {
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+
+        let _log = slog::Logger::root(drain, o!());
+        _log
+    }
+
+    fn setup_w3() -> Web3DataFetcher {
+        let deposit_contract_address: Address =
+            "8c594691C0E592FFA21F153a16aE41db5beFcaaa".parse().unwrap();
+        let deposit_contract = ContractConfig {
+            address: deposit_contract_address,
+            abi: include_bytes!("deposit_contract.json").to_vec(),
+        };
+        let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract);
+        return w3;
+    }
+
+    #[test]
+    fn test_integration() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        println!("Testing");
+        let executor = runtime.executor();
+        let log = setup_log();
+        let w3 = setup_w3();
+        let eth1 = Eth1::new(w3);
+        run(eth1, &executor, &log);
+        runtime.shutdown_on_idle().wait().unwrap();
+    }
 }
