@@ -41,10 +41,8 @@ impl Encoder for SSZInboundCodec {
             RPCErrorResponse::Success(resp) => {
                 match resp {
                     RPCResponse::Hello(res) => res.as_ssz_bytes(),
-                    RPCResponse::BeaconBlockRoots(res) => res.as_ssz_bytes(),
-                    RPCResponse::BeaconBlockHeaders(res) => res.headers, // already raw bytes
-                    RPCResponse::BeaconBlockBodies(res) => res.block_bodies, // already raw bytes
-                    RPCResponse::BeaconChainState(res) => res.as_ssz_bytes(),
+                    RPCResponse::BeaconBlocks(res) => res, // already raw bytes
+                    RPCResponse::RecentBeaconBlocks(res) => res, // already raw bytes
                 }
             }
             RPCErrorResponse::InvalidRequest(err) => err.as_ssz_bytes(),
@@ -72,52 +70,30 @@ impl Decoder for SSZInboundCodec {
         match self.inner.decode(src).map_err(RPCError::from) {
             Ok(Some(packet)) => match self.protocol.message_name.as_str() {
                 "hello" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCRequest::Hello(HelloMessage::from_ssz_bytes(
+                    "1" => Ok(Some(RPCRequest::Hello(HelloMessage::from_ssz_bytes(
                         &packet,
                     )?))),
-                    _ => Err(RPCError::InvalidProtocol("Unknown HELLO version")),
+                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 "goodbye" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCRequest::Goodbye(GoodbyeReason::from_ssz_bytes(
+                    "1" => Ok(Some(RPCRequest::Goodbye(GoodbyeReason::from_ssz_bytes(
                         &packet,
                     )?))),
-                    _ => Err(RPCError::InvalidProtocol(
-                        "Unknown GOODBYE version.as_str()",
-                    )),
+                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                "beacon_block_roots" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCRequest::BeaconBlockRoots(
-                        BeaconBlockRootsRequest::from_ssz_bytes(&packet)?,
+                "beacon_blocks" => match self.protocol.version.as_str() {
+                    "1" => Ok(Some(RPCRequest::BeaconBlocks(
+                        BeaconBlocksRequest::from_ssz_bytes(&packet)?,
                     ))),
-                    _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_BLOCK_ROOTS version.",
-                    )),
+                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                "beacon_block_headers" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCRequest::BeaconBlockHeaders(
-                        BeaconBlockHeadersRequest::from_ssz_bytes(&packet)?,
+                "recent_beacon_blocks" => match self.protocol.version.as_str() {
+                    "1" => Ok(Some(RPCRequest::RecentBeaconBlocks(
+                        RecentBeaconBlocksRequest::from_ssz_bytes(&packet)?,
                     ))),
-                    _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_BLOCK_HEADERS version.",
-                    )),
+                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                "beacon_block_bodies" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCRequest::BeaconBlockBodies(
-                        BeaconBlockBodiesRequest::from_ssz_bytes(&packet)?,
-                    ))),
-                    _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_BLOCK_BODIES version.",
-                    )),
-                },
-                "beacon_chain_state" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCRequest::BeaconChainState(
-                        BeaconChainStateRequest::from_ssz_bytes(&packet)?,
-                    ))),
-                    _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_CHAIN_STATE version.",
-                    )),
-                },
-                _ => Err(RPCError::InvalidProtocol("Unknown message name.")),
+                _ => unreachable!("Cannot negotiate an unknown protocol"),
             },
             Ok(None) => Ok(None),
             Err(e) => Err(e),
@@ -156,10 +132,8 @@ impl Encoder for SSZOutboundCodec {
         let bytes = match item {
             RPCRequest::Hello(req) => req.as_ssz_bytes(),
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
-            RPCRequest::BeaconBlockRoots(req) => req.as_ssz_bytes(),
-            RPCRequest::BeaconBlockHeaders(req) => req.as_ssz_bytes(),
-            RPCRequest::BeaconBlockBodies(req) => req.as_ssz_bytes(),
-            RPCRequest::BeaconChainState(req) => req.as_ssz_bytes(),
+            RPCRequest::BeaconBlocks(req) => req.as_ssz_bytes(),
+            RPCRequest::RecentBeaconBlocks(req) => req.as_ssz_bytes(),
         };
         // length-prefix
         self.inner
@@ -168,7 +142,11 @@ impl Encoder for SSZOutboundCodec {
     }
 }
 
-// Decoder for outbound
+// Decoder for outbound streams
+//
+// The majority of the decoding has now been pushed upstream due to the changing specification.
+// We prefer to decode blocks and attestations with extra knowledge about the chain to perform
+// faster verification checks before decoding entire blocks/attestations.
 impl Decoder for SSZOutboundCodec {
     type Item = RPCResponse;
     type Error = RPCError;
@@ -177,53 +155,41 @@ impl Decoder for SSZOutboundCodec {
         match self.inner.decode(src).map_err(RPCError::from) {
             Ok(Some(packet)) => match self.protocol.message_name.as_str() {
                 "hello" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCResponse::Hello(HelloMessage::from_ssz_bytes(
+                    "1" => Ok(Some(RPCResponse::Hello(HelloMessage::from_ssz_bytes(
                         &packet,
                     )?))),
-                    _ => Err(RPCError::InvalidProtocol("Unknown HELLO version.")),
+                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 "goodbye" => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
-                "beacon_block_roots" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCResponse::BeaconBlockRoots(
-                        BeaconBlockRootsResponse::from_ssz_bytes(&packet)?,
-                    ))),
-                    _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_BLOCK_ROOTS version.",
-                    )),
+                "beacon_blocks" => match self.protocol.version.as_str() {
+                    "1" => Ok(Some(RPCResponse::BeaconBlocks(packet.to_vec()))),
+                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                "beacon_block_headers" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCResponse::BeaconBlockHeaders(
-                        BeaconBlockHeadersResponse {
-                            headers: packet.to_vec(),
-                        },
-                    ))),
-                    _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_BLOCK_HEADERS version.",
-                    )),
+                "recent_beacon_blocks" => match self.protocol.version.as_str() {
+                    "1" => Ok(Some(RPCResponse::RecentBeaconBlocks(packet.to_vec()))),
+                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                "beacon_block_bodies" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCResponse::BeaconBlockBodies(
-                        BeaconBlockBodiesResponse {
-                            block_bodies: packet.to_vec(),
-                            // this gets filled in the protocol handler
-                            block_roots: None,
-                        },
-                    ))),
-                    _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_BLOCK_BODIES version.",
-                    )),
-                },
-                "beacon_chain_state" => match self.protocol.version.as_str() {
-                    "1.0.0" => Ok(Some(RPCResponse::BeaconChainState(
-                        BeaconChainStateResponse::from_ssz_bytes(&packet)?,
-                    ))),
-                    _ => Err(RPCError::InvalidProtocol(
-                        "Unknown BEACON_CHAIN_STATE version.",
-                    )),
-                },
-                _ => Err(RPCError::InvalidProtocol("Unknown method")),
+                _ => unreachable!("Cannot negotiate an unknown protocol"),
             },
-            Ok(None) => Ok(None),
+            Ok(None) => {
+                // the object sent could be a empty. We return the empty object if this is the case
+                match self.protocol.message_name.as_str() {
+                    "hello" => match self.protocol.version.as_str() {
+                        "1" => Ok(None), // cannot have an empty HELLO message. The stream has terminated unexpectedly
+                        _ => unreachable!("Cannot negotiate an unknown version"),
+                    },
+                    "goodbye" => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
+                    "beacon_blocks" => match self.protocol.version.as_str() {
+                        "1" => Ok(Some(RPCResponse::BeaconBlocks(Vec::new()))),
+                        _ => unreachable!("Cannot negotiate an unknown version"),
+                    },
+                    "recent_beacon_blocks" => match self.protocol.version.as_str() {
+                        "1" => Ok(Some(RPCResponse::RecentBeaconBlocks(Vec::new()))),
+                        _ => unreachable!("Cannot negotiate an unknown version"),
+                    },
+                    _ => unreachable!("Cannot negotiate an unknown protocol"),
+                }
+            }
             Err(e) => Err(e),
         }
     }

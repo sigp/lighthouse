@@ -16,6 +16,7 @@ mod service;
 pub use behaviour::PubsubMessage;
 pub use config::{
     Config as NetworkConfig, BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC, SHARD_TOPIC_PREFIX,
+    TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX,
 };
 pub use libp2p::enr::Enr;
 pub use libp2p::gossipsub::{Topic, TopicHash};
