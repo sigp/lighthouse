@@ -76,10 +76,10 @@ fn process_testnet_subcommand(
         builder.update_spec_from_subcommand(&cli_args)?;
     }
 
-    if let Some(path_string) = cli_args.value_of("config") {
+    if let Some(path_string) = cli_args.value_of("client-config") {
         let path = path_string
             .parse::<PathBuf>()
-            .map_err(|e| format!("Unable to parse config path: {:?}", e))?;
+            .map_err(|e| format!("Unable to parse client config path: {:?}", e))?;
         builder.load_client_config(path)?;
     }
 
