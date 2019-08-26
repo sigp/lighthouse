@@ -114,7 +114,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn from_genesis(
         store: Arc<T::Store>,
-        slot_clock: T::SlotClock,
         mut genesis_state: BeaconState<T::EthSpec>,
         mut genesis_block: BeaconBlock<T::EthSpec>,
         spec: ChainSpec,
@@ -145,6 +144,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
               "genesis_validator_count" => genesis_state.validators.len(),
               "genesis_state_root" => format!("{}", genesis_state_root),
               "genesis_block_root" => format!("{}", genesis_block_root),
+        );
+
+        // Slot clock
+        let slot_clock = T::SlotClock::new(
+            spec.genesis_slot,
+            genesis_state.genesis_time,
+            spec.seconds_per_slot,
         );
 
         Ok(Self {

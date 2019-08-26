@@ -1,7 +1,4 @@
-use client::{
-    error, notifier, BeaconChainTypes, Client, ClientConfig, ClientType, Eth2Config,
-    InitialiseBeaconChain,
-};
+use client::{error, notifier, BeaconChainTypes, Client, ClientConfig, ClientType, Eth2Config};
 use futures::sync::oneshot;
 use futures::Future;
 use slog::{error, info};
@@ -117,7 +114,7 @@ fn run<T>(
     log: &slog::Logger,
 ) -> error::Result<()>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone,
+    T: BeaconChainTypes + Clone,
     T::Store: OpenDatabase,
 {
     let store = T::Store::open_database(&db_path)?;
