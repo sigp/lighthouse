@@ -1,10 +1,10 @@
 use crate::behaviour::{Behaviour, BehaviourEvent, PubsubMessage};
+use crate::config::*;
 use crate::error;
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
 use crate::NetworkConfig;
 use crate::{Topic, TopicHash};
-use crate::{BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -40,13 +40,12 @@ pub struct Service {
 
 impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
-        debug!(log, "Network-libp2p Service starting");
+        trace!(log, "Libp2p Service starting");
 
         // load the private key from CLI flag, disk or generate a new one
         let local_private_key = load_private_key(&config, &log);
-
         let local_peer_id = PeerId::from(local_private_key.public());
-        info!(log, "Local peer id: {:?}", local_peer_id);
+        info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", local_peer_id));
 
         let mut swarm = {
             // Set up the transport - tcp/ws with secio and mplex/yamux
@@ -67,7 +66,7 @@ impl Service {
             Ok(_) => {
                 let mut log_address = listen_multiaddr;
                 log_address.push(Protocol::P2p(local_peer_id.clone().into()));
-                info!(log, "Listening on: {}", log_address);
+                info!(log, "Listening established"; "Address" => format!("{}", log_address));
             }
             Err(err) => {
                 crit!(
@@ -83,20 +82,34 @@ impl Service {
         // attempt to connect to user-input libp2p nodes
         for multiaddr in config.libp2p_nodes {
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
-                Ok(()) => debug!(log, "Dialing libp2p node: {}", multiaddr),
+                Ok(()) => debug!(log, "Dialing libp2p peer"; "Address" => format!("{}", multiaddr)),
                 Err(err) => debug!(
                     log,
-                    "Could not connect to node: {} error: {:?}", multiaddr, err
+                    "Could not connect to peer"; "Address" => format!("{}", multiaddr), "Error" => format!("{:?}", err)
                 ),
             };
         }
 
         // subscribe to default gossipsub topics
         let mut topics = vec![];
-        //TODO: Handle multiple shard attestations. For now we simply use a separate topic for
-        // attestations
-        topics.push(Topic::new(BEACON_ATTESTATION_TOPIC.into()));
-        topics.push(Topic::new(BEACON_BLOCK_TOPIC.into()));
+
+        /* Here we subscribe to all the required gossipsub topics required for interop.
+         * The topic builder adds the required prefix and postfix to the hardcoded topics that we
+         * must subscribe to.
+         */
+        let topic_builder = |topic| {
+            Topic::new(format!(
+                "/{}/{}/{}",
+                TOPIC_PREFIX, topic, TOPIC_ENCODING_POSTFIX,
+            ))
+        };
+        topics.push(topic_builder(BEACON_BLOCK_TOPIC));
+        topics.push(topic_builder(BEACON_ATTESTATION_TOPIC));
+        topics.push(topic_builder(VOLUNTARY_EXIT_TOPIC));
+        topics.push(topic_builder(PROPOSER_SLASHING_TOPIC));
+        topics.push(topic_builder(ATTESTER_SLASHING_TOPIC));
+
+        // Add any topics specified by the user
         topics.append(
             &mut config
                 .topics
@@ -109,13 +122,13 @@ impl Service {
         let mut subscribed_topics = vec![];
         for topic in topics {
             if swarm.subscribe(topic.clone()) {
-                trace!(log, "Subscribed to topic: {:?}", topic);
+                trace!(log, "Subscribed to topic"; "Topic" => format!("{}", topic));
                 subscribed_topics.push(topic);
             } else {
-                warn!(log, "Could not subscribe to topic: {:?}", topic)
+                warn!(log, "Could not subscribe to topic"; "Topic" => format!("{}", topic));
             }
         }
-        info!(log, "Subscribed to topics: {:?}", subscribed_topics);
+        info!(log, "Subscribed to topics"; "Topics" => format!("{:?}", subscribed_topics.iter().map(|t| format!("{}", t)).collect::<Vec<String>>()));
 
         Ok(Service {
             local_peer_id,
@@ -140,7 +153,7 @@ impl Stream for Service {
                         topics,
                         message,
                     } => {
-                        trace!(self.log, "Gossipsub message received"; "Message" => format!("{:?}", message));
+                        trace!(self.log, "Gossipsub message received"; "service" => "Swarm");
                         return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
                             source,
                             topics,

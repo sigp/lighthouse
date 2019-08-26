@@ -1,6 +1,6 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-use eth2_libp2p::BEACON_BLOCK_TOPIC;
 use eth2_libp2p::{PubsubMessage, Topic};
+use eth2_libp2p::{BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX};
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use network::NetworkMessage;
@@ -105,8 +105,12 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                                 "block_root" => format!("{}", block_root),
                             );
 
-                            // get the network topic to send on
-                            let topic = Topic::new(BEACON_BLOCK_TOPIC.into());
+                            // create the network topic to send on
+                            let topic_string = format!(
+                                "/{}/{}/{}",
+                                TOPIC_PREFIX, BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX
+                            );
+                            let topic = Topic::new(topic_string);
                             let message = PubsubMessage::Block(block.as_ssz_bytes());
 
                             // Publish the block to the p2p network via gossipsub.

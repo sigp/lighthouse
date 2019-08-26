@@ -16,13 +16,17 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::prelude::*;
 use tokio::timer::timeout;
 use tokio::util::FutureExt;
+use tokio_io_timeout::TimeoutStream;
 
 /// The maximum bytes that can be sent across the RPC.
 const MAX_RPC_SIZE: usize = 4_194_304; // 4M
 /// The protocol prefix the RPC protocol id.
-const PROTOCOL_PREFIX: &str = "/eth2/beacon_node/rpc";
-/// The number of seconds to wait for a request once a protocol has been established before the stream is terminated.
-const REQUEST_TIMEOUT: u64 = 3;
+const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
+/// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
+const TTFB_TIMEOUT: u64 = 5;
+/// The number of seconds to wait for the first bytes of a request once a protocol has been
+/// established before the stream is terminated.
+const REQUEST_TIMEOUT: u64 = 15;
 
 #[derive(Debug, Clone)]
 pub struct RPCProtocol;
@@ -33,11 +37,10 @@ impl UpgradeInfo for RPCProtocol {
 
     fn protocol_info(&self) -> Self::InfoIter {
         vec![
-            ProtocolId::new("hello", "1.0.0", "ssz"),
-            ProtocolId::new("goodbye", "1.0.0", "ssz"),
-            ProtocolId::new("beacon_block_roots", "1.0.0", "ssz"),
-            ProtocolId::new("beacon_block_headers", "1.0.0", "ssz"),
-            ProtocolId::new("beacon_block_bodies", "1.0.0", "ssz"),
+            ProtocolId::new("hello", "1", "ssz"),
+            ProtocolId::new("goodbye", "1", "ssz"),
+            ProtocolId::new("beacon_blocks", "1", "ssz"),
+            ProtocolId::new("recent_beacon_blocks", "1", "ssz"),
         ]
     }
 }
@@ -87,7 +90,7 @@ impl ProtocolName for ProtocolId {
 // handler to respond to once ready.
 
 pub type InboundOutput<TSocket> = (RPCRequest, InboundFramed<TSocket>);
-pub type InboundFramed<TSocket> = Framed<upgrade::Negotiated<TSocket>, InboundCodec>;
+pub type InboundFramed<TSocket> = Framed<TimeoutStream<upgrade::Negotiated<TSocket>>, InboundCodec>;
 type FnAndThen<TSocket> = fn(
     (Option<RPCRequest>, InboundFramed<TSocket>),
 ) -> FutureResult<InboundOutput<TSocket>, RPCError>;
@@ -118,7 +121,9 @@ where
             "ssz" | _ => {
                 let ssz_codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol, MAX_RPC_SIZE));
                 let codec = InboundCodec::SSZ(ssz_codec);
-                Framed::new(socket, codec)
+                let mut timed_socket = TimeoutStream::new(socket);
+                timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
+                Framed::new(timed_socket, codec)
                     .into_future()
                     .timeout(Duration::from_secs(REQUEST_TIMEOUT))
                     .map_err(RPCError::from as FnMapErr<TSocket>)
@@ -144,10 +149,8 @@ where
 pub enum RPCRequest {
     Hello(HelloMessage),
     Goodbye(GoodbyeReason),
-    BeaconBlockRoots(BeaconBlockRootsRequest),
-    BeaconBlockHeaders(BeaconBlockHeadersRequest),
-    BeaconBlockBodies(BeaconBlockBodiesRequest),
-    BeaconChainState(BeaconChainStateRequest),
+    BeaconBlocks(BeaconBlocksRequest),
+    RecentBeaconBlocks(RecentBeaconBlocksRequest),
 }
 
 impl UpgradeInfo for RPCRequest {
@@ -165,22 +168,11 @@ impl RPCRequest {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RPCRequest::Hello(_) => vec![
-                ProtocolId::new("hello", "1.0.0", "ssz"),
-                ProtocolId::new("goodbye", "1.0.0", "ssz"),
-            ],
-            RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", "1.0.0", "ssz")],
-            RPCRequest::BeaconBlockRoots(_) => {
-                vec![ProtocolId::new("beacon_block_roots", "1.0.0", "ssz")]
-            }
-            RPCRequest::BeaconBlockHeaders(_) => {
-                vec![ProtocolId::new("beacon_block_headers", "1.0.0", "ssz")]
-            }
-            RPCRequest::BeaconBlockBodies(_) => {
-                vec![ProtocolId::new("beacon_block_bodies", "1.0.0", "ssz")]
-            }
-            RPCRequest::BeaconChainState(_) => {
-                vec![ProtocolId::new("beacon_block_state", "1.0.0", "ssz")]
+            RPCRequest::Hello(_) => vec![ProtocolId::new("hello", "1", "ssz")],
+            RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", "1", "ssz")],
+            RPCRequest::BeaconBlocks(_) => vec![ProtocolId::new("beacon_blocks", "1", "ssz")],
+            RPCRequest::RecentBeaconBlocks(_) => {
+                vec![ProtocolId::new("recent_beacon_blocks", "1", "ssz")]
             }
         }
     }
@@ -215,7 +207,8 @@ where
     ) -> Self::Future {
         match protocol.encoding.as_str() {
             "ssz" | _ => {
-                let ssz_codec = BaseOutboundCodec::new(SSZOutboundCodec::new(protocol, 4096));
+                let ssz_codec =
+                    BaseOutboundCodec::new(SSZOutboundCodec::new(protocol, MAX_RPC_SIZE));
                 let codec = OutboundCodec::SSZ(ssz_codec);
                 Framed::new(socket, codec).send(self)
             }

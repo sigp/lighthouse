@@ -7,7 +7,6 @@ use env_logger::{Builder, Env};
 use slog::{crit, o, warn, Drain, Level};
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
-
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 pub const TESTNET_CONFIG_FILENAME: &str = "testnet.toml";
@@ -183,6 +182,7 @@ fn main() {
                 .takes_value(true),
         )
         /*
+<<<<<<< HEAD
          * The "testnet" sub-command.
          *
          * Allows for creating a new datadir with testnet-specific configs.
