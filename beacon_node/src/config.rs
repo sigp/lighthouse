@@ -67,13 +67,27 @@ fn process_testnet_subcommand(
         builder.clean_datadir()?;
     }
 
+    if let Some(path_string) = cli_args.value_of("eth2-config") {
+        let path = path_string
+            .parse::<PathBuf>()
+            .map_err(|e| format!("Unable to parse eth2-config path: {:?}", e))?;
+        builder.load_eth2_config(path)?;
+    } else {
+        builder.update_spec_from_subcommand(&cli_args)?;
+    }
+
+    if let Some(path_string) = cli_args.value_of("config") {
+        let path = path_string
+            .parse::<PathBuf>()
+            .map_err(|e| format!("Unable to parse config path: {:?}", e))?;
+        builder.load_client_config(path)?;
+    }
+
     info!(
         log,
         "Creating new datadir";
         "path" => format!("{:?}", builder.data_dir)
     );
-
-    builder.update_spec_from_subcommand(&cli_args)?;
 
     // Start matching on the second subcommand (e.g., `testnet bootstrap ...`)
     match cli_args.subcommand() {
@@ -82,7 +96,7 @@ fn process_testnet_subcommand(
                 .value_of("server")
                 .ok_or_else(|| "No bootstrap server specified")?;
             let port: Option<u16> = cli_args
-                .value_of("port")
+                .value_of("libp2p-port")
                 .and_then(|s| s.parse::<u16>().ok());
 
             builder.import_bootstrap_libp2p_address(server, port)?;
@@ -306,11 +320,8 @@ impl<'a> ConfigBuilder<'a> {
             ));
         } else {
             // Write the config to a TOML file in the datadir.
-            write_to_file(
-                self.data_dir.join(ETH2_CONFIG_FILENAME),
-                &self.client_config,
-            )
-            .map_err(|e| format!("Unable to write {} file: {:?}", ETH2_CONFIG_FILENAME, e))?;
+            write_to_file(self.data_dir.join(ETH2_CONFIG_FILENAME), &self.eth2_config)
+                .map_err(|e| format!("Unable to write {} file: {:?}", ETH2_CONFIG_FILENAME, e))?;
         }
 
         Ok(())
@@ -339,20 +350,36 @@ impl<'a> ConfigBuilder<'a> {
             .unwrap_or_else(|| true)
         {
             return Err(
-                "No database found in datadir. Use the 'testnet -f' sub-command to overwrite the \
-                 existing datadir, or specify a different `--datadir`."
+                "No database found in datadir. Use 'testnet -f' to overwrite the existing \
+                 datadir, or specify a different `--datadir`."
                     .into(),
             );
         }
 
-        self.eth2_config = read_from_file::<Eth2Config>(self.data_dir.join(ETH2_CONFIG_FILENAME))
-            .map_err(|e| format!("Unable to parse {} file: {:?}", ETH2_CONFIG_FILENAME, e))?
-            .ok_or_else(|| format!("{} file does not exist", ETH2_CONFIG_FILENAME))?;
+        self.load_eth2_config(self.data_dir.join(ETH2_CONFIG_FILENAME))?;
+        self.load_client_config(self.data_dir.join(CLIENT_CONFIG_FILENAME))?;
 
-        self.client_config =
-            read_from_file::<ClientConfig>(self.data_dir.join(CLIENT_CONFIG_FILENAME))
-                .map_err(|e| format!("Unable to parse {} file: {:?}", CLIENT_CONFIG_FILENAME, e))?
-                .ok_or_else(|| format!("{} file does not exist", ETH2_CONFIG_FILENAME))?;
+        Ok(())
+    }
+
+    /// Attempts to load the client config from `path`.
+    ///
+    /// Returns an error if any files are not found or are invalid.
+    pub fn load_client_config(&mut self, path: PathBuf) -> Result<()> {
+        self.client_config = read_from_file::<ClientConfig>(path)
+            .map_err(|e| format!("Unable to parse ClientConfig file: {:?}", e))?
+            .ok_or_else(|| "ClientConfig file does not exist".to_string())?;
+
+        Ok(())
+    }
+
+    /// Attempts to load the eth2 config from `path`.
+    ///
+    /// Returns an error if any files are not found or are invalid.
+    pub fn load_eth2_config(&mut self, path: PathBuf) -> Result<()> {
+        self.eth2_config = read_from_file::<Eth2Config>(path)
+            .map_err(|e| format!("Unable to parse Eth2Config file: {:?}", e))?
+            .ok_or_else(|| "Eth2Config file does not exist".to_string())?;
 
         Ok(())
     }
