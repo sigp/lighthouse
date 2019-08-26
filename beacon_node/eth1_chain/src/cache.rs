@@ -58,11 +58,11 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
     pub fn get_eth1_data(&mut self, distance: u64) -> Option<Eth1Data> {
         let current_block_number: U256 = self.fetcher.get_current_block_number().wait().ok()?;
         let block_number: U256 = current_block_number.checked_sub(distance.into())?;
-        if self.cache.read().contains_key(&block_number) {
-            return Some(self.cache.read().get(&block_number)?.clone());
+        if let Some(result) = self.cache.read().get(&block_number) {
+            return Some(result.clone());
         } else {
             // Note: current_thread::block_on_all() might not be safe here since
-            // it waits for other spawned futures to complete on current therad.
+            // it waits for other spawned futures to complete on current thread.
             if let Some((block_number, eth1_data)) = tokio::runtime::current_thread::block_on_all(
                 fetch_eth1_data(distance, current_block_number, self.fetcher.clone()),
             )
@@ -109,14 +109,14 @@ fn fetch_eth1_data<F: Eth1DataFetcher>(
     let deposit_count = fetcher.get_deposit_count(Some(BlockNumber::Number(block_number.as_u64())));
     let block_hash = fetcher.get_block_hash_by_height(block_number.as_u64());
     let eth1_data_future = deposit_root.join3(deposit_count, block_hash);
-    Box::new(eth1_data_future.map(move |data| {
+    eth1_data_future.map(move |data| {
         let eth1_data = Eth1Data {
             deposit_root: data.0,
             deposit_count: data.1?,
             block_hash: data.2?,
         };
         Some((block_number, eth1_data))
-    }))
+    })
 }
 
 #[cfg(test)]
