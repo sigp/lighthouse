@@ -63,7 +63,13 @@ fn process_testnet_subcommand(
         builder.set_random_datadir()?;
     }
 
+    let is_bootstrap = cli_args.subcommand_name() == Some("bootstrap");
+
     if let Some(path_string) = cli_args.value_of("eth2-config") {
+        if is_bootstrap {
+            return Err("Cannot supply --eth2-config when using bootsrap".to_string());
+        }
+
         let path = path_string
             .parse::<PathBuf>()
             .map_err(|e| format!("Unable to parse eth2-config path: {:?}", e))?;
@@ -100,6 +106,7 @@ fn process_testnet_subcommand(
                 .and_then(|s| s.parse::<u16>().ok());
 
             builder.import_bootstrap_libp2p_address(server, port)?;
+            builder.import_bootstrap_eth2_config(server)?;
 
             builder.set_beacon_chain_start_method(BeaconChainStartMethod::HttpBootstrap {
                 server: server.to_string(),
@@ -250,6 +257,19 @@ impl<'a> ConfigBuilder<'a> {
         self.data_dir.push(s);
 
         Ok(())
+    }
+
+    /// Imports an `Eth2Config` from `server`, returning an error if this fails.
+    pub fn import_bootstrap_eth2_config(&mut self, server: &str) -> Result<()> {
+        let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
+
+        self.update_eth2_config(bootstrapper.eth2_config()?);
+
+        Ok(())
+    }
+
+    fn update_eth2_config(&mut self, eth2_config: Eth2Config) {
+        self.eth2_config = eth2_config;
     }
 
     /// Reads the subcommand and tries to update `self.eth2_config` based up on the `--spec` flag.

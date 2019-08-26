@@ -162,6 +162,7 @@ where
                 beacon_chain.clone(),
                 network.clone(),
                 client_config.db_path().expect("unable to read datadir"),
+                eth2_config.clone(),
                 &log,
             ) {
                 Ok(s) => Some(s),
