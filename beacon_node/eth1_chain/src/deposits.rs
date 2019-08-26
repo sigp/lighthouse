@@ -29,7 +29,7 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
     pub fn get_deposit_data(&self, to_deposit_index: u64) -> Option<Vec<DepositData>> {
         let deposits_cache = self.deposits.read();
         let mut deposit_data = vec![];
-        for deposit_index in self.last_index..to_deposit_index {
+        for deposit_index in 0..to_deposit_index {
             let deposit = deposits_cache.get(&deposit_index);
             match deposit {
                 None => return None, // Index missing in cache. Merkle proof won't verify
@@ -40,7 +40,7 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
     }
 
     /// Returns a future that adds entries into the deposits map with new events.
-    pub fn subscribe_deposit_logs(&self) -> Box<Future<Item = (), Error = ()> + Send> {
+    pub fn subscribe_deposit_logs(&self) -> impl Future<Item = (), Error = ()> + Send {
         let cache = self.deposits.clone();
         let event_future = self.fetcher.get_deposit_logs_subscription(cache);
         event_future
@@ -52,15 +52,11 @@ mod tests {
     use super::*;
     use crate::types::ContractConfig;
     use crate::web3_fetcher::Web3DataFetcher;
-    use std::time::{Duration, Instant};
-    use tokio::timer::Interval;
-    use tokio_core::reactor::Core;
-    use web3::futures::Stream;
+    use tokio;
+    use tokio::runtime::TaskExecutor;
     use web3::types::Address;
 
-    #[test]
-    // Check if depositing to eth1 chain updates the deposit_cache
-    fn test_logs_updation() {
+    fn run(executor: &TaskExecutor) {
         let deposit_contract_address: Address =
             "8c594691C0E592FFA21F153a16aE41db5beFcaaa".parse().unwrap();
         let deposit_contract = ContractConfig {
@@ -72,19 +68,16 @@ mod tests {
             deposit_contract,
         ));
         let cache = Arc::new(DepositCache::new(w3));
-        let new_cache = cache.clone();
-
-        let task = Interval::new(Instant::now(), Duration::from_millis(1000))
-            .take(100)
-            .for_each(move |_instant| {
-                println!("Length of {:?}", new_cache.deposits.read().len());
-                Ok(())
-            })
-            .map_err(|_| ());
         let event_future = cache.subscribe_deposit_logs();
-        let _pair = task.join(event_future).map_err(|_| ());
-        let _core = Core::new().unwrap();
-        // core.run(pair).unwrap();
-        assert!(true);
+        executor.spawn(event_future);
+    }
+
+    #[test]
+    // Check if depositing to eth1 chain updates the deposit_cache
+    fn test_logs_updation() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let executor = runtime.executor();
+        run(&executor);
+        runtime.shutdown_on_idle().wait().unwrap();
     }
 }
