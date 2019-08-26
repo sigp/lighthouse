@@ -27,7 +27,7 @@ pub fn get_full_state<S: Store, E: EthSpec>(
 ) -> Result<Option<BeaconState<E>>, Error> {
     let timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
 
-    let result = match store.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
+    match store.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
         Some(bytes) => {
             let container = StorageContainer::from_ssz_bytes(&bytes)?;
 
@@ -38,9 +38,7 @@ pub fn get_full_state<S: Store, E: EthSpec>(
             Ok(Some(container.try_into()?))
         }
         None => Ok(None),
-    };
-
-    result
+    }
 }
 
 /// A container for storing `BeaconState` components.

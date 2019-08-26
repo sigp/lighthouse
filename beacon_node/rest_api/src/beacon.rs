@@ -15,7 +15,7 @@ pub struct HeadResponse {
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
-pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+pub fn get_head<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
@@ -41,7 +41,7 @@ pub struct BlockResponse<T: EthSpec> {
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
-pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+pub fn get_block<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
@@ -86,7 +86,7 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
 }
 
 /// HTTP handler to return a `BeaconBlock` root at a given `slot`.
-pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+pub fn get_block_root<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
@@ -116,7 +116,7 @@ pub struct StateResponse<T: EthSpec> {
 ///
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
-pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+pub fn get_state<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
@@ -157,7 +157,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
 ///
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
-pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+pub fn get_state_root<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
@@ -175,7 +175,7 @@ pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 }
 
 /// HTTP handler to return the highest finalized slot.
-pub fn get_latest_finalized_checkpoint<T: BeaconChainTypes + 'static>(
+pub fn get_latest_finalized_checkpoint<T: BeaconChainTypes>(
     req: Request<Body>,
 ) -> ApiResult {
     let beacon_chain = req

@@ -25,7 +25,7 @@ pub struct Service<T: BeaconChainTypes> {
                               //message_handler_send: Sender<HandlerMessage>
 }
 
-impl<T: BeaconChainTypes + 'static> Service<T> {
+impl<T: BeaconChainTypes> Service<T> {
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,

@@ -60,7 +60,6 @@ impl Store for HotColdDB {
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
         if state.slot <= self.split_slot {
-            // println!("Storing at state at slot {} in the archival DB", state.slot);
             self.store_archive_state(state_root, state)
         } else {
             self.hot_db.put_state(state_root, state)
@@ -73,7 +72,6 @@ impl Store for HotColdDB {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
-        // println!("Getting a state from slot {:?}", slot);
         if let Some(slot) = slot {
             if slot <= self.split_slot {
                 self.load_archive_state(state_root)

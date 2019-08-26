@@ -26,7 +26,7 @@ lazy_static! {
 /// # Note
 ///
 /// This is a HTTP handler method.
-pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+pub fn get_prometheus<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
 
