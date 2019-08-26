@@ -1,7 +1,6 @@
 use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use lmd_ghost::LmdGhost;
 use sloggers::{null::NullLoggerBuilder, Build};
-use slot_clock::SlotClock;
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::marker::PhantomData;
@@ -114,22 +113,9 @@ where
         let builder = NullLoggerBuilder;
         let log = builder.build().expect("logger should build");
 
-        // Slot clock
-        let slot_clock = TestingSlotClock::new(
-            spec.genesis_slot,
-            genesis_state.genesis_time,
-            spec.seconds_per_slot,
-        );
-
-        let chain = BeaconChain::from_genesis(
-            store,
-            slot_clock,
-            genesis_state,
-            genesis_block,
-            spec.clone(),
-            log,
-        )
-        .expect("Terminate if beacon chain generation fails");
+        let chain =
+            BeaconChain::from_genesis(store, genesis_state, genesis_block, spec.clone(), log)
+                .expect("Terminate if beacon chain generation fails");
 
         Self {
             chain,
