@@ -1,3 +1,4 @@
+use eth2_config::Eth2Config;
 use eth2_libp2p::{
     multiaddr::{Multiaddr, Protocol},
     Enr,
@@ -74,6 +75,11 @@ impl Bootstrapper {
         }
     }
 
+    /// Returns the servers Eth2Config.
+    pub fn eth2_config(&self) -> Result<Eth2Config, String> {
+        get_eth2_config(self.url.clone()).map_err(|e| format!("Unable to get Eth2Config: {:?}", e))
+    }
+
     /// Returns the servers ENR address.
     pub fn enr(&self) -> Result<Enr, String> {
         get_enr(self.url.clone()).map_err(|e| format!("Unable to get ENR: {:?}", e))
@@ -120,6 +126,19 @@ fn get_slots_per_epoch(mut url: Url) -> Result<Slot, Error> {
     url.path_segments_mut()
         .map(|mut url| {
             url.push("spec").push("slots_per_epoch");
+        })
+        .map_err(|_| Error::InvalidUrl)?;
+
+    reqwest::get(url)?
+        .error_for_status()?
+        .json()
+        .map_err(Into::into)
+}
+
+fn get_eth2_config(mut url: Url) -> Result<Eth2Config, Error> {
+    url.path_segments_mut()
+        .map(|mut url| {
+            url.push("spec").push("eth2_config");
         })
         .map_err(|_| Error::InvalidUrl)?;
 
