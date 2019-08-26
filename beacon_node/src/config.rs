@@ -366,9 +366,9 @@ impl<'a> ConfigBuilder<'a> {
     ///
     /// Returns an error if any files are not found or are invalid.
     pub fn load_client_config(&mut self, path: PathBuf) -> Result<()> {
-        self.client_config = read_from_file::<ClientConfig>(path)
-            .map_err(|e| format!("Unable to parse ClientConfig file: {:?}", e))?
-            .ok_or_else(|| "ClientConfig file does not exist".to_string())?;
+        self.client_config = read_from_file::<ClientConfig>(path.clone())
+            .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
+            .ok_or_else(|| format!("{:?} file does not exist", path))?;
 
         Ok(())
     }
@@ -377,9 +377,9 @@ impl<'a> ConfigBuilder<'a> {
     ///
     /// Returns an error if any files are not found or are invalid.
     pub fn load_eth2_config(&mut self, path: PathBuf) -> Result<()> {
-        self.eth2_config = read_from_file::<Eth2Config>(path)
-            .map_err(|e| format!("Unable to parse Eth2Config file: {:?}", e))?
-            .ok_or_else(|| "Eth2Config file does not exist".to_string())?;
+        self.eth2_config = read_from_file::<Eth2Config>(path.clone())
+            .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
+            .ok_or_else(|| format!("{:?} file does not exist", path))?;
 
         Ok(())
     }
