@@ -7,6 +7,7 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness as BaseBeaconChainHarness, BlockStrategy,
 };
 use lmd_ghost::{LmdGhost, ThreadSafeReducedTree as BaseThreadSafeReducedTree};
+use parking_lot::RwLock;
 use rand::{prelude::*, rngs::StdRng};
 use std::sync::Arc;
 use store::{
@@ -20,7 +21,7 @@ pub const VALIDATOR_COUNT: usize = 3 * 8;
 
 type TestEthSpec = MinimalEthSpec;
 type ThreadSafeReducedTree = BaseThreadSafeReducedTree<MemoryStore, TestEthSpec>;
-type BeaconChainHarness = BaseBeaconChainHarness<ThreadSafeReducedTree, TestEthSpec>;
+type BeaconChainHarness = BaseBeaconChainHarness<ThreadSafeReducedTree, TestEthSpec, MemoryStore>;
 type RootAndSlot = (Hash256, Slot);
 
 lazy_static! {
@@ -51,8 +52,8 @@ struct ForkedHarness {
 impl ForkedHarness {
     /// A new standard instance of with constant parameters.
     pub fn new() -> Self {
-        // let (harness, honest_roots, faulty_roots) = get_harness_containing_two_forks();
-        let harness = BeaconChainHarness::new(VALIDATOR_COUNT);
+        let store = Arc::new(RwLock::new(MemoryStore::open()));
+        let harness = BeaconChainHarness::new(VALIDATOR_COUNT, store);
 
         // Move past the zero slot.
         harness.advance_slot();
@@ -101,6 +102,7 @@ impl ForkedHarness {
         let genesis_block = harness
             .chain
             .store
+            .read()
             .get::<BeaconBlock<TestEthSpec>>(&genesis_block_root)
             .expect("Genesis block should exist")
             .expect("DB should not error");
@@ -117,7 +119,7 @@ impl ForkedHarness {
     }
 
     pub fn store_clone(&self) -> MemoryStore {
-        (*self.harness.chain.store).clone()
+        self.harness.chain.store.read().clone()
     }
 
     /// Return a brand-new, empty fork choice with a reference to `harness.store`.
@@ -129,7 +131,7 @@ impl ForkedHarness {
         let store: MemoryStore = self.store_clone();
 
         ThreadSafeReducedTree::new(
-            Arc::new(store),
+            Arc::new(RwLock::new(store)),
             &self.genesis_block,
             self.genesis_block_root,
         )
@@ -151,10 +153,11 @@ impl ForkedHarness {
 
 /// Helper: returns all the ancestor roots and slots for a given block_root.
 fn get_ancestor_roots<E: EthSpec, U: Store>(
-    store: Arc<U>,
+    store: Arc<RwLock<U>>,
     block_root: Hash256,
 ) -> Vec<(Hash256, Slot)> {
     let block = store
+        .read()
         .get::<BeaconBlock<TestEthSpec>>(&block_root)
         .expect("block should exist")
         .expect("store should not error");
@@ -171,6 +174,7 @@ fn get_slot_for_block_root(harness: &BeaconChainHarness, block_root: Hash256) ->
     harness
         .chain
         .store
+        .read()
         .get::<BeaconBlock<TestEthSpec>>(&block_root)
         .expect("head block should exist")
         .expect("DB should not error")

@@ -11,6 +11,14 @@ pub struct MemoryStore {
     db: RwLock<DBHashMap>,
 }
 
+impl Clone for MemoryStore {
+    fn clone(&self) -> Self {
+        Self {
+            db: RwLock::new(self.db.read().clone()),
+        }
+    }
+}
+
 impl MemoryStore {
     /// Create a new, empty database.
     pub fn open() -> Self {
