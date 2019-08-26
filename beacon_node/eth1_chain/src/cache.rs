@@ -25,8 +25,9 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
         }
     }
 
-    /// Called periodically to populate the cache with Eth1Data from most recent blocks.
-    pub fn update_cache(&self) -> impl Future<Item = (), Error = ()> + Send {
+    /// Called periodically to populate the cache with Eth1Data
+    /// from most recent blocks upto `distance`.
+    pub fn update_cache(&self, distance: u64) -> impl Future<Item = (), Error = ()> + Send {
         let cache_updated = self.cache.clone();
         let last_block = self.last_block.clone();
         let fetcher = self.fetcher.clone();
@@ -34,9 +35,11 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
             .fetcher
             .get_current_block_number()
             .and_then(move |curr_block_number| {
-                fetch_eth1_data_in_range(0, 10, curr_block_number, fetcher)
+                fetch_eth1_data_in_range(0, distance, curr_block_number, fetcher)
                     .for_each(move |data| {
+                        // NOTE: Fix unsafe unwrap.
                         let data = data.unwrap();
+                        println!("Cache data: {:#?}", data);
                         let mut eth1_cache = cache_updated.write();
                         eth1_cache.insert(data.0, data.1);
                         Ok(())
@@ -164,18 +167,15 @@ mod tests {
     fn test_cache() {
         let w3 = setup();
         let interval = {
-            let update_duration = Duration::from_secs(5);
+            let update_duration = Duration::from_secs(15);
             Interval::new(Instant::now(), update_duration).map_err(|e| println!("{:?}", e))
         };
 
         let cache = Eth1DataCache::new(Arc::new(w3));
         let cache_inside = cache.cache.clone();
-        let task = interval.take(1).for_each(move |_| {
+        let task = interval.take(100).for_each(move |_| {
             let c = cache_inside.clone();
-            cache.update_cache().and_then(move |_| {
-                println!("Cache contents: {:#?}", *c.read());
-                Ok(())
-            })
+            cache.update_cache(3 + 1).and_then(move |_| Ok(()))
         });
         tokio::run(task);
     }
