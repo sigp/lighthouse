@@ -39,19 +39,18 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
 /// Parse a PublicKey from a `0x` prefixed hex string
 pub fn parse_pubkey(string: &str) -> Result<PublicKey, ApiError> {
     const PREFIX: &str = "0x";
-    //if string.starts_with(PREFIX) {
-    // let pubkey = Vec::from_hex().expect("asdf");
-    let pubkey_bytes = hex::decode(string.trim_start_matches(PREFIX))
-        .map_err(|e| ApiError::InvalidQueryParams(format!("Invalid hex string: {:?}", e)))?;
-    let pubkey = PublicKey::from_bytes(pubkey_bytes.as_slice()).map_err(|e| {
-        ApiError::InvalidQueryParams(format!("Unable to deserialize public key: {:?}.", e))
-    })?;
-    return Ok(pubkey);
-    /*} else {
+    if string.starts_with(PREFIX) {
+        let pubkey_bytes = hex::decode(string.trim_start_matches(PREFIX))
+            .map_err(|e| ApiError::InvalidQueryParams(format!("Invalid hex string: {:?}", e)))?;
+        let pubkey = PublicKey::from_bytes(pubkey_bytes.as_slice()).map_err(|e| {
+            ApiError::InvalidQueryParams(format!("Unable to deserialize public key: {:?}.", e))
+        })?;
+        return Ok(pubkey);
+    } else {
         return Err(ApiError::InvalidQueryParams(
             "Public key must have a  '0x' prefix".to_string(),
         ));
-    }*/
+    }
 }
 
 /// Returns the root of the `BeaconBlock` in the canonical chain of `beacon_chain` at the given

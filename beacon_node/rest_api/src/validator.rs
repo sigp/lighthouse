@@ -12,16 +12,12 @@ use types::{BeaconBlock, BeaconState, Epoch, RelativeEpoch, Shard, Slot};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatorDuty {
     /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
-    #[serde(rename = "validator_pubkey")]
     pub validator_pubkey: String,
     /// The slot at which the validator must attest.
-    #[serde(rename = "attestation_slot")]
     pub attestation_slot: Option<Slot>,
     /// The shard in which the validator must attest.
-    #[serde(rename = "attestation_shard")]
     pub attestation_shard: Option<Shard>,
     /// The slot in which a validator must propose a block, or `null` if block production is not required.
-    #[serde(rename = "block_proposal_slot")]
     pub block_proposal_slot: Option<Slot>,
 }
 
@@ -64,7 +60,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         }
     };
     let relative_epoch = RelativeEpoch::from_epoch(current_epoch, epoch)
-        .map_err(|e| ApiError::InvalidQueryParams(format!("Cannot get RelativeEpoch: {:?}", e)))?;
+        .map_err(|e| ApiError::InvalidQueryParams(format!("Cannot get RelativeEpoch, epoch out of range: {:?}", e)))?;
     //TODO: Handle an array of validators, currently only takes one
     let mut validators: Vec<PublicKey> = match query.all_of("validator_pubkeys") {
         Ok(v) => v
@@ -78,19 +74,19 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
     let mut duties: Vec<ValidatorDuty> = Vec::new();
 
     // Get a list of all validators for this epoch
-    let validator_proposers: Result<Vec<usize>, _> = epoch
+    let validator_proposers: Vec<usize> = epoch
         .slot_iter(T::EthSpec::slots_per_epoch())
-        .map(|slot| head_state.get_beacon_proposer_index(slot, relative_epoch, &beacon_chain.spec))
-        .collect();
-    let validator_proposers = match validator_proposers {
-        Ok(v) => v,
-        Err(e) => {
-            return Err(ApiError::ServerError(format!(
-                "Unable to read list of validator proposers: {:?}",
-                e
-            )));
-        }
-    };
+        .map(|slot| {
+            head_state
+                .get_beacon_proposer_index(slot, relative_epoch, &beacon_chain.spec)
+                .map_err(|e| {
+                    ApiError::ServerError(format!(
+                        "Unable to get proposer index for validator: {:?}",
+                        e
+                    ))
+                })
+        })
+        .collect::<Result<Vec<usize>, _>>()?;
 
     // Look up duties for each validator
     for val_pk in validators {
