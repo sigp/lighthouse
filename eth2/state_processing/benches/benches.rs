@@ -100,6 +100,7 @@ fn bench_block<T: EthSpec>(
                             state_processing::per_block_processing::<T>(
                                 state,
                                 &block,
+                                None,
                                 BlockSignatureStrategy::VerifyIndividual,
                                 &spec,
                             )
@@ -128,6 +129,7 @@ fn bench_block<T: EthSpec>(
                             state_processing::per_block_processing::<T>(
                                 state,
                                 &block,
+                                None,
                                 BlockSignatureStrategy::VerifyBulk,
                                 &spec,
                             )
@@ -154,6 +156,7 @@ fn bench_block<T: EthSpec>(
                         state_processing::per_block_processing::<T>(
                             state,
                             &block,
+                            None,
                             BlockSignatureStrategy::NoVerification,
                             &spec,
                         )
@@ -179,6 +182,7 @@ fn bench_block<T: EthSpec>(
                         state_processing::per_block_processing::process_block_header::<T>(
                             state,
                             &block,
+                            None,
                             VerifySignatures::True,
                             &spec,
                         )
@@ -202,7 +206,7 @@ fn bench_block<T: EthSpec>(
                 |(spec, ref mut state, block)| {
                     black_box(
                         state_processing::per_block_processing::verify_block_signature::<T>(
-                            state, &block, &spec,
+                            state, &block, None, &spec,
                         )
                         .expect("verify_block_signature should succeed"),
                     )

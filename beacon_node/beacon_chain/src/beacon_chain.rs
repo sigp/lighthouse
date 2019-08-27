@@ -891,6 +891,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match per_block_processing(
             &mut state,
             &block,
+            Some(block_root),
             BlockSignatureStrategy::VerifyIndividual,
             &self.spec,
         ) {
@@ -1044,6 +1045,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         per_block_processing(
             &mut state,
             &block,
+            None,
             BlockSignatureStrategy::NoVerification,
             &self.spec,
         )?;

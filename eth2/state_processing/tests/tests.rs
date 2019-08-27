@@ -37,6 +37,7 @@ where
         per_block_processing(
             &mut state.clone(),
             &block,
+            None,
             BlockSignatureStrategy::VerifyIndividual,
             spec
         ),
@@ -48,6 +49,7 @@ where
         per_block_processing(
             &mut state.clone(),
             &block,
+            None,
             BlockSignatureStrategy::VerifyBulk,
             spec
         ),
@@ -65,6 +67,7 @@ where
         per_block_processing(
             &mut state.clone(),
             &block,
+            None,
             BlockSignatureStrategy::VerifyIndividual,
             spec
         )
@@ -76,6 +79,7 @@ where
         per_block_processing(
             &mut state.clone(),
             &block,
+            None,
             BlockSignatureStrategy::VerifyBulk,
             spec
         ),

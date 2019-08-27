@@ -16,6 +16,7 @@ fn valid_block_ok() {
     let result = per_block_processing(
         &mut state,
         &block,
+        None,
         BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );
@@ -35,6 +36,7 @@ fn invalid_block_header_state_slot() {
     let result = per_block_processing(
         &mut state,
         &block,
+        None,
         BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );
@@ -57,6 +59,7 @@ fn invalid_parent_block_root() {
     let result = per_block_processing(
         &mut state,
         &block,
+        None,
         BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );
@@ -89,6 +92,7 @@ fn invalid_block_signature() {
     let result = per_block_processing(
         &mut state,
         &block,
+        None,
         BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );
@@ -114,6 +118,7 @@ fn invalid_randao_reveal_signature() {
     let result = per_block_processing(
         &mut state,
         &block,
+        None,
         BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );

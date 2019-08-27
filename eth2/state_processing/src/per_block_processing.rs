@@ -70,10 +70,15 @@ impl VerifySignatures {
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
+/// If `block_signed_root` is `Some`, this root is used for verification of the proposers
+/// signature. If it is `None` the signed root is calculated here. This parameter only exists to
+/// avoid re-calculating the root when it is already known.
+///
 /// Spec v0.8.0
 pub fn per_block_processing<T: EthSpec>(
     mut state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
+    block_signed_root: Option<Hash256>,
     block_signature_strategy: BlockSignatureStrategy,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -90,7 +95,7 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::NoVerification => VerifySignatures::False,
     };
 
-    process_block_header(state, block, verify_signatures, spec)?;
+    process_block_header(state, block, block_signed_root, verify_signatures, spec)?;
 
     // Ensure the current and previous epoch caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
@@ -134,6 +139,7 @@ pub fn per_block_processing<T: EthSpec>(
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
+    block_signed_root: Option<Hash256>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
@@ -160,7 +166,7 @@ pub fn process_block_header<T: EthSpec>(
     );
 
     if verify_signatures.is_true() {
-        verify_block_signature(&state, &block, &spec)?;
+        verify_block_signature(&state, &block, block_signed_root, &spec)?;
     }
 
     Ok(())
@@ -172,10 +178,11 @@ pub fn process_block_header<T: EthSpec>(
 pub fn verify_block_signature<T: EthSpec>(
     state: &BeaconState<T>,
     block: &BeaconBlock<T>,
+    block_signed_root: Option<Hash256>,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(
-        block_proposal_signature_set(state, block, spec)?.is_valid(),
+        block_proposal_signature_set(state, block, block_signed_root, spec)?.is_valid(),
         HeaderInvalid::ProposalSignatureInvalid
     );
 

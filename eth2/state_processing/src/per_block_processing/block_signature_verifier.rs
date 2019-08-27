@@ -3,7 +3,9 @@ use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use bls::{verify_signature_sets, SignatureSet};
 use rayon::prelude::*;
-use types::{BeaconBlock, BeaconState, BeaconStateError, ChainSpec, EthSpec, IndexedAttestation};
+use types::{
+    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256, IndexedAttestation,
+};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -82,7 +84,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     ) -> Result<()> {
         let mut verifier = Self::new(state, block, spec);
 
-        verifier.include_block_proposal()?;
+        verifier.include_block_proposal(None)?;
         verifier.include_randao_reveal()?;
         verifier.include_proposer_slashings()?;
         verifier.include_attester_slashings()?;
@@ -130,8 +132,8 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     }
 
     /// Includes the block signature for `self.block` for verification.
-    fn include_block_proposal(&mut self) -> Result<()> {
-        let set = block_proposal_signature_set(self.state, self.block, self.spec)?;
+    fn include_block_proposal(&mut self, block_root: Option<Hash256>) -> Result<()> {
+        let set = block_proposal_signature_set(self.state, self.block, block_root, self.spec)?;
         self.sets.push(set);
         Ok(())
     }

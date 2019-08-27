@@ -38,7 +38,7 @@ impl<E: EthSpec> Case for OperationsBlockHeader<E> {
         state.build_all_caches(spec).unwrap();
 
         let mut result =
-            process_block_header(&mut state, &self.block, VerifySignatures::True, spec)
+            process_block_header(&mut state, &self.block, None, VerifySignatures::True, spec)
                 .map(|_| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)

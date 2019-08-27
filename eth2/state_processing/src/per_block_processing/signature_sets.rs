@@ -8,7 +8,7 @@ use tree_hash::{SignedRoot, TreeHash};
 use types::{
     AggregateSignature, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
     BeaconBlockHeader, BeaconState, BeaconStateError, ChainSpec, Deposit, Domain, EthSpec, Fork,
-    IndexedAttestation, ProposerSlashing, PublicKey, RelativeEpoch, Signature, Transfer,
+    Hash256, IndexedAttestation, ProposerSlashing, PublicKey, RelativeEpoch, Signature, Transfer,
     VoluntaryExit,
 };
 
@@ -39,6 +39,7 @@ impl From<BeaconStateError> for Error {
 pub fn block_proposal_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     block: &'a BeaconBlock<T>,
+    block_signed_root: Option<Hash256>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
     let block_proposer = &state.validators
@@ -50,7 +51,11 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
         &state.fork,
     );
 
-    let message = block.signed_root();
+    let message = if let Some(root) = block_signed_root {
+        root.as_bytes().to_vec()
+    } else {
+        block.signed_root()
+    };
 
     Ok(SignatureSet::single(
         &block.signature,
