@@ -11,6 +11,8 @@ pub fn get_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
 ) -> Result<IndexedAttestation<T>, Error> {
+    // Note: we rely on both calls to `get_attesting_indices` to check the bitfield lengths
+    // against the committee length
     let attesting_indices =
         get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
