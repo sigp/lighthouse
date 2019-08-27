@@ -43,16 +43,6 @@ impl<T, E> fmt::Debug for ThreadSafeReducedTree<T, E> {
     }
 }
 
-impl<T, E> ThreadSafeReducedTree<T, E>
-where
-    T: Store,
-    E: EthSpec,
-{
-    pub fn verify_integrity(&self) -> std::result::Result<(), String> {
-        self.core.read().verify_integrity()
-    }
-}
-
 impl<T, E> LmdGhost<T, E> for ThreadSafeReducedTree<T, E>
 where
     T: Store,
@@ -80,7 +70,7 @@ where
     fn process_block(&self, block: &BeaconBlock<E>, block_hash: Hash256) -> SuperResult<()> {
         self.core
             .write()
-            .add_weightless_node(block.slot, block_hash)
+            .maybe_add_weightless_node(block.slot, block_hash)
             .map_err(|e| format!("process_block failed: {:?}", e))
     }
 
@@ -112,6 +102,10 @@ where
 
     fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
         self.core.read().latest_message(validator_index)
+    }
+
+    fn verify_integrity(&self) -> std::result::Result<(), String> {
+        self.core.read().verify_integrity()
     }
 }
 
@@ -163,15 +157,7 @@ where
     /// The given `new_root` must be in the block tree (but not necessarily in the reduced tree).
     /// Any nodes which are not a descendant of `new_root` will be removed from the store.
     pub fn update_root(&mut self, new_slot: Slot, new_root: Hash256) -> Result<()> {
-        if !self.nodes.contains_key(&new_root) {
-            let node = Node {
-                block_hash: new_root,
-                voters: vec![],
-                ..Node::default()
-            };
-
-            self.add_node(node)?;
-        }
+        self.maybe_add_weightless_node(new_slot, new_root)?;
 
         self.retain_subtree(self.root.0, new_root)?;
 
@@ -247,7 +233,7 @@ where
         //
         // In this case, we add a weightless node at `start_block_root`.
         if !self.nodes.contains_key(&start_block_root) {
-            self.add_weightless_node(start_block_slot, start_block_root)?;
+            self.maybe_add_weightless_node(start_block_slot, start_block_root)?;
         };
 
         let _root_weight = self.update_weight(start_block_root, weight_fn)?;
@@ -430,7 +416,7 @@ where
         Ok(())
     }
 
-    fn add_weightless_node(&mut self, slot: Slot, hash: Hash256) -> Result<()> {
+    fn maybe_add_weightless_node(&mut self, slot: Slot, hash: Hash256) -> Result<()> {
         if slot > self.root_slot() && !self.nodes.contains_key(&hash) {
             let node = Node {
                 block_hash: hash,
