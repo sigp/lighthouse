@@ -88,11 +88,11 @@ impl<'a> SignatureSet<'a> {
             point: self.signature.clone(),
         };
 
-        let mut message = vec![];
+        let mut messages: Vec<Vec<u8>> = vec![];
         let mut pubkeys = vec![];
 
         self.signed_messages.iter().for_each(|signed_message| {
-            message.append(&mut signed_message.message.clone());
+            messages.push(signed_message.message.clone());
 
             let point = if signed_message.signing_keys.len() == 1 {
                 signed_message.signing_keys[0].clone()
@@ -106,7 +106,7 @@ impl<'a> SignatureSet<'a> {
         let pubkey_refs: Vec<&milagro_bls::AggregatePublicKey> =
             pubkeys.iter().map(std::borrow::Borrow::borrow).collect();
 
-        sig.verify_multiple(&message, self.domain, &pubkey_refs)
+        sig.verify_multiple(&messages, self.domain, &pubkey_refs)
     }
 }
 

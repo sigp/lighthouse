@@ -77,13 +77,13 @@ impl AggregateSignature {
             aggregate_public_keys.iter().map(|pk| pk.as_raw()).collect();
 
         // Messages are concatenated into one long message.
-        let mut msg: Vec<u8> = vec![];
+        let mut msgs: Vec<Vec<u8>> = vec![];
         for message in messages {
-            msg.extend_from_slice(message);
+            msgs.push(message.to_vec());
         }
 
         self.aggregate_signature
-            .verify_multiple(&msg[..], domain, &aggregate_public_keys[..])
+            .verify_multiple(&msgs, domain, &aggregate_public_keys[..])
     }
 
     /// Return AggregateSignature as bytes
