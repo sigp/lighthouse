@@ -1,16 +1,19 @@
 use crate::types::Eth1DataFetcher;
+use ethereum_types::H256;
+use merkle_proof::*;
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::marker::Send;
 use std::sync::Arc;
-use types::DepositData;
+use tree_hash::TreeHash;
+use types::{Deposit, DepositData};
 use web3::futures::Future;
 
 /// Cache for all deposits received in DepositContract.
 #[derive(Clone, Debug)]
 pub struct DepositCache<F: Eth1DataFetcher> {
     /// Deposit index to deposit
-    pub deposits: Arc<RwLock<BTreeMap<u64, DepositData>>>,
+    pub deposit_data: Arc<RwLock<BTreeMap<u64, DepositData>>>,
     /// Last deposit index queried by beacon chain
     last_index: u64,
     fetcher: Arc<F>,
@@ -19,17 +22,23 @@ pub struct DepositCache<F: Eth1DataFetcher> {
 impl<F: Eth1DataFetcher> DepositCache<F> {
     pub fn new(fetcher: Arc<F>) -> Self {
         DepositCache {
-            deposits: Arc::new(RwLock::new(BTreeMap::new())),
+            deposit_data: Arc::new(RwLock::new(BTreeMap::new())),
             last_index: 0,
             fetcher,
         }
     }
 
-    /// Return all the deposits received from self.last_index till to_deposit_index.
-    pub fn get_deposit_data(&self, to_deposit_index: u64) -> Option<Vec<DepositData>> {
-        let deposits_cache = self.deposits.read();
+    /// Return all the `DepositData` structs in given range.
+    /// NOTE: Returns None if any of the indices in the range are absent
+    /// as the deposit contract merkle root won't match.
+    pub fn get_deposit_data(
+        &self,
+        from_deposit_index: u64,
+        to_deposit_index: u64,
+    ) -> Option<Vec<DepositData>> {
+        let deposits_cache = self.deposit_data.read();
         let mut deposit_data = vec![];
-        for deposit_index in 0..to_deposit_index {
+        for deposit_index in from_deposit_index..to_deposit_index {
             let deposit = deposits_cache.get(&deposit_index);
             match deposit {
                 None => return None, // Index missing in cache. Merkle proof won't verify
@@ -39,9 +48,28 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
         Some(deposit_data)
     }
 
+    /// Return all `Deposit` structs till given index.
+    pub fn get_deposits_upto(&self, to_deposit_index: u64) -> Option<Vec<Deposit>> {
+        let deposit_data = self.get_deposit_data(0, to_deposit_index)?;
+        let deposit_data_hash: Vec<H256> = deposit_data
+            .iter()
+            .map(|n| H256::from_slice(&n.tree_hash_root()))
+            .collect();
+        let tree = MerkleTree::create(&deposit_data_hash, 32); // DEPOSIT_TREE_HEIGHT
+        let deposits = deposit_data
+            .into_iter()
+            .enumerate()
+            .map(|(i, val)| Deposit {
+                proof: tree.generate_proof(i + 1, 32).1.into(),
+                data: val,
+            })
+            .collect::<Vec<_>>();
+        Some(deposits)
+    }
+
     /// Returns a future that adds entries into the deposits map with new events.
     pub fn subscribe_deposit_logs(&self) -> impl Future<Item = (), Error = ()> + Send {
-        let cache = self.deposits.clone();
+        let cache = self.deposit_data.clone();
         let event_future = self.fetcher.get_deposit_logs_subscription(cache);
         event_future
     }
