@@ -12,6 +12,11 @@ pub struct HeadResponse {
     pub slot: Slot,
     pub block_root: Hash256,
     pub state_root: Hash256,
+    /* Not implemented:
+    pub finalized_slot: Slot,
+    pub finalized_block_root: Hash256,
+    pub justified_slot: Hash256,
+     */
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.

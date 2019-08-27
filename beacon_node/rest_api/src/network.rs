@@ -21,7 +21,7 @@ pub fn get_listen_addresses<T: BeaconChainTypes>(req: Request<Body>) -> ApiResul
     )))
 }
 
-/// HTTP handle to return the list of libp2p multiaddr the client is listening on.
+/// HTTP handle to return network port the client is listening on.
 ///
 /// Returns a list of `Multiaddr`, serialized according to their `serde` impl.
 pub fn get_listen_port<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {

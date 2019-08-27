@@ -2,7 +2,7 @@ openapi: "3.0.2"
 info:
   title: "Lighthouse REST API"
   description: ""
-  version: "0.1.0"
+  version: "0.2.0"
   license:
     name: "Apache 2.0"
     url: "https://www.apache.org/licenses/LICENSE-2.0.html"
@@ -85,7 +85,7 @@ paths:
         500:
           $ref: '#/components/responses/InternalError'
 
-  /node/fork:
+  /node/chain_id:
     get:
       tags:
         - Phase0
@@ -99,8 +99,6 @@ paths:
               schema:
                 type: object
                 properties:
-                  fork:
-                    $ref: '#/components/schemas/Fork'
                   chain_id:
                     type: integer
                     format: uint64
@@ -108,32 +106,74 @@ paths:
         500:
           $ref: '#/components/responses/InternalError'
 
-  /node/stats:
+  /node/metrics:
     get:
       tags:
-        - Future
-      summary: "Get operational information about the node."
-      description: "Fetches some operational information about the node's process, such as memory usage, database size, etc."
+        - Phase0
+      summary: "Get Promethius metrics for the node"
+      description: "Fetches a range of metrics for measuring nodes health. It is intended for this endpoint to be consumed by Promethius."
+      responses:
+        200:
+          description: Request successful
+          content:
+            text/plain:
+              example:
+                summary: 'Promethius metrics'
+                value: "# HELP beacon_head_state_active_validators_total Count of active validators at the head of the chain
+                        # TYPE beacon_head_state_active_validators_total gauge
+                        beacon_head_state_active_validators_total 16
+                        # HELP beacon_head_state_current_justified_epoch Current justified epoch at the head of the chain
+                        # TYPE beacon_head_state_current_justified_epoch gauge
+                        beacon_head_state_current_justified_epoch 0
+                        # HELP beacon_head_state_current_justified_root Current justified root at the head of the chain
+                        # TYPE beacon_head_state_current_justified_root gauge
+                        beacon_head_state_current_justified_root 0
+                        # HELP beacon_head_state_eth1_deposit_index Eth1 deposit index at the head of the chain
+                        # TYPE beacon_head_state_eth1_deposit_index gauge
+                        beacon_head_state_eth1_deposit_index 16
+                        # HELP beacon_head_state_finalized_epoch Finalized epoch at the head of the chain
+                        # TYPE beacon_head_state_finalized_epoch gauge
+                        beacon_head_state_finalized_epoch 0
+                        # HELP beacon_head_state_finalized_root Finalized root at the head of the chain
+                        # TYPE beacon_head_state_finalized_root gauge
+                        beacon_head_state_finalized_root 0
+                        # HELP beacon_head_state_latest_block_slot Latest block slot at the head of the chain
+                        # TYPE beacon_head_state_latest_block_slot gauge
+                        beacon_head_state_latest_block_slot 0
+                        # HELP beacon_head_state_previous_justified_epoch Previous justified epoch at the head of the chain
+                        # TYPE beacon_head_state_previous_justified_epoch gauge
+                        beacon_head_state_previous_justified_epoch 0
+                        # HELP beacon_head_state_previous_justified_root Previous justified root at the head of the chain
+                        # TYPE beacon_head_state_previous_justified_root gauge
+                        beacon_head_state_previous_justified_root 0
+                        # HELP beacon_head_state_root Root of the block at the head of the chain
+                        # TYPE beacon_head_state_root gauge
+                        beacon_head_state_root -7566315470565629000
+                        # HELP beacon_head_state_shard_total Count of shards in the beacon chain
+                        # TYPE beacon_head_state_shard_total gauge
+                        beacon_head_state_shard_total 8
+                        # HELP beacon_head_state_slashed_validators_total Count of all slashed validators at the head of the chain
+                        # TYPE beacon_head_state_slashed_validators_total gauge
+                        beacon_head_state_slashed_validators_total 0"
+
+  #TODO: Complete the /network/enr request
+  /network/enr:
+    get:
+      tags:
+        - Phase0
+      summary: ""
+      description: ""
       responses:
         200:
           description: Request successful
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  memory_usage:
-                    type: integer
-                    format: uint64
-                    description: "The amount of memory used by the currently running beacon node process, expressed in bytes."
-                  uptime:
-                    type: integer
-                    format: uint64
-                    description: "The number of seconds that have elapsed since beacon node process was started."
-                  #TODO: what other useful process information could be expressed here?
+                type: integer
+                format: uint16
+                example: 2468
 
-
-  /node/network/peer_count:
+  /network/peer_count:
     get:
       tags:
         - Phase0
@@ -149,7 +189,10 @@ paths:
                 format: uint64
                 example: 25
 
-  /node/network/peers:
+  #TODO: Complete our peer ID
+  /network/peer_id:
+
+  /network/peers:
     get:
       tags:
         - Phase0
@@ -165,7 +208,24 @@ paths:
                 items:
                   $ref: '#/components/schemas/Peer'
 
-  /node/network/listening:
+  #TODO: Complete the /network/listen_port endpoint
+  /network/listen_port:
+    get:
+      tags:
+        - Phase0
+      summary: ""
+      description: ""
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: uint16
+                example: 2468
+
+  /network/listen_addresses:
     get:
       tags:
         - Phase0
@@ -183,10 +243,12 @@ paths:
                     type: boolean
                     nullable: false
                     description: "True if the node is listening for incoming network connections. False if networking has been disabled or if the node has been configured to only connect with a static set of peers."
-                  listen_address:
-                    $ref: '#/components/schemas/multiaddr'
+                  addresses:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/multiaddr'
 
-  /node/network/stats:
+  /network/stats:
     get:
       tags:
         - Future
@@ -215,7 +277,7 @@ paths:
                     description: "The total number of unique peers (by multiaddr) that have been discovered since the beacon node instance was started."
                     #TODO: This might be too difficult to collect
 
-  /node/network/block_discovery:
+  /network/block_discovery:
     get:
       tags:
         - Future
@@ -254,177 +316,72 @@ paths:
 
 
 
-  #TODO: Add the endpoints that enable a validator to join, exit, withdraw, etc.
-  /validator/duties:
+
+  /beacon/head:
     get:
       tags:
         - Phase0
-      summary: "Get validator duties for the requested validators."
-      description: "Requests the beacon node to provide a set of _duties_, which are actions that should be performed by validators, for a particular epoch. Duties should only need to be checked once per epoch, however a chain reorganization (of > MIN_SEED_LOOKAHEAD epochs) could occur, resulting in a change of duties. For full safety, this API call should be polled at every slot to ensure that chain reorganizations are recognized, and to ensure that the beacon node is properly synchronized. If no epoch parameter is provided, then the current epoch is assumed."
-      parameters:
-      - name: validator_pubkeys
-        in: query
-        required: true
-        description: "An array of hex-encoded BLS public keys"
-        schema:
-          type: array
-          items:
-            $ref: '#/components/schemas/pubkey'
-          minItems: 1
-      - name: epoch
-        in: query
-        required: false
-        schema:
-            type: integer
-            format: uint64
+      summary: "Detail the current perspective of the beacon node."
+      description: "Request the beacon node to identify the most up-to-date information about the beacon chain from its perspective. This includes the latest block, which slots have been finalized, etc."
       responses:
         200:
           description: Success response
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ValidatorDuty'
-        400:
-          $ref: '#/components/responses/InvalidRequest'
-        406:
-          description: "Duties cannot be provided for the requested epoch."
-        500:
-          $ref: '#/components/responses/InternalError'
-        503:
-          $ref: '#/components/responses/CurrentlySyncing'
+                type: object
+                description: "The latest information about the head of the beacon chain."
+                properties:
+                  slot:
+                    type: integer
+                    format: uint64
+                    description: "The slot of the head block."
+                  block_root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The merkle tree root of the canonical head block in the beacon node."
+                  state_root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The merkle tree root of the current beacon state."
+                  finalized_slot:
+                    type: integer
+                    format: uint64
+                    description: "The slot number of the most recent finalized slot."
+                  finalized_block_root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The block root for the most recent finalized block."
+                  justified_slot:
+                    type: integer
+                    format: uint64
+                    description: "The slot number of the most recent justified slot."
+                  justified_block_root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The block root of the most recent justified block."
+                  previous_justified_slot:
+                    type: integer
+                    format: uint64
+                    description: "The slot number of the second most recent justified slot."
+                  previous_justified_block_root:
+                    type: integer
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The block root of the second most recent justified block."
 
-  /validator/block:
-    get:
-      tags:
-        - Phase0
-      summary: "Produce a new block, without signature."
-      description: "Requests a beacon node to produce a valid block, which can then be signed by a validator."
-      parameters:
-      - name: slot
-        in: query
-        required: true
-        description: "The slot for which the block should be proposed."
-        schema:
-          type: integer
-          format: uint64
-      - name: randao_reveal
-        in: query
-        required: true
-        description: "The validator's randao reveal value."
-        schema:
-          type: string
-          format: byte
-      responses:
-        200:
-          description: Success response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconBlock'
-        400:
-          $ref: '#/components/responses/InvalidRequest'
-        500:
-          $ref: '#/components/responses/InternalError'
-        503:
-          $ref: '#/components/responses/CurrentlySyncing'
-    post:
-      tags:
-        - Phase0
-      summary: "Publish a signed block."
-      description: "Instructs the beacon node to broadcast a newly signed beacon block to the beacon network, to be included in the beacon chain. The beacon node is not required to validate the signed `BeaconBlock`, and a successful response (20X) only indicates that the broadcast has been successful. The beacon node is expected to integrate the new block into its state, and therefore validate the block internally, however blocks which fail the validation are still broadcast but a different status code is returned (202)"
-      parameters:
-      - name: beacon_block
-        in: query
-        required: true
-        description: "The `BeaconBlock` object, as sent from the beacon node originally, but now with the signature field completed."
-        schema:
-          $ref: '#/components/schemas/BeaconBlock'
-      responses:
-        200:
-          description: "The block was validated successfully and has been broadcast. It has also been integrated into the beacon node's database."
-        202:
-          description: "The block failed validation, but was successfully broadcast anyway. It was not integrated into the beacon node's database."
-        400:
-          $ref: '#/components/responses/InvalidRequest'
-        500:
-          $ref: '#/components/responses/InternalError'
-        503:
-          $ref: '#/components/responses/CurrentlySyncing'
 
-  /validator/attestation:
-    get:
-      tags:
-        - Phase0
-      summary: "Produce an attestation, without signature."
-      description: "Requests that the beacon node produce an IndexedAttestation, with a blank signature field, which the validator will then sign."
-      parameters:
-      - name: validator_pubkey
-        in: query
-        required: true
-        description: "Uniquely identifying which validator this attestation is to be produced for."
-        schema:
-          $ref: '#/components/schemas/pubkey'
-      - name: poc_bit
-        in: query
-        required: true
-        description: "The proof-of-custody bit that is to be reported by the requesting validator. This bit will be inserted into the appropriate location in the returned `IndexedAttestation`."
-        schema:
-            type: integer
-            format: uint32
-            minimum: 0
-            maximum: 1
-      - name: slot
-        in: query
-        required: true
-        description: "The slot for which the attestation should be proposed."
-        schema:
-          type: integer
-      - name: shard
-        in: query
-        required: true
-        description: "The shard number for which the attestation is to be proposed."
-        schema:
-          type: integer
-      responses:
-        200:
-          description: Success response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IndexedAttestation'
-        400:
-          $ref: '#/components/responses/InvalidRequest'
-        500:
-          $ref: '#/components/responses/InternalError'
-        503:
-          $ref: '#/components/responses/CurrentlySyncing'
-    post:
-      tags:
-        - Phase0
-      summary: "Publish a signed attestation."
-      description: "Instructs the beacon node to broadcast a newly signed IndexedAttestation object to the intended shard subnet. The beacon node is not required to validate the signed IndexedAttestation, and a successful response (20X) only indicates that the broadcast has been successful. The beacon node is expected to integrate the new attestation into its state, and therefore validate the attestation internally, however attestations which fail the validation are still broadcast but a different status code is returned (202)"
-      parameters:
-      - name: attestation
-        in: query
-        required: true
-        description: "An `IndexedAttestation` structure, as originally provided by the beacon node, but now with the signature field completed."
-        schema:
-          $ref: '#/components/schemas/IndexedAttestation'
-      responses:
-        200:
-          description: "The attestation was validated successfully and has been broadcast. It has also been integrated into the beacon node's database."
-        202:
-          description: "The attestation failed validation, but was successfully broadcast anyway. It was not integrated into the beacon node's database."
-        400:
-          $ref: '#/components/responses/InvalidRequest'
-        500:
-          $ref: '#/components/responses/InternalError'
-        503:
-          $ref: '#/components/responses/CurrentlySyncing'
+  #TODO Fill out block endpoint
+  /beacon/block:
 
-  /chain/beacon/blocks:
+  #TODO Fill out block_root endpoint
+  /beacon/block_root:
+
+  /beacon/blocks:
     get:
       tags:
         - Phase0
@@ -468,59 +425,25 @@ paths:
           $ref: '#/components/responses/InvalidRequest'
           #TODO: Make this request error more specific if one of the parameters is not provided correctly.
 
-  /chain/beacon/chainhead:
+
+  /beacon/fork:
     get:
       tags:
         - Phase0
-      summary: "Detail the current perspective of the beacon node."
-      description: "Request the beacon node to identify the most up-to-date information about the beacon chain from its perspective. This includes the latest block, which slots have been finalized, etc."
+      summary: 'Retrieve the current Fork information.'
+      description: 'Request the beacon node identify the fork it is currently on, from the beacon state.'
       responses:
         200:
-          description: Success response
+          description: Success response.
           content:
             application/json:
               schema:
-                type: object
-                description: "The latest information about the head of the beacon chain."
-                properties:
-                  block_root:
-                    type: string
-                    format: bytes
-                    pattern: "^0x[a-fA-F0-9]{64}$"
-                    description: "The merkle tree root of the canonical head block in the beacon node."
-                  block_slot:
-                    type: integer
-                    format: uint64
-                    description: "The slot of the head block."
-                  finalized_slot:
-                    type: integer
-                    format: uint64
-                    description: "The slot number of the most recent finalized slot."
-                  finalized_block_root:
-                    type: string
-                    format: bytes
-                    pattern: "^0x[a-fA-F0-9]{64}$"
-                    description: "The block root for the most recent finalized block."
-                  justified_slot:
-                    type: integer
-                    format: uint64
-                    description: "The slot number of the most recent justified slot."
-                  justified_block_root:
-                    type: string
-                    format: bytes
-                    pattern: "^0x[a-fA-F0-9]{64}$"
-                    description: "The block root of the most recent justified block."
-                  previous_justified_slot:
-                    type: integer
-                    format: uint64
-                    description: "The slot number of the second most recent justified slot."
-                  previous_justified_block_root:
-                    type: integer
-                    format: bytes
-                    pattern: "^0x[a-fA-F0-9]{64}$"
-                    description: "The block root of the second most recent justified block."
+                $ref: '#/components/schemas/Fork'
 
-  /chain/beacon/attestations:
+  #TODO fill out latest_finalized_checkpoint
+  /beacon/latest_finalized_checkpoint:
+
+  /beacon/attestations:
     get:
       tags:
         - Phase0
@@ -564,7 +487,7 @@ paths:
           $ref: '#/components/responses/InvalidRequest'
           #TODO: Make this request error more specific if one of the parameters is not provided correctly.
 
-  /chain/beacon/attestations/pending:
+  /beacon/attestations/pending:
     get:
       tags:
         - Phase0
@@ -583,7 +506,8 @@ paths:
           $ref: '#/components/responses/InvalidRequest'
           #TODO: Make this request error more specific if one of the parameters is not provided correctly.
 
-  /chain/beacon/validators:
+  #TODO: do all these '/beacon/validators' endpoints come under '/beacon/state' subqueries?
+  /beacon/validators:
     get:
       tags:
         - Phase0
@@ -614,7 +538,7 @@ paths:
                     items:
                       $ref: '#/components/schemas/ValidatorInfo'
 
-  /chain/beacon/validators/activesetchanges:
+  /beacon/validators/activesetchanges:
     get:
       tags:
         - Phase0
@@ -656,7 +580,7 @@ paths:
                     items:
                       $ref: '#/components/schemas/pubkey'
 
-  /chain/beacon/validators/assignments:
+  /beacon/validators/assignments:
     get:
       tags:
         - Phase0
@@ -688,7 +612,7 @@ paths:
                       $ref: '#/components/schemas/ValidatorDuty'
                     #TODO: This does not include the crosslink committee value, which must be included for Phase1?
 
-  /chain/beacon/validators/indices:
+  /beacon/validators/indices:
     get:
       tags:
         - Phase0
@@ -714,7 +638,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/ValidatorIndexMapping'
 
-  /chain/beacon/validators/pubkeys:
+  /beacon/validators/pubkeys:
     get:
       tags:
         - Phase0
@@ -742,7 +666,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/ValidatorIndexMapping'
 
-  /chain/beacon/validators/balances:
+  /beacon/validators/balances:
     get:
       tags:
         - Phase0
@@ -803,7 +727,7 @@ paths:
                           format: uint64
                           description: "The balance of the validator at the specified epoch, expressed in Gwei"
 
-  /chain/beacon/validators/participation:
+  /beacon/validators/participation:
     get:
       tags:
         - Phase0
@@ -848,7 +772,7 @@ paths:
                     format: uint64
                     description: "The total amount of ether, expressed in Gwei, that is eligible for voting in the specified epoch."
 
-  /chain/beacon/validators/queue:
+  /beacon/validators/queue:
     get:
       tags:
         - Phase0
@@ -888,6 +812,188 @@ paths:
                     description: "The public keys of validators which are queued for exiting."
                     items:
                       $ref: '#/components/schemas/pubkey'
+
+  #TODO: Add the endpoints that enable a validator to join, exit, withdraw, etc.
+  /beacon/validator/duties:
+    get:
+      tags:
+        - Phase0
+      summary: "Get validator duties for the requested validators."
+      description: "Requests the beacon node to provide a set of _duties_, which are actions that should be performed by validators, for a particular epoch. Duties should only need to be checked once per epoch, however a chain reorganization (of > MIN_SEED_LOOKAHEAD epochs) could occur, resulting in a change of duties. For full safety, this API call should be polled at every slot to ensure that chain reorganizations are recognized, and to ensure that the beacon node is properly synchronized. If no epoch parameter is provided, then the current epoch is assumed."
+      parameters:
+        - name: validator_pubkeys
+          in: query
+          required: true
+          description: "An array of hex-encoded BLS public keys"
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/pubkey'
+            minItems: 1
+        - name: epoch
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ValidatorDuty'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        406:
+          description: "Duties cannot be provided for the requested epoch."
+        500:
+          $ref: '#/components/responses/InternalError'
+        503:
+          $ref: '#/components/responses/CurrentlySyncing'
+
+  /beacon/validator/block:
+    get:
+      tags:
+        - Phase0
+      summary: "Produce a new block, without signature."
+      description: "Requests a beacon node to produce a valid block, which can then be signed by a validator."
+      parameters:
+        - name: slot
+          in: query
+          required: true
+          description: "The slot for which the block should be proposed."
+          schema:
+            type: integer
+            format: uint64
+        - name: randao_reveal
+          in: query
+          required: true
+          description: "The validator's randao reveal value."
+          schema:
+            type: string
+            format: byte
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconBlock'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+        503:
+          $ref: '#/components/responses/CurrentlySyncing'
+    post:
+      tags:
+        - Phase0
+      summary: "Publish a signed block."
+      description: "Instructs the beacon node to broadcast a newly signed beacon block to the beacon network, to be included in the beacon chain. The beacon node is not required to validate the signed `BeaconBlock`, and a successful response (20X) only indicates that the broadcast has been successful. The beacon node is expected to integrate the new block into its state, and therefore validate the block internally, however blocks which fail the validation are still broadcast but a different status code is returned (202)"
+      parameters:
+        - name: beacon_block
+          in: query
+          required: true
+          description: "The `BeaconBlock` object, as sent from the beacon node originally, but now with the signature field completed."
+          schema:
+            $ref: '#/components/schemas/BeaconBlock'
+      responses:
+        200:
+          description: "The block was validated successfully and has been broadcast. It has also been integrated into the beacon node's database."
+        202:
+          description: "The block failed validation, but was successfully broadcast anyway. It was not integrated into the beacon node's database."
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+        503:
+          $ref: '#/components/responses/CurrentlySyncing'
+
+  /beacon/validator/attestation:
+    get:
+      tags:
+        - Phase0
+      summary: "Produce an attestation, without signature."
+      description: "Requests that the beacon node produce an IndexedAttestation, with a blank signature field, which the validator will then sign."
+      parameters:
+        - name: validator_pubkey
+          in: query
+          required: true
+          description: "Uniquely identifying which validator this attestation is to be produced for."
+          schema:
+            $ref: '#/components/schemas/pubkey'
+        - name: poc_bit
+          in: query
+          required: true
+          description: "The proof-of-custody bit that is to be reported by the requesting validator. This bit will be inserted into the appropriate location in the returned `IndexedAttestation`."
+          schema:
+            type: integer
+            format: uint32
+            minimum: 0
+            maximum: 1
+        - name: slot
+          in: query
+          required: true
+          description: "The slot for which the attestation should be proposed."
+          schema:
+            type: integer
+        - name: shard
+          in: query
+          required: true
+          description: "The shard number for which the attestation is to be proposed."
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IndexedAttestation'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+        503:
+          $ref: '#/components/responses/CurrentlySyncing'
+    post:
+      tags:
+        - Phase0
+      summary: "Publish a signed attestation."
+      description: "Instructs the beacon node to broadcast a newly signed IndexedAttestation object to the intended shard subnet. The beacon node is not required to validate the signed IndexedAttestation, and a successful response (20X) only indicates that the broadcast has been successful. The beacon node is expected to integrate the new attestation into its state, and therefore validate the attestation internally, however attestations which fail the validation are still broadcast but a different status code is returned (202)"
+      parameters:
+        - name: attestation
+          in: query
+          required: true
+          description: "An `IndexedAttestation` structure, as originally provided by the beacon node, but now with the signature field completed."
+          schema:
+            $ref: '#/components/schemas/IndexedAttestation'
+      responses:
+        200:
+          description: "The attestation was validated successfully and has been broadcast. It has also been integrated into the beacon node's database."
+        202:
+          description: "The attestation failed validation, but was successfully broadcast anyway. It was not integrated into the beacon node's database."
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+        503:
+          $ref: '#/components/responses/CurrentlySyncing'
+
+  #TODO fill out /beacon/state
+  /beacon/state:
+
+  #TODO fill out /beacon/state_root
+  /beacon/state_root:
+
+  #TODO fill spec
+  /spec:
+
+  #TODO fill spec/slots_per_epoch
+  /spec/slots_per_epoch:
 
 components:
   schemas:
