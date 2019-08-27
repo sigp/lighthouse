@@ -1,3 +1,3 @@
 # simpleserialize (ssz)
 
-![Crates.io](https://img.shields.io/crates/v/eth2_ssz)
+[<img src="https://img.shields.io/crates/v/eth2_ssz">](https://crates.io/crates/eth2_ssz)
