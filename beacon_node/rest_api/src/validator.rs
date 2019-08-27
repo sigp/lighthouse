@@ -59,8 +59,12 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
             current_epoch
         }
     };
-    let relative_epoch = RelativeEpoch::from_epoch(current_epoch, epoch)
-        .map_err(|e| ApiError::InvalidQueryParams(format!("Cannot get RelativeEpoch, epoch out of range: {:?}", e)))?;
+    let relative_epoch = RelativeEpoch::from_epoch(current_epoch, epoch).map_err(|e| {
+        ApiError::InvalidQueryParams(format!(
+            "Cannot get RelativeEpoch, epoch out of range: {:?}",
+            e
+        ))
+    })?;
     //TODO: Handle an array of validators, currently only takes one
     let mut validators: Vec<PublicKey> = match query.all_of("validator_pubkeys") {
         Ok(v) => v
