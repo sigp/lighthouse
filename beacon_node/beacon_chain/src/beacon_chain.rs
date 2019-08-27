@@ -739,8 +739,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             // Provide the attestation to fork choice, updating the validator latest messages but
             // _without_ finding and updating the head.
-            self.fork_choice
-                .process_attestation(&state, &attestation, block)?;
+            if let Err(e) = self
+                .fork_choice
+                .process_attestation(&state, &attestation, block)
+            {
+                error!(
+                    self.log,
+                    "Add attestation to fork choice failed";
+                    "fork_choice_integrity" => format!("{:?}", self.fork_choice.verify_integrity()),
+                    "beacon_block_root" =>  format!("{}", attestation.data.beacon_block_root),
+                    "error" => format!("{:?}", e)
+                );
+                return Err(e.into());
+            }
 
             // Provide the valid attestation to op pool, which may choose to retain the
             // attestation for inclusion in a future block.
@@ -947,10 +958,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Err(e) = self.fork_choice.process_block(&state, &block, block_root) {
             error!(
                 self.log,
-                "fork choice failed to process_block";
-                "error" => format!("{:?}", e),
+                "Add block to fork choice failed";
+                "fork_choice_integrity" => format!("{:?}", self.fork_choice.verify_integrity()),
                 "block_root" =>  format!("{}", block_root),
-                "block_slot" => format!("{}", block.slot)
+                "error" => format!("{:?}", e),
             )
         }
 
