@@ -33,7 +33,7 @@ pub struct SignatureSet<'a> {
 }
 
 impl<'a> SignatureSet<'a> {
-    pub fn simple<S, T>(
+    pub fn single<S, T>(
         signature: &'a S,
         signing_key: &'a T,
         message: Message,
@@ -50,7 +50,7 @@ impl<'a> SignatureSet<'a> {
         }
     }
 
-    pub fn attestation<S, T>(
+    pub fn dual<S, T>(
         signature: &'a S,
         message_0: Message,
         message_0_signing_keys: Vec<&'a T>,

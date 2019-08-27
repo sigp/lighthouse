@@ -35,7 +35,6 @@ impl From<BeaconStateError> for Error {
     }
 }
 
-// TODO: unify with block_header_signature_set?
 /// A signature set that is valid if a block was signed by the expected block producer.
 pub fn block_proposal_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
@@ -53,7 +52,7 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
 
     let message = block.signed_root();
 
-    Ok(SignatureSet::simple(
+    Ok(SignatureSet::single(
         &block.signature,
         &block_proposer.pubkey,
         message,
@@ -78,7 +77,7 @@ pub fn randao_signature_set<'a, T: EthSpec>(
 
     let message = state.current_epoch().tree_hash_root();
 
-    Ok(SignatureSet::simple(
+    Ok(SignatureSet::single(
         &block.body.randao_reveal,
         &block_proposer.pubkey,
         message,
@@ -118,7 +117,7 @@ fn block_header_signature_set<'a, T: EthSpec>(
 
     let message = header.signed_root();
 
-    Ok(SignatureSet::simple(
+    Ok(SignatureSet::single(
         &header.signature,
         pubkey,
         message,
@@ -151,7 +150,7 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
         &state.fork,
     );
 
-    Ok(SignatureSet::attestation(
+    Ok(SignatureSet::dual(
         signature,
         message_0,
         get_pubkeys(state, &indexed_attestation.custody_bit_0_indices)?,
@@ -183,6 +182,9 @@ pub fn attester_slashing_signature_sets<'a, T: EthSpec>(
     ))
 }
 
+/// Returns the BLS values in a `Deposit`, if they're all valid. Otherwise, returns `None`.
+///
+/// This method is separate to `deposit_signature_set` to satisfy lifetime requirements.
 pub fn deposit_pubkey_signature_message(
     deposit: &Deposit,
 ) -> Option<(PublicKey, Signature, Vec<u8>)> {
@@ -192,6 +194,8 @@ pub fn deposit_pubkey_signature_message(
     Some((pubkey, signature, message))
 }
 
+/// Returns the signature set for some set of deposit signatures, made with
+/// `deposit_pubkey_signature_message`.
 pub fn deposit_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     pubkey_signature_message: &'a (PublicKey, Signature, Vec<u8>),
@@ -203,7 +207,7 @@ pub fn deposit_signature_set<'a, T: EthSpec>(
     // with the fork zeroed.
     let domain = spec.get_domain(state.current_epoch(), Domain::Deposit, &Fork::default());
 
-    SignatureSet::simple(signature, pubkey, message.clone(), domain)
+    SignatureSet::single(signature, pubkey, message.clone(), domain)
 }
 
 /// Returns a signature set that is valid if the `VoluntaryExit` was signed by the indicated
@@ -222,7 +226,7 @@ pub fn exit_signature_set<'a, T: EthSpec>(
 
     let message = exit.signed_root();
 
-    Ok(SignatureSet::simple(
+    Ok(SignatureSet::single(
         &exit.signature,
         &validator.pubkey,
         message,
@@ -230,6 +234,7 @@ pub fn exit_signature_set<'a, T: EthSpec>(
     ))
 }
 
+/// Returns a signature set that is valid if the `Transfer` was signed by`transfer.pubkey`.
 pub fn transfer_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     transfer: &'a Transfer,
@@ -243,7 +248,7 @@ pub fn transfer_signature_set<'a, T: EthSpec>(
 
     let message = transfer.signed_root();
 
-    Ok(SignatureSet::simple(
+    Ok(SignatureSet::single(
         &transfer.signature,
         &transfer.pubkey,
         message,

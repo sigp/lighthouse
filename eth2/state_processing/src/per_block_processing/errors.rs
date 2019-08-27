@@ -1,6 +1,12 @@
 use super::signature_sets::Error as SignatureSetError;
 use types::*;
 
+/// The error returned from the `per_block_processing` function. Indicates that a block is either
+/// invalid, or we were unable to determine it's validity (we encountered an unexpected error).
+///
+/// Any of the `...Error` variants indicate that at some point during block (and block operation)
+/// verification, there was an error. There is no indication as to _where_ that error happened
+/// (e.g., when processing attestations instead of when processing deposits).
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingError {
     RandaoSignatureInvalid,
