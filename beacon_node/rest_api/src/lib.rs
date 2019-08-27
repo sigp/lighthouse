@@ -14,7 +14,6 @@ mod validator;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::Service as NetworkService;
-pub use config::Config as ApiConfig;
 use hyper::rt::Future;
 use hyper::service::service_fn_ok;
 use hyper::{Body, Method, Response, Server, StatusCode};
@@ -24,6 +23,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use url_query::UrlQuery;
+
+pub use beacon::{BlockResponse, HeadResponse, StateResponse};
+pub use config::Config as ApiConfig;
 
 #[derive(PartialEq, Debug)]
 pub enum ApiError {
@@ -72,7 +74,7 @@ impl From<state_processing::per_slot_processing::Error> for ApiError {
     }
 }
 
-pub fn start_server<T: BeaconChainTypes + Clone + Send + Sync + 'static>(
+pub fn start_server<T: BeaconChainTypes>(
     config: &ApiConfig,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
@@ -143,6 +145,14 @@ pub fn start_server<T: BeaconChainTypes + Clone + Send + Sync + 'static>(
 
                 // Methods for Client
                 (&Method::GET, "/metrics") => metrics::get_prometheus::<T>(req),
+                (&Method::GET, "/network/enr") => network::get_enr::<T>(req),
+                (&Method::GET, "/network/peer_count") => network::get_peer_count::<T>(req),
+                (&Method::GET, "/network/peer_id") => network::get_peer_id::<T>(req),
+                (&Method::GET, "/network/peers") => network::get_peer_list::<T>(req),
+                (&Method::GET, "/network/listen_port") => network::get_listen_port::<T>(req),
+                (&Method::GET, "/network/listen_addresses") => {
+                    network::get_listen_addresses::<T>(req)
+                }
                 (&Method::GET, "/node/version") => node::get_version(req),
                 (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
                 (&Method::GET, "/node/deposit_contract") => {

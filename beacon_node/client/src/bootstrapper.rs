@@ -3,14 +3,15 @@ use eth2_libp2p::{
     Enr,
 };
 use reqwest::{Error as HttpError, Url};
+use serde::Deserialize;
 use std::borrow::Cow;
 use std::net::Ipv4Addr;
-use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Slot};
+use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 use url::Host;
 
 #[derive(Debug)]
 enum Error {
-    UrlCannotBeBase,
+    InvalidUrl,
     HttpError(HttpError),
 }
 
@@ -38,7 +39,7 @@ impl Bootstrapper {
 
     /// Build a multiaddr using the HTTP server URL that is not guaranteed to be correct.
     ///
-    /// The address is created by querying the HTTP server for it's listening libp2p addresses.
+    /// The address is created by querying the HTTP server for its listening libp2p addresses.
     /// Then, we find the first TCP port in those addresses and combine the port with the URL of
     /// the server.
     ///
@@ -46,7 +47,7 @@ impl Bootstrapper {
     /// `/ipv4/192.168.0.1/tcp/9000` if the server advertises a listening address of
     /// `/ipv4/172.0.0.1/tcp/9000`.
     pub fn best_effort_multiaddr(&self) -> Option<Multiaddr> {
-        let tcp_port = self.first_listening_tcp_port()?;
+        let tcp_port = self.listen_port().ok()?;
 
         let mut multiaddr = Multiaddr::with_capacity(2);
 
@@ -59,17 +60,6 @@ impl Bootstrapper {
         multiaddr.push(Protocol::Tcp(tcp_port));
 
         Some(multiaddr)
-    }
-
-    /// Reads the server's listening libp2p addresses and returns the first TCP port protocol it
-    /// finds, if any.
-    fn first_listening_tcp_port(&self) -> Option<u16> {
-        self.listen_addresses().ok()?.iter().find_map(|multiaddr| {
-            multiaddr.iter().find_map(|protocol| match protocol {
-                Protocol::Tcp(port) => Some(port),
-                _ => None,
-            })
-        })
     }
 
     /// Returns the IPv4 address of the server URL, unless it contains a FQDN.
@@ -86,9 +76,8 @@ impl Bootstrapper {
     }
 
     /// Returns the servers listening libp2p addresses.
-    pub fn listen_addresses(&self) -> Result<Vec<Multiaddr>, String> {
-        get_listen_addresses(self.url.clone())
-            .map_err(|e| format!("Unable to get listen addresses: {:?}", e))
+    pub fn listen_port(&self) -> Result<u16, String> {
+        get_listen_port(self.url.clone()).map_err(|e| format!("Unable to get listen port: {:?}", e))
     }
 
     /// Returns the genesis block and state.
@@ -96,9 +85,11 @@ impl Bootstrapper {
         let genesis_slot = Slot::new(0);
 
         let block = get_block(self.url.clone(), genesis_slot)
-            .map_err(|e| format!("Unable to get genesis block: {:?}", e))?;
+            .map_err(|e| format!("Unable to get genesis block: {:?}", e))?
+            .beacon_block;
         let state = get_state(self.url.clone(), genesis_slot)
-            .map_err(|e| format!("Unable to get genesis state: {:?}", e))?;
+            .map_err(|e| format!("Unable to get genesis state: {:?}", e))?
+            .beacon_state;
 
         Ok((state, block))
     }
@@ -111,9 +102,11 @@ impl Bootstrapper {
             .map_err(|e| format!("Unable to get finalized slot: {:?}", e))?;
 
         let block = get_block(self.url.clone(), finalized_slot)
-            .map_err(|e| format!("Unable to get finalized block: {:?}", e))?;
+            .map_err(|e| format!("Unable to get finalized block: {:?}", e))?
+            .beacon_block;
         let state = get_state(self.url.clone(), finalized_slot)
-            .map_err(|e| format!("Unable to get finalized state: {:?}", e))?;
+            .map_err(|e| format!("Unable to get finalized state: {:?}", e))?
+            .beacon_state;
 
         Ok((state, block))
     }
@@ -124,7 +117,7 @@ fn get_slots_per_epoch(mut url: Url) -> Result<Slot, Error> {
         .map(|mut url| {
             url.push("spec").push("slots_per_epoch");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     reqwest::get(url)?
         .error_for_status()?
@@ -137,19 +130,26 @@ fn get_finalized_slot(mut url: Url, slots_per_epoch: u64) -> Result<Slot, Error>
         .map(|mut url| {
             url.push("beacon").push("latest_finalized_checkpoint");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     let checkpoint: Checkpoint = reqwest::get(url)?.error_for_status()?.json()?;
 
     Ok(checkpoint.epoch.start_slot(slots_per_epoch))
 }
 
-fn get_state<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconState<T>, Error> {
+#[derive(Deserialize)]
+#[serde(bound = "T: EthSpec")]
+pub struct StateResponse<T: EthSpec> {
+    pub root: Hash256,
+    pub beacon_state: BeaconState<T>,
+}
+
+fn get_state<T: EthSpec>(mut url: Url, slot: Slot) -> Result<StateResponse<T>, Error> {
     url.path_segments_mut()
         .map(|mut url| {
             url.push("beacon").push("state");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     url.query_pairs_mut()
         .append_pair("slot", &format!("{}", slot.as_u64()));
@@ -160,12 +160,19 @@ fn get_state<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconState<T>, Err
         .map_err(Into::into)
 }
 
-fn get_block<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconBlock<T>, Error> {
+#[derive(Deserialize)]
+#[serde(bound = "T: EthSpec")]
+pub struct BlockResponse<T: EthSpec> {
+    pub root: Hash256,
+    pub beacon_block: BeaconBlock<T>,
+}
+
+fn get_block<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BlockResponse<T>, Error> {
     url.path_segments_mut()
         .map(|mut url| {
             url.push("beacon").push("block");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     url.query_pairs_mut()
         .append_pair("slot", &format!("{}", slot.as_u64()));
@@ -179,9 +186,9 @@ fn get_block<T: EthSpec>(mut url: Url, slot: Slot) -> Result<BeaconBlock<T>, Err
 fn get_enr(mut url: Url) -> Result<Enr, Error> {
     url.path_segments_mut()
         .map(|mut url| {
-            url.push("node").push("network").push("enr");
+            url.push("network").push("enr");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     reqwest::get(url)?
         .error_for_status()?
@@ -189,12 +196,12 @@ fn get_enr(mut url: Url) -> Result<Enr, Error> {
         .map_err(Into::into)
 }
 
-fn get_listen_addresses(mut url: Url) -> Result<Vec<Multiaddr>, Error> {
+fn get_listen_port(mut url: Url) -> Result<u16, Error> {
     url.path_segments_mut()
         .map(|mut url| {
-            url.push("node").push("network").push("listen_addresses");
+            url.push("network").push("listen_port");
         })
-        .map_err(|_| Error::UrlCannotBeBase)?;
+        .map_err(|_| Error::InvalidUrl)?;
 
     reqwest::get(url)?
         .error_for_status()?

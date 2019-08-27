@@ -54,7 +54,7 @@ where
 
 impl<L, E> BeaconChainTypes for CommonTypes<L, E>
 where
-    L: LmdGhost<MemoryStore, E>,
+    L: LmdGhost<MemoryStore, E> + 'static,
     E: EthSpec,
 {
     type Store = MemoryStore;
@@ -69,7 +69,7 @@ where
 /// Used for testing.
 pub struct BeaconChainHarness<L, E>
 where
-    L: LmdGhost<MemoryStore, E>,
+    L: LmdGhost<MemoryStore, E> + 'static,
     E: EthSpec,
 {
     pub chain: BeaconChain<CommonTypes<L, E>>,

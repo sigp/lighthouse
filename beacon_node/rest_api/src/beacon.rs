@@ -8,7 +8,7 @@ use store::Store;
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
 
 #[derive(Serialize)]
-struct HeadResponse {
+pub struct HeadResponse {
     pub slot: Slot,
     pub block_root: Hash256,
     pub state_root: Hash256,
@@ -35,7 +35,7 @@ pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
 
 #[derive(Serialize)]
 #[serde(bound = "T: EthSpec")]
-struct BlockResponse<T: EthSpec> {
+pub struct BlockResponse<T: EthSpec> {
     pub root: Hash256,
     pub beacon_block: BeaconBlock<T>,
 }
@@ -54,14 +54,9 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         ("slot", value) => {
             let target = parse_slot(&value)?;
 
-            beacon_chain
-                .rev_iter_block_roots()
-                .take_while(|(_root, slot)| *slot >= target)
-                .find(|(_root, slot)| *slot == target)
-                .map(|(root, _slot)| root)
-                .ok_or_else(|| {
-                    ApiError::NotFound(format!("Unable to find BeaconBlock for slot {}", target))
-                })?
+            block_root_at_slot(&beacon_chain, target).ok_or_else(|| {
+                ApiError::NotFound(format!("Unable to find BeaconBlock for slot {}", target))
+            })?
         }
         ("root", value) => parse_root(&value)?,
         _ => return Err(ApiError::ServerError("Unexpected query parameter".into())),
@@ -99,14 +94,9 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let target = parse_slot(&slot_string)?;
 
-    let root = beacon_chain
-        .rev_iter_block_roots()
-        .take_while(|(_root, slot)| *slot >= target)
-        .find(|(_root, slot)| *slot == target)
-        .map(|(root, _slot)| root)
-        .ok_or_else(|| {
-            ApiError::NotFound(format!("Unable to find BeaconBlock for slot {}", target))
-        })?;
+    let root = block_root_at_slot(&beacon_chain, target).ok_or_else(|| {
+        ApiError::NotFound(format!("Unable to find BeaconBlock for slot {}", target))
+    })?;
 
     let json: String = serde_json::to_string(&root)
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize root: {:?}", e)))?;
@@ -116,7 +106,7 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 
 #[derive(Serialize)]
 #[serde(bound = "T: EthSpec")]
-struct StateResponse<T: EthSpec> {
+pub struct StateResponse<T: EthSpec> {
     pub root: Hash256,
     pub beacon_state: BeaconState<T>,
 }
