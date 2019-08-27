@@ -17,11 +17,9 @@ pub fn get_attesting_indices<T: EthSpec>(
         target_relative_epoch,
     )?;
 
-    /* TODO(freeze): re-enable this?
-    if bitlist.len() > committee.committee.len() {
+    if bitlist.len() != committee.committee.len() {
         return Err(BeaconStateError::InvalidBitfield);
     }
-    */
 
     Ok(committee
         .committee

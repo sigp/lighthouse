@@ -218,9 +218,6 @@ pub fn process_final_updates<T: EthSpec>(
         }
     }
 
-    // Update start shard.
-    state.start_shard = state.next_epoch_start_shard(spec)?;
-
     // Set active index root
     let index_epoch = next_epoch + spec.activation_exit_delay;
     let indices_list = VariableList::<usize, T::ValidatorRegistryLimit>::from(
@@ -251,6 +248,9 @@ pub fn process_final_updates<T: EthSpec>(
             .historical_roots
             .push(Hash256::from_slice(&historical_batch.tree_hash_root()))?;
     }
+
+    // Update start shard.
+    state.start_shard = state.get_epoch_start_shard(RelativeEpoch::Next)?;
 
     // Rotate current/previous epoch attestations
     state.previous_epoch_attestations =
