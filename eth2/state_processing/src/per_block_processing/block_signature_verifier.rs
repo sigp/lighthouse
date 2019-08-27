@@ -92,10 +92,11 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
         verifier.include_transfers()?;
 
         let num_sets = verifier.sets.len();
+        let num_chunks = std::cmp::max(1, num_sets / rayon::current_num_threads());
         let result: bool = verifier
             .sets
             .into_par_iter()
-            .chunks(num_sets / rayon::current_num_threads())
+            .chunks(num_chunks)
             .map(|chunk| verify_signature_sets(chunk.into_iter()))
             .reduce(|| true, |current, this| current && this);
 
