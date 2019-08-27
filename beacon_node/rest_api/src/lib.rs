@@ -10,6 +10,7 @@ mod network;
 mod node;
 mod spec;
 mod url_query;
+mod validator;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::Service as NetworkService;
@@ -123,14 +124,26 @@ pub fn start_server<T: BeaconChainTypes>(
 
             // Route the request to the correct handler.
             let result = match (req.method(), path.as_ref()) {
+                // Methods for Beacon Node
+                //TODO: Remove?
+                //(&Method::GET, "/beacon/best_slot") => beacon::get_best_slot::<T>(req),
                 (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
                 (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),
+                (&Method::GET, "/beacon/blocks") => helpers::implementation_pending_response(req),
+                //TODO Is the below replaced by finalized_checkpoint?
+                (&Method::GET, "/beacon/chainhead") => {
+                    helpers::implementation_pending_response(req)
+                }
                 (&Method::GET, "/beacon/block_root") => beacon::get_block_root::<T>(req),
                 (&Method::GET, "/beacon/latest_finalized_checkpoint") => {
                     beacon::get_latest_finalized_checkpoint::<T>(req)
                 }
                 (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req),
                 (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req),
+
+                //TODO: Add aggreggate/filtered state lookups here, e.g. /beacon/validators/balances
+
+                // Methods for Client
                 (&Method::GET, "/metrics") => metrics::get_prometheus::<T>(req),
                 (&Method::GET, "/network/enr") => network::get_enr::<T>(req),
                 (&Method::GET, "/network/peer_count") => network::get_peer_count::<T>(req),
@@ -142,9 +155,40 @@ pub fn start_server<T: BeaconChainTypes>(
                 }
                 (&Method::GET, "/node/version") => node::get_version(req),
                 (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
+                (&Method::GET, "/node/deposit_contract") => {
+                    helpers::implementation_pending_response(req)
+                }
+                (&Method::GET, "/node/syncing") => helpers::implementation_pending_response(req),
+                (&Method::GET, "/node/fork") => helpers::implementation_pending_response(req),
+
+                // Methods for Network
+                (&Method::GET, "/network/enr") => network::get_enr::<T>(req),
+                (&Method::GET, "/network/peer_count") => network::get_peer_count::<T>(req),
+                (&Method::GET, "/network/peer_id") => network::get_peer_id::<T>(req),
+                (&Method::GET, "/network/peers") => network::get_peer_list::<T>(req),
+                (&Method::GET, "/network/listen_addresses") => {
+                    network::get_listen_addresses::<T>(req)
+                }
+
+                // Methods for Validator
+                (&Method::GET, "/validator/duties") => validator::get_validator_duties::<T>(req),
+                (&Method::GET, "/validator/block") => helpers::implementation_pending_response(req),
+                (&Method::POST, "/validator/block") => {
+                    helpers::implementation_pending_response(req)
+                }
+                (&Method::GET, "/validator/attestation") => {
+                    helpers::implementation_pending_response(req)
+                }
+                (&Method::POST, "/validator/attestation") => {
+                    helpers::implementation_pending_response(req)
+                }
+
                 (&Method::GET, "/spec") => spec::get_spec::<T>(req),
                 (&Method::GET, "/spec/slots_per_epoch") => spec::get_slots_per_epoch::<T>(req),
-                _ => Err(ApiError::MethodNotAllowed(path.clone())),
+
+                _ => Err(ApiError::NotFound(
+                    "Request path and/or method not found.".to_owned(),
+                )),
             };
 
             let response = match result {

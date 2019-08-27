@@ -61,6 +61,13 @@ impl FakePublicKey {
         hex_encode(end_bytes)
     }
 
+    /// Returns the point as a hex string of the SSZ encoding.
+    ///
+    /// Note: the string is prefixed with `0x`.
+    pub fn as_hex_string(&self) -> String {
+        hex_encode(self.as_ssz_bytes())
+    }
+
     // Returns itself
     pub fn as_raw(&self) -> &Self {
         self
