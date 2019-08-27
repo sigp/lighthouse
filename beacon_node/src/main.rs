@@ -182,7 +182,6 @@ fn main() {
                 .takes_value(true),
         )
         /*
-<<<<<<< HEAD
          * The "testnet" sub-command.
          *
          * Allows for creating a new datadir with testnet-specific configs.
