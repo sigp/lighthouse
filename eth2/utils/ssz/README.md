@@ -1,3 +1,3 @@
 # simpleserialize (ssz)
 
-eth2_ssz = "0.1.2"
+![Crates.io](https://img.shields.io/crates/v/eth2_ssz)
