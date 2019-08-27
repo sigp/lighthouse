@@ -64,6 +64,14 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
         .unwrap();
 
     String::from_utf8(buffer)
-        .map(|string| success_response(Body::from(string)))
+        .map(|string| {
+            let mut response = success_response(Body::from(string));
+            // Need to change the header to text/plain for prometheius
+            response
+                .headers_mut()
+                .insert("content-type", "text/plain; charset=utf-8".parse().unwrap())
+                .unwrap();
+            response
+        })
         .map_err(|e| ApiError::ServerError(format!("Failed to encode prometheus info: {:?}", e)))
 }
