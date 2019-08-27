@@ -196,8 +196,6 @@ where
                 .process_block(block)
                 .expect("should not error during block processing");
 
-            dbg!("processed block");
-
             if let BlockProcessingOutcome::Processed { block_root } = outcome {
                 head_block_root = Some(block_root);
 
@@ -205,8 +203,6 @@ where
             } else {
                 panic!("block should be successfully processed: {:?}", outcome);
             }
-
-            dbg!("added attestations");
 
             state = new_state;
             slot += 1;
@@ -237,8 +233,6 @@ where
         slot: Slot,
         block_strategy: BlockStrategy,
     ) -> (BeaconBlock<E>, BeaconState<E>) {
-        dbg!("building block");
-
         if slot < state.slot {
             panic!("produce slot cannot be prior to the state slot");
         }
@@ -247,7 +241,6 @@ where
             per_slot_processing(&mut state, &self.spec)
                 .expect("should be able to advance state to slot");
         }
-        dbg!("advanced state");
 
         state
             .build_all_caches(&self.spec)
@@ -328,7 +321,7 @@ where
             AttestationStrategy::SomeValidators(vec) => vec.clone(),
         };
 
-        let mut vec = vec![];
+        let mut attestations = vec![];
 
         state
             .get_crosslink_committees_at_slot(state.slot)
@@ -337,10 +330,11 @@ where
             .for_each(|cc| {
                 let committee_size = cc.committee.len();
 
-                cc.committee
+                let mut local_attestations: Vec<Attestation<E>> = cc
+                    .committee
                     .par_iter()
                     .enumerate()
-                    .for_each(|(i, validator_index)| {
+                    .filter_map(|(i, validator_index)| {
                         // Note: searching this array is worst-case `O(n)`. A hashset could be a better
                         // alternative.
                         if attesting_validators.contains(validator_index) {
@@ -389,67 +383,23 @@ where
                                 signature,
                             };
 
+                            /*
                             self.chain
-                                .process_attestation(attestation)
+                                .process_attestation(attestation.clone())
                                 .expect("should process attestation");
+                                */
+
+                            Some(attestation)
+                        } else {
+                            None
                         }
-                    });
+                    })
+                    .collect();
 
-                /*
-                for (i, validator_index) in cc.committee.par_iter().enumerate() {
-                    // Note: searching this array is worst-case `O(n)`. A hashset could be a better
-                    // alternative.
-                    if attesting_validators.contains(validator_index) {
-                        let data = self
-                            .chain
-                            .produce_attestation_data_for_block(
-                                cc.shard,
-                                head_block_root,
-                                head_block_slot,
-                                state,
-                            )
-                            .expect("should produce attestation data");
-
-                        let mut aggregation_bits = BitList::with_capacity(committee_size)
-                            .expect("should make aggregation bits");
-                        aggregation_bits
-                            .set(i, true)
-                            .expect("should be able to set aggregation bits");
-                        let custody_bits = BitList::with_capacity(committee_size)
-                            .expect("should make custody bits");
-
-                        let signature = {
-                            let message = AttestationDataAndCustodyBit {
-                                data: data.clone(),
-                                custody_bit: false,
-                            }
-                            .tree_hash_root();
-
-                            let domain =
-                                spec.get_domain(data.target.epoch, Domain::Attestation, fork);
-
-                            let mut agg_sig = AggregateSignature::new();
-                            agg_sig.add(&Signature::new(
-                                &message,
-                                domain,
-                                self.get_sk(*validator_index),
-                            ));
-
-                            agg_sig
-                        };
-
-                        vec.push(Attestation {
-                            aggregation_bits,
-                            data,
-                            custody_bits,
-                            signature,
-                        })
-                    }
-                }
-                */
+                attestations.append(&mut local_attestations);
             });
 
-        vec
+        attestations
     }
 
     /// Creates two forks:
