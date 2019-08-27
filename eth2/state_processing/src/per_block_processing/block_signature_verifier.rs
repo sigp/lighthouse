@@ -50,7 +50,9 @@ pub struct BlockSignatureVerifier<'a, T: EthSpec> {
 }
 
 impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
-    fn new(state: &'a BeaconState<T>, block: &'a BeaconBlock<T>, spec: &'a ChainSpec) -> Self {
+    /// Create a new verifier without any included signatures. See the `include...` functions to
+    /// add signatures, and the `verify`
+    pub fn new(state: &'a BeaconState<T>, block: &'a BeaconBlock<T>, spec: &'a ChainSpec) -> Self {
         Self {
             block,
             state,
@@ -91,9 +93,29 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
         verifier.include_exits()?;
         verifier.include_transfers()?;
 
-        let num_sets = verifier.sets.len();
+        verifier.verify()
+    }
+
+    /// Verify all* the signatures in the `self.block`, returning `Ok(())` if the signatures
+    /// are valid.
+    ///
+    /// * : _Does not verify any signatures in `block.body.deposits`. A block is still valid if it
+    /// contains invalid signatures on deposits._
+    ///
+    /// ## Notes
+    ///
+    /// Signature validation will take place in accordance to the [Faster verification of multiple
+    /// BLS signatures](https://ethresear.ch/t/fast-verification-of-multiple-bls-signatures/5407)
+    /// optimization proposed by Vitalik Buterin.
+    ///
+    /// It is not possible to know exactly _which_ signature is invalid here, just that
+    /// _at least one_ was invalid.
+    ///
+    /// Uses `rayon` to do a map-reduce of Vitalik's method across multiple cores.
+    pub fn verify(self) -> Result<()> {
+        let num_sets = self.sets.len();
         let num_chunks = std::cmp::max(1, num_sets / rayon::current_num_threads());
-        let result: bool = verifier
+        let result: bool = self
             .sets
             .into_par_iter()
             .chunks(num_chunks)
@@ -107,18 +129,21 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
         }
     }
 
+    /// Includes the block signature for `self.block` for verification.
     fn include_block_proposal(&mut self) -> Result<()> {
         let set = block_proposal_signature_set(self.state, self.block, self.spec)?;
         self.sets.push(set);
         Ok(())
     }
 
+    /// Includes the randao signature for `self.block` for verification.
     fn include_randao_reveal(&mut self) -> Result<()> {
         let set = randao_signature_set(self.state, self.block, self.spec)?;
         self.sets.push(set);
         Ok(())
     }
 
+    /// Includes all signatures in `self.block.body.proposer_slashings` for verification.
     fn include_proposer_slashings(&mut self) -> Result<()> {
         let mut sets: Vec<SignatureSet> = self
             .block
@@ -140,6 +165,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
         Ok(())
     }
 
+    /// Includes all signatures in `self.block.body.attester_slashings` for verification.
     fn include_attester_slashings(&mut self) -> Result<()> {
         self.block
             .body
@@ -156,6 +182,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             })
     }
 
+    /// Includes all signatures in `self.block.body.attestations` for verification.
     fn include_attestations(&mut self) -> Result<Vec<IndexedAttestation<T>>> {
         self.block
             .body
@@ -177,6 +204,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             .map_err(Into::into)
     }
 
+    /// Includes all signatures in `self.block.body.voluntary_exits` for verification.
     fn include_exits(&mut self) -> Result<()> {
         let mut sets = self
             .block
@@ -191,6 +219,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
         Ok(())
     }
 
+    /// Includes all signatures in `self.block.body.transfers` for verification.
     fn include_transfers(&mut self) -> Result<()> {
         let mut sets = self
             .block
