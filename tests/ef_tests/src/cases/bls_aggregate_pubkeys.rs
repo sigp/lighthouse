@@ -9,11 +9,7 @@ pub struct BlsAggregatePubkeys {
     pub output: String,
 }
 
-impl YamlDecode for BlsAggregatePubkeys {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(yaml).unwrap())
-    }
-}
+impl BlsCase for BlsAggregatePubkeys {}
 
 impl Case for BlsAggregatePubkeys {
     fn result(&self, _case_index: usize) -> Result<(), Error> {

@@ -9,11 +9,7 @@ pub struct BlsPrivToPub {
     pub output: String,
 }
 
-impl YamlDecode for BlsPrivToPub {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(yaml).unwrap())
-    }
-}
+impl BlsCase for BlsPrivToPub {}
 
 impl Case for BlsPrivToPub {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
