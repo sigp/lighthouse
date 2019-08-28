@@ -1,13 +1,12 @@
 use super::{success_response, ApiResult};
 use crate::{helpers::*, ApiError, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use bls::PublicKey;
+use bls::{PublicKey, Signature};
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use store::Store;
 use types::beacon_state::EthSpec;
-use types::{BeaconBlock, BeaconState, Epoch, RelativeEpoch, Shard, Slot};
+use types::{Epoch, RelativeEpoch, Shard, Slot};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatorDuty {
@@ -39,16 +38,14 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
         .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+    //TODO Surely this state_cache thing is not necessary?
     let _ = beacon_chain
         .ensure_state_caches_are_built()
         .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;
-    let head_state = beacon_chain
-        .speculative_state()
-        .expect("This is legacy code and should be removed.");
+    let head_state = &beacon_chain.head().beacon_state;
 
     // Parse and check query parameters
     let query = UrlQuery::from_request(&req)?;
-
     let current_epoch = head_state.current_epoch();
     let epoch = match query.first_of(&["epoch"]) {
         Ok((_, v)) => Epoch::new(v.parse::<u64>().map_err(|e| {
@@ -66,7 +63,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         ))
     })?;
     //TODO: Handle an array of validators, currently only takes one
-    let mut validators: Vec<PublicKey> = match query.all_of("validator_pubkeys") {
+    let validators: Vec<PublicKey> = match query.all_of("validator_pubkeys") {
         Ok(v) => v
             .iter()
             .map(|pk| parse_pubkey(pk))
@@ -144,6 +141,63 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
     let body = Body::from(
         serde_json::to_string(&duties)
             .expect("We should always be able to serialize the duties we created."),
+    );
+    Ok(success_response(body))
+}
+
+/// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
+pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+    // Get beacon state
+    let beacon_chain = req
+        .extensions()
+        .get::<Arc<BeaconChain<T>>>()
+        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+    //TODO Surely this state_cache thing is not necessary?
+    let _ = beacon_chain
+        .ensure_state_caches_are_built()
+        .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;
+
+    let query = UrlQuery::from_request(&req)?;
+    let slot = match query.first_of(&["slot"]) {
+        Ok((_, v)) => Slot::new(v.parse::<u64>().map_err(|e| {
+            ApiError::InvalidQueryParams(format!("Invalid slot parameter, must be a u64. {:?}", e))
+        })?),
+        Err(e) => {
+            return Err(e);
+        }
+    };
+    let randao_reveal = match query.first_of(&["randao_reveal"]) {
+        Ok((_, v)) => Signature::from_bytes(
+            hex::decode(&v)
+                .map_err(|e| {
+                    ApiError::InvalidQueryParams(format!(
+                        "Invalid hex string for randao_reveal: {:?}",
+                        e
+                    ))
+                })?
+                .as_slice(),
+        )
+        .map_err(|e| {
+            ApiError::InvalidQueryParams(format!("randao_reveal is not a valid signature: {:?}", e))
+        })?,
+        Err(e) => {
+            return Err(e);
+        }
+    };
+
+    let new_block = match beacon_chain.produce_block(randao_reveal, slot) {
+        Ok((block, _state)) => block,
+        Err(e) => {
+            return Err(ApiError::ServerError(format!(
+                "Beacon node is not able to produce a block: {:?}",
+                e
+            )));
+        }
+    };
+
+    let body = Body::from(
+        serde_json::to_string(&new_block)
+            .expect("We should always be able to serialize a new block that we created."),
     );
     Ok(success_response(body))
 }

@@ -983,20 +983,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(BlockProcessingOutcome::Processed { block_root })
     }
 
-    /// Produce a new block at the present slot.
+    /// Produce a new block at the specified slot.
     ///
     /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
     pub fn produce_block(
         &self,
         randao_reveal: Signature,
+        slot: Slot,
     ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
         let state = self.state.read().clone();
+
+        self.produce_block_on_state(state, slot, randao_reveal)
+    }
+
+    /// Produce a new block at the current slot
+    ///
+    /// Calls `produce_block`, with the slot parameter set as the current.
+    ///
+    /// ** This function is probably obsolete (was for previous RPC), and can probably be removed **
+    pub fn produce_current_block(
+        &self,
+        randao_reveal: Signature,
+    ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
         let slot = self
             .read_slot_clock()
             .ok_or_else(|| BlockProductionError::UnableToReadSlot)?;
 
-        self.produce_block_on_state(state, slot, randao_reveal)
+        self.produce_block(randao_reveal, slot)
     }
 
     /// Produce a block for some `slot` upon the given `state`.

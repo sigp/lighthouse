@@ -139,16 +139,13 @@ pub fn start_server<T: BeaconChainTypes>(
                 (&Method::GET, "/network/listen_addresses") => {
                     network::get_listen_addresses::<T>(req)
                 }
-                (&Method::GET, "/network/block_discovery") => {
-                    helpers::implementation_pending_response(req)
-                }
 
                 // Methods for Beacon Node
                 (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
                 (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),
                 (&Method::GET, "/beacon/block_root") => beacon::get_block_root::<T>(req),
                 (&Method::GET, "/beacon/blocks") => helpers::implementation_pending_response(req),
-                (&Method::GET, "/beacon/fork") => helpers::implementation_pending_response(req),
+                (&Method::GET, "/beacon/fork") => beacon::get_fork::<T>(req),
                 (&Method::GET, "/beacon/attestations") => {
                     helpers::implementation_pending_response(req)
                 }
@@ -171,7 +168,7 @@ pub fn start_server<T: BeaconChainTypes>(
                     validator::get_validator_duties::<T>(req)
                 }
                 (&Method::GET, "/beacon/validator/block") => {
-                    helpers::implementation_pending_response(req)
+                    validator::get_new_beacon_block::<T>(req)
                 }
                 (&Method::POST, "/beacon/validator/block") => {
                     helpers::implementation_pending_response(req)
