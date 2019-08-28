@@ -71,7 +71,7 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
     pub fn subscribe_deposit_logs(&self) -> impl Future<Item = (), Error = ()> + Send {
         let cache = self.deposit_data.clone();
         let event_future = self.fetcher.get_deposit_logs_subscription(cache);
-        event_future
+        event_future.map_err(|e| println!("Eth1 error {:?}", e))
     }
 }
 

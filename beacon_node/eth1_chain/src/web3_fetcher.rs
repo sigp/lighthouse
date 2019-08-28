@@ -14,6 +14,7 @@ use web3::types::FilterBuilder;
 use web3::types::*;
 use web3::Web3;
 
+use crate::error::Eth1Error;
 use crate::types::{ContractConfig, Eth1DataFetcher};
 
 /// Wrapper around web3 api.
@@ -62,13 +63,20 @@ impl Web3DataFetcher {
 
 impl Eth1DataFetcher for Web3DataFetcher {
     /// Get block_number of current block.
-    fn get_current_block_number(&self) -> Box<dyn Future<Item = U256, Error = ()> + Send> {
+    fn get_current_block_number(&self) -> Box<dyn Future<Item = U256, Error = Eth1Error> + Send> {
         Box::new(
             self.web3
                 .eth()
                 .block_number()
+                .map_err(|e| {
+                    println!("Error getting block number");
+                    Eth1Error::Web3Error(e)
+                })
                 .timeout(Duration::from_secs(10))
-                .map_err(|e| println!("Error getting block number {:?}", e)),
+                .map_err(|_| {
+                    println!("Timed out getting block_number");
+                    Eth1Error::Timeout
+                    }),
         )
     }
 
@@ -76,14 +84,21 @@ impl Eth1DataFetcher for Web3DataFetcher {
     fn get_block_hash_by_height(
         &self,
         height: u64,
-    ) -> Box<dyn Future<Item = Option<H256>, Error = ()> + Send> {
+    ) -> Box<dyn Future<Item = Option<H256>, Error = Eth1Error> + Send> {
         Box::new(
             self.web3
                 .eth()
                 .block(BlockId::Number(BlockNumber::Number(height)))
                 .map(|x| x.and_then(|b| b.hash))
+                .map_err(|e| {
+                    println!("Error getting block hash");
+                    Eth1Error::Web3Error(e)
+                })
                 .timeout(Duration::from_secs(10))
-                .map_err(|e| println!("Error getting block hash {:?}", e)),
+                .map_err(|_| {
+                    println!("Timed out getting block_hash");
+                    Eth1Error::Timeout
+                    }),
         )
     }
 
@@ -91,7 +106,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
     fn get_deposit_count(
         &self,
         block_number: Option<BlockNumber>,
-    ) -> Box<dyn Future<Item = Option<u64>, Error = ()> + Send> {
+    ) -> Box<dyn Future<Item = Result<u64, Eth1Error>, Error = Eth1Error> + Send> {
         Box::new(
             self.contract
                 .query(
@@ -105,8 +120,15 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     let data: Vec<u8> = x;
                     vec_to_u64_le(&data)
                 })
+                .map_err(|e| {
+                    println!("Error getting deposit count");
+                    Eth1Error::ContractError(e)
+                })
                 .timeout(Duration::from_secs(10))
-                .map_err(|e| println!("Error getting deposit count {:?}", e)),
+                .map_err(|_| {
+                    println!("Timed out getting deposit count");
+                    Eth1Error::Timeout
+                    }),
         )
     }
 
@@ -114,7 +136,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
     fn get_deposit_root(
         &self,
         block_number: Option<BlockNumber>,
-    ) -> Box<dyn Future<Item = H256, Error = ()> + Send> {
+    ) -> Box<dyn Future<Item = H256, Error = Eth1Error> + Send> {
         Box::new(
             self.contract
                 .query(
@@ -125,8 +147,15 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     block_number,
                 )
                 .map(|x: Vec<u8>| H256::from_slice(&x))
+                .map_err(|e| {
+                    println!("Error getting deposit root");
+                    Eth1Error::ContractError(e)
+                })
                 .timeout(Duration::from_secs(10))
-                .map_err(|e| println!("Error getting deposit root {:?}", e)),
+                .map_err(|_| {
+                    println!("Timed out getting deposit root");
+                    Eth1Error::Timeout
+                    }),
         )
     }
 
@@ -135,7 +164,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
     fn get_deposit_logs_subscription(
         &self,
         cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
-    ) -> Box<dyn Future<Item = (), Error = ()> + Send> {
+    ) -> Box<dyn Future<Item = (), Error = Eth1Error> + Send> {
         let filter: Filter = self.get_deposit_logs_filter();
         let event_future = self
             .web3
@@ -150,30 +179,33 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     Ok(())
                 })
             })
-            .map_err(|_| ());
+            .map_err(|e| {
+                    println!("Error processing logs");
+                    Eth1Error::Web3Error(e)
+                });
         Box::new(event_future)
     }
 }
 
 // Converts a valid vector to a u64.
-pub fn vec_to_u64_le(bytes: &[u8]) -> Option<u64> {
+pub fn vec_to_u64_le(bytes: &[u8]) -> Result<u64, Eth1Error> {
     let mut array = [0; 8];
     if bytes.len() == 8 {
         let bytes = &bytes[..array.len()];
         array.copy_from_slice(bytes);
-        Some(u64::from_le_bytes(array))
+        Ok(u64::from_le_bytes(array))
     } else {
-        None
+        Err(Eth1Error::DecodingError)
     }
 }
 
 /// Parse contract logs.
-pub fn parse_logs(log: Log, types: &[ParamType]) -> Option<Vec<Token>> {
-    decode(types, &log.data.0).ok()
+pub fn parse_logs(log: Log, types: &[ParamType]) -> Result<Vec<Token>, Eth1Error> {
+    decode(types, &log.data.0).map_err(Eth1Error::ContractError.into())
 }
 
 /// Parse logs from deposit contract.
-pub fn parse_deposit_logs(log: Log) -> Option<(u64, DepositData)> {
+pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData), Eth1Error> {
     let deposit_event_params = &[
         ParamType::FixedBytes(48), // pubkey
         ParamType::FixedBytes(32), // withdrawal_credentials
@@ -181,7 +213,7 @@ pub fn parse_deposit_logs(log: Log) -> Option<(u64, DepositData)> {
         ParamType::FixedBytes(96), // signature
         ParamType::FixedBytes(8),  // index
     ];
-    let parsed_logs = parse_logs(log, deposit_event_params).unwrap();
+    let parsed_logs = parse_logs(log, deposit_event_params)?;
     // Convert from tokens to Vec<u8>.
     let params = parsed_logs
         .into_iter()
@@ -189,29 +221,27 @@ pub fn parse_deposit_logs(log: Log) -> Option<(u64, DepositData)> {
             Token::FixedBytes(v) => Some(v),
             _ => None,
         })
-        .collect::<Option<Vec<_>>>()?;
+        .collect::<Option<Vec<_>>>().ok_or(Eth1Error::ContractError.into())?;
 
     // Event should have exactly 5 parameters.
     if params.len() == 5 {
-        Some((
+        Ok((
             vec_to_u64_le(&params[4])?,
             DepositData {
                 pubkey: PublicKeyBytes::from_bytes(&params[0]).unwrap(),
                 withdrawal_credentials: H256::from_slice(&params[1]),
                 amount: vec_to_u64_le(&params[2])?,
-                signature: SignatureBytes::from_bytes(&params[3]).ok()?,
+                signature: SignatureBytes::from_bytes(&params[3])?,
             },
         ))
     } else {
-        None
+        Err(Eth1Error::DecodingError)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
-    use tokio::timer::Delay;
 
     // Note: Running tests using ganache-cli instance with config
     // from https://github.com/ChainSafe/lodestar#starting-private-eth1-chain
@@ -251,9 +281,9 @@ mod tests {
         let mut runtime = tokio::runtime::Runtime::new().unwrap();
         let w3 = setup();
         let deposit_count = w3.get_deposit_count(None);
-        let deposit_count: Option<_> = runtime.block_on(deposit_count).unwrap();
+        let deposit_count = runtime.block_on(deposit_count).unwrap();
         println!("{:?}", deposit_count);
-        assert!(deposit_count.is_some());
+        assert!(deposit_count.is_ok());
     }
 
     #[test]
@@ -263,7 +293,6 @@ mod tests {
         let deposit_root = w3.get_deposit_root(None);
         let deposit_root = runtime.block_on(deposit_root).unwrap();
         println!("{:?}", deposit_root);
-        // assert!(deposit_root.is_some());
     }
 
 }
