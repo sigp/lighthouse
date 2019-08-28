@@ -15,11 +15,7 @@ pub struct BlsG2Compressed {
     pub output: Vec<String>,
 }
 
-impl YamlDecode for BlsG2Compressed {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(yaml).unwrap())
-    }
-}
+impl BlsCase for BlsG2Compressed {}
 
 impl Case for BlsG2Compressed {
     fn result(&self, _case_index: usize) -> Result<(), Error> {

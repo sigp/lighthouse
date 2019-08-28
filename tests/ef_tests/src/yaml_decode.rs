@@ -1,14 +1,20 @@
 use super::*;
 use ethereum_types::{U128, U256};
+use std::fs;
+use std::path::Path;
 use types::Fork;
-
-mod utils;
-
-pub use utils::*;
 
 pub trait YamlDecode: Sized {
     /// Decode an object from the test specification YAML.
     fn yaml_decode(string: &str) -> Result<Self, Error>;
+
+    fn yaml_decode_file(path: &Path) -> Result<Self, Error> {
+        fs::read_to_string(path)
+            .map_err(|e| {
+                Error::FailedToParseTest(format!("Unable to load {}: {:?}", path.display(), e))
+            })
+            .and_then(|s| Self::yaml_decode(&s))
+    }
 }
 
 /// Basic types can general be decoded with the `parse` fn if they implement `str::FromStr`.

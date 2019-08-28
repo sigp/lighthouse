@@ -16,11 +16,7 @@ pub struct BlsSign {
     pub output: String,
 }
 
-impl YamlDecode for BlsSign {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(yaml).unwrap())
-    }
-}
+impl BlsCase for BlsSign {}
 
 impl Case for BlsSign {
     fn result(&self, _case_index: usize) -> Result<(), Error> {

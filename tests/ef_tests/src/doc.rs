@@ -2,10 +2,14 @@ use crate::case_result::CaseResult;
 use crate::cases::*;
 use crate::doc_header::DocHeader;
 use crate::error::Error;
-use crate::yaml_decode::{yaml_split_header_and_cases, YamlDecode};
+use crate::yaml_decode::YamlDecode;
 use crate::EfTest;
 use serde_derive::Deserialize;
-use std::{fs::File, io::prelude::*, path::PathBuf};
+use std::{
+    fs::File,
+    io::prelude::*,
+    path::{Path, PathBuf},
+};
 use types::{MainnetEthSpec, MinimalEthSpec};
 
 #[derive(Debug, Deserialize)]
@@ -19,15 +23,13 @@ impl Doc {
     fn from_path(path: PathBuf) -> Self {
         let mut file = File::open(path.clone()).unwrap();
 
-        let mut yaml = String::new();
-        file.read_to_string(&mut yaml).unwrap();
-
-        let (header_yaml, cases_yaml) = yaml_split_header_and_cases(yaml.clone());
+        let mut cases_yaml = String::new();
+        file.read_to_string(&mut cases_yaml).unwrap();
 
         Self {
-            header_yaml,
             cases_yaml,
             path,
+            header_yaml: String::new(),
         }
     }
 
@@ -40,8 +42,6 @@ impl Doc {
             header.config.as_ref(),
         ) {
             ("ssz", "uint", _) => run_test::<SszGeneric>(self),
-            ("ssz", "static", "minimal") => run_test::<SszStatic<MinimalEthSpec>>(self),
-            ("ssz", "static", "mainnet") => run_test::<SszStatic<MainnetEthSpec>>(self),
             ("sanity", "slots", "minimal") => run_test::<SanitySlots<MinimalEthSpec>>(self),
             // FIXME: skipped due to compact committees issue
             ("sanity", "slots", "mainnet") => vec![], // run_test::<SanitySlots<MainnetEthSpec>>(self),
@@ -172,14 +172,36 @@ impl Doc {
     }
 }
 
-pub fn run_test<T>(doc: &Doc) -> Vec<CaseResult>
+pub fn assert_tests_pass(path: &Path, results: &[CaseResult]) {
+    let doc = Doc {
+        header_yaml: String::new(),
+        cases_yaml: String::new(),
+        path: path.into(),
+    };
+
+    let (failed, skipped_bls, skipped_known_failures) = categorize_results(results);
+
+    if failed.len() + skipped_known_failures.len() > 0 {
+        print_results(
+            &doc,
+            &failed,
+            &skipped_bls,
+            &skipped_known_failures,
+            &results,
+        );
+        if !failed.is_empty() {
+            panic!("Tests failed (see above)");
+        }
+    } else {
+        println!("Passed {} tests in {}", results.len(), path.display());
+    }
+}
+
+pub fn run_test<T>(_: &Doc) -> Vec<CaseResult>
 where
     Cases<T>: EfTest + YamlDecode,
 {
-    // Pass only the "test_cases" YAML string to `yaml_decode`.
-    let test_cases: Cases<T> = Cases::yaml_decode(&doc.cases_yaml).unwrap();
-
-    test_cases.test_results()
+    panic!("FIXME(michael): delete this")
 }
 
 pub fn categorize_results(
@@ -208,7 +230,6 @@ pub fn print_results(
     skipped_known_failures: &[&CaseResult],
     results: &[CaseResult],
 ) {
-    let header: DocHeader = serde_yaml::from_str(&doc.header_yaml).unwrap();
     println!("--------------------------------------------------");
     println!(
         "Test {}",
@@ -218,7 +239,7 @@ pub fn print_results(
             "Failure"
         }
     );
-    println!("Title: {}", header.title);
+    println!("Title: TODO");
     println!("File: {:?}", doc.path);
     println!(
         "{} tests, {} failed, {} skipped (known failure), {} skipped (bls), {} passed. (See below for errors)",

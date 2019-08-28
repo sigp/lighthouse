@@ -1,5 +1,6 @@
 use super::*;
 use std::fmt::Debug;
+use std::path::Path;
 
 mod bls_aggregate_pubkeys;
 mod bls_aggregate_sigs;
@@ -53,6 +54,11 @@ pub use shuffling::*;
 pub use ssz_generic::*;
 pub use ssz_static::*;
 
+pub trait LoadCase: Sized {
+    /// Load the test case from a test case directory.
+    fn load_from_dir(_path: &Path) -> Result<Self, Error>;
+}
+
 pub trait Case: Debug {
     /// An optional field for implementing a custom description.
     ///
@@ -66,6 +72,26 @@ pub trait Case: Debug {
     /// `case_index` reports the index of the case in the set of test cases. It is not strictly
     /// necessary, but it's useful when troubleshooting specific failing tests.
     fn result(&self, case_index: usize) -> Result<(), Error>;
+}
+
+pub trait BlsCase: serde::de::DeserializeOwned {}
+
+impl<T> YamlDecode for T
+where
+    T: BlsCase,
+{
+    fn yaml_decode(string: &str) -> Result<Self, Error> {
+        serde_yaml::from_str(string).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
+    }
+}
+
+impl<T> LoadCase for T
+where
+    T: BlsCase,
+{
+    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+        Self::yaml_decode_file(&path.join("data.yaml"))
+    }
 }
 
 #[derive(Debug)]
@@ -86,6 +112,7 @@ where
     }
 }
 
+// FIXME(michael): delete this
 impl<T: YamlDecode> YamlDecode for Cases<T> {
     /// Decodes a YAML list of test cases
     fn yaml_decode(yaml: &str) -> Result<Self, Error> {

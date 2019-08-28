@@ -4,6 +4,7 @@ pub use case_result::CaseResult;
 pub use cases::Case;
 pub use doc::Doc;
 pub use error::Error;
+pub use handler::*;
 pub use yaml_decode::YamlDecode;
 
 mod bls_setting;
@@ -12,6 +13,8 @@ mod cases;
 mod doc;
 mod doc_header;
 mod error;
+mod handler;
+mod type_name;
 mod yaml_decode;
 
 /// Defined where an object can return the results of some test(s) adhering to the Ethereum
