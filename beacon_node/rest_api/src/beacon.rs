@@ -130,6 +130,22 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     Ok(success_response(Body::from(json)))
 }
 
+/// HTTP handler to return the `Fork` of the current head.
+pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+    let beacon_chain = req
+        .extensions()
+        .get::<Arc<BeaconChain<T>>>()
+        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+
+    let chain_head = beacon_chain.head();
+
+    let json: String = serde_json::to_string(&chain_head.beacon_state.fork).map_err(|e| {
+        ApiError::ServerError(format!("Unable to serialize BeaconState::Fork: {:?}", e))
+    })?;
+
+    Ok(success_response(Body::from(json)))
+}
+
 #[derive(Serialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct StateResponse<T: EthSpec> {

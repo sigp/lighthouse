@@ -51,7 +51,7 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
             }
         };
 
-        let produced_block = match self.chain.produce_block(randao_reveal) {
+        let produced_block = match self.chain.produce_current_block(randao_reveal) {
             Ok((block, _state)) => block,
             Err(e) => {
                 // could not produce a block
