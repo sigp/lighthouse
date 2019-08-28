@@ -13,6 +13,8 @@ tags:
     description: Endpoints which will be implemented for phase 1 of Ethereum Serenity
   - name: Future
     description: Potential future endpoints or optional nice-to-haves
+  - name: RFC
+    description: Do we need these endpoints at all? This is a request for comments if you think they're useful.
 
 paths:
   /node/version:
@@ -47,21 +49,6 @@ paths:
         500:
           $ref: '#/components/responses/InternalError'
 
-  /node/deposit_contract:
-    get:
-      tags:
-        - Phase0
-      summary: "Get the address of the Ethereum 1 deposit contract."
-      description: "Requests the address of the deposit contract on the Ethereum 1 chain, which was used to start the current beacon chain."
-      responses:
-        200:
-          description: Request successful
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ethereum_address'
-        500:
-          $ref: '#/components/responses/InternalError'
 
   /node/syncing:
     get:
@@ -106,55 +93,6 @@ paths:
         500:
           $ref: '#/components/responses/InternalError'
 
-  /node/metrics:
-    get:
-      tags:
-        - Phase0
-      summary: "Get Promethius metrics for the node"
-      description: "Fetches a range of metrics for measuring nodes health. It is intended for this endpoint to be consumed by Promethius."
-      responses:
-        200:
-          description: Request successful
-          content:
-            text/plain:
-              example:
-                summary: 'Promethius metrics'
-                value: "# HELP beacon_head_state_active_validators_total Count of active validators at the head of the chain
-                        # TYPE beacon_head_state_active_validators_total gauge
-                        beacon_head_state_active_validators_total 16
-                        # HELP beacon_head_state_current_justified_epoch Current justified epoch at the head of the chain
-                        # TYPE beacon_head_state_current_justified_epoch gauge
-                        beacon_head_state_current_justified_epoch 0
-                        # HELP beacon_head_state_current_justified_root Current justified root at the head of the chain
-                        # TYPE beacon_head_state_current_justified_root gauge
-                        beacon_head_state_current_justified_root 0
-                        # HELP beacon_head_state_eth1_deposit_index Eth1 deposit index at the head of the chain
-                        # TYPE beacon_head_state_eth1_deposit_index gauge
-                        beacon_head_state_eth1_deposit_index 16
-                        # HELP beacon_head_state_finalized_epoch Finalized epoch at the head of the chain
-                        # TYPE beacon_head_state_finalized_epoch gauge
-                        beacon_head_state_finalized_epoch 0
-                        # HELP beacon_head_state_finalized_root Finalized root at the head of the chain
-                        # TYPE beacon_head_state_finalized_root gauge
-                        beacon_head_state_finalized_root 0
-                        # HELP beacon_head_state_latest_block_slot Latest block slot at the head of the chain
-                        # TYPE beacon_head_state_latest_block_slot gauge
-                        beacon_head_state_latest_block_slot 0
-                        # HELP beacon_head_state_previous_justified_epoch Previous justified epoch at the head of the chain
-                        # TYPE beacon_head_state_previous_justified_epoch gauge
-                        beacon_head_state_previous_justified_epoch 0
-                        # HELP beacon_head_state_previous_justified_root Previous justified root at the head of the chain
-                        # TYPE beacon_head_state_previous_justified_root gauge
-                        beacon_head_state_previous_justified_root 0
-                        # HELP beacon_head_state_root Root of the block at the head of the chain
-                        # TYPE beacon_head_state_root gauge
-                        beacon_head_state_root -7566315470565629000
-                        # HELP beacon_head_state_shard_total Count of shards in the beacon chain
-                        # TYPE beacon_head_state_shard_total gauge
-                        beacon_head_state_shard_total 8
-                        # HELP beacon_head_state_slashed_validators_total Count of all slashed validators at the head of the chain
-                        # TYPE beacon_head_state_slashed_validators_total gauge
-                        beacon_head_state_slashed_validators_total 0"
 
   #TODO: Complete the /network/enr request
   /network/enr:
@@ -251,7 +189,7 @@ paths:
   /network/stats:
     get:
       tags:
-        - Future
+        - RFC
       summary: "Get some simple network statistics from the node."
       description: "Request that the beacon node provide some historical summary information about its networking interface."
       #TODO: Do we actually collect these stats? Should we?
@@ -280,7 +218,7 @@ paths:
   /network/block_discovery:
     get:
       tags:
-        - Future
+        - RFC
       summary: "Identify the time at which particular blocks were first seen."
       description: "Request the node to provide the time at which particular blocks were first seen on the network."
       parameters:
@@ -369,7 +307,7 @@ paths:
                     format: uint64
                     description: "The slot number of the second most recent justified slot."
                   previous_justified_block_root:
-                    type: integer
+                    type: string
                     format: bytes
                     pattern: "^0x[a-fA-F0-9]{64}$"
                     description: "The block root of the second most recent justified block."
@@ -440,8 +378,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Fork'
 
-  #TODO fill out latest_finalized_checkpoint
-  /beacon/latest_finalized_checkpoint:
 
   /beacon/attestations:
     get:
@@ -506,7 +442,6 @@ paths:
           $ref: '#/components/responses/InvalidRequest'
           #TODO: Make this request error more specific if one of the parameters is not provided correctly.
 
-  #TODO: do all these '/beacon/validators' endpoints come under '/beacon/state' subqueries?
   /beacon/validators:
     get:
       tags:
@@ -541,7 +476,7 @@ paths:
   /beacon/validators/activesetchanges:
     get:
       tags:
-        - Phase0
+        - RFC
       summary: "Retrieve the changes in active validator set."
       description: "Request that the beacon node describe the changes that occurred at the specified epoch, as compared with the prior epoch."
       parameters:
@@ -583,7 +518,7 @@ paths:
   /beacon/validators/assignments:
     get:
       tags:
-        - Phase0
+        - RFC
       summary: "Retrieve the assigned responsibilities for validators in a particular epoch."
       description: "Request that the beacon node list the duties which have been assigned to the active validator set in a particular epoch."
       parameters:
@@ -669,7 +604,7 @@ paths:
   /beacon/validators/balances:
     get:
       tags:
-        - Phase0
+        - RFC
       summary: "Retrieve the balances of validators at a specified epoch."
       description: "Retrieve the balances of validators at a specified epoch (or the current epoch if none specified). The list of balances can be filtered by providing a list of validator public keys or indices."
       parameters:
@@ -730,7 +665,7 @@ paths:
   /beacon/validators/participation:
     get:
       tags:
-        - Phase0
+        - RFC
       summary: "Retrieve aggregate information about validator participation in an epoch."
       description: "Retrieve some aggregate information about the participation of validators in a specified epoch (or the current epoch if none specified)."
       parameters:
@@ -775,7 +710,7 @@ paths:
   /beacon/validators/queue:
     get:
       tags:
-        - Phase0
+        - RFC
       summary: "Retrieve information about the validator queue at the specified epoch."
       description: "Retrieve information about the queue of validators for the specified epoch (or the current epoch if none specified)."
       parameters:
@@ -989,11 +924,80 @@ paths:
   #TODO fill out /beacon/state_root
   /beacon/state_root:
 
+  #TODO fill out current_finalized_checkpoint
+  /beacon/current_finalized_checkpoint:
+
   #TODO fill spec
   /spec:
 
   #TODO fill spec/slots_per_epoch
   /spec/slots_per_epoch:
+
+  /spec/deposit_contract:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the address of the Ethereum 1 deposit contract."
+      description: "Requests the address of the deposit contract on the Ethereum 1 chain, which was used to start the current beacon chain."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ethereum_address'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /metrics:
+    get:
+      tags:
+        - Phase0
+      summary: "Get Promethius metrics for the node"
+      description: "Fetches a range of metrics for measuring nodes health. It is intended for this endpoint to be consumed by Promethius."
+      responses:
+        200:
+          description: Request successful
+          content:
+            text/plain:
+              example:
+                summary: 'Promethius metrics'
+                value: "# HELP beacon_head_state_active_validators_total Count of active validators at the head of the chain
+                        # TYPE beacon_head_state_active_validators_total gauge
+                        beacon_head_state_active_validators_total 16
+                        # HELP beacon_head_state_current_justified_epoch Current justified epoch at the head of the chain
+                        # TYPE beacon_head_state_current_justified_epoch gauge
+                        beacon_head_state_current_justified_epoch 0
+                        # HELP beacon_head_state_current_justified_root Current justified root at the head of the chain
+                        # TYPE beacon_head_state_current_justified_root gauge
+                        beacon_head_state_current_justified_root 0
+                        # HELP beacon_head_state_eth1_deposit_index Eth1 deposit index at the head of the chain
+                        # TYPE beacon_head_state_eth1_deposit_index gauge
+                        beacon_head_state_eth1_deposit_index 16
+                        # HELP beacon_head_state_finalized_epoch Finalized epoch at the head of the chain
+                        # TYPE beacon_head_state_finalized_epoch gauge
+                        beacon_head_state_finalized_epoch 0
+                        # HELP beacon_head_state_finalized_root Finalized root at the head of the chain
+                        # TYPE beacon_head_state_finalized_root gauge
+                        beacon_head_state_finalized_root 0
+                        # HELP beacon_head_state_latest_block_slot Latest block slot at the head of the chain
+                        # TYPE beacon_head_state_latest_block_slot gauge
+                        beacon_head_state_latest_block_slot 0
+                        # HELP beacon_head_state_previous_justified_epoch Previous justified epoch at the head of the chain
+                        # TYPE beacon_head_state_previous_justified_epoch gauge
+                        beacon_head_state_previous_justified_epoch 0
+                        # HELP beacon_head_state_previous_justified_root Previous justified root at the head of the chain
+                        # TYPE beacon_head_state_previous_justified_root gauge
+                        beacon_head_state_previous_justified_root 0
+                        # HELP beacon_head_state_root Root of the block at the head of the chain
+                        # TYPE beacon_head_state_root gauge
+                        beacon_head_state_root -7566315470565629000
+                        # HELP beacon_head_state_shard_total Count of shards in the beacon chain
+                        # TYPE beacon_head_state_shard_total gauge
+                        beacon_head_state_shard_total 8
+                        # HELP beacon_head_state_slashed_validators_total Count of all slashed validators at the head of the chain
+                        # TYPE beacon_head_state_slashed_validators_total gauge
+                        beacon_head_state_slashed_validators_total 0"
 
 components:
   schemas:
