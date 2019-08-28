@@ -1,5 +1,6 @@
 use crate::{success_response, ApiError, ApiResult, DBPath};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use http::HeaderValue;
 use hyper::{Body, Request};
 use prometheus::{Encoder, TextEncoder};
 use std::sync::Arc;
@@ -67,10 +68,10 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
         .map(|string| {
             let mut response = success_response(Body::from(string));
             // Need to change the header to text/plain for prometheius
-            response
-                .headers_mut()
-                .insert("content-type", "text/plain; charset=utf-8".parse().unwrap())
-                .unwrap();
+            response.headers_mut().insert(
+                "content-type",
+                HeaderValue::from_static("text/plain; charset=utf-8"),
+            );
             response
         })
         .map_err(|e| ApiError::ServerError(format!("Failed to encode prometheus info: {:?}", e)))

@@ -12,11 +12,12 @@ pub struct HeadResponse {
     pub slot: Slot,
     pub block_root: Hash256,
     pub state_root: Hash256,
-    /* Not implemented:
     pub finalized_slot: Slot,
     pub finalized_block_root: Hash256,
-    pub justified_slot: Hash256,
-     */
+    pub justified_slot: Slot,
+    pub justified_block_root: Hash256,
+    pub previous_justified_slot: Slot,
+    pub previous_justified_block_root: Hash256,
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
@@ -26,10 +27,30 @@ pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
         .get::<Arc<BeaconChain<T>>>()
         .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
 
+    let chain_head = beacon_chain.head();
+
     let head = HeadResponse {
-        slot: beacon_chain.head().beacon_state.slot,
-        block_root: beacon_chain.head().beacon_block_root,
-        state_root: beacon_chain.head().beacon_state_root,
+        slot: chain_head.beacon_state.slot,
+        block_root: chain_head.beacon_block_root,
+        state_root: chain_head.beacon_state_root,
+        finalized_slot: chain_head
+            .beacon_state
+            .finalized_checkpoint
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch()),
+        finalized_block_root: chain_head.beacon_state.finalized_checkpoint.root,
+        justified_slot: chain_head
+            .beacon_state
+            .current_justified_checkpoint
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch()),
+        justified_block_root: chain_head.beacon_state.current_justified_checkpoint.root,
+        previous_justified_slot: chain_head
+            .beacon_state
+            .previous_justified_checkpoint
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch()),
+        previous_justified_block_root: chain_head.beacon_state.previous_justified_checkpoint.root,
     };
 
     let json: String = serde_json::to_string(&head)
@@ -178,7 +199,7 @@ pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 }
 
 /// HTTP handler to return the highest finalized slot.
-pub fn get_latest_finalized_checkpoint<T: BeaconChainTypes + 'static>(
+pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
     req: Request<Body>,
 ) -> ApiResult {
     let beacon_chain = req

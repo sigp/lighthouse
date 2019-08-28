@@ -127,12 +127,8 @@ pub fn start_server<T: BeaconChainTypes>(
                 // Methods for Client
                 (&Method::GET, "/node/version") => node::get_version(req),
                 (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
-                (&Method::GET, "/node/deposit_contract") => {
-                    helpers::implementation_pending_response(req)
-                }
                 (&Method::GET, "/node/syncing") => helpers::implementation_pending_response(req),
                 (&Method::GET, "/node/chain_id") => helpers::implementation_pending_response(req),
-                (&Method::GET, "/node/metrics") => metrics::get_prometheus::<T>(req),
 
                 // Methods for Network
                 (&Method::GET, "/network/enr") => network::get_enr::<T>(req),
@@ -143,29 +139,30 @@ pub fn start_server<T: BeaconChainTypes>(
                 (&Method::GET, "/network/listen_addresses") => {
                     network::get_listen_addresses::<T>(req)
                 }
-                (&Method::GET, "/network/stats") => helpers::implementation_pending_response(req),
                 (&Method::GET, "/network/block_discovery") => {
                     helpers::implementation_pending_response(req)
                 }
 
                 // Methods for Beacon Node
-                //TODO: Remove?
-                //(&Method::GET, "/beacon/best_slot") => beacon::get_best_slot::<T>(req),
                 (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
                 (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),
                 (&Method::GET, "/beacon/block_root") => beacon::get_block_root::<T>(req),
                 (&Method::GET, "/beacon/blocks") => helpers::implementation_pending_response(req),
                 (&Method::GET, "/beacon/fork") => helpers::implementation_pending_response(req),
-                (&Method::GET, "/beacon/latest_finalized_checkpoint") => {
-                    beacon::get_latest_finalized_checkpoint::<T>(req)
-                }
                 (&Method::GET, "/beacon/attestations") => {
                     helpers::implementation_pending_response(req)
                 }
                 (&Method::GET, "/beacon/attestations/pending") => {
                     helpers::implementation_pending_response(req)
                 }
-                (&Method::GET, "/beacon/attestations") => {
+
+                (&Method::GET, "/beacon/validators") => {
+                    helpers::implementation_pending_response(req)
+                }
+                (&Method::GET, "/beacon/validators/indicies") => {
+                    helpers::implementation_pending_response(req)
+                }
+                (&Method::GET, "/beacon/validators/pubkeys") => {
                     helpers::implementation_pending_response(req)
                 }
 
@@ -188,11 +185,19 @@ pub fn start_server<T: BeaconChainTypes>(
 
                 (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req),
                 (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req),
+                (&Method::GET, "/beacon/state/current_finalized_checkpoint") => {
+                    beacon::get_current_finalized_checkpoint::<T>(req)
+                }
                 //TODO: Add aggreggate/filtered state lookups here, e.g. /beacon/validators/balances
 
                 // Methods for bootstrap and checking configuration
                 (&Method::GET, "/spec") => spec::get_spec::<T>(req),
                 (&Method::GET, "/spec/slots_per_epoch") => spec::get_slots_per_epoch::<T>(req),
+                (&Method::GET, "/spec/deposit_contract") => {
+                    helpers::implementation_pending_response(req)
+                }
+
+                (&Method::GET, "/metrics") => metrics::get_prometheus::<T>(req),
 
                 _ => Err(ApiError::NotFound(
                     "Request path and/or method not found.".to_owned(),
