@@ -265,6 +265,7 @@ fn main() {
                     .required(true)
                     .help("The number of validators in the genesis state"))
                 .arg(Arg::with_name("minutes")
+                    .long("minutes")
                     .short("m")
                     .value_name("MINUTES")
                     .required(true)
