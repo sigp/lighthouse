@@ -41,16 +41,11 @@ impl Case for BlsSign {
     }
 }
 
-// Converts a vector to u64 (from big endian)
+// Converts a vector to u64 (from little endian)
 fn bytes_to_u64(array: &[u8]) -> u64 {
-    let mut result: u64 = 0;
-    for (i, value) in array.iter().rev().enumerate() {
-        if i == 8 {
-            break;
-        }
-        result += u64::pow(2, i as u32 * 8) * u64::from(*value);
-    }
-    result
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(array);
+    u64::from_le_bytes(bytes)
 }
 
 // Increase the size of an array to 48 bytes
