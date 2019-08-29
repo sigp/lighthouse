@@ -66,7 +66,7 @@ impl Service {
             Ok(_) => {
                 let mut log_address = listen_multiaddr;
                 log_address.push(Protocol::P2p(local_peer_id.clone().into()));
-                info!(log, "Listening established"; "Address" => format!("{}", log_address));
+                info!(log, "Listening established"; "address" => format!("{}", log_address));
             }
             Err(err) => {
                 crit!(
@@ -82,10 +82,10 @@ impl Service {
         // attempt to connect to user-input libp2p nodes
         for multiaddr in config.libp2p_nodes {
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
-                Ok(()) => debug!(log, "Dialing libp2p peer"; "Address" => format!("{}", multiaddr)),
+                Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => format!("{}", multiaddr)),
                 Err(err) => debug!(
                     log,
-                    "Could not connect to peer"; "Address" => format!("{}", multiaddr), "Error" => format!("{:?}", err)
+                    "Could not connect to peer"; "address" => format!("{}", multiaddr), "Error" => format!("{:?}", err)
                 ),
             };
         }
@@ -122,13 +122,13 @@ impl Service {
         let mut subscribed_topics = vec![];
         for topic in topics {
             if swarm.subscribe(topic.clone()) {
-                trace!(log, "Subscribed to topic"; "Topic" => format!("{}", topic));
+                trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic));
                 subscribed_topics.push(topic);
             } else {
-                warn!(log, "Could not subscribe to topic"; "Topic" => format!("{}", topic));
+                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}", topic));
             }
         }
-        info!(log, "Subscribed to topics"; "Topics" => format!("{:?}", subscribed_topics.iter().map(|t| format!("{}", t)).collect::<Vec<String>>()));
+        info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics.iter().map(|t| format!("{}", t)).collect::<Vec<String>>()));
 
         Ok(Service {
             local_peer_id,
@@ -268,7 +268,7 @@ fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
             Err(e) => {
                 warn!(
                     log,
-                    "Could not write node key to file: {:?}. Error: {}", network_key_f, e
+                    "Could not write node key to file: {:?}. error: {}", network_key_f, e
                 );
             }
         }
