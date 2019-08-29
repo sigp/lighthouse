@@ -35,7 +35,7 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
 
         // decode the request
         // TODO: requested slot currently unused, see: https://github.com/sigp/lighthouse/issues/336
-        let requested_slot = Slot::from(req.get_slot());
+        let _requested_slot = Slot::from(req.get_slot());
         let randao_reveal = match Signature::from_ssz_bytes(req.get_randao_reveal()) {
             Ok(reveal) => reveal,
             Err(_) => {
@@ -51,7 +51,22 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
             }
         };
 
-        let produced_block = match self.chain.produce_block(randao_reveal, requested_slot) {
+        let slot = match self.chain.slot() {
+            Ok(slot) => slot,
+            Err(_) => {
+                // decode error, incorrect signature
+                let log_clone = self.log.clone();
+                let f = sink
+                    .fail(RpcStatus::new(
+                        RpcStatusCode::InvalidArgument,
+                        Some("No slot from chain".to_string()),
+                    ))
+                    .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
+                return ctx.spawn(f);
+            }
+        };
+
+        let produced_block = match self.chain.produce_block(randao_reveal, slot) {
             Ok((block, _state)) => block,
             Err(e) => {
                 // could not produce a block
