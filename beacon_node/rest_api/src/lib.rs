@@ -13,6 +13,7 @@ mod url_query;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::Service as NetworkService;
+use eth2_config::Eth2Config;
 use hyper::rt::Future;
 use hyper::service::service_fn_ok;
 use hyper::{Body, Method, Response, Server, StatusCode};
@@ -79,6 +80,7 @@ pub fn start_server<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     network_service: Arc<NetworkService<T>>,
     db_path: PathBuf,
+    eth2_config: Eth2Config,
     log: &slog::Logger,
 ) -> Result<exit_future::Signal, hyper::Error> {
     let log = log.new(o!("Service" => "Api"));
@@ -100,12 +102,14 @@ pub fn start_server<T: BeaconChainTypes>(
     // Clone our stateful objects, for use in service closure.
     let server_log = log.clone();
     let server_bc = beacon_chain.clone();
+    let eth2_config = Arc::new(eth2_config);
 
     let service = move || {
         let log = server_log.clone();
         let beacon_chain = server_bc.clone();
         let db_path = db_path.clone();
         let network_service = network_service.clone();
+        let eth2_config = eth2_config.clone();
 
         // Create a simple handler for the router, inject our stateful objects into the request.
         service_fn_ok(move |mut req| {
@@ -118,6 +122,8 @@ pub fn start_server<T: BeaconChainTypes>(
             req.extensions_mut().insert::<DBPath>(db_path.clone());
             req.extensions_mut()
                 .insert::<Arc<NetworkService<T>>>(network_service.clone());
+            req.extensions_mut()
+                .insert::<Arc<Eth2Config>>(eth2_config.clone());
 
             let path = req.uri().path().to_string();
 
@@ -144,6 +150,7 @@ pub fn start_server<T: BeaconChainTypes>(
                 (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
                 (&Method::GET, "/spec") => spec::get_spec::<T>(req),
                 (&Method::GET, "/spec/slots_per_epoch") => spec::get_slots_per_epoch::<T>(req),
+                (&Method::GET, "/spec/eth2_config") => spec::get_eth2_config::<T>(req),
                 _ => Err(ApiError::MethodNotAllowed(path.clone())),
             };
 

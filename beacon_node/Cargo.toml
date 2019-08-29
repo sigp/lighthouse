@@ -6,11 +6,13 @@ edition = "2018"
 
 [dependencies]
 eth2_config = { path = "../eth2/utils/eth2_config" }
+beacon_chain = { path = "beacon_chain" }
 types = { path = "../eth2/types" }
 store = { path = "./store" }
 client = { path = "client" }
 version = { path = "version" }
 clap = "2.32.0"
+rand = "0.7"
 slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_trace"] }
 slog-term = "^2.4.0"
 slog-async = "^2.3.0"
