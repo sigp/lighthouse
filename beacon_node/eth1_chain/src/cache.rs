@@ -57,7 +57,9 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
     /// Get `Eth1Data` object at a distance of `distance` from the perceived head of the currrent Eth1 chain.
     /// Returns the object from the cache if present, else fetches from Eth1Fetcher.
     pub fn get_eth1_data(&mut self, distance: u64) -> Option<Eth1Data> {
-        let current_block_number: U256 = self.fetcher.get_current_block_number().wait().ok()?;
+        let current_block_number: U256 =
+            tokio::runtime::current_thread::block_on_all(self.fetcher.get_current_block_number())
+                .ok()?;
         let block_number: U256 = current_block_number.checked_sub(distance.into())?;
         if let Some(result) = self.cache.read().get(&block_number) {
             return Some(result.clone());
@@ -81,7 +83,7 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
     pub fn get_eth1_data_in_range(&mut self, start: u64, end: u64) -> Vec<Eth1Data> {
         (start..end)
             .map(|h| self.get_eth1_data(h))
-            .flatten() // Chuck None values
+            .flatten() // Chuck None values. This might be okay since its unlikely that the entire range returns None.
             .collect::<Vec<Eth1Data>>()
     }
 }
@@ -118,7 +120,6 @@ fn fetch_eth1_data<F: Eth1DataFetcher>(
         };
         Ok((block_number, eth1_data))
     })
-    // .map_err(|e| println!("Error while getting eth1 data {:?}", e))
 }
 
 #[cfg(test)]
