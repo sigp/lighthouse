@@ -27,7 +27,6 @@ impl<T: EthSpec> BlockBuilder<T> {
             num_validators: 0,
             num_proposer_slashings: 0,
             num_attester_slashings: 0,
-            // num_indices_per_slashable_vote: spec.max_indices_per_slashable_vote as usize,
             num_attestations: 0,
             num_deposits: 0,
             num_exits: 0,
