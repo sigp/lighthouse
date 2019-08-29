@@ -28,18 +28,9 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
         let validators = req.get_validators();
         trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
 
-        let slot = if let Ok(slot) = self.chain.slot() {
-            slot
-        } else {
-            let log_clone = self.log.clone();
-            let f = sink
-                .fail(RpcStatus::new(
-                    RpcStatusCode::FailedPrecondition,
-                    Some("No slot for chain".to_string()),
-                ))
-                .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
-            return ctx.spawn(f);
-        };
+        let epoch = Epoch::from(req.get_epoch());
+        let slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
+
         let mut state = if let Ok(state) = self.chain.state_at_slot(slot) {
             state.as_ref().clone()
         } else {
@@ -55,7 +46,6 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
 
         let _ = state.build_all_caches(&self.chain.spec);
 
-        let epoch = Epoch::from(req.get_epoch());
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
 
