@@ -72,22 +72,24 @@ paths:
         500:
           $ref: '#/components/responses/InternalError'
 
-  #TODO: Complete the /network/enr request
   /network/enr:
     get:
       tags:
         - Phase0
-      summary: ""
-      description: ""
+      summary: "Get the node's Ethereum Node Record (ENR)."
+      description: "The Ethereum Node Record (ENR) contains a compressed public key, an IPv4 address, a TCP port and a UDP port, which is all encoded using base64. This endpoint fetches the base64 encoded version of the ENR for the running beacon node."
       responses:
         200:
           description: Request successful
           content:
             application/json:
               schema:
-                type: integer
-                format: uint16
-                example: 2468
+                type: string
+                format: byte
+                example: "-IW4QHzEZbIB0YN47bVlsUrGbcL9vl21n7xF5gRKjMNkJ4MxfcwiqrsE7Ows8EnzOvC8P4ZyAjfOhr2ffk0bWAxDGq8BgmlwhH8AAAGDdGNwgiMog3VkcIIjKIlzZWNwMjU2azGhAjzKzqo5c33ydUUHrWJ4FWwIXJa2MN9BBsgZkj6mhthp"
+                pattern: "^[^-A-Za-z0-9+/=]+$"
+        500:
+          $ref: '#/components/responses/InternalError'
 
   /network/peer_count:
     get:
@@ -104,9 +106,27 @@ paths:
                 type: integer
                 format: uint64
                 example: 25
+        500:
+          $ref: '#/components/responses/InternalError'
 
-  #TODO: Complete our peer ID
   /network/peer_id:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the node's libp2p peer ID."
+      description: "Requests the node to provide it's libp2p ['peer ID'](https://github.com/libp2p/specs/blob/master/peer-ids/peer-ids.md), which is a base58 encoded SHA2-256 'multihash' of the node's public key struct."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                type: string
+                format: byte
+                example: "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N"
+                pattern: "^[1-9A-HJ-NP-Za-km-z]{46}$"
+        500:
+          $ref: '#/components/responses/InternalError'
 
   /network/peers:
     get:
@@ -123,14 +143,15 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Peer'
+        500:
+          $ref: '#/components/responses/InternalError'
 
-  #TODO: Complete the /network/listen_port endpoint
   /network/listen_port:
     get:
       tags:
         - Phase0
-      summary: ""
-      description: ""
+      summary: "Get the TCP port number for the libp2p listener."
+      description: "Libp2p is configured to listen to a particular TCP port upon startup of the beacon node. This endpoint returns the port number that the beacon node is listening on. Please note, this is for the libp2p communications, not for discovery."
       responses:
         200:
           description: Request successful
@@ -139,30 +160,27 @@ paths:
               schema:
                 type: integer
                 format: uint16
-                example: 2468
+                example: 9000
+        500:
+          $ref: '#/components/responses/InternalError'
 
   /network/listen_addresses:
     get:
       tags:
         - Phase0
-      summary: "Identify if the beacon node is listening for networking connections, and on what address."
-      description: "Requests that the beacon node identify whether it is listening for incoming networking connections, and if so, what network address(es) are being used."
+      summary: "Identify the port and addresses listened to by the beacon node."
+      description: "Libp2p is configured to listen to a particular address, on a particular port. This address is represented the [`multiaddr`](https://multiformats.io/multiaddr/) format, and this endpoint requests the beacon node to list all listening addresses in this format."
       responses:
         200:
           description: Request successful
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  listening:
-                    type: boolean
-                    nullable: false
-                    description: "True if the node is listening for incoming network connections. False if networking has been disabled or if the node has been configured to only connect with a static set of peers."
-                  addresses:
-                    type: array
-                    items:
-                        $ref: '#/components/schemas/multiaddr'
+                type: array
+                items:
+                    $ref: '#/components/schemas/multiaddr'
+        500:
+          $ref: '#/components/responses/InternalError'
 
   /network/stats:
     get:
