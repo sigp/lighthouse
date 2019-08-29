@@ -72,28 +72,6 @@ paths:
         500:
           $ref: '#/components/responses/InternalError'
 
-  /node/chain_id:
-    get:
-      tags:
-        - Phase0
-      summary: "Get fork information from running beacon node."
-      description: "Requests the beacon node to provide which fork version it is currently on."
-      responses:
-        200:
-          description: Request successful
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  chain_id:
-                    type: integer
-                    format: uint64
-                    description: "Sometimes called the network id, this number discerns the active chain for the beacon node. Analogous to Eth1.0 JSON-RPC net_version."
-        500:
-          $ref: '#/components/responses/InternalError'
-
-
   #TODO: Complete the /network/enr request
   /network/enr:
     get:

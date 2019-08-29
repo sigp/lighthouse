@@ -128,7 +128,6 @@ pub fn start_server<T: BeaconChainTypes>(
                 (&Method::GET, "/node/version") => node::get_version(req),
                 (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
                 (&Method::GET, "/node/syncing") => helpers::implementation_pending_response(req),
-                (&Method::GET, "/node/chain_id") => helpers::implementation_pending_response(req),
 
                 // Methods for Network
                 (&Method::GET, "/network/enr") => network::get_enr::<T>(req),
