@@ -1,6 +1,6 @@
-use web3;
 use ethabi::Error as AbiError;
 use ssz;
+use web3;
 
 #[derive(Debug)]
 pub enum Eth1Error {
@@ -33,7 +33,7 @@ impl From<AbiError> for Eth1Error {
 }
 
 impl From<ssz::DecodeError> for Eth1Error {
-    fn from(err: ssz::DecodeError) -> Self {
+    fn from(_err: ssz::DecodeError) -> Self {
         Eth1Error::DecodingError
     }
 }
