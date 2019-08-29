@@ -839,8 +839,6 @@ paths:
                   $ref: '#/components/schemas/ValidatorDuty'
         400:
           $ref: '#/components/responses/InvalidRequest'
-        406:
-          description: "Duties cannot be provided for the requested epoch."
         500:
           $ref: '#/components/responses/InternalError'
         503:
@@ -867,6 +865,8 @@ paths:
           schema:
             type: string
             format: byte
+            pattern: "^0x[a-fA-F0-9]{192}$"
+            description: "A valid BLS signature."
       responses:
         200:
           description: Success response

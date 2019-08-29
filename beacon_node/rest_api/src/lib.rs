@@ -173,7 +173,7 @@ pub fn start_server<T: BeaconChainTypes>(
                     helpers::implementation_pending_response(req)
                 }
                 (&Method::GET, "/beacon/validator/attestation") => {
-                    helpers::implementation_pending_response(req)
+                    validator::get_new_attestation::<T>(req)
                 }
                 (&Method::POST, "/beacon/validator/attestation") => {
                     helpers::implementation_pending_response(req)
