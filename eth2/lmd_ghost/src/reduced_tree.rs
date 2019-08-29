@@ -470,6 +470,7 @@ where
                 // descendant of both `node` and `prev_in_tree`.
                 if self
                     .iter_ancestors(child_hash)?
+                    .take_while(|(_, slot)| *slot >= self.root_slot())
                     .any(|(ancestor, _slot)| ancestor == node.block_hash)
                 {
                     let child = self.get_mut_node(child_hash)?;
@@ -555,6 +556,7 @@ where
     fn find_prev_in_tree(&mut self, hash: Hash256) -> Option<Hash256> {
         self.iter_ancestors(hash)
             .ok()?
+            .take_while(|(_, slot)| *slot >= self.root_slot())
             .find(|(root, _slot)| self.nodes.contains_key(root))
             .and_then(|(root, _slot)| Some(root))
     }
@@ -562,8 +564,12 @@ where
     /// For the two given block roots (`a_root` and `b_root`), find the first block they share in
     /// the tree. Viz, find the block that these two distinct blocks forked from.
     fn find_highest_common_ancestor(&self, a_root: Hash256, b_root: Hash256) -> Result<Hash256> {
-        let mut a_iter = self.iter_ancestors(a_root)?;
-        let mut b_iter = self.iter_ancestors(b_root)?;
+        let mut a_iter = self
+            .iter_ancestors(a_root)?
+            .take_while(|(_, slot)| *slot >= self.root_slot());
+        let mut b_iter = self
+            .iter_ancestors(b_root)?
+            .take_while(|(_, slot)| *slot >= self.root_slot());
 
         // Combines the `next()` fns on the `a_iter` and `b_iter` and returns the roots of two
         // blocks at the same slot, or `None` if we have gone past genesis or the root of this tree.
