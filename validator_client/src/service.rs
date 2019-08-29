@@ -161,7 +161,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         let slot_clock = SystemTimeSlotClock::from_eth2_genesis(
             genesis_slot,
             genesis_time,
-            Duration::from_secs(eth2_config.spec.seconds_per_slot),
+            Duration::from_millis(eth2_config.spec.milliseconds_per_slot),
         )
         .ok_or_else::<error_chain::Error, _>(|| {
             "Unable to start slot clock. Genesis may not have occurred yet. Exiting.".into()
@@ -250,7 +250,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         // set up the validator work interval - start at next slot and proceed every slot
         let interval = {
             // Set the interval to start at the next slot, and every slot after
-            let slot_duration = Duration::from_secs(service.spec.seconds_per_slot);
+            let slot_duration = Duration::from_millis(service.spec.milliseconds_per_slot);
             //TODO: Handle checked add correctly
             Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
         };

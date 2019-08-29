@@ -76,7 +76,7 @@ where
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
         let store = Arc::new(store);
-        let seconds_per_slot = eth2_config.spec.seconds_per_slot;
+        let milliseconds_per_slot = eth2_config.spec.milliseconds_per_slot;
 
         let spec = &eth2_config.spec.clone();
 
@@ -182,7 +182,7 @@ where
             // set up the validator work interval - start at next slot and proceed every slot
             let interval = {
                 // Set the interval to start at the next slot, and every slot after
-                let slot_duration = Duration::from_secs(seconds_per_slot);
+                let slot_duration = Duration::from_millis(milliseconds_per_slot);
                 //TODO: Handle checked add correctly
                 Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
             };
