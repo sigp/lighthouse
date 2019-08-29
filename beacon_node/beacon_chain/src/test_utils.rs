@@ -130,7 +130,6 @@ where
     /// Does not produce blocks or attestations.
     pub fn advance_slot(&self) {
         self.chain.slot_clock.advance_slot();
-        self.chain.catchup_state().expect("should catchup state");
     }
 
     /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
