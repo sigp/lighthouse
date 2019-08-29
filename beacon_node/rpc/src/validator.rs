@@ -28,9 +28,33 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
         let validators = req.get_validators();
         trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
 
+        let slot = if let Ok(slot) = self.chain.slot() {
+            slot
+        } else {
+            let log_clone = self.log.clone();
+            let f = sink
+                .fail(RpcStatus::new(
+                    RpcStatusCode::FailedPrecondition,
+                    Some("No slot for chain".to_string()),
+                ))
+                .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
+            return ctx.spawn(f);
+        };
+        let state_cow = if let Ok(state) = self.chain.state_at_slot(slot) {
+            state
+        } else {
+            let log_clone = self.log.clone();
+            let f = sink
+                .fail(RpcStatus::new(
+                    RpcStatusCode::FailedPrecondition,
+                    Some("No state".to_string()),
+                ))
+                .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
+            return ctx.spawn(f);
+        };
+        let state = state_cow.as_ref();
+
         let spec = &self.chain.spec;
-        // TODO: this whole module is legacy and not maintained well.
-        let state = &self.chain.head().beacon_state;
         let epoch = Epoch::from(req.get_epoch());
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
