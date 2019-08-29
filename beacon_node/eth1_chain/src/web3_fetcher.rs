@@ -76,7 +76,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 .map_err(|_| {
                     println!("Timed out getting block_number");
                     Eth1Error::Timeout
-                    }),
+                }),
         )
     }
 
@@ -98,7 +98,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 .map_err(|_| {
                     println!("Timed out getting block_hash");
                     Eth1Error::Timeout
-                    }),
+                }),
         )
     }
 
@@ -128,7 +128,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 .map_err(|_| {
                     println!("Timed out getting deposit count");
                     Eth1Error::Timeout
-                    }),
+                }),
         )
     }
 
@@ -155,7 +155,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 .map_err(|_| {
                     println!("Timed out getting deposit root");
                     Eth1Error::Timeout
-                    }),
+                }),
         )
     }
 
@@ -180,9 +180,9 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 })
             })
             .map_err(|e| {
-                    println!("Error processing logs");
-                    Eth1Error::Web3Error(e)
-                });
+                println!("Error processing logs");
+                Eth1Error::Web3Error(e)
+            });
         Box::new(event_future)
     }
 }
@@ -221,7 +221,8 @@ pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData), Eth1Error> {
             Token::FixedBytes(v) => Some(v),
             _ => None,
         })
-        .collect::<Option<Vec<_>>>().ok_or(Eth1Error::DecodingError)?;
+        .collect::<Option<Vec<_>>>()
+        .ok_or(Eth1Error::DecodingError)?;
 
     // Event should have exactly 5 parameters.
     if params.len() == 5 {

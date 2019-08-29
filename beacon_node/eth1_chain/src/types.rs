@@ -1,3 +1,4 @@
+use crate::error::Eth1Error;
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::marker::{Send, Sync};
@@ -5,7 +6,6 @@ use std::sync::Arc;
 use types::DepositData;
 use web3::futures::Future;
 use web3::types::*;
-use crate::error::Eth1Error;
 
 /// Interface for getting Eth1 chain data.
 pub trait Eth1DataFetcher: Send + Sync + Clone {

@@ -1,3 +1,4 @@
+use crate::error::Eth1Error;
 use crate::types::Eth1DataFetcher;
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
@@ -6,7 +7,6 @@ use tokio;
 use types::*;
 use web3::futures::*;
 use web3::types::*;
-use crate::error::Eth1Error;
 
 /// Cache for recent Eth1Data fetched from the Eth1 chain.
 #[derive(Clone, Debug)]
@@ -174,8 +174,10 @@ mod tests {
         let cache_inside = cache.cache.clone();
         let task = interval.take(100).for_each(move |_| {
             let c = cache_inside.clone();
-            cache.update_cache(3 + 1).and_then(move |_| Ok(()))
-            .map_err(|e| println!("Some error {:?}", e))
+            cache
+                .update_cache(3 + 1)
+                .and_then(move |_| Ok(()))
+                .map_err(|e| println!("Some error {:?}", e))
         });
         tokio::run(task.map_err(|e| println!("Some error {:?}", e)));
     }
