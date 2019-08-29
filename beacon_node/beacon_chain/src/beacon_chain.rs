@@ -151,7 +151,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot_clock = T::SlotClock::from_eth2_genesis(
             spec.genesis_slot,
             genesis_state.genesis_time,
-            Duration::from_secs(spec.seconds_per_slot),
+            Duration::from_millis(spec.milliseconds_per_slot),
         )
         .ok_or_else(|| Error::SlotClockDidNotStart)?;
 
@@ -184,7 +184,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot_clock = T::SlotClock::from_eth2_genesis(
             spec.genesis_slot,
             p.state.genesis_time,
-            Duration::from_secs(spec.seconds_per_slot),
+            Duration::from_millis(spec.milliseconds_per_slot),
         )
         .ok_or_else(|| Error::SlotClockDidNotStart)?;
 
@@ -396,17 +396,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(SlotHeight::from(now.as_u64() - genesis_slot.as_u64()))
         }
     }
-
-    /*
-    /// Returns slot of the present state.
-    ///
-    /// This is distinct to `read_slot_clock`, which reads from the actual system clock. If
-    /// `self.state` has not been transitioned it is possible for the system clock to be on a
-    /// different slot to what is returned from this call.
-    pub fn present_slot(&self) -> Slot {
-        self.state.read().slot
-    }
-    */
 
     /// Returns the block proposer for a given slot.
     ///
