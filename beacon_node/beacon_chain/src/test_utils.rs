@@ -383,12 +383,6 @@ where
                                 signature,
                             };
 
-                            /*
-                            self.chain
-                                .process_attestation(attestation.clone())
-                                .expect("should process attestation");
-                                */
-
                             Some(attestation)
                         } else {
                             None

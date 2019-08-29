@@ -9,7 +9,6 @@ pub struct BlockBuilder<T: EthSpec> {
     pub num_validators: usize,
     pub num_proposer_slashings: usize,
     pub num_attester_slashings: usize,
-    // pub num_indices_per_slashable_vote: usize,
     pub num_attestations: usize,
     pub num_deposits: usize,
     pub num_exits: usize,

@@ -148,9 +148,8 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
                 Ok(vec![set_1, set_2])
             })
             .collect::<SignatureSetResult<Vec<Vec<SignatureSet>>>>()?
-            .iter()
+            .into_iter()
             .flatten()
-            .cloned()
             .collect();
 
         self.sets.append(&mut sets);

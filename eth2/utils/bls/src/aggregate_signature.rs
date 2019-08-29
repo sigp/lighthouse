@@ -122,7 +122,6 @@ impl AggregateSignature {
     pub fn from_point(point: G2Point) -> Self {
         Self {
             aggregate_signature: RawAggregateSignature { point },
-            // FIXME: check to ensure it is empty.
             is_empty: false,
         }
     }

@@ -135,7 +135,6 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
     state: &'a BeaconState<T>,
     signature: &'a AggregateSignature,
     indexed_attestation: &'b IndexedAttestation<T>,
-    // pubkeys: &'a IndexedAttestationPublicKeys,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
     let message_0 = AttestationDataAndCustodyBit {
@@ -239,7 +238,7 @@ pub fn exit_signature_set<'a, T: EthSpec>(
     ))
 }
 
-/// Returns a signature set that is valid if the `Transfer` was signed by`transfer.pubkey`.
+/// Returns a signature set that is valid if the `Transfer` was signed by `transfer.pubkey`.
 pub fn transfer_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     transfer: &'a Transfer,
@@ -261,7 +260,7 @@ pub fn transfer_signature_set<'a, T: EthSpec>(
     ))
 }
 
-/// Create an aggregate public key for a list of validators, failing if any key can't be found.
+/// Maps validator indices to public keys.
 fn get_pubkeys<'a, 'b, T, I>(
     state: &'a BeaconState<T>,
     validator_indices: I,

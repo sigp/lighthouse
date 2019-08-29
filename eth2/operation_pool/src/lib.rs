@@ -75,9 +75,6 @@ impl<T: EthSpec> OperationPool<T> {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), AttestationValidationError> {
-        // Check that attestation signatures are valid.
-        verify_attestation_for_state(state, &attestation, VerifySignatures::True, spec)?;
-
         let id = AttestationId::from_data(&attestation.data, state, spec);
 
         // Take a write lock on the attestations map.

@@ -43,7 +43,7 @@ mod verify_transfer;
 pub enum BlockSignatureStrategy {
     /// Do not validate any signature. Use with caution.
     NoVerification,
-    /// Validate each signature individually, as it's object is being processed.
+    /// Validate each signature individually, as its object is being processed.
     VerifyIndividual,
     /// Verify all signatures in bulk at the beginning of block processing.
     VerifyBulk,
@@ -52,9 +52,9 @@ pub enum BlockSignatureStrategy {
 /// The strategy to be used when validating the block's signatures.
 #[derive(PartialEq, Clone, Copy)]
 pub enum VerifySignatures {
-    /// Do not validate any signature. Use with caution.
-    True,
     /// Validate all signatures encountered.
+    True,
+    /// Do not validate any signature. Use with caution.
     False,
 }
 
