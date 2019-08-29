@@ -25,6 +25,7 @@ pub enum BeaconChainError {
         previous_epoch: Epoch,
         new_epoch: Epoch,
     },
+    SlotClockDidNotStart,
     UnableToFindTargetRoot(Slot),
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),

@@ -6,6 +6,7 @@ use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::time::Duration;
 use store::MemoryStore;
 use store::Store;
 use tree_hash::{SignedRoot, TreeHash};
@@ -115,11 +116,12 @@ where
         let log = builder.build().expect("logger should build");
 
         // Slot clock
-        let slot_clock = TestingSlotClock::new(
+        let slot_clock = TestingSlotClock::from_eth2_genesis(
             spec.genesis_slot,
             genesis_state.genesis_time,
-            spec.seconds_per_slot,
-        );
+            Duration::from_secs(spec.seconds_per_slot),
+        )
+        .expect("Slot clock should start");
 
         let chain = BeaconChain::from_genesis(
             store,
@@ -164,7 +166,9 @@ where
         let mut state = {
             // Determine the slot for the first block (or skipped block).
             let state_slot = match block_strategy {
-                BlockStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap() - 1,
+                BlockStrategy::OnCanonicalHead => {
+                    self.chain.present_slot().expect("should have a slot") - 1
+                }
                 BlockStrategy::ForkCanonicalChainAt { previous_slot, .. } => previous_slot,
             };
 
@@ -173,14 +177,16 @@ where
 
         // Determine the first slot where a block should be built.
         let mut slot = match block_strategy {
-            BlockStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap(),
+            BlockStrategy::OnCanonicalHead => {
+                self.chain.present_slot().expect("should have a slot")
+            }
             BlockStrategy::ForkCanonicalChainAt { first_slot, .. } => first_slot,
         };
 
         let mut head_block_root = None;
 
         for _ in 0..num_blocks {
-            while self.chain.read_slot_clock().expect("should have a slot") < slot {
+            while self.chain.present_slot().expect("should have a slot") < slot {
                 self.advance_slot();
             }
 
