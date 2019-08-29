@@ -248,9 +248,6 @@ paths:
                       format: uint64
                       description: "UNIX time in milliseconds that the block was first discovered, either from a network peer or the validator client."
 
-
-
-
   /beacon/head:
     get:
       tags:
@@ -307,13 +304,75 @@ paths:
                     format: bytes
                     pattern: "^0x[a-fA-F0-9]{64}$"
                     description: "The block root of the second most recent justified block."
+        500:
+          $ref: '#/components/responses/InternalError'
 
 
-  #TODO Fill out block endpoint
   /beacon/block:
+    get:
+      tags:
+        - Phase0
+      summary: 'Retrieve blocks by root or slot.'
+      description: "Request that the beacon node return beacon chain blocks that match the provided criteria (a block root or beacon chain slot). Only one of the parameters can be be provided at a time."
+      parameters:
+        - name: root
+          description: "Filter by block root."
+          in: query
+          required: false
+          schema:
+            type: string
+            format: bytes
+            pattern: "^0x[a-fA-F0-9]{64}$"
+        - name: slot
+          description: "Filter blocks by slot number. Only one block which has been finalized, or is believed to be the canonical block for that slot, is returned."
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BeaconBlock'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
 
   #TODO Fill out block_root endpoint
   /beacon/block_root:
+    get:
+      tags:
+        - Phase0
+      summary: "Retrieve the canonical block root, given a particular slot."
+      description: "Request that the beacon node return the root of the canonical beacon chain block, which matches the provided slot number."
+      parameters:
+        - name: slot
+          description: "Filter blocks by slot number. Only one block which has been finalized, or is believed to be the canonical block for that slot, is returned."
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response.
+          content:
+            application/json:
+              schema:
+                type: string
+                format: byte
+                pattern: "^0x[a-fA-F0-9]{64}$"
+                description: "The 0x prefixed block root."
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
 
   /beacon/blocks:
     get:
@@ -373,6 +432,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fork'
+        500:
+          $ref: '#/components/responses/InternalError'
 
 
   /beacon/attestations:

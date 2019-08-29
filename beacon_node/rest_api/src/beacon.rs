@@ -81,7 +81,7 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
             let target = parse_slot(&value)?;
 
             block_root_at_slot(&beacon_chain, target).ok_or_else(|| {
-                ApiError::NotFound(format!("Unable to find BeaconBlock for slot {}", target))
+                ApiError::NotFound(format!("Unable to find BeaconBlock for slot {:?}", target))
             })?
         }
         ("root", value) => parse_root(&value)?,
@@ -93,7 +93,7 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         .get::<BeaconBlock<T::EthSpec>>(&block_root)?
         .ok_or_else(|| {
             ApiError::NotFound(format!(
-                "Unable to find BeaconBlock for root {}",
+                "Unable to find BeaconBlock for root {:?}",
                 block_root
             ))
         })?;
@@ -121,7 +121,7 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     let target = parse_slot(&slot_string)?;
 
     let root = block_root_at_slot(&beacon_chain, target).ok_or_else(|| {
-        ApiError::NotFound(format!("Unable to find BeaconBlock for slot {}", target))
+        ApiError::NotFound(format!("Unable to find BeaconBlock for slot {:?}", target))
     })?;
 
     let json: String = serde_json::to_string(&root)
@@ -174,7 +174,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
             let state = beacon_chain
                 .store
                 .get(root)?
-                .ok_or_else(|| ApiError::NotFound(format!("No state for root: {}", root)))?;
+                .ok_or_else(|| ApiError::NotFound(format!("No state for root: {:?}", root)))?;
 
             (*root, state)
         }
