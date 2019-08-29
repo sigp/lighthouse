@@ -259,11 +259,17 @@ fn main() {
              */
             .subcommand(SubCommand::with_name("recent")
                 .about("Creates a new genesis state where the genesis time was at the previous \
-                       30-minute boundary (e.g., 12:00, 12:30, 13:00, etc.)")
+                       MINUTES boundary (e.g., when MINUTES == 30; 12:00, 12:30, 13:00, etc.)")
                 .arg(Arg::with_name("validator_count")
                     .value_name("VALIDATOR_COUNT")
                     .required(true)
                     .help("The number of validators in the genesis state"))
+                .arg(Arg::with_name("minutes")
+                    .short("m")
+                    .value_name("MINUTES")
+                    .required(true)
+                    .default_value("15")
+                    .help("The maximum number of minutes that will have elapsed before genesis"))
             )
             .subcommand(SubCommand::with_name("yaml-genesis-state")
                 .about("Creates a new datadir where the genesis state is read from YAML. Will fail to parse \

@@ -22,8 +22,13 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> BeaconChainBuilder<T> {
-    pub fn recent_genesis(validator_count: usize, spec: ChainSpec, log: Logger) -> Self {
-        Self::quick_start(recent_genesis_time(), validator_count, spec, log)
+    pub fn recent_genesis(
+        validator_count: usize,
+        minutes: u64,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> Self {
+        Self::quick_start(recent_genesis_time(minutes), validator_count, spec, log)
     }
 
     pub fn quick_start(
@@ -123,12 +128,12 @@ fn genesis_block<T: EthSpec>(genesis_state: &BeaconState<T>, spec: &ChainSpec) -
 /// Returns the system time, mod 30 minutes.
 ///
 /// Used for easily creating testnets.
-fn recent_genesis_time() -> u64 {
+fn recent_genesis_time(minutes: u64) -> u64 {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    let secs_after_last_period = now.checked_rem(30 * 60).unwrap_or(0);
-    // genesis is now the last 30 minute block.
+    let secs_after_last_period = now.checked_rem(minutes * 60).unwrap_or(0);
+    // genesis is now the last 15 minute block.
     now - secs_after_last_period
 }

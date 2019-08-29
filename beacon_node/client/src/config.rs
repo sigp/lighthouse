@@ -42,7 +42,10 @@ pub enum BeaconChainStartMethod {
     /// Create a new beacon chain that can connect to mainnet.
     ///
     /// Set the genesis time to be the start of the previous 30-minute window.
-    RecentGenesis { validator_count: usize },
+    RecentGenesis {
+        validator_count: usize,
+        minutes: u64,
+    },
     /// Create a new beacon chain with `genesis_time` and `validator_count` validators, all with well-known
     /// secret keys.
     Generated {

@@ -120,8 +120,15 @@ fn process_testnet_subcommand(
                 .parse::<usize>()
                 .map_err(|e| format!("Unable to parse validator_count: {:?}", e))?;
 
+            let minutes = cli_args
+                .value_of("minutes")
+                .ok_or_else(|| "No recent genesis minutes supplied")?
+                .parse::<u64>()
+                .map_err(|e| format!("Unable to parse minutes: {:?}", e))?;
+
             builder.set_beacon_chain_start_method(BeaconChainStartMethod::RecentGenesis {
                 validator_count,
+                minutes,
             })
         }
         _ => return Err("No testnet method specified. See 'testnet --help'.".into()),

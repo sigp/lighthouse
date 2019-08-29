@@ -88,9 +88,15 @@ where
                 crit!(log, "No mainnet beacon chain startup specification.");
                 return Err("Mainnet is not yet specified. We're working on it.".into());
             }
-            BeaconChainStartMethod::RecentGenesis { validator_count } => {
-                BeaconChainBuilder::recent_genesis(*validator_count, spec.clone(), log.clone())
-            }
+            BeaconChainStartMethod::RecentGenesis {
+                validator_count,
+                minutes,
+            } => BeaconChainBuilder::recent_genesis(
+                *validator_count,
+                *minutes,
+                spec.clone(),
+                log.clone(),
+            ),
             BeaconChainStartMethod::Generated {
                 validator_count,
                 genesis_time,
