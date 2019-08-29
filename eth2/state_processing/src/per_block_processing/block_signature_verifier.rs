@@ -18,7 +18,7 @@ pub enum Error {
     /// There was an error attempting to read from a `BeaconState`. Block
     /// validity was not determined.
     BeaconStateError(BeaconStateError),
-    /// Failed to load a signature set. The block may been invalid, or we failed to process it.
+    /// Failed to load a signature set. The block may be invalid or we failed to process it.
     SignatureSetError(SignatureSetError),
 }
 
