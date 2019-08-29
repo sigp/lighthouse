@@ -1,7 +1,5 @@
 use crate::fork_choice::Error as ForkChoiceError;
-use state_processing::per_block_processing::errors::{
-    AttestationValidationError, IndexedAttestationValidationError,
-};
+use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
 use types::*;
@@ -38,7 +36,6 @@ pub enum BeaconChainError {
         beacon_block_root: Hash256,
     },
     AttestationValidationError(AttestationValidationError),
-    IndexedAttestationValidationError(IndexedAttestationValidationError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -56,4 +53,3 @@ easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
-easy_from_to!(IndexedAttestationValidationError, BeaconChainError);

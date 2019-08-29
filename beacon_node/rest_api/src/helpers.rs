@@ -1,5 +1,10 @@
-use crate::ApiError;
+use crate::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use bls::PublicKey;
+use hex;
+use hyper::{Body, Request, StatusCode};
+use serde::de::value::StringDeserializer;
+use serde_json::Deserializer;
 use store::{iter::AncestorIter, Store};
 use types::{BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
 
@@ -28,6 +33,23 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
         Err(ApiError::InvalidQueryParams(
             "Root must have a  '0x' prefix".to_string(),
         ))
+    }
+}
+
+/// Parse a PublicKey from a `0x` prefixed hex string
+pub fn parse_pubkey(string: &str) -> Result<PublicKey, ApiError> {
+    const PREFIX: &str = "0x";
+    if string.starts_with(PREFIX) {
+        let pubkey_bytes = hex::decode(string.trim_start_matches(PREFIX))
+            .map_err(|e| ApiError::InvalidQueryParams(format!("Invalid hex string: {:?}", e)))?;
+        let pubkey = PublicKey::from_bytes(pubkey_bytes.as_slice()).map_err(|e| {
+            ApiError::InvalidQueryParams(format!("Unable to deserialize public key: {:?}.", e))
+        })?;
+        return Ok(pubkey);
+    } else {
+        return Err(ApiError::InvalidQueryParams(
+            "Public key must have a  '0x' prefix".to_string(),
+        ));
     }
 }
 
@@ -141,6 +163,12 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         // used here.
         Ok(state.canonical_root())
     }
+}
+
+pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
+    Err(ApiError::NotImplemented(
+        "API endpoint has not yet been implemented, but is planned to be soon.".to_owned(),
+    ))
 }
 
 #[cfg(test)]

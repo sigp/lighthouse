@@ -19,8 +19,7 @@ use state_processing::per_block_processing::{
     verify_attestation_for_state, VerifySignatures,
 };
 use state_processing::{
-    per_block_processing, per_block_processing_without_verifying_block_signature,
-    per_slot_processing, BlockProcessingError,
+    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -716,7 +715,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 finalized: finalized_epoch,
             })
         } else if let Err(e) =
-            verify_attestation_for_state(state, &attestation, &self.spec, VerifySignatures::True)
+            verify_attestation_for_state(state, &attestation, VerifySignatures::True, &self.spec)
         {
             warn!(
                 self.log,
@@ -895,7 +894,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).
-        match per_block_processing(&mut state, &block, &self.spec) {
+        match per_block_processing(
+            &mut state,
+            &block,
+            Some(block_root),
+            BlockSignatureStrategy::VerifyIndividual,
+            &self.spec,
+        ) {
             Err(BlockProcessingError::BeaconStateError(e)) => {
                 return Err(Error::BeaconStateError(e))
             }
@@ -1059,7 +1064,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
         };
 
-        per_block_processing_without_verifying_block_signature(&mut state, &block, &self.spec)?;
+        per_block_processing(
+            &mut state,
+            &block,
+            None,
+            BlockSignatureStrategy::NoVerification,
+            &self.spec,
+        )?;
 
         let state_root = state.canonical_root();
 

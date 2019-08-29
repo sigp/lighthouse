@@ -6,6 +6,7 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
+bls = { path = "../../eth2/utils/bls" }
 beacon_chain = { path = "../beacon_chain" }
 network = { path = "../network" }
 eth2-libp2p = { path = "../eth2-libp2p" }
@@ -30,3 +31,4 @@ lazy_static = "1.3.0"
 eth2_config = { path = "../../eth2/utils/eth2_config" }
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
+hex = "0.3.2"

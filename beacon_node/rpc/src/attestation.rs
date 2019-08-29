@@ -178,21 +178,6 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 resp.set_success(false);
                 resp.set_msg(format!("InvalidAttestation: {:?}", e).as_bytes().to_vec());
             }
-            Err(BeaconChainError::IndexedAttestationValidationError(e)) => {
-                // Indexed attestation was invalid
-                warn!(
-                    self.log,
-                    "PublishAttestation";
-                    "type" => "invalid_attestation",
-                    "error" => format!("{:?}", e),
-                );
-                resp.set_success(false);
-                resp.set_msg(
-                    format!("InvalidIndexedAttestation: {:?}", e)
-                        .as_bytes()
-                        .to_vec(),
-                );
-            }
             Err(e) => {
                 // Some other error
                 warn!(

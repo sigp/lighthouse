@@ -2,7 +2,7 @@ use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use serde_derive::Deserialize;
-use state_processing::per_block_processing::process_proposer_slashings;
+use state_processing::per_block_processing::{process_proposer_slashings, VerifySignatures};
 use types::{BeaconState, EthSpec, ProposerSlashing};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,8 +36,12 @@ impl<E: EthSpec> Case for OperationsProposerSlashing<E> {
         // Processing requires the epoch cache.
         state.build_all_caches(&E::default_spec()).unwrap();
 
-        let result =
-            process_proposer_slashings(&mut state, &[proposer_slashing], &E::default_spec());
+        let result = process_proposer_slashings(
+            &mut state,
+            &[proposer_slashing],
+            VerifySignatures::True,
+            &E::default_spec(),
+        );
 
         let mut result = result.and_then(|_| Ok(state));
 

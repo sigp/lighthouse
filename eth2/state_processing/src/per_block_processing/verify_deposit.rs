@@ -1,8 +1,16 @@
-use super::errors::{DepositInvalid as Invalid, DepositValidationError as Error};
+use super::errors::{BlockOperationError, DepositInvalid};
+use crate::per_block_processing::signature_sets::{
+    deposit_pubkey_signature_message, deposit_signature_set,
+};
 use merkle_proof::verify_merkle_proof;
-use std::convert::TryInto;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::TreeHash;
 use types::*;
+
+type Result<T> = std::result::Result<T, BlockOperationError<DepositInvalid>>;
+
+fn error(reason: DepositInvalid) -> BlockOperationError<DepositInvalid> {
+    BlockOperationError::invalid(reason)
+}
 
 /// Verify `Deposit.pubkey` signed `Deposit.signature`.
 ///
@@ -11,18 +19,13 @@ pub fn verify_deposit_signature<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
     spec: &ChainSpec,
-    pubkey: &PublicKey,
-) -> Result<(), Error> {
-    // Note: Deposits are valid across forks, thus the deposit domain is computed
-    // with the fork zeroed.
-    let domain = spec.get_domain(state.current_epoch(), Domain::Deposit, &Fork::default());
-    let signature: Signature = (&deposit.data.signature)
-        .try_into()
-        .map_err(|_| Error::Invalid(Invalid::BadSignatureBytes))?;
+) -> Result<()> {
+    let deposit_signature_message = deposit_pubkey_signature_message(deposit)
+        .ok_or_else(|| error(DepositInvalid::BadBlsBytes))?;
 
     verify!(
-        signature.verify(&deposit.data.signed_root(), domain, pubkey),
-        Invalid::BadSignature
+        deposit_signature_set(state, &deposit_signature_message, spec).is_valid(),
+        DepositInvalid::BadSignature
     );
 
     Ok(())
@@ -37,7 +40,7 @@ pub fn verify_deposit_signature<T: EthSpec>(
 pub fn get_existing_validator_index<T: EthSpec>(
     state: &BeaconState<T>,
     pub_key: &PublicKey,
-) -> Result<Option<u64>, Error> {
+) -> Result<Option<u64>> {
     let validator_index = state.get_validator_index(pub_key)?;
     Ok(validator_index.map(|idx| idx as u64))
 }
@@ -53,7 +56,7 @@ pub fn verify_deposit_merkle_proof<T: EthSpec>(
     deposit: &Deposit,
     deposit_index: u64,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<()> {
     let leaf = deposit.data.tree_hash_root();
 
     verify!(
@@ -64,7 +67,7 @@ pub fn verify_deposit_merkle_proof<T: EthSpec>(
             deposit_index as usize,
             state.eth1_data.deposit_root,
         ),
-        Invalid::BadMerkleProof
+        DepositInvalid::BadMerkleProof
     );
 
     Ok(())
