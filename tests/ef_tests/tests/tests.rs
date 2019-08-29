@@ -48,6 +48,7 @@ fn yaml_files_in_test_dir(dir: &Path) -> Vec<PathBuf> {
     paths
 }
 
+/*
 #[test]
 #[cfg(feature = "fake_crypto")]
 fn ssz_generic() {
@@ -58,6 +59,7 @@ fn ssz_generic() {
         });
 }
 
+
 #[test]
 #[cfg(feature = "fake_crypto")]
 fn ssz_static() {
@@ -67,16 +69,15 @@ fn ssz_static() {
             Doc::assert_tests_pass(file);
         });
 }
+*/
 
 #[test]
 fn shuffling() {
-    yaml_files_in_test_dir(&Path::new("shuffling").join("core"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    ShufflingHandler::<MinimalEthSpec>::run();
+    ShufflingHandler::<MainnetEthSpec>::run();
 }
 
+/*
 #[test]
 fn operations_deposit() {
     yaml_files_in_test_dir(&Path::new("operations").join("deposit"))
@@ -140,25 +141,21 @@ fn operations_block_header() {
             Doc::assert_tests_pass(file);
         });
 }
+*/
 
 #[test]
 fn sanity_blocks() {
-    yaml_files_in_test_dir(&Path::new("sanity").join("blocks"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    SanityBlocksHandler::<MinimalEthSpec>::run();
+    SanityBlocksHandler::<MainnetEthSpec>::run();
 }
 
 #[test]
 fn sanity_slots() {
-    yaml_files_in_test_dir(&Path::new("sanity").join("slots"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    SanitySlotsHandler::<MinimalEthSpec>::run();
+    SanitySlotsHandler::<MainnetEthSpec>::run();
 }
 
+/*
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn bls() {
@@ -168,6 +165,7 @@ fn bls() {
             Doc::assert_tests_pass(file);
         });
 }
+*/
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
@@ -264,6 +262,7 @@ ssz_static_test!(ssz_static_transfer, Transfer, SR);
 ssz_static_test!(ssz_static_validator, Validator);
 ssz_static_test!(ssz_static_voluntary_exit, VoluntaryExit, SR);
 
+/*
 #[test]
 fn epoch_processing_justification_and_finalization() {
     yaml_files_in_test_dir(&Path::new("epoch_processing").join("justification_and_finalization"))
@@ -326,3 +325,4 @@ fn genesis_validity() {
             Doc::assert_tests_pass(file);
         });
 }
+*/

@@ -1,6 +1,7 @@
 use super::*;
 use compare_fields::{CompareFields, Comparison, FieldComparison};
 use std::fmt::Debug;
+use std::path::PathBuf;
 use types::BeaconState;
 
 pub const MAX_VALUE_STRING_LEN: usize = 500;
@@ -9,6 +10,7 @@ pub const MAX_VALUE_STRING_LEN: usize = 500;
 pub struct CaseResult {
     pub case_index: usize,
     pub desc: String,
+    pub path: PathBuf,
     pub result: Result<(), Error>,
 }
 
@@ -17,6 +19,7 @@ impl CaseResult {
         CaseResult {
             case_index,
             desc: case.description(),
+            path: case.path().into(),
             result,
         }
     }

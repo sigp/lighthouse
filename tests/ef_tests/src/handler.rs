@@ -5,6 +5,7 @@ use std::fs;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use tree_hash::SignedRoot;
+use types::EthSpec;
 
 pub trait Handler {
     type Case: Case + LoadCase;
@@ -47,7 +48,8 @@ pub trait Handler {
 
         let results = Cases { test_cases }.test_results();
 
-        crate::doc::assert_tests_pass(&handler_path, &results);
+        let name = format!("{}/{}", Self::runner_name(), Self::handler_name());
+        crate::results::assert_tests_pass(&name, &handler_path, &results);
     }
 }
 
@@ -126,5 +128,59 @@ where
 
     fn handler_name() -> &'static str {
         T::name()
+    }
+}
+
+pub struct ShufflingHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
+    type Case = cases::Shuffling<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "shuffling"
+    }
+
+    fn handler_name() -> &'static str {
+        "core"
+    }
+}
+
+pub struct SanityBlocksHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
+    type Case = cases::SanityBlocks<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "sanity"
+    }
+
+    fn handler_name() -> &'static str {
+        "blocks"
+    }
+}
+
+pub struct SanitySlotsHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
+    type Case = cases::SanitySlots<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "sanity"
+    }
+
+    fn handler_name() -> &'static str {
+        "slots"
     }
 }

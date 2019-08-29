@@ -67,6 +67,11 @@ pub trait Case: Debug {
         "no description".to_string()
     }
 
+    /// Path to the directory for this test case.
+    fn path(&self) -> &Path {
+        Path::new("")
+    }
+
     /// Execute a test and return the result.
     ///
     /// `case_index` reports the index of the case in the set of test cases. It is not strictly
@@ -76,19 +81,13 @@ pub trait Case: Debug {
 
 pub trait BlsCase: serde::de::DeserializeOwned {}
 
-impl<T> YamlDecode for T
-where
-    T: BlsCase,
-{
+impl<T: BlsCase> YamlDecode for T {
     fn yaml_decode(string: &str) -> Result<Self, Error> {
         serde_yaml::from_str(string).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
     }
 }
 
-impl<T> LoadCase for T
-where
-    T: BlsCase,
-{
+impl<T: BlsCase> LoadCase for T {
     fn load_from_dir(path: &Path) -> Result<Self, Error> {
         Self::yaml_decode_file(&path.join("data.yaml"))
     }
@@ -109,39 +108,5 @@ where
             .enumerate()
             .map(|(i, tc)| CaseResult::new(i, tc, tc.result(i)))
             .collect()
-    }
-}
-
-// FIXME(michael): delete this
-impl<T: YamlDecode> YamlDecode for Cases<T> {
-    /// Decodes a YAML list of test cases
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        let mut p = 0;
-        let mut elems: Vec<&str> = yaml
-            .match_indices("\n- ")
-            // Skip the `\n` used for matching a new line
-            .map(|(i, _)| i + 1)
-            .map(|i| {
-                let yaml_element = &yaml[p..i];
-                p = i;
-
-                yaml_element
-            })
-            .collect();
-
-        elems.push(&yaml[p..]);
-
-        let test_cases = elems
-            .iter()
-            .map(|s| {
-                // Remove the `- ` prefix.
-                let s = &s[2..];
-                // Remove a single level of indenting.
-                s.replace("\n  ", "\n")
-            })
-            .map(|s| T::yaml_decode(&s.to_string()).unwrap())
-            .collect();
-
-        Ok(Self { test_cases })
     }
 }
