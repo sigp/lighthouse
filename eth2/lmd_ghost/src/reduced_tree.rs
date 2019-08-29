@@ -311,51 +311,53 @@ where
     /// become redundant and removed from the reduced tree.
     fn remove_latest_message(&mut self, validator_index: usize) -> Result<()> {
         if let Some(vote) = *self.latest_votes.get(validator_index) {
-            self.get_mut_node(vote.hash)?.remove_voter(validator_index);
-            let node = self.get_node(vote.hash)?.clone();
+            if self.nodes.contains_key(&vote.hash) {
+                self.get_mut_node(vote.hash)?.remove_voter(validator_index);
+                let node = self.get_node(vote.hash)?.clone();
 
-            if let Some(parent_hash) = node.parent_hash {
-                if node.has_votes() || node.children.len() > 1 {
-                    // A node with votes or more than one child is never removed.
-                } else if node.children.len() == 1 {
-                    // A node which has only one child may be removed.
-                    //
-                    // Load the child of the node and set it's parent to be the parent of this
-                    // node (viz., graft the node's child to the node's parent)
-                    let child = self.get_mut_node(node.children[0])?;
-                    child.parent_hash = node.parent_hash;
+                if let Some(parent_hash) = node.parent_hash {
+                    if node.has_votes() || node.children.len() > 1 {
+                        // A node with votes or more than one child is never removed.
+                    } else if node.children.len() == 1 {
+                        // A node which has only one child may be removed.
+                        //
+                        // Load the child of the node and set it's parent to be the parent of this
+                        // node (viz., graft the node's child to the node's parent)
+                        let child = self.get_mut_node(node.children[0])?;
+                        child.parent_hash = node.parent_hash;
 
-                    // Graft the parent of this node to it's child.
-                    if let Some(parent_hash) = node.parent_hash {
-                        let parent = self.get_mut_node(parent_hash)?;
-                        parent.replace_child(node.block_hash, node.children[0])?;
+                        // Graft the parent of this node to it's child.
+                        if let Some(parent_hash) = node.parent_hash {
+                            let parent = self.get_mut_node(parent_hash)?;
+                            parent.replace_child(node.block_hash, node.children[0])?;
+                        }
+
+                        self.nodes.remove(&vote.hash);
+                    } else if node.children.is_empty() {
+                        // Remove the to-be-deleted node from it's parent.
+                        if let Some(parent_hash) = node.parent_hash {
+                            self.get_mut_node(parent_hash)?
+                                .remove_child(node.block_hash)?;
+                        }
+
+                        self.nodes.remove(&vote.hash);
+
+                        // A node which has no children may be deleted and potentially it's parent
+                        // too.
+                        self.maybe_delete_node(parent_hash)?;
+                    } else {
+                        // It is impossible for a node to have a number of children that is not 0, 1 or
+                        // greater than one.
+                        //
+                        // This code is strictly unnecessary, however we keep it for readability.
+                        unreachable!();
                     }
-
-                    self.nodes.remove(&vote.hash);
-                } else if node.children.is_empty() {
-                    // Remove the to-be-deleted node from it's parent.
-                    if let Some(parent_hash) = node.parent_hash {
-                        self.get_mut_node(parent_hash)?
-                            .remove_child(node.block_hash)?;
-                    }
-
-                    self.nodes.remove(&vote.hash);
-
-                    // A node which has no children may be deleted and potentially it's parent
-                    // too.
-                    self.maybe_delete_node(parent_hash)?;
                 } else {
-                    // It is impossible for a node to have a number of children that is not 0, 1 or
-                    // greater than one.
-                    //
-                    // This code is strictly unnecessary, however we keep it for readability.
-                    unreachable!();
+                    // A node without a parent is the genesis/finalized node and should never be removed.
                 }
-            } else {
-                // A node without a parent is the genesis/finalized node and should never be removed.
-            }
 
-            self.latest_votes.insert(validator_index, Some(vote));
+                self.latest_votes.insert(validator_index, Some(vote));
+            }
         }
 
         Ok(())
@@ -370,25 +372,30 @@ where
     /// - it does not have any votes.
     fn maybe_delete_node(&mut self, hash: Hash256) -> Result<()> {
         let should_delete = {
-            let node = self.get_node(hash)?.clone();
+            if let Ok(node) = self.get_node(hash) {
+                let node = node.clone();
 
-            if let Some(parent_hash) = node.parent_hash {
-                if (node.children.len() == 1) && !node.has_votes() {
-                    let child_hash = node.children[0];
+                if let Some(parent_hash) = node.parent_hash {
+                    if (node.children.len() == 1) && !node.has_votes() {
+                        let child_hash = node.children[0];
 
-                    // Graft the single descendant `node` to the `parent` of node.
-                    self.get_mut_node(child_hash)?.parent_hash = Some(parent_hash);
+                        // Graft the single descendant `node` to the `parent` of node.
+                        self.get_mut_node(child_hash)?.parent_hash = Some(parent_hash);
 
-                    // Detach `node` from `parent`, replacing it with `child`.
-                    self.get_mut_node(parent_hash)?
-                        .replace_child(hash, child_hash)?;
+                        // Detach `node` from `parent`, replacing it with `child`.
+                        self.get_mut_node(parent_hash)?
+                            .replace_child(hash, child_hash)?;
 
-                    true
+                        true
+                    } else {
+                        false
+                    }
                 } else {
+                    // A node without a parent is the genesis node and should not be deleted.
                     false
                 }
             } else {
-                // A node without a parent is the genesis node and should not be deleted.
+                // No need to delete a node that does not exist.
                 false
             }
         };
@@ -463,6 +470,7 @@ where
                 // descendant of both `node` and `prev_in_tree`.
                 if self
                     .iter_ancestors(child_hash)?
+                    .take_while(|(_, slot)| *slot >= self.root_slot())
                     .any(|(ancestor, _slot)| ancestor == node.block_hash)
                 {
                     let child = self.get_mut_node(child_hash)?;
@@ -548,6 +556,7 @@ where
     fn find_prev_in_tree(&mut self, hash: Hash256) -> Option<Hash256> {
         self.iter_ancestors(hash)
             .ok()?
+            .take_while(|(_, slot)| *slot >= self.root_slot())
             .find(|(root, _slot)| self.nodes.contains_key(root))
             .and_then(|(root, _slot)| Some(root))
     }
@@ -555,8 +564,12 @@ where
     /// For the two given block roots (`a_root` and `b_root`), find the first block they share in
     /// the tree. Viz, find the block that these two distinct blocks forked from.
     fn find_highest_common_ancestor(&self, a_root: Hash256, b_root: Hash256) -> Result<Hash256> {
-        let mut a_iter = self.iter_ancestors(a_root)?;
-        let mut b_iter = self.iter_ancestors(b_root)?;
+        let mut a_iter = self
+            .iter_ancestors(a_root)?
+            .take_while(|(_, slot)| *slot >= self.root_slot());
+        let mut b_iter = self
+            .iter_ancestors(b_root)?
+            .take_while(|(_, slot)| *slot >= self.root_slot());
 
         // Combines the `next()` fns on the `a_iter` and `b_iter` and returns the roots of two
         // blocks at the same slot, or `None` if we have gone past genesis or the root of this tree.
