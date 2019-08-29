@@ -2,6 +2,7 @@ use super::{
     fake_aggregate_public_key::FakeAggregatePublicKey, fake_signature::FakeSignature,
     BLS_AGG_SIG_BYTE_SIZE,
 };
+use milagro_bls::G2Point;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -14,6 +15,8 @@ use ssz::{ssz_encode, Decode, DecodeError, Encode};
 #[derive(Debug, PartialEq, Clone, Default, Eq)]
 pub struct FakeAggregateSignature {
     bytes: Vec<u8>,
+    /// Never used, only use for compatibility with "real" `AggregateSignature`.
+    pub point: G2Point,
 }
 
 impl FakeAggregateSignature {
@@ -26,7 +29,12 @@ impl FakeAggregateSignature {
     pub fn zero() -> Self {
         Self {
             bytes: vec![0; BLS_AGG_SIG_BYTE_SIZE],
+            point: G2Point::new(),
         }
+    }
+
+    pub fn as_raw(&self) -> &Self {
+        &self
     }
 
     /// Does glorious nothing.
@@ -69,6 +77,7 @@ impl FakeAggregateSignature {
         } else {
             Ok(Self {
                 bytes: bytes.to_vec(),
+                point: G2Point::new(),
             })
         }
     }
