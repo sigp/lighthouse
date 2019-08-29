@@ -1,14 +1,10 @@
-use crate::{Bootstrapper, Eth2Config};
 use clap::ArgMatches;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
-use slog::{info, o, warn, Drain};
+use slog::{info, o, Drain};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Mutex;
-
-/// The number initial validators when starting the `Minimal`.
-const TESTNET_VALIDATOR_COUNT: usize = 16;
 
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
@@ -21,33 +17,49 @@ pub struct Config {
     db_name: String,
     pub log_file: PathBuf,
     pub spec_constants: String,
-    pub genesis_state: GenesisState,
+    /// Defines how we should initialize a BeaconChain instances.
+    ///
+    /// This field is not serialized, there for it will not be written to (or loaded from) config
+    /// files. It can only be configured via the CLI.
+    #[serde(skip)]
+    pub beacon_chain_start_method: BeaconChainStartMethod,
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub rest_api: rest_api::ApiConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum GenesisState {
-    /// Use the mainnet genesis state.
-    ///
-    /// Mainnet genesis state is not presently known, so this is a place-holder.
+/// Defines how the client should initialize a BeaconChain.
+///
+/// In general, there are two methods:
+///  - resuming a new chain, or
+///  - initializing a new one.
+#[derive(Debug, Clone)]
+pub enum BeaconChainStartMethod {
+    /// Resume from an existing BeaconChain, loaded from the existing local database.
+    Resume,
+    /// Resume from an existing BeaconChain, loaded from the existing local database.
     Mainnet,
-    /// Generate a state with `validator_count` validators, all with well-known secret keys.
+    /// Create a new beacon chain that can connect to mainnet.
     ///
     /// Set the genesis time to be the start of the previous 30-minute window.
     RecentGenesis { validator_count: usize },
-    /// Generate a state with `genesis_time` and `validator_count` validators, all with well-known
+    /// Create a new beacon chain with `genesis_time` and `validator_count` validators, all with well-known
     /// secret keys.
     Generated {
         validator_count: usize,
         genesis_time: u64,
     },
-    /// Load a YAML-encoded genesis state from a file.
+    /// Create a new beacon chain by loading a YAML-encoded genesis state from a file.
     Yaml { file: PathBuf },
-    /// Use a HTTP server (running our REST-API) to load genesis and finalized states and blocks.
-    HttpBootstrap { server: String },
+    /// Create a new beacon chain by using a HTTP server (running our REST-API) to load genesis and
+    /// finalized states and blocks.
+    HttpBootstrap { server: String, port: Option<u16> },
+}
+
+impl Default for BeaconChainStartMethod {
+    fn default() -> Self {
+        BeaconChainStartMethod::Resume
+    }
 }
 
 impl Default for Config {
@@ -58,12 +70,10 @@ impl Default for Config {
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
             network: NetworkConfig::new(),
-            rpc: rpc::RPCConfig::default(),
-            rest_api: rest_api::ApiConfig::default(),
+            rpc: <_>::default(),
+            rest_api: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
-            genesis_state: GenesisState::RecentGenesis {
-                validator_count: TESTNET_VALIDATOR_COUNT,
-            },
+            beacon_chain_start_method: <_>::default(),
         }
     }
 }
@@ -127,15 +137,6 @@ impl Config {
             self.data_dir = PathBuf::from(dir);
         };
 
-        if let Some(default_spec) = args.value_of("default-spec") {
-            match default_spec {
-                "mainnet" => self.spec_constants = Eth2Config::mainnet().spec_constants,
-                "minimal" => self.spec_constants = Eth2Config::minimal().spec_constants,
-                "interop" => self.spec_constants = Eth2Config::interop().spec_constants,
-                _ => {} // not supported
-            }
-        }
-
         if let Some(dir) = args.value_of("db") {
             self.db_type = dir.to_string();
         };
@@ -149,40 +150,6 @@ impl Config {
             self.update_logger(log)?;
         };
 
-        // If the `--bootstrap` flag is provided, overwrite the default configuration.
-        if let Some(server) = args.value_of("bootstrap") {
-            do_bootstrapping(self, server.to_string(), &log)?;
-        }
-
         Ok(())
     }
-}
-
-/// Perform the HTTP bootstrapping procedure, reading an ENR and multiaddr from the HTTP server and
-/// adding them to the `config`.
-fn do_bootstrapping(config: &mut Config, server: String, log: &slog::Logger) -> Result<(), String> {
-    // Set the genesis state source.
-    config.genesis_state = GenesisState::HttpBootstrap {
-        server: server.to_string(),
-    };
-
-    let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
-
-    config.network.boot_nodes.push(bootstrapper.enr()?);
-
-    if let Some(server_multiaddr) = bootstrapper.best_effort_multiaddr() {
-        info!(
-            log,
-            "Estimated bootstrapper libp2p address";
-            "multiaddr" => format!("{:?}", server_multiaddr)
-        );
-        config.network.libp2p_nodes.push(server_multiaddr);
-    } else {
-        warn!(
-            log,
-            "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
-        );
-    }
-
-    Ok(())
 }

@@ -1,30 +1,46 @@
 extern crate slog;
 
-mod beacon_chain_types;
-mod bootstrapper;
 mod config;
 
 pub mod error;
 pub mod notifier;
 
-use beacon_chain::BeaconChain;
+use beacon_chain::{
+    lmd_ghost::ThreadSafeReducedTree, slot_clock::SystemTimeSlotClock, store::Store, BeaconChain,
+    BeaconChainBuilder,
+};
 use exit_future::Signal;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
-use slog::{error, info, o};
+use slog::{crit, error, info, o};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
+use types::EthSpec;
 
 pub use beacon_chain::BeaconChainTypes;
-pub use beacon_chain_types::ClientType;
-pub use beacon_chain_types::InitialiseBeaconChain;
-pub use bootstrapper::Bootstrapper;
-pub use config::{Config as ClientConfig, GenesisState};
+pub use config::{BeaconChainStartMethod, Config as ClientConfig};
 pub use eth2_config::Eth2Config;
+
+#[derive(Clone)]
+pub struct ClientType<S: Store, E: EthSpec> {
+    _phantom_t: PhantomData<S>,
+    _phantom_u: PhantomData<E>,
+}
+
+impl<S, E> BeaconChainTypes for ClientType<S, E>
+where
+    S: Store + 'static,
+    E: EthSpec,
+{
+    type Store = S;
+    type SlotClock = SystemTimeSlotClock;
+    type LmdGhost = ThreadSafeReducedTree<S, E>;
+    type EthSpec = E;
+}
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.
@@ -49,7 +65,7 @@ pub struct Client<T: BeaconChainTypes> {
 
 impl<T> Client<T>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone,
+    T: BeaconChainTypes + Clone,
 {
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
@@ -62,13 +78,41 @@ where
         let store = Arc::new(store);
         let seconds_per_slot = eth2_config.spec.seconds_per_slot;
 
-        // Load a `BeaconChain` from the store, or create a new one if it does not exist.
-        let beacon_chain = Arc::new(T::initialise_beacon_chain(
-            store,
-            &client_config,
-            eth2_config.spec.clone(),
-            log.clone(),
-        )?);
+        let spec = &eth2_config.spec.clone();
+
+        let beacon_chain_builder = match &client_config.beacon_chain_start_method {
+            BeaconChainStartMethod::Resume => {
+                BeaconChainBuilder::from_store(spec.clone(), log.clone())
+            }
+            BeaconChainStartMethod::Mainnet => {
+                crit!(log, "No mainnet beacon chain startup specification.");
+                return Err("Mainnet is not yet specified. We're working on it.".into());
+            }
+            BeaconChainStartMethod::RecentGenesis { validator_count } => {
+                BeaconChainBuilder::recent_genesis(*validator_count, spec.clone(), log.clone())
+            }
+            BeaconChainStartMethod::Generated {
+                validator_count,
+                genesis_time,
+            } => BeaconChainBuilder::quick_start(
+                *genesis_time,
+                *validator_count,
+                spec.clone(),
+                log.clone(),
+            ),
+            BeaconChainStartMethod::Yaml { file } => {
+                BeaconChainBuilder::yaml_state(file, spec.clone(), log.clone())?
+            }
+            BeaconChainStartMethod::HttpBootstrap { server, .. } => {
+                BeaconChainBuilder::http_bootstrap(server, spec.clone(), log.clone())?
+            }
+        };
+
+        let beacon_chain: Arc<BeaconChain<T>> = Arc::new(
+            beacon_chain_builder
+                .build(store)
+                .map_err(error::Error::from)?,
+        );
 
         if beacon_chain.read_slot_clock().is_none() {
             panic!("Cannot start client before genesis!")
@@ -118,6 +162,7 @@ where
                 beacon_chain.clone(),
                 network.clone(),
                 client_config.db_path().expect("unable to read datadir"),
+                eth2_config.clone(),
                 &log,
             ) {
                 Ok(s) => Some(s),

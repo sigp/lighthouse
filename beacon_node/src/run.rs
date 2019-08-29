@@ -1,7 +1,4 @@
-use client::{
-    error, notifier, BeaconChainTypes, Client, ClientConfig, ClientType, Eth2Config,
-    InitialiseBeaconChain,
-};
+use client::{error, notifier, BeaconChainTypes, Client, ClientConfig, ClientType, Eth2Config};
 use futures::sync::oneshot;
 use futures::Future;
 use slog::{error, info};
@@ -46,7 +43,6 @@ pub fn run_beacon_node(
         log,
         "BeaconNode init";
         "p2p_listen_address" => format!("{:?}", &other_client_config.network.listen_address),
-        "data_dir" => format!("{:?}", other_client_config.data_dir()),
         "network_dir" => format!("{:?}", other_client_config.network.network_dir),
         "spec_constants" => &spec_constants,
         "db_type" => &other_client_config.db_type,
@@ -118,7 +114,7 @@ fn run<T>(
     log: &slog::Logger,
 ) -> error::Result<()>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone,
+    T: BeaconChainTypes + Clone,
     T::Store: OpenDatabase,
 {
     let store = T::Store::open_database(&db_path)?;
