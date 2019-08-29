@@ -13,7 +13,6 @@ use crate::block_producer::{BeaconBlockGrpcClient, BlockProducer};
 use crate::config::Config as ValidatorConfig;
 use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
 use crate::error as error_chain;
-use crate::error::ErrorKind;
 use crate::signer::Signer;
 use bls::Keypair;
 use eth2_config::Eth2Config;
@@ -159,18 +158,18 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         };
 
         // build the validator slot clock
-        let slot_clock = SystemTimeSlotClock::new(
+        let slot_clock = SystemTimeSlotClock::from_eth2_genesis(
             genesis_slot,
             genesis_time,
-            eth2_config.spec.seconds_per_slot,
-        );
+            Duration::from_millis(eth2_config.spec.milliseconds_per_slot),
+        )
+        .ok_or_else::<error_chain::Error, _>(|| {
+            "Unable to start slot clock. Genesis may not have occurred yet. Exiting.".into()
+        })?;
 
-        let current_slot = slot_clock
-            .present_slot()
-            .map_err(ErrorKind::SlotClockError)?
-            .ok_or_else::<error_chain::Error, _>(|| {
-                "Genesis is not in the past. Exiting.".into()
-            })?;
+        let current_slot = slot_clock.now().ok_or_else::<error_chain::Error, _>(|| {
+            "Genesis has not yet occurred. Exiting.".into()
+        })?;
 
         /* Generate the duties manager */
 
@@ -244,7 +243,6 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         let duration_to_next_slot = service
             .slot_clock
             .duration_to_next_slot()
-            .map_err(|e| format!("System clock error: {:?}", e))?
             .ok_or_else::<error_chain::Error, _>(|| {
                 "Genesis is not in the past. Exiting.".into()
             })?;
@@ -252,7 +250,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         // set up the validator work interval - start at next slot and proceed every slot
         let interval = {
             // Set the interval to start at the next slot, and every slot after
-            let slot_duration = Duration::from_secs(service.spec.seconds_per_slot);
+            let slot_duration = Duration::from_millis(service.spec.milliseconds_per_slot);
             //TODO: Handle checked add correctly
             Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
         };
@@ -291,15 +289,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
     /// Updates the known current slot and epoch.
     fn update_current_slot(&mut self) -> error_chain::Result<()> {
-        let current_slot = match self.slot_clock.present_slot() {
-            Err(e) => {
-                error!(self.log, "SystemTimeError {:?}", e);
-                return Err("Could not read system time".into());
-            }
-            Ok(slot) => slot.ok_or_else::<error_chain::Error, _>(|| {
+        let current_slot = self
+            .slot_clock
+            .now()
+            .ok_or_else::<error_chain::Error, _>(|| {
                 "Genesis is not in the past. Exiting.".into()
-            })?,
-        };
+            })?;
 
         let current_epoch = current_slot.epoch(self.slots_per_epoch);
 
