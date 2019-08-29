@@ -114,7 +114,7 @@ where
                 .map_err(error::Error::from)?,
         );
 
-        if beacon_chain.read_slot_clock().is_none() {
+        if beacon_chain.slot().is_err() {
             panic!("Cannot start client before genesis!")
         }
 
@@ -124,7 +124,9 @@ where
         // blocks and we're basically useless.
         {
             let state_slot = beacon_chain.head().beacon_state.slot;
-            let wall_clock_slot = beacon_chain.read_slot_clock().unwrap();
+            let wall_clock_slot = beacon_chain
+                .slot()
+                .expect("Cannot start client before genesis");
             let slots_since_genesis = beacon_chain.slots_since_genesis().unwrap();
             info!(
                 log,
@@ -176,7 +178,7 @@ where
         };
 
         let (slot_timer_exit_signal, exit) = exit_future::signal();
-        if let Ok(Some(duration_to_next_slot)) = beacon_chain.slot_clock.duration_to_next_slot() {
+        if let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() {
             // set up the validator work interval - start at next slot and proceed every slot
             let interval = {
                 // Set the interval to start at the next slot, and every slot after
@@ -223,7 +225,7 @@ impl<T: BeaconChainTypes> Drop for Client<T> {
 
 fn do_state_catchup<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog::Logger) {
     // Only attempt to `catchup_state` if we can read the slot clock.
-    if let Some(current_slot) = chain.read_slot_clock() {
+    if let Ok(current_slot) = chain.slot() {
         let state_catchup_result = chain.catchup_state();
 
         let best_slot = chain.head().beacon_block.slot;

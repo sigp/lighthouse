@@ -16,7 +16,7 @@ impl TestingSlotClock {
     }
 
     pub fn advance_slot(&self) {
-        self.set_slot(self.present_slot().unwrap().as_u64() + 1)
+        self.set_slot(self.now().unwrap().as_u64() + 1)
     }
 }
 
@@ -27,7 +27,7 @@ impl SlotClock for TestingSlotClock {
         }
     }
 
-    fn present_slot(&self) -> Option<Slot> {
+    fn now(&self) -> Option<Slot> {
         let slot = *self.slot.read().expect("TestingSlotClock poisoned.");
         Some(slot)
     }
@@ -50,8 +50,8 @@ mod tests {
     #[test]
     fn test_slot_now() {
         let clock = TestingSlotClock::new(Slot::new(10), Instant::now(), Duration::from_secs(0));
-        assert_eq!(clock.present_slot(), Some(Slot::new(10)));
+        assert_eq!(clock.now(), Some(Slot::new(10)));
         clock.set_slot(123);
-        assert_eq!(clock.present_slot(), Some(Slot::new(123)));
+        assert_eq!(clock.now(), Some(Slot::new(123)));
     }
 }

@@ -123,8 +123,10 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
             .collect::<Vec<_>>()
             .into();
 
+        let genesis_time = 1567052589; // 29 August, 2019;
+
         let mut state = BeaconState::new(
-            spec.min_genesis_time,
+            genesis_time,
             Eth1Data {
                 deposit_root: Hash256::zero(),
                 deposit_count: 0,

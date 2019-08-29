@@ -17,7 +17,7 @@ lazy_static! {
 
 /// Update the global metrics `DEFAULT_REGISTRY` with info from the slot clock.
 pub fn scrape_for_metrics<T: EthSpec, U: SlotClock>(clock: &U) {
-    let present_slot = match clock.present_slot() {
+    let present_slot = match clock.now() {
         Some(slot) => slot,
         _ => Slot::new(0),
     };
