@@ -201,7 +201,7 @@ pub fn vec_to_u64_le(bytes: &[u8]) -> Result<u64, Eth1Error> {
 
 /// Parse contract logs.
 pub fn parse_logs(log: Log, types: &[ParamType]) -> Result<Vec<Token>, Eth1Error> {
-    decode(types, &log.data.0).map_err(Eth1Error::ContractError.into())
+    decode(types, &log.data.0).map_err(|e| e.into())
 }
 
 /// Parse logs from deposit contract.
@@ -221,7 +221,7 @@ pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData), Eth1Error> {
             Token::FixedBytes(v) => Some(v),
             _ => None,
         })
-        .collect::<Option<Vec<_>>>().ok_or(Eth1Error::ContractError.into())?;
+        .collect::<Option<Vec<_>>>().ok_or(Eth1Error::DecodingError)?;
 
     // Event should have exactly 5 parameters.
     if params.len() == 5 {
