@@ -6,6 +6,7 @@ use tokio;
 use types::*;
 use web3::futures::*;
 use web3::types::*;
+use crate::error::Eth1Error;
 
 /// Cache for recent Eth1Data fetched from the Eth1 chain.
 #[derive(Clone, Debug)]
@@ -27,33 +28,30 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
 
     /// Called periodically to populate the cache with Eth1Data
     /// from most recent blocks upto `distance`.
-    pub fn update_cache(&self, distance: u64) -> impl Future<Item = (), Error = ()> + Send {
+    pub fn update_cache(&self, distance: u64) -> impl Future<Item = (), Error = Eth1Error> + Send {
         let cache_updated = self.cache.clone();
         let last_block = self.last_block.clone();
         let fetcher = self.fetcher.clone();
-        let my_future = self
+        let future = self
             .fetcher
             .get_current_block_number()
             .and_then(move |curr_block_number| {
                 fetch_eth1_data_in_range(0, distance, curr_block_number, fetcher)
                     .for_each(move |data| {
-                        // NOTE: Fix unsafe unwrap.
-                        let data = data.unwrap();
+                        let data = data?;
                         println!("Cache data: {:#?}", data);
                         let mut eth1_cache = cache_updated.write();
                         eth1_cache.insert(data.0, data.1);
                         Ok(())
                     })
-                    .map_err(|e| println!("Fetching in range failed {:?}", e))
                     .and_then(move |_| {
                         let mut last_block_updated = last_block.write();
                         *last_block_updated = curr_block_number.as_u64();
                         // TODO: Delete older stuff
                         Ok(())
                     })
-            })
-            .map_err(|e| println!("Reading current block number failed failed {:?}", e));
-        my_future
+            });
+        future
     }
 
     /// Get `Eth1Data` object at a distance of `distance` from the perceived head of the currrent Eth1 chain.
@@ -66,7 +64,7 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
         } else {
             // Note: current_thread::block_on_all() might not be safe here since
             // it waits for other spawned futures to complete on current thread.
-            if let Some((block_number, eth1_data)) = tokio::runtime::current_thread::block_on_all(
+            if let Ok((block_number, eth1_data)) = tokio::runtime::current_thread::block_on_all(
                 fetch_eth1_data(distance, current_block_number, self.fetcher.clone()),
             )
             .ok()?
@@ -93,7 +91,7 @@ fn fetch_eth1_data_in_range<F: Eth1DataFetcher>(
     end: u64,
     current_block_number: U256,
     fetcher: Arc<F>,
-) -> impl Stream<Item = Option<(U256, Eth1Data)>, Error = ()> + Send {
+) -> impl Stream<Item = Result<(U256, Eth1Data), Eth1Error>, Error = Eth1Error> + Send {
     stream::futures_ordered(
         (start..end).map(move |i| fetch_eth1_data(i, current_block_number, fetcher.clone())),
     )
@@ -104,7 +102,7 @@ fn fetch_eth1_data<F: Eth1DataFetcher>(
     distance: u64,
     current_block_number: U256,
     fetcher: Arc<F>,
-) -> impl Future<Item = Option<(U256, Eth1Data)>, Error = ()> + Send {
+) -> impl Future<Item = Result<(U256, Eth1Data), Eth1Error>, Error = Eth1Error> + Send {
     let block_number: U256 = current_block_number
         .checked_sub(distance.into())
         .unwrap_or(U256::zero());
@@ -116,10 +114,11 @@ fn fetch_eth1_data<F: Eth1DataFetcher>(
         let eth1_data = Eth1Data {
             deposit_root: data.0,
             deposit_count: data.1?,
-            block_hash: data.2?,
+            block_hash: data.2.ok_or(Eth1Error::DecodingError)?,
         };
-        Some((block_number, eth1_data))
+        Ok((block_number, eth1_data))
     })
+    // .map_err(|e| println!("Error while getting eth1 data {:?}", e))
 }
 
 #[cfg(test)]
@@ -160,7 +159,7 @@ mod tests {
             println!("{:?}", data);
             Ok(())
         });
-        tokio::run(task2);
+        tokio::run(task2.map_err(|e| println!("Some error {:?}", e)));
     }
 
     #[test]
@@ -176,7 +175,8 @@ mod tests {
         let task = interval.take(100).for_each(move |_| {
             let c = cache_inside.clone();
             cache.update_cache(3 + 1).and_then(move |_| Ok(()))
+            .map_err(|e| println!("Some error {:?}", e))
         });
-        tokio::run(task);
+        tokio::run(task.map_err(|e| println!("Some error {:?}", e)));
     }
 }

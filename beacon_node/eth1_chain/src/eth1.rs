@@ -107,6 +107,7 @@ pub fn run<F: Eth1DataFetcher + 'static>(
                 debug!(cache_log.clone(), "Updating eth1 data cache..");
                 Ok(())
             })
+            .map_err(|e| println!("Updating eth1 cache failed {:?}", e))
     }));
 
     // Run a task for listening to contract events and updating deposits cache.
