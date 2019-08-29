@@ -3,7 +3,7 @@ use operation_pool::PersistedOperationPool;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, StoreItem};
-use types::{BeaconState, Hash256};
+use types::Hash256;
 
 /// 32-byte key for accessing the `PersistedBeaconChain`.
 pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
@@ -13,7 +13,6 @@ pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub canonical_head: CheckPoint<T::EthSpec>,
     pub op_pool: PersistedOperationPool<T::EthSpec>,
     pub genesis_block_root: Hash256,
-    pub state: BeaconState<T::EthSpec>,
 }
 
 impl<T: BeaconChainTypes> StoreItem for PersistedBeaconChain<T> {

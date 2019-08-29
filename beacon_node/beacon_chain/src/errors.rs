@@ -24,6 +24,7 @@ pub enum BeaconChainError {
         new_epoch: Epoch,
     },
     SlotClockDidNotStart,
+    NoStateForSlot(Slot),
     UnableToFindTargetRoot(Slot),
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),
@@ -44,6 +45,7 @@ easy_from_to!(SlotProcessingError, BeaconChainError);
 pub enum BlockProductionError {
     UnableToGetBlockRootFromState,
     UnableToReadSlot,
+    UnableToProduceAtSlot(Slot),
     SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
     BeaconStateError(BeaconStateError),

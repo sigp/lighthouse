@@ -143,7 +143,6 @@ where
                 "catchup_distance" => wall_clock_slot - state_slot,
             );
         }
-        do_state_catchup(&beacon_chain, &log);
 
         let network_config = &client_config.network;
         let (network, network_send) =
@@ -199,7 +198,7 @@ where
                 exit.until(
                     interval
                         .for_each(move |_| {
-                            do_state_catchup(&chain, &log);
+                            log_new_slot(&chain, &log);
 
                             Ok(())
                         })
@@ -229,35 +228,19 @@ impl<T: BeaconChainTypes> Drop for Client<T> {
     }
 }
 
-fn do_state_catchup<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog::Logger) {
-    // Only attempt to `catchup_state` if we can read the slot clock.
+fn log_new_slot<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog::Logger) {
+    let best_slot = chain.head().beacon_block.slot;
+    let latest_block_root = chain.head().beacon_block_root;
+
     if let Ok(current_slot) = chain.slot() {
-        let state_catchup_result = chain.catchup_state();
-
-        let best_slot = chain.head().beacon_block.slot;
-        let latest_block_root = chain.head().beacon_block_root;
-
-        let common = o!(
+        info!(
+            log,
+            "Slot start";
             "skip_slots" => current_slot.saturating_sub(best_slot),
             "best_block_root" => format!("{}", latest_block_root),
             "best_block_slot" => best_slot,
             "slot" => current_slot,
-        );
-
-        if let Err(e) = state_catchup_result {
-            error!(
-                log,
-                "State catchup failed";
-                "error" => format!("{:?}", e),
-                common
-            )
-        } else {
-            info!(
-                log,
-                "Slot start";
-                common
-            )
-        }
+        )
     } else {
         error!(
             log,

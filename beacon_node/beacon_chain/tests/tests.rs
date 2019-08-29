@@ -322,7 +322,9 @@ fn roundtrip_operation_pool() {
     let p: PersistedBeaconChain<CommonTypes<TestForkChoice, MinimalEthSpec>> =
         harness.chain.store.get(&key).unwrap().unwrap();
 
-    let restored_op_pool = p.op_pool.into_operation_pool(&p.state, &harness.spec);
+    let restored_op_pool = p
+        .op_pool
+        .into_operation_pool(&p.canonical_head.beacon_state, &harness.spec);
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
 }
