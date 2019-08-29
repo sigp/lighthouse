@@ -25,7 +25,7 @@ impl SlotClock for SystemTimeSlotClock {
         }
     }
 
-    fn present_slot(&self) -> Option<Slot> {
+    fn now(&self) -> Option<Slot> {
         let now = Instant::now();
 
         if now < self.genesis {
@@ -80,18 +80,18 @@ mod tests {
 
         let clock =
             SystemTimeSlotClock::new(genesis_slot, prior_genesis(0), Duration::from_secs(1));
-        assert_eq!(clock.present_slot(), Some(Slot::new(0)));
+        assert_eq!(clock.now(), Some(Slot::new(0)));
 
         let clock =
             SystemTimeSlotClock::new(genesis_slot, prior_genesis(5), Duration::from_secs(1));
-        assert_eq!(clock.present_slot(), Some(Slot::new(5)));
+        assert_eq!(clock.now(), Some(Slot::new(5)));
 
         let clock = SystemTimeSlotClock::new(
             genesis_slot,
             Instant::now() - Duration::from_millis(500),
             Duration::from_secs(1),
         );
-        assert_eq!(clock.present_slot(), Some(Slot::new(0)));
+        assert_eq!(clock.now(), Some(Slot::new(0)));
         assert!(clock.duration_to_next_slot().unwrap() < Duration::from_millis(500));
 
         let clock = SystemTimeSlotClock::new(
@@ -99,7 +99,7 @@ mod tests {
             Instant::now() - Duration::from_millis(1_500),
             Duration::from_secs(1),
         );
-        assert_eq!(clock.present_slot(), Some(Slot::new(1)));
+        assert_eq!(clock.now(), Some(Slot::new(1)));
         assert!(clock.duration_to_next_slot().unwrap() < Duration::from_millis(500));
     }
 

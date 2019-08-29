@@ -148,11 +148,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         // Slot clock
-        let slot_clock = T::SlotClock::new(
+        let slot_clock = T::SlotClock::from_eth2_genesis(
             spec.genesis_slot,
             genesis_state.genesis_time,
-            spec.seconds_per_slot,
-        );
+            Duration::from_secs(spec.seconds_per_slot),
+        )
+        .ok_or_else(|| Error::SlotClockDidNotStart)?;
 
         Ok(Self {
             spec,
@@ -224,18 +225,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Reads the slot clock, returns `Err` if the slot is unavailable.
+    /// Returns the slot _right now_ according to `self.slot_clock`. Returns `Err` if the slot is
+    /// unavailable.
     ///
     /// The slot might be unavailable due to an error with the system clock, or if the present time
     /// is before genesis (i.e., a negative slot).
-    ///
-    /// This is distinct to `present_slot`, which simply reads the latest state. If a
-    /// call to `read_slot_clock` results in a higher slot than a call to `present_slot`,
-    /// `self.state` should undergo per slot processing.
-    pub fn present_slot(&self) -> Result<Slot, Error> {
-        self.slot_clock
-            .present_slot()
-            .ok_or_else(|| Error::UnableToReadSlot)
+    pub fn slot(&self) -> Result<Slot, Error> {
+        self.slot_clock.now().ok_or_else(|| Error::UnableToReadSlot)
     }
 
     /// Returns the beacon block body for each beacon block root in `roots`.
@@ -348,10 +344,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn catchup_state(&self) -> Result<(), Error> {
         let spec = &self.spec;
 
-        let present_slot = self
-            .slot_clock
-            .present_slot()
-            .ok_or_else(|| Error::UnableToReadSlot)?;
+        let present_slot = self.slot()?;
 
         if self.state.read().slot < present_slot {
             let mut state = self.state.write();
@@ -394,7 +387,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Reads the slot clock (see `self.read_slot_clock()` and returns the number of slots since
     /// genesis.
     pub fn slots_since_genesis(&self) -> Option<SlotHeight> {
-        let now = self.slot_clock.present_slot()?;
+        let now = self.slot().ok()?;
         let genesis_slot = self.spec.genesis_slot;
 
         if now < genesis_slot {
@@ -847,10 +840,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BlockProcessingOutcome::GenesisBlock);
         }
 
-        let present_slot = self
-            .slot_clock
-            .present_slot()
-            .ok_or_else(|| Error::UnableToReadSlot)?;
+        let present_slot = self.slot()?;
 
         if block.slot > present_slot {
             return Ok(BlockProcessingOutcome::FutureSlot {
@@ -1013,9 +1003,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
         let state = self.state.read().clone();
         let slot = self
-            .slot_clock
-            .present_slot()
-            .ok_or_else(|| BlockProductionError::UnableToReadSlot)?;
+            .slot()
+            .map_err(|_| BlockProductionError::UnableToReadSlot)?;
 
         self.produce_block_on_state(state, slot, randao_reveal)
     }
@@ -1191,7 +1180,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         *self.state.write() = {
             let mut state = self.canonical_head.read().beacon_state.clone();
 
-            let present_slot = self.present_slot()?;
+            let present_slot = self.slot()?;
 
             // If required, transition the new state to the present slot.
             for _ in state.slot.as_u64()..present_slot.as_u64() {

@@ -167,11 +167,9 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             "Unable to start slot clock. Genesis may not have occurred yet. Exiting.".into()
         })?;
 
-        let current_slot = slot_clock
-            .present_slot()
-            .ok_or_else::<error_chain::Error, _>(|| {
-                "Genesis has not yet occurred. Exiting.".into()
-            })?;
+        let current_slot = slot_clock.now().ok_or_else::<error_chain::Error, _>(|| {
+            "Genesis has not yet occurred. Exiting.".into()
+        })?;
 
         /* Generate the duties manager */
 
@@ -293,7 +291,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
     fn update_current_slot(&mut self) -> error_chain::Result<()> {
         let current_slot = self
             .slot_clock
-            .present_slot()
+            .now()
             .ok_or_else::<error_chain::Error, _>(|| {
                 "Genesis is not in the past. Exiting.".into()
             })?;

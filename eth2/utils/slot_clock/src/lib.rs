@@ -33,7 +33,7 @@ pub trait SlotClock: Send + Sync + Sized {
 
     fn new(genesis_slot: Slot, genesis: Instant, slot_duration: Duration) -> Self;
 
-    fn present_slot(&self) -> Option<Slot>;
+    fn now(&self) -> Option<Slot>;
 
     fn duration_to_next_slot(&self) -> Option<Duration>;
 
