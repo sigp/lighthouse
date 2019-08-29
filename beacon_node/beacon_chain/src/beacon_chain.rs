@@ -90,6 +90,15 @@ impl<'a, T: EthSpec> AsRef<BeaconState<T>> for StateCow<'a, T> {
     }
 }
 
+impl<'a, T: EthSpec> StateCow<'a, T> {
+    pub fn as_mut_ref(&mut self) -> Option<&mut BeaconState<T>> {
+        match self {
+            StateCow::Borrowed(_) => None,
+            StateCow::Owned(ref mut state) => Some(state),
+        }
+    }
+}
+
 pub trait BeaconChainTypes: Send + Sync + 'static {
     type Store: store::Store;
     type SlotClock: slot_clock::SlotClock;
@@ -447,11 +456,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let epoch = |slot: Slot| slot.epoch(T::EthSpec::slots_per_epoch());
         let head_state = &self.head().beacon_state;
 
-        let state = if epoch(slot) == epoch(head_state.slot) {
+        let mut state = if epoch(slot) == epoch(head_state.slot) {
             StateCow::Borrowed(self.head())
         } else {
             self.state_at_slot(slot)?
         };
+
+        if let Some(state) = state.as_mut_ref() {
+            state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        }
 
         state
             .as_ref()
@@ -471,11 +484,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let as_epoch = |slot: Slot| slot.epoch(T::EthSpec::slots_per_epoch());
         let head_state = &self.head().beacon_state;
 
-        let state = if epoch == as_epoch(head_state.slot) {
+        let mut state = if epoch == as_epoch(head_state.slot) {
             StateCow::Borrowed(self.head())
         } else {
             self.state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))?
         };
+
+        if let Some(state) = state.as_mut_ref() {
+            state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        }
 
         if let Some(attestation_duty) = state
             .as_ref()
