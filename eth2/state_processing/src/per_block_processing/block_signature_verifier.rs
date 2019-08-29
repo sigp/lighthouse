@@ -69,14 +69,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     /// * : _Does not verify any signatures in `block.body.deposits`. A block is still valid if it
     /// contains invalid signatures on deposits._
     ///
-    /// ## Notes
-    ///
-    /// Signature validation will take place in accordance to the [Faster verification of multiple
-    /// BLS signatures](https://ethresear.ch/t/fast-verification-of-multiple-bls-signatures/5407)
-    /// optimization proposed by Vitalik Buterin.
-    ///
-    /// It is not possible to know exactly _which_ signature is invalid here, just that
-    /// _at least one_ was invalid.
+    /// See `Self::verify` for more detail.
     pub fn verify_entire_block(
         state: &'a BeaconState<T>,
         block: &'a BeaconBlock<T>,
@@ -98,11 +91,8 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
         verifier.verify()
     }
 
-    /// Verify all* the signatures in the `self.block`, returning `Ok(())` if the signatures
-    /// are valid.
-    ///
-    /// * : _Does not verify any signatures in `block.body.deposits`. A block is still valid if it
-    /// contains invalid signatures on deposits._
+    /// Verify all* the signatures that have been included in `self`, returning `Ok(())` if the
+    /// signatures are all valid.
     ///
     /// ## Notes
     ///
