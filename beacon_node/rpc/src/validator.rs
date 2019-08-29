@@ -40,8 +40,8 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
                 .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
             return ctx.spawn(f);
         };
-        let state_cow = if let Ok(state) = self.chain.state_at_slot(slot) {
-            state
+        let mut state = if let Ok(state) = self.chain.state_at_slot(slot) {
+            state.as_ref().clone()
         } else {
             let log_clone = self.log.clone();
             let f = sink
@@ -52,33 +52,16 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
                 .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
             return ctx.spawn(f);
         };
-        let state = state_cow.as_ref();
 
-        let spec = &self.chain.spec;
+        let _ = state.build_all_caches(&self.chain.spec);
+
         let epoch = Epoch::from(req.get_epoch());
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
 
-        let relative_epoch =
-            match RelativeEpoch::from_epoch(state.slot.epoch(T::EthSpec::slots_per_epoch()), epoch)
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    // incorrect epoch
-                    let log_clone = self.log.clone();
-                    let f = sink
-                        .fail(RpcStatus::new(
-                            RpcStatusCode::FailedPrecondition,
-                            Some(format!("Invalid epoch: {:?}", e)),
-                        ))
-                        .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
-                    return ctx.spawn(f);
-                }
-            };
-
         let validator_proposers: Result<Vec<usize>, _> = epoch
             .slot_iter(T::EthSpec::slots_per_epoch())
-            .map(|slot| state.get_beacon_proposer_index(slot, relative_epoch, &spec))
+            .map(|slot| self.chain.block_proposer(slot))
             .collect();
         let validator_proposers = match validator_proposers {
             Ok(v) => v,
