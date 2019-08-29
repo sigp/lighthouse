@@ -387,7 +387,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "peer" => format!("{:?}", peer_id),
                 "msg" => "Failed to return all requested hashes",
                 "start_slot" => req.start_slot,
-                "current_slot" => self.chain.present_slot(),
+                "current_slot" => format!("{:?}", self.chain.slot()),
                 "requested" => req.count,
                 "returned" => blocks.len(),
             );

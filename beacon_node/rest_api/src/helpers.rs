@@ -88,8 +88,8 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
 ) -> Result<Hash256, ApiError> {
     let head_state = &beacon_chain.head().beacon_state;
     let current_slot = beacon_chain
-        .read_slot_clock()
-        .ok_or_else(|| ApiError::ServerError("Unable to read slot clock".to_string()))?;
+        .slot()
+        .map_err(|_| ApiError::ServerError("Unable to read slot clock".to_string()))?;
 
     // There are four scenarios when obtaining a state for a given slot:
     //

@@ -150,7 +150,9 @@ where
         let mut state = {
             // Determine the slot for the first block (or skipped block).
             let state_slot = match block_strategy {
-                BlockStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap() - 1,
+                BlockStrategy::OnCanonicalHead => {
+                    self.chain.slot().expect("should have a slot") - 1
+                }
                 BlockStrategy::ForkCanonicalChainAt { previous_slot, .. } => previous_slot,
             };
 
@@ -159,14 +161,14 @@ where
 
         // Determine the first slot where a block should be built.
         let mut slot = match block_strategy {
-            BlockStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap(),
+            BlockStrategy::OnCanonicalHead => self.chain.slot().expect("should have a slot"),
             BlockStrategy::ForkCanonicalChainAt { first_slot, .. } => first_slot,
         };
 
         let mut head_block_root = None;
 
         for _ in 0..num_blocks {
-            while self.chain.read_slot_clock().expect("should have a slot") < slot {
+            while self.chain.slot().expect("should have a slot") < slot {
                 self.advance_slot();
             }
 
