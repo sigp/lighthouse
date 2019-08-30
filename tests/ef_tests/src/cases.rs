@@ -8,11 +8,7 @@ mod bls_g2_compressed;
 mod bls_g2_uncompressed;
 mod bls_priv_to_pub;
 mod bls_sign_msg;
-mod epoch_processing_crosslinks;
-mod epoch_processing_final_updates;
-mod epoch_processing_justification_and_finalization;
-mod epoch_processing_registry_updates;
-mod epoch_processing_slashings;
+mod epoch_processing;
 mod genesis_initialization;
 mod genesis_validity;
 mod operations_attestation;
@@ -34,11 +30,7 @@ pub use bls_g2_compressed::*;
 pub use bls_g2_uncompressed::*;
 pub use bls_priv_to_pub::*;
 pub use bls_sign_msg::*;
-pub use epoch_processing_crosslinks::*;
-pub use epoch_processing_final_updates::*;
-pub use epoch_processing_justification_and_finalization::*;
-pub use epoch_processing_registry_updates::*;
-pub use epoch_processing_slashings::*;
+pub use epoch_processing::*;
 pub use genesis_initialization::*;
 pub use genesis_validity::*;
 pub use operations_attestation::*;
@@ -69,6 +61,7 @@ pub trait Case: Debug {
 
     /// Path to the directory for this test case.
     fn path(&self) -> &Path {
+        // FIXME(michael): remove default impl
         Path::new("")
     }
 

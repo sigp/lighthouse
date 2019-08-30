@@ -1,4 +1,4 @@
-use crate::cases::{self, Case, Cases, LoadCase};
+use crate::cases::{self, Case, Cases, EpochTransition, LoadCase};
 use crate::type_name::TypeName;
 use crate::EfTest;
 use std::fs;
@@ -182,5 +182,23 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
 
     fn handler_name() -> &'static str {
         "slots"
+    }
+}
+
+pub struct EpochProcessingHandler<E, T>(PhantomData<(E, T)>);
+
+impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHandler<E, T> {
+    type Case = cases::EpochProcessing<E, T>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "epoch_processing"
+    }
+
+    fn handler_name() -> &'static str {
+        T::name()
     }
 }

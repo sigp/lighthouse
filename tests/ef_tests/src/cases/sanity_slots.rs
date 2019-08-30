@@ -27,7 +27,7 @@ impl<E: EthSpec> LoadCase for SanitySlots<E> {
     fn load_from_dir(path: &Path) -> Result<Self, Error> {
         let metadata_path = path.join("meta.yaml");
         let metadata: Metadata = if metadata_path.is_file() {
-            yaml_decode_file(&path.join("meta.yaml"))?
+            yaml_decode_file(&metadata_path)?
         } else {
             Metadata::default()
         };

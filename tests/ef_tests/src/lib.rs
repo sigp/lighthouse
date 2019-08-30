@@ -2,6 +2,9 @@ use types::EthSpec;
 
 pub use case_result::CaseResult;
 pub use cases::Case;
+pub use cases::{
+    Crosslinks, FinalUpdates, JustificationAndFinalization, RegistryUpdates, Slashings,
+};
 pub use error::Error;
 pub use handler::*;
 pub use yaml_decode::YamlDecode;

@@ -262,52 +262,37 @@ ssz_static_test!(ssz_static_transfer, Transfer, SR);
 ssz_static_test!(ssz_static_validator, Validator);
 ssz_static_test!(ssz_static_voluntary_exit, VoluntaryExit, SR);
 
-/*
 #[test]
 fn epoch_processing_justification_and_finalization() {
-    yaml_files_in_test_dir(&Path::new("epoch_processing").join("justification_and_finalization"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    EpochProcessingHandler::<MinimalEthSpec, JustificationAndFinalization>::run();
+    EpochProcessingHandler::<MainnetEthSpec, JustificationAndFinalization>::run();
 }
 
 #[test]
 fn epoch_processing_crosslinks() {
-    yaml_files_in_test_dir(&Path::new("epoch_processing").join("crosslinks"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    EpochProcessingHandler::<MinimalEthSpec, Crosslinks>::run();
+    EpochProcessingHandler::<MainnetEthSpec, Crosslinks>::run();
 }
 
 #[test]
 fn epoch_processing_registry_updates() {
-    yaml_files_in_test_dir(&Path::new("epoch_processing").join("registry_updates"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    EpochProcessingHandler::<MinimalEthSpec, RegistryUpdates>::run();
+    EpochProcessingHandler::<MainnetEthSpec, RegistryUpdates>::run();
 }
 
 #[test]
 fn epoch_processing_slashings() {
-    yaml_files_in_test_dir(&Path::new("epoch_processing").join("slashings"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    EpochProcessingHandler::<MinimalEthSpec, Slashings>::run();
+    EpochProcessingHandler::<MainnetEthSpec, Slashings>::run();
 }
 
 #[test]
 fn epoch_processing_final_updates() {
-    yaml_files_in_test_dir(&Path::new("epoch_processing").join("final_updates"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    EpochProcessingHandler::<MainnetEthSpec, FinalUpdates>::run();
+    EpochProcessingHandler::<MainnetEthSpec, FinalUpdates>::run();
 }
 
+/*
 #[test]
 fn genesis_initialization() {
     yaml_files_in_test_dir(&Path::new("genesis").join("initialization"))
