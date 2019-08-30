@@ -1,5 +1,5 @@
 #![cfg(test)]
-use eth2_interop_keypairs::{keypair, le_private_key};
+use eth2_interop_keypairs::{be_private_key, keypair};
 use num_bigint::BigUint;
 
 #[test]
@@ -23,8 +23,8 @@ fn reference_private_keys() {
         .into_iter()
         .enumerate()
         .for_each(|(i, reference)| {
-            let bytes = le_private_key(i);
-            let num = BigUint::from_bytes_le(&bytes);
+            let bytes = be_private_key(i);
+            let num = BigUint::from_bytes_be(&bytes);
             assert_eq!(&num.to_str_radix(10), reference)
         });
 }
