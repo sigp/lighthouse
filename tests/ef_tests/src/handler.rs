@@ -202,3 +202,39 @@ impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHa
         T::name()
     }
 }
+
+pub struct GenesisValidityHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
+    type Case = cases::GenesisValidity<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "genesis"
+    }
+
+    fn handler_name() -> &'static str {
+        "validity"
+    }
+}
+
+pub struct GenesisInitializationHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
+    type Case = cases::GenesisInitialization<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "genesis"
+    }
+
+    fn handler_name() -> &'static str {
+        "initialization"
+    }
+}

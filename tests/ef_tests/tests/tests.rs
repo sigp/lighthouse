@@ -1,52 +1,11 @@
 use ef_tests::*;
 use rayon::prelude::*;
-use std::path::{Path, PathBuf};
 use types::{
     Attestation, AttestationData, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
     BeaconBlockBody, BeaconBlockHeader, BeaconState, Checkpoint, CompactCommittee, Crosslink,
     Deposit, DepositData, Eth1Data, Fork, HistoricalBatch, IndexedAttestation, MainnetEthSpec,
     MinimalEthSpec, PendingAttestation, ProposerSlashing, Transfer, Validator, VoluntaryExit,
 };
-use walkdir::WalkDir;
-
-fn yaml_files_in_test_dir(dir: &Path) -> Vec<PathBuf> {
-    let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("eth2.0-spec-tests")
-        .join("tests")
-        .join("general")
-        .join("phase0")
-        .join(dir);
-
-    assert!(
-        base_path.exists(),
-        format!(
-            "Unable to locate {:?}. Did you init git submodules?",
-            base_path
-        )
-    );
-
-    let mut paths: Vec<PathBuf> = WalkDir::new(base_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter_map(|entry| {
-            if entry.file_type().is_file() {
-                match entry.file_name().to_str() {
-                    Some(f) if f.ends_with(".yaml") => Some(entry.path().to_path_buf()),
-                    Some(f) if f.ends_with(".yml") => Some(entry.path().to_path_buf()),
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // Reverse the file order. Assuming files come in lexicographical order, executing tests in
-    // reverse means we get the "minimal" tests before the "mainnet" tests. This makes life easier
-    // for debugging.
-    paths.reverse();
-    paths
-}
 
 /*
 #[test]
@@ -292,22 +251,14 @@ fn epoch_processing_final_updates() {
     EpochProcessingHandler::<MainnetEthSpec, FinalUpdates>::run();
 }
 
-/*
 #[test]
 fn genesis_initialization() {
-    yaml_files_in_test_dir(&Path::new("genesis").join("initialization"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    GenesisInitializationHandler::<MinimalEthSpec>::run();
 }
 
 #[test]
 fn genesis_validity() {
-    yaml_files_in_test_dir(&Path::new("genesis").join("validity"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    GenesisValidityHandler::<MinimalEthSpec>::run();
+    // TODO: mainnet tests don't exist yet
+    // GenesisValidityHandler::<MainnetEthSpec>::run();
 }
-*/
