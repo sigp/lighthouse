@@ -87,34 +87,53 @@ pub fn run<F: Eth1DataFetcher + 'static>(
     let log = log.new(o!("service" => "eth1_chain"));
 
     // Run a task for calling `update_cache` periodically.
-    let eth1_block_time_seconds: u64 = 5;
-    let eth1_block_interval: u64 = 3;
+    let eth1_block_time_seconds: u64 = 5; // Approximate block time for eth1 chain.
+    let eth1_block_interval: u64 = 3; // Interval of eth1 blocks to update eth1_data_cache.
     let interval_log = log.clone();
-    let interval = {
-        // Set the interval to start every 15 blocks
+    let eth1_data_interval = {
+        // Set the interval to fire every `eth1_block_interval` blocks.
         let update_duration = Duration::from_secs(eth1_block_interval * eth1_block_time_seconds);
         Interval::new(Instant::now(), update_duration)
             .map_err(move |_| warn!(interval_log, "Interval timer failing"))
     };
     let eth1_data_cache = eth1.eth1_data_cache.clone();
-    let cache_log = log.clone();
-    info!(cache_log, "Cache updation service started");
-    executor.spawn(interval.for_each(move |_| {
-        let cache_log = cache_log.clone();
+    let eth1_cache_log = log.clone();
+    info!(eth1_cache_log, "Cache updation service started");
+    executor.spawn(eth1_data_interval.for_each(move |_| {
+        let log = eth1_cache_log.clone();
         eth1_data_cache
             .update_cache(eth1_block_interval + 1) // distance of block_interval + safety_interval
             .and_then(move |_| {
-                debug!(cache_log.clone(), "Updating eth1 data cache..");
+                debug!(log, "Updating eth1 data cache");
                 Ok(())
             })
             .map_err(|e| println!("Updating eth1 cache failed {:?}", e))
     }));
 
-    // Run a task for listening to contract events and updating deposits cache.
+    // Run a task for calling `update_deposits` periodically.
+    let deposits_updation_interval = 40; // Interval of eth1 blocks to update deposits.
+    let interval_log = log.clone();
+    let deposits_interval = {
+        // Set the interval to fire every `deposits_updation_interval` blocks
+        let update_duration =
+            Duration::from_secs(deposits_updation_interval * eth1_block_time_seconds);
+        Interval::new(Instant::now(), update_duration)
+            .map_err(move |_| warn!(interval_log, "Interval timer failing"))
+    };
     let eth1_deposit_cache = eth1.deposit_cache.clone();
+    let confirmations = 10;
     let deposit_log = log.clone();
-    info!(deposit_log, "Deposit service started");
-    executor.spawn(eth1_deposit_cache.subscribe_deposit_logs());
+    info!(deposit_log, "Deposits updation service started");
+    executor.spawn(deposits_interval.for_each(move |_| {
+        let deposit_log = deposit_log.clone();
+        eth1_deposit_cache
+            .update_deposits(confirmations) // distance of block_interval + safety_interval
+            .and_then(move |_| {
+                debug!(deposit_log, "Updating deposits cache");
+                Ok(())
+            })
+            .map_err(|e| println!("Updating deposits cache failed {:?}", e))
+    }));
 }
 
 #[cfg(test)]

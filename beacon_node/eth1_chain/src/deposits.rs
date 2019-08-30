@@ -1,5 +1,6 @@
+use crate::error::Error;
 use crate::types::Eth1DataFetcher;
-use ethereum_types::H256;
+use ethereum_types::{H256, U256};
 use merkle_proof::*;
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
@@ -8,6 +9,7 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{Deposit, DepositData};
 use web3::futures::Future;
+use web3::types::BlockNumber;
 
 /// Cache for all deposits received in DepositContract.
 #[derive(Clone, Debug)]
@@ -16,6 +18,8 @@ pub struct DepositCache<F: Eth1DataFetcher> {
     pub deposit_data: Arc<RwLock<BTreeMap<u64, DepositData>>>,
     /// Last deposit index queried by beacon chain
     last_index: u64,
+    /// Last block_number which was queried for `DepositEvent`
+    last_fetched: Arc<RwLock<u64>>,
     fetcher: Arc<F>,
 }
 
@@ -24,6 +28,8 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
         DepositCache {
             deposit_data: Arc::new(RwLock::new(BTreeMap::new())),
             last_index: 0,
+            // Note: Should ideally start from block where Eth1 chain starts accepting deposits.
+            last_fetched: Arc::new(RwLock::new(0)),
             fetcher,
         }
     }
@@ -67,11 +73,34 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
         Some(deposits)
     }
 
-    /// Returns a future that adds entries into the deposits map with new events.
-    pub fn subscribe_deposit_logs(&self) -> impl Future<Item = (), Error = ()> + Send {
-        let cache = self.deposit_data.clone();
-        let event_future = self.fetcher.get_deposit_logs_subscription(cache);
-        event_future.map_err(|e| println!("Eth1 error {:?}", e))
+    /// Update deposits from last updated point to `current_block_number - confirmations`.
+    pub fn update_deposits(
+        &self,
+        confirmations: u64,
+    ) -> impl Future<Item = (), Error = Error> + Send {
+        let fetcher = self.fetcher.clone();
+        let last_fetched = self.last_fetched.clone();
+        let deposits = self.deposit_data.clone();
+        let future = self
+            .fetcher
+            .get_current_block_number()
+            .and_then(move |curr_block_number| {
+                let end_block: U256 = curr_block_number
+                    .checked_sub(confirmations.into())
+                    .unwrap_or(U256::zero());
+                fetcher
+                    .get_deposit_logs_in_range(
+                        BlockNumber::Number(*last_fetched.clone().read()),
+                        BlockNumber::Number(end_block.as_u64()),
+                        deposits,
+                    )
+                    .and_then(move |_| {
+                        let mut last_fetched_write = last_fetched.write();
+                        *last_fetched_write = curr_block_number.as_u64();
+                        Ok(())
+                    })
+            });
+        future
     }
 }
 
@@ -80,32 +109,39 @@ mod tests {
     use super::*;
     use crate::types::ContractConfig;
     use crate::web3_fetcher::Web3DataFetcher;
+    use std::time::{Duration, Instant};
     use tokio;
-    use tokio::runtime::TaskExecutor;
+    use tokio::timer::{Interval};
+    use web3::futures::Stream;
     use web3::types::Address;
 
-    fn run(executor: &TaskExecutor) {
+    fn setup() -> Web3DataFetcher {
         let deposit_contract_address: Address =
             "8c594691C0E592FFA21F153a16aE41db5beFcaaa".parse().unwrap();
         let deposit_contract = ContractConfig {
             address: deposit_contract_address,
             abi: include_bytes!("deposit_contract.json").to_vec(),
         };
-        let w3 = Arc::new(Web3DataFetcher::new(
-            "ws://localhost:8545",
-            deposit_contract,
-        ));
-        let cache = Arc::new(DepositCache::new(w3));
-        let event_future = cache.subscribe_deposit_logs();
-        executor.spawn(event_future);
+        let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract);
+        return w3;
     }
 
     #[test]
-    // Check if depositing to eth1 chain updates the deposit_cache
     fn test_logs_updation() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let executor = runtime.executor();
-        run(&executor);
-        runtime.shutdown_on_idle().wait().unwrap();
+        let w3 = setup();
+        let interval = {
+            let update_duration = Duration::from_secs(15);
+            Interval::new(Instant::now(), update_duration).map_err(|e| println!("{:?}", e))
+        };
+
+        let deposit_cache = Arc::new(DepositCache::new(Arc::new(w3)));
+        let task = interval.take(100).for_each(move |_| {
+            // let c = cache_inside.clone();
+            deposit_cache
+                .update_deposits(0)
+                .and_then(move |_| Ok(()))
+                .map_err(|e| println!("Some error {:?}", e))
+        });
+        tokio::run(task.map_err(|e| println!("Some error {:?}", e)));
     }
 }

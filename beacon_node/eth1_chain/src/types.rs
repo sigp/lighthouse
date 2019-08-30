@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::{Error, Result};
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::marker::{Send, Sync};
@@ -28,12 +28,15 @@ pub trait Eth1DataFetcher: Send + Sync + Clone {
     fn get_deposit_count(
         &self,
         block_number: Option<BlockNumber>,
-    ) -> Box<dyn Future<Item = Result<u64, Error>, Error = Error> + Send>;
+    ) -> Box<dyn Future<Item = Result<u64>, Error = Error> + Send>;
 
-    /// Returns a future which subscribes to `DepositEvent` events and inserts the
-    /// parsed deposit into the passed cache structure everytime an event is emitted.
-    fn get_deposit_logs_subscription(
+    /// Returns a future which when called in periodic intervals, fetches all the logs
+    /// from the deposit contract in the given range of block numbers and inserts
+    /// it into the passed cache structure.
+    fn get_deposit_logs_in_range(
         &self,
+        start_block: BlockNumber,
+        end_block: BlockNumber,
         cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
     ) -> Box<dyn Future<Item = (), Error = Error> + Send>;
 }
