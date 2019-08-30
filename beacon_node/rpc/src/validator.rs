@@ -46,12 +46,20 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
 
         let _ = state.build_all_caches(&self.chain.spec);
 
+        assert_eq!(
+            state.current_epoch(),
+            epoch,
+            "Retrieved state should be from the same epoch"
+        );
+
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
 
         let validator_proposers: Result<Vec<usize>, _> = epoch
             .slot_iter(T::EthSpec::slots_per_epoch())
-            .map(|slot| self.chain.block_proposer(slot))
+            .map(|slot| {
+                state.get_beacon_proposer_index(slot, RelativeEpoch::Current, &self.chain.spec)
+            })
             .collect();
         let validator_proposers = match validator_proposers {
             Ok(v) => v,

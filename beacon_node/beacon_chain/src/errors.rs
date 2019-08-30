@@ -37,6 +37,8 @@ pub enum BeaconChainError {
         beacon_block_root: Hash256,
     },
     AttestationValidationError(AttestationValidationError),
+    /// Returned when an internal check fails, indicating corrupt data.
+    InvariantViolated(String),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
