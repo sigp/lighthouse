@@ -12,7 +12,6 @@ use eth2_hashing::hash;
 use milagro_bls::{Keypair, PublicKey, SecretKey};
 use num_bigint::BigUint;
 
-pub const CURVE_ORDER_BITS: usize = 255;
 pub const PRIVATE_KEY_BYTES: usize = 48;
 pub const HASH_BYTES: usize = 32;
 
