@@ -139,13 +139,12 @@ pub fn run<F: Eth1DataFetcher + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio;
-    #[macro_use]
-    use slog;
     use crate::types::ContractConfig;
     use crate::web3_fetcher::Web3DataFetcher;
+    use slog;
     use slog_async;
     use slog_term;
+    use tokio;
     use web3::types::Address;
 
     use slog::Drain;

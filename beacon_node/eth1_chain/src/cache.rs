@@ -174,7 +174,7 @@ mod tests {
         let cache = Eth1DataCache::new(Arc::new(w3));
         let cache_inside = cache.cache.clone();
         let task = interval.take(100).for_each(move |_| {
-            let c = cache_inside.clone();
+            let _c = cache_inside.clone();
             cache
                 .update_cache(3 + 1)
                 .and_then(move |_| Ok(()))
