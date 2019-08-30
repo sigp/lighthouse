@@ -94,7 +94,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     /// Creates the builder from an existing set of keypairs.
     pub fn from_keypairs(keypairs: Vec<Keypair>, spec: &ChainSpec) -> Self {
         let validator_count = keypairs.len();
-        let starting_balance = 32_000_000_000;
+        let starting_balance = spec.max_effective_balance;
 
         debug!(
             "Building {} Validator objects from keypairs...",

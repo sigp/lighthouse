@@ -96,7 +96,7 @@ where
                 *minutes,
                 spec.clone(),
                 log.clone(),
-            ),
+            )?,
             BeaconChainStartMethod::Generated {
                 validator_count,
                 genesis_time,
@@ -105,7 +105,7 @@ where
                 *validator_count,
                 spec.clone(),
                 log.clone(),
-            ),
+            )?,
             BeaconChainStartMethod::Yaml { file } => {
                 BeaconChainBuilder::yaml_state(file, spec.clone(), log.clone())?
             }
