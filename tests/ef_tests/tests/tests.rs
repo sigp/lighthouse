@@ -36,71 +36,47 @@ fn shuffling() {
     ShufflingHandler::<MainnetEthSpec>::run();
 }
 
-/*
 #[test]
 fn operations_deposit() {
-    yaml_files_in_test_dir(&Path::new("operations").join("deposit"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    OperationsHandler::<MinimalEthSpec, Deposit>::run();
+    OperationsHandler::<MainnetEthSpec, Deposit>::run();
 }
 
 #[test]
 fn operations_transfer() {
-    yaml_files_in_test_dir(&Path::new("operations").join("transfer"))
-        .into_par_iter()
-        .rev()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    OperationsHandler::<MinimalEthSpec, Transfer>::run();
+    // Note: there are no transfer tests for mainnet
 }
 
 #[test]
 fn operations_exit() {
-    yaml_files_in_test_dir(&Path::new("operations").join("voluntary_exit"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    OperationsHandler::<MinimalEthSpec, VoluntaryExit>::run();
+    OperationsHandler::<MainnetEthSpec, VoluntaryExit>::run();
 }
 
 #[test]
 fn operations_proposer_slashing() {
-    yaml_files_in_test_dir(&Path::new("operations").join("proposer_slashing"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    OperationsHandler::<MinimalEthSpec, ProposerSlashing>::run();
+    OperationsHandler::<MainnetEthSpec, ProposerSlashing>::run();
 }
 
 #[test]
 fn operations_attester_slashing() {
-    yaml_files_in_test_dir(&Path::new("operations").join("attester_slashing"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    OperationsHandler::<MinimalEthSpec, AttesterSlashing<_>>::run();
+    OperationsHandler::<MainnetEthSpec, AttesterSlashing<_>>::run();
 }
 
 #[test]
 fn operations_attestation() {
-    yaml_files_in_test_dir(&Path::new("operations").join("attestation"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    OperationsHandler::<MinimalEthSpec, Attestation<_>>::run();
+    OperationsHandler::<MainnetEthSpec, Attestation<_>>::run();
 }
 
 #[test]
 fn operations_block_header() {
-    yaml_files_in_test_dir(&Path::new("operations").join("block_header"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    OperationsHandler::<MinimalEthSpec, BeaconBlock<_>>::run();
+    OperationsHandler::<MainnetEthSpec, BeaconBlock<_>>::run();
 }
-*/
 
 #[test]
 fn sanity_blocks() {
@@ -113,18 +89,6 @@ fn sanity_slots() {
     SanitySlotsHandler::<MinimalEthSpec>::run();
     SanitySlotsHandler::<MainnetEthSpec>::run();
 }
-
-/*
-#[test]
-#[cfg(not(feature = "fake_crypto"))]
-fn bls() {
-    yaml_files_in_test_dir(&Path::new("bls"))
-        .into_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
-}
-*/
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
@@ -259,6 +223,5 @@ fn genesis_initialization() {
 #[test]
 fn genesis_validity() {
     GenesisValidityHandler::<MinimalEthSpec>::run();
-    // TODO: mainnet tests don't exist yet
-    // GenesisValidityHandler::<MainnetEthSpec>::run();
+    // Note: there are no genesis validity tests for mainnet
 }
