@@ -42,23 +42,6 @@ impl Web3DataFetcher {
             contract: contract,
         }
     }
-
-    /// Return filter for subscribing to `DepositEvent` event.
-    fn get_deposit_logs_filter(&self) -> Filter {
-        /// Keccak256 hash of "DepositEvent" in bytes for passing to log filter.
-        const DEPOSIT_CONTRACT_HASH: &str =
-            "649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5";
-        let filter = FilterBuilder::default()
-            .address(vec![self.contract.address()])
-            .topics(
-                Some(vec![DEPOSIT_CONTRACT_HASH.parse().unwrap()]),
-                None,
-                None,
-                None,
-            )
-            .build();
-        filter
-    }
 }
 
 impl Eth1DataFetcher for Web3DataFetcher {
@@ -159,31 +142,55 @@ impl Eth1DataFetcher for Web3DataFetcher {
         )
     }
 
-    /// Returns a future which subscribes to `DepositEvent` events and inserts the
-    /// parsed deposit into the passed cache structure everytime an event is emitted.
-    fn get_deposit_logs_subscription(
+    /// Get `DepositEvent` events in given range.
+    fn get_deposit_logs_in_range(
         &self,
+        start_block: BlockNumber,
+        end_block: BlockNumber,
         cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
     ) -> Box<dyn Future<Item = (), Error = Error> + Send> {
-        let filter: Filter = self.get_deposit_logs_filter();
-        let event_future = self
+        /// Keccak256 hash of "DepositEvent" in bytes for passing to log filter.
+        const DEPOSIT_CONTRACT_HASH: &str =
+            "649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5";
+        let filter = FilterBuilder::default()
+            .address(vec![self.contract.address()])
+            .topics(
+                Some(vec![DEPOSIT_CONTRACT_HASH.parse().unwrap()]),
+                None,
+                None,
+                None,
+            )
+            .from_block(start_block)
+            .to_block(end_block)
+            .build();
+        println!(
+            "Getting deposit logs in range {:?} to {:?}",
+            start_block, end_block
+        );
+        let future = self
             .web3
-            .eth_subscribe()
-            .subscribe_logs(filter)
-            .and_then(move |sub| {
-                sub.for_each(move |log| {
-                    let parsed_logs = parse_deposit_logs(log).unwrap();
-                    let mut logs = cache.write();
-                    println!("New log is {:?}", parsed_logs.1);
-                    logs.insert(parsed_logs.0, parsed_logs.1);
-                    Ok(())
-                })
-            })
+            .eth()
+            .logs(filter)
+            .and_then(move |logs| Ok(logs)) // Additional `and_then` to convert error type.
             .map_err(|e| {
-                println!("Error processing logs");
+                println!("Error getting deposit logs");
                 Error::Web3Error(e)
+            })
+            .and_then(move |logs| {
+                for log in logs {
+                    let parsed_logs = parse_deposit_logs(log)?;
+                    let mut logs = cache.write();
+                    logs.insert(parsed_logs.0, parsed_logs.1);
+                    println!("New log is {:?}", *logs);
+                }
+                Ok(())
+            })
+            .timeout(Duration::from_secs(10))
+            .map_err(|_| {
+                println!("Timed out getting deposit logs");
+                Error::Timeout
             });
-        Box::new(event_future)
+        Box::new(future)
     }
 }
 
@@ -229,7 +236,7 @@ pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData)> {
         Ok((
             vec_to_u64_le(&params[4])?,
             DepositData {
-                pubkey: PublicKeyBytes::from_bytes(&params[0]).unwrap(),
+                pubkey: PublicKeyBytes::from_bytes(&params[0])?,
                 withdrawal_credentials: H256::from_slice(&params[1]),
                 amount: vec_to_u64_le(&params[2])?,
                 signature: SignatureBytes::from_bytes(&params[3])?,
