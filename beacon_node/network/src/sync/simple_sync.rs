@@ -525,6 +525,13 @@ impl NetworkContext {
     }
 
     pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        warn!(
+            &self.log,
+            "Disconnecting peer";
+            "reason" => format!("{:?}", reason),
+            "peer_id" => format!("{:?}", peer_id),
+        );
+
         self.send_rpc_request(None, peer_id, RPCRequest::Goodbye(reason))
         // TODO: disconnect peers.
     }
