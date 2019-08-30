@@ -1,4 +1,4 @@
-use crate::error::Eth1Error;
+use crate::error::{Error, Result};
 use crate::types::Eth1DataFetcher;
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
@@ -28,7 +28,7 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
 
     /// Called periodically to populate the cache with Eth1Data
     /// from most recent blocks upto `distance`.
-    pub fn update_cache(&self, distance: u64) -> impl Future<Item = (), Error = Eth1Error> + Send {
+    pub fn update_cache(&self, distance: u64) -> impl Future<Item = (), Error = Error> + Send {
         let cache_updated = self.cache.clone();
         let last_block = self.last_block.clone();
         let fetcher = self.fetcher.clone();
@@ -93,7 +93,7 @@ fn fetch_eth1_data_in_range<F: Eth1DataFetcher>(
     end: u64,
     current_block_number: U256,
     fetcher: Arc<F>,
-) -> impl Stream<Item = Result<(U256, Eth1Data), Eth1Error>, Error = Eth1Error> + Send {
+) -> impl Stream<Item = Result<(U256, Eth1Data)>, Error = Error> + Send {
     stream::futures_ordered(
         (start..end).map(move |i| fetch_eth1_data(i, current_block_number, fetcher.clone())),
     )
@@ -104,7 +104,7 @@ fn fetch_eth1_data<F: Eth1DataFetcher>(
     distance: u64,
     current_block_number: U256,
     fetcher: Arc<F>,
-) -> impl Future<Item = Result<(U256, Eth1Data), Eth1Error>, Error = Eth1Error> + Send {
+) -> impl Future<Item = Result<(U256, Eth1Data)>, Error = Error> + Send {
     let block_number: U256 = current_block_number
         .checked_sub(distance.into())
         .unwrap_or(U256::zero());
@@ -116,7 +116,7 @@ fn fetch_eth1_data<F: Eth1DataFetcher>(
         let eth1_data = Eth1Data {
             deposit_root: data.0,
             deposit_count: data.1?,
-            block_hash: data.2.ok_or(Eth1Error::DecodingError)?,
+            block_hash: data.2.ok_or(Error::DecodingError)?,
         };
         Ok((block_number, eth1_data))
     })

@@ -14,7 +14,7 @@ use web3::types::FilterBuilder;
 use web3::types::*;
 use web3::Web3;
 
-use crate::error::Eth1Error;
+use crate::error::{Error, Result};
 use crate::types::{ContractConfig, Eth1DataFetcher};
 
 /// Wrapper around web3 api.
@@ -63,19 +63,19 @@ impl Web3DataFetcher {
 
 impl Eth1DataFetcher for Web3DataFetcher {
     /// Get block_number of current block.
-    fn get_current_block_number(&self) -> Box<dyn Future<Item = U256, Error = Eth1Error> + Send> {
+    fn get_current_block_number(&self) -> Box<dyn Future<Item = U256, Error = Error> + Send> {
         Box::new(
             self.web3
                 .eth()
                 .block_number()
                 .map_err(|e| {
                     println!("Error getting block number");
-                    Eth1Error::Web3Error(e)
+                    Error::Web3Error(e)
                 })
                 .timeout(Duration::from_secs(10))
                 .map_err(|_| {
                     println!("Timed out getting block_number");
-                    Eth1Error::Timeout
+                    Error::Timeout
                 }),
         )
     }
@@ -84,7 +84,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
     fn get_block_hash_by_height(
         &self,
         height: u64,
-    ) -> Box<dyn Future<Item = Option<H256>, Error = Eth1Error> + Send> {
+    ) -> Box<dyn Future<Item = Option<H256>, Error = Error> + Send> {
         Box::new(
             self.web3
                 .eth()
@@ -92,12 +92,12 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 .map(|x| x.and_then(|b| b.hash))
                 .map_err(|e| {
                     println!("Error getting block hash");
-                    Eth1Error::Web3Error(e)
+                    Error::Web3Error(e)
                 })
                 .timeout(Duration::from_secs(10))
                 .map_err(|_| {
                     println!("Timed out getting block_hash");
-                    Eth1Error::Timeout
+                    Error::Timeout
                 }),
         )
     }
@@ -106,7 +106,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
     fn get_deposit_count(
         &self,
         block_number: Option<BlockNumber>,
-    ) -> Box<dyn Future<Item = Result<u64, Eth1Error>, Error = Eth1Error> + Send> {
+    ) -> Box<dyn Future<Item = Result<u64>, Error = Error> + Send> {
         Box::new(
             self.contract
                 .query(
@@ -122,12 +122,12 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 })
                 .map_err(|e| {
                     println!("Error getting deposit count");
-                    Eth1Error::ContractError(e)
+                    Error::ContractError(e)
                 })
                 .timeout(Duration::from_secs(10))
                 .map_err(|_| {
                     println!("Timed out getting deposit count");
-                    Eth1Error::Timeout
+                    Error::Timeout
                 }),
         )
     }
@@ -136,7 +136,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
     fn get_deposit_root(
         &self,
         block_number: Option<BlockNumber>,
-    ) -> Box<dyn Future<Item = H256, Error = Eth1Error> + Send> {
+    ) -> Box<dyn Future<Item = H256, Error = Error> + Send> {
         Box::new(
             self.contract
                 .query(
@@ -149,12 +149,12 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 .map(|x: Vec<u8>| H256::from_slice(&x))
                 .map_err(|e| {
                     println!("Error getting deposit root");
-                    Eth1Error::ContractError(e)
+                    Error::ContractError(e)
                 })
                 .timeout(Duration::from_secs(10))
                 .map_err(|_| {
                     println!("Timed out getting deposit root");
-                    Eth1Error::Timeout
+                    Error::Timeout
                 }),
         )
     }
@@ -164,7 +164,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
     fn get_deposit_logs_subscription(
         &self,
         cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
-    ) -> Box<dyn Future<Item = (), Error = Eth1Error> + Send> {
+    ) -> Box<dyn Future<Item = (), Error = Error> + Send> {
         let filter: Filter = self.get_deposit_logs_filter();
         let event_future = self
             .web3
@@ -181,31 +181,31 @@ impl Eth1DataFetcher for Web3DataFetcher {
             })
             .map_err(|e| {
                 println!("Error processing logs");
-                Eth1Error::Web3Error(e)
+                Error::Web3Error(e)
             });
         Box::new(event_future)
     }
 }
 
 // Converts a valid vector to a u64.
-pub fn vec_to_u64_le(bytes: &[u8]) -> Result<u64, Eth1Error> {
+pub fn vec_to_u64_le(bytes: &[u8]) -> Result<u64> {
     let mut array = [0; 8];
     if bytes.len() == 8 {
         let bytes = &bytes[..array.len()];
         array.copy_from_slice(bytes);
         Ok(u64::from_le_bytes(array))
     } else {
-        Err(Eth1Error::DecodingError)
+        Err(Error::DecodingError)
     }
 }
 
 /// Parse contract logs.
-pub fn parse_logs(log: Log, types: &[ParamType]) -> Result<Vec<Token>, Eth1Error> {
+pub fn parse_logs(log: Log, types: &[ParamType]) -> Result<Vec<Token>> {
     decode(types, &log.data.0).map_err(|e| e.into())
 }
 
 /// Parse logs from deposit contract.
-pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData), Eth1Error> {
+pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData)> {
     let deposit_event_params = &[
         ParamType::FixedBytes(48), // pubkey
         ParamType::FixedBytes(32), // withdrawal_credentials
@@ -222,7 +222,7 @@ pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData), Eth1Error> {
             _ => None,
         })
         .collect::<Option<Vec<_>>>()
-        .ok_or(Eth1Error::DecodingError)?;
+        .ok_or(Error::DecodingError)?;
 
     // Event should have exactly 5 parameters.
     if params.len() == 5 {
@@ -236,7 +236,7 @@ pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData), Eth1Error> {
             },
         ))
     } else {
-        Err(Eth1Error::DecodingError)
+        Err(Error::DecodingError)
     }
 }
 
