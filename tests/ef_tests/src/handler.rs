@@ -1,4 +1,4 @@
-use crate::cases::{self, Case, Cases, EpochTransition, LoadCase};
+use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name::TypeName;
 use crate::EfTest;
 use std::fs;
@@ -20,7 +20,7 @@ pub trait Handler {
 
     fn runner_name() -> &'static str;
 
-    fn handler_name() -> &'static str;
+    fn handler_name() -> String;
 
     fn run() {
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -64,8 +64,8 @@ macro_rules! bls_handler {
                 "bls"
             }
 
-            fn handler_name() -> &'static str {
-                $handler_name
+            fn handler_name() -> String {
+                $handler_name.into()
             }
         }
     };
@@ -106,8 +106,8 @@ where
         "ssz_static"
     }
 
-    fn handler_name() -> &'static str {
-        T::name()
+    fn handler_name() -> String {
+        T::name().into()
     }
 }
 
@@ -126,8 +126,8 @@ where
         "ssz_static"
     }
 
-    fn handler_name() -> &'static str {
-        T::name()
+    fn handler_name() -> String {
+        T::name().into()
     }
 }
 
@@ -144,8 +144,8 @@ impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
         "shuffling"
     }
 
-    fn handler_name() -> &'static str {
-        "core"
+    fn handler_name() -> String {
+        "core".into()
     }
 }
 
@@ -162,8 +162,8 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
         "sanity"
     }
 
-    fn handler_name() -> &'static str {
-        "blocks"
+    fn handler_name() -> String {
+        "blocks".into()
     }
 }
 
@@ -180,8 +180,8 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
         "sanity"
     }
 
-    fn handler_name() -> &'static str {
-        "slots"
+    fn handler_name() -> String {
+        "slots".into()
     }
 }
 
@@ -198,8 +198,8 @@ impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHa
         "epoch_processing"
     }
 
-    fn handler_name() -> &'static str {
-        T::name()
+    fn handler_name() -> String {
+        T::name().into()
     }
 }
 
@@ -216,8 +216,8 @@ impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
         "genesis"
     }
 
-    fn handler_name() -> &'static str {
-        "validity"
+    fn handler_name() -> String {
+        "validity".into()
     }
 }
 
@@ -234,7 +234,25 @@ impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
         "genesis"
     }
 
-    fn handler_name() -> &'static str {
-        "initialization"
+    fn handler_name() -> String {
+        "initialization".into()
+    }
+}
+
+pub struct OperationsHandler<E, O>(PhantomData<(E, O)>);
+
+impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O> {
+    type Case = cases::Operations<E, O>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "operations"
+    }
+
+    fn handler_name() -> String {
+        O::handler_name()
     }
 }
