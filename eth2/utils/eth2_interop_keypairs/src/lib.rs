@@ -1,10 +1,21 @@
 //! Produces the "deterministic" validator private keys used for inter-operability testing for
 //! Ethereum 2.0 clients.
 //!
-//! Each private key is the first hash in the sha2 hash-chain that is less than 2^255. As such,
-//! keys generated here are **not secret** and are **not for production use**.
+//! Each private key is the sha2 hash of the validator index (little-endian, padded to 32 bytes),
+//! modulo the BLS-381 curve order.
 //!
-//! Note: these keys have not been tested against a reference implementation, yet.
+//! Keys generated here are **not secret** and are **not for production use**. It is trivial to
+//! know the secret key for any validator.
+//!
+//!## Reference
+//!
+//! Reference implementation:
+//!
+//! https://github.com/ethereum/eth2.0-pm/blob/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start/keygen.py
+//!
+//!
+//! This implementation passes the [reference implementation
+//! tests](https://github.com/ethereum/eth2.0-pm/blob/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start/keygen_test_vector.yaml).
 #[macro_use]
 extern crate lazy_static;
 
@@ -22,7 +33,9 @@ lazy_static! {
             .expect("Curve order should be valid");
 }
 
-pub fn le_private_key(validator_index: usize) -> [u8; PRIVATE_KEY_BYTES] {
+/// Return a G1 point for the given `validator_index`, encoded as a compressed point in
+/// big-endian byte-ordering.
+pub fn be_private_key(validator_index: usize) -> [u8; PRIVATE_KEY_BYTES] {
     let preimage = {
         let mut bytes = [0; HASH_BYTES];
         let index = validator_index.to_le_bytes();
@@ -33,25 +46,20 @@ pub fn le_private_key(validator_index: usize) -> [u8; PRIVATE_KEY_BYTES] {
     let privkey = BigUint::from_bytes_le(&hash(&preimage)) % &*CURVE_ORDER;
 
     let mut bytes = [0; PRIVATE_KEY_BYTES];
-    let privkey_bytes = privkey.to_bytes_le();
-    bytes[0..privkey_bytes.len()].copy_from_slice(&privkey_bytes);
+    let privkey_bytes = privkey.to_bytes_be();
+    bytes[PRIVATE_KEY_BYTES - privkey_bytes.len()..].copy_from_slice(&privkey_bytes);
     bytes
 }
 
+/// Return a public and private keypair for a given `validator_index`.
 pub fn keypair(validator_index: usize) -> Keypair {
-    let bytes = le_private_key(validator_index);
-
-    let sk =
-        SecretKey::from_bytes(&swap_bytes(bytes.to_vec())).expect("Should be valid private key");
+    let sk = SecretKey::from_bytes(&be_private_key(validator_index)).expect(&format!(
+        "Should build valid private key for validator index {}",
+        validator_index
+    ));
 
     Keypair {
         pk: PublicKey::from_secret_key(&sk),
         sk,
     }
-}
-
-fn swap_bytes<T>(input: Vec<T>) -> Vec<T> {
-    let mut output = vec![];
-    input.into_iter().rev().for_each(|byte| output.push(byte));
-    output
 }
