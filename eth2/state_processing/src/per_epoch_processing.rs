@@ -1,8 +1,5 @@
 use crate::common::get_compact_committees_root;
-use apply_rewards::process_rewards_and_penalties;
 use errors::EpochProcessingError as Error;
-use process_slashings::process_slashings;
-use registry_updates::process_registry_updates;
 use std::collections::HashMap;
 use tree_hash::TreeHash;
 use types::*;
@@ -16,6 +13,10 @@ pub mod registry_updates;
 pub mod tests;
 pub mod validator_statuses;
 pub mod winning_root;
+
+pub use apply_rewards::process_rewards_and_penalties;
+pub use process_slashings::process_slashings;
+pub use registry_updates::process_registry_updates;
 
 /// Maps a shard to a winning root.
 ///
