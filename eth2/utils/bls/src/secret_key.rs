@@ -20,6 +20,10 @@ impl SecretKey {
         SecretKey(RawSecretKey::random(&mut rand::thread_rng()))
     }
 
+    pub fn from_raw(raw: RawSecretKey) -> Self {
+        Self(raw)
+    }
+
     /// Returns the underlying point as compressed bytes.
     fn as_bytes(&self) -> Vec<u8> {
         self.as_raw().as_bytes()

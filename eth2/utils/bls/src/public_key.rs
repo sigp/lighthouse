@@ -20,6 +20,10 @@ impl PublicKey {
         PublicKey(RawPublicKey::from_secret_key(secret_key.as_raw()))
     }
 
+    pub fn from_raw(raw: RawPublicKey) -> Self {
+        Self(raw)
+    }
+
     /// Returns the underlying signature.
     pub fn as_raw(&self) -> &RawPublicKey {
         &self.0
