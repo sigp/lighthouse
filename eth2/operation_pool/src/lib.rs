@@ -134,7 +134,7 @@ impl<T: EthSpec> OperationPool<T> {
                 verify_attestation_for_block_inclusion(
                     state,
                     attestation,
-                    VerifySignatures::True,
+                    VerifySignatures::False,
                     spec,
                 )
                 .is_ok()
