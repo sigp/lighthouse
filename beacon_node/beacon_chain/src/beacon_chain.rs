@@ -466,6 +466,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         }
 
+        if epoch(state.as_ref().slot) != epoch(slot) {
+            return Err(Error::InvariantViolated(format!(
+                "Epochs in consistent in proposer lookup: state: {}, requested: {}",
+                epoch(state.as_ref().slot),
+                epoch(slot)
+            )));
+        }
+
         state
             .as_ref()
             .get_beacon_proposer_index(slot, RelativeEpoch::Current, &self.spec)
@@ -492,6 +500,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(state) = state.as_mut_ref() {
             state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        }
+
+        if as_epoch(state.as_ref().slot) != epoch {
+            return Err(Error::InvariantViolated(format!(
+                "Epochs in consistent in attestation duties lookup: state: {}, requested: {}",
+                as_epoch(state.as_ref().slot),
+                epoch
+            )));
         }
 
         if let Some(attestation_duty) = state
@@ -1123,12 +1139,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
     ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
         let state = self
-            .state_at_slot(slot)
+            .state_at_slot(slot - 1)
             .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
-
-        let slot = self
-            .slot()
-            .map_err(|_| BlockProductionError::UnableToReadSlot)?;
 
         self.produce_block_on_state(state.as_ref().clone(), slot, randao_reveal)
     }
