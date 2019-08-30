@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::prelude::*;
 use types::DepositData;
 use web3::contract::{Contract, Options};
-use web3::futures::{Future, Stream};
+use web3::futures::Future;
 use web3::transports::WebSocket;
 use web3::types::FilterBuilder;
 use web3::types::*;

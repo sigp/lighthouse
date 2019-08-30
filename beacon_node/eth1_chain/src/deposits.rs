@@ -111,7 +111,7 @@ mod tests {
     use crate::web3_fetcher::Web3DataFetcher;
     use std::time::{Duration, Instant};
     use tokio;
-    use tokio::timer::{Interval};
+    use tokio::timer::Interval;
     use web3::futures::Stream;
     use web3::types::Address;
 
