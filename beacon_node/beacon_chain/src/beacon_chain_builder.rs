@@ -130,6 +130,10 @@ fn genesis_block<T: EthSpec>(genesis_state: &BeaconState<T>, spec: &ChainSpec) -
     genesis_block
 }
 
+/// Builds a genesis state as defined by the Eth2 interop procedure (see below).
+///
+/// Reference:
+/// https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start
 fn interop_genesis_state<T: EthSpec>(
     validator_count: usize,
     genesis_time: u64,

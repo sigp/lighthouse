@@ -31,6 +31,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "fake_crypto"))]
     pub fn test_invalid_public_key() {
         let mut public_key_bytes = [0; BLS_PUBLIC_KEY_BYTE_SIZE];
         public_key_bytes[0] = 255; //a_flag1 == b_flag1 == c_flag1 == 1 and x1 = 0 shouldn't be allowed
