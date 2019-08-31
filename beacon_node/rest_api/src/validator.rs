@@ -1,12 +1,12 @@
 use super::{success_response, ApiResult};
 use crate::{helpers::*, ApiError, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use bls::{PublicKey, Signature};
+use bls::{AggregateSignature, PublicKey, Signature};
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Epoch, RelativeEpoch, Shard, Slot};
+use types::{Attestation, BitList, Epoch, RelativeEpoch, Shard, Slot};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatorDuty {
@@ -212,53 +212,130 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
     let _ = beacon_chain
         .ensure_state_caches_are_built()
         .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;
+    let head_state = &beacon_chain.head().beacon_state;
 
     let query = UrlQuery::from_request(&req)?;
-    let validator: PublicKey = match query.first_of(&["validator_pubkey"]) {
+    let val_pk: PublicKey = match query.first_of(&["validator_pubkey"]) {
         Ok((_, v)) => parse_pubkey(v.as_str())?,
         Err(e) => {
             return Err(e);
         }
     };
+    // Get the validator index from the supplied public key
+    // If it does not exist in the index, we cannot continue.
+    let val_index: usize = match head_state.get_validator_index(&val_pk) {
+        Ok(Some(i)) => i,
+        Ok(None) => {
+            return Err(ApiError::InvalidQueryParams(
+                "The provided validator public key does not correspond to a validator index."
+                    .into(),
+            ));
+        }
+        Err(e) => {
+            return Err(ApiError::ServerError(format!(
+                "Unable to read validator index cache. {:?}",
+                e
+            )));
+        }
+    };
+    // Get the duties of the validator, to make sure they match up.
+    // If they don't have duties this epoch, then return an error
+    let val_duty = match head_state.get_attestation_duties(val_index, RelativeEpoch::Current) {
+        Ok(Some(d)) => d,
+        Ok(None) => {
+            return Err(ApiError::InvalidQueryParams("No validator duties could be found for the requested validator. Cannot provide valid attestation.".into()));
+        }
+        Err(e) => {
+            return Err(ApiError::ServerError(format!(
+                "unable to read cache for attestation duties: {:?}",
+                e
+            )))
+        }
+    };
+
+    // Check that we are requesting an attestation during the slot where it is relevant.
+    let present_slot = match beacon_chain.read_slot_clock() {
+        Some(s) => s,
+        None => {
+            return Err(ApiError::ServerError(
+                "Beacon node is unable to determine present slot, either the state isn't generated or the chain hasn't begun.".into()
+            ));
+        }
+    };
+    if val_duty.slot != present_slot {
+        return Err(ApiError::InvalidQueryParams(format!("Validator is only able to request an attestation during the slot they are allocated. Current slot: {:?}, allocated slot: {:?}", head_state.slot, val_duty.slot)));
+    }
+
+    // Parse the POC bit and insert it into the aggregation bits
     let poc_bit: bool = match query.first_of(&["poc_bit"]) {
-        Ok((_, v)) => v.parse::<bool>().map_err(|e| ApiError::InvalidQueryParams(format!("poc_bit is not a valid boolean value: {:?}", e)))?,
+        Ok((_, v)) => v.parse::<bool>().map_err(|e| {
+            ApiError::InvalidQueryParams(format!("poc_bit is not a valid boolean value: {:?}", e))
+        })?,
         Err(e) => {
             return Err(e);
         }
     };
-    //TODO: this is probably unnecessary if we're always doing it by current slot.
+    let mut aggregation_bits: BitList<bool> = BitList::with_capacity(val_duty.committee_len)
+        .expect("An empty BitList should always be created, or we have bigger problems.")
+        .into();
+    aggregation_bits.set(val_duty.committee_index, poc_bit);
+
+    // Allow a provided slot parameter to check against the expected slot as a sanity check.
+    // Presently, we don't support attestations at future or past slots.
     let _slot = match query.first_of(&["slot"]) {
         Ok((_, v)) => {
             let requested_slot = v.parse::<u64>().map_err(|e| {
-                ApiError::InvalidQueryParams(format!("Invalid slot parameter, must be a u64. {:?}", e))
+                ApiError::InvalidQueryParams(format!(
+                    "Invalid slot parameter, must be a u64. {:?}",
+                    e
+                ))
             })?;
             let current_slot = beacon_chain.head().beacon_state.slot.as_u64();
             if requested_slot != current_slot {
                 return Err(ApiError::InvalidQueryParams(format!("Attestation data can only be requested for the current slot ({:?}), not your requested slot ({:?})", current_slot, requested_slot)));
             }
             Slot::new(requested_slot)
-        },
-        Err(e) => {
-            return Err(e);
         }
-    };
-    let shard: Shard = match query.first_of(&["shard"]) {
-        Ok((_, v)) => v.parse::<u64>().map_err(|e| ApiError::InvalidQueryParams(format!("Shard is not a valid u64 value: {:?}", e)))?,
+        Err(ApiError::InvalidQueryParams(_)) => {
+            // Just fill _slot with a dummy value for now, making the slot parameter optional
+            // We'll get the real slot from the ValidatorDuty
+            Slot::new(0)
+        }
         Err(e) => {
             return Err(e);
         }
     };
 
+    let shard: Shard = match query.first_of(&["shard"]) {
+        Ok((_, v)) => v.parse::<u64>().map_err(|e| {
+            ApiError::InvalidQueryParams(format!("Shard is not a valid u64 value: {:?}", e))
+        })?,
+        Err(e) => {
+            // This is a mandatory parameter, return the error
+            return Err(e);
+        }
+    };
     let attestation_data = match beacon_chain.produce_attestation_data(shard) {
         Ok(v) => v,
         Err(e) => {
-            return Err(ApiError::ServerError(format!("Could not produce an attestation: {:?}", e)));
+            return Err(ApiError::ServerError(format!(
+                "Could not produce an attestation: {:?}",
+                e
+            )));
         }
+    };
+
+    let attestation = Attestation {
+        aggregation_bits,
+        data: attestation_data,
+        custody_bits: BitList::with_capacity(val_duty.committee_len)
+            .expect("Should be able to create an empty BitList for the custody bits."),
+        signature: AggregateSignature::new(),
     };
 
     //TODO: This is currently AttestationData, but should be IndexedAttestation?
     let body = Body::from(
-        serde_json::to_string(&attestation_data)
+        serde_json::to_string(&attestation)
             .expect("We should always be able to serialize a new attestation that we produced."),
     );
     Ok(success_response(body))
