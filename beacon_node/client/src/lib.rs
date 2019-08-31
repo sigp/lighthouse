@@ -82,34 +82,70 @@ where
 
         let beacon_chain_builder = match &client_config.beacon_chain_start_method {
             BeaconChainStartMethod::Resume => {
+                info!(
+                    log,
+                    "Starting beacon chain";
+                    "method" => "resume"
+                );
                 BeaconChainBuilder::from_store(spec.clone(), log.clone())
             }
             BeaconChainStartMethod::Mainnet => {
                 crit!(log, "No mainnet beacon chain startup specification.");
-                return Err("Mainnet is not yet specified. We're working on it.".into());
+                return Err("Mainnet launch is not yet announced.".into());
             }
             BeaconChainStartMethod::RecentGenesis {
                 validator_count,
                 minutes,
-            } => BeaconChainBuilder::recent_genesis(
-                *validator_count,
-                *minutes,
-                spec.clone(),
-                log.clone(),
-            )?,
+            } => {
+                info!(
+                    log,
+                    "Starting beacon chain";
+                    "validator_count" => validator_count,
+                    "minutes" => minutes,
+                    "method" => "recent"
+                );
+                BeaconChainBuilder::recent_genesis(
+                    *validator_count,
+                    *minutes,
+                    spec.clone(),
+                    log.clone(),
+                )?
+            }
             BeaconChainStartMethod::Generated {
                 validator_count,
                 genesis_time,
-            } => BeaconChainBuilder::quick_start(
-                *genesis_time,
-                *validator_count,
-                spec.clone(),
-                log.clone(),
-            )?,
+            } => {
+                info!(
+                    log,
+                    "Starting beacon chain";
+                    "validator_count" => validator_count,
+                    "genesis_time" => genesis_time,
+                    "method" => "quick"
+                );
+                BeaconChainBuilder::quick_start(
+                    *genesis_time,
+                    *validator_count,
+                    spec.clone(),
+                    log.clone(),
+                )?
+            }
             BeaconChainStartMethod::Yaml { file } => {
+                info!(
+                    log,
+                    "Starting beacon chain";
+                    "file" => format!("{:?}", file),
+                    "method" => "yaml"
+                );
                 BeaconChainBuilder::yaml_state(file, spec.clone(), log.clone())?
             }
-            BeaconChainStartMethod::HttpBootstrap { server, .. } => {
+            BeaconChainStartMethod::HttpBootstrap { server, port } => {
+                info!(
+                    log,
+                    "Starting beacon chain";
+                    "port" => port,
+                    "server" => server,
+                    "method" => "bootstrap"
+                );
                 BeaconChainBuilder::http_bootstrap(server, spec.clone(), log.clone())?
             }
         };
@@ -122,26 +158,6 @@ where
 
         if beacon_chain.slot().is_err() {
             panic!("Cannot start client before genesis!")
-        }
-
-        // Block starting the client until we have caught the state up to the current slot.
-        //
-        // If we don't block here we create an initial scenario where we're unable to process any
-        // blocks and we're basically useless.
-        {
-            let state_slot = beacon_chain.head().beacon_state.slot;
-            let wall_clock_slot = beacon_chain
-                .slot()
-                .expect("Cannot start client before genesis");
-            let slots_since_genesis = beacon_chain.slots_since_genesis().unwrap();
-            info!(
-                log,
-                "BeaconState cache init";
-                "state_slot" => state_slot,
-                "wall_clock_slot" => wall_clock_slot,
-                "slots_since_genesis" => slots_since_genesis,
-                "catchup_distance" => wall_clock_slot - state_slot,
-            );
         }
 
         let network_config = &client_config.network;
