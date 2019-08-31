@@ -15,6 +15,12 @@ type Result<T> = std::result::Result<T, String>;
 type Config = (ClientConfig, Eth2Config);
 
 /// Gets the fully-initialized global client and eth2 configuration objects.
+///
+/// The top-level `clap` arguments should be provied as `cli_args`.
+///
+/// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
+/// may be influenced by other external services like the contents of the file system or the
+/// response of some remote server.
 pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
     let mut builder = ConfigBuilder::new(cli_args, log)?;
 
@@ -95,7 +101,7 @@ fn process_testnet_subcommand(
         "path" => format!("{:?}", builder.data_dir)
     );
 
-    // Start matching on the second subcommand (e.g., `testnet bootstrap ...`)
+    // Start matching on the second subcommand (e.g., `testnet bootstrap ...`).
     match cli_args.subcommand() {
         ("bootstrap", Some(cli_args)) => {
             let server = cli_args
@@ -129,6 +135,24 @@ fn process_testnet_subcommand(
             builder.set_beacon_chain_start_method(BeaconChainStartMethod::RecentGenesis {
                 validator_count,
                 minutes,
+            })
+        }
+        ("quick", Some(cli_args)) => {
+            let validator_count = cli_args
+                .value_of("validator_count")
+                .ok_or_else(|| "No validator_count specified")?
+                .parse::<usize>()
+                .map_err(|e| format!("Unable to parse validator_count: {:?}", e))?;
+
+            let genesis_time = cli_args
+                .value_of("genesis_time")
+                .ok_or_else(|| "No genesis time supplied")?
+                .parse::<u64>()
+                .map_err(|e| format!("Unable to parse genesis time: {:?}", e))?;
+
+            builder.set_beacon_chain_start_method(BeaconChainStartMethod::Generated {
+                validator_count,
+                genesis_time,
             })
         }
         _ => return Err("No testnet method specified. See 'testnet --help'.".into()),
@@ -419,6 +443,18 @@ impl<'a> ConfigBuilder<'a> {
         self.eth2_config.apply_cli_args(cli_args)?;
         self.client_config
             .apply_cli_args(cli_args, &mut self.log.clone())?;
+
+        if let Some(bump) = cli_args.value_of("port-bump") {
+            let bump = bump
+                .parse::<u16>()
+                .map_err(|e| format!("Unable to parse port bump: {}", e))?;
+
+            self.client_config.network.libp2p_port += bump;
+            self.client_config.network.discovery_port += bump;
+            self.client_config.rpc.port += bump;
+            self.client_config.rpc.port += bump;
+            self.client_config.rest_api.port += bump;
+        }
 
         if self.eth2_config.spec_constants != self.client_config.spec_constants {
             crit!(self.log, "Specification constants do not match.";

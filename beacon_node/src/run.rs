@@ -41,11 +41,10 @@ pub fn run_beacon_node(
 
     info!(
         log,
-        "BeaconNode init";
-        "p2p_listen_address" => format!("{:?}", &other_client_config.network.listen_address),
-        "network_dir" => format!("{:?}", other_client_config.network.network_dir),
-        "spec_constants" => &spec_constants,
+        "Starting beacon node";
+        "p2p_listen_address" => format!("{}", &other_client_config.network.listen_address),
         "db_type" => &other_client_config.db_type,
+        "spec_constants" => &spec_constants,
     );
 
     match (db_type.as_str(), spec_constants.as_str()) {

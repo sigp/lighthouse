@@ -158,12 +158,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             genesis_state_root,
         ));
 
-        info!(log, "BeaconChain init";
-              "genesis_validator_count" => genesis_state.validators.len(),
-              "genesis_state_root" => format!("{}", genesis_state_root),
-              "genesis_block_root" => format!("{}", genesis_block_root),
-        );
-
         // Slot clock
         let slot_clock = T::SlotClock::from_eth2_genesis(
             spec.genesis_slot,
@@ -171,6 +165,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Duration::from_millis(spec.milliseconds_per_slot),
         )
         .ok_or_else(|| Error::SlotClockDidNotStart)?;
+
+        info!(log, "Beacon chain initialized from genesis";
+              "validator_count" => genesis_state.validators.len(),
+              "state_root" => format!("{}", genesis_state_root),
+              "block_root" => format!("{}", genesis_block_root),
+        );
 
         Ok(Self {
             spec,
@@ -210,6 +210,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let last_finalized_block = &p.canonical_head.beacon_block;
 
         let op_pool = p.op_pool.into_operation_pool(state, &spec);
+
+        info!(log, "Beacon chain initialized from store";
+              "head_root" => format!("{}", p.canonical_head.beacon_block_root),
+              "head_epoch" => format!("{}", p.canonical_head.beacon_block.slot.epoch(T::EthSpec::slots_per_epoch())),
+              "finalized_root" => format!("{}", last_finalized_root),
+              "finalized_epoch" => format!("{}", last_finalized_block.slot.epoch(T::EthSpec::slots_per_epoch())),
+        );
 
         Ok(Some(BeaconChain {
             spec,

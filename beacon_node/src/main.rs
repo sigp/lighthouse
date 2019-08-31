@@ -49,17 +49,28 @@ fn main() {
          * Network parameters.
          */
         .arg(
+            Arg::with_name("port-bump")
+                .long("port-bump")
+                .short("b")
+                .value_name("INCREMENT")
+                .help("Sets all listening TCP/UDP ports to default values, but with each port increased by \
+                      INCREMENT. Useful when starting multiple nodes on a single machine. Using increments \
+                      in multiples of 10 is recommended.")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("listen-address")
                 .long("listen-address")
                 .value_name("ADDRESS")
                 .help("The address lighthouse will listen for UDP and TCP connections. (default 127.0.0.1).")
-                .takes_value(true),
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("port")
                 .long("port")
                 .value_name("PORT")
                 .help("The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.")
+                .conflicts_with("port-bump")
                 .takes_value(true),
         )
         .arg(
@@ -81,6 +92,7 @@ fn main() {
                 .long("disc-port")
                 .value_name("PORT")
                 .help("The discovery UDP port.")
+                .conflicts_with("port-bump")
                 .takes_value(true),
         )
         .arg(
@@ -125,6 +137,7 @@ fn main() {
             Arg::with_name("rpc-port")
                 .long("rpc-port")
                 .help("Listen port for RPC endpoint.")
+                .conflicts_with("port-bump")
                 .takes_value(true),
         )
         /* Client related arguments */
@@ -147,6 +160,7 @@ fn main() {
                 .long("api-port")
                 .value_name("APIPORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
+                .conflicts_with("port-bump")
                 .takes_value(true),
         )
 
@@ -230,8 +244,6 @@ fn main() {
                     .conflicts_with("random-datadir")
             )
             /*
-             * Testnet sub-commands.
-             *
              * `boostrap`
              *
              * Start a new node by downloading genesis and network info from another node via the
@@ -272,7 +284,29 @@ fn main() {
                     .default_value("15")
                     .help("The maximum number of minutes that will have elapsed before genesis"))
             )
-            .subcommand(SubCommand::with_name("yaml-genesis-state")
+            /*
+             * `quick`
+             *
+             * Start a new node, specifying the number of validators and genesis time
+             */
+            .subcommand(SubCommand::with_name("quick")
+                .about("Creates a new genesis state from the specified validator count and genesis time. \
+                        Compatible with the `quick-start genesis` defined in the eth2.0-pm repo.")
+                .arg(Arg::with_name("validator_count")
+                    .value_name("VALIDATOR_COUNT")
+                    .required(true)
+                    .help("The number of validators in the genesis state"))
+                .arg(Arg::with_name("genesis_time")
+                    .value_name("UNIX_EPOCH_SECONDS")
+                    .required(true)
+                    .help("The genesis time for the given state."))
+            )
+            /*
+             * `yaml`
+             *
+             * Start a new node, using a genesis state loaded from a YAML file
+             */
+            .subcommand(SubCommand::with_name("yaml")
                 .about("Creates a new datadir where the genesis state is read from YAML. Will fail to parse \
                        a YAML state that was generated to a different spec than that specified by --spec.")
                 .arg(Arg::with_name("file")
