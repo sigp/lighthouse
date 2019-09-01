@@ -66,7 +66,7 @@ In a new terminal terminal, run:
 
 
 ```
-$ ./beacon_node -b 10 testnet -r bootstrap http://localhost:5052
+$ ./beacon_node -b 10 testnet -r bootstrap
 ```
 
 > Notes:
@@ -74,7 +74,8 @@ $ ./beacon_node -b 10 testnet -r bootstrap http://localhost:5052
 > - The `-b` (or `--port-bump`) increases all the listening TCP/UDP ports of
 >   the new node to `10` higher. Your first node's HTTP server was at TCP
 >   `5052` but this one will be at `5062`.
-> - The `-r` flag creates a new data directory in your home with a random
->   string appended, to avoid conflicting with any other running node.
-> - The HTTP address is the API of the first node. The new node will download
->   configuration via HTTP before starting sync via libp2p.
+> - The `-r` flag creates a new data directory with a random string appended
+>   (avoids data directory collisions between nodes).
+> - The default bootstrap HTTP address is `http://localhost:5052`. The new node
+>   will download configuration via HTTP before starting sync via libp2p.
+> - See `$ ./beacon_node testnet bootstrap --help` for more configuration.
