@@ -89,6 +89,8 @@ impl Config {
     }
 
     /// Returns the core path for the client.
+    ///
+    /// Creates the directory if it does not exist.
     pub fn data_dir(&self) -> Option<PathBuf> {
         let path = dirs::home_dir()?.join(&self.data_dir);
         fs::create_dir_all(&path).ok()?;
