@@ -5,6 +5,7 @@ use hex;
 use hyper::{Body, Request};
 use store::{iter::AncestorIter, Store};
 use types::{BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
+use std::sync::Arc;
 
 /// Parse a slot from a `0x` preixed string.
 ///
@@ -167,6 +168,18 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
     Err(ApiError::NotImplemented(
         "API endpoint has not yet been implemented, but is planned to be soon.".to_owned(),
     ))
+}
+
+pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(req: &Request<Body>) -> Result<Arc<BeaconChain<T>>, ApiError> {
+    // Get beacon state
+    let beacon_chain = req
+        .extensions()
+        .get::<Arc<BeaconChain<T>>>()
+        .ok_or_else(|| ApiError::ServerError("Request is missing the beacon chain extension".into()))?;
+    let _ = beacon_chain
+        .ensure_state_caches_are_built()
+        .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;
+    Ok(beacon_chain.clone())
 }
 
 #[cfg(test)]
