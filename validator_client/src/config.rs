@@ -2,13 +2,13 @@ use bincode;
 use bls::Keypair;
 use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
-use slog::{debug, error, info, o, Drain};
+use slog::{error, info, o, warn, Drain};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Error, ErrorKind};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use types::{EthSpec, MainnetEthSpec};
+use types::{test_utils::generate_deterministic_keypair, EthSpec, MainnetEthSpec};
 
 pub const DEFAULT_SERVER: &str = "localhost";
 pub const DEFAULT_SERVER_GRPC_PORT: &str = "5051";
@@ -182,69 +182,65 @@ impl Config {
         }
     }
 
-    /// Try to load keys from validator_dir, returning None if none are found or an error.
-    #[allow(dead_code)]
-    pub fn fetch_keys(&self, log: &slog::Logger) -> Option<Vec<Keypair>> {
-        let key_pairs: Vec<Keypair> =
+    pub fn fetch_keys_from_disk(&self, log: &slog::Logger) -> Result<Vec<Keypair>, String> {
+        Ok(
             fs::read_dir(&self.full_data_dir().expect("Data dir must exist"))
-                .ok()?
+                .map_err(|e| format!("Failed to read datadir: {:?}", e))?
                 .filter_map(|validator_dir| {
-                    let validator_dir = validator_dir.ok()?;
+                    let path = validator_dir.ok()?.path();
 
-                    if !(validator_dir.file_type().ok()?.is_dir()) {
-                        // Skip non-directories (i.e. no files/symlinks)
-                        return None;
-                    }
-
-                    let key_filename = validator_dir.path().join(DEFAULT_PRIVATE_KEY_FILENAME);
-
-                    if !(key_filename.is_file()) {
-                        info!(
-                            log,
-                            "Private key is not a file: {:?}",
-                            key_filename.to_str()
-                        );
-                        return None;
-                    }
-
-                    debug!(
-                        log,
-                        "Deserializing private key from file: {:?}",
-                        key_filename.to_str()
-                    );
-
-                    let mut key_file = File::open(key_filename.clone()).ok()?;
-
-                    let key: Keypair = if let Ok(key_ok) = bincode::deserialize_from(&mut key_file)
-                    {
-                        key_ok
+                    if path.is_dir() {
+                        match self.read_keypair_file(path.clone()) {
+                            Ok(keypair) => Some(keypair),
+                            Err(e) => {
+                                error!(
+                                    log,
+                                    "Failed to parse a validator keypair";
+                                    "error" => e,
+                                    "path" => path.to_str(),
+                                );
+                                None
+                            }
+                        }
                     } else {
-                        error!(
-                            log,
-                            "Unable to deserialize the private key file: {:?}", key_filename
-                        );
-                        return None;
-                    };
-
-                    let ki = key.identifier();
-                    if ki != validator_dir.file_name().into_string().ok()? {
-                        error!(
-                            log,
-                            "The validator key ({:?}) did not match the directory filename {:?}.",
-                            ki,
-                            &validator_dir.path().to_string_lossy()
-                        );
-                        return None;
+                        None
                     }
-                    Some(key)
                 })
-                .collect();
+                .collect(),
+        )
+    }
+
+    pub fn fetch_testing_keypairs(
+        &self,
+        range: std::ops::Range<usize>,
+    ) -> Result<Vec<Keypair>, String> {
+        Ok(range
+            .into_iter()
+            .map(generate_deterministic_keypair)
+            .collect())
+    }
+
+    /// Loads the keypairs according to `self.key_source`. Will return one or more keypairs, or an
+    /// error.
+    #[allow(dead_code)]
+    pub fn fetch_keys(&self, log: &slog::Logger) -> Result<Vec<Keypair>, String> {
+        let keypairs = match &self.key_source {
+            KeySource::Disk => self.fetch_keys_from_disk(log)?,
+            KeySource::TestingKeypairRange(range) => {
+                warn!(log, "Using insecure private keys");
+                self.fetch_testing_keypairs(range.clone())?
+            }
+        };
 
         // Check if it's an empty vector, and return none.
-        if key_pairs.is_empty() {
-            None
+        if keypairs.is_empty() {
+            Err(
+                "No validator keypairs were found, unable to proceed. To generate \
+                 testing keypairs, see 'testnet range --help'."
+                    .into(),
+            )
         } else {
-            Some(key_pairs)
+            Ok(keypairs)
         }
     }
 

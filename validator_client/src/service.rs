@@ -188,12 +188,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         /* Generate the duties manager */
 
         // Load generated keypairs
-        let keypairs = match client_config.fetch_keys(&log) {
-            Some(kps) => Arc::new(kps),
-            None => {
-                return Err("Unable to locate validator key pairs, nothing to do.".into());
-            }
-        };
+        let keypairs = Arc::new(client_config.fetch_keys(&log)?);
 
         let slots_per_epoch = E::slots_per_epoch();
 
