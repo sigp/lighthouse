@@ -33,7 +33,7 @@ pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
             info!(
                 log,
                 "Resuming from existing datadir";
-                "path" => format!("{:?}", builder.data_dir)
+                "path" => format!("{:?}", builder.client_config.data_dir)
             );
 
             // If no primary subcommand was given, start the beacon chain from an existing
@@ -42,7 +42,7 @@ pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
 
             // Whilst there is no large testnet or mainnet force the user to specify how they want
             // to start a new chain (e.g., from a genesis YAML file, another node, etc).
-            if !builder.data_dir.exists() {
+            if !builder.client_config.data_dir.exists() {
                 return Err(
                     "No datadir found. To start a new beacon chain, see `testnet --help`. \
                      Use `--datadir` to specify a different directory"
@@ -98,7 +98,7 @@ fn process_testnet_subcommand(
     info!(
         log,
         "Creating new datadir";
-        "path" => format!("{:?}", builder.data_dir)
+        "path" => format!("{:?}", builder.client_config.data_dir)
     );
 
     // Start matching on the second subcommand (e.g., `testnet bootstrap ...`).
@@ -166,7 +166,6 @@ fn process_testnet_subcommand(
 /// Allows for building a set of configurations based upon `clap` arguments.
 struct ConfigBuilder<'a> {
     log: &'a Logger,
-    pub data_dir: PathBuf,
     eth2_config: Eth2Config,
     client_config: ClientConfig,
 }
@@ -189,11 +188,13 @@ impl<'a> ConfigBuilder<'a> {
             })
             .ok_or_else(|| "Unable to find a home directory for the datadir".to_string())?;
 
+        let mut client_config = ClientConfig::default();
+        client_config.data_dir = data_dir;
+
         Ok(Self {
             log,
-            data_dir,
             eth2_config: Eth2Config::minimal(),
-            client_config: ClientConfig::default(),
+            client_config,
         })
     }
 
@@ -208,7 +209,7 @@ impl<'a> ConfigBuilder<'a> {
         let backup_dir = {
             let mut s = String::from("backup_");
             s.push_str(&random_string(6));
-            self.data_dir.join(s)
+            self.client_config.data_dir.join(s)
         };
 
         fs::create_dir_all(&backup_dir)
@@ -229,8 +230,8 @@ impl<'a> ConfigBuilder<'a> {
             Ok(())
         };
 
-        move_to_backup_dir(&self.data_dir.join(CLIENT_CONFIG_FILENAME))?;
-        move_to_backup_dir(&self.data_dir.join(ETH2_CONFIG_FILENAME))?;
+        move_to_backup_dir(&self.client_config.data_dir.join(CLIENT_CONFIG_FILENAME))?;
+        move_to_backup_dir(&self.client_config.data_dir.join(ETH2_CONFIG_FILENAME))?;
 
         if let Some(db_path) = self.client_config.db_path() {
             move_to_backup_dir(&db_path)?;
@@ -280,12 +281,10 @@ impl<'a> ConfigBuilder<'a> {
     ///
     /// Useful for easily spinning up ephemeral testnets.
     pub fn set_random_datadir(&mut self) -> Result<()> {
-        let mut s = DEFAULT_DATA_DIR.to_string();
-        s.push_str("_random_");
-        s.push_str(&random_string(6));
-
-        self.data_dir.pop();
-        self.data_dir.push(s);
+        self.client_config
+            .data_dir
+            .push(format!("random_{}", random_string(6)));
+        self.client_config.network.network_dir = self.client_config.data_dir.join("network");
 
         Ok(())
     }
@@ -339,16 +338,16 @@ impl<'a> ConfigBuilder<'a> {
 
         // Do not permit creating a new config when the datadir exists.
         if db_exists {
-            return Err("Database already exists. See `-f` in `testnet --help`".into());
+            return Err("Database already exists. See `-f` or `-r` in `testnet --help`".into());
         }
 
         // Create `datadir` and any non-existing parent directories.
-        fs::create_dir_all(&self.data_dir).map_err(|e| {
+        fs::create_dir_all(&self.client_config.data_dir).map_err(|e| {
             crit!(self.log, "Failed to initialize data dir"; "error" => format!("{}", e));
             format!("{}", e)
         })?;
 
-        let client_config_file = self.data_dir.join(CLIENT_CONFIG_FILENAME);
+        let client_config_file = self.client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
         if client_config_file.exists() {
             return Err(format!(
                 "Datadir is not clean, {} exists. See `-f` in `testnet --help`.",
@@ -357,13 +356,13 @@ impl<'a> ConfigBuilder<'a> {
         } else {
             // Write the onfig to a TOML file in the datadir.
             write_to_file(
-                self.data_dir.join(CLIENT_CONFIG_FILENAME),
+                self.client_config.data_dir.join(CLIENT_CONFIG_FILENAME),
                 &self.client_config,
             )
             .map_err(|e| format!("Unable to write {} file: {:?}", CLIENT_CONFIG_FILENAME, e))?;
         }
 
-        let eth2_config_file = self.data_dir.join(ETH2_CONFIG_FILENAME);
+        let eth2_config_file = self.client_config.data_dir.join(ETH2_CONFIG_FILENAME);
         if eth2_config_file.exists() {
             return Err(format!(
                 "Datadir is not clean, {} exists. See `-f` in `testnet --help`.",
@@ -371,8 +370,11 @@ impl<'a> ConfigBuilder<'a> {
             ));
         } else {
             // Write the config to a TOML file in the datadir.
-            write_to_file(self.data_dir.join(ETH2_CONFIG_FILENAME), &self.eth2_config)
-                .map_err(|e| format!("Unable to write {} file: {:?}", ETH2_CONFIG_FILENAME, e))?;
+            write_to_file(
+                self.client_config.data_dir.join(ETH2_CONFIG_FILENAME),
+                &self.eth2_config,
+            )
+            .map_err(|e| format!("Unable to write {} file: {:?}", ETH2_CONFIG_FILENAME, e))?;
         }
 
         Ok(())
@@ -386,7 +388,7 @@ impl<'a> ConfigBuilder<'a> {
         //
         // For now we return an error. In the future we may decide to boot a default (e.g.,
         // public testnet or mainnet).
-        if !self.data_dir.exists() {
+        if !self.client_config.data_dir.exists() {
             return Err(
                 "No datadir found. Either create a new testnet or specify a different `--datadir`."
                     .into(),
@@ -407,8 +409,8 @@ impl<'a> ConfigBuilder<'a> {
             );
         }
 
-        self.load_eth2_config(self.data_dir.join(ETH2_CONFIG_FILENAME))?;
-        self.load_client_config(self.data_dir.join(CLIENT_CONFIG_FILENAME))?;
+        self.load_eth2_config(self.client_config.data_dir.join(ETH2_CONFIG_FILENAME))?;
+        self.load_client_config(self.client_config.data_dir.join(CLIENT_CONFIG_FILENAME))?;
 
         Ok(())
     }
@@ -463,8 +465,6 @@ impl<'a> ConfigBuilder<'a> {
             );
             return Err("Specification constant mismatch".into());
         }
-
-        self.client_config.data_dir = self.data_dir;
 
         Ok((self.client_config, self.eth2_config))
     }
