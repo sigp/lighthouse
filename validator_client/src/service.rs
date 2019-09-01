@@ -73,12 +73,15 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         eth2_config: Eth2Config,
         log: slog::Logger,
     ) -> error_chain::Result<Service<ValidatorServiceClient, Keypair, E>> {
-        // initialise the beacon node client to check for a connection
+        let server_url = format!(
+            "{}:{}",
+            client_config.server, client_config.server_grpc_port
+        );
 
         let env = Arc::new(EnvBuilder::new().build());
         // Beacon node gRPC beacon node endpoints.
         let beacon_node_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
             BeaconNodeServiceClient::new(ch)
         };
 
@@ -86,9 +89,14 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         let node_info = loop {
             match beacon_node_client.info(&Empty::new()) {
                 Err(e) => {
-                    warn!(log, "Could not connect to node. Error: {}", e);
-                    info!(log, "Retrying in 5 seconds...");
-                    std::thread::sleep(Duration::from_secs(5));
+                    let retry_seconds = 5;
+                    warn!(
+                        log,
+                        "Could not connect to beacon node";
+                        "error" => format!("{:?}", e),
+                        "retry_in" => format!("{} seconds", retry_seconds),
+                    );
+                    std::thread::sleep(Duration::from_secs(retry_seconds));
                     continue;
                 }
                 Ok(info) => {
@@ -122,7 +130,13 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         let genesis_time = node_info.get_genesis_time();
         let genesis_slot = Slot::from(node_info.get_genesis_slot());
 
-        info!(log,"Beacon node connected"; "Node Version" => node_info.version.clone(), "Chain ID" => node_info.network_id, "Genesis time" => genesis_time);
+        info!(
+            log,
+            "Beacon node connected";
+            "version" => node_info.version.clone(),
+            "network_id" => node_info.network_id,
+            "genesis_time" => genesis_time
+        );
 
         let proto_fork = node_info.get_fork();
         let mut previous_version: [u8; 4] = [0; 4];
@@ -139,7 +153,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
         // Beacon node gRPC beacon block endpoints.
         let beacon_block_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
             let beacon_block_service_client = Arc::new(BeaconBlockServiceClient::new(ch));
             // a wrapper around the service client to implement the beacon block node trait
             Arc::new(BeaconBlockGrpcClient::new(beacon_block_service_client))
@@ -147,13 +161,13 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
         // Beacon node gRPC validator endpoints.
         let validator_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
             Arc::new(ValidatorServiceClient::new(ch))
         };
 
         //Beacon node gRPC attester endpoints.
         let attestation_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
             Arc::new(AttestationServiceClient::new(ch))
         };
 
