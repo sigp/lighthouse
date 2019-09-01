@@ -5,6 +5,7 @@ use lighthouse_bootstrap::Bootstrapper;
 use rand::{distributions::Alphanumeric, Rng};
 use slog::{crit, info, warn, Logger};
 use std::fs;
+use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
@@ -100,6 +101,10 @@ fn process_testnet_subcommand(
         "Creating new datadir";
         "path" => format!("{:?}", builder.client_config.data_dir)
     );
+
+    // When using the testnet command we listen on all addresses.
+    builder.set_listen_addresses("0.0.0.0".into())?;
+    warn!(log, "All services listening on 0.0.0.0");
 
     // Start matching on the second subcommand (e.g., `testnet bootstrap ...`).
     match cli_args.subcommand() {
@@ -433,6 +438,19 @@ impl<'a> ConfigBuilder<'a> {
         self.eth2_config = read_from_file::<Eth2Config>(path.clone())
             .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
             .ok_or_else(|| format!("{:?} file does not exist", path))?;
+
+        Ok(())
+    }
+
+    /// Sets all listening addresses to the given `addr`.
+    pub fn set_listen_addresses(&mut self, addr: String) -> Result<()> {
+        let addr = addr
+            .parse::<Ipv4Addr>()
+            .map_err(|e| format!("Unable to parse default listen address: {:?}", e))?;
+
+        self.client_config.network.listen_address = addr.clone().into();
+        self.client_config.rpc.listen_address = addr.clone();
+        self.client_config.rest_api.listen_address = addr.clone();
 
         Ok(())
     }
