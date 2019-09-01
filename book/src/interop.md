@@ -67,14 +67,14 @@ $ ./validator_client testnet -b insecure 0 8
 >
 > - The `-b` flag means the validator client will "bootstrap" specs and config
 >   from the beacon node.
-> - The `insecure` command means the [interop
+> - The `insecure` command dictates that the [interop
 >   keypairs](https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start#pubkeyprivkey-generation)
 >   will be used.
 > - The `0 8` indicates that this validator client should manage 8 validators,
 >   starting at validator 0 (the first deposited validator).
 > - The validator client will try to connect to the beacon node at `localhost`.
 >   See `--help` to configure that address and other features.
-> - The validator client will operate very loosely in `testnet` mode, happily
+> - The validator client will operate very unsafely in `testnet` mode, happily
 >   swapping between chains and creating double-votes.
 
 #### Starting from a genesis file

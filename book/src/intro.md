@@ -21,7 +21,7 @@ Documentation is provided for **researchers and developers** working on
 Ethereum 2.0 and assumes prior knowledge on the topic.
 
 - Get started with [development environment setup](setup.html).
-- [Run a simple testnet](testnets.html) in Only Three CLI Commands™.
+- [Run a simple testnet](simple-testnet.html) in Only Three CLI Commands™.
 - Read about our interop workflow.
 - API?
 
