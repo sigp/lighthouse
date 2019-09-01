@@ -82,10 +82,17 @@ impl Service {
         // attempt to connect to user-input libp2p nodes
         for multiaddr in config.libp2p_nodes {
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
+<<<<<<< HEAD
                 Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => format!("{}", multiaddr)),
                 Err(err) => debug!(
                     log,
                     "Could not connect to peer"; "address" => format!("{}", multiaddr), "Error" => format!("{:?}", err)
+=======
+                Ok(()) => debug!(log, "Dialing libp2p peer"; "Address" => format!("{}", multiaddr)),
+                Err(err) => debug!(
+                    log,
+                    "Could not connect to peer"; "Address" => format!("{}", multiaddr), "Error" => format!("{:?}", err)
+>>>>>>> interop
                 ),
             };
         }
@@ -122,6 +129,7 @@ impl Service {
         let mut subscribed_topics = vec![];
         for topic in topics {
             if swarm.subscribe(topic.clone()) {
+<<<<<<< HEAD
                 trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic));
                 subscribed_topics.push(topic);
             } else {
@@ -129,6 +137,15 @@ impl Service {
             }
         }
         info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics.iter().map(|t| format!("{}", t)).collect::<Vec<String>>()));
+=======
+                trace!(log, "Subscribed to topic"; "Topic" => format!("{}", topic));
+                subscribed_topics.push(topic);
+            } else {
+                warn!(log, "Could not subscribe to topic"; "Topic" => format!("{}", topic));
+            }
+        }
+        info!(log, "Subscribed to topics"; "Topics" => format!("{:?}", subscribed_topics.iter().map(|t| format!("{}", t)).collect::<Vec<String>>()));
+>>>>>>> interop
 
         Ok(Service {
             local_peer_id,

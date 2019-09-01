@@ -1,12 +1,11 @@
 use super::SlotClock;
 use std::sync::RwLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use types::Slot;
 
-#[derive(Debug, PartialEq)]
-pub enum Error {}
-
-/// Determines the present slot based upon the present system time.
+/// A slot clock where the slot is manually set instead of being determined by the system time.
+///
+/// Useful for testing scenarios.
 pub struct TestingSlotClock {
     slot: RwLock<Slot>,
 }
@@ -17,32 +16,30 @@ impl TestingSlotClock {
     }
 
     pub fn advance_slot(&self) {
-        self.set_slot(self.present_slot().unwrap().unwrap().as_u64() + 1)
+        self.set_slot(self.now().unwrap().as_u64() + 1)
     }
 }
 
 impl SlotClock for TestingSlotClock {
-    type Error = Error;
-
-    /// Create a new `TestingSlotClock` at `genesis_slot`.
-    fn new(genesis_slot: Slot, _genesis_seconds: u64, _slot_duration_seconds: u64) -> Self {
+    fn new(genesis_slot: Slot, _genesis: Instant, _slot_duration: Duration) -> Self {
         TestingSlotClock {
             slot: RwLock::new(genesis_slot),
         }
     }
 
-    fn present_slot(&self) -> Result<Option<Slot>, Error> {
+    fn now(&self) -> Option<Slot> {
         let slot = *self.slot.read().expect("TestingSlotClock poisoned.");
-        Ok(Some(slot))
+        Some(slot)
     }
 
     /// Always returns a duration of 1 second.
-    fn duration_to_next_slot(&self) -> Result<Option<Duration>, Error> {
-        Ok(Some(Duration::from_secs(1)))
+    fn duration_to_next_slot(&self) -> Option<Duration> {
+        Some(Duration::from_secs(1))
     }
 
-    fn slot_duration_millis(&self) -> u64 {
-        0
+    /// Always returns a slot duration of 0 seconds.
+    fn slot_duration(&self) -> Duration {
+        Duration::from_secs(0)
     }
 }
 
@@ -52,11 +49,9 @@ mod tests {
 
     #[test]
     fn test_slot_now() {
-        let null = 0;
-
-        let clock = TestingSlotClock::new(Slot::new(10), null, null);
-        assert_eq!(clock.present_slot(), Ok(Some(Slot::new(10))));
+        let clock = TestingSlotClock::new(Slot::new(10), Instant::now(), Duration::from_secs(0));
+        assert_eq!(clock.now(), Some(Slot::new(10)));
         clock.set_slot(123);
-        assert_eq!(clock.present_slot(), Ok(Some(Slot::new(123))));
+        assert_eq!(clock.now(), Some(Slot::new(123)));
     }
 }

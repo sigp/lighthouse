@@ -13,7 +13,6 @@ use crate::block_producer::{BeaconBlockGrpcClient, BlockProducer};
 use crate::config::Config as ValidatorConfig;
 use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
 use crate::error as error_chain;
-use crate::error::ErrorKind;
 use crate::signer::Signer;
 use bls::Keypair;
 use eth2_config::Eth2Config;
@@ -74,12 +73,15 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         eth2_config: Eth2Config,
         log: slog::Logger,
     ) -> error_chain::Result<Service<ValidatorServiceClient, Keypair, E>> {
-        // initialise the beacon node client to check for a connection
+        let server_url = format!(
+            "{}:{}",
+            client_config.server, client_config.server_grpc_port
+        );
 
         let env = Arc::new(EnvBuilder::new().build());
         // Beacon node gRPC beacon node endpoints.
         let beacon_node_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
             BeaconNodeServiceClient::new(ch)
         };
 
@@ -87,9 +89,14 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         let node_info = loop {
             match beacon_node_client.info(&Empty::new()) {
                 Err(e) => {
-                    warn!(log, "Could not connect to node. Error: {}", e);
-                    info!(log, "Retrying in 5 seconds...");
-                    std::thread::sleep(Duration::from_secs(5));
+                    let retry_seconds = 5;
+                    warn!(
+                        log,
+                        "Could not connect to beacon node";
+                        "error" => format!("{:?}", e),
+                        "retry_in" => format!("{} seconds", retry_seconds),
+                    );
+                    std::thread::sleep(Duration::from_secs(retry_seconds));
                     continue;
                 }
                 Ok(info) => {
@@ -123,7 +130,13 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         let genesis_time = node_info.get_genesis_time();
         let genesis_slot = Slot::from(node_info.get_genesis_slot());
 
-        info!(log,"Beacon node connected"; "Node Version" => node_info.version.clone(), "Chain ID" => node_info.network_id, "Genesis time" => genesis_time);
+        info!(
+            log,
+            "Beacon node connected";
+            "version" => node_info.version.clone(),
+            "network_id" => node_info.network_id,
+            "genesis_time" => genesis_time
+        );
 
         let proto_fork = node_info.get_fork();
         let mut previous_version: [u8; 4] = [0; 4];
@@ -140,7 +153,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
         // Beacon node gRPC beacon block endpoints.
         let beacon_block_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
             let beacon_block_service_client = Arc::new(BeaconBlockServiceClient::new(ch));
             // a wrapper around the service client to implement the beacon block node trait
             Arc::new(BeaconBlockGrpcClient::new(beacon_block_service_client))
@@ -148,39 +161,34 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
         // Beacon node gRPC validator endpoints.
         let validator_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
             Arc::new(ValidatorServiceClient::new(ch))
         };
 
         //Beacon node gRPC attester endpoints.
         let attestation_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&client_config.server);
+            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
             Arc::new(AttestationServiceClient::new(ch))
         };
 
         // build the validator slot clock
-        let slot_clock = SystemTimeSlotClock::new(
+        let slot_clock = SystemTimeSlotClock::from_eth2_genesis(
             genesis_slot,
             genesis_time,
-            eth2_config.spec.seconds_per_slot,
-        );
+            Duration::from_millis(eth2_config.spec.milliseconds_per_slot),
+        )
+        .ok_or_else::<error_chain::Error, _>(|| {
+            "Unable to start slot clock. Genesis may not have occurred yet. Exiting.".into()
+        })?;
 
-        let current_slot = slot_clock
-            .present_slot()
-            .map_err(ErrorKind::SlotClockError)?
-            .ok_or_else::<error_chain::Error, _>(|| {
-                "Genesis is not in the past. Exiting.".into()
-            })?;
+        let current_slot = slot_clock.now().ok_or_else::<error_chain::Error, _>(|| {
+            "Genesis has not yet occurred. Exiting.".into()
+        })?;
 
         /* Generate the duties manager */
 
         // Load generated keypairs
-        let keypairs = match client_config.fetch_keys(&log) {
-            Some(kps) => Arc::new(kps),
-            None => {
-                return Err("Unable to locate validator key pairs, nothing to do.".into());
-            }
-        };
+        let keypairs = Arc::new(client_config.fetch_keys(&log)?);
 
         let slots_per_epoch = E::slots_per_epoch();
 
@@ -244,7 +252,6 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         let duration_to_next_slot = service
             .slot_clock
             .duration_to_next_slot()
-            .map_err(|e| format!("System clock error: {:?}", e))?
             .ok_or_else::<error_chain::Error, _>(|| {
                 "Genesis is not in the past. Exiting.".into()
             })?;
@@ -252,7 +259,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         // set up the validator work interval - start at next slot and proceed every slot
         let interval = {
             // Set the interval to start at the next slot, and every slot after
-            let slot_duration = Duration::from_secs(service.spec.seconds_per_slot);
+            let slot_duration = Duration::from_millis(service.spec.milliseconds_per_slot);
             //TODO: Handle checked add correctly
             Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
         };
@@ -291,15 +298,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
     /// Updates the known current slot and epoch.
     fn update_current_slot(&mut self) -> error_chain::Result<()> {
-        let current_slot = match self.slot_clock.present_slot() {
-            Err(e) => {
-                error!(self.log, "SystemTimeError {:?}", e);
-                return Err("Could not read system time".into());
-            }
-            Ok(slot) => slot.ok_or_else::<error_chain::Error, _>(|| {
+        let current_slot = self
+            .slot_clock
+            .now()
+            .ok_or_else::<error_chain::Error, _>(|| {
                 "Genesis is not in the past. Exiting.".into()
-            })?,
-        };
+            })?;
 
         let current_epoch = current_slot.epoch(self.slots_per_epoch);
 

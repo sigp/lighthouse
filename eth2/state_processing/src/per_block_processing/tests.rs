@@ -1,4 +1,5 @@
 #![cfg(all(test, not(feature = "fake_crypto")))]
+
 use super::block_processing_builder::BlockProcessingBuilder;
 use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};

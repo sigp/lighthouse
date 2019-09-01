@@ -182,7 +182,7 @@ macro_rules! impl_display {
                 &self,
                 record: &slog::Record,
                 key: slog::Key,
-                serializer: &mut slog::Serializer,
+                serializer: &mut dyn slog::Serializer,
             ) -> slog::Result {
                 slog::Value::serialize(&self.0, record, key, serializer)
             }

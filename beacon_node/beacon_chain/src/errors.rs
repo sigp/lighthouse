@@ -23,6 +23,8 @@ pub enum BeaconChainError {
         previous_epoch: Epoch,
         new_epoch: Epoch,
     },
+    SlotClockDidNotStart,
+    NoStateForSlot(Slot),
     UnableToFindTargetRoot(Slot),
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),
@@ -35,6 +37,8 @@ pub enum BeaconChainError {
         beacon_block_root: Hash256,
     },
     AttestationValidationError(AttestationValidationError),
+    /// Returned when an internal check fails, indicating corrupt data.
+    InvariantViolated(String),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -43,6 +47,7 @@ easy_from_to!(SlotProcessingError, BeaconChainError);
 pub enum BlockProductionError {
     UnableToGetBlockRootFromState,
     UnableToReadSlot,
+    UnableToProduceAtSlot(Slot),
     SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
     BeaconStateError(BeaconStateError),

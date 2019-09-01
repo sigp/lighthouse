@@ -5,18 +5,23 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = "2018"
 
 [dependencies]
+eth2_config = { path = "../../eth2/utils/eth2_config" }
+merkle_proof = { path = "../../eth2/utils/merkle_proof" }
 store = { path = "../store" }
 parking_lot = "0.7"
 lazy_static = "1.3.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
+lighthouse_bootstrap = { path = "../../eth2/utils/lighthouse_bootstrap" }
 log = "0.4"
 operation_pool = { path = "../../eth2/operation_pool" }
 rayon = "1.0"
 serde = "1.0"
 serde_derive = "1.0"
+serde_yaml = "0.8"
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
 sloggers = { version = "^0.3" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
+eth2_hashing = { path = "../../eth2/utils/eth2_hashing" }
 eth2_ssz = "0.1"
 eth2_ssz_derive = "0.1"
 state_processing = { path = "../../eth2/state_processing" }

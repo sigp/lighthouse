@@ -1,5 +1,6 @@
 use super::{SecretKey, BLS_PUBLIC_KEY_BYTE_SIZE};
 use milagro_bls::G1Point;
+use milagro_bls::PublicKey as RawPublicKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, HexVisitor};
@@ -22,6 +23,13 @@ pub struct FakePublicKey {
 impl FakePublicKey {
     pub fn from_secret_key(_secret_key: &SecretKey) -> Self {
         Self::zero()
+    }
+
+    pub fn from_raw(raw: RawPublicKey) -> Self {
+        Self {
+            bytes: raw.clone().as_bytes(),
+            point: G1Point::new(),
+        }
     }
 
     /// Creates a new all-zero's public key

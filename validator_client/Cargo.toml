@@ -18,6 +18,7 @@ eth2_ssz = "0.1"
 eth2_config = { path = "../eth2/utils/eth2_config" }
 tree_hash = "0.1"
 clap = "2.32.0"
+lighthouse_bootstrap = { path = "../eth2/utils/lighthouse_bootstrap" }
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
 protos = { path = "../protos" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
