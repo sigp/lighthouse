@@ -246,6 +246,7 @@ fn process_testnet_subcommand(
     log: &Logger,
 ) -> Result<(ClientConfig, Eth2Config)> {
     let eth2_config = if cli_args.is_present("bootstrap") {
+        info!(log, "Connecting to bootstrap server");
         let bootstrapper = Bootstrapper::from_server_string(format!(
             "http://{}:{}",
             client_config.server, client_config.server_http_port
