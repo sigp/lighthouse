@@ -120,10 +120,9 @@ fn main() {
          * gRPC parameters.
          */
         .arg(
-            Arg::with_name("rpc")
-                .long("rpc")
-                .value_name("RPC")
-                .help("Enable the RPC server.")
+            Arg::with_name("no-grpc")
+                .long("no-grpc")
+                .help("Disable the gRPC server.")
                 .takes_value(false),
         )
         .arg(
@@ -142,10 +141,9 @@ fn main() {
         )
         /* Client related arguments */
         .arg(
-            Arg::with_name("api")
-                .long("api")
-                .value_name("API")
-                .help("Enable the RESTful HTTP API server.")
+            Arg::with_name("no-api")
+                .long("no-api")
+                .help("Disable RESTful HTTP API server.")
                 .takes_value(false),
         )
         .arg(
