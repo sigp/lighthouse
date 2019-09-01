@@ -16,8 +16,6 @@ use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
 /// Otherwise we queue it.
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
-/// The number of slots behind our head that we still treat a peer as a fully synced peer.
-const FULL_PEER_TOLERANCE: u64 = 10;
 const SHOULD_FORWARD_GOSSIP_BLOCK: bool = true;
 const SHOULD_NOT_FORWARD_GOSSIP_BLOCK: bool = false;
 
@@ -189,18 +187,17 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             .exists::<BeaconBlock<T::EthSpec>>(&remote.head_root)
             .unwrap_or_else(|_| false)
         {
+            trace!(
+                self.log, "Out of date or potentially sync'd peer found";
+                "peer" => format!("{:?}", peer_id),
+                "remote_head_slot" => remote.head_slot
+                "remote_latest_finalized_epoch" => remote.finalized_epoch,
+            );
+
             // If the node's best-block is already known to us and they are close to our current
             // head, treat them as a fully sync'd peer.
-            if self.chain.best_slot().sub(remote.head_slot).as_u64() < FULL_PEER_TOLERANCE {
-                self.manager.add_full_peer(peer_id);
-                self.process_sync();
-            } else {
-                debug!(
-                    self.log,
-                    "Out of sync peer connected";
-                    "peer" => format!("{:?}", peer_id),
-                );
-            }
+            self.manager.add_peer(peer_id, remote);
+            self.process_sync();
         } else {
             // The remote node has an equal or great finalized epoch and we don't know it's head.
             //
@@ -218,6 +215,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         }
     }
 
+    /// This function drives the `ImportManager` state machine. The outcomes it provides are
+    /// actioned until the `ImportManager` is idle.
     fn process_sync(&mut self) {
         loop {
             match self.manager.poll() {
