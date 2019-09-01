@@ -3,9 +3,9 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKey;
 use hex;
 use hyper::{Body, Request};
+use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
 use types::{BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
-use std::sync::Arc;
 
 /// Parse a slot from a `0x` preixed string.
 ///
@@ -170,12 +170,16 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
     ))
 }
 
-pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(req: &Request<Body>) -> Result<Arc<BeaconChain<T>>, ApiError> {
+pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(
+    req: &Request<Body>,
+) -> Result<Arc<BeaconChain<T>>, ApiError> {
     // Get beacon state
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Request is missing the beacon chain extension".into()))?;
+        .ok_or_else(|| {
+            ApiError::ServerError("Request is missing the beacon chain extension".into())
+        })?;
     let _ = beacon_chain
         .ensure_state_caches_are_built()
         .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;

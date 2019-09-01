@@ -1,11 +1,9 @@
 use super::{success_response, ApiResult};
 use crate::{helpers::*, ApiError, UrlQuery};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::BeaconChainTypes;
 use bls::{AggregateSignature, PublicKey, Signature};
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::borrow::Borrow;
 use types::beacon_state::EthSpec;
 use types::{Attestation, BitList, Epoch, RelativeEpoch, Shard, Slot};
 
@@ -140,7 +138,6 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 /// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
 pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let head_state = &beacon_chain.head().beacon_state;
 
     let query = UrlQuery::from_request(&req)?;
     let slot = match query.first_of(&["slot"]) {
@@ -190,7 +187,6 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 /// HTTP Handler to accept a validator-signed BeaconBlock, and publish it to the network.
 pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let head_state = &beacon_chain.head().beacon_state;
 
     let query = UrlQuery::from_request(&req)?;
     let slot = match query.first_of(&["slot"]) {
@@ -212,9 +208,9 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
                 })?
                 .as_slice(),
         )
-            .map_err(|e| {
-                ApiError::InvalidQueryParams(format!("randao_reveal is not a valid signature: {:?}", e))
-            })?,
+        .map_err(|e| {
+            ApiError::InvalidQueryParams(format!("randao_reveal is not a valid signature: {:?}", e))
+        })?,
         Err(e) => {
             return Err(e);
         }
@@ -237,10 +233,9 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
     Ok(success_response(body))
 }
 
-/*
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
 pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request(req)?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
     let head_state = &beacon_chain.head().beacon_state;
 
     let query = UrlQuery::from_request(&req)?;
@@ -304,10 +299,16 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
             return Err(e);
         }
     };
-    let mut aggregation_bits: BitList<bool> = BitList::with_capacity(val_duty.committee_len)
-        .expect("An empty BitList should always be created, or we have bigger problems.")
-        .into();
-    aggregation_bits.set(val_duty.committee_index, poc_bit);
+    let mut aggregation_bits = BitList::with_capacity(val_duty.committee_len)
+        .expect("An empty BitList should always be created, or we have bigger problems.");
+    aggregation_bits
+        .set(val_duty.committee_index, poc_bit)
+        .map_err(|e| {
+            ApiError::ServerError(format!(
+                "Unable to set aggregation bits for the attestation: {:?}",
+                e
+            ))
+        })?;
 
     // Allow a provided slot parameter to check against the expected slot as a sanity check.
     // Presently, we don't support attestations at future or past slots.
@@ -354,7 +355,7 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         }
     };
 
-    let attestation = Attestation {
+    let attestation: Attestation<T::EthSpec> = Attestation {
         aggregation_bits,
         data: attestation_data,
         custody_bits: BitList::with_capacity(val_duty.committee_len)
@@ -362,11 +363,9 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         signature: AggregateSignature::new(),
     };
 
-    //TODO: This is currently AttestationData, but should be IndexedAttestation?
     let body = Body::from(
         serde_json::to_string(&attestation)
             .expect("We should always be able to serialize a new attestation that we produced."),
     );
     Ok(success_response(body))
 }
-*/
