@@ -12,12 +12,10 @@ use crate::config::{
 };
 use crate::service::Service as ValidatorService;
 use clap::{App, Arg, ArgMatches, SubCommand};
-use eth2_config::{read_from_file, write_to_file, Eth2Config};
+use eth2_config::Eth2Config;
 use lighthouse_bootstrap::Bootstrapper;
 use protos::services_grpc::ValidatorServiceClient;
-use slog::{crit, error, info, o, warn, Drain, Level, Logger};
-use std::fs;
-use std::path::PathBuf;
+use slog::{crit, error, info, o, Drain, Level, Logger};
 use types::{InteropEthSpec, Keypair, MainnetEthSpec, MinimalEthSpec};
 
 pub const DEFAULT_SPEC: &str = "minimal";
@@ -53,6 +51,17 @@ fn main() {
                 .value_name("logfile")
                 .help("File path where output will be written.")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("spec")
+                .short("s")
+                .long("spec")
+                .value_name("TITLE")
+                .help("Specifies the default eth2 spec type.")
+                .takes_value(true)
+                .possible_values(&["mainnet", "minimal", "interop"])
+                .conflicts_with("eth2-config")
+                .global(true)
         )
         .arg(
             Arg::with_name("eth2-config")
@@ -135,135 +144,6 @@ fn main() {
         _ => unreachable!("guarded by clap"),
     };
     let log = slog::Logger::root(drain.fuse(), o!());
-
-    /*
-    let data_dir = match matches
-        .value_of("datadir")
-        .and_then(|v| Some(PathBuf::from(v)))
-    {
-        Some(v) => v,
-        None => {
-            // use the default
-            let mut default_dir = match dirs::home_dir() {
-                Some(v) => v,
-                None => {
-                    crit!(log, "Failed to find a home directory");
-                    return;
-                }
-            };
-            default_dir.push(DEFAULT_DATA_DIR);
-            default_dir
-        }
-    };
-
-    // create the directory if needed
-    match fs::create_dir_all(&data_dir) {
-        Ok(_) => {}
-        Err(e) => {
-            crit!(log, "Failed to initialize data dir"; "error" => format!("{}", e));
-            return;
-        }
-    }
-
-    let client_config_path = data_dir.join(CLIENT_CONFIG_FILENAME);
-
-    // Attempt to load the `ClientConfig` from disk.
-    //
-    // If file doesn't exist, create a new, default one.
-    let mut client_config = match read_from_file::<ClientConfig>(client_config_path.clone()) {
-        Ok(Some(c)) => c,
-        Ok(None) => {
-            let default = ClientConfig::default();
-            if let Err(e) = write_to_file(client_config_path.clone(), &default) {
-                crit!(log, "Failed to write default ClientConfig to file"; "error" => format!("{:?}", e));
-                return;
-            }
-            default
-        }
-        Err(e) => {
-            crit!(log, "Failed to load a ChainConfig file"; "error" => format!("{:?}", e));
-            return;
-        }
-    };
-
-    // Ensure the `data_dir` in the config matches that supplied to the CLI.
-    client_config.data_dir = data_dir.clone();
-
-    // Update the client config with any CLI args.
-    match client_config.apply_cli_args(&matches, &mut log) {
-        Ok(()) => (),
-        Err(s) => {
-            crit!(log, "Failed to parse ClientConfig CLI arguments"; "error" => s);
-            return;
-        }
-    };
-
-    let eth2_config_path: PathBuf = matches
-        .value_of("eth2-spec")
-        .and_then(|s| Some(PathBuf::from(s)))
-        .unwrap_or_else(|| data_dir.join(ETH2_CONFIG_FILENAME));
-
-    // Initialise the `Eth2Config`.
-    //
-    // If a CLI parameter is set, overwrite any config file present.
-    // If a parameter is not set, use either the config file present or default to minimal.
-    let cli_config = match matches.value_of("default-spec") {
-        Some("mainnet") => Some(Eth2Config::mainnet()),
-        Some("minimal") => Some(Eth2Config::minimal()),
-        Some("interop") => Some(Eth2Config::interop()),
-        _ => None,
-    };
-    // if a CLI flag is specified, write the new config if it doesn't exist,
-    // otherwise notify the user that the file will not be written.
-    let eth2_config_from_file = match read_from_file::<Eth2Config>(eth2_config_path.clone()) {
-        Ok(config) => config,
-        Err(e) => {
-            crit!(log, "Failed to read the Eth2Config from file"; "error" => format!("{:?}", e));
-            return;
-        }
-    };
-
-    let mut eth2_config = {
-        if let Some(cli_config) = cli_config {
-            if eth2_config_from_file.is_none() {
-                // write to file if one doesn't exist
-                if let Err(e) = write_to_file(eth2_config_path, &cli_config) {
-                    crit!(log, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
-                    return;
-                }
-            } else {
-                warn!(
-                    log,
-                    "Eth2Config file exists. Configuration file is ignored, using default"
-                );
-            }
-            cli_config
-        } else {
-            // CLI config not specified, read from disk
-            match eth2_config_from_file {
-                Some(config) => config,
-                None => {
-                    // set default to minimal
-                    let eth2_config = Eth2Config::minimal();
-                    if let Err(e) = write_to_file(eth2_config_path, &eth2_config) {
-                        crit!(log, "Failed to write default Eth2Config to file"; "error" => format!("{:?}", e));
-                        return;
-                    }
-                    eth2_config
-                }
-            }
-        }
-    };
-
-    // Update the eth2 config with any CLI flags.
-    match eth2_config.apply_cli_args(&matches) {
-        Ok(()) => (),
-        Err(s) => {
-            crit!(log, "Failed to parse Eth2Config CLI arguments"; "error" => s);
-            return;
-        }
-    };
-    */
     let (client_config, eth2_config) = match get_configs(&matches, &log) {
         Ok(tuple) => tuple,
         Err(e) => {
@@ -353,12 +233,13 @@ pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<(ClientConfig,
             }
             process_testnet_subcommand(sub_cli_args, client_config, log)
         }
-        _ => {
-            unimplemented!("Resuming (not starting a testnet)");
-        }
+        _ => return Err("You must use the testnet command. See '--help'.".into()),
     }
 }
 
+/// Parses the `testnet` CLI subcommand.
+///
+/// This is not a pure function, it reads from disk and may contact network servers.
 fn process_testnet_subcommand(
     cli_args: &ArgMatches,
     mut client_config: ClientConfig,
@@ -381,7 +262,12 @@ fn process_testnet_subcommand(
 
         eth2_config
     } else {
-        return Err("Starting without bootstrap is not implemented".into());
+        match cli_args.value_of("spec") {
+            Some("mainnet") => Eth2Config::mainnet(),
+            Some("minimal") => Eth2Config::minimal(),
+            Some("interop") => Eth2Config::interop(),
+            _ => return Err("No --spec flag provided. See '--help'.".into()),
+        }
     };
 
     client_config.key_source = match cli_args.subcommand() {
