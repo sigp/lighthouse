@@ -1,7 +1,7 @@
-use beacon_chain::Bootstrapper;
 use clap::ArgMatches;
 use client::{BeaconChainStartMethod, ClientConfig, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
+use lighthouse_bootstrap::Bootstrapper;
 use rand::{distributions::Alphanumeric, Rng};
 use slog::{crit, info, warn, Logger};
 use std::fs;
