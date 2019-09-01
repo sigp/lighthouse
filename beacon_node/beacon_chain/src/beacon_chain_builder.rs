@@ -143,7 +143,6 @@ fn interop_genesis_state<T: EthSpec>(
     let eth1_block_hash = Hash256::from_slice(&[42; 32]);
     let eth1_timestamp = 2_u64.pow(40);
     let amount = spec.max_effective_balance;
-    dbg!(amount);
 
     let withdrawal_credentials = |pubkey: &PublicKey| {
         let mut credentials = hash(&pubkey.as_ssz_bytes());
