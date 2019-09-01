@@ -11,14 +11,13 @@ store = { path = "../store" }
 parking_lot = "0.7"
 lazy_static = "1.3.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
+lighthouse_bootstrap = { path = "../../eth2/utils/lighthouse_bootstrap" }
 log = "0.4"
 operation_pool = { path = "../../eth2/operation_pool" }
-reqwest = "0.9"
 rayon = "1.0"
 serde = "1.0"
 serde_derive = "1.0"
 serde_yaml = "0.8"
-eth2-libp2p = { path = "../eth2-libp2p" }
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
 sloggers = { version = "^0.3" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
@@ -28,7 +27,6 @@ eth2_ssz_derive = "0.1"
 state_processing = { path = "../../eth2/state_processing" }
 tree_hash = "0.1"
 types = { path = "../../eth2/types" }
-url = "1.2"
 lmd_ghost = { path = "../../eth2/lmd_ghost" }
 
 [dev-dependencies]

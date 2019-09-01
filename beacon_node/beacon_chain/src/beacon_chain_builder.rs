@@ -1,6 +1,6 @@
-use super::bootstrapper::Bootstrapper;
 use crate::{BeaconChain, BeaconChainTypes};
 use eth2_hashing::hash;
+use lighthouse_bootstrap::Bootstrapper;
 use merkle_proof::MerkleTree;
 use rayon::prelude::*;
 use slog::Logger;

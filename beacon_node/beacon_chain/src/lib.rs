@@ -4,7 +4,6 @@ extern crate lazy_static;
 
 mod beacon_chain;
 mod beacon_chain_builder;
-mod bootstrapper;
 mod checkpoint;
 mod errors;
 mod fork_choice;
@@ -19,7 +18,6 @@ pub use self::beacon_chain::{
 pub use self::checkpoint::CheckPoint;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use beacon_chain_builder::BeaconChainBuilder;
-pub use bootstrapper::Bootstrapper;
 pub use lmd_ghost;
 pub use metrics::scrape_for_metrics;
 pub use parking_lot;
