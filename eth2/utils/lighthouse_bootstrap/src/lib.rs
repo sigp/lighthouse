@@ -1,3 +1,4 @@
+use eth2_config::Eth2Config;
 use eth2_libp2p::{
     multiaddr::{Multiaddr, Protocol},
     Enr,
@@ -46,8 +47,12 @@ impl Bootstrapper {
     /// For example, the server `http://192.168.0.1` might end up with a `best_effort_multiaddr` of
     /// `/ipv4/192.168.0.1/tcp/9000` if the server advertises a listening address of
     /// `/ipv4/172.0.0.1/tcp/9000`.
-    pub fn best_effort_multiaddr(&self) -> Option<Multiaddr> {
-        let tcp_port = self.listen_port().ok()?;
+    pub fn best_effort_multiaddr(&self, port: Option<u16>) -> Option<Multiaddr> {
+        let tcp_port = if let Some(port) = port {
+            port
+        } else {
+            self.listen_port().ok()?
+        };
 
         let mut multiaddr = Multiaddr::with_capacity(2);
 
@@ -68,6 +73,11 @@ impl Bootstrapper {
             Host::Ipv4(addr) => Some(addr),
             _ => None,
         }
+    }
+
+    /// Returns the servers Eth2Config.
+    pub fn eth2_config(&self) -> Result<Eth2Config, String> {
+        get_eth2_config(self.url.clone()).map_err(|e| format!("Unable to get Eth2Config: {:?}", e))
     }
 
     /// Returns the servers ENR address.
@@ -116,6 +126,19 @@ fn get_slots_per_epoch(mut url: Url) -> Result<Slot, Error> {
     url.path_segments_mut()
         .map(|mut url| {
             url.push("spec").push("slots_per_epoch");
+        })
+        .map_err(|_| Error::InvalidUrl)?;
+
+    reqwest::get(url)?
+        .error_for_status()?
+        .json()
+        .map_err(Into::into)
+}
+
+fn get_eth2_config(mut url: Url) -> Result<Eth2Config, Error> {
+    url.path_segments_mut()
+        .map(|mut url| {
+            url.push("spec").push("eth2_config");
         })
         .map_err(|_| Error::InvalidUrl)?;
 

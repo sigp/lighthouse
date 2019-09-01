@@ -2,7 +2,6 @@ use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use lmd_ghost::LmdGhost;
 use rayon::prelude::*;
 use sloggers::{null::NullLoggerBuilder, Build};
-use slot_clock::SlotClock;
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::marker::PhantomData;
@@ -115,22 +114,9 @@ where
         let builder = NullLoggerBuilder;
         let log = builder.build().expect("logger should build");
 
-        // Slot clock
-        let slot_clock = TestingSlotClock::new(
-            spec.genesis_slot,
-            genesis_state.genesis_time,
-            spec.seconds_per_slot,
-        );
-
-        let chain = BeaconChain::from_genesis(
-            store,
-            slot_clock,
-            genesis_state,
-            genesis_block,
-            spec.clone(),
-            log,
-        )
-        .expect("Terminate if beacon chain generation fails");
+        let chain =
+            BeaconChain::from_genesis(store, genesis_state, genesis_block, spec.clone(), log)
+                .expect("Terminate if beacon chain generation fails");
 
         Self {
             chain,
@@ -144,7 +130,6 @@ where
     /// Does not produce blocks or attestations.
     pub fn advance_slot(&self) {
         self.chain.slot_clock.advance_slot();
-        self.chain.catchup_state().expect("should catchup state");
     }
 
     /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
@@ -166,7 +151,7 @@ where
             // Determine the slot for the first block (or skipped block).
             let state_slot = match block_strategy {
                 BlockStrategy::OnCanonicalHead => {
-                    self.chain.read_slot_clock().expect("should know slot") - 1
+                    self.chain.slot().expect("should have a slot") - 1
                 }
                 BlockStrategy::ForkCanonicalChainAt { previous_slot, .. } => previous_slot,
             };
@@ -176,16 +161,14 @@ where
 
         // Determine the first slot where a block should be built.
         let mut slot = match block_strategy {
-            BlockStrategy::OnCanonicalHead => {
-                self.chain.read_slot_clock().expect("should know slot")
-            }
+            BlockStrategy::OnCanonicalHead => self.chain.slot().expect("should have a slot"),
             BlockStrategy::ForkCanonicalChainAt { first_slot, .. } => first_slot,
         };
 
         let mut head_block_root = None;
 
         for _ in 0..num_blocks {
-            while self.chain.read_slot_clock().expect("should have a slot") < slot {
+            while self.chain.slot().expect("should have a slot") < slot {
                 self.advance_slot();
             }
 

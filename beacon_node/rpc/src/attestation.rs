@@ -14,7 +14,7 @@ use slog::{error, info, trace, warn};
 use ssz::{ssz_encode, Decode, Encode};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::Attestation;
+use types::{Attestation, Slot};
 
 #[derive(Clone)]
 pub struct AttestationServiceInstance<T: BeaconChainTypes> {
@@ -37,49 +37,13 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
             req.get_slot()
         );
 
-        // verify the slot, drop lock on state afterwards
-        {
-            let slot_requested = req.get_slot();
-            // TODO: this whole module is legacy and not maintained well.
-            let state = &self
-                .chain
-                .speculative_state()
-                .expect("This is legacy code and should be removed");
-
-            // Start by performing some checks
-            // Check that the AttestationData is for the current slot (otherwise it will not be valid)
-            if slot_requested > state.slot.as_u64() {
-                let log_clone = self.log.clone();
-                let f = sink
-                    .fail(RpcStatus::new(
-                        RpcStatusCode::OutOfRange,
-                        Some(
-                            "AttestationData request for a slot that is in the future.".to_string(),
-                        ),
-                    ))
-                    .map_err(move |e| {
-                        error!(log_clone, "Failed to reply with failure {:?}: {:?}", req, e)
-                    });
-                return ctx.spawn(f);
-            }
-            // currently cannot handle past slots. TODO: Handle this case
-            else if slot_requested < state.slot.as_u64() {
-                let log_clone = self.log.clone();
-                let f = sink
-                    .fail(RpcStatus::new(
-                        RpcStatusCode::InvalidArgument,
-                        Some("AttestationData request for a slot that is in the past.".to_string()),
-                    ))
-                    .map_err(move |e| {
-                        error!(log_clone, "Failed to reply with failure {:?}: {:?}", req, e)
-                    });
-                return ctx.spawn(f);
-            }
-        }
-
         // Then get the AttestationData from the beacon chain
         let shard = req.get_shard();
-        let attestation_data = match self.chain.produce_attestation_data(shard) {
+        let slot_requested = req.get_slot();
+        let attestation_data = match self
+            .chain
+            .produce_attestation_data(shard, Slot::from(slot_requested))
+        {
             Ok(v) => v,
             Err(e) => {
                 // Could not produce an attestation

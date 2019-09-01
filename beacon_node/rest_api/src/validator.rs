@@ -39,12 +39,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
         .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
-    let _ = beacon_chain
-        .ensure_state_caches_are_built()
-        .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;
-    let head_state = beacon_chain
-        .speculative_state()
-        .expect("This is legacy code and should be removed.");
+    let head_state = &beacon_chain.head().beacon_state;
 
     // Parse and check query parameters
     let query = UrlQuery::from_request(&req)?;

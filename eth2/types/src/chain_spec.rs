@@ -58,7 +58,7 @@ pub struct ChainSpec {
     /*
      * Time parameters
      */
-    pub seconds_per_slot: u64,
+    pub milliseconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
@@ -158,7 +158,7 @@ impl ChainSpec {
             /*
              * Time parameters
              */
-            seconds_per_slot: 6,
+            milliseconds_per_slot: 6_000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
@@ -221,7 +221,7 @@ impl ChainSpec {
         let boot_nodes = vec![];
 
         Self {
-            seconds_per_slot: 12,
+            milliseconds_per_slot: 12_000,
             target_committee_size: 4,
             shuffle_round_count: 10,
             network_id: 13,

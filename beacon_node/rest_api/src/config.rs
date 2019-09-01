@@ -16,7 +16,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            enabled: true, // rest_api enabled by default
+            enabled: true,
             listen_address: Ipv4Addr::new(127, 0, 0, 1),
             port: 5052,
         }
@@ -25,8 +25,8 @@ impl Default for Config {
 
 impl Config {
     pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
-        if args.is_present("api") {
-            self.enabled = true;
+        if args.is_present("no-api") {
+            self.enabled = false;
         }
 
         if let Some(rpc_address) = args.value_of("api-address") {
