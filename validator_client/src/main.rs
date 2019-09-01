@@ -119,7 +119,7 @@ fn main() {
                     .long("bootstrap")
                     .help("Connect to the RPC server to download the eth2_config via the HTTP API.")
             )
-            .subcommand(SubCommand::with_name("range")
+            .subcommand(SubCommand::with_name("insecure")
                 .about("Uses the standard, predicatable `interop` keygen method to produce a range \
                         of predicatable private keys and starts performing their validator duties.")
                 .arg(Arg::with_name("first_validator")
@@ -271,7 +271,7 @@ fn process_testnet_subcommand(
     };
 
     client_config.key_source = match cli_args.subcommand() {
-        ("range", Some(sub_cli_args)) => {
+        ("insecure", Some(sub_cli_args)) => {
             let first = sub_cli_args
                 .value_of("first_validator")
                 .ok_or_else(|| "No first validator supplied")?
