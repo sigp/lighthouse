@@ -252,6 +252,7 @@ fn main() {
                 .arg(Arg::with_name("server")
                     .value_name("HTTP_SERVER")
                     .required(true)
+                    .default_value("http://localhost:5052")
                     .help("A HTTP server, with a http:// prefix"))
                 .arg(Arg::with_name("libp2p-port")
                     .short("p")
