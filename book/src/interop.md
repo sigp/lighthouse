@@ -46,20 +46,36 @@ To start the node (each time creating a fresh database and configuration in
 ```
 $ ./beacon_node testnet -f quick 8 1567222226
 ```
-
->This method conforms the ["Quick-start
+> Notes:
+>
+> - This method conforms the ["Quick-start
 genesis"](https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start#quick-start-genesis)
 method in the `ethereum/eth2.0-pm` repository.
->
-> The `-f` flag ignores any existing database or configuration, backing them up
-before re-initializing. `8` is the validator count and `1567222226` is the
-genesis time.
->
-> See `$ ./beacon_node testnet quick --help` for more configuration options.
+> - The `-f` flag ignores any existing database or configuration, backing them
+>   up before re-initializing.
+> - `8` is the validator count and `1567222226` is the genesis time.
+> - See `$ ./beacon_node testnet quick --help` for more configuration options.
 
 #### Validator Client
 
-**TODO**
+Start the validator client with:
+
+```
+$ ./validator_client testnet -b insecure 0 8
+```
+> Notes:
+>
+> - The `-b` flag means the validator client will "bootstrap" specs and config
+>   from the beacon node.
+> - The `insecure` command means the [interop
+>   keypairs](https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start#pubkeyprivkey-generation)
+>   will be used.
+> - The `0 8` indicates that this validator client should manage 8 validators,
+>   starting at validator 0 (the first deposited validator).
+> - The validator client will try to connect to the beacon node at `localhost`.
+>   See `--help` to configure that address and other features.
+> - The validator client will operate very loosely in `testnet` mode, happily
+>   swapping between chains and creating double-votes.
 
 #### Starting from a genesis file
 
