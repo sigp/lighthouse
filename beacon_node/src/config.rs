@@ -472,7 +472,6 @@ impl<'a> ConfigBuilder<'a> {
             self.client_config.network.libp2p_port += bump;
             self.client_config.network.discovery_port += bump;
             self.client_config.rpc.port += bump;
-            self.client_config.rpc.port += bump;
             self.client_config.rest_api.port += bump;
         }
 
