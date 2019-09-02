@@ -318,7 +318,7 @@ fn main() {
                 .arg(Arg::with_name("format")
                     .value_name("FORMAT")
                     .required(true)
-                    .possible_values(&["yaml", "ssz"])
+                    .possible_values(&["yaml", "ssz", "json"])
                     .help("The encoding of the state in the file."))
                 .arg(Arg::with_name("file")
                     .value_name("YAML_FILE")
@@ -344,7 +344,7 @@ fn main() {
         _ => unreachable!("guarded by clap"),
     };
 
-    let mut log = slog::Logger::root(drain.fuse(), o!());
+    let log = slog::Logger::root(drain.fuse(), o!());
 
     warn!(
         log,

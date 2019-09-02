@@ -76,6 +76,16 @@ impl<T: BeaconChainTypes> BeaconChainBuilder<T> {
         Ok(Self::from_genesis_state(genesis_state, spec, log))
     }
 
+    pub fn json_state(file: &PathBuf, spec: ChainSpec, log: Logger) -> Result<Self, String> {
+        let file = File::open(file.clone())
+            .map_err(|e| format!("Unable to open JSON genesis state file {:?}: {:?}", file, e))?;
+
+        let genesis_state = serde_json::from_reader(file)
+            .map_err(|e| format!("Unable to parse JSON genesis state file: {:?}", e))?;
+
+        Ok(Self::from_genesis_state(genesis_state, spec, log))
+    }
+
     pub fn http_bootstrap(server: &str, spec: ChainSpec, log: Logger) -> Result<Self, String> {
         let bootstrapper = Bootstrapper::from_server_string(server.to_string())
             .map_err(|e| format!("Failed to initialize bootstrap client: {}", e))?;
