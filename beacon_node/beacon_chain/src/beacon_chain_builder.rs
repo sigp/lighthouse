@@ -4,9 +4,10 @@ use lighthouse_bootstrap::Bootstrapper;
 use merkle_proof::MerkleTree;
 use rayon::prelude::*;
 use slog::Logger;
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use state_processing::initialize_beacon_state_from_eth1;
 use std::fs::File;
+use std::io::prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -57,6 +58,20 @@ impl<T: BeaconChainTypes> BeaconChainBuilder<T> {
 
         let genesis_state = serde_yaml::from_reader(file)
             .map_err(|e| format!("Unable to parse YAML genesis state file: {:?}", e))?;
+
+        Ok(Self::from_genesis_state(genesis_state, spec, log))
+    }
+
+    pub fn ssz_state(file: &PathBuf, spec: ChainSpec, log: Logger) -> Result<Self, String> {
+        let mut file = File::open(file.clone())
+            .map_err(|e| format!("Unable to open SSZ genesis state file {:?}: {:?}", file, e))?;
+
+        let mut bytes = vec![];
+        file.read_to_end(&mut bytes)
+            .map_err(|e| format!("Failed to read SSZ file: {:?}", e))?;
+
+        let genesis_state = BeaconState::from_ssz_bytes(&bytes)
+            .map_err(|e| format!("Unable to parse SSZ genesis state file: {:?}", e))?;
 
         Ok(Self::from_genesis_state(genesis_state, spec, log))
     }
