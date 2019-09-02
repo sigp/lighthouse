@@ -191,16 +191,4 @@ mod epoch_tests {
             Epoch::from_ssz_bytes(&max_epoch.as_ssz_bytes()).unwrap()
         );
     }
-
-    #[test]
-    fn epoch_max_value_json() {
-        let x: Epoch = Epoch::from(u64::max_value());
-        let json = serde_json::to_string(&x).expect("should json encode");
-
-        assert_eq!(&json, "18446744073709552000");
-        assert_eq!(
-            serde_json::from_str::<Epoch>(&json).expect("should json decode"),
-            x
-        );
-    }
 }
