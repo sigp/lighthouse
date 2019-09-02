@@ -147,6 +147,7 @@ pub fn start_server<T: BeaconChainTypes>(
                     beacon::get_latest_finalized_checkpoint::<T>(req)
                 }
                 (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req),
+                (&Method::GET, "/beacon/state/genesis") => beacon::get_genesis_state::<T>(req),
                 (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req),
 
                 //TODO: Add aggreggate/filtered state lookups here, e.g. /beacon/validators/balances

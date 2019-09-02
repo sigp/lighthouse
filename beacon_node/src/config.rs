@@ -172,6 +172,31 @@ fn process_testnet_subcommand(
                 genesis_time,
             })
         }
+        ("file", Some(cli_args)) => {
+            let file = cli_args
+                .value_of("file")
+                .ok_or_else(|| "No filename specified")?
+                .parse::<PathBuf>()
+                .map_err(|e| format!("Unable to parse filename: {:?}", e))?;
+
+            let format = cli_args
+                .value_of("format")
+                .ok_or_else(|| "No file format specified")?;
+
+            let start_method = match format {
+                "yaml" => BeaconChainStartMethod::Yaml { file },
+                "ssz" => BeaconChainStartMethod::Ssz { file },
+                other => return Err(format!("Unknown genesis file format: {}", other)),
+            };
+
+            builder.set_beacon_chain_start_method(start_method)
+        }
+        (cmd, Some(_)) => {
+            return Err(format!(
+                "Invalid valid method specified: {}. See 'testnet --help'.",
+                cmd
+            ))
+        }
         _ => return Err("No testnet method specified. See 'testnet --help'.".into()),
     };
 

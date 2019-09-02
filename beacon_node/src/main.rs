@@ -312,9 +312,14 @@ fn main() {
              *
              * Start a new node, using a genesis state loaded from a YAML file
              */
-            .subcommand(SubCommand::with_name("yaml")
-                .about("Creates a new datadir where the genesis state is read from YAML. Will fail to parse \
-                       a YAML state that was generated to a different spec than that specified by --spec.")
+            .subcommand(SubCommand::with_name("file")
+                .about("Creates a new datadir where the genesis state is read from YAML. May fail to parse \
+                       a file that was generated to a different spec than that specified by --spec.")
+                .arg(Arg::with_name("format")
+                    .value_name("FORMAT")
+                    .required(true)
+                    .possible_values(&["yaml", "ssz"])
+                    .help("The encoding of the state in the file."))
                 .arg(Arg::with_name("file")
                     .value_name("YAML_FILE")
                     .required(true)

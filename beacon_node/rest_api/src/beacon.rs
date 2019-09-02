@@ -101,6 +101,21 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     Ok(success_response(Body::from(json)))
 }
 
+/// HTTP handler to return a `BeaconState` at a given `root` or `slot`.
+///
+/// Will not return a state if the request slot is in the future. Will return states higher than
+/// the current head by skipping slots.
+pub fn get_genesis_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+    let beacon_chain = req
+        .extensions()
+        .get::<Arc<BeaconChain<T>>>()
+        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+
+    let (_root, state) = state_at_slot(&beacon_chain, Slot::new(0))?;
+
+    ResponseBuilder::new(&req).body(&state)
+}
+
 #[derive(Serialize, Encode)]
 #[serde(bound = "T: EthSpec")]
 pub struct StateResponse<T: EthSpec> {
