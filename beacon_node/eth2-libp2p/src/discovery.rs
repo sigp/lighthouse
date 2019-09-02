@@ -341,13 +341,9 @@ fn save_enr_to_disc(dir: &Path, enr: &Enr, log: &slog::Logger) {
         }
         Err(e) => {
             warn!(
-                            log,
-            <<<<<<< HEAD
-                            "Could not write ENR to file"; "file" => format!("{:?}{:?}",dir, ENR_FILENAME),  "error" => format!("{}", e)
-            =======
-                            "Could not write ENR to file"; "File" => format!("{:?}{:?}",dir, ENR_FILENAME),  "Error" => format!("{}", e)
-            >>>>>>> interop
-                        );
+                log,
+                "Could not write ENR to file"; "file" => format!("{:?}{:?}",dir, ENR_FILENAME),  "error" => format!("{}", e)
+            );
         }
     }
 }
