@@ -305,7 +305,7 @@ fn load_enr(
                                 && enr.tcp() == Some(config.libp2p_port)
                                 && enr.udp() == Some(config.discovery_port)
                             {
-                                debug!(log, "ENR loaded from file"; "File" => format!("{:?}", enr_f));
+                                debug!(log, "ENR loaded from file"; "file" => format!("{:?}", enr_f));
                                 // the stored ENR has the same configuration, use it
                                 return Ok(enr);
                             }
@@ -315,11 +315,11 @@ fn load_enr(
                             local_enr.set_seq(new_seq_no, local_key).map_err(|e| {
                                 format!("Could not update ENR sequence number: {:?}", e)
                             })?;
-                            debug!(log, "ENR sequence number increased"; "Seq" =>  new_seq_no);
+                            debug!(log, "ENR sequence number increased"; "seq" =>  new_seq_no);
                         }
                     }
                     Err(e) => {
-                        warn!(log, "ENR from file could not be decoded"; "Error" => format!("{:?}", e));
+                        warn!(log, "ENR from file could not be decoded"; "error" => format!("{:?}", e));
                     }
                 }
             }
@@ -342,7 +342,7 @@ fn save_enr_to_disc(dir: &Path, enr: &Enr, log: &slog::Logger) {
         Err(e) => {
             warn!(
                 log,
-                "Could not write ENR to file"; "File" => format!("{:?}{:?}",dir, ENR_FILENAME),  "Error" => format!("{}", e)
+                "Could not write ENR to file"; "file" => format!("{:?}{:?}",dir, ENR_FILENAME),  "error" => format!("{}", e)
             );
         }
     }
