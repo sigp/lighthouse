@@ -56,6 +56,8 @@ pub enum BeaconChainStartMethod {
     Yaml { file: PathBuf },
     /// Create a new beacon chain by loading a SSZ-encoded genesis state from a file.
     Ssz { file: PathBuf },
+    /// Create a new beacon chain by loading a JSON-encoded genesis state from a file.
+    Json { file: PathBuf },
     /// Create a new beacon chain by using a HTTP server (running our REST-API) to load genesis and
     /// finalized states and blocks.
     HttpBootstrap { server: String, port: Option<u16> },

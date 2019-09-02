@@ -147,6 +147,15 @@ where
                 );
                 BeaconChainBuilder::ssz_state(file, spec.clone(), log.clone())?
             }
+            BeaconChainStartMethod::Json { file } => {
+                info!(
+                    log,
+                    "Starting beacon chain";
+                    "file" => format!("{:?}", file),
+                    "method" => "json"
+                );
+                BeaconChainBuilder::json_state(file, spec.clone(), log.clone())?
+            }
             BeaconChainStartMethod::HttpBootstrap { server, port } => {
                 info!(
                     log,
