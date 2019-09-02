@@ -4,6 +4,7 @@ use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::iter::{ReverseBlockRootIterator, ReverseStateRootIterator};
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+use eth2_hashing::hash;
 use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -1198,11 +1199,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             body: BeaconBlockBody {
                 randao_reveal,
                 // TODO: replace with real data.
-                eth1_data: Eth1Data {
-                    deposit_count: state.eth1_data.deposit_count,
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
-                },
+                eth1_data: Self::eth1_data_stub(&state),
                 graffiti,
                 proposer_slashings: proposer_slashings.into(),
                 attester_slashings: attester_slashings.into(),
@@ -1229,6 +1226,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(timer);
 
         Ok((block, state))
+    }
+
+    fn eth1_data_stub(state: &BeaconState<T::EthSpec>) -> Eth1Data {
+        let current_epoch = state.current_epoch();
+        let slots_per_voting_period = T::EthSpec::slots_per_eth1_voting_period() as u64;
+        let current_voting_period: u64 = current_epoch.as_u64() / slots_per_voting_period;
+
+        // TODO: confirm that `int_to_bytes32` is correct.
+        let deposit_root = hash(&int_to_bytes32(current_voting_period));
+        let block_hash = hash(&deposit_root);
+
+        Eth1Data {
+            deposit_root: Hash256::from_slice(&deposit_root),
+            deposit_count: state.eth1_deposit_index,
+            block_hash: Hash256::from_slice(&block_hash),
+        }
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
@@ -1424,6 +1437,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(dump)
     }
+}
+
+/// Returns `int` as little-endian bytes with a length of 32.
+fn int_to_bytes32(int: u64) -> Vec<u8> {
+    let mut vec = int.to_le_bytes().to_vec();
+    vec.resize(32, 0);
+    vec
 }
 
 impl From<DBError> for Error {
