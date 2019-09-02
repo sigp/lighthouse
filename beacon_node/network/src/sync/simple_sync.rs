@@ -453,7 +453,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 }
                 BlockProcessingOutcome::ParentUnknown { parent: _ } => {
                     // Inform the sync manager to find parents for this block
-                    trace!(self.log, "Unknown parent gossip";
+                    trace!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
                     self.manager.add_unknown_block(block.clone(), peer_id);
                     SHOULD_FORWARD_GOSSIP_BLOCK

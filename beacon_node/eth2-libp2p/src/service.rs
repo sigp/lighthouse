@@ -79,8 +79,8 @@ impl Service {
             }
         };
 
-        // attempt to connect to user-input libp2p nodes
-        for multiaddr in config.libp2p_nodes {
+        // helper closure for dialing peers
+        let mut dial_addr = |multiaddr: Multiaddr| {
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
                 Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => format!("{}", multiaddr)),
                 Err(err) => debug!(
@@ -88,6 +88,18 @@ impl Service {
                     "Could not connect to peer"; "address" => format!("{}", multiaddr), "error" => format!("{:?}", err)
                 ),
             };
+        };
+
+        // attempt to connect to user-input libp2p nodes
+        for multiaddr in config.libp2p_nodes {
+            dial_addr(multiaddr);
+        }
+
+        // attempt to connect to any specified boot-nodes
+        for bootnode_enr in config.boot_nodes {
+            for multiaddr in bootnode_enr.multiaddr() {
+                dial_addr(multiaddr);
+            }
         }
 
         // subscribe to default gossipsub topics

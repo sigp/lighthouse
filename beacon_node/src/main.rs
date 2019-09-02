@@ -187,13 +187,6 @@ fn main() {
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .default_value("trace"),
         )
-        .arg(
-            Arg::with_name("verbosity")
-                .short("v")
-                .multiple(true)
-                .help("Sets the verbosity level")
-                .takes_value(true),
-        )
         /*
          * The "testnet" sub-command.
          *
@@ -330,13 +323,6 @@ fn main() {
         Some("error") => drain.filter_level(Level::Error),
         Some("crit") => drain.filter_level(Level::Critical),
         _ => unreachable!("guarded by clap"),
-    };
-
-    let drain = match matches.occurrences_of("verbosity") {
-        0 => drain.filter_level(Level::Info),
-        1 => drain.filter_level(Level::Debug),
-        2 => drain.filter_level(Level::Trace),
-        _ => drain.filter_level(Level::Trace),
     };
 
     let log = slog::Logger::root(drain.fuse(), o!());

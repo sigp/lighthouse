@@ -114,7 +114,7 @@ impl<TSubstream> Discovery<TSubstream> {
         self.find_peers();
     }
 
-    /// Add an Enr to the routing table of the discovery mechanism.
+    /// Add an ENR to the routing table of the discovery mechanism.
     pub fn add_enr(&mut self, enr: Enr) {
         self.discovery.add_enr(enr);
     }
