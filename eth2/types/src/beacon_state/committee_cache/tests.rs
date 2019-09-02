@@ -9,7 +9,7 @@ fn default_values() {
     let cache = CommitteeCache::default();
 
     assert_eq!(cache.is_initialized_at(Epoch::new(0)), false);
-    assert_eq!(cache.active_validator_indices(), &[]);
+    assert!(&cache.active_validator_indices().is_empty());
     assert_eq!(cache.get_crosslink_committee_for_shard(0), None);
     assert_eq!(cache.get_attestation_duties(0), None);
     assert_eq!(cache.active_validator_count(), 0);
