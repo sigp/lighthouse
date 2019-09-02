@@ -165,7 +165,7 @@ fn interop_genesis_state<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
     let keypairs = generate_deterministic_keypairs(validator_count);
-    let eth1_block_hash = Hash256::from_slice(&[42; 32]);
+    let eth1_block_hash = Hash256::from_slice(&[0x42; 32]);
     let eth1_timestamp = 2_u64.pow(40);
     let amount = spec.max_effective_balance;
 
@@ -277,7 +277,7 @@ mod test {
 
         assert_eq!(
             state.eth1_data.block_hash,
-            Hash256::from_slice(&[42; 32]),
+            Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );
 
