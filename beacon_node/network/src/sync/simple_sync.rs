@@ -6,7 +6,6 @@ use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, info, o, trace, warn};
 use ssz::Encode;
-use std::ops::Sub;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc;
@@ -190,7 +189,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             trace!(
                 self.log, "Out of date or potentially sync'd peer found";
                 "peer" => format!("{:?}", peer_id),
-                "remote_head_slot" => remote.head_slot
+                "remote_head_slot" => remote.head_slot,
                 "remote_latest_finalized_epoch" => remote.finalized_epoch,
             );
 
@@ -386,7 +385,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "peer" => format!("{:?}", peer_id),
                 "msg" => "Failed to return all requested hashes",
                 "start_slot" => req.start_slot,
-                "current_slot" => self.chain.present_slot(),
+                "current_slot" => self.chain.best_slot(),
                 "requested" => req.count,
                 "returned" => blocks.len(),
             );

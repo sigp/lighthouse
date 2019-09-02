@@ -33,14 +33,14 @@ fn main() {
         .arg(
             Arg::with_name("logfile")
                 .long("logfile")
-                .value_name("logfile")
+                .value_name("FILE")
                 .help("File path where output will be written.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("network-dir")
                 .long("network-dir")
-                .value_name("NETWORK-DIR")
+                .value_name("DIR")
                 .help("Data directory for network keys.")
                 .takes_value(true)
                 .global(true)
@@ -83,7 +83,7 @@ fn main() {
             Arg::with_name("boot-nodes")
                 .long("boot-nodes")
                 .allow_hyphen_values(true)
-                .value_name("BOOTNODES")
+                .value_name("ENR-LIST")
                 .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network.")
                 .takes_value(true),
         )
@@ -128,13 +128,14 @@ fn main() {
         .arg(
             Arg::with_name("rpc-address")
                 .long("rpc-address")
-                .value_name("Address")
+                .value_name("ADDRESS")
                 .help("Listen address for RPC endpoint.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("rpc-port")
                 .long("rpc-port")
+                .value_name("PORT")
                 .help("Listen port for RPC endpoint.")
                 .conflicts_with("port-bump")
                 .takes_value(true),
@@ -149,14 +150,14 @@ fn main() {
         .arg(
             Arg::with_name("api-address")
                 .long("api-address")
-                .value_name("APIADDRESS")
+                .value_name("ADDRESS")
                 .help("Set the listen address for the RESTful HTTP API server.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("api-port")
                 .long("api-port")
-                .value_name("APIPORT")
+                .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .conflicts_with("port-bump")
                 .takes_value(true),
