@@ -35,6 +35,7 @@ There are several methods for starting a new chain:
 - `quick`: using the `(validator_client, genesis_time)` tuple.
 - `recent`: as above but `genesis_time` is set to the start of some recent time
 	window.
+- `file`: loads the genesis file from disk in one of multiple formats.
 - `bootstrap`: a Lighthouse-specific method where we connect to a running node
 	and download it's specification and genesis state via the HTTP API.
 
@@ -85,12 +86,12 @@ Start the validator client with:
 ```
 $ ./validator_client testnet -b insecure 0 8
 ```
+
 > Notes:
 >
 > - The `-b` flag means the validator client will "bootstrap" specs and config
 >   from the beacon node.
-> - The `insecure` command dictates that the [interop
->   keypairs](https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start#pubkeyprivkey-generation)
+> - The `insecure` command dictates that the [interop keypairs](https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start#pubkeyprivkey-generation)
 >   will be used.
 > - The `0 8` indicates that this validator client should manage 8 validators,
 >   starting at validator 0 (the first deposited validator).
@@ -101,8 +102,35 @@ $ ./validator_client testnet -b insecure 0 8
 
 #### Starting from a genesis file
 
-**TODO**
+A genesis state can be read from file using the `testnet file` subcommand.
+There are three supported formats:
+
+- `ssz` (default)
+- `json`
+- `yaml`
+
+Start a new node using `/tmp/genesis.ssz` as the genesis state:
+
+```
+$ ./beacon_node testnet --spec minimal -f file ssz /tmp/genesis.ssz
+```
+
+> Notes:
+>
+> - The `-f` flag ignores any existing database or configuration, backing them
+>   up before re-initializing.
+> - See `$ ./beacon_node testnet file --help` for more configuration options.
 
 #### Exporting a genesis file
 
-**TODO**
+Genesis states can downloaded from a running Lighthouse node via the HTTP API. Three content-types are supported:
+
+- `application/json`
+- `application/yaml`
+- `application/ssz`
+
+Using `curl`, a genesis state can be downloaded to `/tmp/genesis.ssz`:
+
+```
+$ curl --header "Content-Type: application/ssz" "localhost:5052/beacon/state/genesis" -o /tmp/genesis.ssz
+```
