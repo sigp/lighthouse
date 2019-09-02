@@ -23,9 +23,30 @@ After building the binaries with `cargo build --release --all`, there will be a
 `target/release` directory in the root of the Lighthouse repository. This is
 where the `beacon_node` and `validator_client` binaries are located.
 
-## Interop Procedure
+## CLI Overview
 
-The following scenarios are documented:
+The Lighthouse CLI has two primary tasks:
+
+- **Starting** a new testnet chain using `$ ./beacon_node testnet`.
+- **Resuming** an existing chain with `$ ./beacon_node` (omit `testnet`).
+
+There are several methods for starting a new chain:
+
+- `quick`: using the `(validator_client, genesis_time)` tuple.
+- `recent`: as above but `genesis_time` is set to the start of some recent time
+	window.
+- `bootstrap`: a Lighthouse-specific method where we connect to a running node
+	and download it's specification and genesis state via the HTTP API.
+
+See `$ ./beacon_node testnet --help` for more detail.
+
+Once a chain has been started, it can be resumed by running `$ ./beacon_node`
+(potentially supplying the `--datadir`, if a non-default directory was used).
+
+
+## Scenarios
+
+The following scenarios are documented here:
 
 - [Starting a "quick-start" beacon node](#quick-start-beacon-node) from a
     `(validator_count, genesis)` tuple.
@@ -34,8 +55,9 @@ The following scenarios are documented:
 - [Exporting a genesis state file](#exporting-a-genesis-file) from a running Lighthouse
 	node.
 
-First, setup a Lighthouse development environment and navigate to the
-`target/release` directory (this is where the binaries are located).
+All scenarios assume a working development environment and commands are based
+in the `target/release` directory (this is the build dir for `cargo`).
+
 
 #### Quick-start Beacon Node
 
