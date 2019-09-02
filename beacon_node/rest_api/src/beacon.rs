@@ -1,8 +1,9 @@
-use super::{success_response, ApiResult};
+use super::{success_response, ApiResult, ResponseBuilder};
 use crate::{helpers::*, ApiError, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use hyper::{Body, Request};
 use serde::Serialize;
+use ssz_derive::Encode;
 use std::sync::Arc;
 use store::Store;
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
@@ -33,7 +34,7 @@ pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
     Ok(success_response(Body::from(json)))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Encode)]
 #[serde(bound = "T: EthSpec")]
 pub struct BlockResponse<T: EthSpec> {
     pub root: Hash256,
@@ -77,11 +78,7 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         beacon_block: block,
     };
 
-    let json: String = serde_json::to_string(&response).map_err(|e| {
-        ApiError::ServerError(format!("Unable to serialize BlockResponse: {:?}", e))
-    })?;
-
-    Ok(success_response(Body::from(json)))
+    ResponseBuilder::new(&req).body(&response)
 }
 
 /// HTTP handler to return a `BeaconBlock` root at a given `slot`.
@@ -104,7 +101,7 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     Ok(success_response(Body::from(json)))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Encode)]
 #[serde(bound = "T: EthSpec")]
 pub struct StateResponse<T: EthSpec> {
     pub root: Hash256,
@@ -144,11 +141,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         beacon_state: state,
     };
 
-    let json: String = serde_json::to_string(&response).map_err(|e| {
-        ApiError::ServerError(format!("Unable to serialize StateResponse: {:?}", e))
-    })?;
-
-    Ok(success_response(Body::from(json)))
+    ResponseBuilder::new(&req).body(&response)
 }
 
 /// HTTP handler to return a `BeaconState` root at a given `slot`.
