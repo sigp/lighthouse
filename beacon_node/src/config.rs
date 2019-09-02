@@ -74,7 +74,7 @@ fn process_testnet_subcommand(
 
     if let Some(path_string) = cli_args.value_of("eth2-config") {
         if is_bootstrap {
-            return Err("Cannot supply --eth2-config when using bootsrap".to_string());
+            return Err("Cannot supply --eth2-config when using bootstrap".to_string());
         }
 
         let path = path_string
@@ -83,6 +83,18 @@ fn process_testnet_subcommand(
         builder.load_eth2_config(path)?;
     } else {
         builder.update_spec_from_subcommand(&cli_args)?;
+    }
+
+    if let Some(slot_time) = cli_args.value_of("slot-time") {
+        if is_bootstrap {
+            return Err("Cannot supply --slot-time flag whilst using bootstrap.".into());
+        }
+
+        let slot_time = slot_time
+            .parse::<u64>()
+            .map_err(|e| format!("Unable to parse slot-time: {:?}", e))?;
+
+        builder.set_slot_time(slot_time);
     }
 
     if let Some(path_string) = cli_args.value_of("client-config") {
@@ -305,6 +317,10 @@ impl<'a> ConfigBuilder<'a> {
 
     fn update_eth2_config(&mut self, eth2_config: Eth2Config) {
         self.eth2_config = eth2_config;
+    }
+
+    fn set_slot_time(&mut self, milliseconds_per_slot: u64) {
+        self.eth2_config.spec.milliseconds_per_slot = milliseconds_per_slot;
     }
 
     /// Reads the subcommand and tries to update `self.eth2_config` based up on the `--spec` flag.

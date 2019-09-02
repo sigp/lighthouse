@@ -241,6 +241,13 @@ fn main() {
                            backup directory.")
                     .conflicts_with("random-datadir")
             )
+            .arg(
+                Arg::with_name("slot-time")
+                    .long("slot-time")
+                    .short("t")
+                    .value_name("MILLISECONDS")
+                    .help("Defines the slot time when creating a new testnet.")
+            )
             /*
              * `boostrap`
              *
