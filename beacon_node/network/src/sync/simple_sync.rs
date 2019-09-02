@@ -531,7 +531,6 @@ impl NetworkContext {
             "reason" => format!("{:?}", reason),
             "peer_id" => format!("{:?}", peer_id),
         );
-
         self.send_rpc_request(None, peer_id, RPCRequest::Goodbye(reason))
         // TODO: disconnect peers.
     }
