@@ -48,6 +48,22 @@ Increase all ports by `10` (using multiples of `10` is recommended).
 $ ./beacon_node -b 10 testnet -f quick 8 1567222226
 ```
 
+### Start a testnet with a custom slot time
+
+Lighthouse can run at quite low slot times when there are few validators (e.g.,
+`500 ms` slot times should be fine for 8 validators).
+
+#### Example
+
+The `-t` (`--slot-time`) flag specifies the milliseconds per slot.
+
+```
+$ ./beacon_node -b 10 testnet -t 500 -f quick 8 1567222226
+```
+
+> Note: `bootstrap` loads the slot time via HTTP and therefore conflicts with
+> this flag.
+
 ## HTTP API
 
 Examples assume there is a Lighthouse node exposing a HTTP API on
