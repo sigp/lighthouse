@@ -1,10 +1,11 @@
 use crate::BeaconChainTypes;
 use eth2_hashing::hash;
 use std::marker::PhantomData;
-use types::{BeaconState, Deposit, DepositData, Eth1Data, EthSpec, Hash256};
+use types::{BeaconState, Deposit, Eth1Data, EthSpec, Hash256};
 
 type Result<T> = std::result::Result<T, Error>;
 
+/// Holds an `Eth1ChainBackend` and serves requests from the `BeaconChain`.
 pub struct Eth1Chain<T: BeaconChainTypes> {
     backend: T::Eth1Chain,
 }
@@ -14,6 +15,8 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
         Self { backend }
     }
 
+    /// Returns the `Eth1Data` that should be included in a block being produced for the given
+    /// `state`.
     pub fn eth1_data_for_block_production(
         &self,
         state: &BeaconState<T::EthSpec>,
@@ -21,6 +24,10 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
         self.backend.eth1_data(state)
     }
 
+    /// Returns a list of `Deposits` that may be included in a block.
+    ///
+    /// Including all of the returned `Deposits` in a block should _not_ cause it to become
+    /// invalid.
     pub fn deposits_for_block_inclusion(
         &self,
         state: &BeaconState<T::EthSpec>,
@@ -76,7 +83,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for InteropEth1ChainBackend<T> {
         })
     }
 
-    fn queued_deposits(&self, beacon_state: &BeaconState<T>) -> Result<Vec<Deposit>> {
+    fn queued_deposits(&self, _: &BeaconState<T>) -> Result<Vec<Deposit>> {
         Ok(vec![])
     }
 }
