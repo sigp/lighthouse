@@ -78,6 +78,10 @@ fn process_testnet_subcommand(
         builder.set_random_datadir()?;
     }
 
+    if cli_args.is_present("force") {
+        builder.clean_datadir()?;
+    }
+
     let is_bootstrap = cli_args.subcommand_name() == Some("bootstrap");
 
     if let Some(path_string) = cli_args.value_of("eth2-config") {
@@ -110,10 +114,6 @@ fn process_testnet_subcommand(
             .parse::<PathBuf>()
             .map_err(|e| format!("Unable to parse client config path: {:?}", e))?;
         builder.load_client_config(path)?;
-    }
-
-    if cli_args.is_present("force") {
-        builder.clean_datadir()?;
     }
 
     info!(
