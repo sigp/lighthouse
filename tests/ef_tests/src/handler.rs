@@ -1,6 +1,6 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
+use crate::type_name;
 use crate::type_name::TypeName;
-use crate::EfTest;
 use std::fs;
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -256,3 +256,33 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
         O::handler_name()
     }
 }
+
+pub struct SszGenericHandler<H>(PhantomData<H>);
+
+impl<H: TypeName> Handler for SszGenericHandler<H> {
+    type Case = cases::SszGeneric;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "ssz_generic"
+    }
+
+    fn handler_name() -> String {
+        H::name().into()
+    }
+}
+
+// Supported SSZ generic handlers
+pub struct BasicVector;
+type_name!(BasicVector, "basic_vector");
+pub struct Bitlist;
+type_name!(Bitlist, "bitlist");
+pub struct Bitvector;
+type_name!(Bitvector, "bitvector");
+pub struct Boolean;
+type_name!(Boolean, "boolean");
+pub struct Uints;
+type_name!(Uints, "uints");

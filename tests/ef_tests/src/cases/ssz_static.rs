@@ -35,12 +35,12 @@ pub struct SszStaticSR<T> {
 
 // Trait alias for all deez bounds
 pub trait SszStaticType:
-    serde::de::DeserializeOwned + Decode + Encode + TreeHash + Clone + PartialEq + Debug
+    serde::de::DeserializeOwned + Decode + Encode + TreeHash + Clone + PartialEq + Debug + Sync
 {
 }
 
 impl<T> SszStaticType for T where
-    T: serde::de::DeserializeOwned + Decode + Encode + TreeHash + Clone + PartialEq + Debug
+    T: serde::de::DeserializeOwned + Decode + Encode + TreeHash + Clone + PartialEq + Debug + Sync
 {
 }
 
@@ -77,7 +77,7 @@ impl<T: SszStaticType + SignedRoot> LoadCase for SszStaticSR<T> {
     }
 }
 
-fn check_serialization<T: SszStaticType>(value: &T, serialized: &[u8]) -> Result<(), Error> {
+pub fn check_serialization<T: SszStaticType>(value: &T, serialized: &[u8]) -> Result<(), Error> {
     // Check serialization
     let serialized_result = value.as_ssz_bytes();
     compare_result::<Vec<u8>, Error>(&Ok(serialized_result), &Some(serialized.to_vec()))?;
@@ -89,7 +89,7 @@ fn check_serialization<T: SszStaticType>(value: &T, serialized: &[u8]) -> Result
     Ok(())
 }
 
-fn check_tree_hash(expected_str: &str, actual_root: Vec<u8>) -> Result<(), Error> {
+pub fn check_tree_hash(expected_str: &str, actual_root: Vec<u8>) -> Result<(), Error> {
     let expected_root = hex::decode(&expected_str[2..])
         .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
     let expected_root = Hash256::from_slice(&expected_root);

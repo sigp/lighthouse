@@ -31,7 +31,7 @@ pub struct EpochProcessing<E: EthSpec, T: EpochTransition<E>> {
     _phantom: PhantomData<T>,
 }
 
-pub trait EpochTransition<E: EthSpec>: TypeName + Debug {
+pub trait EpochTransition<E: EthSpec>: TypeName + Debug + Sync {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError>;
 }
 

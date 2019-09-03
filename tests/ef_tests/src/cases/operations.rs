@@ -10,6 +10,7 @@ use state_processing::per_block_processing::{
     process_block_header, process_deposits, process_exits, process_proposer_slashings,
     process_transfers,
 };
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec,
@@ -31,7 +32,7 @@ pub struct Operations<E: EthSpec, O: Operation<E>> {
     pub post: Option<BeaconState<E>>,
 }
 
-pub trait Operation<E: EthSpec>: Decode + TypeName + std::fmt::Debug {
+pub trait Operation<E: EthSpec>: Decode + TypeName + Debug + Sync {
     fn handler_name() -> String {
         Self::name().to_lowercase()
     }

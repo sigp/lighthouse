@@ -1,68 +1,205 @@
 use super::*;
-use crate::case_result::compare_result;
-use ethereum_types::{U128, U256};
+use crate::cases::ssz_static::{check_serialization, check_tree_hash, SszStaticType};
+use crate::yaml_decode::yaml_decode_file;
 use serde_derive::Deserialize;
-use ssz::Decode;
-use std::fmt::Debug;
+use std::fs;
+use std::path::{Path, PathBuf};
+use types::typenum::*;
+use types::{BitList, BitVector, FixedVector, VariableList};
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct SszGeneric {
-    #[serde(alias = "type")]
-    pub type_name: String,
-    pub valid: bool,
-    pub value: Option<String>,
-    pub ssz: Option<String>,
+struct Metadata {
+    root: String,
+    signing_root: Option<String>,
 }
 
-impl YamlDecode for SszGeneric {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(yaml).unwrap())
+#[derive(Debug, Clone)]
+pub struct SszGeneric {
+    path: PathBuf,
+    handler_name: String,
+    case_name: String,
+}
+
+impl LoadCase for SszGeneric {
+    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+        let components = path
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .rev()
+            .collect::<Vec<_>>();
+        // Test case name is last
+        let case_name = components[0].clone();
+        // Handler name is third last, before suite name and case name
+        let handler_name = components[2].clone();
+        Ok(Self {
+            path: path.into(),
+            handler_name,
+            case_name,
+        })
+    }
+}
+
+macro_rules! type_dispatch {
+    ($function:ident,
+     ($($arg:expr),*),
+     $base_ty:tt,
+     <$($param_ty:ty),*>,
+     [ $value:expr => primitive_type ] $($rest:tt)*) => {
+        match $value {
+            "bool" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* bool>, $($rest)*),
+            "uint8" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u8>, $($rest)*),
+            "uint16" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u16>, $($rest)*),
+            "uint32" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u32>, $($rest)*),
+            "uint64" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u64>, $($rest)*),
+            // FIXME(michael): implement tree hash for big ints
+            // "uint128" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* etherum_types::U128>, $($rest)*),
+            // "uint256" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ethereum_types::U256>, $($rest)*),
+            _ => { println!("unsupported: {}", $value); Ok(()) },
+        }
+    };
+    ($function:ident,
+     ($($arg:expr),*),
+     $base_ty:tt,
+     <$($param_ty:ty),*>,
+     [ $value:expr => typenum ] $($rest:tt)*) => {
+        match $value {
+            // DO YOU LIKE NUMBERS?
+            "0" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U0>, $($rest)*),
+            "1" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U1>, $($rest)*),
+            "2" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U2>, $($rest)*),
+            "3" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U3>, $($rest)*),
+            "4" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U4>, $($rest)*),
+            "5" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U5>, $($rest)*),
+            "6" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U6>, $($rest)*),
+            "7" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U7>, $($rest)*),
+            "8" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U8>, $($rest)*),
+            "9" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U9>, $($rest)*),
+            "16" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U16>, $($rest)*),
+            "31" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U31>, $($rest)*),
+            "32" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U32>, $($rest)*),
+            "64" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U64>, $($rest)*),
+            "128" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U128>, $($rest)*),
+            "256" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U256>, $($rest)*),
+            "512" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U512>, $($rest)*),
+            "513" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U513>, $($rest)*),
+            "1024" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U1024>, $($rest)*),
+            "2048" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U2048>, $($rest)*),
+            "4096" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U4096>, $($rest)*),
+            "8192" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U8192>, $($rest)*),
+            _ => { println!("unsupported: {}", $value); Ok(()) },
+        }
+    };
+    // No base type: apply type params to function
+    ($function:ident, ($($arg:expr),*), _, <$($param_ty:ty),*>,) => {
+        $function::<$($param_ty),*>($($arg),*)
+    };
+    ($function:ident, ($($arg:expr),*), $base_type_name:ident, <$($param_ty:ty),*>,) => {
+        $function::<$base_type_name<$($param_ty),*>>($($arg),*)
     }
 }
 
 impl Case for SszGeneric {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
     fn result(&self, _case_index: usize) -> Result<(), Error> {
-        if let Some(ssz) = &self.ssz {
-            match self.type_name.as_ref() {
-                "uint8" => ssz_generic_test::<u8>(self.valid, ssz, &self.value),
-                "uint16" => ssz_generic_test::<u16>(self.valid, ssz, &self.value),
-                "uint32" => ssz_generic_test::<u32>(self.valid, ssz, &self.value),
-                "uint64" => ssz_generic_test::<u64>(self.valid, ssz, &self.value),
-                "uint128" => ssz_generic_test::<U128>(self.valid, ssz, &self.value),
-                "uint256" => ssz_generic_test::<U256>(self.valid, ssz, &self.value),
-                _ => Err(Error::FailedToParseTest(format!(
-                    "Unknown type: {}",
-                    self.type_name
-                ))),
+        let parts = self.case_name.split('_').collect::<Vec<_>>();
+
+        match self.handler_name.as_str() {
+            "basic_vector" => {
+                let elem_ty = parts[1];
+                let length = parts[2];
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path),
+                    FixedVector,
+                    <>,
+                    [elem_ty => primitive_type]
+                    [length => typenum]
+                )?;
             }
-        } else {
-            // Skip tests that do not have an ssz field.
-            //
-            // See: https://github.com/ethereum/eth2.0-specs/issues/1079
-            Ok(())
+            "bitlist" => {
+                let limit = parts[1];
+
+                // FIXME(michael): mark length "no" cases as known failures
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path),
+                    BitList,
+                    <>,
+                    [limit => typenum]
+                )?;
+            }
+            "bitvector" => {
+                let length = parts[1];
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path),
+                    BitVector,
+                    <>,
+                    [length => typenum]
+                )?;
+            }
+            "boolean" => {
+                ssz_generic_test::<bool>(&self.path)?;
+            }
+            "uints" => {
+                let type_name = "uint".to_owned() + parts[1];
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path),
+                    _,
+                    <>,
+                    [type_name.as_str() => primitive_type]
+                )?;
+            }
+            // FIXME(michael): support for the containers tests
+            _ => panic!("unsupported handler: {}", self.handler_name),
         }
+        Ok(())
     }
 }
 
-/// Execute a `ssz_generic` test case.
-fn ssz_generic_test<T>(should_be_ok: bool, ssz: &str, value: &Option<String>) -> Result<(), Error>
-where
-    T: Decode + YamlDecode + Debug + PartialEq<T>,
-{
-    let ssz = hex::decode(&ssz[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-
-    // We do not cater for the scenario where the test is valid but we are not passed any SSZ.
-    if should_be_ok && value.is_none() {
-        panic!("Unexpected test input. Cannot pass without value.")
-    }
-
-    let expected = if let Some(string) = value {
-        Some(T::yaml_decode(string)?)
+fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
+    let meta_path = path.join("meta.yaml");
+    let meta: Option<Metadata> = if meta_path.is_file() {
+        Some(yaml_decode_file(&meta_path)?)
     } else {
         None
     };
 
-    let decoded = T::from_ssz_bytes(&ssz);
+    let serialized = fs::read(&path.join("serialized.ssz")).expect("serialized.ssz exists");
 
-    compare_result(&decoded, &expected)
+    let value_path = path.join("value.yaml");
+    let value: Option<T> = if value_path.is_file() {
+        Some(yaml_decode_file(&value_path)?)
+    } else {
+        None
+    };
+
+    // Valid
+    // TODO: signing root
+    if let Some(value) = value {
+        check_serialization(&value, &serialized)?;
+
+        if let Some(ref meta) = meta {
+            check_tree_hash(&meta.root, value.tree_hash_root())?;
+        }
+    }
+    // Invalid
+    else {
+        if let Ok(decoded) = T::from_ssz_bytes(&serialized) {
+            return Err(Error::DidntFail(format!(
+                "Decoded invalid bytes into: {:?}",
+                decoded
+            )));
+        }
+    }
+
+    Ok(())
 }

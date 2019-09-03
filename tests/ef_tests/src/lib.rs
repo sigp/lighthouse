@@ -17,10 +17,3 @@ mod handler;
 mod results;
 mod type_name;
 mod yaml_decode;
-
-/// Defined where an object can return the results of some test(s) adhering to the Ethereum
-/// Foundation testing format.
-pub trait EfTest {
-    /// Returns the results of executing one or more tests.
-    fn test_results(&self) -> Vec<CaseResult>;
-}
