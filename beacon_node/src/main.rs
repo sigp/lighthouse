@@ -163,6 +163,16 @@ fn main() {
         )
 
         /*
+         * Eth1 Integration
+         */
+        .arg(
+            Arg::with_name("eth1-server")
+                .long("eth1-server")
+                .value_name("SERVER")
+                .help("Specifies the server for a web3 connection to the Eth1 chain.")
+                .takes_value(true)
+        )
+        /*
          * Database parameters.
          */
         .arg(

@@ -21,14 +21,14 @@ use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 use types::EthSpec;
 
-pub use beacon_chain::BeaconChainTypes;
-pub use config::{BeaconChainStartMethod, Config as ClientConfig};
+pub use beacon_chain::{BeaconChainTypes, Eth1ChainBackend, InteropEth1ChainBackend};
+pub use config::{BeaconChainStartMethod, Config as ClientConfig, Eth1BackendMethod};
 pub use eth2_config::Eth2Config;
 
 #[derive(Clone)]
 pub struct ClientType<S: Store, E: EthSpec> {
-    _phantom_t: PhantomData<S>,
-    _phantom_u: PhantomData<E>,
+    _phantom_s: PhantomData<S>,
+    _phantom_e: PhantomData<E>,
 }
 
 impl<S, E> BeaconChainTypes for ClientType<S, E>
@@ -39,6 +39,7 @@ where
     type Store = S;
     type SlotClock = SystemTimeSlotClock;
     type LmdGhost = ThreadSafeReducedTree<S, E>;
+    type Eth1Chain = InteropEth1ChainBackend<E>;
     type EthSpec = E;
 }
 
@@ -168,9 +169,11 @@ where
             }
         };
 
+        let eth1_backend = T::Eth1Chain::new(String::new()).map_err(|e| format!("{:?}", e))?;
+
         let beacon_chain: Arc<BeaconChain<T>> = Arc::new(
             beacon_chain_builder
-                .build(store)
+                .build(store, eth1_backend)
                 .map_err(error::Error::from)?,
         );
 

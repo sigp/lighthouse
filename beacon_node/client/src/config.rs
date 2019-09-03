@@ -23,6 +23,7 @@ pub struct Config {
     /// files. It can only be configured via the CLI.
     #[serde(skip)]
     pub beacon_chain_start_method: BeaconChainStartMethod,
+    pub eth1_backend_method: Eth1BackendMethod,
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub rest_api: rest_api::ApiConfig,
@@ -69,6 +70,22 @@ impl Default for BeaconChainStartMethod {
     }
 }
 
+/// Defines which Eth1 backend the client should use.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum Eth1BackendMethod {
+    /// Use the mocked eth1 backend used in interop testing
+    Interop,
+    /// Use a web3 connection to a running Eth1 node.
+    Web3 { server: String },
+}
+
+impl Default for Eth1BackendMethod {
+    fn default() -> Self {
+        Eth1BackendMethod::Interop
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -81,6 +98,7 @@ impl Default for Config {
             rest_api: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
             beacon_chain_start_method: <_>::default(),
+            eth1_backend_method: <_>::default(),
         }
     }
 }

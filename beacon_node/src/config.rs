@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use client::{BeaconChainStartMethod, ClientConfig, Eth2Config};
+use client::{BeaconChainStartMethod, ClientConfig, Eth1BackendMethod, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use lighthouse_bootstrap::Bootstrapper;
 use rand::{distributions::Alphanumeric, Rng};
@@ -24,6 +24,14 @@ type Config = (ClientConfig, Eth2Config);
 /// response of some remote server.
 pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
     let mut builder = ConfigBuilder::new(cli_args, log)?;
+
+    if let Some(server) = cli_args.value_of("eth1-server") {
+        builder.set_eth1_backend_method(Eth1BackendMethod::Web3 {
+            server: server.into(),
+        })
+    } else {
+        builder.set_eth1_backend_method(Eth1BackendMethod::Interop)
+    }
 
     match cli_args.subcommand() {
         ("testnet", Some(sub_cmd_args)) => {
@@ -286,6 +294,11 @@ impl<'a> ConfigBuilder<'a> {
     /// Sets the method for starting the beacon chain.
     pub fn set_beacon_chain_start_method(&mut self, method: BeaconChainStartMethod) {
         self.client_config.beacon_chain_start_method = method;
+    }
+
+    /// Sets the method for starting the beacon chain.
+    pub fn set_eth1_backend_method(&mut self, method: Eth1BackendMethod) {
+        self.client_config.eth1_backend_method = method;
     }
 
     /// Import the libp2p address for `server` into the list of bootnodes in `self`.
