@@ -682,12 +682,18 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                             );
                         }
                     }
-                    BlockProcessingOutcome::FinalizedSlot => {
+                    BlockProcessingOutcome::WouldRevertFinalizedSlot { .. } => {
                         trace!(
                             self.log, "Finalized or earlier block processed";
                             "outcome" => format!("{:?}", outcome),
                         );
                         // block reached our finalized slot or was earlier, move to the next block
+                    }
+                    BlockProcessingOutcome::GenesisBlock => {
+                        trace!(
+                            self.log, "Genesis block was processed";
+                            "outcome" => format!("{:?}", outcome),
+                        );
                     }
                     _ => {
                         trace!(

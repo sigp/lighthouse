@@ -46,11 +46,14 @@ pub enum BlockProcessingOutcome {
         block_slot: Slot,
     },
     /// The block state_root does not match the generated state.
-    StateRootMismatch,
+    StateRootMismatch { block: Hash256, local: Hash256 },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
-    FinalizedSlot,
+    WouldRevertFinalizedSlot {
+        block_slot: Slot,
+        finalized_slot: Slot,
+    },
     /// Block is already known, no need to re-import.
     BlockIsAlreadyKnown,
     /// The block could not be applied to the state, it is invalid.
@@ -957,12 +960,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
-        if block.slot <= finalized_slot {
-            return Ok(BlockProcessingOutcome::FinalizedSlot);
-        }
-
         if block.slot == 0 {
             return Ok(BlockProcessingOutcome::GenesisBlock);
+        }
+
+        if block.slot <= finalized_slot {
+            return Ok(BlockProcessingOutcome::WouldRevertFinalizedSlot {
+                block_slot: block.slot,
+                finalized_slot: finalized_slot,
+            });
         }
 
         let block_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOCK_ROOT);
@@ -1062,7 +1068,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let state_root = state.canonical_root();
 
         if block.state_root != state_root {
-            return Ok(BlockProcessingOutcome::StateRootMismatch);
+            return Ok(BlockProcessingOutcome::StateRootMismatch {
+                block: block.state_root,
+                local: state_root,
+            });
         }
 
         metrics::stop_timer(state_root_timer);
