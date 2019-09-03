@@ -29,10 +29,8 @@ the `--libp2p-addresses` command.
 
 #### Example:
 
-Runs an 8 validator quick-start chain, peering with `/ip4/192.168.0.1/tcp/9000` on boot.
-
 ```
-$ ./beacon_node --libp2p-addresses /ip4/192.168.0.1/tcp/9000 testnet -f quick 8 1567222226
+$ ./beacon_node --libp2p-addresses /ip4/192.168.0.1/tcp/9000
 ```
 
 <a name="boot-node-enr"></a>
@@ -43,10 +41,8 @@ the `--boot-nodes` command.
 
 #### Example:
 
-Runs an 8 validator quick-start chain, peering with `-IW4QB2...` on boot.
-
 ```
-$ ./beacon_node --boot-nodes -IW4QB2Hi8TPuEzQ41Cdf1r2AUU1FFVFDBJdJyOkWk2qXpZfFZQy2YnJIyoT_5fnbtrXUouoskmydZl4pIg90clIkYUDgmlwhH8AAAGDdGNwgiMog3VkcIIjKIlzZWNwMjU2azGhAjg0-DsTkQynhJCRnLLttBK1RS78lmUkLa-wgzAi-Ob5 testnet -f quick 8 1567222226
+$ ./beacon_node --boot-nodes -IW4QB2Hi8TPuEzQ41Cdf1r2AUU1FFVFDBJdJyOkWk2qXpZfFZQy2YnJIyoT_5fnbtrXUouoskmydZl4pIg90clIkYUDgmlwhH8AAAGDdGNwgiMog3VkcIIjKIlzZWNwMjU2azGhAjg0-DsTkQynhJCRnLLttBK1RS78lmUkLa-wgzAi-Ob5
 ```
 
 <a name="port-bump"></a>
@@ -61,7 +57,7 @@ ports by some `n`.
 Increase all ports by `10` (using multiples of `10` is recommended).
 
 ```
-$ ./beacon_node -b 10 testnet -f quick 8 1567222226
+$ ./beacon_node -b 10
 ```
 
 <a name="slot-time"></a>
@@ -75,7 +71,7 @@ Lighthouse can run at quite low slot times when there are few validators (e.g.,
 The `-t` (`--slot-time`) flag specifies the milliseconds per slot.
 
 ```
-$ ./beacon_node -b 10 testnet -t 500 -f quick 8 1567222226
+$ ./beacon_node testnet -t 500 recent 8
 ```
 
 > Note: `bootstrap` loads the slot time via HTTP and therefore conflicts with
