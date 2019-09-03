@@ -48,7 +48,9 @@ pub enum Error {
     BackendError(String),
 }
 
-pub trait Eth1ChainBackend<T: EthSpec> {
+pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
+    fn new(server: String) -> Result<Self>;
+
     /// Returns the `Eth1Data` that should be included in a block being produced for the given
     /// `state`.
     fn eth1_data(&self, beacon_state: &BeaconState<T>) -> Result<Eth1Data>;
@@ -68,6 +70,10 @@ pub struct InteropEth1ChainBackend<T: EthSpec> {
 }
 
 impl<T: EthSpec> Eth1ChainBackend<T> for InteropEth1ChainBackend<T> {
+    fn new(_server: String) -> Result<Self> {
+        Ok(Self::default())
+    }
+
     fn eth1_data(&self, state: &BeaconState<T>) -> Result<Eth1Data> {
         let current_epoch = state.current_epoch();
         let slots_per_voting_period = T::slots_per_eth1_voting_period() as u64;
