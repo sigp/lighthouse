@@ -5,6 +5,35 @@ use types::{BeaconState, Deposit, DepositData, Eth1Data, EthSpec, Hash256};
 
 type Result<T> = std::result::Result<T, Error>;
 
+pub struct Eth1Chain<T: BeaconChainTypes> {
+    backend: T::Eth1Chain,
+}
+
+impl<T: BeaconChainTypes> Eth1Chain<T> {
+    pub fn new(backend: T::Eth1Chain) -> Self {
+        Self { backend }
+    }
+
+    pub fn eth1_data_for_block_production(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<Eth1Data> {
+        self.backend.eth1_data(state)
+    }
+
+    pub fn deposits_for_block_inclusion(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<Vec<Deposit>> {
+        let deposits = self.backend.queued_deposits(state)?;
+
+        // TODO: truncate deposits if required.
+
+        Ok(deposits)
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// Unable to return an Eth1Data for the given epoch.
     EpochUnavailable,
@@ -12,10 +41,10 @@ pub enum Error {
     BackendError(String),
 }
 
-pub trait Eth1Chain<T: BeaconChainTypes> {
+pub trait Eth1ChainBackend<T: EthSpec> {
     /// Returns the `Eth1Data` that should be included in a block being produced for the given
     /// `state`.
-    fn eth1_data_for_epoch(&self, beacon_state: &BeaconState<T::EthSpec>) -> Result<Eth1Data>;
+    fn eth1_data(&self, beacon_state: &BeaconState<T>) -> Result<Eth1Data>;
 
     /// Returns all `Deposits` between `state.eth1_deposit_index` and
     /// `state.eth1_data.deposit_count`.
@@ -24,20 +53,19 @@ pub trait Eth1Chain<T: BeaconChainTypes> {
     ///
     /// It is possible that not all returned `Deposits` can be included in a block. E.g., there may
     /// be more than `MAX_DEPOSIT_COUNT` or the churn may be too high.
-    fn queued_deposits(&self, beacon_state: &BeaconState<T::EthSpec>) -> Result<Vec<Deposit>>;
+    fn queued_deposits(&self, beacon_state: &BeaconState<T>) -> Result<Vec<Deposit>>;
 }
 
-pub struct InteropEth1Chain<T: BeaconChainTypes> {
+pub struct InteropEth1ChainBackend<T: EthSpec> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: BeaconChainTypes> Eth1Chain<T> for InteropEth1Chain<T> {
-    fn eth1_data_for_epoch(&self, state: &BeaconState<T::EthSpec>) -> Result<Eth1Data> {
+impl<T: EthSpec> Eth1ChainBackend<T> for InteropEth1ChainBackend<T> {
+    fn eth1_data(&self, state: &BeaconState<T>) -> Result<Eth1Data> {
         let current_epoch = state.current_epoch();
-        let slots_per_voting_period = T::EthSpec::slots_per_eth1_voting_period() as u64;
+        let slots_per_voting_period = T::slots_per_eth1_voting_period() as u64;
         let current_voting_period: u64 = current_epoch.as_u64() / slots_per_voting_period;
 
-        // TODO: confirm that `int_to_bytes32` is correct.
         let deposit_root = hash(&int_to_bytes32(current_voting_period));
         let block_hash = hash(&deposit_root);
 
@@ -48,8 +76,16 @@ impl<T: BeaconChainTypes> Eth1Chain<T> for InteropEth1Chain<T> {
         })
     }
 
-    fn queued_deposits(&self, beacon_state: &BeaconState<T::EthSpec>) -> Result<Vec<Deposit>> {
+    fn queued_deposits(&self, beacon_state: &BeaconState<T>) -> Result<Vec<Deposit>> {
         Ok(vec![])
+    }
+}
+
+impl<T: EthSpec> Default for InteropEth1ChainBackend<T> {
+    fn default() -> Self {
+        Self {
+            _phantom: PhantomData,
+        }
     }
 }
 

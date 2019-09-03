@@ -1,4 +1,4 @@
-use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome, InteropEth1ChainBackend};
 use lmd_ghost::LmdGhost;
 use rayon::prelude::*;
 use sloggers::{null::NullLoggerBuilder, Build};
@@ -60,6 +60,7 @@ where
     type Store = MemoryStore;
     type SlotClock = TestingSlotClock;
     type LmdGhost = L;
+    type Eth1Chain = InteropEth1ChainBackend<E>;
     type EthSpec = E;
 }
 
@@ -114,9 +115,15 @@ where
         let builder = NullLoggerBuilder;
         let log = builder.build().expect("logger should build");
 
-        let chain =
-            BeaconChain::from_genesis(store, genesis_state, genesis_block, spec.clone(), log)
-                .expect("Terminate if beacon chain generation fails");
+        let chain = BeaconChain::from_genesis(
+            store,
+            InteropEth1ChainBackend::default(),
+            genesis_state,
+            genesis_block,
+            spec.clone(),
+            log,
+        )
+        .expect("Terminate if beacon chain generation fails");
 
         Self {
             chain,
