@@ -1,5 +1,4 @@
 use ef_tests::*;
-use rayon::prelude::*;
 use types::{
     Attestation, AttestationData, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
     BeaconBlockBody, BeaconBlockHeader, BeaconState, Checkpoint, CompactCommittee, Crosslink,
@@ -7,28 +6,14 @@ use types::{
     MinimalEthSpec, PendingAttestation, ProposerSlashing, Transfer, Validator, VoluntaryExit,
 };
 
-/*
 #[test]
-#[cfg(feature = "fake_crypto")]
 fn ssz_generic() {
-    yaml_files_in_test_dir(&Path::new("ssz_generic"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
+    SszGenericHandler::<BasicVector>::run();
+    SszGenericHandler::<Bitlist>::run();
+    SszGenericHandler::<Bitvector>::run();
+    SszGenericHandler::<Boolean>::run();
+    SszGenericHandler::<Uints>::run();
 }
-
-
-#[test]
-#[cfg(feature = "fake_crypto")]
-fn ssz_static() {
-    yaml_files_in_test_dir(&Path::new("ssz_static"))
-        .into_par_iter()
-        .for_each(|file| {
-            Doc::assert_tests_pass(file);
-        });
-}
-*/
 
 #[test]
 fn shuffling() {

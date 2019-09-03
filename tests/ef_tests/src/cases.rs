@@ -1,4 +1,5 @@
 use super::*;
+use rayon::prelude::*;
 use std::fmt::Debug;
 use std::path::Path;
 
@@ -39,7 +40,7 @@ pub trait LoadCase: Sized {
     fn load_from_dir(_path: &Path) -> Result<Self, Error>;
 }
 
-pub trait Case: Debug {
+pub trait Case: Debug + Sync {
     /// An optional field for implementing a custom description.
     ///
     /// Defaults to "no description".
@@ -79,13 +80,10 @@ pub struct Cases<T> {
     pub test_cases: Vec<T>,
 }
 
-impl<T> EfTest for Cases<T>
-where
-    T: Case + Debug,
-{
-    fn test_results(&self) -> Vec<CaseResult> {
+impl<T: Case> Cases<T> {
+    pub fn test_results(&self) -> Vec<CaseResult> {
         self.test_cases
-            .iter()
+            .into_par_iter()
             .enumerate()
             .map(|(i, tc)| CaseResult::new(i, tc, tc.result(i)))
             .collect()
