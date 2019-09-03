@@ -9,12 +9,12 @@ interop testing.
 	- [Avoid port clashes when starting multiple nodes](#port-bump)
 	- [Specify a custom slot time](#slot-time)
 - Using the beacon node HTTP API:
-	- [Curl a nodes ENR](#http-enr)
-	- [Curl a nodes connected peers](#http-peer-ids)
-	- [Curl a nodes local peer id](#http-peer-id)
-	- [Curl a nodes listening multiaddrs](#http-listen-addresses)
-	- [Curl a nodes beacon chain head](#http-head)
-	- [Curl a nodes finalized checkpoint](#http-finalized)
+	- [Curl a node's ENR](#http-enr)
+	- [Curl a node's connected peers](#http-peer-ids)
+	- [Curl a node's local peer id](#http-peer-id)
+	- [Curl a node's listening multiaddrs](#http-listen-addresses)
+	- [Curl a node's beacon chain head](#http-head)
+	- [Curl a node's finalized checkpoint](#http-finalized)
 
 ## Category: CLI
 
