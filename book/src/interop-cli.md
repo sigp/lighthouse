@@ -5,8 +5,8 @@ The Lighthouse CLI has two primary tasks:
 - **Resuming** an existing database with `$ ./beacon_node`.
 - **Creating** a new testnet database using `$ ./beacon_node testnet`.
 
-_See [Scenarios](./interop-scenarios.md) for methods we're likely to use
-during interop._
+_See [Scenarios](./interop-scenarios.md) for methods we've anticipated will be
+used interop._
 
 ## Creating a new database
 
