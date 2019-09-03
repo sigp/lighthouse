@@ -163,8 +163,26 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         .get::<Arc<BeaconChain<T>>>()
         .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
 
-    let query_params = ["root", "slot"];
-    let (key, value) = UrlQuery::from_request(&req)?.first_of(&query_params)?;
+    let (key, value) = match UrlQuery::from_request(&req) {
+        Ok(query) => {
+            // We have *some* parameters, check them.
+            let query_params = ["root", "slot"];
+            match query.first_of(&query_params) {
+                Ok((k, v)) => (k, v),
+                Err(e) => {
+                    // Wrong parameters provided, or another error, return the error.
+                    return Err(e);
+                }
+            }
+        },
+        Err(ApiError::InvalidQueryParams(_)) => {
+            // No parameters provided at all, use current slot.
+            (String::from("slot"), beacon_chain.head().beacon_state.slot.to_string())
+        }
+        Err(e) => {
+            return Err(e);
+        }
+    };
 
     let (root, state): (Hash256, BeaconState<T::EthSpec>) = match (key.as_ref(), value) {
         ("slot", value) => state_at_slot(&beacon_chain, parse_slot(&value)?)?,

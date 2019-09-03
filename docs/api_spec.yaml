@@ -344,7 +344,6 @@ paths:
         500:
           $ref: '#/components/responses/InternalError'
 
-  #TODO Fill out block_root endpoint
   /beacon/block_root:
     get:
       tags:
@@ -977,6 +976,46 @@ paths:
 
   #TODO fill out /beacon/state
   /beacon/state:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the full beacon state, at a particular slot or block root."
+      description: "Requests the beacon node to provide the full beacon state object, and the state root, given a particular slot number or block root. If no parameters are provided, the latest slot of the beacon node (the 'head' slot) is used."
+      parameters:
+        - name: root
+          description: "The block root at which the state should be provided."
+          in: query
+          required: false
+          schema:
+            type: string
+            format: bytes
+            pattern: "^0x[a-fA-F0-9]{64}$"
+        - name: slot
+          description: "The slot number at which the state should be provided."
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                  beacon_state:
+                    #TODO: Need to add BeaconState Schema
+                    $ref: '#/components/schemas/BeaconState'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
 
   #TODO fill out /beacon/state_root
   /beacon/state_root:
