@@ -527,7 +527,7 @@ paths:
                   validators:
                     type: array
                     items:
-                      $ref: '#/components/schemas/ValidatorInfo'
+                      $ref: '#/components/schemas/Validator'
 
   /beacon/validators/activesetchanges:
     get:
@@ -974,7 +974,6 @@ paths:
         503:
           $ref: '#/components/responses/CurrentlySyncing'
 
-  #TODO fill out /beacon/state
   /beacon/state:
     get:
       tags:
@@ -1010,18 +1009,63 @@ paths:
                     format: bytes
                     pattern: "^0x[a-fA-F0-9]{64}$"
                   beacon_state:
-                    #TODO: Need to add BeaconState Schema
                     $ref: '#/components/schemas/BeaconState'
         400:
           $ref: '#/components/responses/InvalidRequest'
         500:
           $ref: '#/components/responses/InternalError'
 
-  #TODO fill out /beacon/state_root
   /beacon/state_root:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the beacon state root, at a particular slot."
+      description: "Requests the beacon node to provide the root of the beacon state object, given a particular slot number."
+      parameters:
+        - name: slot
+          description: "The slot number at which the state should be provided."
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The state root"
 
-  #TODO fill out current_finalized_checkpoint
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+
   /beacon/current_finalized_checkpoint:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the current finalized checkpoint."
+      #TODO: is this description correct?
+      description: "Requests the beacon node to provide the checkpoint for the current finalized epoch."
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Checkpoint'
+
+
+        500:
+          $ref: '#/components/responses/InternalError'
 
   #TODO fill spec
   /spec:
@@ -1134,6 +1178,28 @@ components:
       pattern: "^0x[a-fA-F0-9]{64}$"
       description: "A hex encoded ethereum address."
 
+    Shard:
+      type: integer
+      format: uint64
+      description: "A shard number."
+      example: 5
+      maximum: 1023
+      minimum: 0
+
+    Checkpoint:
+      type: object
+      description: "A checkpoint."
+      properties:
+        epoch:
+          type: integer
+          format: uint64
+          description: "The epoch to which the checkpoint applies."
+        root:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "A block root, which is being checkpointed."
+
     Peer:
       type: object
       properties:
@@ -1163,7 +1229,7 @@ components:
           format: uint64
           description: "The global ValidatorIndex value."
 
-    ValidatorInfo:
+    Validator:
       type: object
       properties:
         public_key:
@@ -1173,6 +1239,13 @@ components:
           format: bytes
           pattern: "^0x[a-fA-F0-9]{64}$"
           description: "The 32 byte hash of the public key which the validator uses for withdrawing their rewards."
+        effective_balance:
+          type: integer
+          format: uint64
+          description: "The effective balance of the validator, measured in Gwei."
+        slashed:
+          type: boolean
+          description: "Whether the validator has or has not been slashed."
         activation_eligiblity_epoch:
           type: integer
           format: uint64
@@ -1191,13 +1264,6 @@ components:
           format: uint64
           nullable: true
           description: "Epoch when the validator is eligible to withdraw their funds, or null if the validator has not exited."
-        slashed:
-          type: boolean
-          description: "Whether the validator has or has not been slashed."
-        effective_balance:
-          type: integer
-          format: uint64
-          description: "The effective balance of the validator, measured in Gwei."
 
     ValidatorDuty:
       type: object
@@ -1234,6 +1300,25 @@ components:
           type: integer
           format: uint64
           description: "Globally, the estimated most recent slot number, or current target slot number."
+
+  Eth1Data:
+    type: object
+    description: "The [`Eth1Data`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#eth1data) object from the Eth2.0 spec."
+    properties:
+      deposit_root:
+        type: string
+        format: byte
+        pattern: "^0x[a-fA-F0-9]{64}$"
+        description: "Root of the deposit tree."
+      deposit_count:
+        type: integer
+        format: uint64
+        description: "Total number of deposits."
+      block_hash:
+        type: string
+        format: byte
+        pattern: "^0x[a-fA-F0-9]{64}$"
+        description: "Ethereum 1.x block hash."
 
     BeaconBlock:
       description: "The [`BeaconBlock`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#beaconblock) object from the Eth2.0 spec."
@@ -1291,24 +1376,7 @@ components:
           pattern: "^0x[a-fA-F0-9]{192}$"
           description: "The RanDAO reveal value provided by the validator."
         eth1_data:
-          title: Eth1Data
-          type: object
-          description: "The [`Eth1Data`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#eth1data) object from the Eth2.0 spec."
-          properties:
-            deposit_root:
-              type: string
-              format: byte
-              pattern: "^0x[a-fA-F0-9]{64}$"
-              description: "Root of the deposit tree."
-            deposit_count:
-              type: integer
-              format: uint64
-              description: "Total number of deposits."
-            block_hash:
-              type: string
-              format: byte
-              pattern: "^0x[a-fA-F0-9]{64}$"
-              description: "Ethereum 1.x block hash."
+          $ref: '#/components/schemas/Eth1Data'
         graffiti:
           type: string
           format: byte
@@ -1442,6 +1510,161 @@ components:
                 pattern: "^0x[a-fA-F0-9]{192}$"
                 description: "Sender signature."
 
+    BeaconState:
+      type: object
+      description: "The [`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/dev/specs/core/0_beacon-chain.md#beaconstate) object from the Eth2.0 spec."
+      properties:
+        genesis_time:
+          $ref: '#/components/schemas/genesis_time'
+        slot:
+          type: integer
+          format: uint64
+          description: "The latest slot, which the state represents."
+        fork:
+          $ref: '#/components/schemas/Fork'
+        latest_block_header:
+          $ref: '#/components/schemas/BeaconBlockHeader'
+        #TODO: Are these descriptions correct?
+        block_roots:
+          type: array
+          description: "The historical block roots."
+          minLength: 8192
+          maxLength: 8192 #The SLOTS_PER_HISTORICAL_ROOT value from the Eth2.0 Spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "A block root"
+        state_roots:
+          type: array
+          description: "The historical state roots."
+          minLength: 8192
+          maxLength: 8192 #The SLOTS_PER_HISTORICAL_ROOT value from the Eth2.0 Spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "A state root"
+        historical_roots:
+          type: array
+          #TODO: are these historical *state* roots?
+          description: "The historical state roots."
+          maxLength: 16777216 #The HISTORICAL_ROOTS_LIMIT value from the Eth2.0 Spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "A state root"
+        eth1_data:
+          $ref: '#/components/schemas/Eth1Data'
+        eth1_data_votes:
+          type: array
+          description: "The validator votes for the Eth1Data."
+          maxLength: 1024 #The SLOTS_PER_ETH1_VOTING_PERIOD value from the Eth2.0 spec.
+          items:
+            $ref: '#/components/schemas/Eth1Data'
+        eth1_deposit_index:
+          type: integer
+          format: uint64
+          #TODO: Clarify this description
+          description: "The index of the Eth1 deposit."
+        validators:
+          type: array
+          description: "A list of the current validators."
+          maxLength: 1099511627776
+          items:
+            $ref: '#/components/schemas/Validator'
+        balances:
+          type: array
+          description: "An array of the validator balances."
+          maxLength: 1099511627776
+          items:
+            type: integer
+            format: uint64
+            description: "The validator balance in GWei."
+        start_shard:
+          $ref: '#/components/schemas/Shard'
+        randao_mixes:
+          type: array
+          description: "The hashes for the randao mix."
+          minLength: 65536
+          maxLength: 65536 #The EPOCHS_PER_HISTORICAL_VECTOR value from the Eth2.0 spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "A randao mix hash."
+        active_index_roots:
+          type: array
+          description: "Active index digests for light clients."
+          minLength: 65536
+          maxLength: 65536 #The EPOCHS_PER_HISTORICAL_VECTOR value from the Eth2.0 spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "Active index digest"
+        compact_committees_roots:
+          type: array
+          description: "Committee digests for light clients."
+          minLength: 65536
+          maxLength: 65536 #The EPOCHS_PER_HISTORICAL_VECTOR value from the Eth2.0 spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "Committee digest."
+        slashings:
+          type: array
+          description: "Per-epoch sums of slashed effective balances."
+          minLength: 8192
+          maxLength: 8192 #The EPOCHS_PER_SLASHINGS_VECTOR value from the Eth2.0 spec.
+          items:
+            type: integer
+            format: uint64
+            description: "Sum of slashed balance for an epoch."
+        previous_epoch_attestations:
+          type: array
+          description: "A list of attestations in the previous epoch."
+          maxLength: 8192 # MAX_ATTESTATIONS * SLOTS_PER_EPOCH from the Eth2.0 spec.
+          items:
+            $ref: '#/components/schemas/PendingAttestation'
+        current_epoch_attestations:
+          type: array
+          description: "A list of attestations in the current epoch."
+          maxLength: 8192 # MAX_ATTESTATIONS * SLOTS_PER_EPOCH from the Eth2.0 spec.
+          items:
+            $ref: '#/components/schemas/PendingAttestation'
+        previous_crosslinks:
+          type: array
+          description: "The shard crosslinks from the previous epoch."
+          minLength: 1024
+          maxLength: 1024 #The SHARD_COUNT value from the Eth2.0 spec
+          items:
+            $ref: '#/components/schemas/Crosslink'
+        current_crosslinks:
+          type: array
+          description: "The shard crosslinks for the current epoch."
+          minLength: 1024
+          maxLength: 1024 #The SHARD_COUNT value from the Eth2.0 spec
+          items:
+            $ref: '#/components/schemas/Crosslink'
+        justification_bits:
+          type: array
+          description: "Bit set for every recent justified epoch."
+          minLength: 4
+          maxLength: 4 #The JUSTIFICATION_BITS_LENGTH from the Eth2.0 spec.
+          items:
+            type: boolean
+            #TODO: Check this description
+            description: "Whethere the recent epochs have been finalized."
+        previous_justified_checkpoint:
+          $ref: '#/components/schemas/Checkpoint'
+        current_justified_checkpoint:
+          $ref: '#/components/schemas/Checkpoint'
+        finalized_checkpoint:
+          $ref: '#/components/schemas/Checkpoint'
+
     Fork:
       type: object
       description: "The [`Fork`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#Fork) object from the Eth2.0 spec."
@@ -1508,6 +1731,35 @@ components:
         data:
           $ref: '#/components/schemas/AttestationData'
 
+    PendingAttestation:
+      type: object
+      description: "The [`PendingAttestation`](https://github.com/ethereum/eth2.0-specs/blob/v0.8.3/specs/core/0_beacon-chain.md#pendingattestation) object from the Eth2.0 spec."
+      properties:
+        aggregation_bits:
+          type: array
+          description: "The bits representing aggregation of validator signatures and attestations."
+          maxLength: 4096 #The MAX_VALIDATORS_PER_COMMITTEE value from the Eth2.0 spec.
+          items:
+            type: boolean
+            description: "Whether the validator has been aggregated or not"
+        data:
+          $ref: '#/components/schemas/AttestationData'
+        inclusion_delay:
+          type: integer
+          format: uint64
+          description: "The Slot at which it should be included."
+        proposer_index:
+          type: integer
+          format: uint64
+          #TODO: This is the block proposer index, not the attestaion right?
+          description: "The ValidatorIndex of the block proposer"
+
+
+
+
+
+
+
     AttestationData:
       type: object
       description: "The [`AttestationData`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#attestationdata) object from the Eth2.0 spec."
@@ -1536,33 +1788,35 @@ components:
           pattern: "^0x[a-fA-F0-9]{64}$"
           description: "Target root from FFG vote."
         crosslink:
-          title: CrossLink
-          type: object
-          description: "The [`Crosslink`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#crosslink) object from the Eth2.0 spec, contains data from epochs [`start_epoch`, `end_epoch`)."
-          properties:
-            shard:
-              type: integer
-              format: uint64
-              description: "The shard number."
-            start_epoch:
-              type: integer
-              format: uint64
-              description: "The first epoch which the crosslinking data references."
-            end_epoch:
-              type: integer
-              format: uint64
-              description: "The 'end' epoch referred to by the crosslinking data; no data in this Crosslink should refer to the `end_epoch` since it is not included in the crosslinking data interval."
-            parent_root:
-              type: string
-              format: byte
-              pattern: "^0x[a-fA-F0-9]{64}$"
-              description: "Root of the previous crosslink."
-            data_root:
-              type: string
-              format: byte
-              pattern: "^0x[a-fA-F0-9]{64}$"
-              description: "Root of the crosslinked shard data since the previous crosslink."
+          $ref: '#/components/schemas/Crosslink'
 
+
+    Crosslink:
+      type: object
+      description: "The [`Crosslink`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#crosslink) object from the Eth2.0 spec, contains data from epochs [`start_epoch`, `end_epoch`)."
+      properties:
+        shard:
+          type: integer
+          format: uint64
+          description: "The shard number."
+        start_epoch:
+          type: integer
+          format: uint64
+          description: "The first epoch which the crosslinking data references."
+        end_epoch:
+          type: integer
+          format: uint64
+          description: "The 'end' epoch referred to by the crosslinking data; no data in this Crosslink should refer to the `end_epoch` since it is not included in the crosslinking data interval."
+        parent_root:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "Root of the previous crosslink."
+        data_root:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "Root of the crosslinked shard data since the previous crosslink."
 
   responses:
     Success:
