@@ -127,16 +127,23 @@ impl<T: BeaconChainTypes> BeaconChainBuilder<T> {
         }
     }
 
-    pub fn build(self, store: Arc<T::Store>) -> Result<BeaconChain<T>, String> {
+    pub fn build(
+        self,
+        store: Arc<T::Store>,
+        eth1_backend: T::Eth1Chain,
+    ) -> Result<BeaconChain<T>, String> {
         Ok(match self.build_strategy {
-            BuildStrategy::LoadFromStore => BeaconChain::from_store(store, self.spec, self.log)
-                .map_err(|e| format!("Error loading BeaconChain from database: {:?}", e))?
-                .ok_or_else(|| format!("Unable to find exising BeaconChain in database."))?,
+            BuildStrategy::LoadFromStore => {
+                BeaconChain::from_store(store, eth1_backend, self.spec, self.log)
+                    .map_err(|e| format!("Error loading BeaconChain from database: {:?}", e))?
+                    .ok_or_else(|| format!("Unable to find exising BeaconChain in database."))?
+            }
             BuildStrategy::FromGenesis {
                 genesis_block,
                 genesis_state,
             } => BeaconChain::from_genesis(
                 store,
+                eth1_backend,
                 genesis_state.as_ref().clone(),
                 genesis_block.as_ref().clone(),
                 self.spec,

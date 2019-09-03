@@ -19,6 +19,7 @@ pub use self::beacon_chain::{
 pub use self::checkpoint::CheckPoint;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use beacon_chain_builder::BeaconChainBuilder;
+pub use eth1_chain::InteropEth1ChainBackend;
 pub use lmd_ghost;
 pub use metrics::scrape_for_metrics;
 pub use parking_lot;

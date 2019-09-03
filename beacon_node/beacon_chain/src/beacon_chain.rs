@@ -1,10 +1,10 @@
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
+use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::iter::{ReverseBlockRootIterator, ReverseStateRootIterator};
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
-use eth2_hashing::hash;
 use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -113,6 +113,7 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type Store: store::Store;
     type SlotClock: slot_clock::SlotClock;
     type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;
+    type Eth1Chain: Eth1ChainBackend<Self::EthSpec>;
     type EthSpec: types::EthSpec;
 }
 
@@ -127,6 +128,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Stores all operations (e.g., `Attestation`, `Deposit`, etc) that are candidates for
     /// inclusion in a block.
     pub op_pool: OperationPool<T::EthSpec>,
+    /// Provides information from the Ethereum 1 (PoW) chain.
+    pub eth1_chain: Eth1Chain<T>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
     canonical_head: RwLock<CheckPoint<T::EthSpec>>,
     /// The root of the genesis block.
@@ -142,6 +145,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn from_genesis(
         store: Arc<T::Store>,
+        eth1_backend: T::Eth1Chain,
         mut genesis_state: BeaconState<T::EthSpec>,
         mut genesis_block: BeaconBlock<T::EthSpec>,
         spec: ChainSpec,
@@ -186,6 +190,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec,
             slot_clock,
             op_pool: OperationPool::new(),
+            eth1_chain: Eth1Chain::new(eth1_backend),
             canonical_head,
             genesis_block_root,
             fork_choice: ForkChoice::new(store.clone(), &genesis_block, genesis_block_root),
@@ -197,6 +202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Attempt to load an existing instance from the given `store`.
     pub fn from_store(
         store: Arc<T::Store>,
+        eth1_backend: T::Eth1Chain,
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Option<BeaconChain<T>>, Error> {
@@ -233,6 +239,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot_clock,
             fork_choice: ForkChoice::new(store.clone(), last_finalized_block, last_finalized_root),
             op_pool,
+            eth1_chain: Eth1Chain::new(eth1_backend),
             canonical_head: RwLock::new(p.canonical_head),
             genesis_block_root: p.genesis_block_root,
             store,
@@ -1205,12 +1212,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             body: BeaconBlockBody {
                 randao_reveal,
                 // TODO: replace with real data.
-                eth1_data: Self::eth1_data_stub(&state),
+                eth1_data: self.eth1_chain.eth1_data_for_block_production(&state)?,
                 graffiti,
                 proposer_slashings: proposer_slashings.into(),
                 attester_slashings: attester_slashings.into(),
                 attestations: self.op_pool.get_attestations(&state, &self.spec).into(),
-                deposits: self.op_pool.get_deposits(&state).into(),
+                deposits: self.eth1_chain.deposits_for_block_inclusion(&state)?.into(),
                 voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec).into(),
                 transfers: self.op_pool.get_transfers(&state, &self.spec).into(),
             },
@@ -1232,22 +1239,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(timer);
 
         Ok((block, state))
-    }
-
-    fn eth1_data_stub(state: &BeaconState<T::EthSpec>) -> Eth1Data {
-        let current_epoch = state.current_epoch();
-        let slots_per_voting_period = T::EthSpec::slots_per_eth1_voting_period() as u64;
-        let current_voting_period: u64 = current_epoch.as_u64() / slots_per_voting_period;
-
-        // TODO: confirm that `int_to_bytes32` is correct.
-        let deposit_root = hash(&int_to_bytes32(current_voting_period));
-        let block_hash = hash(&deposit_root);
-
-        Eth1Data {
-            deposit_root: Hash256::from_slice(&deposit_root),
-            deposit_count: state.eth1_deposit_index,
-            block_hash: Hash256::from_slice(&block_hash),
-        }
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
@@ -1443,13 +1434,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(dump)
     }
-}
-
-/// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: u64) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
 }
 
 impl From<DBError> for Error {
