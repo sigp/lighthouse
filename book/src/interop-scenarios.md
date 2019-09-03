@@ -58,6 +58,7 @@ $ ./beacon_node testnet --spec minimal -f file ssz /tmp/genesis.ssz
 > - The `-f` flag ignores any existing database or configuration, backing them
 >   up before re-initializing.
 > - See `$ ./beacon_node testnet file --help` for more configuration options.
+> - The `--spec` flag is required to allow SSZ parsing of fixed-length lists.
 
 <a name="val-client"></a>
 ### Start an auto-configured validator client
