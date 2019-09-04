@@ -1,7 +1,7 @@
 #![cfg(all(test, not(feature = "fake_crypto")))]
 use super::block_processing_builder::BlockProcessingBuilder;
 use super::errors::*;
-use crate::per_block_processing;
+use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
 use types::*;
 
@@ -13,7 +13,13 @@ fn valid_block_ok() {
     let builder = get_builder(&spec);
     let (block, mut state) = builder.build(None, None, &spec);
 
-    let result = per_block_processing(&mut state, &block, &spec);
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
 
     assert_eq!(result, Ok(()));
 }
@@ -27,13 +33,19 @@ fn invalid_block_header_state_slot() {
     state.slot = Slot::new(133713);
     block.slot = Slot::new(424242);
 
-    let result = per_block_processing(&mut state, &block, &spec);
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
 
     assert_eq!(
         result,
-        Err(BlockProcessingError::Invalid(
-            BlockInvalid::StateSlotMismatch
-        ))
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::StateSlotMismatch
+        })
     );
 }
 
@@ -44,16 +56,22 @@ fn invalid_parent_block_root() {
     let invalid_parent_root = Hash256::from([0xAA; 32]);
     let (block, mut state) = builder.build(None, Some(invalid_parent_root), &spec);
 
-    let result = per_block_processing(&mut state, &block, &spec);
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
 
     assert_eq!(
         result,
-        Err(BlockProcessingError::Invalid(
-            BlockInvalid::ParentBlockRootMismatch {
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::ParentBlockRootMismatch {
                 state: Hash256::from_slice(&state.latest_block_header.signed_root()),
                 block: block.parent_root
             }
-        ))
+        })
     );
 }
 
@@ -71,12 +89,20 @@ fn invalid_block_signature() {
     block.signature = Signature::new(&message, domain, &keypair.sk);
 
     // process block with invalid block signature
-    let result = per_block_processing(&mut state, &block, &spec);
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
 
     // should get a BadSignature error
     assert_eq!(
         result,
-        Err(BlockProcessingError::Invalid(BlockInvalid::BadSignature))
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::ProposalSignatureInvalid
+        })
     );
 }
 
@@ -89,15 +115,16 @@ fn invalid_randao_reveal_signature() {
     let keypair = Keypair::random();
     let (block, mut state) = builder.build(Some(keypair.sk), None, &spec);
 
-    let result = per_block_processing(&mut state, &block, &spec);
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
 
     // should get a BadRandaoSignature error
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::Invalid(
-            BlockInvalid::BadRandaoSignature
-        ))
-    );
+    assert_eq!(result, Err(BlockProcessingError::RandaoSignatureInvalid));
 }
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {

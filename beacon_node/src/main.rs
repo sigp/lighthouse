@@ -9,7 +9,6 @@ use std::fs;
 use std::path::PathBuf;
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
-
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 pub const TESTNET_CONFIG_FILENAME: &str = "testnet.toml";
@@ -226,13 +225,6 @@ fn main() {
         Some("error") => drain.filter_level(Level::Error),
         Some("crit") => drain.filter_level(Level::Critical),
         _ => unreachable!("guarded by clap"),
-    };
-
-    let drain = match matches.occurrences_of("verbosity") {
-        0 => drain.filter_level(Level::Info),
-        1 => drain.filter_level(Level::Debug),
-        2 => drain.filter_level(Level::Trace),
-        _ => drain.filter_level(Level::Trace),
     };
 
     let mut log = slog::Logger::root(drain.fuse(), o!());

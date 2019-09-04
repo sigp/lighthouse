@@ -7,12 +7,14 @@ mod keypair;
 mod public_key_bytes;
 mod secret_key;
 mod signature_bytes;
+mod signature_set;
 
 pub use crate::keypair::Keypair;
 pub use crate::public_key_bytes::PublicKeyBytes;
 pub use crate::secret_key::SecretKey;
 pub use crate::signature_bytes::SignatureBytes;
-pub use milagro_bls::{compress_g2, hash_on_g2};
+pub use milagro_bls::{compress_g2, hash_on_g2, G1Point};
+pub use signature_set::{verify_signature_sets, SignatureSet, SignedMessage};
 
 #[cfg(feature = "fake_crypto")]
 mod fake_aggregate_public_key;
