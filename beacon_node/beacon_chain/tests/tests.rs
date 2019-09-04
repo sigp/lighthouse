@@ -465,12 +465,10 @@ fn free_attestations_added_to_fork_choice_all_updated() {
     }
 }
 
-#[test]
-fn produces_and_processes_with_genesis_skip_slots() {
+fn run_skip_slot_test(skip_slots: u64) {
     let num_validators = 8;
     let harness_a = get_harness(num_validators);
     let harness_b = get_harness(num_validators);
-    let skip_slots = 9;
 
     for _ in 0..skip_slots {
         harness_a.advance_slot();
@@ -485,6 +483,12 @@ fn produces_and_processes_with_genesis_skip_slots() {
     );
 
     assert_eq!(
+        harness_a.chain.head().beacon_block.slot,
+        Slot::new(skip_slots + 1)
+    );
+    assert_eq!(harness_b.chain.head().beacon_block.slot, Slot::new(0));
+
+    assert_eq!(
         harness_b
             .chain
             .process_block(harness_a.chain.head().beacon_block.clone()),
@@ -492,4 +496,16 @@ fn produces_and_processes_with_genesis_skip_slots() {
             block_root: harness_a.chain.head().beacon_block_root
         })
     );
+
+    assert_eq!(
+        harness_b.chain.head().beacon_block.slot,
+        Slot::new(skip_slots + 1)
+    );
+}
+
+#[test]
+fn produces_and_processes_with_genesis_skip_slots() {
+    for i in 0..MinimalEthSpec::slots_per_epoch() * 4 {
+        run_skip_slot_test(i)
+    }
 }
