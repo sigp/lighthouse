@@ -60,6 +60,18 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         .collect::<Result<Vec<_>, _>>()?;
     let mut duties: Vec<ValidatorDuty> = Vec::new();
 
+    // Update the committee cache
+    // TODO: Do we need to update the cache on the state, for the epoch which has been specified?
+    beacon_chain
+        .state_now()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get current BeaconState {:?}", e)))?
+        .maybe_as_mut_ref()
+        .ok_or(ApiError::ServerError(
+            "Unable to get mutable BeaconState".into(),
+        ))?
+        .build_committee_cache(relative_epoch, &beacon_chain.spec)
+        .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;
+
     // Get a list of all validators for this epoch
     let validator_proposers: Vec<usize> = epoch
         .slot_iter(T::EthSpec::slots_per_epoch())
@@ -67,6 +79,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
             head_state
                 .get_beacon_proposer_index(slot, relative_epoch, &beacon_chain.spec)
                 .map_err(|e| {
+                    // TODO: why are we getting an uninitialized state error here???
                     ApiError::ServerError(format!(
                         "Unable to get proposer index for validator: {:?}",
                         e

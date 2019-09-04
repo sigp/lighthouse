@@ -6,7 +6,7 @@ use serde::Serialize;
 use ssz_derive::Encode;
 use std::sync::Arc;
 use store::Store;
-use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
+use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Serialize)]
 pub struct HeadResponse {
@@ -136,16 +136,47 @@ pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
     Ok(success_response(Body::from(json)))
 }
 
-/// HTTP handler to return a `BeaconState` at a given `root` or `slot`.
+/// HTTP handler to return the set of validators for an `Epoch`
 ///
-/// Will not return a state if the request slot is in the future. Will return states higher than
-/// the current head by skipping slots.
-pub fn get_genesis_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+/// The `Epoch` parameter can be any epoch number. If it is not specified,
+/// the current epoch is assumed.
+pub fn get_validators<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
 
-    let (_root, state) = state_at_slot(&beacon_chain, Slot::new(0))?;
+    let epoch = match UrlQuery::from_request(&req) {
+        // We have some parameters, so make sure it's the epoch one and parse it
+        Ok(query) => query
+            .only_one("epoch")?
+            .parse::<u64>()
+            .map(Epoch::from)
+            .map_err(|e| {
+                ApiError::InvalidQueryParams(format!(
+                    "Invalid epoch parameter, must be a u64. {:?}",
+                    e
+                ))
+            })?,
+        // In this case, our url query did not contain any parameters, so we take the default
+        Err(_) => beacon_chain.epoch().map_err(|e| {
+            ApiError::ServerError(format!("Unable to determine current epoch: {:?}", e))
+        })?,
+    };
 
-    ResponseBuilder::new(&req).body(&state)
+    let all_validators = &beacon_chain.head().beacon_state.validators;
+    let mut active_validators = Vec::with_capacity(all_validators.len());
+    for (_index, validator) in all_validators.iter().enumerate() {
+        if validator.is_active_at(epoch) {
+            active_validators.push(validator)
+        }
+    }
+    active_validators.shrink_to_fit();
+    let json: String = serde_json::to_string(&active_validators).map_err(|e| {
+        ApiError::ServerError(format!(
+            "Unable to serialize list of active validators: {:?}",
+            e
+        ))
+    })?;
+
+    Ok(success_response(Body::from(json)))
 }
 
 #[derive(Serialize, Encode)]
@@ -243,4 +274,16 @@ pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize checkpoint: {:?}", e)))?;
 
     Ok(success_response(Body::from(json)))
+}
+
+/// HTTP handler to return a `BeaconState` at a given `root` or `slot`.
+///
+/// Will not return a state if the request slot is in the future. Will return states higher than
+/// the current head by skipping slots.
+pub fn get_genesis_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+
+    let (_root, state) = state_at_slot(&beacon_chain, Slot::new(0))?;
+
+    ResponseBuilder::new(&req).body(&state)
 }
