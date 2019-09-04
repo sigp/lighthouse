@@ -169,6 +169,7 @@ where
 
     fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
         self.connected_peers.insert(peer_id);
+        // TODO: Drop peers if over max_peer limit
 
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
         metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
