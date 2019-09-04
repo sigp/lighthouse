@@ -1,3 +1,4 @@
+use crate::eth1_chain::Error as Eth1ChainError;
 use crate::fork_choice::Error as ForkChoiceError;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::BlockProcessingError;
@@ -33,6 +34,7 @@ pub enum BeaconChainError {
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
     SlotProcessingError(SlotProcessingError),
+    UnableToAdvanceState(String),
     NoStateForAttestation {
         beacon_block_root: Hash256,
     },
@@ -42,6 +44,7 @@ pub enum BeaconChainError {
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
+easy_from_to!(AttestationValidationError, BeaconChainError);
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {
@@ -50,10 +53,11 @@ pub enum BlockProductionError {
     UnableToProduceAtSlot(Slot),
     SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
+    Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
-easy_from_to!(AttestationValidationError, BeaconChainError);
+easy_from_to!(Eth1ChainError, BlockProductionError);

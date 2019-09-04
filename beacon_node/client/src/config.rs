@@ -23,6 +23,7 @@ pub struct Config {
     /// files. It can only be configured via the CLI.
     #[serde(skip)]
     pub beacon_chain_start_method: BeaconChainStartMethod,
+    pub eth1_backend_method: Eth1BackendMethod,
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub rest_api: rest_api::ApiConfig,
@@ -54,6 +55,10 @@ pub enum BeaconChainStartMethod {
     },
     /// Create a new beacon chain by loading a YAML-encoded genesis state from a file.
     Yaml { file: PathBuf },
+    /// Create a new beacon chain by loading a SSZ-encoded genesis state from a file.
+    Ssz { file: PathBuf },
+    /// Create a new beacon chain by loading a JSON-encoded genesis state from a file.
+    Json { file: PathBuf },
     /// Create a new beacon chain by using a HTTP server (running our REST-API) to load genesis and
     /// finalized states and blocks.
     HttpBootstrap { server: String, port: Option<u16> },
@@ -62,6 +67,22 @@ pub enum BeaconChainStartMethod {
 impl Default for BeaconChainStartMethod {
     fn default() -> Self {
         BeaconChainStartMethod::Resume
+    }
+}
+
+/// Defines which Eth1 backend the client should use.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum Eth1BackendMethod {
+    /// Use the mocked eth1 backend used in interop testing
+    Interop,
+    /// Use a web3 connection to a running Eth1 node.
+    Web3 { server: String },
+}
+
+impl Default for Eth1BackendMethod {
+    fn default() -> Self {
+        Eth1BackendMethod::Interop
     }
 }
 
@@ -77,6 +98,7 @@ impl Default for Config {
             rest_api: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
             beacon_chain_start_method: <_>::default(),
+            eth1_backend_method: <_>::default(),
         }
     }
 }

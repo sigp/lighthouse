@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use client::{BeaconChainStartMethod, ClientConfig, Eth2Config};
+use client::{BeaconChainStartMethod, ClientConfig, Eth1BackendMethod, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use lighthouse_bootstrap::Bootstrapper;
 use rand::{distributions::Alphanumeric, Rng};
@@ -24,6 +24,14 @@ type Config = (ClientConfig, Eth2Config);
 /// response of some remote server.
 pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
     let mut builder = ConfigBuilder::new(cli_args, log)?;
+
+    if let Some(server) = cli_args.value_of("eth1-server") {
+        builder.set_eth1_backend_method(Eth1BackendMethod::Web3 {
+            server: server.into(),
+        })
+    } else {
+        builder.set_eth1_backend_method(Eth1BackendMethod::Interop)
+    }
 
     match cli_args.subcommand() {
         ("testnet", Some(sub_cmd_args)) => {
@@ -70,11 +78,15 @@ fn process_testnet_subcommand(
         builder.set_random_datadir()?;
     }
 
+    if cli_args.is_present("force") {
+        builder.clean_datadir()?;
+    }
+
     let is_bootstrap = cli_args.subcommand_name() == Some("bootstrap");
 
     if let Some(path_string) = cli_args.value_of("eth2-config") {
         if is_bootstrap {
-            return Err("Cannot supply --eth2-config when using bootsrap".to_string());
+            return Err("Cannot supply --eth2-config when using bootstrap".to_string());
         }
 
         let path = path_string
@@ -85,15 +97,23 @@ fn process_testnet_subcommand(
         builder.update_spec_from_subcommand(&cli_args)?;
     }
 
+    if let Some(slot_time) = cli_args.value_of("slot-time") {
+        if is_bootstrap {
+            return Err("Cannot supply --slot-time flag whilst using bootstrap.".into());
+        }
+
+        let slot_time = slot_time
+            .parse::<u64>()
+            .map_err(|e| format!("Unable to parse slot-time: {:?}", e))?;
+
+        builder.set_slot_time(slot_time);
+    }
+
     if let Some(path_string) = cli_args.value_of("client-config") {
         let path = path_string
             .parse::<PathBuf>()
             .map_err(|e| format!("Unable to parse client config path: {:?}", e))?;
         builder.load_client_config(path)?;
-    }
-
-    if cli_args.is_present("force") {
-        builder.clean_datadir()?;
     }
 
     info!(
@@ -117,6 +137,7 @@ fn process_testnet_subcommand(
                 .and_then(|s| s.parse::<u16>().ok());
 
             builder.import_bootstrap_libp2p_address(server, port)?;
+            builder.import_bootstrap_enr_address(server)?;
             builder.import_bootstrap_eth2_config(server)?;
 
             builder.set_beacon_chain_start_method(BeaconChainStartMethod::HttpBootstrap {
@@ -159,6 +180,32 @@ fn process_testnet_subcommand(
                 validator_count,
                 genesis_time,
             })
+        }
+        ("file", Some(cli_args)) => {
+            let file = cli_args
+                .value_of("file")
+                .ok_or_else(|| "No filename specified")?
+                .parse::<PathBuf>()
+                .map_err(|e| format!("Unable to parse filename: {:?}", e))?;
+
+            let format = cli_args
+                .value_of("format")
+                .ok_or_else(|| "No file format specified")?;
+
+            let start_method = match format {
+                "yaml" => BeaconChainStartMethod::Yaml { file },
+                "ssz" => BeaconChainStartMethod::Ssz { file },
+                "json" => BeaconChainStartMethod::Json { file },
+                other => return Err(format!("Unknown genesis file format: {}", other)),
+            };
+
+            builder.set_beacon_chain_start_method(start_method)
+        }
+        (cmd, Some(_)) => {
+            return Err(format!(
+                "Invalid valid method specified: {}. See 'testnet --help'.",
+                cmd
+            ))
         }
         _ => return Err("No testnet method specified. See 'testnet --help'.".into()),
     };
@@ -250,7 +297,12 @@ impl<'a> ConfigBuilder<'a> {
         self.client_config.beacon_chain_start_method = method;
     }
 
-    /// Import the libp2p address for `server` into the list of bootnodes in `self`.
+    /// Sets the method for starting the beacon chain.
+    pub fn set_eth1_backend_method(&mut self, method: Eth1BackendMethod) {
+        self.client_config.eth1_backend_method = method;
+    }
+
+    /// Import the libp2p address for `server` into the list of libp2p nodes to connect with.
     ///
     /// If `port` is `Some`, it is used as the port for the `Multiaddr`. If `port` is `None`,
     /// attempts to connect to the `server` via HTTP and retrieve it's libp2p listen port.
@@ -259,7 +311,7 @@ impl<'a> ConfigBuilder<'a> {
         server: &str,
         port: Option<u16>,
     ) -> Result<()> {
-        let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
+        let bootstrapper = Bootstrapper::connect(server.to_string(), &self.log)?;
 
         if let Some(server_multiaddr) = bootstrapper.best_effort_multiaddr(port) {
             info!(
@@ -282,6 +334,28 @@ impl<'a> ConfigBuilder<'a> {
         Ok(())
     }
 
+    /// Import the enr address for `server` into the list of initial enrs (boot nodes).
+    pub fn import_bootstrap_enr_address(&mut self, server: &str) -> Result<()> {
+        let bootstrapper = Bootstrapper::connect(server.to_string(), &self.log)?;
+
+        if let Ok(enr) = bootstrapper.enr() {
+            info!(
+                self.log,
+                "Loaded bootstrapper libp2p address";
+                "enr" => format!("{:?}", enr)
+            );
+
+            self.client_config.network.boot_nodes.push(enr);
+        } else {
+            warn!(
+                self.log,
+                "Unable to estimate a bootstrapper enr address, this node may not find any peers."
+            );
+        };
+
+        Ok(())
+    }
+
     /// Set the config data_dir to be an random directory.
     ///
     /// Useful for easily spinning up ephemeral testnets.
@@ -296,7 +370,7 @@ impl<'a> ConfigBuilder<'a> {
 
     /// Imports an `Eth2Config` from `server`, returning an error if this fails.
     pub fn import_bootstrap_eth2_config(&mut self, server: &str) -> Result<()> {
-        let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
+        let bootstrapper = Bootstrapper::connect(server.to_string(), &self.log)?;
 
         self.update_eth2_config(bootstrapper.eth2_config()?);
 
@@ -305,6 +379,10 @@ impl<'a> ConfigBuilder<'a> {
 
     fn update_eth2_config(&mut self, eth2_config: Eth2Config) {
         self.eth2_config = eth2_config;
+    }
+
+    fn set_slot_time(&mut self, milliseconds_per_slot: u64) {
+        self.eth2_config.spec.milliseconds_per_slot = milliseconds_per_slot;
     }
 
     /// Reads the subcommand and tries to update `self.eth2_config` based up on the `--spec` flag.
