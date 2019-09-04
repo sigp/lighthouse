@@ -137,6 +137,7 @@ fn process_testnet_subcommand(
                 .and_then(|s| s.parse::<u16>().ok());
 
             builder.import_bootstrap_libp2p_address(server, port)?;
+            builder.import_bootstrap_enr_address(server)?;
             builder.import_bootstrap_eth2_config(server)?;
 
             builder.set_beacon_chain_start_method(BeaconChainStartMethod::HttpBootstrap {
@@ -301,7 +302,7 @@ impl<'a> ConfigBuilder<'a> {
         self.client_config.eth1_backend_method = method;
     }
 
-    /// Import the libp2p address for `server` into the list of bootnodes in `self`.
+    /// Import the libp2p address for `server` into the list of libp2p nodes to connect with.
     ///
     /// If `port` is `Some`, it is used as the port for the `Multiaddr`. If `port` is `None`,
     /// attempts to connect to the `server` via HTTP and retrieve it's libp2p listen port.
@@ -327,6 +328,28 @@ impl<'a> ConfigBuilder<'a> {
             warn!(
                 self.log,
                 "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
+            );
+        };
+
+        Ok(())
+    }
+
+    /// Import the enr address for `server` into the list of initial enrs (boot nodes).
+    pub fn import_bootstrap_enr_address(&mut self, server: &str) -> Result<()> {
+        let bootstrapper = Bootstrapper::connect(server.to_string(), &self.log)?;
+
+        if let Ok(enr) = bootstrapper.enr() {
+            info!(
+                self.log,
+                "Loaded bootstrapper libp2p address";
+                "enr" => format!("{:?}", enr)
+            );
+
+            self.client_config.network.boot_nodes.push(enr);
+        } else {
+            warn!(
+                self.log,
+                "Unable to estimate a bootstrapper enr address, this node may not find any peers."
             );
         };
 
