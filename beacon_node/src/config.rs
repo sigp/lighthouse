@@ -310,7 +310,7 @@ impl<'a> ConfigBuilder<'a> {
         server: &str,
         port: Option<u16>,
     ) -> Result<()> {
-        let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
+        let bootstrapper = Bootstrapper::connect(server.to_string(), &self.log)?;
 
         if let Some(server_multiaddr) = bootstrapper.best_effort_multiaddr(port) {
             info!(
@@ -347,7 +347,7 @@ impl<'a> ConfigBuilder<'a> {
 
     /// Imports an `Eth2Config` from `server`, returning an error if this fails.
     pub fn import_bootstrap_eth2_config(&mut self, server: &str) -> Result<()> {
-        let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
+        let bootstrapper = Bootstrapper::connect(server.to_string(), &self.log)?;
 
         self.update_eth2_config(bootstrapper.eth2_config()?);
 

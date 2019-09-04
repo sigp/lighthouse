@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> BeaconChainBuilder<T> {
     }
 
     pub fn http_bootstrap(server: &str, spec: ChainSpec, log: Logger) -> Result<Self, String> {
-        let bootstrapper = Bootstrapper::from_server_string(server.to_string())
+        let bootstrapper = Bootstrapper::connect(server.to_string(), &log)
             .map_err(|e| format!("Failed to initialize bootstrap client: {}", e))?;
 
         let (genesis_state, genesis_block) = bootstrapper

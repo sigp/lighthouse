@@ -5,10 +5,15 @@ use eth2_libp2p::{
 };
 use reqwest::{Error as HttpError, Url};
 use serde::Deserialize;
+use slog::{error, Logger};
 use std::borrow::Cow;
 use std::net::Ipv4Addr;
+use std::time::Duration;
 use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 use url::Host;
+
+pub const RETRY_SLEEP_MILLIS: u64 = 100;
+pub const RETRY_WARN_INTERVAL: u64 = 30;
 
 #[derive(Debug)]
 enum Error {
@@ -31,11 +36,35 @@ pub struct Bootstrapper {
 }
 
 impl Bootstrapper {
-    /// Parses the given `server` as a URL, instantiating `Self`.
-    pub fn from_server_string(server: String) -> Result<Self, String> {
-        Ok(Self {
+    /// Parses the given `server` as a URL, instantiating `Self` and blocking until a connection
+    /// can be made with the server.
+    ///
+    /// Never times out.
+    pub fn connect(server: String, log: &Logger) -> Result<Self, String> {
+        let bootstrapper = Self {
             url: Url::parse(&server).map_err(|e| format!("Invalid bootstrap server url: {}", e))?,
-        })
+        };
+
+        let mut retry_count = 0;
+        loop {
+            match bootstrapper.enr() {
+                Ok(_) => break,
+                Err(_) => {
+                    if retry_count % RETRY_WARN_INTERVAL == 0 {
+                        error!(
+                            log,
+                            "Failed to contact bootstrap server";
+                            "retry_count" => retry_count,
+                            "retry_delay_millis" => RETRY_SLEEP_MILLIS,
+                        );
+                    }
+                    retry_count += 1;
+                    std::thread::sleep(Duration::from_millis(RETRY_SLEEP_MILLIS));
+                }
+            }
+        }
+
+        Ok(bootstrapper)
     }
 
     /// Build a multiaddr using the HTTP server URL that is not guaranteed to be correct.
