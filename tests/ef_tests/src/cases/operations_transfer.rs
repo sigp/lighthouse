@@ -2,7 +2,7 @@ use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use serde_derive::Deserialize;
-use state_processing::per_block_processing::process_transfers;
+use state_processing::per_block_processing::{process_transfers, VerifySignatures};
 use types::{BeaconState, EthSpec, Transfer};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -38,7 +38,7 @@ impl<E: EthSpec> Case for OperationsTransfer<E> {
 
         let spec = E::default_spec();
 
-        let result = process_transfers(&mut state, &[transfer], &spec);
+        let result = process_transfers(&mut state, &[transfer], VerifySignatures::True, &spec);
 
         let mut result = result.and_then(|_| Ok(state));
 

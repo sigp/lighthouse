@@ -1,4 +1,4 @@
-mod import_queue;
+mod manager;
 /// Syncing for lighthouse.
 ///
 /// Stores the various syncing methods for the beacon chain.
