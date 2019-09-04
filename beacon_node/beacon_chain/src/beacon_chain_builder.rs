@@ -13,8 +13,8 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconBlock, BeaconState, ChainSpec, Deposit,
-    DepositData, Domain, EthSpec, Fork, Hash256, PublicKey, Signature,
+    BeaconBlock, BeaconState, ChainSpec, Deposit, DepositData, Domain, EthSpec, Fork, Hash256,
+    Keypair, PublicKey, Signature,
 };
 
 enum BuildStrategy<T: BeaconChainTypes> {
@@ -33,21 +33,21 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
 
 impl<T: BeaconChainTypes> BeaconChainBuilder<T> {
     pub fn recent_genesis(
-        validator_count: usize,
+        keypairs: &[Keypair],
         minutes: u64,
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Self, String> {
-        Self::quick_start(recent_genesis_time(minutes), validator_count, spec, log)
+        Self::quick_start(recent_genesis_time(minutes), keypairs, spec, log)
     }
 
     pub fn quick_start(
         genesis_time: u64,
-        validator_count: usize,
+        keypairs: &[Keypair],
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Self, String> {
-        let genesis_state = interop_genesis_state(validator_count, genesis_time, &spec)?;
+        let genesis_state = interop_genesis_state(keypairs, genesis_time, &spec)?;
 
         Ok(Self::from_genesis_state(genesis_state, spec, log))
     }
@@ -167,11 +167,10 @@ fn genesis_block<T: EthSpec>(genesis_state: &BeaconState<T>, spec: &ChainSpec) -
 /// Reference:
 /// https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start
 fn interop_genesis_state<T: EthSpec>(
-    validator_count: usize,
+    keypairs: &[Keypair],
     genesis_time: u64,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
-    let keypairs = generate_deterministic_keypairs(validator_count);
     let eth1_block_hash = Hash256::from_slice(&[0x42; 32]);
     let eth1_timestamp = 2_u64.pow(40);
     let amount = spec.max_effective_balance;
@@ -187,7 +186,7 @@ fn interop_genesis_state<T: EthSpec>(
         .map(|keypair| {
             let mut data = DepositData {
                 withdrawal_credentials: withdrawal_credentials(&keypair.pk),
-                pubkey: keypair.pk.into(),
+                pubkey: keypair.pk.clone().into(),
                 amount,
                 signature: Signature::empty_signature().into(),
             };
@@ -269,7 +268,7 @@ fn recent_genesis_time(minutes: u64) -> u64 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::{EthSpec, MinimalEthSpec};
+    use types::{test_utils::generate_deterministic_keypairs, EthSpec, MinimalEthSpec};
 
     type TestEthSpec = MinimalEthSpec;
 
@@ -279,7 +278,9 @@ mod test {
         let genesis_time = 42;
         let spec = &TestEthSpec::default_spec();
 
-        let state = interop_genesis_state::<TestEthSpec>(validator_count, genesis_time, spec)
+        let keypairs = generate_deterministic_keypairs(validator_count);
+
+        let state = interop_genesis_state::<TestEthSpec>(&keypairs, genesis_time, spec)
             .expect("should build state");
 
         assert_eq!(
