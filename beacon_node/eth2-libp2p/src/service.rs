@@ -98,6 +98,11 @@ impl Service {
         // attempt to connect to any specified boot-nodes
         for bootnode_enr in config.boot_nodes {
             for multiaddr in bootnode_enr.multiaddr() {
+                // ignore udp multiaddr if it exists
+                let components = multiaddr.iter().collect::<Vec<_>>();
+                if let Protocol::Udp(_) = components[1] {
+                    continue;
+                }
                 dial_addr(multiaddr);
             }
         }

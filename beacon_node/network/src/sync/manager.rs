@@ -62,13 +62,13 @@ use slog::{debug, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Add, Sub};
-use std::sync::{Arc, Weak};
+use std::sync::Weak;
 use types::{BeaconBlock, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many blocks per batch
 /// is requested. Currently the value is small for testing. This will be incremented for
 /// production.
-const MAX_BLOCKS_PER_REQUEST: u64 = 100;
+const MAX_BLOCKS_PER_REQUEST: u64 = 50;
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -224,10 +224,10 @@ impl<T: BeaconChainTypes> ImportManager<T> {
     /// Generates a new `ImportManager` given a logger and an Arc reference to a beacon chain. The
     /// import manager keeps a weak reference to the beacon chain, which allows the chain to be
     /// dropped during the syncing process. The syncing handles this termination gracefully.
-    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: &slog::Logger) -> Self {
+    pub fn new(beacon_chain: Weak<BeaconChain<T>>, log: &slog::Logger) -> Self {
         ImportManager {
             event_queue: SmallVec::new(),
-            chain: Arc::downgrade(&beacon_chain),
+            chain: beacon_chain,
             state: ManagerState::Regular,
             import_queue: HashMap::new(),
             parent_queue: SmallVec::new(),
@@ -359,7 +359,9 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                 warn!(self.log, "Peer returned too many empty block batches";
                       "peer" => format!("{:?}", peer_id));
                 block_requests.state = BlockRequestsState::Failed;
-            } else if block_requests.current_start_slot >= block_requests.target_head_slot {
+            } else if block_requests.current_start_slot + MAX_BLOCKS_PER_REQUEST
+                >= block_requests.target_head_slot
+            {
                 warn!(self.log, "Peer did not return blocks it claimed to possess";
                       "peer" => format!("{:?}", peer_id));
                 block_requests.state = BlockRequestsState::Failed;
@@ -583,6 +585,11 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                 re_run = re_run || self.process_complete_parent_requests();
             }
 
+            // exit early if the beacon chain is dropped
+            if let None = self.chain.upgrade() {
+                return ImportManagerOutcome::Idle;
+            }
+
             // return any queued events
             if !self.event_queue.is_empty() {
                 let event = self.event_queue.remove(0);
@@ -681,56 +688,48 @@ impl<T: BeaconChainTypes> ImportManager<T> {
 
         self.import_queue.retain(|peer_id, block_requests| {
             if block_requests.state == BlockRequestsState::ReadyToProcess {
-                // check that the chain still exists
-                if let Some(chain) = chain_ref.upgrade() {
-                    let downloaded_blocks =
-                        std::mem::replace(&mut block_requests.downloaded_blocks, Vec::new());
-                    let last_element = downloaded_blocks.len() - 1;
-                    let start_slot = downloaded_blocks[0].slot;
-                    let end_slot = downloaded_blocks[last_element].slot;
+                let downloaded_blocks =
+                    std::mem::replace(&mut block_requests.downloaded_blocks, Vec::new());
+                let last_element = downloaded_blocks.len() - 1;
+                let start_slot = downloaded_blocks[0].slot;
+                let end_slot = downloaded_blocks[last_element].slot;
 
-                    match process_blocks(chain, downloaded_blocks, log_ref) {
-                        Ok(()) => {
-                            debug!(log_ref, "Blocks processed successfully";
+                match process_blocks(chain_ref.clone(), downloaded_blocks, log_ref) {
+                    Ok(()) => {
+                        debug!(log_ref, "Blocks processed successfully";
+                        "peer" => format!("{:?}", peer_id),
+                        "start_slot" => start_slot,
+                        "end_slot" => end_slot,
+                        "no_blocks" => last_element + 1,
+                        );
+                        block_requests.blocks_processed += last_element + 1;
+
+                        // check if the batch is complete, by verifying if we have reached the
+                        // target head
+                        if end_slot >= block_requests.target_head_slot {
+                            // Completed, re-hello the peer to ensure we are up to the latest head
+                            event_queue_ref.push(ImportManagerOutcome::Hello(peer_id.clone()));
+                            // remove the request
+                            false
+                        } else {
+                            // have not reached the end, queue another batch
+                            block_requests.update_start_slot();
+                            re_run = true;
+                            // keep the batch
+                            true
+                        }
+                    }
+                    Err(e) => {
+                        warn!(log_ref, "Block processing failed";
                             "peer" => format!("{:?}", peer_id),
                             "start_slot" => start_slot,
                             "end_slot" => end_slot,
                             "no_blocks" => last_element + 1,
-                            );
-                            block_requests.blocks_processed += last_element + 1;
-
-                            // check if the batch is complete, by verifying if we have reached the
-                            // target head
-                            if end_slot >= block_requests.target_head_slot {
-                                // Completed, re-hello the peer to ensure we are up to the latest head
-                                event_queue_ref.push(ImportManagerOutcome::Hello(peer_id.clone()));
-                                // remove the request
-                                false
-                            } else {
-                                // have not reached the end, queue another batch
-                                block_requests.update_start_slot();
-                                re_run = true;
-                                // keep the batch
-                                true
-                            }
-                        }
-                        Err(e) => {
-                            warn!(log_ref, "Block processing failed";
-                                "peer" => format!("{:?}", peer_id),
-                                "start_slot" => start_slot,
-                                "end_slot" => end_slot,
-                                "no_blocks" => last_element + 1,
-                                "error" => format!("{:?}", e),
-                            );
-                            event_queue_ref
-                                .push(ImportManagerOutcome::DownvotePeer(peer_id.clone()));
-                            false
-                        }
+                            "error" => format!("{:?}", e),
+                        );
+                        event_queue_ref.push(ImportManagerOutcome::DownvotePeer(peer_id.clone()));
+                        false
                     }
-                } else {
-                    // chain no longer exists, empty the queue and return
-                    event_queue_ref.clear();
-                    return false;
                 }
             } else {
                 // not ready to process
@@ -894,42 +893,43 @@ impl<T: BeaconChainTypes> ImportManager<T> {
 
 // Helper function to process blocks
 fn process_blocks<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
+    weak_chain: Weak<BeaconChain<T>>,
     blocks: Vec<BeaconBlock<T::EthSpec>>,
     log: &Logger,
 ) -> Result<(), String> {
     for block in blocks {
-        let processing_result = chain.process_block(block.clone());
+        if let Some(chain) = weak_chain.upgrade() {
+            let processing_result = chain.process_block(block.clone());
 
-        if let Ok(outcome) = processing_result {
-            match outcome {
-                BlockProcessingOutcome::Processed { block_root } => {
-                    // The block was valid and we processed it successfully.
-                    trace!(
-                        log, "Imported block from network";
-                        "slot" => block.slot,
-                        "block_root" => format!("{}", block_root),
-                    );
-                }
-                BlockProcessingOutcome::ParentUnknown { parent } => {
-                    // blocks should be sequential and all parents should exist
-                    trace!(
-                        log, "Parent block is unknown";
-                        "parent_root" => format!("{}", parent),
-                        "baby_block_slot" => block.slot,
-                    );
-                    return Err(format!(
-                        "Block at slot {} has an unknown parent.",
-                        block.slot
-                    ));
-                }
-                BlockProcessingOutcome::BlockIsAlreadyKnown => {
-                    // this block is already known to us, move to the next
-                    debug!(
-                        log, "Imported a block that is already known";
-                        "parent_root" => format!("{}", parent),
-                        "baby_block_slot" => block.slot,
-                    );
+            if let Ok(outcome) = processing_result {
+                match outcome {
+                    BlockProcessingOutcome::Processed { block_root } => {
+                        // The block was valid and we processed it successfully.
+                        trace!(
+                            log, "Imported block from network";
+                            "slot" => block.slot,
+                            "block_root" => format!("{}", block_root),
+                        );
+                    }
+                    BlockProcessingOutcome::ParentUnknown { parent } => {
+                        // blocks should be sequential and all parents should exist
+                        trace!(
+                            log, "Parent block is unknown";
+                            "parent_root" => format!("{}", parent),
+                            "baby_block_slot" => block.slot,
+                        );
+                        return Err(format!(
+                            "Block at slot {} has an unknown parent.",
+                            block.slot
+                        ));
+                    }
+                    BlockProcessingOutcome::BlockIsAlreadyKnown => {
+                        // this block is already known to us, move to the next
+                        debug!(
+                            log, "Imported a block that is already known";
+                            "block_slot" => block.slot,
+                        );
+                    }
                     BlockProcessingOutcome::FutureSlot {
                         present_slot,
                         block_slot,
@@ -937,7 +937,7 @@ fn process_blocks<T: BeaconChainTypes>(
                         if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot {
                             // The block is too far in the future, drop it.
                             trace!(
-                                self.log, "Block is ahead of our slot clock";
+                                log, "Block is ahead of our slot clock";
                                 "msg" => "block for future slot rejected, check your time",
                                 "present_slot" => present_slot,
                                 "block_slot" => block_slot,
@@ -950,7 +950,7 @@ fn process_blocks<T: BeaconChainTypes>(
                         } else {
                             // The block is in the future, but not too far.
                             trace!(
-                                self.log, "Block is slightly ahead of our slot clock, ignoring.";
+                                log, "Block is slightly ahead of our slot clock, ignoring.";
                                 "present_slot" => present_slot,
                                 "block_slot" => block_slot,
                                 "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
@@ -959,44 +959,41 @@ fn process_blocks<T: BeaconChainTypes>(
                     }
                     BlockProcessingOutcome::WouldRevertFinalizedSlot { .. } => {
                         trace!(
-                            self.log, "Finalized or earlier block processed";
+                            log, "Finalized or earlier block processed";
                             "outcome" => format!("{:?}", outcome),
                         );
                         // block reached our finalized slot or was earlier, move to the next block
                     }
                     BlockProcessingOutcome::GenesisBlock => {
                         trace!(
-                            self.log, "Genesis block was processed";
+                            log, "Genesis block was processed";
                             "outcome" => format!("{:?}", outcome),
                         );
                     }
-                BlockProcessingOutcome::FinalizedSlot => {
-                    trace!(
-                        log, "Finalized or earlier block processed";
-                        "outcome" => format!("{:?}", outcome),
-                    );
-                    // block reached our finalized slot or was earlier, move to the next block
+                    _ => {
+                        warn!(
+                            log, "Invalid block received";
+                            "msg" => "peer sent invalid block",
+                            "outcome" => format!("{:?}", outcome),
+                        );
+                        return Err(format!("Invalid block at slot {}", block.slot));
+                    }
                 }
-                _ => {
-                    warn!(
-                        log, "Invalid block received";
-                        "msg" => "peer sent invalid block",
-                        "outcome" => format!("{:?}", outcome),
-                    );
-                    return Err(format!("Invalid block at slot {}", block.slot));
-                }
+            } else {
+                warn!(
+                    log, "BlockProcessingFailure";
+                    "msg" => "unexpected condition in processing block.",
+                    "outcome" => format!("{:?}", processing_result)
+                );
+                return Err(format!(
+                    "Unexpected block processing error: {:?}",
+                    processing_result
+                ));
             }
         } else {
-            warn!(
-                log, "BlockProcessingFailure";
-                "msg" => "unexpected condition in processing block.",
-                "outcome" => format!("{:?}", processing_result)
-            );
-            return Err(format!(
-                "Unexpected block processing error: {:?}",
-                processing_result
-            ));
+            return Ok(()); // terminate early due to dropped beacon chain
         }
     }
+
     Ok(())
 }
