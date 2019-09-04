@@ -164,6 +164,16 @@ fn main() {
         )
 
         /*
+         * Eth1 Integration
+         */
+        .arg(
+            Arg::with_name("eth1-server")
+                .long("eth1-server")
+                .value_name("SERVER")
+                .help("Specifies the server for a web3 connection to the Eth1 chain.")
+                .takes_value(true)
+        )
+        /*
          * Database parameters.
          */
         .arg(
@@ -235,6 +245,13 @@ fn main() {
                            backup directory.")
                     .conflicts_with("random-datadir")
             )
+            .arg(
+                Arg::with_name("slot-time")
+                    .long("slot-time")
+                    .short("t")
+                    .value_name("MILLISECONDS")
+                    .help("Defines the slot time when creating a new testnet.")
+            )
             /*
              * `boostrap`
              *
@@ -246,6 +263,7 @@ fn main() {
                 .arg(Arg::with_name("server")
                     .value_name("HTTP_SERVER")
                     .required(true)
+                    .default_value("http://localhost:5052")
                     .help("A HTTP server, with a http:// prefix"))
                 .arg(Arg::with_name("libp2p-port")
                     .short("p")
@@ -298,9 +316,14 @@ fn main() {
              *
              * Start a new node, using a genesis state loaded from a YAML file
              */
-            .subcommand(SubCommand::with_name("yaml")
-                .about("Creates a new datadir where the genesis state is read from YAML. Will fail to parse \
-                       a YAML state that was generated to a different spec than that specified by --spec.")
+            .subcommand(SubCommand::with_name("file")
+                .about("Creates a new datadir where the genesis state is read from YAML. May fail to parse \
+                       a file that was generated to a different spec than that specified by --spec.")
+                .arg(Arg::with_name("format")
+                    .value_name("FORMAT")
+                    .required(true)
+                    .possible_values(&["yaml", "ssz", "json"])
+                    .help("The encoding of the state in the file."))
                 .arg(Arg::with_name("file")
                     .value_name("YAML_FILE")
                     .required(true)

@@ -2,7 +2,9 @@
 
 * [Introduction](./intro.md)
 * [Development Environment](./setup.md)
-* [Testnets](./testnets.md)
-    * [Simple Local Testnet](./simple-testnet.md)
-    * [Interop](./interop.md)
-    * [Interop Tips & Tricks](./interop-tips.md)
+* [Simple Local Testnet](./simple-testnet.md)
+* [Interop](./interop.md)
+    * [Environment](./interop-environment.md)
+    * [CLI Overview](./interop-cli.md)
+    * [Scenarios](./interop-scenarios.md)
+    * [Cheat-sheet](./interop-cheat-sheet.md)

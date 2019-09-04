@@ -385,7 +385,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "peer" => format!("{:?}", peer_id),
                 "msg" => "Failed to return all requested hashes",
                 "start_slot" => req.start_slot,
-                "current_slot" => self.chain.best_slot(),
+                "current_slot" => format!("{:?}", self.chain.slot()),
                 "requested" => req.count,
                 "returned" => blocks.len(),
             );
@@ -523,6 +523,12 @@ impl NetworkContext {
     }
 
     pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        warn!(
+            &self.log,
+            "Disconnecting peer (RPC)";
+            "reason" => format!("{:?}", reason),
+            "peer_id" => format!("{:?}", peer_id),
+        );
         self.send_rpc_request(None, peer_id, RPCRequest::Goodbye(reason))
         // TODO: disconnect peers.
     }

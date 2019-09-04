@@ -32,7 +32,7 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
         let slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
 
         let mut state = if let Ok(state) = self.chain.state_at_slot(slot) {
-            state.as_ref().clone()
+            state.clone()
         } else {
             let log_clone = self.log.clone();
             let f = sink

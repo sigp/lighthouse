@@ -39,15 +39,15 @@ impl TestingProposerSlashingBuilder {
             ..header_1.clone()
         };
 
+        let epoch = slot.epoch(T::slots_per_epoch());
+
         header_1.signature = {
             let message = header_1.signed_root();
-            let epoch = slot.epoch(T::slots_per_epoch());
             signer(proposer_index, &message[..], epoch, Domain::BeaconProposer)
         };
 
         header_2.signature = {
             let message = header_2.signed_root();
-            let epoch = slot.epoch(T::slots_per_epoch());
             signer(proposer_index, &message[..], epoch, Domain::BeaconProposer)
         };
 

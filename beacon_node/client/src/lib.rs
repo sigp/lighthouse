@@ -6,8 +6,8 @@ pub mod error;
 pub mod notifier;
 
 use beacon_chain::{
-    lmd_ghost::ThreadSafeReducedTree, slot_clock::SystemTimeSlotClock, store::Store, BeaconChain,
-    BeaconChainBuilder,
+    lmd_ghost::ThreadSafeReducedTree, slot_clock::SystemTimeSlotClock, store::Store,
+    test_utils::generate_deterministic_keypairs, BeaconChain, BeaconChainBuilder,
 };
 use exit_future::Signal;
 use futures::{future::Future, Stream};
@@ -21,14 +21,14 @@ use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 use types::EthSpec;
 
-pub use beacon_chain::BeaconChainTypes;
-pub use config::{BeaconChainStartMethod, Config as ClientConfig};
+pub use beacon_chain::{BeaconChainTypes, Eth1ChainBackend, InteropEth1ChainBackend};
+pub use config::{BeaconChainStartMethod, Config as ClientConfig, Eth1BackendMethod};
 pub use eth2_config::Eth2Config;
 
 #[derive(Clone)]
 pub struct ClientType<S: Store, E: EthSpec> {
-    _phantom_t: PhantomData<S>,
-    _phantom_u: PhantomData<E>,
+    _phantom_s: PhantomData<S>,
+    _phantom_e: PhantomData<E>,
 }
 
 impl<S, E> BeaconChainTypes for ClientType<S, E>
@@ -39,6 +39,7 @@ where
     type Store = S;
     type SlotClock = SystemTimeSlotClock;
     type LmdGhost = ThreadSafeReducedTree<S, E>;
+    type Eth1Chain = InteropEth1ChainBackend<E>;
     type EthSpec = E;
 }
 
@@ -105,7 +106,7 @@ where
                     "method" => "recent"
                 );
                 BeaconChainBuilder::recent_genesis(
-                    *validator_count,
+                    &generate_deterministic_keypairs(*validator_count),
                     *minutes,
                     spec.clone(),
                     log.clone(),
@@ -124,7 +125,7 @@ where
                 );
                 BeaconChainBuilder::quick_start(
                     *genesis_time,
-                    *validator_count,
+                    &generate_deterministic_keypairs(*validator_count),
                     spec.clone(),
                     log.clone(),
                 )?
@@ -138,6 +139,24 @@ where
                 );
                 BeaconChainBuilder::yaml_state(file, spec.clone(), log.clone())?
             }
+            BeaconChainStartMethod::Ssz { file } => {
+                info!(
+                    log,
+                    "Starting beacon chain";
+                    "file" => format!("{:?}", file),
+                    "method" => "ssz"
+                );
+                BeaconChainBuilder::ssz_state(file, spec.clone(), log.clone())?
+            }
+            BeaconChainStartMethod::Json { file } => {
+                info!(
+                    log,
+                    "Starting beacon chain";
+                    "file" => format!("{:?}", file),
+                    "method" => "json"
+                );
+                BeaconChainBuilder::json_state(file, spec.clone(), log.clone())?
+            }
             BeaconChainStartMethod::HttpBootstrap { server, port } => {
                 info!(
                     log,
@@ -150,9 +169,11 @@ where
             }
         };
 
+        let eth1_backend = T::Eth1Chain::new(String::new()).map_err(|e| format!("{:?}", e))?;
+
         let beacon_chain: Arc<BeaconChain<T>> = Arc::new(
             beacon_chain_builder
-                .build(store)
+                .build(store, eth1_backend)
                 .map_err(error::Error::from)?,
         );
 

@@ -17,31 +17,11 @@ Foundation, Consensys and other individuals and organisations.
 
 ## Developer Resources
 
-Documentation is provided for **researchers and developers** working on
-Ethereum 2.0 and assumes prior knowledge on the topic.
+Documentation is presently targeted at **researchers and developers**. It
+assumes significant prior knowledge of Ethereum 2.0.
 
-- Get started with [development environment setup](setup.html).
-- [Run a simple testnet](simple-testnet.html) in Only Three CLI Commands™.
-- Read about our interop workflow.
-- API?
+Topics:
 
-## Release
-
-Ethereum 2.0 is not fully specified or implemented and as such, Lighthouse is
-still **under development**.
-
-We are on-track to provide a public, multi-client testnet in late-2019 and an
-initial production-grade blockchain in 2020.
-
-## Features
-
-Lighthouse has been in development since mid-2018 and has an extensive feature
-set:
-
-- Libp2p networking stack, featuring Discovery v5.
-- Optimized `BeaconChain` state machine, up-to-date and
-	passing all tests.
-- RESTful HTTP API.
-- Documented and feature-rich CLI interface.
-- Capable of running small, local testnets with 250ms slot times.
-- Detailed metrics exposed in the Prometheus format.
+- Get started with [development environment setup](./setup.md).
+- See the [interop docs](./interop.md).
+- [Run a simple testnet](./simple-testnet.md) in Only Three CLI Commands™.

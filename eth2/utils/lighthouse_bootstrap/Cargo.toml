@@ -13,3 +13,4 @@ reqwest = "0.9"
 url = "1.2"
 types = { path = "../../types" }
 serde = "1.0"
+slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_trace"] }

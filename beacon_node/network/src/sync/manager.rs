@@ -914,7 +914,7 @@ fn process_blocks<T: BeaconChainTypes>(
                 BlockProcessingOutcome::ParentUnknown { parent } => {
                     // blocks should be sequential and all parents should exist
                     trace!(
-                        log, "ParentBlockUnknown";
+                        log, "Parent block is unknown";
                         "parent_root" => format!("{}", parent),
                         "baby_block_slot" => block.slot,
                     );
@@ -923,34 +923,53 @@ fn process_blocks<T: BeaconChainTypes>(
                         block.slot
                     ));
                 }
-                BlockProcessingOutcome::FutureSlot {
-                    present_slot,
-                    block_slot,
-                } => {
-                    if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot {
-                        // The block is too far in the future, drop it.
+                BlockProcessingOutcome::BlockIsAlreadyKnown => {
+                    // this block is already known to us, move to the next
+                    debug!(
+                        log, "Imported a block that is already known";
+                        "parent_root" => format!("{}", parent),
+                        "baby_block_slot" => block.slot,
+                    );
+                    BlockProcessingOutcome::FutureSlot {
+                        present_slot,
+                        block_slot,
+                    } => {
+                        if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot {
+                            // The block is too far in the future, drop it.
+                            trace!(
+                                self.log, "Block is ahead of our slot clock";
+                                "msg" => "block for future slot rejected, check your time",
+                                "present_slot" => present_slot,
+                                "block_slot" => block_slot,
+                                "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                            );
+                            return Err(format!(
+                                "Block at slot {} is too far in the future",
+                                block.slot
+                            ));
+                        } else {
+                            // The block is in the future, but not too far.
+                            trace!(
+                                self.log, "Block is slightly ahead of our slot clock, ignoring.";
+                                "present_slot" => present_slot,
+                                "block_slot" => block_slot,
+                                "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                            );
+                        }
+                    }
+                    BlockProcessingOutcome::WouldRevertFinalizedSlot { .. } => {
                         trace!(
-                            log, "FutureBlock";
-                            "msg" => "block for future slot rejected, check your time",
-                            "present_slot" => present_slot,
-                            "block_slot" => block_slot,
-                            "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                            self.log, "Finalized or earlier block processed";
+                            "outcome" => format!("{:?}", outcome),
                         );
-                        return Err(format!(
-                            "Block at slot {} is too far in the future",
-                            block.slot
-                        ));
-                    } else {
-                        // The block is in the future, but not too far.
+                        // block reached our finalized slot or was earlier, move to the next block
+                    }
+                    BlockProcessingOutcome::GenesisBlock => {
                         trace!(
-                            log, "QueuedFutureBlock";
-                            "msg" => "queuing future block, check your time",
-                            "present_slot" => present_slot,
-                            "block_slot" => block_slot,
-                            "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                            self.log, "Genesis block was processed";
+                            "outcome" => format!("{:?}", outcome),
                         );
                     }
-                }
                 BlockProcessingOutcome::FinalizedSlot => {
                     trace!(
                         log, "Finalized or earlier block processed";
@@ -959,8 +978,8 @@ fn process_blocks<T: BeaconChainTypes>(
                     // block reached our finalized slot or was earlier, move to the next block
                 }
                 _ => {
-                    trace!(
-                        log, "InvalidBlock";
+                    warn!(
+                        log, "Invalid block received";
                         "msg" => "peer sent invalid block",
                         "outcome" => format!("{:?}", outcome),
                     );
@@ -968,7 +987,7 @@ fn process_blocks<T: BeaconChainTypes>(
                 }
             }
         } else {
-            trace!(
+            warn!(
                 log, "BlockProcessingFailure";
                 "msg" => "unexpected condition in processing block.",
                 "outcome" => format!("{:?}", processing_result)

@@ -6,6 +6,7 @@ mod beacon_chain;
 mod beacon_chain_builder;
 mod checkpoint;
 mod errors;
+mod eth1_chain;
 mod fork_choice;
 mod iter;
 mod metrics;
@@ -18,6 +19,7 @@ pub use self::beacon_chain::{
 pub use self::checkpoint::CheckPoint;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use beacon_chain_builder::BeaconChainBuilder;
+pub use eth1_chain::{Eth1ChainBackend, InteropEth1ChainBackend};
 pub use lmd_ghost;
 pub use metrics::scrape_for_metrics;
 pub use parking_lot;

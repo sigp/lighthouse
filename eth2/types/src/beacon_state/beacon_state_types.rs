@@ -120,6 +120,13 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     fn epochs_per_historical_vector() -> usize {
         Self::EpochsPerHistoricalVector::to_usize()
     }
+
+    /// Returns the `SLOTS_PER_ETH1_VOTING_PERIOD` constant for this specification.
+    ///
+    /// Spec v0.8.1
+    fn slots_per_eth1_voting_period() -> usize {
+        Self::EpochsPerHistoricalVector::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.

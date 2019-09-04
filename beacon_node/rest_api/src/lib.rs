@@ -8,6 +8,7 @@ mod helpers;
 mod metrics;
 mod network;
 mod node;
+mod response_builder;
 mod spec;
 mod url_query;
 mod validator;
@@ -18,6 +19,7 @@ use eth2_config::Eth2Config;
 use hyper::rt::Future;
 use hyper::service::service_fn_ok;
 use hyper::{Body, Method, Response, Server, StatusCode};
+use response_builder::ResponseBuilder;
 use slog::{info, o, warn};
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -145,6 +147,7 @@ pub fn start_server<T: BeaconChainTypes>(
                     beacon::get_latest_finalized_checkpoint::<T>(req)
                 }
                 (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req),
+                (&Method::GET, "/beacon/state/genesis") => beacon::get_genesis_state::<T>(req),
                 (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req),
 
                 //TODO: Add aggreggate/filtered state lookups here, e.g. /beacon/validators/balances
