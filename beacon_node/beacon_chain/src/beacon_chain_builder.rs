@@ -243,6 +243,9 @@ fn interop_genesis_state<T: EthSpec>(
 
     state.genesis_time = genesis_time;
 
+    // Invalid all the caches after all the manual state surgery.
+    state.drop_all_caches();
+
     Ok(state)
 }
 
