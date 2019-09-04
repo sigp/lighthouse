@@ -46,4 +46,10 @@ pub trait LmdGhost<S: Store, E: EthSpec>: Send + Sync {
 
     /// Returns the latest message for a given validator index.
     fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)>;
+
+    /// Runs an integrity verification function on fork choice algorithm.
+    ///
+    /// Returns `Ok(())` if the underlying fork choice has maintained it's integrity,
+    /// `Err(description)` otherwise.
+    fn verify_integrity(&self) -> Result<()>;
 }

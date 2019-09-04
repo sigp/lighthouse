@@ -1,8 +1,9 @@
-use super::{success_response, ApiResult};
+use super::{success_response, ApiResult, ResponseBuilder};
 use crate::{helpers::*, ApiError, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use hyper::{Body, Request};
 use serde::Serialize;
+use ssz_derive::Encode;
 use std::sync::Arc;
 use store::Store;
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
@@ -59,7 +60,7 @@ pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
     Ok(success_response(Body::from(json)))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Encode)]
 #[serde(bound = "T: EthSpec")]
 pub struct BlockResponse<T: EthSpec> {
     pub root: Hash256,
@@ -103,11 +104,7 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         beacon_block: block,
     };
 
-    let json: String = serde_json::to_string(&response).map_err(|e| {
-        ApiError::ServerError(format!("Unable to serialize BlockResponse: {:?}", e))
-    })?;
-
-    Ok(success_response(Body::from(json)))
+    ResponseBuilder::new(&req).body(&response)
 }
 
 /// HTTP handler to return a `BeaconBlock` root at a given `slot`.
@@ -132,11 +129,7 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 
 /// HTTP handler to return the `Fork` of the current head.
 pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
-
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
     let chain_head = beacon_chain.head();
 
     let json: String = serde_json::to_string(&chain_head.beacon_state.fork).map_err(|e| {
@@ -146,7 +139,19 @@ pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
     Ok(success_response(Body::from(json)))
 }
 
-#[derive(Serialize)]
+/// HTTP handler to return a `BeaconState` at a given `root` or `slot`.
+///
+/// Will not return a state if the request slot is in the future. Will return states higher than
+/// the current head by skipping slots.
+pub fn get_genesis_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+
+    let (_root, state) = state_at_slot(&beacon_chain, Slot::new(0))?;
+
+    ResponseBuilder::new(&req).body(&state)
+}
+
+#[derive(Serialize, Encode)]
 #[serde(bound = "T: EthSpec")]
 pub struct StateResponse<T: EthSpec> {
     pub root: Hash256,
@@ -207,11 +212,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         beacon_state: state,
     };
 
-    let json: String = serde_json::to_string(&response).map_err(|e| {
-        ApiError::ServerError(format!("Unable to serialize StateResponse: {:?}", e))
-    })?;
-
-    Ok(success_response(Body::from(json)))
+    ResponseBuilder::new(&req).body(&response)
 }
 
 /// HTTP handler to return a `BeaconState` root at a given `slot`.

@@ -16,9 +16,9 @@ use state_processing::per_block_processing::errors::{
 };
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation_for_block_inclusion,
-    verify_attestation_for_state, verify_attester_slashing, verify_exit,
-    verify_exit_time_independent_only, verify_proposer_slashing, verify_transfer,
-    verify_transfer_time_independent_only, VerifySignatures,
+    verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
+    verify_proposer_slashing, verify_transfer, verify_transfer_time_independent_only,
+    VerifySignatures,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;

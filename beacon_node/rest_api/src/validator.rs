@@ -206,8 +206,8 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         .ok_or(ApiError::InvalidQueryParams("No validator duties could be found for the requested validator. Cannot provide valid attestation.".into()))?;
 
     // Check that we are requesting an attestation during the slot where it is relevant.
-    let present_slot = beacon_chain.read_slot_clock().ok_or(ApiError::ServerError(
-        "Beacon node is unable to determine present slot, either the state isn't generated or the chain hasn't begun.".into()
+    let present_slot = beacon_chain.slot().map_err(|e| ApiError::ServerError(
+        format!("Beacon node is unable to determine present slot, either the state isn't generated or the chain hasn't begun. {:?}", e)
     ))?;
     if val_duty.slot != present_slot {
         return Err(ApiError::InvalidQueryParams(format!("Validator is only able to request an attestation during the slot they are allocated. Current slot: {:?}, allocated slot: {:?}", head_state.slot, val_duty.slot)));
@@ -257,7 +257,7 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         })?;
 
     let attestation_data = beacon_chain
-        .produce_attestation_data(shard)
+        .produce_attestation_data(shard, current_slot.into())
         .map_err(|e| ApiError::ServerError(format!("Could not produce an attestation: {:?}", e)))?;
 
     let attestation: Attestation<T::EthSpec> = Attestation {

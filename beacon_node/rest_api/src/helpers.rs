@@ -109,8 +109,8 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
 ) -> Result<Hash256, ApiError> {
     let head_state = &beacon_chain.head().beacon_state;
     let current_slot = beacon_chain
-        .read_slot_clock()
-        .ok_or_else(|| ApiError::ServerError("Unable to read slot clock".to_string()))?;
+        .slot()
+        .map_err(|_| ApiError::ServerError("Unable to read slot clock".to_string()))?;
 
     // There are four scenarios when obtaining a state for a given slot:
     //
@@ -177,12 +177,18 @@ pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| {
-            ApiError::ServerError("Request is missing the beacon chain extension".into())
-        })?;
-    let _ = beacon_chain
-        .ensure_state_caches_are_built()
+        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".into()))?;
+
+    let _state_now = beacon_chain
+        .state_now()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get current BeaconState {:?}", e)))?
+        .maybe_as_mut_ref()
+        .ok_or(ApiError::ServerError(
+            "Unable to get mutable BeaconState".into(),
+        ))?
+        .build_all_caches(&beacon_chain.spec)
         .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;
+
     Ok(beacon_chain.clone())
 }
 
