@@ -26,24 +26,31 @@ impl ResponseBuilder {
     }
 
     pub fn body<T: Serialize + Encode>(self, item: &T) -> ApiResult {
-        let body: Body = match self.encoding {
-            Encoding::JSON => Body::from(serde_json::to_string(&item).map_err(|e| {
-                ApiError::ServerError(format!(
-                    "Unable to serialize response body as JSON: {:?}",
-                    e
-                ))
-            })?),
-            Encoding::SSZ => Body::from(item.as_ssz_bytes()),
-            Encoding::YAML => Body::from(serde_yaml::to_string(&item).map_err(|e| {
-                ApiError::ServerError(format!(
-                    "Unable to serialize response body as YAML: {:?}",
-                    e
-                ))
-            })?),
+        let (body, content_type) = match self.encoding {
+            Encoding::JSON => (
+                Body::from(serde_json::to_string(&item).map_err(|e| {
+                    ApiError::ServerError(format!(
+                        "Unable to serialize response body as JSON: {:?}",
+                        e
+                    ))
+                })?),
+                "application/json",
+            ),
+            Encoding::SSZ => (Body::from(item.as_ssz_bytes()), "application/ssz"),
+            Encoding::YAML => (
+                Body::from(serde_yaml::to_string(&item).map_err(|e| {
+                    ApiError::ServerError(format!(
+                        "Unable to serialize response body as YAML: {:?}",
+                        e
+                    ))
+                })?),
+                "application/ssz",
+            ),
         };
 
         Response::builder()
             .status(StatusCode::OK)
+            .header("content-type", content_type)
             .body(Body::from(body))
             .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))
     }
