@@ -184,55 +184,6 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
     Ok(success_response(body))
 }
 
-/// HTTP Handler to accept a validator-signed BeaconBlock, and publish it to the network.
-pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-
-    let query = UrlQuery::from_request(&req)?;
-    let slot = match query.first_of(&["slot"]) {
-        Ok((_, v)) => Slot::new(v.parse::<u64>().map_err(|e| {
-            ApiError::InvalidQueryParams(format!("Invalid slot parameter, must be a u64. {:?}", e))
-        })?),
-        Err(e) => {
-            return Err(e);
-        }
-    };
-    let randao_reveal = match query.first_of(&["randao_reveal"]) {
-        Ok((_, v)) => Signature::from_bytes(
-            hex::decode(&v)
-                .map_err(|e| {
-                    ApiError::InvalidQueryParams(format!(
-                        "Invalid hex string for randao_reveal: {:?}",
-                        e
-                    ))
-                })?
-                .as_slice(),
-        )
-        .map_err(|e| {
-            ApiError::InvalidQueryParams(format!("randao_reveal is not a valid signature: {:?}", e))
-        })?,
-        Err(e) => {
-            return Err(e);
-        }
-    };
-
-    let new_block = match beacon_chain.produce_block(randao_reveal, slot) {
-        Ok((block, _state)) => block,
-        Err(e) => {
-            return Err(ApiError::ServerError(format!(
-                "Beacon node is not able to produce a block: {:?}",
-                e
-            )));
-        }
-    };
-
-    let body = Body::from(
-        serde_json::to_string(&new_block)
-            .expect("We should always be able to serialize a new block that we produced."),
-    );
-    Ok(success_response(body))
-}
-
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
 pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
