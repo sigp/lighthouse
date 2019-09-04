@@ -54,6 +54,7 @@ impl Into<Response<Body>> for ApiError {
         };
         Response::builder()
             .status(status_code.0)
+            .header("content-type", "text/plain")
             .body(Body::from(status_code.1))
             .expect("Response should always be created.")
     }
@@ -160,9 +161,7 @@ pub fn start_server<T: BeaconChainTypes>(
                     helpers::implementation_pending_response(req)
                 }
 
-                (&Method::GET, "/beacon/validators") => {
-                    helpers::implementation_pending_response(req)
-                }
+                (&Method::GET, "/beacon/validators") => beacon::get_validators::<T>(req),
                 (&Method::GET, "/beacon/validators/indicies") => {
                     helpers::implementation_pending_response(req)
                 }
