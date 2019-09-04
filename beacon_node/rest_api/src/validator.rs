@@ -53,15 +53,11 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
             e
         ))
     })?;
-    let validators: Vec<PublicKey> = match query.all_of("validator_pubkeys") {
-        Ok(v) => v
-            .iter()
-            .map(|pk| parse_pubkey(pk))
-            .collect::<Result<Vec<_>, _>>()?,
-        Err(e) => {
-            return Err(e);
-        }
-    };
+    let validators: Vec<PublicKey> = query
+        .all_of("validator_pubkeys")?
+        .iter()
+        .map(|pk| parse_pubkey(pk))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut duties: Vec<ValidatorDuty> = Vec::new();
 
     // Get a list of all validators for this epoch
@@ -167,15 +163,14 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         }
     };
 
-    let new_block = match beacon_chain.produce_block(randao_reveal, slot) {
-        Ok((block, _state)) => block,
-        Err(e) => {
-            return Err(ApiError::ServerError(format!(
+    let (new_block, _state) = beacon_chain
+        .produce_block(randao_reveal, slot)
+        .map_err(|e| {
+            ApiError::ServerError(format!(
                 "Beacon node is not able to produce a block: {:?}",
                 e
-            )));
-        }
-    };
+            ))
+        })?;
 
     let body = Body::from(
         serde_json::to_string(&new_block)
@@ -229,14 +224,9 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
     };
 
     // Check that we are requesting an attestation during the slot where it is relevant.
-    let present_slot = match beacon_chain.read_slot_clock() {
-        Some(s) => s,
-        None => {
-            return Err(ApiError::ServerError(
-                "Beacon node is unable to determine present slot, either the state isn't generated or the chain hasn't begun.".into()
-            ));
-        }
-    };
+    let present_slot = beacon_chain.read_slot_clock().ok_or(ApiError::ServerError(
+        "Beacon node is unable to determine present slot, either the state isn't generated or the chain hasn't begun.".into()
+    ))?;
     if val_duty.slot != present_slot {
         return Err(ApiError::InvalidQueryParams(format!("Validator is only able to request an attestation during the slot they are allocated. Current slot: {:?}, allocated slot: {:?}", head_state.slot, val_duty.slot)));
     }
@@ -296,15 +286,9 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
             return Err(e);
         }
     };
-    let attestation_data = match beacon_chain.produce_attestation_data(shard) {
-        Ok(v) => v,
-        Err(e) => {
-            return Err(ApiError::ServerError(format!(
-                "Could not produce an attestation: {:?}",
-                e
-            )));
-        }
-    };
+    let attestation_data = beacon_chain
+        .produce_attestation_data(shard)
+        .map_err(|e| ApiError::ServerError(format!("Could not produce an attestation: {:?}", e)))?;
 
     let attestation: Attestation<T::EthSpec> = Attestation {
         aggregation_bits,
