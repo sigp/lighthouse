@@ -1,5 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
+use crate::cases::common::BlsCase;
 use bls::{AggregatePublicKey, PublicKey};
 use serde_derive::Deserialize;
 

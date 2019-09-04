@@ -80,7 +80,8 @@ pub fn print_results(
 
         println!("-------");
         println!(
-            "case ({}) from {} failed with {}:",
+            "case {} ({}) from {} failed with {}:",
+            failure.case_index,
             failure.desc,
             failure.path.display(),
             error.name()

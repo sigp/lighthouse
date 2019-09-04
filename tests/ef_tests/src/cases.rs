@@ -9,6 +9,7 @@ mod bls_g2_compressed;
 mod bls_g2_uncompressed;
 mod bls_priv_to_pub;
 mod bls_sign_msg;
+mod common;
 mod epoch_processing;
 mod genesis_initialization;
 mod genesis_validity;
@@ -25,6 +26,7 @@ pub use bls_g2_compressed::*;
 pub use bls_g2_uncompressed::*;
 pub use bls_priv_to_pub::*;
 pub use bls_sign_msg::*;
+pub use common::SszStaticType;
 pub use epoch_processing::*;
 pub use genesis_initialization::*;
 pub use genesis_validity::*;
@@ -59,20 +61,6 @@ pub trait Case: Debug + Sync {
     /// `case_index` reports the index of the case in the set of test cases. It is not strictly
     /// necessary, but it's useful when troubleshooting specific failing tests.
     fn result(&self, case_index: usize) -> Result<(), Error>;
-}
-
-pub trait BlsCase: serde::de::DeserializeOwned {}
-
-impl<T: BlsCase> YamlDecode for T {
-    fn yaml_decode(string: &str) -> Result<Self, Error> {
-        serde_yaml::from_str(string).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
-    }
-}
-
-impl<T: BlsCase> LoadCase for T {
-    fn load_from_dir(path: &Path) -> Result<Self, Error> {
-        Self::yaml_decode_file(&path.join("data.yaml"))
-    }
 }
 
 #[derive(Debug)]

@@ -1,22 +1,16 @@
 use super::*;
 use crate::case_result::compare_result;
+use crate::cases::common::SszStaticType;
+use crate::decode::yaml_decode_file;
 use serde_derive::Deserialize;
-use ssz::{Decode, Encode};
-use std::fmt::Debug;
 use std::fs;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::SignedRoot;
 use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]
 struct SszStaticRoots {
     root: String,
     signing_root: Option<String>,
-}
-
-impl YamlDecode for SszStaticRoots {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(yaml).unwrap())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -33,26 +27,11 @@ pub struct SszStaticSR<T> {
     value: T,
 }
 
-// Trait alias for all deez bounds
-pub trait SszStaticType:
-    serde::de::DeserializeOwned + Decode + Encode + TreeHash + Clone + PartialEq + Debug + Sync
-{
-}
-
-impl<T> SszStaticType for T where
-    T: serde::de::DeserializeOwned + Decode + Encode + TreeHash + Clone + PartialEq + Debug + Sync
-{
-}
-
 fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
-    // FIXME: set description/name
-    let roots = SszStaticRoots::yaml_decode_file(&path.join("roots.yaml"))?;
-
+    // FIXME(michael): set description/name
+    let roots = yaml_decode_file(&path.join("roots.yaml"))?;
     let serialized = fs::read(&path.join("serialized.ssz")).expect("serialized.ssz exists");
-
-    let yaml = fs::read_to_string(&path.join("value.yaml")).expect("value.yaml exists");
-    let value =
-        serde_yaml::from_str(&yaml).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+    let value = yaml_decode_file(&path.join("value.yaml"))?;
 
     Ok((roots, serialized, value))
 }

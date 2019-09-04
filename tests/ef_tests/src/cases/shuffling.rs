@@ -1,5 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
+use crate::decode::yaml_decode_file;
 use serde_derive::Deserialize;
 use std::marker::PhantomData;
 use swap_or_not_shuffle::{get_permutated_index, shuffle_list};
@@ -13,15 +14,9 @@ pub struct Shuffling<T> {
     _phantom: PhantomData<T>,
 }
 
-impl<T> YamlDecode for Shuffling<T> {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(yaml).unwrap())
-    }
-}
-
 impl<T: EthSpec> LoadCase for Shuffling<T> {
     fn load_from_dir(path: &Path) -> Result<Self, Error> {
-        Self::yaml_decode_file(&path.join("mapping.yaml"))
+        yaml_decode_file(&path.join("mapping.yaml"))
     }
 }
 

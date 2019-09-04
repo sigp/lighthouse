@@ -1,11 +1,12 @@
 use super::*;
-use crate::cases::ssz_static::{check_serialization, check_tree_hash, SszStaticType};
-use crate::yaml_decode::yaml_decode_file;
+use crate::cases::common::{SszStaticType, TestU128, TestU256};
+use crate::cases::ssz_static::{check_serialization, check_tree_hash};
+use crate::decode::yaml_decode_file;
 use serde_derive::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use types::typenum::*;
-use types::{BitList, BitVector, FixedVector, VariableList};
+use types::{BitList, BitVector, FixedVector};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
@@ -51,9 +52,8 @@ macro_rules! type_dispatch {
             "uint16" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u16>, $($rest)*),
             "uint32" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u32>, $($rest)*),
             "uint64" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u64>, $($rest)*),
-            // FIXME(michael): implement tree hash for big ints
-            // "uint128" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* etherum_types::U128>, $($rest)*),
-            // "uint256" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ethereum_types::U256>, $($rest)*),
+            "uint128" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* TestU128>, $($rest)*),
+            "uint256" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* TestU256>, $($rest)*),
             _ => { println!("unsupported: {}", $value); Ok(()) },
         }
     };
@@ -121,9 +121,13 @@ impl Case for SszGeneric {
                 )?;
             }
             "bitlist" => {
-                let limit = parts[1];
+                let mut limit = parts[1];
 
-                // FIXME(michael): mark length "no" cases as known failures
+                // Test format is inconsistent, pretend the limit is 32 (arbitrary)
+                // https://github.com/ethereum/eth2.0-spec-tests
+                if limit == "no" {
+                    limit = "32";
+                }
 
                 type_dispatch!(
                     ssz_generic_test,
