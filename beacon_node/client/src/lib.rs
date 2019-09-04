@@ -6,8 +6,8 @@ pub mod error;
 pub mod notifier;
 
 use beacon_chain::{
-    lmd_ghost::ThreadSafeReducedTree, slot_clock::SystemTimeSlotClock, store::Store, BeaconChain,
-    BeaconChainBuilder,
+    lmd_ghost::ThreadSafeReducedTree, slot_clock::SystemTimeSlotClock, store::Store,
+    test_utils::generate_deterministic_keypairs, BeaconChain, BeaconChainBuilder,
 };
 use exit_future::Signal;
 use futures::{future::Future, Stream};
@@ -106,7 +106,7 @@ where
                     "method" => "recent"
                 );
                 BeaconChainBuilder::recent_genesis(
-                    *validator_count,
+                    &generate_deterministic_keypairs(*validator_count),
                     *minutes,
                     spec.clone(),
                     log.clone(),
@@ -125,7 +125,7 @@ where
                 );
                 BeaconChainBuilder::quick_start(
                     *genesis_time,
-                    *validator_count,
+                    &generate_deterministic_keypairs(*validator_count),
                     spec.clone(),
                     log.clone(),
                 )?

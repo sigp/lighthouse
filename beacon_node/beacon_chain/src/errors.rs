@@ -34,6 +34,7 @@ pub enum BeaconChainError {
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
     SlotProcessingError(SlotProcessingError),
+    UnableToAdvanceState(String),
     NoStateForAttestation {
         beacon_block_root: Hash256,
     },
