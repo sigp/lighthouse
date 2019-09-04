@@ -276,10 +276,7 @@ pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
     Ok(success_response(Body::from(json)))
 }
 
-/// HTTP handler to return a `BeaconState` at a given `root` or `slot`.
-///
-/// Will not return a state if the request slot is in the future. Will return states higher than
-/// the current head by skipping slots.
+/// HTTP handler to return a `BeaconState` at the genesis block.
 pub fn get_genesis_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
 
