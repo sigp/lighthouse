@@ -15,7 +15,7 @@ use libp2p::{
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
-use slog::{debug, o, trace};
+use slog::{debug, o};
 use std::num::NonZeroU32;
 use std::time::Duration;
 
@@ -90,13 +90,15 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
 {
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
-            GossipsubEvent::Message(gs_msg) => {
-                trace!(self.log, "Received GossipEvent");
-
+            GossipsubEvent::Message(propagation_source, gs_msg) => {
+                let id = gs_msg.id();
                 let msg = PubsubMessage::from_topics(&gs_msg.topics, gs_msg.data);
 
+                // Note: We are keeping track here of the peer that sent us the message, not the
+                // peer that originally published the message.
                 self.events.push(BehaviourEvent::GossipMessage {
-                    source: gs_msg.source,
+                    id,
+                    source: propagation_source,
                     topics: gs_msg.topics,
                     message: msg,
                 });
@@ -199,6 +201,13 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         }
     }
 
+    /// Forwards a message that is waiting in gossipsub's mcache. Messages are only propagated
+    /// once validated by the beacon chain.
+    pub fn propagate_message(&mut self, propagation_source: &PeerId, message_id: String) {
+        self.gossipsub
+            .propagate_message(&message_id, propagation_source);
+    }
+
     /* Eth2 RPC behaviour functions */
 
     /// Sends an RPC Request/Response via the RPC protocol.
@@ -214,12 +223,21 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 
 /// The types of events than can be obtained from polling the behaviour.
 pub enum BehaviourEvent {
+    /// A received RPC event and the peer that it was received from.
     RPC(PeerId, RPCEvent),
+    /// We have completed an initial connection to a new peer.
     PeerDialed(PeerId),
+    /// A peer has disconnected.
     PeerDisconnected(PeerId),
+    /// A gossipsub message has been received.
     GossipMessage {
+        /// The gossipsub message id. Used when propagating blocks after validation.
+        id: String,
+        /// The peer from which we received this message, not the peer that published it.
         source: PeerId,
+        /// The topics that this message was sent on.
         topics: Vec<TopicHash>,
+        /// The message itself.
         message: PubsubMessage,
     },
 }

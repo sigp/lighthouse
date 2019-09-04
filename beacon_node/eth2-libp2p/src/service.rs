@@ -145,16 +145,16 @@ impl Stream for Service {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
             match self.swarm.poll() {
-                //Behaviour events
                 Ok(Async::Ready(Some(event))) => match event {
-                    // TODO: Stub here for debugging
                     BehaviourEvent::GossipMessage {
+                        id,
                         source,
                         topics,
                         message,
                     } => {
                         trace!(self.log, "Gossipsub message received"; "service" => "Swarm");
                         return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
+                            id,
                             source,
                             topics,
                             message,
@@ -222,6 +222,7 @@ pub enum Libp2pEvent {
     PeerDisconnected(PeerId),
     /// Received pubsub message.
     PubsubMessage {
+        id: String,
         source: PeerId,
         topics: Vec<TopicHash>,
         message: PubsubMessage,

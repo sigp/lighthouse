@@ -1,5 +1,5 @@
 use super::manager::{ImportManager, ImportManagerOutcome};
-use crate::service::{NetworkMessage, OutgoingMessage};
+use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
@@ -468,7 +468,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::BlockIsAlreadyKnown => SHOULD_FORWARD_GOSSIP_BLOCK,
-                _ => SHOULD_NOT_FORWARD_GOSSIP_BLOCK,
+                _ => SHOULD_NOT_FORWARD_GOSSIP_BLOCK, //TODO: Decide if we want to forward these
             }
         } else {
             SHOULD_NOT_FORWARD_GOSSIP_BLOCK
@@ -554,12 +554,8 @@ impl NetworkContext {
     }
 
     fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
-        self.send(peer_id, OutgoingMessage::RPC(rpc_event))
-    }
-
-    fn send(&mut self, peer_id: PeerId, outgoing_message: OutgoingMessage) {
         self.network_send
-            .try_send(NetworkMessage::Send(peer_id, outgoing_message))
+            .try_send(NetworkMessage::RPC(peer_id, rpc_event))
             .unwrap_or_else(|_| {
                 warn!(
                     self.log,
