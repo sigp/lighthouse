@@ -174,10 +174,13 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
                     return Err(e);
                 }
             }
-        },
+        }
         Err(ApiError::InvalidQueryParams(_)) => {
             // No parameters provided at all, use current slot.
-            (String::from("slot"), beacon_chain.head().beacon_state.slot.to_string())
+            (
+                String::from("slot"),
+                beacon_chain.head().beacon_state.slot.to_string(),
+            )
         }
         Err(e) => {
             return Err(e);
