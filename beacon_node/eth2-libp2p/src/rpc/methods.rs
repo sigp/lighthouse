@@ -168,8 +168,10 @@ impl std::fmt::Display for RPCResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCResponse::Hello(hello) => write!(f, "{}", hello),
-            RPCResponse::BeaconBlocks(_) => write!(f, "<BeaconBlocks>"),
-            RPCResponse::RecentBeaconBlocks(_) => write!(f, "<RecentBeaconBlocks>"),
+            RPCResponse::BeaconBlocks(data) => write!(f, "<BeaconBlocks>, len: {}", data.len()),
+            RPCResponse::RecentBeaconBlocks(data) => {
+                write!(f, "<RecentBeaconBlocks>, len: {}", data.len())
+            }
         }
     }
 }

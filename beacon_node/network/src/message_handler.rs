@@ -17,8 +17,6 @@ use types::{Attestation, AttesterSlashing, BeaconBlock, ProposerSlashing, Volunt
 
 /// Handles messages received from the network and client and organises syncing.
 pub struct MessageHandler<T: BeaconChainTypes> {
-    /// Currently loaded and initialised beacon chain.
-    _chain: Arc<BeaconChain<T>>,
     /// The syncing framework.
     sync: SimpleSync<T>,
     /// A channel to the network service to allow for gossip propagation.
@@ -53,13 +51,12 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
         // Initialise sync and begin processing in thread
-        let sync = SimpleSync::new(beacon_chain.clone(), network_send.clone(), &log);
+        let sync = SimpleSync::new(Arc::downgrade(&beacon_chain), network_send.clone(), &log);
 
         // generate the Message handler
         let mut handler = MessageHandler {
-            _chain: beacon_chain.clone(),
-            sync,
             network_send,
+            sync,
             log: log.clone(),
         };
 

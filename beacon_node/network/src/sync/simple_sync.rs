@@ -6,7 +6,7 @@ use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, info, o, trace, warn};
 use ssz::Encode;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use store::Store;
 use tokio::sync::mpsc;
 use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
@@ -57,7 +57,7 @@ pub enum SyncState {
 /// Simple Syncing protocol.
 pub struct SimpleSync<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
-    chain: Arc<BeaconChain<T>>,
+    chain: Weak<BeaconChain<T>>,
     manager: ImportManager<T>,
     network: NetworkContext,
     log: slog::Logger,
@@ -66,7 +66,7 @@ pub struct SimpleSync<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> SimpleSync<T> {
     /// Instantiate a `SimpleSync` instance, with no peers and an empty queue.
     pub fn new(
-        beacon_chain: Arc<BeaconChain<T>>,
+        beacon_chain: Weak<BeaconChain<T>>,
         network_send: mpsc::UnboundedSender<NetworkMessage>,
         log: &slog::Logger,
     ) -> Self {
@@ -91,8 +91,10 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     ///
     /// Sends a `Hello` message to the peer.
     pub fn on_connect(&mut self, peer_id: PeerId) {
-        self.network
-            .send_rpc_request(None, peer_id, RPCRequest::Hello(hello_message(&self.chain)));
+        if let Some(chain) = self.chain.upgrade() {
+            self.network
+                .send_rpc_request(None, peer_id, RPCRequest::Hello(hello_message(&chain)));
+        }
     }
 
     /// Handle a `Hello` request.
@@ -104,16 +106,19 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         request_id: RequestId,
         hello: HelloMessage,
     ) {
-        trace!(self.log, "HelloRequest"; "peer" => format!("{:?}", peer_id));
+        // ignore hello responses if we are shutting down
+        if let Some(chain) = self.chain.upgrade() {
+            trace!(self.log, "HelloRequest"; "peer" => format!("{:?}", peer_id));
 
-        // Say hello back.
-        self.network.send_rpc_response(
-            peer_id.clone(),
-            request_id,
-            RPCResponse::Hello(hello_message(&self.chain)),
-        );
+            // Say hello back.
+            self.network.send_rpc_response(
+                peer_id.clone(),
+                request_id,
+                RPCResponse::Hello(hello_message(&chain)),
+            );
 
-        self.process_hello(peer_id, hello);
+            self.process_hello(peer_id, hello);
+        }
     }
 
     /// Process a `Hello` response from a peer.
@@ -128,88 +133,107 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     ///
     /// Disconnects the peer if required.
     fn process_hello(&mut self, peer_id: PeerId, hello: HelloMessage) {
-        let remote = PeerSyncInfo::from(hello);
-        let local = PeerSyncInfo::from(&self.chain);
-
-        let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
-
-        if local.fork_version != remote.fork_version {
-            // The node is on a different network/fork, disconnect them.
-            debug!(
-                self.log, "HandshakeFailure";
-                "peer" => format!("{:?}", peer_id),
-                "reason" => "network_id"
-            );
-
-            self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
-        } else if remote.finalized_epoch <= local.finalized_epoch
-            && remote.finalized_root != Hash256::zero()
-            && local.finalized_root != Hash256::zero()
-            && (self.root_at_slot(start_slot(remote.finalized_epoch))
-                != Some(remote.finalized_root))
+        // If we update the manager we may need to drive the sync. This flag lies out of scope of
+        // the beacon chain so that the process sync command has no long-lived beacon chain
+        // references.
+        let mut process_sync = false;
         {
-            // The remotes finalized epoch is less than or greater than ours, but the block root is
-            // different to the one in our chain.
-            //
-            // Therefore, the node is on a different chain and we should not communicate with them.
-            debug!(
-                self.log, "HandshakeFailure";
-                "peer" => format!("{:?}", peer_id),
-                "reason" => "different finalized chain"
-            );
-            self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
-        } else if remote.finalized_epoch < local.finalized_epoch {
-            // The node has a lower finalized epoch, their chain is not useful to us. There are two
-            // cases where a node can have a lower finalized epoch:
-            //
-            // ## The node is on the same chain
-            //
-            // If a node is on the same chain but has a lower finalized epoch, their head must be
-            // lower than ours. Therefore, we have nothing to request from them.
-            //
-            // ## The node is on a fork
-            //
-            // If a node is on a fork that has a lower finalized epoch, switching to that fork would
-            // cause us to revert a finalized block. This is not permitted, therefore we have no
-            // interest in their blocks.
-            debug!(
-                self.log,
-                "NaivePeer";
-                "peer" => format!("{:?}", peer_id),
-                "reason" => "lower finalized epoch"
-            );
-        } else if self
-            .chain
-            .store
-            .exists::<BeaconBlock<T::EthSpec>>(&remote.head_root)
-            .unwrap_or_else(|_| false)
-        {
-            trace!(
-                self.log, "Out of date or potentially sync'd peer found";
-                "peer" => format!("{:?}", peer_id),
-                "remote_head_slot" => remote.head_slot,
-                "remote_latest_finalized_epoch" => remote.finalized_epoch,
-            );
+            // scope of beacon chain reference
+            let chain = match self.chain.upgrade() {
+                Some(chain) => chain,
+                None => {
+                    info!(self.log, "Sync shutting down";
+                          "reason" => "Beacon chain dropped");
+                    return;
+                }
+            };
 
-            // If the node's best-block is already known to us and they are close to our current
-            // head, treat them as a fully sync'd peer.
-            self.manager.add_peer(peer_id, remote);
-            self.process_sync();
-        } else {
-            // The remote node has an equal or great finalized epoch and we don't know it's head.
-            //
-            // Therefore, there are some blocks between the local finalized epoch and the remote
-            // head that are worth downloading.
-            debug!(
-                self.log, "UsefulPeer";
-                "peer" => format!("{:?}", peer_id),
-                "local_finalized_epoch" => local.finalized_epoch,
-                "remote_latest_finalized_epoch" => remote.finalized_epoch,
-            );
+            let remote = PeerSyncInfo::from(hello);
+            let local = PeerSyncInfo::from(&chain);
 
-            self.manager.add_peer(peer_id, remote);
+            let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
+
+            if local.fork_version != remote.fork_version {
+                // The node is on a different network/fork, disconnect them.
+                debug!(
+                    self.log, "HandshakeFailure";
+                    "peer" => format!("{:?}", peer_id),
+                    "reason" => "network_id"
+                );
+
+                self.network
+                    .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+            } else if remote.finalized_epoch <= local.finalized_epoch
+                && remote.finalized_root != Hash256::zero()
+                && local.finalized_root != Hash256::zero()
+                && (chain.root_at_slot(start_slot(remote.finalized_epoch))
+                    != Some(remote.finalized_root))
+            {
+                // The remotes finalized epoch is less than or greater than ours, but the block root is
+                // different to the one in our chain.
+                //
+                // Therefore, the node is on a different chain and we should not communicate with them.
+                debug!(
+                    self.log, "HandshakeFailure";
+                    "peer" => format!("{:?}", peer_id),
+                    "reason" => "different finalized chain"
+                );
+                self.network
+                    .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+            } else if remote.finalized_epoch < local.finalized_epoch {
+                // The node has a lower finalized epoch, their chain is not useful to us. There are two
+                // cases where a node can have a lower finalized epoch:
+                //
+                // ## The node is on the same chain
+                //
+                // If a node is on the same chain but has a lower finalized epoch, their head must be
+                // lower than ours. Therefore, we have nothing to request from them.
+                //
+                // ## The node is on a fork
+                //
+                // If a node is on a fork that has a lower finalized epoch, switching to that fork would
+                // cause us to revert a finalized block. This is not permitted, therefore we have no
+                // interest in their blocks.
+                debug!(
+                    self.log,
+                    "NaivePeer";
+                    "peer" => format!("{:?}", peer_id),
+                    "reason" => "lower finalized epoch"
+                );
+            } else if chain
+                .store
+                .exists::<BeaconBlock<T::EthSpec>>(&remote.head_root)
+                .unwrap_or_else(|_| false)
+            {
+                trace!(
+                    self.log, "Peer with known chain found";
+                    "peer" => format!("{:?}", peer_id),
+                    "remote_head_slot" => remote.head_slot,
+                    "remote_latest_finalized_epoch" => remote.finalized_epoch,
+                );
+
+                // If the node's best-block is already known to us and they are close to our current
+                // head, treat them as a fully sync'd peer.
+                self.manager.add_peer(peer_id, remote);
+                process_sync = true;
+            } else {
+                // The remote node has an equal or great finalized epoch and we don't know it's head.
+                //
+                // Therefore, there are some blocks between the local finalized epoch and the remote
+                // head that are worth downloading.
+                debug!(
+                    self.log, "UsefulPeer";
+                    "peer" => format!("{:?}", peer_id),
+                    "local_finalized_epoch" => local.finalized_epoch,
+                    "remote_latest_finalized_epoch" => remote.finalized_epoch,
+                );
+
+                self.manager.add_peer(peer_id, remote);
+                process_sync = true
+            }
+        } // end beacon chain reference scope
+
+        if process_sync {
             self.process_sync();
         }
     }
@@ -226,11 +250,13 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                         "method" => "HELLO",
                         "peer" => format!("{:?}", peer_id)
                     );
-                    self.network.send_rpc_request(
-                        None,
-                        peer_id,
-                        RPCRequest::Hello(hello_message(&self.chain)),
-                    );
+                    if let Some(chain) = self.chain.upgrade() {
+                        self.network.send_rpc_request(
+                            None,
+                            peer_id,
+                            RPCRequest::Hello(hello_message(&chain)),
+                        );
+                    }
                 }
                 ImportManagerOutcome::RequestBlocks {
                     peer_id,
@@ -283,14 +309,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         }
     }
 
-    //TODO: Move to beacon chain
-    fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
-        self.chain
-            .rev_iter_block_roots()
-            .find(|(_root, slot)| *slot == target_slot)
-            .map(|(root, _slot)| root)
-    }
-
     /// Handle a `RecentBeaconBlocks` request from the peer.
     pub fn on_recent_beacon_blocks_request(
         &mut self,
@@ -298,11 +316,20 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         request_id: RequestId,
         request: RecentBeaconBlocksRequest,
     ) {
+        let chain = match self.chain.upgrade() {
+            Some(chain) => chain,
+            None => {
+                info!(self.log, "Sync shutting down";
+                      "reason" => "Beacon chain dropped");
+                return;
+            }
+        };
+
         let blocks: Vec<BeaconBlock<_>> = request
             .block_roots
             .iter()
             .filter_map(|root| {
-                if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
+                if let Ok(Some(block)) = chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
                     Some(block)
                 } else {
                     debug!(
@@ -319,7 +346,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         debug!(
             self.log,
-            "BlockBodiesRequest";
+            "RecentBeaconBlocksRequest";
             "peer" => format!("{:?}", peer_id),
             "requested" => request.block_roots.len(),
             "returned" => blocks.len(),
@@ -339,6 +366,15 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         request_id: RequestId,
         req: BeaconBlocksRequest,
     ) {
+        let chain = match self.chain.upgrade() {
+            Some(chain) => chain,
+            None => {
+                info!(self.log, "Sync shutting down";
+                      "reason" => "Beacon chain dropped");
+                return;
+            }
+        };
+
         debug!(
             self.log,
             "BeaconBlocksRequest";
@@ -352,15 +388,14 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         // In the current implementation we read from the db then filter out out-of-range blocks.
         // Improving the db schema to prevent this would be ideal.
 
-        let mut blocks: Vec<BeaconBlock<T::EthSpec>> = self
-            .chain
+        let mut blocks: Vec<BeaconBlock<T::EthSpec>> = chain
             .rev_iter_block_roots()
             .filter(|(_root, slot)| {
                 req.start_slot <= slot.as_u64() && req.start_slot + req.count > slot.as_u64()
             })
             .take_while(|(_root, slot)| req.start_slot <= slot.as_u64())
             .filter_map(|(root, _slot)| {
-                if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
+                if let Ok(Some(block)) = chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
                     Some(block)
                 } else {
                     warn!(
@@ -378,18 +413,16 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         blocks.reverse();
         blocks.dedup_by_key(|brs| brs.slot);
 
-        if blocks.len() as u64 != req.count {
-            debug!(
-                self.log,
-                "BeaconBlocksRequest response";
-                "peer" => format!("{:?}", peer_id),
-                "msg" => "Failed to return all requested hashes",
-                "start_slot" => req.start_slot,
-                "current_slot" => format!("{:?}", self.chain.slot()),
-                "requested" => req.count,
-                "returned" => blocks.len(),
-            );
-        }
+        debug!(
+            self.log,
+            "BeaconBlocksRequest response";
+            "peer" => format!("{:?}", peer_id),
+            "msg" => "Failed to return all requested hashes",
+            "start_slot" => req.start_slot,
+            "current_slot" => chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
+            "requested" => req.count,
+            "returned" => blocks.len(),
+        );
 
         self.network.send_rpc_response(
             peer_id,
@@ -444,7 +477,16 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     ///
     /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers.
     pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) -> bool {
-        if let Ok(outcome) = self.chain.process_block(block.clone()) {
+        let chain = match self.chain.upgrade() {
+            Some(chain) => chain,
+            None => {
+                info!(self.log, "Sync shutting down";
+                      "reason" => "Beacon chain dropped");
+                return false;
+            }
+        };
+
+        if let Ok(outcome) = chain.process_block(block.clone()) {
             match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
                     trace!(self.log, "Gossipsub block processed";
@@ -477,7 +519,16 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     ///
     /// Not currently implemented.
     pub fn on_attestation_gossip(&mut self, _peer_id: PeerId, msg: Attestation<T::EthSpec>) {
-        match self.chain.process_attestation(msg) {
+        let chain = match self.chain.upgrade() {
+            Some(chain) => chain,
+            None => {
+                info!(self.log, "Sync shutting down";
+                      "reason" => "Beacon chain dropped");
+                return;
+            }
+        };
+
+        match chain.process_attestation(msg) {
             Ok(outcome) => info!(
                 self.log,
                 "Processed attestation";
@@ -488,11 +539,6 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 warn!(self.log, "InvalidAttestation"; "source" => "gossip", "error" => format!("{:?}", e))
             }
         }
-    }
-
-    /// Generates our current state in the form of a HELLO RPC message.
-    pub fn generate_hello(&self) -> HelloMessage {
-        hello_message(&self.chain)
     }
 }
 
