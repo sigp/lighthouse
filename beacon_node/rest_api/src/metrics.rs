@@ -67,7 +67,7 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     String::from_utf8(buffer)
         .map(|string| {
             let mut response = success_response(Body::from(string));
-            // Need to change the header to text/plain for prometheius
+            // Need to change the header to text/plain for prometheus
             response.headers_mut().insert(
                 "content-type",
                 HeaderValue::from_static("text/plain; charset=utf-8"),

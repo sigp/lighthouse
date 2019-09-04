@@ -4,7 +4,7 @@ use eth2_libp2p::{Enr, Multiaddr, PeerId};
 use hyper::{Body, Request};
 use std::sync::Arc;
 
-/// HTTP handle to return the list of libp2p multiaddr the client is listening on.
+/// HTTP handler to return the list of libp2p multiaddr the client is listening on.
 ///
 /// Returns a list of `Multiaddr`, serialized according to their `serde` impl.
 pub fn get_listen_addresses<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
@@ -21,9 +21,9 @@ pub fn get_listen_addresses<T: BeaconChainTypes>(req: Request<Body>) -> ApiResul
     )))
 }
 
-/// HTTP handle to return network port the client is listening on.
+/// HTTP handler to return the network port the client is listening on.
 ///
-/// Returns a list of `Multiaddr`, serialized according to their `serde` impl.
+/// Returns the TCP port number in its plain form (which is also valid JSON serialization)
 pub fn get_listen_port<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     let network = req
         .extensions()
@@ -36,7 +36,7 @@ pub fn get_listen_port<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     )))
 }
 
-/// HTTP handle to return the Discv5 ENR from the client's libp2p service.
+/// HTTP handler to return the Discv5 ENR from the client's libp2p service.
 ///
 /// ENR is encoded as base64 string.
 pub fn get_enr<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
@@ -53,7 +53,7 @@ pub fn get_enr<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     )))
 }
 
-/// HTTP handle to return the `PeerId` from the client's libp2p service.
+/// HTTP handler to return the `PeerId` from the client's libp2p service.
 ///
 /// PeerId is encoded as base58 string.
 pub fn get_peer_id<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
@@ -70,7 +70,7 @@ pub fn get_peer_id<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     )))
 }
 
-/// HTTP handle to return the number of peers connected in the client's libp2p service.
+/// HTTP handler to return the number of peers connected in the client's libp2p service.
 pub fn get_peer_count<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     let network = req
         .extensions()
@@ -85,7 +85,7 @@ pub fn get_peer_count<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
     )))
 }
 
-/// HTTP handle to return the list of peers connected to the client's libp2p service.
+/// HTTP handler to return the list of peers connected to the client's libp2p service.
 ///
 /// Peers are presented as a list of `PeerId::to_string()`.
 pub fn get_peer_list<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
