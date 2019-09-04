@@ -1,6 +1,7 @@
 use super::{success_response, ApiResult};
+use crate::helpers::*;
 use crate::ApiError;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::BeaconChainTypes;
 use eth2_config::Eth2Config;
 use hyper::{Body, Request};
 use std::sync::Arc;
@@ -8,10 +9,7 @@ use types::EthSpec;
 
 /// HTTP handler to return the full spec object.
 pub fn get_spec<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
 
     let json: String = serde_json::to_string(&beacon_chain.spec)
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize spec: {:?}", e)))?;

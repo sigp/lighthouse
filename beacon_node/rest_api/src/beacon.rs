@@ -109,10 +109,7 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
 
 /// HTTP handler to return a `BeaconBlock` root at a given `slot`.
 pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
 
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let target = parse_slot(&slot_string)?;
@@ -163,10 +160,7 @@ pub struct StateResponse<T: EthSpec> {
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
 pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
 
     let (key, value) = match UrlQuery::from_request(&req) {
         Ok(query) => {
@@ -220,10 +214,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
 pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
 
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let slot = parse_slot(&slot_string)?;
@@ -240,10 +231,7 @@ pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
     req: Request<Body>,
 ) -> ApiResult {
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
 
     let checkpoint = beacon_chain
         .head()
