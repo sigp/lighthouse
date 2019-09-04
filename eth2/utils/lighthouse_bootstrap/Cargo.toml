@@ -1,0 +1,16 @@
+[package]
+name = "lighthouse_bootstrap"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+eth2_config = { path = "../eth2_config" }
+eth2-libp2p = { path = "../../../beacon_node/eth2-libp2p" }
+reqwest = "0.9"
+url = "1.2"
+types = { path = "../../types" }
+serde = "1.0"
+slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_trace"] }

@@ -28,36 +28,38 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
         let validators = req.get_validators();
         trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
 
-        let spec = &self.chain.spec;
-        // TODO: this whole module is legacy and not maintained well.
-        let state = &self
-            .chain
-            .speculative_state()
-            .expect("This is legacy code and should be removed");
         let epoch = Epoch::from(req.get_epoch());
+        let slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
+
+        let mut state = if let Ok(state) = self.chain.state_at_slot(slot) {
+            state.clone()
+        } else {
+            let log_clone = self.log.clone();
+            let f = sink
+                .fail(RpcStatus::new(
+                    RpcStatusCode::FailedPrecondition,
+                    Some("No state".to_string()),
+                ))
+                .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
+            return ctx.spawn(f);
+        };
+
+        let _ = state.build_all_caches(&self.chain.spec);
+
+        assert_eq!(
+            state.current_epoch(),
+            epoch,
+            "Retrieved state should be from the same epoch"
+        );
+
         let mut resp = GetDutiesResponse::new();
         let resp_validators = resp.mut_active_validators();
 
-        let relative_epoch =
-            match RelativeEpoch::from_epoch(state.slot.epoch(T::EthSpec::slots_per_epoch()), epoch)
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    // incorrect epoch
-                    let log_clone = self.log.clone();
-                    let f = sink
-                        .fail(RpcStatus::new(
-                            RpcStatusCode::FailedPrecondition,
-                            Some(format!("Invalid epoch: {:?}", e)),
-                        ))
-                        .map_err(move |e| warn!(log_clone, "failed to reply {:?}: {:?}", req, e));
-                    return ctx.spawn(f);
-                }
-            };
-
         let validator_proposers: Result<Vec<usize>, _> = epoch
             .slot_iter(T::EthSpec::slots_per_epoch())
-            .map(|slot| state.get_beacon_proposer_index(slot, relative_epoch, &spec))
+            .map(|slot| {
+                state.get_beacon_proposer_index(slot, RelativeEpoch::Current, &self.chain.spec)
+            })
             .collect();
         let validator_proposers = match validator_proposers {
             Ok(v) => v,

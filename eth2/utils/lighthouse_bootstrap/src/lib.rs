@@ -1,13 +1,19 @@
+use eth2_config::Eth2Config;
 use eth2_libp2p::{
     multiaddr::{Multiaddr, Protocol},
     Enr,
 };
 use reqwest::{Error as HttpError, Url};
 use serde::Deserialize;
+use slog::{error, Logger};
 use std::borrow::Cow;
 use std::net::Ipv4Addr;
+use std::time::Duration;
 use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 use url::Host;
+
+pub const RETRY_SLEEP_MILLIS: u64 = 100;
+pub const RETRY_WARN_INTERVAL: u64 = 30;
 
 #[derive(Debug)]
 enum Error {
@@ -30,11 +36,35 @@ pub struct Bootstrapper {
 }
 
 impl Bootstrapper {
-    /// Parses the given `server` as a URL, instantiating `Self`.
-    pub fn from_server_string(server: String) -> Result<Self, String> {
-        Ok(Self {
+    /// Parses the given `server` as a URL, instantiating `Self` and blocking until a connection
+    /// can be made with the server.
+    ///
+    /// Never times out.
+    pub fn connect(server: String, log: &Logger) -> Result<Self, String> {
+        let bootstrapper = Self {
             url: Url::parse(&server).map_err(|e| format!("Invalid bootstrap server url: {}", e))?,
-        })
+        };
+
+        let mut retry_count = 0;
+        loop {
+            match bootstrapper.enr() {
+                Ok(_) => break,
+                Err(_) => {
+                    if retry_count % RETRY_WARN_INTERVAL == 0 {
+                        error!(
+                            log,
+                            "Failed to contact bootstrap server";
+                            "retry_count" => retry_count,
+                            "retry_delay_millis" => RETRY_SLEEP_MILLIS,
+                        );
+                    }
+                    retry_count += 1;
+                    std::thread::sleep(Duration::from_millis(RETRY_SLEEP_MILLIS));
+                }
+            }
+        }
+
+        Ok(bootstrapper)
     }
 
     /// Build a multiaddr using the HTTP server URL that is not guaranteed to be correct.
@@ -46,8 +76,12 @@ impl Bootstrapper {
     /// For example, the server `http://192.168.0.1` might end up with a `best_effort_multiaddr` of
     /// `/ipv4/192.168.0.1/tcp/9000` if the server advertises a listening address of
     /// `/ipv4/172.0.0.1/tcp/9000`.
-    pub fn best_effort_multiaddr(&self) -> Option<Multiaddr> {
-        let tcp_port = self.listen_port().ok()?;
+    pub fn best_effort_multiaddr(&self, port: Option<u16>) -> Option<Multiaddr> {
+        let tcp_port = if let Some(port) = port {
+            port
+        } else {
+            self.listen_port().ok()?
+        };
 
         let mut multiaddr = Multiaddr::with_capacity(2);
 
@@ -68,6 +102,11 @@ impl Bootstrapper {
             Host::Ipv4(addr) => Some(addr),
             _ => None,
         }
+    }
+
+    /// Returns the servers Eth2Config.
+    pub fn eth2_config(&self) -> Result<Eth2Config, String> {
+        get_eth2_config(self.url.clone()).map_err(|e| format!("Unable to get Eth2Config: {:?}", e))
     }
 
     /// Returns the servers ENR address.
@@ -116,6 +155,19 @@ fn get_slots_per_epoch(mut url: Url) -> Result<Slot, Error> {
     url.path_segments_mut()
         .map(|mut url| {
             url.push("spec").push("slots_per_epoch");
+        })
+        .map_err(|_| Error::InvalidUrl)?;
+
+    reqwest::get(url)?
+        .error_for_status()?
+        .json()
+        .map_err(Into::into)
+}
+
+fn get_eth2_config(mut url: Url) -> Result<Eth2Config, Error> {
+    url.path_segments_mut()
+        .map(|mut url| {
+            url.push("spec").push("eth2_config");
         })
         .map_err(|_| Error::InvalidUrl)?;
 

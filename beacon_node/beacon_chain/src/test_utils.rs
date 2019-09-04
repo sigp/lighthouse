@@ -1,22 +1,27 @@
-use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+use crate::{
+    AttestationProcessingOutcome, BeaconChain, BeaconChainBuilder, BeaconChainTypes,
+    BlockProcessingOutcome, InteropEth1ChainBackend,
+};
 use lmd_ghost::LmdGhost;
 use rayon::prelude::*;
-use sloggers::{null::NullLoggerBuilder, Build};
-use slot_clock::SlotClock;
+use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::MemoryStore;
-use store::Store;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    test_utils::TestingBeaconStateBuilder, AggregateSignature, Attestation,
-    AttestationDataAndCustodyBit, BeaconBlock, BeaconState, BitList, ChainSpec, Domain, EthSpec,
-    Hash256, Keypair, RelativeEpoch, SecretKey, Signature, Slot,
+    AggregateSignature, Attestation, AttestationDataAndCustodyBit, BeaconBlock, BeaconState,
+    BitList, ChainSpec, Domain, EthSpec, Hash256, Keypair, RelativeEpoch, SecretKey, Signature,
+    Slot,
 };
 
+pub use types::test_utils::generate_deterministic_keypairs;
+
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+
+pub const HARNESS_GENESIS_TIME: u64 = 1567552690; // 4th September 2019
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -61,6 +66,7 @@ where
     type Store = MemoryStore;
     type SlotClock = TestingSlotClock;
     type LmdGhost = L;
+    type Eth1Chain = InteropEth1ChainBackend<E>;
     type EthSpec = E;
 }
 
@@ -84,53 +90,21 @@ where
     E: EthSpec,
 {
     /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn new(validator_count: usize) -> Self {
-        let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
-            validator_count,
-            &E::default_spec(),
-        );
-        let (genesis_state, keypairs) = state_builder.build();
-
-        Self::from_state_and_keypairs(genesis_state, keypairs)
-    }
-
-    /// Instantiate a new harness with an initial validator for each key supplied.
-    pub fn from_keypairs(keypairs: Vec<Keypair>) -> Self {
-        let state_builder = TestingBeaconStateBuilder::from_keypairs(keypairs, &E::default_spec());
-        let (genesis_state, keypairs) = state_builder.build();
-
-        Self::from_state_and_keypairs(genesis_state, keypairs)
-    }
-
-    /// Instantiate a new harness with the given genesis state and a keypair for each of the
-    /// initial validators in the given state.
-    pub fn from_state_and_keypairs(genesis_state: BeaconState<E>, keypairs: Vec<Keypair>) -> Self {
+    pub fn new(keypairs: Vec<Keypair>) -> Self {
         let spec = E::default_spec();
+
+        let log = TerminalLoggerBuilder::new()
+            .level(Severity::Warning)
+            .build()
+            .expect("logger should build");
 
         let store = Arc::new(MemoryStore::open());
 
-        let mut genesis_block = BeaconBlock::empty(&spec);
-        genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
-
-        let builder = NullLoggerBuilder;
-        let log = builder.build().expect("logger should build");
-
-        // Slot clock
-        let slot_clock = TestingSlotClock::new(
-            spec.genesis_slot,
-            genesis_state.genesis_time,
-            spec.seconds_per_slot,
-        );
-
-        let chain = BeaconChain::from_genesis(
-            store,
-            slot_clock,
-            genesis_state,
-            genesis_block,
-            spec.clone(),
-            log,
-        )
-        .expect("Terminate if beacon chain generation fails");
+        let chain =
+            BeaconChainBuilder::quick_start(HARNESS_GENESIS_TIME, &keypairs, spec.clone(), log)
+                .unwrap_or_else(|e| panic!("Failed to create beacon chain builder: {}", e))
+                .build(store.clone(), InteropEth1ChainBackend::default())
+                .unwrap_or_else(|e| panic!("Failed to build beacon chain: {}", e));
 
         Self {
             chain,
@@ -144,7 +118,6 @@ where
     /// Does not produce blocks or attestations.
     pub fn advance_slot(&self) {
         self.chain.slot_clock.advance_slot();
-        self.chain.catchup_state().expect("should catchup state");
     }
 
     /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
@@ -166,26 +139,27 @@ where
             // Determine the slot for the first block (or skipped block).
             let state_slot = match block_strategy {
                 BlockStrategy::OnCanonicalHead => {
-                    self.chain.read_slot_clock().expect("should know slot") - 1
+                    self.chain.slot().expect("should have a slot") - 1
                 }
                 BlockStrategy::ForkCanonicalChainAt { previous_slot, .. } => previous_slot,
             };
 
-            self.get_state_at_slot(state_slot)
+            self.chain
+                .state_at_slot(state_slot)
+                .expect("should find state for slot")
+                .clone()
         };
 
         // Determine the first slot where a block should be built.
         let mut slot = match block_strategy {
-            BlockStrategy::OnCanonicalHead => {
-                self.chain.read_slot_clock().expect("should know slot")
-            }
+            BlockStrategy::OnCanonicalHead => self.chain.slot().expect("should have a slot"),
             BlockStrategy::ForkCanonicalChainAt { first_slot, .. } => first_slot,
         };
 
         let mut head_block_root = None;
 
         for _ in 0..num_blocks {
-            while self.chain.read_slot_clock().expect("should have a slot") < slot {
+            while self.chain.slot().expect("should have a slot") < slot {
                 self.advance_slot();
             }
 
@@ -209,21 +183,6 @@ where
         }
 
         head_block_root.expect("did not produce any blocks")
-    }
-
-    fn get_state_at_slot(&self, state_slot: Slot) -> BeaconState<E> {
-        let state_root = self
-            .chain
-            .rev_iter_state_roots()
-            .find(|(_hash, slot)| *slot == state_slot)
-            .map(|(hash, _slot)| hash)
-            .expect("could not find state root");
-
-        self.chain
-            .store
-            .get(&state_root)
-            .expect("should read db")
-            .expect("should find state root")
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -299,9 +258,14 @@ where
         )
         .into_iter()
         .for_each(|attestation| {
-            self.chain
+            match self
+                .chain
                 .process_attestation(attestation)
-                .expect("should process attestation");
+                .expect("should not error during attestation processing")
+            {
+                AttestationProcessingOutcome::Processed => (),
+                other => panic!("did not successfully process attestation: {:?}", other),
+            }
         });
     }
 
