@@ -1,7 +1,7 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
-use crate::yaml_decode::{ssz_decode_file, yaml_decode_file};
+use crate::decode::{ssz_decode_file, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockInvalid, BlockProcessingError,

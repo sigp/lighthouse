@@ -1,9 +1,9 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::decode::{ssz_decode_file, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
-use crate::yaml_decode::{ssz_decode_file, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::per_epoch_processing::{
     errors::EpochProcessingError, process_crosslinks, process_final_updates,

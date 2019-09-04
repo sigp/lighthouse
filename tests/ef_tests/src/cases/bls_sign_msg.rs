@@ -1,5 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
+use crate::cases::common::BlsCase;
 use bls::{SecretKey, Signature};
 use serde_derive::Deserialize;
 

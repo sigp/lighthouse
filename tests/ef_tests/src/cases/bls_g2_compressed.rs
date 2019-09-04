@@ -1,5 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
+use crate::cases::common::BlsCase;
 use bls::{compress_g2, hash_on_g2};
 use serde_derive::Deserialize;
 

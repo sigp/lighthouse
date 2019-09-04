@@ -1,5 +1,5 @@
 use super::*;
-use crate::yaml_decode::{ssz_decode_file, yaml_decode_file};
+use crate::decode::{ssz_decode_file, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::is_valid_genesis_state;
 use std::path::{Path, PathBuf};
