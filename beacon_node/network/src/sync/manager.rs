@@ -187,7 +187,11 @@ pub(crate) enum ImportManagerOutcome {
         request: BeaconBlocksRequest,
     },
     /// A `RecentBeaconBlocks` request is required.
-    RecentRequest(PeerId, RecentBeaconBlocksRequest),
+    RecentRequest {
+        peer_id: PeerId,
+        request_id: RequestId,
+        request: RecentBeaconBlocksRequest,
+    },
     /// Updates information with peer via requesting another HELLO handshake.
     Hello(PeerId),
     /// A peer has caused a punishable error and should be downvoted.
@@ -532,7 +536,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
 
     pub fn add_unknown_block(&mut self, block: BeaconBlock<T::EthSpec>, peer_id: PeerId) {
         // if we are not in regular sync mode, ignore this block
-        if let ManagerState::Regular = self.state {
+        if self.state != ManagerState::Regular {
             return;
         }
 
@@ -774,19 +778,23 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                     continue;
                 }
 
-                parent_request.state = BlockRequestsState::Pending(self.current_req_id);
+                let request_id = self.current_req_id;
+                parent_request.state = BlockRequestsState::Pending(request_id);
                 self.current_req_id += 1;
                 let last_element_index = parent_request.downloaded_blocks.len() - 1;
                 let parent_hash = parent_request.downloaded_blocks[last_element_index].parent_root;
-                let req = RecentBeaconBlocksRequest {
+                let request = RecentBeaconBlocksRequest {
                     block_roots: vec![parent_hash],
                 };
 
                 // select a random fully synced peer to attempt to download the parent block
                 let peer_id = self.full_peers.iter().next().expect("List is not empty");
 
-                self.event_queue
-                    .push(ImportManagerOutcome::RecentRequest(peer_id.clone(), req));
+                self.event_queue.push(ImportManagerOutcome::RecentRequest {
+                    peer_id: peer_id.clone(),
+                    request_id,
+                    request,
+                });
                 re_run = true;
             }
         }
