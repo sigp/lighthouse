@@ -45,8 +45,8 @@ impl<F: Eth1DataFetcher + 'static> Eth1<F> {
     /// Get Eth1Votes with highest votes in given voting period.
     /// From https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/specs/validator/0_beacon-chain-validator.md#eth1-data
     pub fn get_eth1_votes<T: EthSpec>(
-        &mut self,
-        state: BeaconState<T>,
+        &self,
+        state: &BeaconState<T>,
         previous_eth1_distance: u64,
     ) -> Eth1Data {
         let new_eth1_data = self
