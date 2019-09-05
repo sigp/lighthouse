@@ -2,7 +2,9 @@ use bls::{PublicKeyBytes, SignatureBytes};
 use ethabi::{decode, ParamType, Token};
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
+use std::fs;
 use std::marker::Send;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::prelude::*;
@@ -33,16 +35,17 @@ impl Web3DataFetcher {
     pub fn new(
         endpoint: &str,
         deposit_contract_addr: &str,
-        deposit_contract_abi: Vec<u8>,
+        deposit_contract_abi: PathBuf,
     ) -> Result<Self> {
         let (event_loop, transport) = WebSocket::new(endpoint)?;
+        let abi = fs::read(deposit_contract_abi).map_err(|_| Error::InvalidParam)?;
         let web3 = Web3::new(transport);
         let contract = Contract::from_json(
             web3.eth(),
             deposit_contract_addr
                 .parse()
                 .map_err(|_| Error::InvalidParam)?,
-            &deposit_contract_abi,
+            &abi,
         )?;
         Ok(Web3DataFetcher {
             event_loop: Arc::new(event_loop),
@@ -264,12 +267,9 @@ mod tests {
 
     fn setup() -> Web3DataFetcher {
         let deposit_contract_address = "8c594691C0E592FFA21F153a16aE41db5beFcaaa";
-        let deposit_contract_abi = include_bytes!("deposit_contract.json").to_vec();
-        let w3 = Web3DataFetcher::new(
-            "ws://localhost:8545",
-            deposit_contract_address,
-            deposit_contract_abi,
-        );
+        let mut abi_path = std::env::current_dir().unwrap();
+        abi_path.push("deposit_contract.json");
+        let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract_address, abi_path);
         return w3.unwrap();
     }
 

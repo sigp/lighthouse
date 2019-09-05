@@ -134,12 +134,9 @@ mod tests {
 
     fn setup() -> Web3DataFetcher {
         let deposit_contract_address = "8c594691C0E592FFA21F153a16aE41db5beFcaaa";
-        let deposit_contract_abi = include_bytes!("deposit_contract.json").to_vec();
-        let w3 = Web3DataFetcher::new(
-            "ws://localhost:8545",
-            deposit_contract_address,
-            deposit_contract_abi,
-        );
+        let mut abi_path = std::env::current_dir().unwrap();
+        abi_path.push("deposit_contract.json");
+        let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract_address, abi_path);
         return w3.unwrap();
     }
 
