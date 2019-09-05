@@ -93,16 +93,9 @@ where
         }
         do_state_catchup(&beacon_chain, &log);
 
-        // Start the network service, libp2p and syncing threads
-        // TODO: Add beacon_chain reference to network parameters
         let network_config = &client_config.network;
-        let network_logger = log.new(o!("Service" => "Network"));
-        let (network, network_send) = NetworkService::new(
-            beacon_chain.clone(),
-            network_config,
-            executor,
-            network_logger,
-        )?;
+        let (network, network_send) =
+            NetworkService::new(beacon_chain.clone(), network_config, executor, log.clone())?;
 
         // spawn the RPC server
         let rpc_exit_signal = if client_config.rpc.enabled {

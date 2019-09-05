@@ -1,11 +1,15 @@
-use super::errors::{AttestationInvalid as Invalid, AttestationValidationError as Error};
+use super::errors::{AttestationInvalid as Invalid, BlockOperationError};
 use super::VerifySignatures;
 use crate::common::get_indexed_attestation;
-use crate::per_block_processing::{
-    is_valid_indexed_attestation, is_valid_indexed_attestation_without_signature,
-};
+use crate::per_block_processing::is_valid_indexed_attestation;
 use tree_hash::TreeHash;
 use types::*;
+
+type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
+
+fn error(reason: Invalid) -> BlockOperationError<Invalid> {
+    BlockOperationError::invalid(reason)
+}
 
 /// Returns `Ok(())` if the given `attestation` is valid to be included in a block that is applied
 /// to `state`. Otherwise, returns a descriptive `Err`.
@@ -16,9 +20,9 @@ use types::*;
 pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
-    spec: &ChainSpec,
     verify_signatures: VerifySignatures,
-) -> Result<(), Error> {
+    spec: &ChainSpec,
+) -> Result<()> {
     let data = &attestation.data;
 
     // Check attestation slot.
@@ -40,7 +44,7 @@ pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
         }
     );
 
-    verify_attestation_for_state(state, attestation, spec, verify_signatures)
+    verify_attestation_for_state(state, attestation, verify_signatures, spec)
 }
 
 /// Returns `Ok(())` if `attestation` is a valid attestation to the chain that precedes the given
@@ -53,9 +57,9 @@ pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
 pub fn verify_attestation_for_state<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-    verify_signature: VerifySignatures,
-) -> Result<(), Error> {
+) -> Result<()> {
     let data = &attestation.data;
     verify!(
         data.crosslink.shard < T::ShardCount::to_u64(),
@@ -90,11 +94,7 @@ pub fn verify_attestation_for_state<T: EthSpec>(
 
     // Check signature and bitfields
     let indexed_attestation = get_indexed_attestation(state, attestation)?;
-    if verify_signature == VerifySignatures::True {
-        is_valid_indexed_attestation(state, &indexed_attestation, spec)?;
-    } else {
-        is_valid_indexed_attestation_without_signature(state, &indexed_attestation, spec)?;
-    }
+    is_valid_indexed_attestation(state, &indexed_attestation, verify_signatures, spec)?;
 
     Ok(())
 }
@@ -107,7 +107,7 @@ pub fn verify_attestation_for_state<T: EthSpec>(
 fn verify_casper_ffg_vote<'a, T: EthSpec>(
     attestation: &Attestation<T>,
     state: &'a BeaconState<T>,
-) -> Result<&'a Crosslink, Error> {
+) -> Result<&'a Crosslink> {
     let data = &attestation.data;
     if data.target.epoch == state.current_epoch() {
         verify!(
@@ -130,6 +130,6 @@ fn verify_casper_ffg_vote<'a, T: EthSpec>(
         );
         Ok(state.get_previous_crosslink(data.crosslink.shard)?)
     } else {
-        invalid!(Invalid::BadTargetEpoch)
+        return Err(error(Invalid::BadTargetEpoch));
     }
 }

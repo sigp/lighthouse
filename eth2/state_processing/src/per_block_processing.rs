@@ -1,19 +1,19 @@
 use crate::common::{initiate_validator_exit, slash_validator};
-use errors::{BlockInvalid as Invalid, BlockProcessingError as Error, IntoWithIndex};
+use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex};
 use rayon::prelude::*;
+use signature_sets::{block_proposal_signature_set, randao_signature_set};
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::iter::FromIterator;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::SignedRoot;
 use types::*;
 
 pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
 };
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
-pub use is_valid_indexed_attestation::{
-    is_valid_indexed_attestation, is_valid_indexed_attestation_without_signature,
-};
+pub use block_signature_verifier::BlockSignatureVerifier;
+pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
 pub use verify_attestation::{
     verify_attestation_for_block_inclusion, verify_attestation_for_state,
 };
@@ -26,8 +26,10 @@ pub use verify_transfer::{
 };
 
 pub mod block_processing_builder;
+mod block_signature_verifier;
 pub mod errors;
 mod is_valid_indexed_attestation;
+mod signature_sets;
 pub mod tests;
 mod verify_attestation;
 mod verify_attester_slashing;
@@ -36,39 +38,30 @@ mod verify_exit;
 mod verify_proposer_slashing;
 mod verify_transfer;
 
-#[derive(PartialEq)]
+/// The strategy to be used when validating the block's signatures.
+#[derive(PartialEq, Clone, Copy)]
+pub enum BlockSignatureStrategy {
+    /// Do not validate any signature. Use with caution.
+    NoVerification,
+    /// Validate each signature individually, as its object is being processed.
+    VerifyIndividual,
+    /// Verify all signatures in bulk at the beginning of block processing.
+    VerifyBulk,
+}
+
+/// The strategy to be used when validating the block's signatures.
+#[derive(PartialEq, Clone, Copy)]
 pub enum VerifySignatures {
+    /// Validate all signatures encountered.
     True,
+    /// Do not validate any signature. Use with caution.
     False,
 }
 
-/// Updates the state for a new block, whilst validating that the block is valid.
-///
-/// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
-/// returns an error describing why the block was invalid or how the function failed to execute.
-///
-/// Spec v0.8.0
-pub fn per_block_processing<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    block: &BeaconBlock<T>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    per_block_processing_signature_optional(state, block, true, spec)
-}
-
-/// Updates the state for a new block, whilst validating that the block is valid, without actually
-/// checking the block proposer signature.
-///
-/// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
-/// returns an error describing why the block was invalid or how the function failed to execute.
-///
-/// Spec v0.8.0
-pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    block: &BeaconBlock<T>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    per_block_processing_signature_optional(state, block, false, spec)
+impl VerifySignatures {
+    pub fn is_true(&self) -> bool {
+        *self == VerifySignatures::True
+    }
 }
 
 /// Updates the state for a new block, whilst validating that the block is valid, optionally
@@ -77,27 +70,65 @@ pub fn per_block_processing_without_verifying_block_signature<T: EthSpec>(
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
+/// If `block_signed_root` is `Some`, this root is used for verification of the proposers
+/// signature. If it is `None` the signed root is calculated here. This parameter only exists to
+/// avoid re-calculating the root when it is already known.
+///
 /// Spec v0.8.0
-fn per_block_processing_signature_optional<T: EthSpec>(
+pub fn per_block_processing<T: EthSpec>(
     mut state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
-    should_verify_block_signature: bool,
+    block_signed_root: Option<Hash256>,
+    block_signature_strategy: BlockSignatureStrategy,
     spec: &ChainSpec,
-) -> Result<(), Error> {
-    process_block_header(state, block, spec, should_verify_block_signature)?;
+) -> Result<(), BlockProcessingError> {
+    let verify_signatures = match block_signature_strategy {
+        BlockSignatureStrategy::VerifyBulk => {
+            // Verify all signatures in the block at once.
+            block_verify!(
+                BlockSignatureVerifier::verify_entire_block(state, block, spec).is_ok(),
+                BlockProcessingError::BulkSignatureVerificationFailed
+            );
+            VerifySignatures::False
+        }
+        BlockSignatureStrategy::VerifyIndividual => VerifySignatures::True,
+        BlockSignatureStrategy::NoVerification => VerifySignatures::False,
+    };
+
+    process_block_header(state, block, block_signed_root, verify_signatures, spec)?;
 
     // Ensure the current and previous epoch caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
-    process_randao(&mut state, &block, &spec)?;
+    process_randao(&mut state, &block, verify_signatures, &spec)?;
     process_eth1_data(&mut state, &block.body.eth1_data)?;
-    process_proposer_slashings(&mut state, &block.body.proposer_slashings, spec)?;
-    process_attester_slashings(&mut state, &block.body.attester_slashings, spec)?;
-    process_attestations(&mut state, &block.body.attestations, spec)?;
+    process_proposer_slashings(
+        &mut state,
+        &block.body.proposer_slashings,
+        verify_signatures,
+        spec,
+    )?;
+    process_attester_slashings(
+        &mut state,
+        &block.body.attester_slashings,
+        verify_signatures,
+        spec,
+    )?;
+    process_attestations(
+        &mut state,
+        &block.body.attestations,
+        verify_signatures,
+        spec,
+    )?;
     process_deposits(&mut state, &block.body.deposits, spec)?;
-    process_exits(&mut state, &block.body.voluntary_exits, spec)?;
-    process_transfers(&mut state, &block.body.transfers, spec)?;
+    process_exits(
+        &mut state,
+        &block.body.voluntary_exits,
+        verify_signatures,
+        spec,
+    )?;
+    process_transfers(&mut state, &block.body.transfers, verify_signatures, spec)?;
 
     Ok(())
 }
@@ -108,16 +139,17 @@ fn per_block_processing_signature_optional<T: EthSpec>(
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
+    block_signed_root: Option<Hash256>,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-    should_verify_block_signature: bool,
-) -> Result<(), Error> {
-    verify!(block.slot == state.slot, Invalid::StateSlotMismatch);
+) -> Result<(), BlockOperationError<HeaderInvalid>> {
+    verify!(block.slot == state.slot, HeaderInvalid::StateSlotMismatch);
 
     let expected_previous_block_root =
         Hash256::from_slice(&state.latest_block_header.signed_root());
     verify!(
         block.parent_root == expected_previous_block_root,
-        Invalid::ParentBlockRootMismatch {
+        HeaderInvalid::ParentBlockRootMismatch {
             state: expected_previous_block_root,
             block: block.parent_root,
         }
@@ -128,10 +160,13 @@ pub fn process_block_header<T: EthSpec>(
     // Verify proposer is not slashed
     let proposer_idx = state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?;
     let proposer = &state.validators[proposer_idx];
-    verify!(!proposer.slashed, Invalid::ProposerSlashed(proposer_idx));
+    verify!(
+        !proposer.slashed,
+        HeaderInvalid::ProposerSlashed(proposer_idx)
+    );
 
-    if should_verify_block_signature {
-        verify_block_signature(&state, &block, &spec)?;
+    if verify_signatures.is_true() {
+        verify_block_signature(&state, &block, block_signed_root, &spec)?;
     }
 
     Ok(())
@@ -143,22 +178,12 @@ pub fn process_block_header<T: EthSpec>(
 pub fn verify_block_signature<T: EthSpec>(
     state: &BeaconState<T>,
     block: &BeaconBlock<T>,
+    block_signed_root: Option<Hash256>,
     spec: &ChainSpec,
-) -> Result<(), Error> {
-    let block_proposer = &state.validators
-        [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
-
-    let domain = spec.get_domain(
-        block.slot.epoch(T::slots_per_epoch()),
-        Domain::BeaconProposer,
-        &state.fork,
-    );
-
+) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(
-        block
-            .signature
-            .verify(&block.signed_root()[..], domain, &block_proposer.pubkey),
-        Invalid::BadSignature
+        block_proposal_signature_set(state, block, block_signed_root, spec)?.is_valid(),
+        HeaderInvalid::ProposalSignatureInvalid
     );
 
     Ok(())
@@ -171,24 +196,16 @@ pub fn verify_block_signature<T: EthSpec>(
 pub fn process_randao<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<(), Error> {
-    let block_proposer = &state.validators
-        [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
-
-    // Verify RANDAO reveal.
-    verify!(
-        block.body.randao_reveal.verify(
-            &state.current_epoch().tree_hash_root()[..],
-            spec.get_domain(
-                block.slot.epoch(T::slots_per_epoch()),
-                Domain::Randao,
-                &state.fork
-            ),
-            &block_proposer.pubkey
-        ),
-        Invalid::BadRandaoSignature
-    );
+) -> Result<(), BlockProcessingError> {
+    if verify_signatures.is_true() {
+        // Verify RANDAO reveal signature.
+        block_verify!(
+            randao_signature_set(state, block, spec)?.is_valid(),
+            BlockProcessingError::RandaoSignatureInvalid
+        );
+    }
 
     // Update the current epoch RANDAO mix.
     state.update_randao_mix(state.current_epoch(), &block.body.randao_reveal)?;
@@ -227,14 +244,15 @@ pub fn process_eth1_data<T: EthSpec>(
 pub fn process_proposer_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     proposer_slashings: &[ProposerSlashing],
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<(), BlockProcessingError> {
     // Verify proposer slashings in parallel.
     proposer_slashings
         .par_iter()
         .enumerate()
         .try_for_each(|(i, proposer_slashing)| {
-            verify_proposer_slashing(proposer_slashing, &state, spec)
+            verify_proposer_slashing(proposer_slashing, &state, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(i))
         })?;
 
@@ -255,8 +273,9 @@ pub fn process_proposer_slashings<T: EthSpec>(
 pub fn process_attester_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     attester_slashings: &[AttesterSlashing<T>],
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<(), BlockProcessingError> {
     // Verify the `IndexedAttestation`s in parallel (these are the resource-consuming objects, not
     // the `AttesterSlashing`s themselves).
     let mut indexed_attestations: Vec<&_> = Vec::with_capacity(attester_slashings.len() * 2);
@@ -270,7 +289,7 @@ pub fn process_attester_slashings<T: EthSpec>(
         .par_iter()
         .enumerate()
         .try_for_each(|(i, indexed_attestation)| {
-            is_valid_indexed_attestation(&state, indexed_attestation, spec)
+            is_valid_indexed_attestation(&state, indexed_attestation, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(i))
         })?;
     let all_indexed_attestations_have_been_checked = true;
@@ -283,6 +302,7 @@ pub fn process_attester_slashings<T: EthSpec>(
             &state,
             &attester_slashing,
             should_verify_indexed_attestations,
+            verify_signatures,
             spec,
         )
         .map_err(|e| e.into_with_index(i))?;
@@ -307,8 +327,9 @@ pub fn process_attester_slashings<T: EthSpec>(
 pub fn process_attestations<T: EthSpec>(
     state: &mut BeaconState<T>,
     attestations: &[Attestation<T>],
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<(), BlockProcessingError> {
     // Ensure the previous epoch cache exists.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
 
@@ -317,7 +338,7 @@ pub fn process_attestations<T: EthSpec>(
         .par_iter()
         .enumerate()
         .try_for_each(|(i, attestation)| {
-            verify_attestation_for_block_inclusion(state, attestation, spec, VerifySignatures::True)
+            verify_attestation_for_block_inclusion(state, attestation, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(i))
         })?;
 
@@ -355,14 +376,17 @@ pub fn process_deposits<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposits: &[Deposit],
     spec: &ChainSpec,
-) -> Result<(), Error> {
-    verify!(
-        deposits.len() as u64
-            == std::cmp::min(
-                T::MaxDeposits::to_u64(),
-                state.eth1_data.deposit_count - state.eth1_deposit_index
-            ),
-        Invalid::DepositCountInvalid
+) -> Result<(), BlockProcessingError> {
+    let expected_deposit_len = std::cmp::min(
+        T::MaxDeposits::to_u64(),
+        state.eth1_data.deposit_count - state.eth1_deposit_index,
+    );
+    block_verify!(
+        deposits.len() as u64 == expected_deposit_len,
+        BlockProcessingError::DepositCountInvalid {
+            expected: expected_deposit_len as usize,
+            found: deposits.len(),
+        }
     );
 
     // Verify merkle proofs in parallel.
@@ -390,7 +414,7 @@ pub fn process_deposit<T: EthSpec>(
     deposit: &Deposit,
     spec: &ChainSpec,
     verify_merkle_proof: bool,
-) -> Result<(), Error> {
+) -> Result<(), BlockProcessingError> {
     let deposit_index = state.eth1_deposit_index as usize;
     if verify_merkle_proof {
         verify_deposit_merkle_proof(state, deposit, state.eth1_deposit_index, spec)
@@ -420,7 +444,7 @@ pub fn process_deposit<T: EthSpec>(
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
-        if verify_deposit_signature(state, deposit, spec, &pubkey).is_err() {
+        if verify_deposit_signature(state, deposit, spec).is_err() {
             return Ok(());
         }
 
@@ -454,14 +478,15 @@ pub fn process_deposit<T: EthSpec>(
 pub fn process_exits<T: EthSpec>(
     state: &mut BeaconState<T>,
     voluntary_exits: &[VoluntaryExit],
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<(), BlockProcessingError> {
     // Verify exits in parallel.
     voluntary_exits
         .par_iter()
         .enumerate()
         .try_for_each(|(i, exit)| {
-            verify_exit(&state, exit, spec).map_err(|e| e.into_with_index(i))
+            verify_exit(&state, exit, verify_signatures, spec).map_err(|e| e.into_with_index(i))
         })?;
 
     // Update the state in series.
@@ -481,19 +506,24 @@ pub fn process_exits<T: EthSpec>(
 pub fn process_transfers<T: EthSpec>(
     state: &mut BeaconState<T>,
     transfers: &[Transfer],
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<(), BlockProcessingError> {
+    let expected_transfers = HashSet::<_>::from_iter(transfers).len();
     // Verify that there are no duplicate transfers
-    verify!(
-        transfers.len() == HashSet::<_>::from_iter(transfers).len(),
-        Invalid::DuplicateTransfers
+    block_verify!(
+        transfers.len() == expected_transfers,
+        BlockProcessingError::DuplicateTransfers {
+            duplicates: transfers.len().saturating_sub(expected_transfers)
+        }
     );
 
     transfers
         .par_iter()
         .enumerate()
         .try_for_each(|(i, transfer)| {
-            verify_transfer(&state, transfer, spec).map_err(|e| e.into_with_index(i))
+            verify_transfer(&state, transfer, verify_signatures, spec)
+                .map_err(|e| e.into_with_index(i))
         })?;
 
     for (i, transfer) in transfers.iter().enumerate() {

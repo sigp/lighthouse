@@ -52,7 +52,7 @@ struct ForkedHarness {
 impl ForkedHarness {
     /// A new standard instance of with constant parameters.
     pub fn new() -> Self {
-        let store = Arc::new(RwLock::new(MemoryStore::open()));
+        let store = Arc::new(MemoryStore::open());
         let harness = BeaconChainHarness::new(VALIDATOR_COUNT, store);
 
         // Move past the zero slot.
