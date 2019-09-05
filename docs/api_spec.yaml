@@ -1896,10 +1896,6 @@ components:
       type: object
       description: "Stores all of the values which specify a particular chain. The `ChainSpec` object in Lighthouse"
       properties:
-        far_future_epoch:
-          type: integer
-          format: uint64
-          example: 18446744073709551615
         base_rewards_per_epoch:
           type: integer
           format: uint64
