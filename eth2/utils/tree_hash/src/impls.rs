@@ -1,5 +1,5 @@
 use super::*;
-use ethereum_types::H256;
+use ethereum_types::{H256, U128, U256};
 
 macro_rules! impl_for_bitsize {
     ($type: ident, $bit_size: expr) => {
@@ -72,6 +72,46 @@ macro_rules! impl_for_u8_array {
 
 impl_for_u8_array!(4);
 impl_for_u8_array!(32);
+
+impl TreeHash for U128 {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Basic
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        let mut result = vec![0; 16];
+        self.to_little_endian(&mut result);
+        result
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        2
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        merkle_root(&self.tree_hash_packed_encoding(), 0)
+    }
+}
+
+impl TreeHash for U256 {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Basic
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        let mut result = vec![0; 32];
+        self.to_little_endian(&mut result);
+        result
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        1
+    }
+
+    fn tree_hash_root(&self) -> Vec<u8> {
+        merkle_root(&self.tree_hash_packed_encoding(), 0)
+    }
+}
 
 impl TreeHash for H256 {
     fn tree_hash_type() -> TreeHashType {
