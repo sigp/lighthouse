@@ -123,7 +123,9 @@ impl<T: EthSpec> Eth1ChainBackend<T> for Web3Backend<T> {
 
     fn eth1_data(&self, beacon_state: &BeaconState<T>) -> Result<Eth1Data> {
         // TODO: fix previous eth1 distance based on spec.
-        Ok(self.eth1.get_eth1_votes(beacon_state, 1024))
+        self.eth1
+            .get_eth1_votes(beacon_state, 1024)
+            .map_err(|e| Error::BackendError(format!("{:?}", e)))
     }
 
     fn queued_deposits(&self, beacon_state: &BeaconState<T>) -> Result<Vec<Deposit>> {

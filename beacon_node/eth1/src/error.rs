@@ -14,6 +14,8 @@ pub enum Error {
     DecodingError,
     /// Invalid parameters
     InvalidParam,
+    /// Invalid data
+    InvalidData,
 }
 
 impl From<web3::error::Error> for Error {

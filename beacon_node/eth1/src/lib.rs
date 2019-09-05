@@ -7,6 +7,7 @@ mod types;
 
 use crate::cache::*;
 use crate::deposits::*;
+use crate::error::Result;
 use crate::types::Eth1DataFetcher;
 use eth2_types::*;
 use slog::{debug, info, o, warn};
@@ -48,7 +49,7 @@ impl<F: Eth1DataFetcher + 'static> Eth1<F> {
         &self,
         state: &BeaconState<T>,
         previous_eth1_distance: u64,
-    ) -> Eth1Data {
+    ) -> Result<Eth1Data> {
         let new_eth1_data = self
             .eth1_data_cache
             .get_eth1_data_in_range(ETH1_FOLLOW_DISTANCE, 2 * ETH1_FOLLOW_DISTANCE);
@@ -63,7 +64,7 @@ impl<F: Eth1DataFetcher + 'static> Eth1<F> {
                 valid_votes.push(vote.clone());
             }
         }
-        valid_votes
+        Ok(valid_votes
             .iter()
             .cloned()
             .max_by(|x, y| {
@@ -80,11 +81,7 @@ impl<F: Eth1DataFetcher + 'static> Eth1<F> {
                 }
                 result
             })
-            .unwrap_or(
-                self.eth1_data_cache
-                    .get_eth1_data(ETH1_FOLLOW_DISTANCE)
-                    .unwrap(),
-            ) //TODO: Better error handling
+            .unwrap_or(self.eth1_data_cache.get_eth1_data(ETH1_FOLLOW_DISTANCE)?))
     }
 }
 
