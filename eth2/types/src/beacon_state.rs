@@ -406,6 +406,10 @@ impl<T: EthSpec> BeaconState<T> {
             .ok_or_else(|| Error::SlotOutOfBounds)?;
         let seed = self.get_seed(epoch, spec)?;
 
+        if first_committee.is_empty() {
+            return Err(Error::InsufficientValidators);
+        }
+
         let mut i = 0;
         Ok(loop {
             let candidate_index = first_committee[(epoch.as_usize() + i) % first_committee.len()];

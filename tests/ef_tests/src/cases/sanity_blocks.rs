@@ -4,7 +4,7 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::{
-    per_block_processing, per_slot_processing, BlockInvalid, BlockProcessingError,
+    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
 };
 use types::{BeaconBlock, BeaconState, EthSpec, RelativeEpoch};
 
@@ -80,14 +80,18 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     .build_committee_cache(RelativeEpoch::Current, spec)
                     .unwrap();
 
-                per_block_processing(&mut state, block, spec)?;
+                per_block_processing(
+                    &mut state,
+                    block,
+                    None,
+                    BlockSignatureStrategy::VerifyIndividual,
+                    spec,
+                )?;
 
                 if block.state_root == state.canonical_root() {
                     Ok(())
                 } else {
-                    Err(BlockProcessingError::Invalid(
-                        BlockInvalid::StateRootMismatch,
-                    ))
+                    Err(BlockProcessingError::StateRootMismatch)
                 }
             })
             .map(|_| state);

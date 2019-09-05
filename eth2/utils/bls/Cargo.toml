@@ -5,7 +5,8 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-milagro_bls = { git = "https://github.com/michaelsproul/milagro_bls", branch = "little-endian" }
+# FIXME: update sigp repo
+milagro_bls = { git = "https://github.com/michaelsproul/milagro_bls", branch = "little-endian-v0.10" }
 eth2_hashing = { path = "../eth2_hashing" }
 hex = "0.3"
 rand = "^0.5"

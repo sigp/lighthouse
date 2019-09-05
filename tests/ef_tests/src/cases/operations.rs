@@ -8,7 +8,7 @@ use ssz::Decode;
 use state_processing::per_block_processing::{
     errors::BlockProcessingError, process_attestations, process_attester_slashings,
     process_block_header, process_deposits, process_exits, process_proposer_slashings,
-    process_transfers,
+    process_transfers, VerifySignatures,
 };
 use std::fmt::Debug;
 use std::path::Path;
@@ -53,7 +53,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        process_attestations(state, &[self.clone()], spec)
+        process_attestations(state, &[self.clone()], VerifySignatures::True, spec)
     }
 }
 
@@ -67,7 +67,7 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        process_attester_slashings(state, &[self.clone()], spec)
+        process_attester_slashings(state, &[self.clone()], VerifySignatures::True, spec)
     }
 }
 
@@ -91,7 +91,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        process_proposer_slashings(state, &[self.clone()], spec)
+        process_proposer_slashings(state, &[self.clone()], VerifySignatures::True, spec)
     }
 }
 
@@ -101,7 +101,7 @@ impl<E: EthSpec> Operation<E> for Transfer {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        process_transfers(state, &[self.clone()], spec)
+        process_transfers(state, &[self.clone()], VerifySignatures::True, spec)
     }
 }
 
@@ -115,7 +115,7 @@ impl<E: EthSpec> Operation<E> for VoluntaryExit {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        process_exits(state, &[self.clone()], spec)
+        process_exits(state, &[self.clone()], VerifySignatures::True, spec)
     }
 }
 
@@ -133,7 +133,13 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        process_block_header(state, self, spec, true)
+        Ok(process_block_header(
+            state,
+            self,
+            None,
+            VerifySignatures::True,
+            spec,
+        )?)
     }
 }
 

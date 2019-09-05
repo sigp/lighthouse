@@ -16,9 +16,9 @@ use state_processing::per_block_processing::errors::{
 };
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation_for_block_inclusion,
-    verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
-    verify_proposer_slashing, verify_transfer, verify_transfer_time_independent_only,
-    VerifySignatures,
+    verify_attestation_for_state, verify_attester_slashing, verify_exit,
+    verify_exit_time_independent_only, verify_proposer_slashing, verify_transfer,
+    verify_transfer_time_independent_only, VerifySignatures,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
@@ -134,8 +134,8 @@ impl<T: EthSpec> OperationPool<T> {
                 verify_attestation_for_block_inclusion(
                     state,
                     attestation,
-                    spec,
                     VerifySignatures::True,
+                    spec,
                 )
                 .is_ok()
             })
@@ -220,7 +220,7 @@ impl<T: EthSpec> OperationPool<T> {
     ) -> Result<(), ProposerSlashingValidationError> {
         // TODO: should maybe insert anyway if the proposer is unknown in the validator index,
         // because they could *become* known later
-        verify_proposer_slashing(&slashing, state, spec)?;
+        verify_proposer_slashing(&slashing, state, VerifySignatures::True, spec)?;
         self.proposer_slashings
             .write()
             .insert(slashing.proposer_index, slashing);
@@ -248,7 +248,7 @@ impl<T: EthSpec> OperationPool<T> {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), AttesterSlashingValidationError> {
-        verify_attester_slashing(state, &slashing, true, spec)?;
+        verify_attester_slashing(state, &slashing, true, VerifySignatures::True, spec)?;
         let id = Self::attester_slashing_id(&slashing, state, spec);
         self.attester_slashings.write().insert(id, slashing);
         Ok(())
@@ -346,7 +346,7 @@ impl<T: EthSpec> OperationPool<T> {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), ExitValidationError> {
-        verify_exit_time_independent_only(state, &exit, spec)?;
+        verify_exit_time_independent_only(state, &exit, VerifySignatures::True, spec)?;
         self.voluntary_exits
             .write()
             .insert(exit.validator_index, exit);
@@ -361,7 +361,7 @@ impl<T: EthSpec> OperationPool<T> {
     ) -> Vec<VoluntaryExit> {
         filter_limit_operations(
             self.voluntary_exits.read().values(),
-            |exit| verify_exit(state, exit, spec).is_ok(),
+            |exit| verify_exit(state, exit, VerifySignatures::False, spec).is_ok(),
             T::MaxVoluntaryExits::to_usize(),
         )
     }
@@ -385,7 +385,7 @@ impl<T: EthSpec> OperationPool<T> {
         // The signature of the transfer isn't hashed, but because we check
         // it before we insert into the HashSet, we can't end up with duplicate
         // transactions.
-        verify_transfer_time_independent_only(state, &transfer, spec)?;
+        verify_transfer_time_independent_only(state, &transfer, VerifySignatures::True, spec)?;
         self.transfers.write().insert(transfer);
         Ok(())
     }
@@ -397,7 +397,9 @@ impl<T: EthSpec> OperationPool<T> {
         self.transfers
             .read()
             .iter()
-            .filter(|transfer| verify_transfer(state, transfer, spec).is_ok())
+            .filter(|transfer| {
+                verify_transfer(state, transfer, VerifySignatures::False, spec).is_ok()
+            })
             .sorted_by_key(|transfer| std::cmp::Reverse(transfer.fee))
             .take(T::MaxTransfers::to_usize())
             .cloned()

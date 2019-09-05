@@ -1,14 +1,16 @@
 macro_rules! verify {
     ($condition: expr, $result: expr) => {
         if !$condition {
-            return Err(Error::Invalid($result));
+            return Err(crate::per_block_processing::errors::BlockOperationError::invalid($result));
         }
     };
 }
 
-macro_rules! invalid {
-    ($result: expr) => {
-        return Err(Error::Invalid($result));
+macro_rules! block_verify {
+    ($condition: expr, $result: expr) => {
+        if !$condition {
+            return Err($result);
+        }
     };
 }
 

@@ -22,7 +22,8 @@ steps:
    1. Install build dependencies (Arch packages are listed here, your
    distribution will likely be similar):
 	  - `clang`: required by RocksDB.
-	  - `protobuf`: required for protobuf serialization (gRPC).
+	  - `protobuf`: required for protobuf serialization (gRPC)
+      - `libssl-dev`: also gRPC
 	  - `cmake`: required for building protobuf
 	  - `git-lfs`: The Git extension for [Large File
 	    Support](https://git-lfs.github.com/) (required for Ethereum Foundation
