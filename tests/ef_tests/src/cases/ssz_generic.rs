@@ -1,12 +1,16 @@
+#![allow(non_snake_case)]
+
 use super::*;
 use crate::cases::common::{SszStaticType, TestU128, TestU256};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::yaml_decode_file;
 use serde_derive::Deserialize;
+use ssz_derive::{Decode, Encode};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tree_hash_derive::TreeHash;
 use types::typenum::*;
-use types::{BitList, BitVector, FixedVector};
+use types::{BitList, BitVector, FixedVector, VariableList};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
@@ -54,7 +58,7 @@ macro_rules! type_dispatch {
             "uint64" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u64>, $($rest)*),
             "uint128" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* TestU128>, $($rest)*),
             "uint256" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* TestU256>, $($rest)*),
-            _ => { println!("unsupported: {}", $value); Ok(()) },
+            _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };
     ($function:ident,
@@ -86,7 +90,23 @@ macro_rules! type_dispatch {
             "2048" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U2048>, $($rest)*),
             "4096" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U4096>, $($rest)*),
             "8192" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U8192>, $($rest)*),
-            _ => { println!("unsupported: {}", $value); Ok(()) },
+            _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
+        }
+    };
+    ($function:ident,
+     ($($arg:expr),*),
+     $base_ty:tt,
+     <$($param_ty:ty),*>,
+     [ $value:expr => test_container ] $($rest:tt)*) => {
+        match $value {
+            "SingleFieldTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* SingleFieldTestStruct>, $($rest)*),
+            "SmallTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* SmallTestStruct>, $($rest)*),
+            "FixedTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* FixedTestStruct>, $($rest)*),
+            "VarTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* VarTestStruct>, $($rest)*),
+            "BitsStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* BitsStruct>, $($rest)*),
+            // TODO: enable ComplexTestStruct
+            "ComplexTestStruct" => Err(Error::SkippedKnownFailure),
+            _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };
     // No base type: apply type params to function
@@ -99,10 +119,6 @@ macro_rules! type_dispatch {
 }
 
 impl Case for SszGeneric {
-    fn path(&self) -> &Path {
-        &self.path
-    }
-
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         let parts = self.case_name.split('_').collect::<Vec<_>>();
 
@@ -162,7 +178,17 @@ impl Case for SszGeneric {
                     [type_name.as_str() => primitive_type]
                 )?;
             }
-            // FIXME(michael): support for the containers tests
+            "containers" => {
+                let type_name = parts[0];
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path),
+                    _,
+                    <>,
+                    [type_name => test_container]
+                )?;
+            }
             _ => panic!("unsupported handler: {}", self.handler_name),
         }
         Ok(())
@@ -187,7 +213,7 @@ fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
     };
 
     // Valid
-    // TODO: signing root
+    // TODO: signing root (annoying because of traits)
     if let Some(value) = value {
         check_serialization(&value, &serialized)?;
 
@@ -206,4 +232,39 @@ fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+// Containers for SSZ generic tests
+#[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+struct SingleFieldTestStruct {
+    A: u8,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+struct SmallTestStruct {
+    A: u16,
+    B: u16,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+struct FixedTestStruct {
+    A: u8,
+    B: u64,
+    C: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+struct VarTestStruct {
+    A: u16,
+    B: VariableList<u16, U1024>,
+    C: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+struct BitsStruct {
+    A: BitList<U5>,
+    B: BitVector<U2>,
+    C: BitVector<U1>,
+    D: BitList<U6>,
+    E: BitVector<U8>,
 }

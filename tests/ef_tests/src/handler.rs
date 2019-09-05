@@ -32,19 +32,21 @@ pub trait Handler {
             .join(Self::handler_name());
 
         // Iterate through test suites
-        // TODO: parallelism
-        // TODO: error handling?
         let test_cases = fs::read_dir(&handler_path)
-            .expect("open main directory")
+            .expect("handler dir exists")
             .flat_map(|entry| {
                 entry
                     .ok()
                     .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap_or(false))
             })
-            .flat_map(|suite| fs::read_dir(suite.path()).expect("open suite dir"))
+            .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
             .flat_map(Result::ok)
-            .map(|test_case_dir| Self::Case::load_from_dir(&test_case_dir.path()).expect("loads"))
-            .collect::<Vec<_>>();
+            .map(|test_case_dir| {
+                let path = test_case_dir.path();
+                let case = Self::Case::load_from_dir(&path).expect("test should load");
+                (path, case)
+            })
+            .collect();
 
         let results = Cases { test_cases }.test_results();
 
@@ -286,3 +288,5 @@ pub struct Boolean;
 type_name!(Boolean, "boolean");
 pub struct Uints;
 type_name!(Uints, "uints");
+pub struct Containers;
+type_name!(Containers, "containers");

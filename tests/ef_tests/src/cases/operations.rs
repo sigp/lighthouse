@@ -11,7 +11,7 @@ use state_processing::per_block_processing::{
     process_transfers,
 };
 use std::fmt::Debug;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec,
     ProposerSlashing, Transfer, VoluntaryExit,
@@ -25,7 +25,6 @@ struct Metadata {
 
 #[derive(Debug, Clone)]
 pub struct Operations<E: EthSpec, O: Operation<E>> {
-    pub path: PathBuf,
     metadata: Metadata,
     pub pre: BeaconState<E>,
     pub operation: O,
@@ -156,7 +155,6 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
         };
 
         Ok(Self {
-            path: path.into(),
             metadata,
             pre,
             operation,
@@ -171,10 +169,6 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
             .description
             .clone()
             .unwrap_or_else(String::new)
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
     }
 
     fn result(&self, _case_index: usize) -> Result<(), Error> {
