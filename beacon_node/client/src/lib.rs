@@ -169,8 +169,9 @@ where
             }
         };
 
-        let eth1_backend = T::Eth1Chain::new(String::new()).map_err(|e| format!("{:?}", e))?;
-
+        let eth1_backend =
+            T::Eth1Chain::new(String::new(), String::new(), std::path::PathBuf::new())
+                .map_err(|e| format!("{:?}", e))?;
         let beacon_chain: Arc<BeaconChain<T>> = Arc::new(
             beacon_chain_builder
                 .build(store, eth1_backend)

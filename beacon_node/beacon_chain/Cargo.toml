@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 eth2_config = { path = "../../eth2/utils/eth2_config" }
+eth1 = {path = "../eth1"}
 merkle_proof = { path = "../../eth2/utils/merkle_proof" }
 store = { path = "../store" }
 parking_lot = "0.7"

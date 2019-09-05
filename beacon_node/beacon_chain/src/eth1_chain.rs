@@ -1,6 +1,9 @@
 use crate::BeaconChainTypes;
+use eth1::web3_fetcher::Web3DataFetcher;
+use eth1::Eth1;
 use eth2_hashing::hash;
 use std::marker::PhantomData;
+use std::path::PathBuf;
 use types::{BeaconState, Deposit, Eth1Data, EthSpec, Hash256};
 
 type Result<T> = std::result::Result<T, Error>;
@@ -49,7 +52,7 @@ pub enum Error {
 }
 
 pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
-    fn new(server: String) -> Result<Self>;
+    fn new(server: String, contract_addr: String, abi_path: PathBuf) -> Result<Self>;
 
     /// Returns the `Eth1Data` that should be included in a block being produced for the given
     /// `state`.
@@ -70,7 +73,7 @@ pub struct InteropEth1ChainBackend<T: EthSpec> {
 }
 
 impl<T: EthSpec> Eth1ChainBackend<T> for InteropEth1ChainBackend<T> {
-    fn new(_server: String) -> Result<Self> {
+    fn new(_server: String, _contract_addr: String, _abi_path: PathBuf) -> Result<Self> {
         Ok(Self::default())
     }
 
@@ -99,6 +102,36 @@ impl<T: EthSpec> Default for InteropEth1ChainBackend<T> {
         Self {
             _phantom: PhantomData,
         }
+    }
+}
+
+pub struct Web3Backend<T: EthSpec> {
+    /// Eth1 object for interacting with different eth1 components
+    eth1: Eth1<Web3DataFetcher>,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: EthSpec> Eth1ChainBackend<T> for Web3Backend<T> {
+    fn new(server: String, contract_addr: String, abi_path: PathBuf) -> Result<Self> {
+        let w3 = Web3DataFetcher::new(&server, &contract_addr, abi_path)
+            .map_err(|e| Error::BackendError(format!("{:?}", e)))?;
+        Ok(Web3Backend {
+            eth1: Eth1::new(w3),
+            _phantom: PhantomData,
+        })
+    }
+
+    fn eth1_data(&self, beacon_state: &BeaconState<T>) -> Result<Eth1Data> {
+        // TODO: fix previous eth1 distance based on spec.
+        Ok(self.eth1.get_eth1_votes(beacon_state, 1024))
+    }
+
+    fn queued_deposits(&self, beacon_state: &BeaconState<T>) -> Result<Vec<Deposit>> {
+        // TODO: fix the range of deposits to be returned.
+        self.eth1
+            .deposit_cache
+            .get_deposits_upto(beacon_state.eth1_data.deposit_count)
+            .ok_or(Error::BackendError("Couldn't fetch all deposits".into()))
     }
 }
 
