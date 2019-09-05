@@ -24,13 +24,11 @@ pub struct ChainSpec {
     /*
      * Constants
      */
+    #[serde(skip_serializing)] // skipped because Serde TOML has trouble with u64::max
     pub far_future_epoch: Epoch,
-    // The above may need to be skipped because Serde TOML has trouble with u64::max.
-    // Use: #[serde(skip_serializing)]
     pub base_rewards_per_epoch: u64,
     pub deposit_contract_tree_depth: u64,
     pub seconds_per_day: u64,
-    //TODO missing JUSTIFICATION_BITS_LENGTH and ENDIANNESS
 
     /*
      * Misc
@@ -54,7 +52,6 @@ pub struct ChainSpec {
      * Initial Values
      */
     pub genesis_slot: Slot,
-    //TODO Missing genesis_epoch
     #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
     pub bls_withdrawal_prefix_byte: u8,
 
@@ -62,7 +59,6 @@ pub struct ChainSpec {
      * Time parameters
      */
     pub milliseconds_per_slot: u64,
-    //TODO should we also have SECONDS_PER_SLOT?
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
