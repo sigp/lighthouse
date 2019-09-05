@@ -6,9 +6,16 @@ use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// The beacon node topic string to subscribe to.
+/// The gossipsub topic names.
+// These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
+// For example /eth2/beacon_block/ssz
+pub const TOPIC_PREFIX: &str = "eth2";
+pub const TOPIC_ENCODING_POSTFIX: &str = "ssz";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
 pub const BEACON_ATTESTATION_TOPIC: &str = "beacon_attestation";
+pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
+pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
+pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 pub const SHARD_TOPIC_PREFIX: &str = "shard";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -63,10 +70,10 @@ impl Default for Config {
             discovery_address: "127.0.0.1".parse().expect("valid ip address"),
             discovery_port: 9000,
             max_peers: 10,
-            //TODO: Set realistic values for production
-            // Note: This defaults topics to plain strings. Not hashes
+            // Note: The topics by default are sent as plain strings. Hashes are an optional
+            // parameter.
             gs_config: GossipsubConfigBuilder::new()
-                .max_transmit_size(1_000_000)
+                .max_transmit_size(1_048_576)
                 .heartbeat_interval(Duration::from_secs(20))
                 .build(),
             boot_nodes: vec![],
