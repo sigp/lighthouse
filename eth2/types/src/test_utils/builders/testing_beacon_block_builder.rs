@@ -119,6 +119,10 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         // - The shard of the committee.
         let mut committees: Vec<(Slot, Vec<usize>, Vec<usize>, u64)> = vec![];
 
+        if slot < T::slots_per_epoch() {
+            panic!("slot is too low, will get stuck in loop")
+        }
+
         // Loop backwards through slots gathering each committee, until:
         //
         // - The slot is too old to be included in a block at this slot.

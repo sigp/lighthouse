@@ -79,14 +79,6 @@ listen_address = "127.0.0.1"
 port = 5051
 
 #
-# Legacy HTTP server configuration. To be removed.
-#
-[http]
-enabled = false
-listen_address = "127.0.0.1"
-listen_port = "5052"
-
-#
 # RESTful HTTP API server configuration.
 #
 [rest_api]
@@ -95,4 +87,4 @@ enabled = true
 # The listen port for the HTTP server.
 listen_address = "127.0.0.1"
 # The listen port for the HTTP server.
-port = 1248
+port = 5052

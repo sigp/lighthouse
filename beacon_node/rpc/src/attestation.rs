@@ -1,7 +1,7 @@
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::PubsubMessage;
-use eth2_libp2p::TopicBuilder;
-use eth2_libp2p::BEACON_ATTESTATION_TOPIC;
+use eth2_libp2p::Topic;
+use eth2_libp2p::{BEACON_ATTESTATION_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX};
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
 use network::NetworkMessage;
@@ -11,15 +11,15 @@ use protos::services::{
 };
 use protos::services_grpc::AttestationService;
 use slog::{error, info, trace, warn};
-use ssz::{ssz_encode, Decode};
+use ssz::{ssz_encode, Decode, Encode};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::Attestation;
+use types::{Attestation, Slot};
 
 #[derive(Clone)]
 pub struct AttestationServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    pub network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
     pub log: slog::Logger,
 }
 
@@ -37,49 +37,13 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
             req.get_slot()
         );
 
-        // verify the slot, drop lock on state afterwards
-        {
-            let slot_requested = req.get_slot();
-            // TODO: this whole module is legacy and not maintained well.
-            let state = &self
-                .chain
-                .speculative_state()
-                .expect("This is legacy code and should be removed");
-
-            // Start by performing some checks
-            // Check that the AttestationData is for the current slot (otherwise it will not be valid)
-            if slot_requested > state.slot.as_u64() {
-                let log_clone = self.log.clone();
-                let f = sink
-                    .fail(RpcStatus::new(
-                        RpcStatusCode::OutOfRange,
-                        Some(
-                            "AttestationData request for a slot that is in the future.".to_string(),
-                        ),
-                    ))
-                    .map_err(move |e| {
-                        error!(log_clone, "Failed to reply with failure {:?}: {:?}", req, e)
-                    });
-                return ctx.spawn(f);
-            }
-            // currently cannot handle past slots. TODO: Handle this case
-            else if slot_requested < state.slot.as_u64() {
-                let log_clone = self.log.clone();
-                let f = sink
-                    .fail(RpcStatus::new(
-                        RpcStatusCode::InvalidArgument,
-                        Some("AttestationData request for a slot that is in the past.".to_string()),
-                    ))
-                    .map_err(move |e| {
-                        error!(log_clone, "Failed to reply with failure {:?}: {:?}", req, e)
-                    });
-                return ctx.spawn(f);
-            }
-        }
-
         // Then get the AttestationData from the beacon chain
         let shard = req.get_shard();
-        let attestation_data = match self.chain.produce_attestation_data(shard) {
+        let slot_requested = req.get_slot();
+        let attestation_data = match self
+            .chain
+            .produce_attestation_data(shard, Slot::from(slot_requested))
+        {
             Ok(v) => v,
             Err(e) => {
                 // Could not produce an attestation
@@ -144,13 +108,17 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 );
 
                 // valid attestation, propagate to the network
-                let topic = TopicBuilder::new(BEACON_ATTESTATION_TOPIC).build();
-                let message = PubsubMessage::Attestation(attestation);
+                let topic_string = format!(
+                    "/{}/{}/{}",
+                    TOPIC_PREFIX, BEACON_ATTESTATION_TOPIC, TOPIC_ENCODING_POSTFIX
+                );
+                let topic = Topic::new(topic_string);
+                let message = PubsubMessage::Attestation(attestation.as_ssz_bytes());
 
                 self.network_chan
                     .try_send(NetworkMessage::Publish {
                         topics: vec![topic],
-                        message: Box::new(message),
+                        message: message,
                     })
                     .unwrap_or_else(|e| {
                         error!(
@@ -163,7 +131,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
 
                 resp.set_success(true);
             }
-            Err(e) => {
+            Err(BeaconChainError::AttestationValidationError(e)) => {
                 // Attestation was invalid
                 warn!(
                     self.log,
@@ -173,6 +141,21 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 );
                 resp.set_success(false);
                 resp.set_msg(format!("InvalidAttestation: {:?}", e).as_bytes().to_vec());
+            }
+            Err(e) => {
+                // Some other error
+                warn!(
+                    self.log,
+                    "PublishAttestation";
+                    "type" => "beacon_chain_error",
+                    "error" => format!("{:?}", e),
+                );
+                resp.set_success(false);
+                resp.set_msg(
+                    format!("There was a beacon chain error: {:?}", e)
+                        .as_bytes()
+                        .to_vec(),
+                );
             }
         };
 

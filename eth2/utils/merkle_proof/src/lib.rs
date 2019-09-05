@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate lazy_static;
 
-use ethereum_types::H256;
 use eth2_hashing::hash;
+use ethereum_types::H256;
 
 const MAX_TREE_DEPTH: usize = 32;
 const EMPTY_SLICE: &[H256] = &[];

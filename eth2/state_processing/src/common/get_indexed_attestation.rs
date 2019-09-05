@@ -1,8 +1,8 @@
 use super::get_attesting_indices;
-use crate::per_block_processing::errors::{
-    AttestationInvalid as Invalid, AttestationValidationError as Error,
-};
+use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
 use types::*;
+
+type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 
 /// Convert `attestation` to (almost) indexed-verifiable form.
 ///
@@ -10,7 +10,7 @@ use types::*;
 pub fn get_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
-) -> Result<IndexedAttestation<T>, Error> {
+) -> Result<IndexedAttestation<T>> {
     let attesting_indices =
         get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 

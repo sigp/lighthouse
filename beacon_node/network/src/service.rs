@@ -5,7 +5,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::Topic;
-use eth2_libp2p::{Libp2pEvent, PeerId};
+use eth2_libp2p::{Enr, Libp2pEvent, Multiaddr, PeerId, Swarm};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
@@ -14,15 +14,14 @@ use slog::{debug, info, o, trace};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
-use types::EthSpec;
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service<T: BeaconChainTypes> {
-    libp2p_service: Arc<Mutex<LibP2PService<T::EthSpec>>>,
+    libp2p_service: Arc<Mutex<LibP2PService>>,
+    libp2p_port: u16,
     _libp2p_exit: oneshot::Sender<()>,
-    _network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    _phantom: PhantomData<T>, //message_handler: MessageHandler,
-                              //message_handler_send: Sender<HandlerMessage>
+    _network_send: mpsc::UnboundedSender<NetworkMessage>,
+    _phantom: PhantomData<T>,
 }
 
 impl<T: BeaconChainTypes + 'static> Service<T> {
@@ -31,9 +30,9 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
         config: &NetworkConfig,
         executor: &TaskExecutor,
         log: slog::Logger,
-    ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>)> {
+    ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage>)> {
         // build the network channel
-        let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<_>>();
+        let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage>();
         // launch message handler thread
         let message_handler_log = log.new(o!("Service" => "MessageHandler"));
         let message_handler_send = MessageHandler::spawn(
@@ -43,20 +42,23 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
             message_handler_log,
         )?;
 
+        let network_log = log.new(o!("Service" => "Network"));
         // launch libp2p service
-        let libp2p_log = log.new(o!("Service" => "Libp2p"));
-        let libp2p_service = Arc::new(Mutex::new(LibP2PService::new(config.clone(), libp2p_log)?));
+        let libp2p_service = Arc::new(Mutex::new(LibP2PService::new(
+            config.clone(),
+            network_log.clone(),
+        )?));
 
-        // TODO: Spawn thread to handle libp2p messages and pass to message handler thread.
         let libp2p_exit = spawn_service(
             libp2p_service.clone(),
             network_recv,
             message_handler_send,
             executor,
-            log,
+            network_log,
         )?;
         let network_service = Service {
             libp2p_service,
+            libp2p_port: config.libp2p_port,
             _libp2p_exit: libp2p_exit,
             _network_send: network_send.clone(),
             _phantom: PhantomData,
@@ -65,15 +67,61 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
         Ok((Arc::new(network_service), network_send))
     }
 
-    pub fn libp2p_service(&self) -> Arc<Mutex<LibP2PService<T::EthSpec>>> {
+    /// Returns the local ENR from the underlying Discv5 behaviour that external peers may connect
+    /// to.
+    pub fn local_enr(&self) -> Enr {
+        self.libp2p_service
+            .lock()
+            .swarm
+            .discovery()
+            .local_enr()
+            .clone()
+    }
+
+    /// Returns the local libp2p PeerID.
+    pub fn local_peer_id(&self) -> PeerId {
+        self.libp2p_service.lock().local_peer_id.clone()
+    }
+
+    /// Returns the list of `Multiaddr` that the underlying libp2p instance is listening on.
+    pub fn listen_multiaddrs(&self) -> Vec<Multiaddr> {
+        Swarm::listeners(&self.libp2p_service.lock().swarm)
+            .cloned()
+            .collect()
+    }
+
+    /// Returns the libp2p port that this node has been configured to listen using.
+    pub fn listen_port(&self) -> u16 {
+        self.libp2p_port
+    }
+
+    /// Returns the number of libp2p connected peers.
+    pub fn connected_peers(&self) -> usize {
+        self.libp2p_service.lock().swarm.connected_peers()
+    }
+
+    /// Returns the set of `PeerId` that are connected via libp2p.
+    pub fn connected_peer_set(&self) -> Vec<PeerId> {
+        self.libp2p_service
+            .lock()
+            .swarm
+            .discovery()
+            .connected_peer_set()
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Provides a reference to the underlying libp2p service.
+    pub fn libp2p_service(&self) -> Arc<Mutex<LibP2PService>> {
         self.libp2p_service.clone()
     }
 }
 
-fn spawn_service<E: EthSpec>(
-    libp2p_service: Arc<Mutex<LibP2PService<E>>>,
-    network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-    message_handler_send: mpsc::UnboundedSender<HandlerMessage<E>>,
+fn spawn_service(
+    libp2p_service: Arc<Mutex<LibP2PService>>,
+    network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
+    message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
     executor: &TaskExecutor,
     log: slog::Logger,
 ) -> error::Result<tokio::sync::oneshot::Sender<()>> {
@@ -99,10 +147,10 @@ fn spawn_service<E: EthSpec>(
 }
 
 //TODO: Potentially handle channel errors
-fn network_service<E: EthSpec>(
-    libp2p_service: Arc<Mutex<LibP2PService<E>>>,
-    mut network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-    mut message_handler_send: mpsc::UnboundedSender<HandlerMessage<E>>,
+fn network_service(
+    libp2p_service: Arc<Mutex<LibP2PService>>,
+    mut network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
+    mut message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
     log: slog::Logger,
 ) -> impl futures::Future<Item = (), Error = eth2_libp2p::error::Error> {
     futures::future::poll_fn(move || -> Result<_, eth2_libp2p::error::Error> {
@@ -119,7 +167,7 @@ fn network_service<E: EthSpec>(
                     },
                     NetworkMessage::Publish { topics, message } => {
                         debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
-                        libp2p_service.lock().swarm.publish(topics, *message);
+                        libp2p_service.lock().swarm.publish(&topics, message);
                     }
                 },
                 Ok(Async::NotReady) => break,
@@ -143,13 +191,13 @@ fn network_service<E: EthSpec>(
                             .map_err(|_| "Failed to send RPC to handler")?;
                     }
                     Libp2pEvent::PeerDialed(peer_id) => {
-                        debug!(log, "Peer Dialed: {:?}", peer_id);
+                        debug!(log, "Peer Dialed"; "PeerID" => format!("{:?}", peer_id));
                         message_handler_send
                             .try_send(HandlerMessage::PeerDialed(peer_id))
                             .map_err(|_| "Failed to send PeerDialed to handler")?;
                     }
                     Libp2pEvent::PeerDisconnected(peer_id) => {
-                        debug!(log, "Peer Disconnected: {:?}", peer_id);
+                        debug!(log, "Peer Disconnected";  "PeerID" => format!("{:?}", peer_id));
                         message_handler_send
                             .try_send(HandlerMessage::PeerDisconnected(peer_id))
                             .map_err(|_| "Failed to send PeerDisconnected to handler")?;
@@ -176,14 +224,14 @@ fn network_service<E: EthSpec>(
 
 /// Types of messages that the network service can receive.
 #[derive(Debug)]
-pub enum NetworkMessage<E: EthSpec> {
+pub enum NetworkMessage {
     /// Send a message to libp2p service.
     //TODO: Define typing for messages across the wire
     Send(PeerId, OutgoingMessage),
     /// Publish a message to pubsub mechanism.
     Publish {
         topics: Vec<Topic>,
-        message: Box<PubsubMessage<E>>,
+        message: PubsubMessage,
     },
 }
 

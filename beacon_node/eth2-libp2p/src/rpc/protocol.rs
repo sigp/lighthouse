@@ -8,7 +8,7 @@ use futures::{
     future::{self, FutureResult},
     sink, stream, Sink, Stream,
 };
-use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, UpgradeInfo};
+use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use std::io;
 use std::time::Duration;
 use tokio::codec::Framed;
@@ -16,36 +16,37 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::prelude::*;
 use tokio::timer::timeout;
 use tokio::util::FutureExt;
+use tokio_io_timeout::TimeoutStream;
 
 /// The maximum bytes that can be sent across the RPC.
 const MAX_RPC_SIZE: usize = 4_194_304; // 4M
 /// The protocol prefix the RPC protocol id.
-const PROTOCOL_PREFIX: &str = "/eth2/beacon_node/rpc";
-/// The number of seconds to wait for a request once a protocol has been established before the stream is terminated.
-const REQUEST_TIMEOUT: u64 = 3;
+const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
+/// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
+const TTFB_TIMEOUT: u64 = 5;
+/// The number of seconds to wait for the first bytes of a request once a protocol has been
+/// established before the stream is terminated.
+const REQUEST_TIMEOUT: u64 = 15;
 
 #[derive(Debug, Clone)]
 pub struct RPCProtocol;
 
 impl UpgradeInfo for RPCProtocol {
-    type Info = RawProtocolId;
+    type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
         vec![
-            ProtocolId::new("hello", "1.0.0", "ssz").into(),
-            ProtocolId::new("goodbye", "1.0.0", "ssz").into(),
-            ProtocolId::new("beacon_block_roots", "1.0.0", "ssz").into(),
-            ProtocolId::new("beacon_block_headers", "1.0.0", "ssz").into(),
-            ProtocolId::new("beacon_block_bodies", "1.0.0", "ssz").into(),
+            ProtocolId::new("hello", "1", "ssz"),
+            ProtocolId::new("goodbye", "1", "ssz"),
+            ProtocolId::new("beacon_blocks", "1", "ssz"),
+            ProtocolId::new("recent_beacon_blocks", "1", "ssz"),
         ]
     }
 }
 
-/// The raw protocol id sent over the wire.
-type RawProtocolId = Vec<u8>;
-
 /// Tracks the types in a protocol id.
+#[derive(Clone)]
 pub struct ProtocolId {
     /// The rpc message type/name.
     pub message_name: String,
@@ -55,44 +56,31 @@ pub struct ProtocolId {
 
     /// The encoding of the RPC.
     pub encoding: String,
+
+    /// The protocol id that is formed from the above fields.
+    protocol_id: String,
 }
 
 /// An RPC protocol ID.
 impl ProtocolId {
     pub fn new(message_name: &str, version: &str, encoding: &str) -> Self {
+        let protocol_id = format!(
+            "{}/{}/{}/{}",
+            PROTOCOL_PREFIX, message_name, version, encoding
+        );
+
         ProtocolId {
             message_name: message_name.into(),
             version: version.into(),
             encoding: encoding.into(),
+            protocol_id,
         }
-    }
-
-    /// Converts a raw RPC protocol id string into an `RPCProtocolId`
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, RPCError> {
-        let protocol_string = String::from_utf8(bytes.to_vec())
-            .map_err(|_| RPCError::InvalidProtocol("Invalid protocol Id"))?;
-        let protocol_list: Vec<&str> = protocol_string.as_str().split('/').take(7).collect();
-
-        if protocol_list.len() != 7 {
-            return Err(RPCError::InvalidProtocol("Not enough '/'"));
-        }
-
-        Ok(ProtocolId {
-            message_name: protocol_list[4].into(),
-            version: protocol_list[5].into(),
-            encoding: protocol_list[6].into(),
-        })
     }
 }
 
-impl Into<RawProtocolId> for ProtocolId {
-    fn into(self) -> RawProtocolId {
-        format!(
-            "{}/{}/{}/{}",
-            PROTOCOL_PREFIX, self.message_name, self.version, self.encoding
-        )
-        .as_bytes()
-        .to_vec()
+impl ProtocolName for ProtocolId {
+    fn protocol_name(&self) -> &[u8] {
+        self.protocol_id.as_bytes()
     }
 }
 
@@ -102,7 +90,7 @@ impl Into<RawProtocolId> for ProtocolId {
 // handler to respond to once ready.
 
 pub type InboundOutput<TSocket> = (RPCRequest, InboundFramed<TSocket>);
-pub type InboundFramed<TSocket> = Framed<upgrade::Negotiated<TSocket>, InboundCodec>;
+pub type InboundFramed<TSocket> = Framed<TimeoutStream<upgrade::Negotiated<TSocket>>, InboundCodec>;
 type FnAndThen<TSocket> = fn(
     (Option<RPCRequest>, InboundFramed<TSocket>),
 ) -> FutureResult<InboundOutput<TSocket>, RPCError>;
@@ -127,18 +115,15 @@ where
     fn upgrade_inbound(
         self,
         socket: upgrade::Negotiated<TSocket>,
-        protocol: RawProtocolId,
+        protocol: ProtocolId,
     ) -> Self::Future {
-        // TODO: Verify this
-        let protocol_id =
-            ProtocolId::from_bytes(&protocol).expect("Can decode all supported protocols");
-
-        match protocol_id.encoding.as_str() {
+        match protocol.encoding.as_str() {
             "ssz" | _ => {
-                let ssz_codec =
-                    BaseInboundCodec::new(SSZInboundCodec::new(protocol_id, MAX_RPC_SIZE));
+                let ssz_codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol, MAX_RPC_SIZE));
                 let codec = InboundCodec::SSZ(ssz_codec);
-                Framed::new(socket, codec)
+                let mut timed_socket = TimeoutStream::new(socket);
+                timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
+                Framed::new(timed_socket, codec)
                     .into_future()
                     .timeout(Duration::from_secs(REQUEST_TIMEOUT))
                     .map_err(RPCError::from as FnMapErr<TSocket>)
@@ -164,14 +149,12 @@ where
 pub enum RPCRequest {
     Hello(HelloMessage),
     Goodbye(GoodbyeReason),
-    BeaconBlockRoots(BeaconBlockRootsRequest),
-    BeaconBlockHeaders(BeaconBlockHeadersRequest),
-    BeaconBlockBodies(BeaconBlockBodiesRequest),
-    BeaconChainState(BeaconChainStateRequest),
+    BeaconBlocks(BeaconBlocksRequest),
+    RecentBeaconBlocks(RecentBeaconBlocksRequest),
 }
 
 impl UpgradeInfo for RPCRequest {
-    type Info = RawProtocolId;
+    type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
     // add further protocols as we support more encodings/versions
@@ -182,22 +165,14 @@ impl UpgradeInfo for RPCRequest {
 
 /// Implements the encoding per supported protocol for RPCRequest.
 impl RPCRequest {
-    pub fn supported_protocols(&self) -> Vec<RawProtocolId> {
+    pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RPCRequest::Hello(_) => vec![ProtocolId::new("hello", "1.0.0", "ssz").into()],
-            RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", "1.0.0", "ssz").into()],
-            RPCRequest::BeaconBlockRoots(_) => {
-                vec![ProtocolId::new("beacon_block_roots", "1.0.0", "ssz").into()]
-            }
-            RPCRequest::BeaconBlockHeaders(_) => {
-                vec![ProtocolId::new("beacon_block_headers", "1.0.0", "ssz").into()]
-            }
-            RPCRequest::BeaconBlockBodies(_) => {
-                vec![ProtocolId::new("beacon_block_bodies", "1.0.0", "ssz").into()]
-            }
-            RPCRequest::BeaconChainState(_) => {
-                vec![ProtocolId::new("beacon_block_state", "1.0.0", "ssz").into()]
+            RPCRequest::Hello(_) => vec![ProtocolId::new("hello", "1", "ssz")],
+            RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", "1", "ssz")],
+            RPCRequest::BeaconBlocks(_) => vec![ProtocolId::new("beacon_blocks", "1", "ssz")],
+            RPCRequest::RecentBeaconBlocks(_) => {
+                vec![ProtocolId::new("recent_beacon_blocks", "1", "ssz")]
             }
         }
     }
@@ -230,12 +205,10 @@ where
         socket: upgrade::Negotiated<TSocket>,
         protocol: Self::Info,
     ) -> Self::Future {
-        let protocol_id =
-            ProtocolId::from_bytes(&protocol).expect("Can decode all supported protocols");
-
-        match protocol_id.encoding.as_str() {
+        match protocol.encoding.as_str() {
             "ssz" | _ => {
-                let ssz_codec = BaseOutboundCodec::new(SSZOutboundCodec::new(protocol_id, 4096));
+                let ssz_codec =
+                    BaseOutboundCodec::new(SSZOutboundCodec::new(protocol, MAX_RPC_SIZE));
                 let codec = OutboundCodec::SSZ(ssz_codec);
                 Framed::new(socket, codec).send(self)
             }

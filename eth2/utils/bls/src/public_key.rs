@@ -20,6 +20,10 @@ impl PublicKey {
         PublicKey(RawPublicKey::from_secret_key(secret_key.as_raw()))
     }
 
+    pub fn from_raw(raw: RawPublicKey) -> Self {
+        Self(raw)
+    }
+
     /// Returns the underlying signature.
     pub fn as_raw(&self) -> &RawPublicKey {
         &self.0
@@ -28,7 +32,7 @@ impl PublicKey {
     /// Returns the underlying point as compressed bytes.
     ///
     /// Identical to `self.as_uncompressed_bytes()`.
-    fn as_bytes(&self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> Vec<u8> {
         self.as_raw().as_bytes()
     }
 

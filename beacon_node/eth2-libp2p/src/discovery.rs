@@ -1,17 +1,16 @@
+use crate::metrics;
 use crate::{error, NetworkConfig};
 /// This manages the discovery and management of peers.
 ///
 /// Currently using discv5 for peer discovery.
 ///
 use futures::prelude::*;
-use libp2p::core::swarm::{
-    ConnectedPoint, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-};
-use libp2p::core::{identity::Keypair, Multiaddr, PeerId, ProtocolsHandler};
+use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::enr::{Enr, EnrBuilder, NodeId};
 use libp2p::multiaddr::Protocol;
-use slog::{debug, info, o, warn};
+use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
+use slog::{debug, info, warn};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
@@ -37,6 +36,9 @@ pub struct Discovery<TSubstream> {
     /// The target number of connected peers on the libp2p interface.
     max_peers: usize,
 
+    /// directory to save ENR to
+    enr_dir: String,
+
     /// The delay between peer discovery searches.
     peer_discovery_delay: Delay,
 
@@ -54,9 +56,6 @@ pub struct Discovery<TSubstream> {
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
-
-    /// directory to save ENR to
-    enr_dir: String,
 }
 
 impl<TSubstream> Discovery<TSubstream> {
@@ -65,7 +64,7 @@ impl<TSubstream> Discovery<TSubstream> {
         config: &NetworkConfig,
         log: &slog::Logger,
     ) -> error::Result<Self> {
-        let log = log.new(o!("Service" => "Libp2p-Discovery"));
+        let log = log.clone();
 
         // checks if current ENR matches that found on disk
         let local_enr = load_enr(local_key, config, &log)?;
@@ -75,19 +74,19 @@ impl<TSubstream> Discovery<TSubstream> {
             None => String::from(""),
         };
 
-        info!(log, "Local ENR: {}", local_enr.to_base64());
-        debug!(log, "Local Node Id: {}", local_enr.node_id());
-        debug!(log, "Local ENR seq: {}", local_enr.seq());
+        info!(log, "ENR Initialised"; "ENR" => local_enr.to_base64(), "Seq" => local_enr.seq());
+        debug!(log, "Discv5 Node ID Initialised"; "node_id" => format!("{}",local_enr.node_id()));
 
         let mut discovery = Discv5::new(local_enr, local_key.clone(), config.listen_address)
-            .map_err(|e| format!("Discv5 service failed: {:?}", e))?;
+            .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
         for bootnode_enr in config.boot_nodes.clone() {
             debug!(
                 log,
-                "Adding node to routing table: {}",
-                bootnode_enr.node_id()
+                "Adding node to routing table";
+                "Node ID" => format!("{}",
+                bootnode_enr.node_id())
             );
             discovery.add_enr(bootnode_enr);
         }
@@ -102,6 +101,10 @@ impl<TSubstream> Discovery<TSubstream> {
             log,
             enr_dir,
         })
+    }
+
+    pub fn local_enr(&self) -> &Enr {
+        self.discovery.local_enr()
     }
 
     /// Manually search for peers. This restarts the discovery round, sparking multiple rapid
@@ -121,11 +124,16 @@ impl<TSubstream> Discovery<TSubstream> {
         self.connected_peers.len()
     }
 
+    /// The current number of connected libp2p peers.
+    pub fn connected_peer_set(&self) -> &HashSet<PeerId> {
+        &self.connected_peers
+    }
+
     /// Search for new peers using the underlying discovery mechanism.
     fn find_peers(&mut self) {
         // pick a random NodeId
         let random_node = NodeId::random();
-        debug!(self.log, "Searching for peers...");
+        debug!(self.log, "Searching for peers");
         self.discovery.find_node(random_node);
 
         // update the time until next discovery
@@ -161,10 +169,16 @@ where
 
     fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
         self.connected_peers.insert(peer_id);
+
+        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, _endpoint: ConnectedPoint) {
         self.connected_peers.remove(peer_id);
+
+        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
     }
 
     fn inject_replaced(
@@ -203,7 +217,7 @@ where
                 }
                 Ok(Async::NotReady) => break,
                 Err(e) => {
-                    warn!(self.log, "Discovery peer search failed: {:?}", e);
+                    warn!(self.log, "Discovery peer search failed"; "Error" => format!("{:?}", e));
                 }
             }
         }
@@ -219,6 +233,7 @@ where
                         }
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "IP" => format!("{}",socket.ip()));
+                            metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             let mut address = Multiaddr::from(socket.ip());
                             address.push(Protocol::Tcp(self.tcp_port));
                             let enr = self.discovery.local_enr();
@@ -229,16 +244,16 @@ where
                             });
                         }
                         Discv5Event::FindNodeResult { closer_peers, .. } => {
-                            debug!(self.log, "Discv5 query found {} peers", closer_peers.len());
+                            debug!(self.log, "Discovery query completed"; "peers_found" => closer_peers.len());
                             if closer_peers.is_empty() {
-                                debug!(self.log, "Discv5 random query yielded empty results");
+                                debug!(self.log, "Discovery random query found no peers");
                             }
                             for peer_id in closer_peers {
                                 // if we need more peers, attempt a connection
                                 if self.connected_peers.len() < self.max_peers
                                     && self.connected_peers.get(&peer_id).is_none()
                                 {
-                                    debug!(self.log, "Discv5: Peer discovered"; "Peer"=> format!("{:?}", peer_id));
+                                    debug!(self.log, "Peer discovered"; "peer_id"=> format!("{:?}", peer_id));
                                     return Async::Ready(NetworkBehaviourAction::DialPeer {
                                         peer_id,
                                     });
@@ -285,14 +300,12 @@ fn load_enr(
             Ok(_) => {
                 match Enr::from_str(&enr_string) {
                     Ok(enr) => {
-                        debug!(log, "ENR found in file: {:?}", enr_f);
-
                         if enr.node_id() == local_enr.node_id() {
                             if enr.ip() == config.discovery_address.into()
                                 && enr.tcp() == Some(config.libp2p_port)
                                 && enr.udp() == Some(config.discovery_port)
                             {
-                                debug!(log, "ENR loaded from file");
+                                debug!(log, "ENR loaded from file"; "file" => format!("{:?}", enr_f));
                                 // the stored ENR has the same configuration, use it
                                 return Ok(enr);
                             }
@@ -302,11 +315,11 @@ fn load_enr(
                             local_enr.set_seq(new_seq_no, local_key).map_err(|e| {
                                 format!("Could not update ENR sequence number: {:?}", e)
                             })?;
-                            debug!(log, "ENR sequence number increased to: {}", new_seq_no);
+                            debug!(log, "ENR sequence number increased"; "seq" =>  new_seq_no);
                         }
                     }
                     Err(e) => {
-                        warn!(log, "ENR from file could not be decoded: {:?}", e);
+                        warn!(log, "ENR from file could not be decoded"; "error" => format!("{:?}", e));
                     }
                 }
             }
@@ -329,7 +342,7 @@ fn save_enr_to_disc(dir: &Path, enr: &Enr, log: &slog::Logger) {
         Err(e) => {
             warn!(
                 log,
-                "Could not write ENR to file: {:?}{:?}. Error: {}", dir, ENR_FILENAME, e
+                "Could not write ENR to file"; "file" => format!("{:?}{:?}",dir, ENR_FILENAME),  "error" => format!("{}", e)
             );
         }
     }

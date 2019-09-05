@@ -25,7 +25,7 @@ use tokio::sync::mpsc;
 pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     config: &RPCConfig,
     executor: &TaskExecutor,
-    network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    network_chan: mpsc::UnboundedSender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
     log: &slog::Logger,
 ) -> exit_future::Signal {
@@ -80,7 +80,12 @@ pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
     let spawn_rpc = {
         server.start();
         for &(ref host, port) in server.bind_addrs() {
-            info!(log, "gRPC listening on {}:{}", host, port);
+            info!(
+                log,
+                "gRPC API started";
+                "port" => port,
+                "host" => host,
+            );
         }
         rpc_exit.and_then(move |_| {
             info!(log, "RPC Server shutting down");

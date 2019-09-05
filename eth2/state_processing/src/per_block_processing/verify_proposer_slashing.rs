@@ -1,6 +1,13 @@
-use super::errors::{ProposerSlashingInvalid as Invalid, ProposerSlashingValidationError as Error};
-use tree_hash::SignedRoot;
+use super::errors::{BlockOperationError, ProposerSlashingInvalid as Invalid};
+use super::signature_sets::proposer_slashing_signature_set;
+use crate::VerifySignatures;
 use types::*;
+
+type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
+
+fn error(reason: Invalid) -> BlockOperationError<Invalid> {
+    BlockOperationError::invalid(reason)
+}
 
 /// Indicates if a `ProposerSlashing` is valid to be included in a block in the current epoch of the given
 /// state.
@@ -11,14 +18,13 @@ use types::*;
 pub fn verify_proposer_slashing<T: EthSpec>(
     proposer_slashing: &ProposerSlashing,
     state: &BeaconState<T>,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<()> {
     let proposer = state
         .validators
         .get(proposer_slashing.proposer_index as usize)
-        .ok_or_else(|| {
-            Error::Invalid(Invalid::ProposerUnknown(proposer_slashing.proposer_index))
-        })?;
+        .ok_or_else(|| error(Invalid::ProposerUnknown(proposer_slashing.proposer_index)))?;
 
     // Verify that the epoch is the same
     verify!(
@@ -42,44 +48,12 @@ pub fn verify_proposer_slashing<T: EthSpec>(
         Invalid::ProposerNotSlashable(proposer_slashing.proposer_index)
     );
 
-    verify!(
-        verify_header_signature::<T>(
-            &proposer_slashing.header_1,
-            &proposer.pubkey,
-            &state.fork,
-            spec
-        ),
-        Invalid::BadProposal1Signature
-    );
-    verify!(
-        verify_header_signature::<T>(
-            &proposer_slashing.header_2,
-            &proposer.pubkey,
-            &state.fork,
-            spec
-        ),
-        Invalid::BadProposal2Signature
-    );
+    if verify_signatures.is_true() {
+        let (signature_set_1, signature_set_2) =
+            proposer_slashing_signature_set(state, proposer_slashing, spec)?;
+        verify!(signature_set_1.is_valid(), Invalid::BadProposal1Signature);
+        verify!(signature_set_2.is_valid(), Invalid::BadProposal2Signature);
+    }
 
     Ok(())
-}
-
-/// Verifies the signature of a proposal.
-///
-/// Returns `true` if the signature is valid.
-///
-/// Spec v0.8.0
-fn verify_header_signature<T: EthSpec>(
-    header: &BeaconBlockHeader,
-    pubkey: &PublicKey,
-    fork: &Fork,
-    spec: &ChainSpec,
-) -> bool {
-    let message = header.signed_root();
-    let domain = spec.get_domain(
-        header.slot.epoch(T::slots_per_epoch()),
-        Domain::BeaconProposer,
-        fork,
-    );
-    header.signature.verify(&message[..], domain, pubkey)
 }

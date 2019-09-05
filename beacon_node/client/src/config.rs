@@ -1,14 +1,10 @@
 use clap::ArgMatches;
-use http_server::HttpServerConfig;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use slog::{info, o, Drain};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Mutex;
-
-/// The number initial validators when starting the `Minimal`.
-const TESTNET_VALIDATOR_COUNT: usize = 16;
 
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
@@ -21,32 +17,73 @@ pub struct Config {
     db_name: String,
     pub log_file: PathBuf,
     pub spec_constants: String,
-    pub genesis_state: GenesisState,
+    /// Defines how we should initialize a BeaconChain instances.
+    ///
+    /// This field is not serialized, there for it will not be written to (or loaded from) config
+    /// files. It can only be configured via the CLI.
+    #[serde(skip)]
+    pub beacon_chain_start_method: BeaconChainStartMethod,
+    pub eth1_backend_method: Eth1BackendMethod,
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
-    pub http: HttpServerConfig,
-    pub rest_api: rest_api::APIConfig,
+    pub rest_api: rest_api::ApiConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum GenesisState {
-    /// Use the mainnet genesis state.
-    ///
-    /// Mainnet genesis state is not presently known, so this is a place-holder.
+/// Defines how the client should initialize a BeaconChain.
+///
+/// In general, there are two methods:
+///  - resuming a new chain, or
+///  - initializing a new one.
+#[derive(Debug, Clone)]
+pub enum BeaconChainStartMethod {
+    /// Resume from an existing BeaconChain, loaded from the existing local database.
+    Resume,
+    /// Resume from an existing BeaconChain, loaded from the existing local database.
     Mainnet,
-    /// Generate a state with `validator_count` validators, all with well-known secret keys.
+    /// Create a new beacon chain that can connect to mainnet.
     ///
     /// Set the genesis time to be the start of the previous 30-minute window.
-    RecentGenesis { validator_count: usize },
-    /// Generate a state with `genesis_time` and `validator_count` validators, all with well-known
+    RecentGenesis {
+        validator_count: usize,
+        minutes: u64,
+    },
+    /// Create a new beacon chain with `genesis_time` and `validator_count` validators, all with well-known
     /// secret keys.
     Generated {
         validator_count: usize,
         genesis_time: u64,
     },
-    /// Load a YAML-encoded genesis state from a file.
+    /// Create a new beacon chain by loading a YAML-encoded genesis state from a file.
     Yaml { file: PathBuf },
+    /// Create a new beacon chain by loading a SSZ-encoded genesis state from a file.
+    Ssz { file: PathBuf },
+    /// Create a new beacon chain by loading a JSON-encoded genesis state from a file.
+    Json { file: PathBuf },
+    /// Create a new beacon chain by using a HTTP server (running our REST-API) to load genesis and
+    /// finalized states and blocks.
+    HttpBootstrap { server: String, port: Option<u16> },
+}
+
+impl Default for BeaconChainStartMethod {
+    fn default() -> Self {
+        BeaconChainStartMethod::Resume
+    }
+}
+
+/// Defines which Eth1 backend the client should use.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum Eth1BackendMethod {
+    /// Use the mocked eth1 backend used in interop testing
+    Interop,
+    /// Use a web3 connection to a running Eth1 node.
+    Web3 { server: String },
+}
+
+impl Default for Eth1BackendMethod {
+    fn default() -> Self {
+        Eth1BackendMethod::Interop
+    }
 }
 
 impl Default for Config {
@@ -56,16 +93,12 @@ impl Default for Config {
             log_file: PathBuf::from(""),
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
-            // Note: there are no default bootnodes specified.
-            // Once bootnodes are established, add them here.
             network: NetworkConfig::new(),
-            rpc: rpc::RPCConfig::default(),
-            http: HttpServerConfig::default(),
-            rest_api: rest_api::APIConfig::default(),
+            rpc: <_>::default(),
+            rest_api: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
-            genesis_state: GenesisState::RecentGenesis {
-                validator_count: TESTNET_VALIDATOR_COUNT,
-            },
+            beacon_chain_start_method: <_>::default(),
+            eth1_backend_method: <_>::default(),
         }
     }
 }
@@ -78,6 +111,8 @@ impl Config {
     }
 
     /// Returns the core path for the client.
+    ///
+    /// Creates the directory if it does not exist.
     pub fn data_dir(&self) -> Option<PathBuf> {
         let path = dirs::home_dir()?.join(&self.data_dir);
         fs::create_dir_all(&path).ok()?;
@@ -135,7 +170,6 @@ impl Config {
 
         self.network.apply_cli_args(args)?;
         self.rpc.apply_cli_args(args)?;
-        self.http.apply_cli_args(args)?;
         self.rest_api.apply_cli_args(args)?;
 
         if let Some(log_file) = args.value_of("logfile") {

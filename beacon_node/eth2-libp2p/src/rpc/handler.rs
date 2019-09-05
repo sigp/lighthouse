@@ -1,27 +1,25 @@
-use super::methods::{RPCErrorResponse, RPCResponse, RequestId};
+use super::methods::RequestId;
 use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
 use core::marker::PhantomData;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use libp2p::core::protocols_handler::{
+use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
+use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
 use smallvec::SmallVec;
 use std::time::{Duration, Instant};
 use tokio_io::{AsyncRead, AsyncWrite};
-use types::EthSpec;
 
-/// The time (in seconds) before a substream that is awaiting a response times out.
-pub const RESPONSE_TIMEOUT: u64 = 9;
+/// The time (in seconds) before a substream that is awaiting a response from the user times out.
+pub const RESPONSE_TIMEOUT: u64 = 10;
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
-pub struct RPCHandler<TSubstream, E>
+pub struct RPCHandler<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
-    E: EthSpec,
 {
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol>,
@@ -56,8 +54,8 @@ where
     /// After the given duration has elapsed, an inactive connection will shutdown.
     inactive_timeout: Duration,
 
-    /// Phantom EthSpec.
-    _phantom: PhantomData<E>,
+    /// Marker to pin the generic stream.
+    _phantom: PhantomData<TSubstream>,
 }
 
 /// An outbound substream is waiting a response from the user.
@@ -90,10 +88,9 @@ where
     },
 }
 
-impl<TSubstream, E> RPCHandler<TSubstream, E>
+impl<TSubstream> RPCHandler<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
-    E: EthSpec,
 {
     pub fn new(
         listen_protocol: SubstreamProtocol<RPCProtocol>,
@@ -145,20 +142,18 @@ where
     }
 }
 
-impl<TSubstream, E> Default for RPCHandler<TSubstream, E>
+impl<TSubstream> Default for RPCHandler<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
-    E: EthSpec,
 {
     fn default() -> Self {
         RPCHandler::new(SubstreamProtocol::new(RPCProtocol), Duration::from_secs(30))
     }
 }
 
-impl<TSubstream, E> ProtocolsHandler for RPCHandler<TSubstream, E>
+impl<TSubstream> ProtocolsHandler for RPCHandler<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
-    E: EthSpec,
 {
     type InEvent = RPCEvent;
     type OutEvent = RPCEvent;
@@ -273,7 +268,11 @@ where
         Self::Error,
     > {
         if let Some(err) = self.pending_error.take() {
-            return Err(err);
+            // Returning an error here will result in dropping any peer that doesn't support any of
+            // the RPC protocols. For our immediate purposes we permit this and simply log that an
+            // upgrade was not supported.
+            // TODO: Add a logger to the handler for trace output.
+            dbg!(&err);
         }
 
         // return any events that need to be reported
@@ -315,14 +314,14 @@ where
                     Ok(Async::Ready(response)) => {
                         if let Some(response) = response {
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                                build_response(rpc_event, response),
+                                RPCEvent::Response(rpc_event.id(), response),
                             )));
                         } else {
-                            // stream closed early
+                            // stream closed early or nothing was sent
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                                 RPCEvent::Error(
                                     rpc_event.id(),
-                                    RPCError::Custom("Stream Closed Early".into()),
+                                    RPCError::Custom("Stream closed early. Empty response".into()),
                                 ),
                             )));
                         }
@@ -364,33 +363,5 @@ where
             self.dial_queue.shrink_to_fit();
         }
         Ok(Async::NotReady)
-    }
-}
-
-/// Given a response back from a peer and the request that sent it, construct a response to send
-/// back to the user. This allows for some data manipulation of responses given requests.
-fn build_response(rpc_event: RPCEvent, rpc_response: RPCErrorResponse) -> RPCEvent {
-    let id = rpc_event.id();
-
-    // handle the types of responses
-    match rpc_response {
-        RPCErrorResponse::Success(response) => {
-            match response {
-                // if the response is block roots, tag on the extra request data
-                RPCResponse::BeaconBlockBodies(mut resp) => {
-                    if let RPCEvent::Request(_id, RPCRequest::BeaconBlockBodies(bodies_req)) =
-                        rpc_event
-                    {
-                        resp.block_roots = Some(bodies_req.block_roots);
-                    }
-                    RPCEvent::Response(
-                        id,
-                        RPCErrorResponse::Success(RPCResponse::BeaconBlockBodies(resp)),
-                    )
-                }
-                _ => RPCEvent::Response(id, RPCErrorResponse::Success(response)),
-            }
-        }
-        _ => RPCEvent::Response(id, rpc_response),
     }
 }

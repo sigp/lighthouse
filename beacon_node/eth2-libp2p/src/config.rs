@@ -1,13 +1,21 @@
 use clap::ArgMatches;
 use enr::Enr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
+use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// The beacon node topic string to subscribe to.
-pub const BEACON_PUBSUB_TOPIC: &str = "beacon_block";
+/// The gossipsub topic names.
+// These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
+// For example /eth2/beacon_block/ssz
+pub const TOPIC_PREFIX: &str = "eth2";
+pub const TOPIC_ENCODING_POSTFIX: &str = "ssz";
+pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
 pub const BEACON_ATTESTATION_TOPIC: &str = "beacon_attestation";
+pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
+pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
+pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 pub const SHARD_TOPIC_PREFIX: &str = "shard";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -39,6 +47,9 @@ pub struct Config {
     /// List of nodes to initially connect to.
     pub boot_nodes: Vec<Enr>,
 
+    /// List of libp2p nodes to initially connect to.
+    pub libp2p_nodes: Vec<Multiaddr>,
+
     /// Client version
     pub client_version: String,
 
@@ -59,13 +70,14 @@ impl Default for Config {
             discovery_address: "127.0.0.1".parse().expect("valid ip address"),
             discovery_port: 9000,
             max_peers: 10,
-            //TODO: Set realistic values for production
+            // Note: The topics by default are sent as plain strings. Hashes are an optional
+            // parameter.
             gs_config: GossipsubConfigBuilder::new()
-                .max_gossip_size(4_000_000)
-                .inactivity_timeout(Duration::from_secs(90))
+                .max_transmit_size(1_048_576)
                 .heartbeat_interval(Duration::from_secs(20))
                 .build(),
             boot_nodes: vec![],
+            libp2p_nodes: vec![],
             client_version: version::version(),
             topics: Vec::new(),
         }
@@ -116,6 +128,21 @@ impl Config {
                 .split(',')
                 .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
                 .collect::<Result<Vec<Enr>, _>>()?;
+        }
+
+        if let Some(libp2p_addresses_str) = args.value_of("libp2p-addresses") {
+            self.libp2p_nodes = libp2p_addresses_str
+                .split(',')
+                .map(|multiaddr| {
+                    multiaddr
+                        .parse()
+                        .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
+                })
+                .collect::<Result<Vec<Multiaddr>, _>>()?;
+        }
+
+        if let Some(topics_str) = args.value_of("topics") {
+            self.topics = topics_str.split(',').map(|s| s.into()).collect();
         }
 
         if let Some(discovery_address_str) = args.value_of("discovery-address") {

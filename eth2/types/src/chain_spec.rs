@@ -58,7 +58,7 @@ pub struct ChainSpec {
     /*
      * Time parameters
      */
-    pub seconds_per_slot: u64,
+    pub milliseconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub activation_exit_delay: u64,
@@ -92,7 +92,7 @@ pub struct ChainSpec {
     domain_transfer: u32,
 
     pub boot_nodes: Vec<String>,
-    pub chain_id: u8,
+    pub network_id: u8,
 }
 
 impl ChainSpec {
@@ -158,7 +158,7 @@ impl ChainSpec {
             /*
              * Time parameters
              */
-            seconds_per_slot: 6,
+            milliseconds_per_slot: 6_000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             activation_exit_delay: 4,
@@ -190,7 +190,7 @@ impl ChainSpec {
              * Network specific
              */
             boot_nodes: vec![],
-            chain_id: 1, // mainnet chain id
+            network_id: 1, // mainnet network id
         }
     }
 
@@ -208,7 +208,23 @@ impl ChainSpec {
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
             max_epochs_per_crosslink: 4,
-            chain_id: 2, // lighthouse testnet chain id
+            network_id: 2, // lighthouse testnet network id
+            boot_nodes,
+            ..ChainSpec::mainnet()
+        }
+    }
+
+    /// Interop testing spec
+    ///
+    /// This allows us to customize a chain spec for interop testing.
+    pub fn interop() -> Self {
+        let boot_nodes = vec![];
+
+        Self {
+            milliseconds_per_slot: 12_000,
+            target_committee_size: 4,
+            shuffle_round_count: 10,
+            network_id: 13,
             boot_nodes,
             ..ChainSpec::mainnet()
         }

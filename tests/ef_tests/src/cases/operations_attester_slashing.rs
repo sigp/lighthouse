@@ -2,7 +2,7 @@ use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use serde_derive::Deserialize;
-use state_processing::per_block_processing::process_attester_slashings;
+use state_processing::per_block_processing::{process_attester_slashings, VerifySignatures};
 use types::{AttesterSlashing, BeaconState, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -38,8 +38,12 @@ impl<E: EthSpec> Case for OperationsAttesterSlashing<E> {
         // Processing requires the epoch cache.
         state.build_all_caches(&E::default_spec()).unwrap();
 
-        let result =
-            process_attester_slashings(&mut state, &[attester_slashing], &E::default_spec());
+        let result = process_attester_slashings(
+            &mut state,
+            &[attester_slashing],
+            VerifySignatures::True,
+            &E::default_spec(),
+        );
 
         let mut result = result.and_then(|_| Ok(state));
 

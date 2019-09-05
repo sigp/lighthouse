@@ -1,27 +1,105 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, CommonTypes, PersistedBeaconChain,
-    BEACON_CHAIN_DB_KEY,
+#[macro_use]
+extern crate lazy_static;
+
+use beacon_chain::AttestationProcessingOutcome;
+use beacon_chain::{
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, CommonTypes, PersistedBeaconChain,
+        BEACON_CHAIN_DB_KEY,
+    },
+    BlockProcessingOutcome,
 };
 use lmd_ghost::ThreadSafeReducedTree;
 use rand::Rng;
 use store::{MemoryStore, Store};
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use types::{Deposit, EthSpec, Hash256, MinimalEthSpec, Slot};
+use types::{Deposit, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 24;
 
+lazy_static! {
+    /// A cached set of keys.
+    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
+}
+
 type TestForkChoice = ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>;
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<TestForkChoice, MinimalEthSpec> {
-    let harness = BeaconChainHarness::new(validator_count);
+    let harness = BeaconChainHarness::new(KEYPAIRS[0..validator_count].to_vec());
 
-    // Move past the zero slot.
     harness.advance_slot();
 
     harness
+}
+
+#[test]
+fn iterators() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        // No need to produce attestations for this test.
+        AttestationStrategy::SomeValidators(vec![]),
+    );
+
+    let block_roots: Vec<(Hash256, Slot)> = harness.chain.rev_iter_block_roots().collect();
+    let state_roots: Vec<(Hash256, Slot)> = harness.chain.rev_iter_state_roots().collect();
+
+    assert_eq!(
+        block_roots.len(),
+        state_roots.len(),
+        "should be an equal amount of block and state roots"
+    );
+
+    assert!(
+        block_roots.iter().any(|(_root, slot)| *slot == 0),
+        "should contain genesis block root"
+    );
+    assert!(
+        state_roots.iter().any(|(_root, slot)| *slot == 0),
+        "should contain genesis state root"
+    );
+
+    assert_eq!(
+        block_roots.len(),
+        num_blocks_produced as usize + 1,
+        "should contain all produced blocks, plus the genesis block"
+    );
+
+    block_roots.windows(2).for_each(|x| {
+        assert_eq!(
+            x[1].1,
+            x[0].1 - 1,
+            "block root slots should be decreasing by one"
+        )
+    });
+    state_roots.windows(2).for_each(|x| {
+        assert_eq!(
+            x[1].1,
+            x[0].1 - 1,
+            "state root slots should be decreasing by one"
+        )
+    });
+
+    let head = &harness.chain.head();
+
+    assert_eq!(
+        *block_roots.first().expect("should have some block roots"),
+        (head.beacon_block_root, head.beacon_block.slot),
+        "first block root and slot should be for the head block"
+    );
+
+    assert_eq!(
+        *state_roots.first().expect("should have some state roots"),
+        (head.beacon_state_root, head.beacon_state.slot),
+        "first state root and slot should be for the head state"
+    );
 }
 
 #[test]
@@ -247,7 +325,187 @@ fn roundtrip_operation_pool() {
     let p: PersistedBeaconChain<CommonTypes<TestForkChoice, MinimalEthSpec>> =
         harness.chain.store.get(&key).unwrap().unwrap();
 
-    let restored_op_pool = p.op_pool.into_operation_pool(&p.state, &harness.spec);
+    let restored_op_pool = p
+        .op_pool
+        .into_operation_pool(&p.canonical_head.beacon_state, &harness.spec);
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
+}
+
+#[test]
+fn free_attestations_added_to_fork_choice_some_none() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() / 2;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    let state = &harness.chain.head().beacon_state;
+    let fork_choice = &harness.chain.fork_choice;
+
+    let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
+        .into_iter()
+        .map(|validator_index| {
+            let slot = state
+                .get_attestation_duties(validator_index, RelativeEpoch::Current)
+                .expect("should get attester duties")
+                .unwrap()
+                .slot;
+
+            (validator_index, slot)
+        })
+        .collect();
+
+    for (validator, slot) in validator_slots.clone() {
+        let latest_message = fork_choice.latest_message(validator);
+
+        if slot <= num_blocks_produced && slot != 0 {
+            assert_eq!(
+                latest_message.unwrap().1,
+                slot,
+                "Latest message slot for {} should be equal to slot {}.",
+                validator,
+                slot
+            )
+        } else {
+            assert!(
+                latest_message.is_none(),
+                "Latest message slot should be None."
+            )
+        }
+    }
+}
+
+#[test]
+fn attestations_with_increasing_slots() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    let mut attestations = vec![];
+
+    for _ in 0..num_blocks_produced {
+        harness.extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            // Don't produce & include any attestations (we'll collect them later).
+            AttestationStrategy::SomeValidators(vec![]),
+        );
+
+        attestations.append(&mut harness.get_free_attestations(
+            &AttestationStrategy::AllValidators,
+            &harness.chain.head().beacon_state,
+            harness.chain.head().beacon_block_root,
+            harness.chain.head().beacon_block.slot,
+        ));
+
+        harness.advance_slot();
+    }
+
+    for attestation in attestations {
+        assert_eq!(
+            harness.chain.process_attestation(attestation),
+            Ok(AttestationProcessingOutcome::Processed)
+        )
+    }
+}
+
+#[test]
+fn free_attestations_added_to_fork_choice_all_updated() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    let state = &harness.chain.head().beacon_state;
+    let fork_choice = &harness.chain.fork_choice;
+
+    let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
+    let slots: Vec<Slot> = validators
+        .iter()
+        .map(|&v| {
+            state
+                .get_attestation_duties(v, RelativeEpoch::Current)
+                .expect("should get attester duties")
+                .unwrap()
+                .slot
+        })
+        .collect();
+    let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
+
+    for (validator, slot) in validator_slots {
+        let latest_message = fork_choice.latest_message(*validator);
+
+        assert_eq!(
+            latest_message.unwrap().1,
+            slot,
+            "Latest message slot should be equal to attester duty."
+        );
+
+        if slot != num_blocks_produced {
+            let block_root = state
+                .get_block_root(slot)
+                .expect("Should get block root at slot");
+
+            assert_eq!(
+                latest_message.unwrap().0,
+                *block_root,
+                "Latest message block root should be equal to block at slot."
+            );
+        }
+    }
+}
+
+fn run_skip_slot_test(skip_slots: u64) {
+    let num_validators = 8;
+    let harness_a = get_harness(num_validators);
+    let harness_b = get_harness(num_validators);
+
+    for _ in 0..skip_slots {
+        harness_a.advance_slot();
+        harness_b.advance_slot();
+    }
+
+    harness_a.extend_chain(
+        1,
+        BlockStrategy::OnCanonicalHead,
+        // No attestation required for test.
+        AttestationStrategy::SomeValidators(vec![]),
+    );
+
+    assert_eq!(
+        harness_a.chain.head().beacon_block.slot,
+        Slot::new(skip_slots + 1)
+    );
+    assert_eq!(harness_b.chain.head().beacon_block.slot, Slot::new(0));
+
+    assert_eq!(
+        harness_b
+            .chain
+            .process_block(harness_a.chain.head().beacon_block.clone()),
+        Ok(BlockProcessingOutcome::Processed {
+            block_root: harness_a.chain.head().beacon_block_root
+        })
+    );
+
+    assert_eq!(
+        harness_b.chain.head().beacon_block.slot,
+        Slot::new(skip_slots + 1)
+    );
+}
+
+#[test]
+fn produces_and_processes_with_genesis_skip_slots() {
+    for i in 0..MinimalEthSpec::slots_per_epoch() * 4 {
+        run_skip_slot_test(i)
+    }
 }

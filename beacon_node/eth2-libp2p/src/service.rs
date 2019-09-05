@@ -1,10 +1,10 @@
 use crate::behaviour::{Behaviour, BehaviourEvent, PubsubMessage};
+use crate::config::*;
 use crate::error;
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
 use crate::NetworkConfig;
-use crate::{TopicBuilder, TopicHash};
-use crate::{BEACON_ATTESTATION_TOPIC, BEACON_PUBSUB_TOPIC};
+use crate::{Topic, TopicHash};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -16,38 +16,36 @@ use libp2p::core::{
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
 use libp2p::{core, secio, PeerId, Swarm, Transport};
-use slog::{debug, info, trace, warn};
+use slog::{crit, debug, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
-use types::EthSpec;
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
-type Libp2pBehaviour<E> = Behaviour<Substream<StreamMuxerBox>, E>;
+type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
 
 const NETWORK_KEY_FILENAME: &str = "key";
 
 /// The configuration and state of the libp2p components for the beacon node.
-pub struct Service<E: EthSpec> {
+pub struct Service {
     /// The libp2p Swarm handler.
     //TODO: Make this private
-    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour<E>>,
+    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour>,
     /// This node's PeerId.
-    _local_peer_id: PeerId,
+    pub local_peer_id: PeerId,
     /// The libp2p logger handle.
     pub log: slog::Logger,
 }
 
-impl<E: EthSpec> Service<E> {
+impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
-        debug!(log, "Network-libp2p Service starting");
+        trace!(log, "Libp2p Service starting");
 
         // load the private key from CLI flag, disk or generate a new one
         let local_private_key = load_private_key(&config, &log);
-
         let local_peer_id = PeerId::from(local_private_key.public());
-        info!(log, "Local peer id: {:?}", local_peer_id);
+        info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", local_peer_id));
 
         let mut swarm = {
             // Set up the transport - tcp/ws with secio and mplex/yamux
@@ -68,44 +66,80 @@ impl<E: EthSpec> Service<E> {
             Ok(_) => {
                 let mut log_address = listen_multiaddr;
                 log_address.push(Protocol::P2p(local_peer_id.clone().into()));
-                info!(log, "Listening on: {}", log_address);
+                info!(log, "Listening established"; "address" => format!("{}", log_address));
             }
-            Err(err) => warn!(
-                log,
-                "Cannot listen on: {} because: {:?}", listen_multiaddr, err
-            ),
+            Err(err) => {
+                crit!(
+                    log,
+                    "Unable to listen on libp2p address";
+                    "error" => format!("{:?}", err),
+                    "listen_multiaddr" => format!("{}", listen_multiaddr),
+                );
+                return Err("Libp2p was unable to listen on the given listen address.".into());
+            }
         };
+
+        // attempt to connect to user-input libp2p nodes
+        for multiaddr in config.libp2p_nodes {
+            match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
+                Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => format!("{}", multiaddr)),
+                Err(err) => debug!(
+                    log,
+                    "Could not connect to peer"; "address" => format!("{}", multiaddr), "Error" => format!("{:?}", err)
+                ),
+            };
+        }
 
         // subscribe to default gossipsub topics
         let mut topics = vec![];
-        //TODO: Handle multiple shard attestations. For now we simply use a separate topic for
-        //attestations
-        topics.push(BEACON_ATTESTATION_TOPIC.to_string());
-        topics.push(BEACON_PUBSUB_TOPIC.to_string());
-        topics.append(&mut config.topics.clone());
+
+        /* Here we subscribe to all the required gossipsub topics required for interop.
+         * The topic builder adds the required prefix and postfix to the hardcoded topics that we
+         * must subscribe to.
+         */
+        let topic_builder = |topic| {
+            Topic::new(format!(
+                "/{}/{}/{}",
+                TOPIC_PREFIX, topic, TOPIC_ENCODING_POSTFIX,
+            ))
+        };
+        topics.push(topic_builder(BEACON_BLOCK_TOPIC));
+        topics.push(topic_builder(BEACON_ATTESTATION_TOPIC));
+        topics.push(topic_builder(VOLUNTARY_EXIT_TOPIC));
+        topics.push(topic_builder(PROPOSER_SLASHING_TOPIC));
+        topics.push(topic_builder(ATTESTER_SLASHING_TOPIC));
+
+        // Add any topics specified by the user
+        topics.append(
+            &mut config
+                .topics
+                .iter()
+                .cloned()
+                .map(|s| Topic::new(s))
+                .collect(),
+        );
 
         let mut subscribed_topics = vec![];
         for topic in topics {
-            let t = TopicBuilder::new(topic.clone()).build();
-            if swarm.subscribe(t) {
-                trace!(log, "Subscribed to topic: {:?}", topic);
+            if swarm.subscribe(topic.clone()) {
+                trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic));
                 subscribed_topics.push(topic);
             } else {
-                warn!(log, "Could not subscribe to topic: {:?}", topic)
+                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}", topic));
             }
         }
-        info!(log, "Subscribed to topics: {:?}", subscribed_topics);
+        info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics.iter().map(|t| format!("{}", t)).collect::<Vec<String>>()));
 
         Ok(Service {
-            _local_peer_id: local_peer_id,
+            local_peer_id,
             swarm,
             log,
         })
     }
 }
 
-impl<E: EthSpec> Stream for Service<E> {
-    type Item = Libp2pEvent<E>;
+impl Stream for Service {
+    type Item = Libp2pEvent;
     type Error = crate::error::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -119,7 +153,7 @@ impl<E: EthSpec> Stream for Service<E> {
                         topics,
                         message,
                     } => {
-                        trace!(self.log, "Pubsub message received: {:?}", message);
+                        trace!(self.log, "Gossipsub message received"; "service" => "Swarm");
                         return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
                             source,
                             topics,
@@ -179,7 +213,7 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
 }
 
 /// Events that can be obtained from polling the Libp2p Service.
-pub enum Libp2pEvent<E: EthSpec> {
+pub enum Libp2pEvent {
     /// An RPC response request has been received on the swarm.
     RPC(PeerId, RPCEvent),
     /// Initiated the connection to a new peer.
@@ -190,7 +224,7 @@ pub enum Libp2pEvent<E: EthSpec> {
     PubsubMessage {
         source: PeerId,
         topics: Vec<TopicHash>,
-        message: Box<PubsubMessage<E>>,
+        message: PubsubMessage,
     },
 }
 
@@ -234,7 +268,7 @@ fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
             Err(e) => {
                 warn!(
                     log,
-                    "Could not write node key to file: {:?}. Error: {}", network_key_f, e
+                    "Could not write node key to file: {:?}. error: {}", network_key_f, e
                 );
             }
         }

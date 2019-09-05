@@ -17,11 +17,7 @@ pub const WARN_PEER_COUNT: usize = 1;
 /// durations.
 ///
 /// Presently unused, but remains for future use.
-pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
-    client: &Client<T>,
-    executor: TaskExecutor,
-    exit: Exit,
-) {
+pub fn run<T: BeaconChainTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exit) {
     // notification heartbeat
     let interval = Interval::new(
         Instant::now(),
@@ -38,7 +34,7 @@ pub fn run<T: BeaconChainTypes + Send + Sync + 'static>(
         // Panics if libp2p is poisoned.
         let connected_peer_count = libp2p.lock().swarm.connected_peers();
 
-        debug!(log, "libp2p"; "peer_count" => connected_peer_count);
+        debug!(log, "Libp2p connected peer status"; "peer_count" => connected_peer_count);
 
         if connected_peer_count <= WARN_PEER_COUNT {
             warn!(log, "Low libp2p peer count"; "peer_count" => connected_peer_count);

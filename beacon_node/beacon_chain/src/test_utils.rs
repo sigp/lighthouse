@@ -1,21 +1,27 @@
-use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+use crate::{
+    AttestationProcessingOutcome, BeaconChain, BeaconChainBuilder, BeaconChainTypes,
+    BlockProcessingOutcome, InteropEth1ChainBackend,
+};
 use lmd_ghost::LmdGhost;
-use sloggers::{null::NullLoggerBuilder, Build};
-use slot_clock::SlotClock;
+use rayon::prelude::*;
+use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::MemoryStore;
-use store::Store;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    test_utils::TestingBeaconStateBuilder, AggregateSignature, Attestation,
-    AttestationDataAndCustodyBit, BeaconBlock, BeaconState, BitList, ChainSpec, Domain, EthSpec,
-    Hash256, Keypair, RelativeEpoch, SecretKey, Signature, Slot,
+    AggregateSignature, Attestation, AttestationDataAndCustodyBit, BeaconBlock, BeaconState,
+    BitList, ChainSpec, Domain, EthSpec, Hash256, Keypair, RelativeEpoch, SecretKey, Signature,
+    Slot,
 };
 
+pub use types::test_utils::generate_deterministic_keypairs;
+
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+
+pub const HARNESS_GENESIS_TIME: u64 = 1567552690; // 4th September 2019
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -54,12 +60,13 @@ where
 
 impl<L, E> BeaconChainTypes for CommonTypes<L, E>
 where
-    L: LmdGhost<MemoryStore, E>,
+    L: LmdGhost<MemoryStore, E> + 'static,
     E: EthSpec,
 {
     type Store = MemoryStore;
     type SlotClock = TestingSlotClock;
     type LmdGhost = L;
+    type Eth1Chain = InteropEth1ChainBackend<E>;
     type EthSpec = E;
 }
 
@@ -69,7 +76,7 @@ where
 /// Used for testing.
 pub struct BeaconChainHarness<L, E>
 where
-    L: LmdGhost<MemoryStore, E>,
+    L: LmdGhost<MemoryStore, E> + 'static,
     E: EthSpec,
 {
     pub chain: BeaconChain<CommonTypes<L, E>>,
@@ -83,37 +90,21 @@ where
     E: EthSpec,
 {
     /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn new(validator_count: usize) -> Self {
+    pub fn new(keypairs: Vec<Keypair>) -> Self {
         let spec = E::default_spec();
+
+        let log = TerminalLoggerBuilder::new()
+            .level(Severity::Warning)
+            .build()
+            .expect("logger should build");
 
         let store = Arc::new(MemoryStore::open());
 
-        let state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
-        let (genesis_state, keypairs) = state_builder.build();
-
-        let mut genesis_block = BeaconBlock::empty(&spec);
-        genesis_block.state_root = Hash256::from_slice(&genesis_state.tree_hash_root());
-
-        let builder = NullLoggerBuilder;
-        let log = builder.build().expect("logger should build");
-
-        // Slot clock
-        let slot_clock = TestingSlotClock::new(
-            spec.genesis_slot,
-            genesis_state.genesis_time,
-            spec.seconds_per_slot,
-        );
-
-        let chain = BeaconChain::from_genesis(
-            store,
-            slot_clock,
-            genesis_state,
-            genesis_block,
-            spec.clone(),
-            log,
-        )
-        .expect("Terminate if beacon chain generation fails");
+        let chain =
+            BeaconChainBuilder::quick_start(HARNESS_GENESIS_TIME, &keypairs, spec.clone(), log)
+                .unwrap_or_else(|e| panic!("Failed to create beacon chain builder: {}", e))
+                .build(store.clone(), InteropEth1ChainBackend::default())
+                .unwrap_or_else(|e| panic!("Failed to build beacon chain: {}", e));
 
         Self {
             chain,
@@ -127,7 +118,6 @@ where
     /// Does not produce blocks or attestations.
     pub fn advance_slot(&self) {
         self.chain.slot_clock.advance_slot();
-        self.chain.catchup_state().expect("should catchup state");
     }
 
     /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
@@ -148,23 +138,28 @@ where
         let mut state = {
             // Determine the slot for the first block (or skipped block).
             let state_slot = match block_strategy {
-                BlockStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap() - 1,
+                BlockStrategy::OnCanonicalHead => {
+                    self.chain.slot().expect("should have a slot") - 1
+                }
                 BlockStrategy::ForkCanonicalChainAt { previous_slot, .. } => previous_slot,
             };
 
-            self.get_state_at_slot(state_slot)
+            self.chain
+                .state_at_slot(state_slot)
+                .expect("should find state for slot")
+                .clone()
         };
 
         // Determine the first slot where a block should be built.
         let mut slot = match block_strategy {
-            BlockStrategy::OnCanonicalHead => self.chain.read_slot_clock().unwrap(),
+            BlockStrategy::OnCanonicalHead => self.chain.slot().expect("should have a slot"),
             BlockStrategy::ForkCanonicalChainAt { first_slot, .. } => first_slot,
         };
 
         let mut head_block_root = None;
 
         for _ in 0..num_blocks {
-            while self.chain.read_slot_clock().expect("should have a slot") < slot {
+            while self.chain.slot().expect("should have a slot") < slot {
                 self.advance_slot();
             }
 
@@ -178,12 +173,7 @@ where
             if let BlockProcessingOutcome::Processed { block_root } = outcome {
                 head_block_root = Some(block_root);
 
-                self.add_attestations_to_op_pool(
-                    &attestation_strategy,
-                    &new_state,
-                    block_root,
-                    slot,
-                );
+                self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
             } else {
                 panic!("block should be successfully processed: {:?}", outcome);
             }
@@ -193,21 +183,6 @@ where
         }
 
         head_block_root.expect("did not produce any blocks")
-    }
-
-    fn get_state_at_slot(&self, state_slot: Slot) -> BeaconState<E> {
-        let state_root = self
-            .chain
-            .rev_iter_state_roots(self.chain.head().beacon_state.slot - 1)
-            .find(|(_hash, slot)| *slot == state_slot)
-            .map(|(hash, _slot)| hash)
-            .expect("could not find state root");
-
-        self.chain
-            .store
-            .get(&state_root)
-            .expect("should read db")
-            .expect("should find state root")
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -226,7 +201,9 @@ where
                 .expect("should be able to advance state to slot");
         }
 
-        state.build_all_caches(&self.spec).unwrap();
+        state
+            .build_all_caches(&self.spec)
+            .expect("should build caches");
 
         let proposer_index = match block_strategy {
             BlockStrategy::OnCanonicalHead => self
@@ -263,16 +240,43 @@ where
         (block, state)
     }
 
-    /// Adds attestations to the `BeaconChain` operations pool to be included in future blocks.
+    /// Adds attestations to the `BeaconChain` operations pool and fork choice.
     ///
     /// The `attestation_strategy` dictates which validators should attest.
-    fn add_attestations_to_op_pool(
+    fn add_free_attestations(
         &self,
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
         head_block_root: Hash256,
         head_block_slot: Slot,
     ) {
+        self.get_free_attestations(
+            attestation_strategy,
+            state,
+            head_block_root,
+            head_block_slot,
+        )
+        .into_iter()
+        .for_each(|attestation| {
+            match self
+                .chain
+                .process_attestation(attestation)
+                .expect("should not error during attestation processing")
+            {
+                AttestationProcessingOutcome::Processed => (),
+                other => panic!("did not successfully process attestation: {:?}", other),
+            }
+        });
+    }
+
+    /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
+    pub fn get_free_attestations(
+        &self,
+        attestation_strategy: &AttestationStrategy,
+        state: &BeaconState<E>,
+        head_block_root: Hash256,
+        head_block_slot: Slot,
+    ) -> Vec<Attestation<E>> {
         let spec = &self.spec;
         let fork = &state.fork;
 
@@ -281,6 +285,8 @@ where
             AttestationStrategy::SomeValidators(vec) => vec.clone(),
         };
 
+        let mut attestations = vec![];
+
         state
             .get_crosslink_committees_at_slot(state.slot)
             .expect("should get committees")
@@ -288,57 +294,70 @@ where
             .for_each(|cc| {
                 let committee_size = cc.committee.len();
 
-                for (i, validator_index) in cc.committee.iter().enumerate() {
-                    // Note: searching this array is worst-case `O(n)`. A hashset could be a better
-                    // alternative.
-                    if attesting_validators.contains(validator_index) {
-                        let data = self
-                            .chain
-                            .produce_attestation_data_for_block(
-                                cc.shard,
-                                head_block_root,
-                                head_block_slot,
-                                state,
-                            )
-                            .expect("should produce attestation data");
+                let mut local_attestations: Vec<Attestation<E>> = cc
+                    .committee
+                    .par_iter()
+                    .enumerate()
+                    .filter_map(|(i, validator_index)| {
+                        // Note: searching this array is worst-case `O(n)`. A hashset could be a better
+                        // alternative.
+                        if attesting_validators.contains(validator_index) {
+                            let data = self
+                                .chain
+                                .produce_attestation_data_for_block(
+                                    cc.shard,
+                                    head_block_root,
+                                    head_block_slot,
+                                    state,
+                                )
+                                .expect("should produce attestation data");
 
-                        let mut aggregation_bits = BitList::with_capacity(committee_size).unwrap();
-                        aggregation_bits.set(i, true).unwrap();
-                        let custody_bits = BitList::with_capacity(committee_size).unwrap();
+                            let mut aggregation_bits = BitList::with_capacity(committee_size)
+                                .expect("should make aggregation bits");
+                            aggregation_bits
+                                .set(i, true)
+                                .expect("should be able to set aggregation bits");
+                            let custody_bits = BitList::with_capacity(committee_size)
+                                .expect("should make custody bits");
 
-                        let signature = {
-                            let message = AttestationDataAndCustodyBit {
-                                data: data.clone(),
-                                custody_bit: false,
-                            }
-                            .tree_hash_root();
+                            let signature = {
+                                let message = AttestationDataAndCustodyBit {
+                                    data: data.clone(),
+                                    custody_bit: false,
+                                }
+                                .tree_hash_root();
 
-                            let domain =
-                                spec.get_domain(data.target.epoch, Domain::Attestation, fork);
+                                let domain =
+                                    spec.get_domain(data.target.epoch, Domain::Attestation, fork);
 
-                            let mut agg_sig = AggregateSignature::new();
-                            agg_sig.add(&Signature::new(
-                                &message,
-                                domain,
-                                self.get_sk(*validator_index),
-                            ));
+                                let mut agg_sig = AggregateSignature::new();
+                                agg_sig.add(&Signature::new(
+                                    &message,
+                                    domain,
+                                    self.get_sk(*validator_index),
+                                ));
 
-                            agg_sig
-                        };
+                                agg_sig
+                            };
 
-                        let attestation = Attestation {
-                            aggregation_bits,
-                            data,
-                            custody_bits,
-                            signature,
-                        };
+                            let attestation = Attestation {
+                                aggregation_bits,
+                                data,
+                                custody_bits,
+                                signature,
+                            };
 
-                        self.chain
-                            .process_attestation(attestation)
-                            .expect("should process attestation");
-                    }
-                }
+                            Some(attestation)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                attestations.append(&mut local_attestations);
             });
+
+        attestations
     }
 
     /// Creates two forks:
