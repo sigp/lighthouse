@@ -277,18 +277,22 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                         RPCRequest::BeaconBlocks(request),
                     );
                 }
-                ImportManagerOutcome::RecentRequest(peer_id, req) => {
+                ImportManagerOutcome::RecentRequest {
+                    peer_id,
+                    request_id,
+                    request,
+                } => {
                     trace!(
                         self.log,
                         "RPC Request";
                         "method" => "RecentBeaconBlocks",
-                        "count" => req.block_roots.len(),
+                        "count" => request.block_roots.len(),
                         "peer" => format!("{:?}", peer_id)
                     );
                     self.network.send_rpc_request(
-                        None,
+                        Some(request_id),
                         peer_id.clone(),
-                        RPCRequest::RecentBeaconBlocks(req),
+                        RPCRequest::RecentBeaconBlocks(request),
                     );
                 }
                 ImportManagerOutcome::DownvotePeer(peer_id) => {
