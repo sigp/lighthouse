@@ -7,7 +7,6 @@ use beacon_chain::{
     store::{migrate::NullMigrator, Migrate, Store},
     BeaconChain, BeaconChainTypes,
 };
-use parking_lot::RwLock;
 use slog::{crit, info, Logger};
 use slot_clock::SlotClock;
 use std::fs::File;
@@ -22,7 +21,7 @@ use types::{
 /// Provides a new, initialized `BeaconChain`
 pub trait InitialiseBeaconChain<T: BeaconChainTypes> {
     fn initialise_beacon_chain(
-        store: Arc<RwLock<T::Store>>,
+        store: Arc<T::Store>,
         config: &ClientConfig,
         spec: ChainSpec,
         log: Logger,
@@ -54,7 +53,7 @@ impl<S: Store, E: EthSpec, M: Migrate<S, E>, X: BeaconChainTypes> InitialiseBeac
 
 /// Loads a `BeaconChain` from `store`, if it exists. Otherwise, create a new chain from genesis.
 fn maybe_load_from_store_for_testnet<T, U: Store, V: EthSpec>(
-    store: Arc<RwLock<U>>,
+    store: Arc<U>,
     config: &ClientConfig,
     spec: ChainSpec,
     log: Logger,

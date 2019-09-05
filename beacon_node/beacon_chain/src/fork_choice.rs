@@ -1,6 +1,5 @@
 use crate::{metrics, BeaconChain, BeaconChainTypes};
 use lmd_ghost::LmdGhost;
-use parking_lot::RwLock;
 use state_processing::common::get_attesting_indices;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
@@ -20,7 +19,7 @@ pub enum Error {
 }
 
 pub struct ForkChoice<T: BeaconChainTypes> {
-    store: Arc<RwLock<T::Store>>,
+    store: Arc<T::Store>,
     backend: T::LmdGhost,
     /// Used for resolving the `0x00..00` alias back to genesis.
     ///
@@ -35,7 +34,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// "Genesis" does not necessarily need to be the absolute genesis, it can be some finalized
     /// block.
     pub fn new(
-        store: Arc<RwLock<T::Store>>,
+        store: Arc<T::Store>,
         genesis_block: &BeaconBlock<T::EthSpec>,
         genesis_block_root: Hash256,
     ) -> Self {
@@ -74,7 +73,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
             let block = chain
                 .store
-                .read()
                 .get::<BeaconBlock<T::EthSpec>>(&block_root)?
                 .ok_or_else(|| Error::MissingBlock(block_root))?;
 
@@ -87,7 +85,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
             let state: BeaconState<T::EthSpec> = chain
                 .store
-                .read()
                 .get_state(&block.state_root, Some(block.slot))?
                 .ok_or_else(|| Error::MissingState(block.state_root))?;
 
@@ -134,7 +131,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             // vote.
             if let Some(block) = self
                 .store
-                .read()
                 .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)?
             {
                 self.process_attestation(state, attestation, &block)?;

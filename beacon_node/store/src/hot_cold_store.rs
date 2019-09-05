@@ -16,7 +16,7 @@ pub struct HotColdDB {
     ///
     /// Data for slots less than `split_slot` is in the cold DB, while data for slots
     /// greater than or equal is in the hot DB.
-    split_slot: Slot,
+    split_slot: RwLock<Slot>,
     /// Cold database containing compact historical data.
     cold_db: LevelDB,
     /// Hot database containing duplicated but quick-to-access recent data.
@@ -59,7 +59,7 @@ impl Store for HotColdDB {
         state_root: &Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
-        if state.slot <= self.split_slot {
+        if state.slot <= self.get_split_slot() {
             self.store_archive_state(state_root, state)
         } else {
             self.hot_db.put_state(state_root, state)
@@ -73,7 +73,7 @@ impl Store for HotColdDB {
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
         if let Some(slot) = slot {
-            if slot <= self.split_slot {
+            if slot <= self.get_split_slot() {
                 self.load_archive_state(state_root)
             } else {
                 self.hot_db.get_state(state_root, None)
@@ -87,20 +87,19 @@ impl Store for HotColdDB {
     }
 
     fn freeze_to_state<E: EthSpec>(
-        store: Arc<RwLock<Self>>,
+        store: Arc<Self>,
         frozen_head_root: Hash256,
         frozen_head: &BeaconState<E>,
     ) -> Result<(), Error> {
         info!(
-            store.read().log,
+            store.log,
             "Freezer migration started";
             "slot" => frozen_head.slot
         );
 
         // 1. Copy all of the states between the head and the split slot, from the hot DB
         // to the cold DB.
-        let reader = store.read();
-        let current_split_slot = reader.split_slot;
+        let current_split_slot = store.get_split_slot();
 
         if frozen_head.slot < current_split_slot {
             Err(HotColdDbError::FreezeSlotError {
@@ -118,11 +117,11 @@ impl Store for HotColdDB {
         for (state_root, slot) in
             state_root_iter.take_while(|&(_, slot)| slot >= current_split_slot)
         {
-            trace!(reader.log, "Freezing";
+            trace!(store.log, "Freezing";
                    "slot" => slot,
                    "state_root" => format!("{}", state_root));
 
-            let state: BeaconState<E> = match reader.hot_db.get_state(&state_root, None)? {
+            let state: BeaconState<E> = match store.hot_db.get_state(&state_root, None)? {
                 Some(s) => s,
                 // If there's no state it could be a skip slot, which is fine, our job is just
                 // to move everything that was in the hot DB to the cold.
@@ -131,24 +130,21 @@ impl Store for HotColdDB {
 
             to_delete.push(state_root);
 
-            reader.store_archive_state(&state_root, &state)?;
+            store.store_archive_state(&state_root, &state)?;
         }
 
-        drop(reader);
-
         // 2. Update the split slot
-        store.write().split_slot = frozen_head.slot;
+        *store.split_slot.write() = frozen_head.slot;
 
         // 3. Delete from the hot DB
-        let reader = store.read();
         for state_root in to_delete {
-            reader
+            store
                 .hot_db
                 .key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())?;
         }
 
         info!(
-            store.read().log,
+            store.log,
             "Freezer migration complete";
             "slot" => frozen_head.slot
         );
@@ -165,7 +161,7 @@ impl HotColdDB {
         log: Logger,
     ) -> Result<Self, Error> {
         Ok(HotColdDB {
-            split_slot: Slot::new(0),
+            split_slot: RwLock::new(Slot::new(0)),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             spec,
@@ -217,6 +213,6 @@ impl HotColdDB {
     }
 
     pub fn get_split_slot(&self) -> Slot {
-        self.split_slot
+        *self.split_slot.read()
     }
 }

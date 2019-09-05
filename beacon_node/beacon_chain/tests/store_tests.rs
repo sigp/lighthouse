@@ -5,7 +5,6 @@ extern crate lazy_static;
 
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use lmd_ghost::ThreadSafeReducedTree;
-use parking_lot::RwLock;
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
@@ -27,17 +26,15 @@ type E = MinimalEthSpec;
 type TestForkChoice = ThreadSafeReducedTree<DiskStore, MinimalEthSpec>;
 type TestHarness = BeaconChainHarness<TestForkChoice, MinimalEthSpec, DiskStore>;
 
-fn get_store(db_path: &TempDir) -> Arc<RwLock<DiskStore>> {
+fn get_store(db_path: &TempDir) -> Arc<DiskStore> {
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let log = NullLoggerBuilder.build().expect("logger should build");
-    Arc::new(RwLock::new(
-        DiskStore::open(&hot_path, &cold_path, spec, log).unwrap(),
-    ))
+    Arc::new(DiskStore::open(&hot_path, &cold_path, spec, log).unwrap())
 }
 
-fn get_harness(store: Arc<RwLock<DiskStore>>, validator_count: usize) -> TestHarness {
+fn get_harness(store: Arc<DiskStore>, validator_count: usize) -> TestHarness {
     let harness = BeaconChainHarness::from_keypairs(KEYPAIRS[0..validator_count].to_vec(), store);
     harness.advance_slot();
     harness
@@ -168,8 +165,8 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
 }
 
 /// Check that the DiskStore's split_slot is equal to the start slot of the last finalized epoch.
-fn check_split_slot(harness: &TestHarness, store: Arc<RwLock<DiskStore>>) {
-    let split_slot = store.read().get_split_slot();
+fn check_split_slot(harness: &TestHarness, store: Arc<DiskStore>) {
+    let split_slot = store.get_split_slot();
     assert_eq!(
         harness
             .chain

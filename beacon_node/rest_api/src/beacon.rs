@@ -64,7 +64,6 @@ pub fn get_block<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
 
     let block = beacon_chain
         .store
-        .read()
         .get::<BeaconBlock<T::EthSpec>>(&block_root)?
         .ok_or_else(|| {
             ApiError::NotFound(format!(
@@ -132,7 +131,6 @@ pub fn get_state<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
 
             let state = beacon_chain
                 .store
-                .read()
                 .get_state(root, None)?
                 .ok_or_else(|| ApiError::NotFound(format!("No state for root: {}", root)))?;
 

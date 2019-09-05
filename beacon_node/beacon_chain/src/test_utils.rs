@@ -1,6 +1,5 @@
 use crate::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use lmd_ghost::LmdGhost;
-use parking_lot::RwLock;
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::SlotClock;
 use slot_clock::TestingSlotClock;
@@ -87,7 +86,7 @@ where
     S: Store,
 {
     /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn new(validator_count: usize, store: Arc<RwLock<S>>) -> Self {
+    pub fn new(validator_count: usize, store: Arc<S>) -> Self {
         let state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
             validator_count,
             &E::default_spec(),
@@ -98,7 +97,7 @@ where
     }
 
     /// Instantiate a new harness with an initial validator for each key supplied.
-    pub fn from_keypairs(keypairs: Vec<Keypair>, store: Arc<RwLock<S>>) -> Self {
+    pub fn from_keypairs(keypairs: Vec<Keypair>, store: Arc<S>) -> Self {
         let state_builder = TestingBeaconStateBuilder::from_keypairs(keypairs, &E::default_spec());
         let (genesis_state, keypairs) = state_builder.build();
 
@@ -110,7 +109,7 @@ where
     pub fn from_state_and_keypairs(
         genesis_state: BeaconState<E>,
         keypairs: Vec<Keypair>,
-        store: Arc<RwLock<S>>,
+        store: Arc<S>,
     ) -> Self {
         let spec = E::default_spec();
 
@@ -222,7 +221,6 @@ where
 
         self.chain
             .store
-            .read()
             .get_state(&state_root, Some(state_slot))
             .expect("should read db")
             .expect("should find state root")

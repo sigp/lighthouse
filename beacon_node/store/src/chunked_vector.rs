@@ -504,30 +504,22 @@ where
         Ok(())
     }
 
-    /// Attempt to decode a single chunk, returning the chunk and the number of bytes read.
+    /// Attempt to decode a single chunk.
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
-        // NOTE: could have a sub-trait for fixed length SSZ types?
         if !<T as Decode>::is_ssz_fixed_len() {
             return Err(Error::from(ChunkError::InvalidType));
         }
 
-        // Read the appropriate number of values
-        let mut offset = 0;
-        let mut values = vec![];
         let value_size = <T as Decode>::ssz_fixed_len();
 
-        while offset < bytes.len() {
-            let value_bytes =
-                bytes
-                    .get(offset..offset + value_size)
-                    .ok_or(ChunkError::OutOfBounds {
-                        i: offset + value_size - 1,
-                        len: bytes.len(),
-                    })?;
-            let value = T::from_ssz_bytes(value_bytes)?;
-            values.push(value);
-            offset += value_size;
+        if value_size == 0 {
+            return Err(Error::from(ChunkError::InvalidType));
         }
+
+        let values = bytes
+            .chunks(value_size)
+            .map(T::from_ssz_bytes)
+            .collect::<Result<_, _>>()?;
 
         Ok(Chunk { values })
     }
@@ -538,28 +530,16 @@ where
 
     /// Encode a single chunk as bytes.
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
-        // NOTE: could have a sub-trait for fixed length SSZ types?
-        if !<T as Decode>::is_ssz_fixed_len() {
+        if !<T as Encode>::is_ssz_fixed_len() {
             return Err(Error::from(ChunkError::InvalidType));
         }
 
-        let mut result = Vec::with_capacity(self.encoded_size());
-
-        // Values
-        for value in &self.values {
-            result.extend(value.as_ssz_bytes());
-        }
-
-        Ok(result)
+        Ok(self.values.iter().flat_map(T::as_ssz_bytes).collect())
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ChunkError {
-    OutOfBounds {
-        i: usize,
-        len: usize,
-    },
     InvalidSize {
         chunk_index: usize,
         expected: usize,

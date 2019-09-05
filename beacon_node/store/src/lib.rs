@@ -23,7 +23,6 @@ mod partial_beacon_state;
 pub mod iter;
 pub mod migrate;
 
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 pub use self::hot_cold_store::HotColdDB as DiskStore;
@@ -102,7 +101,7 @@ pub trait Store: Sync + Send + Sized + 'static {
 
     /// (Optionally) Move all data before the frozen slot to the freezer database.
     fn freeze_to_state<E: EthSpec>(
-        _store: Arc<RwLock<Self>>,
+        _store: Arc<Self>,
         _frozen_head_root: Hash256,
         _frozen_head: &BeaconState<E>,
     ) -> Result<(), Error> {

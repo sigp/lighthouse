@@ -11,7 +11,6 @@ use beacon_chain::BeaconChain;
 use exit_future::Signal;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
-use parking_lot::RwLock;
 use slog::{error, info, o};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
@@ -60,7 +59,7 @@ where
         log: slog::Logger,
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
-        let store = Arc::new(RwLock::new(store));
+        let store = Arc::new(store);
         let seconds_per_slot = eth2_config.spec.seconds_per_slot;
 
         // Load a `BeaconChain` from the store, or create a new one if it does not exist.
