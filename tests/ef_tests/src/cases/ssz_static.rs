@@ -1,127 +1,100 @@
 use super::*;
 use crate::case_result::compare_result;
+use crate::cases::common::SszStaticType;
+use crate::decode::yaml_decode_file;
 use serde_derive::Deserialize;
-use ssz::{Decode, Encode};
-use std::fmt::Debug;
-use std::marker::PhantomData;
-use tree_hash::TreeHash;
-use types::{
-    test_utils::TestRandom, Attestation, AttestationData, AttestationDataAndCustodyBit,
-    AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockHeader, BeaconState, Checkpoint,
-    CompactCommittee, Crosslink, Deposit, DepositData, Eth1Data, EthSpec, Fork, Hash256,
-    HistoricalBatch, IndexedAttestation, PendingAttestation, ProposerSlashing, Transfer, Validator,
-    VoluntaryExit,
-};
-
-// Enum variant names are used by Serde when deserializing the test YAML
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, Deserialize)]
-pub enum SszStatic<E>
-where
-    E: EthSpec,
-{
-    Fork(SszStaticInner<Fork, E>),
-    Crosslink(SszStaticInner<Crosslink, E>),
-    Checkpoint(SszStaticInner<Checkpoint, E>),
-    CompactCommittee(SszStaticInner<CompactCommittee<E>, E>),
-    Eth1Data(SszStaticInner<Eth1Data, E>),
-    AttestationData(SszStaticInner<AttestationData, E>),
-    AttestationDataAndCustodyBit(SszStaticInner<AttestationDataAndCustodyBit, E>),
-    IndexedAttestation(SszStaticInner<IndexedAttestation<E>, E>),
-    DepositData(SszStaticInner<DepositData, E>),
-    BeaconBlockHeader(SszStaticInner<BeaconBlockHeader, E>),
-    Validator(SszStaticInner<Validator, E>),
-    PendingAttestation(SszStaticInner<PendingAttestation<E>, E>),
-    HistoricalBatch(SszStaticInner<HistoricalBatch<E>, E>),
-    ProposerSlashing(SszStaticInner<ProposerSlashing, E>),
-    AttesterSlashing(SszStaticInner<AttesterSlashing<E>, E>),
-    Attestation(SszStaticInner<Attestation<E>, E>),
-    Deposit(SszStaticInner<Deposit, E>),
-    VoluntaryExit(SszStaticInner<VoluntaryExit, E>),
-    Transfer(SszStaticInner<Transfer, E>),
-    BeaconBlockBody(SszStaticInner<BeaconBlockBody<E>, E>),
-    BeaconBlock(SszStaticInner<BeaconBlock<E>, E>),
-    BeaconState(SszStaticInner<BeaconState<E>, E>),
-}
+use std::fs;
+use tree_hash::SignedRoot;
+use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct SszStaticInner<T, E>
-where
-    E: EthSpec,
-{
-    pub value: T,
-    pub serialized: String,
-    pub root: String,
-    #[serde(skip, default)]
-    _phantom: PhantomData<E>,
+struct SszStaticRoots {
+    root: String,
+    signing_root: Option<String>,
 }
 
-impl<E: EthSpec + serde::de::DeserializeOwned> YamlDecode for SszStatic<E> {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        serde_yaml::from_str(yaml).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
+#[derive(Debug, Clone)]
+pub struct SszStatic<T> {
+    roots: SszStaticRoots,
+    serialized: Vec<u8>,
+    value: T,
+}
+
+#[derive(Debug, Clone)]
+pub struct SszStaticSR<T> {
+    roots: SszStaticRoots,
+    serialized: Vec<u8>,
+    value: T,
+}
+
+fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
+    let roots = yaml_decode_file(&path.join("roots.yaml"))?;
+    let serialized = fs::read(&path.join("serialized.ssz")).expect("serialized.ssz exists");
+    let value = yaml_decode_file(&path.join("value.yaml"))?;
+
+    Ok((roots, serialized, value))
+}
+
+impl<T: SszStaticType> LoadCase for SszStatic<T> {
+    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+        load_from_dir(path).map(|(roots, serialized, value)| Self {
+            roots,
+            serialized,
+            value,
+        })
     }
 }
 
-impl<E: EthSpec> Case for SszStatic<E> {
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
-        use self::SszStatic::*;
-
-        match *self {
-            Fork(ref val) => ssz_static_test(val),
-            Crosslink(ref val) => ssz_static_test(val),
-            Checkpoint(ref val) => ssz_static_test(val),
-            CompactCommittee(ref val) => ssz_static_test(val),
-            Eth1Data(ref val) => ssz_static_test(val),
-            AttestationData(ref val) => ssz_static_test(val),
-            AttestationDataAndCustodyBit(ref val) => ssz_static_test(val),
-            IndexedAttestation(ref val) => ssz_static_test(val),
-            DepositData(ref val) => ssz_static_test(val),
-            BeaconBlockHeader(ref val) => ssz_static_test(val),
-            Validator(ref val) => ssz_static_test(val),
-            PendingAttestation(ref val) => ssz_static_test(val),
-            HistoricalBatch(ref val) => ssz_static_test(val),
-            ProposerSlashing(ref val) => ssz_static_test(val),
-            AttesterSlashing(ref val) => ssz_static_test(val),
-            Attestation(ref val) => ssz_static_test(val),
-            Deposit(ref val) => ssz_static_test(val),
-            VoluntaryExit(ref val) => ssz_static_test(val),
-            Transfer(ref val) => ssz_static_test(val),
-            BeaconBlockBody(ref val) => ssz_static_test(val),
-            BeaconBlock(ref val) => ssz_static_test(val),
-            BeaconState(ref val) => ssz_static_test(val),
-        }
+impl<T: SszStaticType + SignedRoot> LoadCase for SszStaticSR<T> {
+    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+        load_from_dir(path).map(|(roots, serialized, value)| Self {
+            roots,
+            serialized,
+            value,
+        })
     }
 }
 
-fn ssz_static_test<T, E: EthSpec>(tc: &SszStaticInner<T, E>) -> Result<(), Error>
-where
-    T: Clone
-        + Decode
-        + Debug
-        + Encode
-        + PartialEq<T>
-        + serde::de::DeserializeOwned
-        + TreeHash
-        + TestRandom,
-{
-    // Verify we can decode SSZ in the same way we can decode YAML.
-    let ssz = hex::decode(&tc.serialized[2..])
-        .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-    let expected = tc.value.clone();
-    let decode_result = T::from_ssz_bytes(&ssz);
-    compare_result(&decode_result, &Some(expected))?;
+pub fn check_serialization<T: SszStaticType>(value: &T, serialized: &[u8]) -> Result<(), Error> {
+    // Check serialization
+    let serialized_result = value.as_ssz_bytes();
+    compare_result::<Vec<u8>, Error>(&Ok(serialized_result), &Some(serialized.to_vec()))?;
 
-    // Verify we can encode the result back into original ssz bytes
-    let decoded = decode_result.unwrap();
-    let encoded_result = decoded.as_ssz_bytes();
-    compare_result::<Vec<u8>, Error>(&Ok(encoded_result), &Some(ssz))?;
-
-    // Verify the TreeHash root of the decoded struct matches the test.
-    let expected_root =
-        &hex::decode(&tc.root[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-    let expected_root = Hash256::from_slice(&expected_root);
-    let tree_hash_root = Hash256::from_slice(&decoded.tree_hash_root());
-    compare_result::<Hash256, Error>(&Ok(tree_hash_root), &Some(expected_root))?;
+    // Check deserialization
+    let deserialized_result = T::from_ssz_bytes(serialized);
+    compare_result(&deserialized_result, &Some(value.clone()))?;
 
     Ok(())
+}
+
+pub fn check_tree_hash(expected_str: &str, actual_root: Vec<u8>) -> Result<(), Error> {
+    let expected_root = hex::decode(&expected_str[2..])
+        .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+    let expected_root = Hash256::from_slice(&expected_root);
+    let tree_hash_root = Hash256::from_slice(&actual_root);
+    compare_result::<Hash256, Error>(&Ok(tree_hash_root), &Some(expected_root))
+}
+
+impl<T: SszStaticType> Case for SszStatic<T> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
+        check_serialization(&self.value, &self.serialized)?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root())?;
+        Ok(())
+    }
+}
+
+impl<T: SszStaticType + SignedRoot> Case for SszStaticSR<T> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
+        check_serialization(&self.value, &self.serialized)?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root())?;
+        check_tree_hash(
+            &self
+                .roots
+                .signing_root
+                .as_ref()
+                .expect("signed root exists"),
+            self.value.signed_root(),
+        )?;
+        Ok(())
+    }
 }
