@@ -10,7 +10,7 @@ edition = "2018"
 lazy_static = "1.4"
 num-bigint = "0.2"
 eth2_hashing = "0.1"
-milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v0.10.0" }
+milagro_bls = { git = "https://github.com/michaelsproul/milagro_bls", branch = "little-endian-v0.10" }
 
 [dev-dependencies]
 base64 = "0.10"
