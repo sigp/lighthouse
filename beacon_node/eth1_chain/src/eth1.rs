@@ -139,13 +139,11 @@ pub fn run<F: Eth1DataFetcher + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ContractConfig;
     use crate::web3_fetcher::Web3DataFetcher;
     use slog;
     use slog_async;
     use slog_term;
     use tokio;
-    use web3::types::Address;
 
     use slog::Drain;
 
@@ -159,14 +157,14 @@ mod tests {
     }
 
     fn setup_w3() -> Web3DataFetcher {
-        let deposit_contract_address: Address =
-            "8c594691C0E592FFA21F153a16aE41db5beFcaaa".parse().unwrap();
-        let deposit_contract = ContractConfig {
-            address: deposit_contract_address,
-            abi: include_bytes!("deposit_contract.json").to_vec(),
-        };
-        let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract);
-        return w3;
+        let deposit_contract_address = "8c594691C0E592FFA21F153a16aE41db5beFcaaa";
+        let deposit_contract_abi = include_bytes!("deposit_contract.json").to_vec();
+        let w3 = Web3DataFetcher::new(
+            "ws://localhost:8545",
+            deposit_contract_address,
+            deposit_contract_abi,
+        );
+        return w3.unwrap();
     }
 
     #[test]

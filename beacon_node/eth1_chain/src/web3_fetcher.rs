@@ -15,7 +15,7 @@ use web3::types::*;
 use web3::Web3;
 
 use crate::error::{Error, Result};
-use crate::types::{ContractConfig, Eth1DataFetcher};
+use crate::types::Eth1DataFetcher;
 
 /// Wrapper around web3 api.
 /// Transport hardcoded to ws since its needed for subscribing to logs.
@@ -30,17 +30,25 @@ pub struct Web3DataFetcher {
 
 impl Web3DataFetcher {
     /// Create a new Web3 object.
-    pub fn new(endpoint: &str, deposit_contract: ContractConfig) -> Web3DataFetcher {
-        let (event_loop, transport) = WebSocket::new(endpoint).unwrap();
+    pub fn new(
+        endpoint: &str,
+        deposit_contract_addr: &str,
+        deposit_contract_abi: Vec<u8>,
+    ) -> Result<Self> {
+        let (event_loop, transport) = WebSocket::new(endpoint)?;
         let web3 = Web3::new(transport);
-        let contract =
-            Contract::from_json(web3.eth(), deposit_contract.address, &deposit_contract.abi)
-                .expect("Invalid contract address/abi");
-        Web3DataFetcher {
+        let contract = Contract::from_json(
+            web3.eth(),
+            deposit_contract_addr
+                .parse()
+                .map_err(|_| Error::InvalidParam)?,
+            &deposit_contract_abi,
+        )?;
+        Ok(Web3DataFetcher {
             event_loop: Arc::new(event_loop),
             web3: Arc::new(web3),
             contract: contract,
-        }
+        })
     }
 }
 
@@ -255,14 +263,14 @@ mod tests {
     // from https://github.com/ChainSafe/lodestar#starting-private-eth1-chain
 
     fn setup() -> Web3DataFetcher {
-        let deposit_contract_address: Address =
-            "8c594691C0E592FFA21F153a16aE41db5beFcaaa".parse().unwrap();
-        let deposit_contract = ContractConfig {
-            address: deposit_contract_address,
-            abi: include_bytes!("deposit_contract.json").to_vec(),
-        };
-        let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract);
-        return w3;
+        let deposit_contract_address = "8c594691C0E592FFA21F153a16aE41db5beFcaaa";
+        let deposit_contract_abi = include_bytes!("deposit_contract.json").to_vec();
+        let w3 = Web3DataFetcher::new(
+            "ws://localhost:8545",
+            deposit_contract_address,
+            deposit_contract_abi,
+        );
+        return w3.unwrap();
     }
 
     #[test]

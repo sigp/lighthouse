@@ -12,6 +12,8 @@ pub enum Error {
     ContractError(web3::contract::Error),
     /// Decoding error.
     DecodingError,
+    /// Invalid parameters
+    InvalidParam,
 }
 
 impl From<web3::error::Error> for Error {

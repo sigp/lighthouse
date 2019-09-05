@@ -40,12 +40,3 @@ pub trait Eth1DataFetcher: Send + Sync + Clone {
         cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
     ) -> Box<dyn Future<Item = (), Error = Error> + Send>;
 }
-
-/// Config for an Eth1 chain contract.
-#[derive(Debug, Clone)]
-pub struct ContractConfig {
-    /// Deployed address in eth1 chain.
-    pub address: Address,
-    /// Contract abi.
-    pub abi: Vec<u8>,
-}

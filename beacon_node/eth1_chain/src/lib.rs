@@ -1,4 +1,5 @@
 mod cache;
+pub mod config;
 mod deposits;
 mod error;
 pub mod eth1;
