@@ -4,7 +4,6 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::per_slot_processing;
-use std::path::PathBuf;
 use types::{BeaconState, EthSpec};
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -16,7 +15,6 @@ pub struct Metadata {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct SanitySlots<E: EthSpec> {
-    pub path: PathBuf,
     pub metadata: Metadata,
     pub pre: BeaconState<E>,
     pub slots: u64,
@@ -41,7 +39,6 @@ impl<E: EthSpec> LoadCase for SanitySlots<E> {
         };
 
         Ok(Self {
-            path: path.into(),
             metadata,
             pre,
             slots,
@@ -56,10 +53,6 @@ impl<E: EthSpec> Case for SanitySlots<E> {
             .description
             .clone()
             .unwrap_or_else(String::new)
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
     }
 
     fn result(&self, _case_index: usize) -> Result<(), Error> {

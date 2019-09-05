@@ -28,7 +28,6 @@ pub struct SszStaticSR<T> {
 }
 
 fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
-    // FIXME(michael): set description/name
     let roots = yaml_decode_file(&path.join("roots.yaml"))?;
     let serialized = fs::read(&path.join("serialized.ssz")).expect("serialized.ssz exists");
     let value = yaml_decode_file(&path.join("value.yaml"))?;

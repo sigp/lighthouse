@@ -2,13 +2,12 @@ use super::*;
 use crate::decode::{ssz_decode_file, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::is_valid_genesis_state;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use types::{BeaconState, EthSpec};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct GenesisValidity<E: EthSpec> {
-    pub path: PathBuf,
     pub genesis: BeaconState<E>,
     pub is_valid: bool,
 }
@@ -18,19 +17,11 @@ impl<E: EthSpec> LoadCase for GenesisValidity<E> {
         let genesis = ssz_decode_file(&path.join("genesis.ssz"))?;
         let is_valid = yaml_decode_file(&path.join("is_valid.yaml"))?;
 
-        Ok(Self {
-            path: path.into(),
-            genesis,
-            is_valid,
-        })
+        Ok(Self { genesis, is_valid })
     }
 }
 
 impl<E: EthSpec> Case for GenesisValidity<E> {
-    fn path(&self) -> &Path {
-        &self.path
-    }
-
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         let spec = &E::default_spec();
 

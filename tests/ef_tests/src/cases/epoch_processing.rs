@@ -125,10 +125,6 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
             .unwrap_or_else(String::new)
     }
 
-    fn path(&self) -> &Path {
-        &self.path
-    }
-
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();

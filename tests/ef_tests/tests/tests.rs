@@ -1,19 +1,5 @@
 use ef_tests::*;
-use types::{
-    Attestation, AttestationData, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
-    BeaconBlockBody, BeaconBlockHeader, BeaconState, Checkpoint, CompactCommittee, Crosslink,
-    Deposit, DepositData, Eth1Data, Fork, HistoricalBatch, IndexedAttestation, MainnetEthSpec,
-    MinimalEthSpec, PendingAttestation, ProposerSlashing, Transfer, Validator, VoluntaryExit,
-};
-
-#[test]
-fn ssz_generic() {
-    SszGenericHandler::<BasicVector>::run();
-    SszGenericHandler::<Bitlist>::run();
-    SszGenericHandler::<Bitvector>::run();
-    SszGenericHandler::<Boolean>::run();
-    SszGenericHandler::<Uints>::run();
-}
+use types::*;
 
 #[test]
 fn shuffling() {
@@ -105,6 +91,7 @@ fn bls_sign_msg() {
     BlsSignMsgHandler::run();
 }
 
+#[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test {
     // Signed-root
     ($test_name:ident, $typ:ident$(<$generics:tt>)?, SR) => {
@@ -135,7 +122,6 @@ macro_rules! ssz_static_test {
     // Base case
     ($test_name:ident, $handler:ident, { $(($typ:ty, $spec:ident)),+ }) => {
         #[test]
-        #[cfg(feature = "fake_crypto")]
         fn $test_name() {
             $(
                 $handler::<$typ, $spec>::run();
@@ -144,31 +130,47 @@ macro_rules! ssz_static_test {
     };
 }
 
-ssz_static_test!(ssz_static_attestation, Attestation<_>, SR);
-ssz_static_test!(ssz_static_attestation_data, AttestationData);
-ssz_static_test!(
-    ssz_static_attestation_data_and_custody_bit,
-    AttestationDataAndCustodyBit
-);
-ssz_static_test!(ssz_static_attester_slashing, AttesterSlashing<_>);
-ssz_static_test!(ssz_static_beacon_block, BeaconBlock<_>, SR);
-ssz_static_test!(ssz_static_beacon_block_body, BeaconBlockBody<_>);
-ssz_static_test!(ssz_static_beacon_block_header, BeaconBlockHeader, SR);
-ssz_static_test!(ssz_static_beacon_state, BeaconState<_>);
-ssz_static_test!(ssz_static_checkpoint, Checkpoint);
-ssz_static_test!(ssz_static_compact_committee, CompactCommittee<_>);
-ssz_static_test!(ssz_static_crosslink, Crosslink);
-ssz_static_test!(ssz_static_deposit, Deposit);
-ssz_static_test!(ssz_static_deposit_data, DepositData, SR);
-ssz_static_test!(ssz_static_eth1_data, Eth1Data);
-ssz_static_test!(ssz_static_fork, Fork);
-ssz_static_test!(ssz_static_historical_batch, HistoricalBatch<_>);
-ssz_static_test!(ssz_static_indexed_attestation, IndexedAttestation<_>, SR);
-ssz_static_test!(ssz_static_pending_attestation, PendingAttestation<_>);
-ssz_static_test!(ssz_static_proposer_slashing, ProposerSlashing);
-ssz_static_test!(ssz_static_transfer, Transfer, SR);
-ssz_static_test!(ssz_static_validator, Validator);
-ssz_static_test!(ssz_static_voluntary_exit, VoluntaryExit, SR);
+#[cfg(feature = "fake_crypto")]
+mod ssz_static {
+    use ef_tests::{Handler, SszStaticHandler, SszStaticSRHandler};
+    use types::*;
+
+    ssz_static_test!(attestation, Attestation<_>, SR);
+    ssz_static_test!(attestation_data, AttestationData);
+    ssz_static_test!(
+        attestation_data_and_custody_bit,
+        AttestationDataAndCustodyBit
+    );
+    ssz_static_test!(attester_slashing, AttesterSlashing<_>);
+    ssz_static_test!(beacon_block, BeaconBlock<_>, SR);
+    ssz_static_test!(beacon_block_body, BeaconBlockBody<_>);
+    ssz_static_test!(beacon_block_header, BeaconBlockHeader, SR);
+    ssz_static_test!(beacon_state, BeaconState<_>);
+    ssz_static_test!(checkpoint, Checkpoint);
+    ssz_static_test!(compact_committee, CompactCommittee<_>);
+    ssz_static_test!(crosslink, Crosslink);
+    ssz_static_test!(deposit, Deposit);
+    ssz_static_test!(deposit_data, DepositData, SR);
+    ssz_static_test!(eth1_data, Eth1Data);
+    ssz_static_test!(fork, Fork);
+    ssz_static_test!(historical_batch, HistoricalBatch<_>);
+    ssz_static_test!(indexed_attestation, IndexedAttestation<_>, SR);
+    ssz_static_test!(pending_attestation, PendingAttestation<_>);
+    ssz_static_test!(proposer_slashing, ProposerSlashing);
+    ssz_static_test!(transfer, Transfer, SR);
+    ssz_static_test!(validator, Validator);
+    ssz_static_test!(voluntary_exit, VoluntaryExit, SR);
+}
+
+#[test]
+fn ssz_generic() {
+    SszGenericHandler::<BasicVector>::run();
+    SszGenericHandler::<Bitlist>::run();
+    SszGenericHandler::<Bitvector>::run();
+    SszGenericHandler::<Boolean>::run();
+    SszGenericHandler::<Uints>::run();
+    SszGenericHandler::<Containers>::run();
+}
 
 #[test]
 fn epoch_processing_justification_and_finalization() {

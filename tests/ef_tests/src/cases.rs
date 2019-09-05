@@ -1,7 +1,7 @@
 use super::*;
 use rayon::prelude::*;
 use std::fmt::Debug;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 mod bls_aggregate_pubkeys;
 mod bls_aggregate_sigs;
@@ -50,12 +50,6 @@ pub trait Case: Debug + Sync {
         "no description".to_string()
     }
 
-    /// Path to the directory for this test case.
-    fn path(&self) -> &Path {
-        // FIXME(michael): remove default impl
-        Path::new("")
-    }
-
     /// Execute a test and return the result.
     ///
     /// `case_index` reports the index of the case in the set of test cases. It is not strictly
@@ -65,7 +59,7 @@ pub trait Case: Debug + Sync {
 
 #[derive(Debug)]
 pub struct Cases<T> {
-    pub test_cases: Vec<T>,
+    pub test_cases: Vec<(PathBuf, T)>,
 }
 
 impl<T: Case> Cases<T> {
@@ -73,7 +67,7 @@ impl<T: Case> Cases<T> {
         self.test_cases
             .into_par_iter()
             .enumerate()
-            .map(|(i, tc)| CaseResult::new(i, tc, tc.result(i)))
+            .map(|(i, (ref path, ref tc))| CaseResult::new(i, path, tc, tc.result(i)))
             .collect()
     }
 }

@@ -6,7 +6,6 @@ use serde_derive::Deserialize;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockInvalid, BlockProcessingError,
 };
-use std::path::PathBuf;
 use types::{BeaconBlock, BeaconState, EthSpec, RelativeEpoch};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -19,7 +18,6 @@ pub struct Metadata {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct SanityBlocks<E: EthSpec> {
-    pub path: PathBuf,
     pub metadata: Metadata,
     pub pre: BeaconState<E>,
     pub blocks: Vec<BeaconBlock<E>>,
@@ -44,7 +42,6 @@ impl<E: EthSpec> LoadCase for SanityBlocks<E> {
         };
 
         Ok(Self {
-            path: path.into(),
             metadata,
             pre,
             blocks,
@@ -59,10 +56,6 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
             .description
             .clone()
             .unwrap_or_else(String::new)
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
     }
 
     fn result(&self, _case_index: usize) -> Result<(), Error> {

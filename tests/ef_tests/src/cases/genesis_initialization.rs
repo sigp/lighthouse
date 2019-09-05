@@ -45,10 +45,6 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
 }
 
 impl<E: EthSpec> Case for GenesisInitialization<E> {
-    fn path(&self) -> &Path {
-        &self.path
-    }
-
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         let spec = &E::default_spec();
 
