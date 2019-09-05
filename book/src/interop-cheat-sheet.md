@@ -9,6 +9,7 @@ interop testing.
 	- [Avoid port clashes when starting multiple nodes](#port-bump)
 	- [Specify a custom slot time](#slot-time)
 - Using the beacon node HTTP API:
+	- [Pretty-print the genesis state and state root](#http-state)
 	- [Curl a node's ENR](#http-enr)
 	- [Curl a node's connected peers](#http-peer-ids)
 	- [Curl a node's local peer id](#http-peer-id)
@@ -81,6 +82,15 @@ $ ./beacon_node testnet -t 500 recent 8
 
 Examples assume there is a Lighthouse node exposing a HTTP API on
 `localhost:5052`. Responses are JSON.
+
+<a name="http-state"></a>
+### Pretty-print the genesis state and state root
+
+Returns the genesis state and state root in your terminal, in YAML.
+
+```
+$ curl --header "Content-Type: application/yaml" "localhost:5052/beacon/state?slot=0"
+```
 
 <a name="http-enr"></a>
 ### Get the node's ENR
