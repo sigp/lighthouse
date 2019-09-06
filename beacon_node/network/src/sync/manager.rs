@@ -1,4 +1,4 @@
-//! The `ImportManager` facilities the block syncing logic of lighthouse. The current networking
+//! The `SyncManager` facilities the block syncing logic of lighthouse. The current networking
 //! specification provides two methods from which to obtain blocks from peers. The `BeaconBlocks`
 //! request and the `RecentBeaconBlocks` request. The former is used to obtain a large number of
 //! blocks and the latter allows for searching for blocks given a block-hash.
@@ -7,7 +7,7 @@
 //! - Long range (batch) sync, when a client is out of date and needs to the latest head.
 //! - Parent lookup - when a peer provides us a block whose parent is unknown to us.
 //!
-//! Both of these syncing strategies are built into the `ImportManager`.
+//! Both of these syncing strategies are built into the `SyncManager`.
 //!
 //!
 //! Currently the long-range (batch) syncing method functions by opportunistically downloading
@@ -53,16 +53,18 @@
 //! fully sync'd peers. If `PARENT_FAIL_TOLERANCE` attempts at requesting the block fails, we
 //! drop the propagated block and downvote the peer that sent it to us.
 
-use super::simple_sync::{PeerSyncInfo, FUTURE_SLOT_TOLERANCE};
+use super::simple_sync::{hello_message, NetworkContext, PeerSyncInfo, FUTURE_SLOT_TOLERANCE};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::RequestId;
+use eth2_libp2p::rpc::{RPCRequest, RequestId};
 use eth2_libp2p::PeerId;
+use futures::prelude::*;
 use slog::{debug, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Add, Sub};
 use std::sync::Weak;
+use tokio::sync::{mpsc, oneshot};
 use types::{BeaconBlock, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many blocks per batch
@@ -83,6 +85,31 @@ const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 /// The number of empty batches we tolerate before dropping the peer. This prevents endless
 /// requests to peers who never return blocks.
 const EMPTY_BATCH_TOLERANCE: usize = 100;
+
+#[derive(Debug)]
+/// A message than can be sent to the sync manager thread.
+pub enum SyncMessage<T: EthSpec> {
+    /// A useful peer has been discovered.
+    AddPeer(PeerId, PeerSyncInfo),
+    /// A `BeaconBlocks` response has been received.
+    BeaconBlocksResponse {
+        peer_id: PeerId,
+        request_id: RequestId,
+        beacon_blocks: Vec<BeaconBlock<T>>,
+    },
+    /// A `RecentBeaconBlocks` response has been received.
+    RecentBeaconBlocksResponse {
+        peer_id: PeerId,
+        request_id: RequestId,
+        beacon_blocks: Vec<BeaconBlock<T>>,
+    },
+    /// A block with an unknown parent has been received.
+    UnknownBlock(PeerId, BeaconBlock<T>),
+    /// A peer has disconnected.
+    Disconnect(PeerId),
+    /// An RPC Error has occurred on a request.
+    _RPCError(RequestId),
+}
 
 #[derive(PartialEq)]
 /// The current state of a block or batches lookup.
@@ -176,39 +203,19 @@ enum ManagerState {
     Stalled,
 }
 
-/// The output states that can occur from driving (polling) the manager state machine.
-pub(crate) enum ImportManagerOutcome {
-    /// There is no further work to complete. The manager is waiting for further input.
-    Idle,
-    /// A `BeaconBlocks` request is required.
-    RequestBlocks {
-        peer_id: PeerId,
-        request_id: RequestId,
-        request: BeaconBlocksRequest,
-    },
-    /// A `RecentBeaconBlocks` request is required.
-    RecentRequest {
-        peer_id: PeerId,
-        request_id: RequestId,
-        request: RecentBeaconBlocksRequest,
-    },
-    /// Updates information with peer via requesting another HELLO handshake.
-    Hello(PeerId),
-    /// A peer has caused a punishable error and should be downvoted.
-    DownvotePeer(PeerId),
-}
-
 /// The primary object for handling and driving all the current syncing logic. It maintains the
 /// current state of the syncing process, the number of useful peers, downloaded blocks and
 /// controls the logic behind both the long-range (batch) sync and the on-going potential parent
 /// look-up of blocks.
-pub struct ImportManager<T: BeaconChainTypes> {
-    /// List of events to be processed externally.
-    event_queue: SmallVec<[ImportManagerOutcome; 20]>,
+pub struct SyncManager<T: BeaconChainTypes> {
     /// A weak reference to the underlying beacon chain.
     chain: Weak<BeaconChain<T>>,
     /// The current state of the import manager.
     state: ManagerState,
+    /// A receiving channel sent by the message processor thread.
+    input_channel: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
+    /// A network context to contact the network service.
+    network: NetworkContext,
     /// A collection of `BlockRequest` per peer that is currently being downloaded. Used in the
     /// long-range (batch) sync process.
     import_queue: HashMap<PeerId, BlockRequests<T::EthSpec>>,
@@ -224,22 +231,51 @@ pub struct ImportManager<T: BeaconChainTypes> {
     log: Logger,
 }
 
-impl<T: BeaconChainTypes> ImportManager<T> {
-    /// Generates a new `ImportManager` given a logger and an Arc reference to a beacon chain. The
-    /// import manager keeps a weak reference to the beacon chain, which allows the chain to be
-    /// dropped during the syncing process. The syncing handles this termination gracefully.
-    pub fn new(beacon_chain: Weak<BeaconChain<T>>, log: &slog::Logger) -> Self {
-        ImportManager {
-            event_queue: SmallVec::new(),
-            chain: beacon_chain,
-            state: ManagerState::Regular,
-            import_queue: HashMap::new(),
-            parent_queue: SmallVec::new(),
-            full_peers: HashSet::new(),
-            current_req_id: 0,
-            log: log.clone(),
-        }
-    }
+/// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
+/// chain. This allows the chain to be
+/// dropped during the syncing process which will gracefully end the `SyncManager`.
+pub fn spawn<T: BeaconChainTypes>(
+    executor: &tokio::runtime::TaskExecutor,
+    beacon_chain: Weak<BeaconChain<T>>,
+    network: NetworkContext,
+    log: slog::Logger,
+) -> (
+    mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    oneshot::Sender<()>,
+) {
+    // generate the exit channel
+    let (sync_exit, exit_rx) = tokio::sync::oneshot::channel();
+    // generate the message channel
+    let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
+
+    // create an instance of the SyncManager
+    let sync_manager = SyncManager {
+        chain: beacon_chain,
+        state: ManagerState::Regular,
+        input_channel: sync_recv,
+        network,
+        import_queue: HashMap::new(),
+        parent_queue: SmallVec::new(),
+        full_peers: HashSet::new(),
+        current_req_id: 0,
+        log: log.clone(),
+    };
+
+    // spawn the sync manager thread
+    debug!(log, "Sync Manager started");
+    executor.spawn(
+        sync_manager
+            .select(exit_rx.then(|_| Ok(())))
+            .then(move |_| {
+                info!(log.clone(), "Sync Manager shutdown");
+                Ok(())
+            }),
+    );
+    (sync_send, sync_exit)
+}
+
+impl<T: BeaconChainTypes> SyncManager<T> {
+    /* Input Handling Functions */
 
     /// A peer has connected which has blocks that are unknown to us.
     ///
@@ -281,7 +317,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
             return;
         }
 
-        // Check if the peer is significantly is behind us. If within `SLOT_IMPORT_TOLERANCE`
+        // Check if the peer is significantly behind us. If within `SLOT_IMPORT_TOLERANCE`
         // treat them as a fully synced peer. If not, ignore them in the sync process
         if local.head_slot.sub(remote.head_slot).as_usize() < SLOT_IMPORT_TOLERANCE {
             self.add_full_peer(peer_id.clone());
@@ -328,8 +364,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         let chain = match self.chain.upgrade() {
             Some(chain) => chain,
             None => {
-                debug!(self.log, "Chain dropped. Sync terminating");
-                self.event_queue.clear();
+                trace!(self.log, "Chain dropped. Sync terminating");
                 return;
             }
         };
@@ -390,8 +425,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                           "request_id" => request_id, 
                           "response_initial_slot" => blocks[0].slot, 
                           "requested_initial_slot" => block_requests.current_start_slot);
-            self.event_queue
-                .push(ImportManagerOutcome::DownvotePeer(peer_id));
+            downvote_peer(&mut self.network, &self.log, peer_id);
             // consider this sync failed
             block_requests.state = BlockRequestsState::Failed;
             return;
@@ -515,26 +549,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         parent_request.state = BlockRequestsState::ReadyToProcess;
     }
 
-    pub fn _inject_error(_peer_id: PeerId, _id: RequestId) {
-        //TODO: Remove block state from pending
-    }
-
-    pub fn peer_disconnect(&mut self, peer_id: &PeerId) {
-        self.import_queue.remove(peer_id);
-        self.full_peers.remove(peer_id);
-        self.update_state();
-    }
-
-    pub fn add_full_peer(&mut self, peer_id: PeerId) {
-        debug!(
-            self.log, "Fully synced peer added";
-            "peer" => format!("{:?}", peer_id),
-        );
-        self.full_peers.insert(peer_id);
-        self.update_state();
-    }
-
-    pub fn add_unknown_block(&mut self, block: BeaconBlock<T::EthSpec>, peer_id: PeerId) {
+    fn add_unknown_block(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) {
         // if we are not in regular sync mode, ignore this block
         if self.state != ManagerState::Regular {
             return;
@@ -563,54 +578,28 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         self.parent_queue.push(req);
     }
 
-    pub(crate) fn poll(&mut self) -> ImportManagerOutcome {
-        loop {
-            //TODO: Optimize the lookups. Potentially keep state of whether each of these functions
-            //need to be called.
-
-            // only break once everything has been processed
-            let mut re_run = false;
-
-            // only process batch requests if there are any
-            if !self.import_queue.is_empty() {
-                // process potential block requests
-                re_run = re_run || self.process_potential_block_requests();
-
-                // process any complete long-range batches
-                re_run = re_run || self.process_complete_batches();
-            }
-
-            // only process parent objects if we are in regular sync
-            if !self.parent_queue.is_empty() {
-                // process any parent block lookup-requests
-                re_run = re_run || self.process_parent_requests();
-
-                // process any complete parent lookups
-                re_run = re_run || self.process_complete_parent_requests();
-            }
-
-            // exit early if the beacon chain is dropped
-            if let None = self.chain.upgrade() {
-                return ImportManagerOutcome::Idle;
-            }
-
-            // return any queued events
-            if !self.event_queue.is_empty() {
-                let event = self.event_queue.remove(0);
-                self.event_queue.shrink_to_fit();
-                return event;
-            }
-
-            // update the state of the manager
-            self.update_state();
-
-            if !re_run {
-                break;
-            }
-        }
-
-        return ImportManagerOutcome::Idle;
+    fn inject_error(&mut self, _id: RequestId) {
+        //TODO: Remove block state from pending
     }
+
+    fn peer_disconnect(&mut self, peer_id: &PeerId) {
+        self.import_queue.remove(peer_id);
+        self.full_peers.remove(peer_id);
+        self.update_state();
+    }
+
+    fn add_full_peer(&mut self, peer_id: PeerId) {
+        debug!(
+            self.log, "Fully synced peer added";
+            "peer" => format!("{:?}", peer_id),
+        );
+        self.full_peers.insert(peer_id);
+        self.update_state();
+    }
+
+    /* Processing State Functions */
+    // These functions are called in the main poll function to transition the state of the sync
+    // manager
 
     fn update_state(&mut self) {
         let previous_state = self.state.clone();
@@ -631,13 +620,12 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         }
     }
 
-    fn process_potential_block_requests(&mut self) -> bool {
+    fn process_potential_block_requests(&mut self) {
         // check if an outbound request is required
         // Managing a fixed number of outbound requests is maintained at the RPC protocol libp2p
         // layer and not needed here. Therefore we create many outbound requests and let the RPC
         // handle the number of simultaneous requests. Request all queued objects.
 
-        let mut re_run = false;
         // remove any failed batches
         let debug_log = &self.log;
         let full_peer_ref = &mut self.full_peers;
@@ -655,40 +643,40 @@ impl<T: BeaconChainTypes> ImportManager<T> {
         });
 
         // process queued block requests
-        for (peer_id, block_requests) in self
-            .import_queue
-            .iter_mut()
-            .find(|(_peer_id, req)| req.state == BlockRequestsState::Queued)
-        {
-            let request_id = self.current_req_id;
-            block_requests.state = BlockRequestsState::Pending(request_id);
-            self.current_req_id += 1;
+        for (peer_id, block_requests) in self.import_queue.iter_mut() {
+            {
+                if block_requests.state == BlockRequestsState::Queued {
+                    let request_id = self.current_req_id;
+                    block_requests.state = BlockRequestsState::Pending(request_id);
+                    self.current_req_id += 1;
 
-            let request = BeaconBlocksRequest {
-                head_block_root: block_requests.target_head_root,
-                start_slot: block_requests.current_start_slot.as_u64(),
-                count: MAX_BLOCKS_PER_REQUEST,
-                step: 0,
-            };
-            self.event_queue.push(ImportManagerOutcome::RequestBlocks {
-                peer_id: peer_id.clone(),
-                request,
-                request_id,
-            });
-            re_run = true;
+                    let request = BeaconBlocksRequest {
+                        head_block_root: block_requests.target_head_root,
+                        start_slot: block_requests.current_start_slot.as_u64(),
+                        count: MAX_BLOCKS_PER_REQUEST,
+                        step: 0,
+                    };
+                    request_blocks(
+                        &mut self.network,
+                        &self.log,
+                        peer_id.clone(),
+                        request_id,
+                        request,
+                    );
+                }
+            }
         }
-
-        re_run
     }
 
     fn process_complete_batches(&mut self) -> bool {
-        // flag to indicate if the manager can be switched to idle or not
-        let mut re_run = false;
+        // This function can queue extra blocks and the main poll loop will need to be re-executed
+        // to process these. This flag indicates that the main poll loop has to continue.
+        let mut re_run_poll = false;
 
         // create reference variables to be moved into subsequent closure
         let chain_ref = self.chain.clone();
         let log_ref = &self.log;
-        let event_queue_ref = &mut self.event_queue;
+        let network_ref = &mut self.network;
 
         self.import_queue.retain(|peer_id, block_requests| {
             if block_requests.state == BlockRequestsState::ReadyToProcess {
@@ -712,13 +700,13 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                         // target head
                         if end_slot >= block_requests.target_head_slot {
                             // Completed, re-hello the peer to ensure we are up to the latest head
-                            event_queue_ref.push(ImportManagerOutcome::Hello(peer_id.clone()));
+                            hello_peer(network_ref, log_ref, chain_ref.clone(), peer_id.clone());
                             // remove the request
                             false
                         } else {
                             // have not reached the end, queue another batch
                             block_requests.update_start_slot();
-                            re_run = true;
+                            re_run_poll = true;
                             // keep the batch
                             true
                         }
@@ -731,7 +719,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                             "no_blocks" => last_element + 1,
                             "error" => format!("{:?}", e),
                         );
-                        event_queue_ref.push(ImportManagerOutcome::DownvotePeer(peer_id.clone()));
+                        downvote_peer(network_ref, log_ref, peer_id.clone());
                         false
                     }
                 }
@@ -741,16 +729,14 @@ impl<T: BeaconChainTypes> ImportManager<T> {
             }
         });
 
-        re_run
+        re_run_poll
     }
 
-    fn process_parent_requests(&mut self) -> bool {
+    fn process_parent_requests(&mut self) {
         // check to make sure there are peers to search for the parent from
         if self.full_peers.is_empty() {
-            return false;
+            return;
         }
-
-        let mut re_run = false;
 
         // remove any failed requests
         let debug_log = &self.log;
@@ -790,20 +776,20 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                 // select a random fully synced peer to attempt to download the parent block
                 let peer_id = self.full_peers.iter().next().expect("List is not empty");
 
-                self.event_queue.push(ImportManagerOutcome::RecentRequest {
-                    peer_id: peer_id.clone(),
+                recent_blocks_request(
+                    &mut self.network,
+                    &self.log,
+                    peer_id.clone(),
                     request_id,
                     request,
-                });
-                re_run = true;
+                );
             }
         }
-        re_run
     }
 
     fn process_complete_parent_requests(&mut self) -> bool {
         // returned value indicating whether the manager can be switched to idle or not
-        let mut re_run = false;
+        let mut re_run_poll = false;
 
         // Find any parent_requests ready to be processed
         for completed_request in self
@@ -827,9 +813,8 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                 "received_block" => format!("{}", block_hash),
                 "expected_parent" => format!("{}", expected_hash),
                 );
-                re_run = true;
-                self.event_queue
-                    .push(ImportManagerOutcome::DownvotePeer(peer));
+                re_run_poll = true;
+                downvote_peer(&mut self.network, &self.log, peer);
             }
 
             // try and process the list of blocks up to the requested block
@@ -846,7 +831,7 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                             // need to keep looking for parents
                             completed_request.downloaded_blocks.push(block);
                             completed_request.state = BlockRequestsState::Queued;
-                            re_run = true;
+                            re_run_poll = true;
                             break;
                         }
                         Ok(BlockProcessingOutcome::Processed { block_root: _ }) => {}
@@ -859,11 +844,13 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                                 "peer" => format!("{:?}", completed_request.last_submitted_peer),
                             );
                             completed_request.state = BlockRequestsState::Queued;
-                            re_run = true;
-                            self.event_queue.push(ImportManagerOutcome::DownvotePeer(
+                            re_run_poll = true;
+                            downvote_peer(
+                                &mut self.network,
+                                &self.log,
                                 completed_request.last_submitted_peer.clone(),
-                            ));
-                            return re_run;
+                            );
+                            return re_run_poll;
                         }
                         Err(e) => {
                             completed_request.failed_attempts += 1;
@@ -872,16 +859,17 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                                 "error" => format!("{:?}", e)
                             );
                             completed_request.state = BlockRequestsState::Queued;
-                            re_run = true;
-                            self.event_queue.push(ImportManagerOutcome::DownvotePeer(
+                            re_run_poll = true;
+                            downvote_peer(
+                                &mut self.network,
+                                &self.log,
                                 completed_request.last_submitted_peer.clone(),
-                            ));
-                            return re_run;
+                            );
+                            return re_run_poll;
                         }
                     }
                 } else {
                     // chain doesn't exist - clear the event queue and return
-                    self.event_queue.clear();
                     return false;
                 }
             }
@@ -895,11 +883,83 @@ impl<T: BeaconChainTypes> ImportManager<T> {
                 true
             }
         });
-        re_run
+        re_run_poll
     }
 }
 
-// Helper function to process blocks
+/* Network Context Helper Functions */
+
+fn hello_peer<T: BeaconChainTypes>(
+    network: &mut NetworkContext,
+    log: &slog::Logger,
+    chain: Weak<BeaconChain<T>>,
+    peer_id: PeerId,
+) {
+    trace!(
+        log,
+        "RPC Request";
+        "method" => "HELLO",
+        "peer" => format!("{:?}", peer_id)
+    );
+    if let Some(chain) = chain.upgrade() {
+        network.send_rpc_request(None, peer_id, RPCRequest::Hello(hello_message(&chain)));
+    }
+}
+
+fn request_blocks(
+    network: &mut NetworkContext,
+    log: &slog::Logger,
+    peer_id: PeerId,
+    request_id: RequestId,
+    request: BeaconBlocksRequest,
+) {
+    trace!(
+        log,
+        "RPC Request";
+        "method" => "BeaconBlocks",
+        "id" => request_id,
+        "count" => request.count,
+        "peer" => format!("{:?}", peer_id)
+    );
+    network.send_rpc_request(
+        Some(request_id),
+        peer_id.clone(),
+        RPCRequest::BeaconBlocks(request),
+    );
+}
+
+fn recent_blocks_request(
+    network: &mut NetworkContext,
+    log: &slog::Logger,
+    peer_id: PeerId,
+    request_id: RequestId,
+    request: RecentBeaconBlocksRequest,
+) {
+    trace!(
+        log,
+        "RPC Request";
+        "method" => "RecentBeaconBlocks",
+        "count" => request.block_roots.len(),
+        "peer" => format!("{:?}", peer_id)
+    );
+    network.send_rpc_request(
+        Some(request_id),
+        peer_id.clone(),
+        RPCRequest::RecentBeaconBlocks(request),
+    );
+}
+
+fn downvote_peer(network: &mut NetworkContext, log: &slog::Logger, peer_id: PeerId) {
+    trace!(
+        log,
+        "Peer downvoted";
+        "peer" => format!("{:?}", peer_id)
+    );
+    // TODO: Implement reputation
+    network.disconnect(peer_id.clone(), GoodbyeReason::Fault);
+}
+
+// Helper function to process blocks which only consumes the chain and blocks to process
 fn process_blocks<T: BeaconChainTypes>(
     weak_chain: Weak<BeaconChain<T>>,
     blocks: Vec<BeaconBlock<T::EthSpec>>,
@@ -1004,4 +1064,100 @@ fn process_blocks<T: BeaconChainTypes>(
     }
 
     Ok(())
+}
+
+impl<T: BeaconChainTypes> Future for SyncManager<T> {
+    type Item = ();
+    type Error = String;
+
+    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+        // process any inbound messages
+        loop {
+            match self.input_channel.poll() {
+                Ok(Async::Ready(Some(message))) => match message {
+                    SyncMessage::AddPeer(peer_id, info) => {
+                        self.add_peer(peer_id, info);
+                        dbg!("add peer");
+                    }
+                    SyncMessage::BeaconBlocksResponse {
+                        peer_id,
+                        request_id,
+                        beacon_blocks,
+                    } => {
+                        self.beacon_blocks_response(peer_id, request_id, beacon_blocks);
+                    }
+                    SyncMessage::RecentBeaconBlocksResponse {
+                        peer_id,
+                        request_id,
+                        beacon_blocks,
+                    } => {
+                        self.recent_blocks_response(peer_id, request_id, beacon_blocks);
+                    }
+                    SyncMessage::UnknownBlock(peer_id, block) => {
+                        self.add_unknown_block(peer_id, block);
+                    }
+                    SyncMessage::Disconnect(peer_id) => {
+                        self.peer_disconnect(&peer_id);
+                    }
+                    SyncMessage::_RPCError(request_id) => {
+                        self.inject_error(request_id);
+                    }
+                },
+                Ok(Async::NotReady) => break,
+                Ok(Async::Ready(None)) => {
+                    return Err("Sync manager channel closed".into());
+                }
+                Err(e) => {
+                    return Err(format!("Sync Manager channel error: {:?}", e));
+                }
+            }
+        }
+
+        loop {
+            //TODO: Optimize the lookups. Potentially keep state of whether each of these functions
+            //need to be called.
+            let mut re_run = false;
+
+            dbg!(self.import_queue.len());
+            // only process batch requests if there are any
+            if !self.import_queue.is_empty() {
+                // process potential block requests
+                self.process_potential_block_requests();
+
+                dbg!(self.import_queue.len());
+                // process any complete long-range batches
+                re_run = re_run || self.process_complete_batches();
+                dbg!(self.import_queue.len());
+                dbg!(&self.state);
+            }
+
+            // only process parent objects if we are in regular sync
+            if !self.parent_queue.is_empty() {
+                // process any parent block lookup-requests
+                self.process_parent_requests();
+
+                // process any complete parent lookups
+                re_run = re_run || self.process_complete_parent_requests();
+            }
+
+            dbg!(self.import_queue.len());
+            dbg!(&self.state);
+
+            // Shutdown the thread if the chain has termined
+            if let None = self.chain.upgrade() {
+                return Ok(Async::Ready(()));
+            }
+
+            if !re_run {
+                break;
+            }
+        }
+        dbg!(self.import_queue.len());
+        dbg!(&self.state);
+
+        // update the state of the manager
+        self.update_state();
+
+        return Ok(Async::NotReady);
+    }
 }
