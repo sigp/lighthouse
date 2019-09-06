@@ -27,7 +27,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::runtime::Builder;
 use tokio::timer::Interval;
@@ -100,19 +100,6 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     continue;
                 }
                 Ok(info) => {
-                    // verify the node's genesis time
-                    if SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs()
-                        < info.genesis_time
-                    {
-                        error!(
-                            log,
-                            "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
-                        );
-                        return Err("Genesis time in the future".into());
-                    }
                     // verify the node's network id
                     if eth2_config.spec.network_id != info.network_id as u8 {
                         error!(
@@ -177,13 +164,11 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             genesis_time,
             Duration::from_millis(eth2_config.spec.milliseconds_per_slot),
         )
-        .ok_or_else::<error_chain::Error, _>(|| {
-            "Unable to start slot clock. Genesis may not have occurred yet. Exiting.".into()
+        .map_err::<error_chain::Error, _>(|e| {
+            format!("Unable to start slot clock: {}.", e).into()
         })?;
 
-        let current_slot = slot_clock.now().ok_or_else::<error_chain::Error, _>(|| {
-            "Genesis has not yet occurred. Exiting.".into()
-        })?;
+        let current_slot = slot_clock.now().unwrap_or_else(|| Slot::new(0));
 
         /* Generate the duties manager */
 
@@ -237,7 +222,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         let mut service = Service::<ValidatorServiceClient, Keypair, E>::initialize_service(
             client_config,
             eth2_config,
-            log,
+            log.clone(),
         )?;
 
         // we have connected to a node and established its parameters. Spin up the core service
@@ -253,7 +238,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             .slot_clock
             .duration_to_next_slot()
             .ok_or_else::<error_chain::Error, _>(|| {
-                "Genesis is not in the past. Exiting.".into()
+                "Unable to determine duration to next slot. Exiting.".into()
             })?;
 
         // set up the validator work interval - start at next slot and proceed every slot
@@ -263,6 +248,19 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             //TODO: Handle checked add correctly
             Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
         };
+
+        if service.slot_clock.now().is_none() {
+            warn!(
+                log,
+                "Starting node prior to genesis";
+            );
+        }
+
+        info!(
+            log,
+            "Waiting for next slot";
+            "seconds_to_wait" => duration_to_next_slot.as_secs()
+        );
 
         /* kick off the core service */
         runtime.block_on(

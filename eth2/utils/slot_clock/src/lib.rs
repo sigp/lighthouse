@@ -5,7 +5,7 @@ mod metrics;
 mod system_time_slot_clock;
 mod testing_slot_clock;
 
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, SystemTimeError, UNIX_EPOCH};
 
 pub use crate::system_time_slot_clock::SystemTimeSlotClock;
 pub use crate::testing_slot_clock::TestingSlotClock;
@@ -17,18 +17,21 @@ pub trait SlotClock: Send + Sync + Sized {
         genesis_slot: Slot,
         genesis_seconds: u64,
         slot_duration: Duration,
-    ) -> Option<Self> {
-        let duration_between_now_and_unix_epoch =
-            SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+    ) -> Result<Self, SystemTimeError> {
+        let duration_between_now_and_unix_epoch = SystemTime::now().duration_since(UNIX_EPOCH)?;
         let duration_between_unix_epoch_and_genesis = Duration::from_secs(genesis_seconds);
 
-        if duration_between_now_and_unix_epoch < duration_between_unix_epoch_and_genesis {
-            None
+        let genesis_instant = if duration_between_now_and_unix_epoch
+            < duration_between_unix_epoch_and_genesis
+        {
+            Instant::now()
+                + (duration_between_unix_epoch_and_genesis - duration_between_now_and_unix_epoch)
         } else {
-            let genesis_instant = Instant::now()
-                - (duration_between_now_and_unix_epoch - duration_between_unix_epoch_and_genesis);
-            Some(Self::new(genesis_slot, genesis_instant, slot_duration))
-        }
+            Instant::now()
+                - (duration_between_now_and_unix_epoch - duration_between_unix_epoch_and_genesis)
+        };
+
+        Ok(Self::new(genesis_slot, genesis_instant, slot_duration))
     }
 
     fn new(genesis_slot: Slot, genesis: Instant, slot_duration: Duration) -> Self;

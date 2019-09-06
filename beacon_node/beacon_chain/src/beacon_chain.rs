@@ -178,7 +178,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             genesis_state.genesis_time,
             Duration::from_millis(spec.milliseconds_per_slot),
         )
-        .ok_or_else(|| Error::SlotClockDidNotStart)?;
+        .map_err(|_| Error::SlotClockDidNotStart)?;
 
         info!(log, "Beacon chain initialized from genesis";
               "validator_count" => genesis_state.validators.len(),
@@ -220,7 +220,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.genesis_time,
             Duration::from_millis(spec.milliseconds_per_slot),
         )
-        .ok_or_else(|| Error::SlotClockDidNotStart)?;
+        .map_err(|_| Error::SlotClockDidNotStart)?;
 
         let last_finalized_root = p.canonical_head.beacon_state.finalized_checkpoint.root;
         let last_finalized_block = &p.canonical_head.beacon_block;

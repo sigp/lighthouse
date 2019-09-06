@@ -42,7 +42,7 @@ impl SlotClock for SystemTimeSlotClock {
     fn duration_to_next_slot(&self) -> Option<Duration> {
         let now = Instant::now();
         if now < self.genesis {
-            None
+            Some(self.genesis - now)
         } else {
             let duration_since_genesis = now - self.genesis;
             let millis_since_genesis = duration_since_genesis.as_millis();
