@@ -16,6 +16,8 @@ pub enum Error {
     InvalidParam,
     /// Invalid data
     InvalidData,
+    /// Missing deposit index
+    MissingDeposit(u64),
 }
 
 impl From<web3::error::Error> for Error {

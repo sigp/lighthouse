@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::{Error, Result};
 use crate::types::Eth1DataFetcher;
 use ethereum_types::{H256, U256};
 use merkle_proof::*;
@@ -41,21 +41,22 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
         &self,
         from_deposit_index: u64,
         to_deposit_index: u64,
-    ) -> Option<Vec<DepositData>> {
+    ) -> Result<Vec<DepositData>> {
         let deposits_cache = self.deposit_data.read();
         let mut deposit_data = vec![];
         for deposit_index in from_deposit_index..to_deposit_index {
             let deposit = deposits_cache.get(&deposit_index);
             match deposit {
-                None => return None, // Index missing in cache. Merkle proof won't verify
+                None => return Err(Error::MissingDeposit(deposit_index)), // Index missing in cache. Merkle proof won't verify
                 Some(d) => deposit_data.push(d.clone()),
             }
         }
-        Some(deposit_data)
+        Ok(deposit_data)
     }
 
     /// Return all `Deposit` structs till given index.
-    pub fn get_deposits_upto(&self, to_deposit_index: u64) -> Option<Vec<Deposit>> {
+    /// TODO: construct incremental merkle tree. Repeated construction wasteful.
+    pub fn get_deposits_upto(&self, to_deposit_index: u64) -> Result<Vec<Deposit>> {
         let deposit_data = self.get_deposit_data(0, to_deposit_index)?;
         let deposit_data_hash: Vec<H256> = deposit_data
             .iter()
@@ -70,7 +71,7 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
                 data: val,
             })
             .collect::<Vec<_>>();
-        Some(deposits)
+        Ok(deposits)
     }
 
     /// Update deposits from last updated point to `current_block_number - confirmations`.

@@ -133,7 +133,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for Web3Backend<T> {
         self.eth1
             .deposit_cache
             .get_deposits_upto(beacon_state.eth1_data.deposit_count)
-            .ok_or(Error::BackendError("Couldn't fetch all deposits".into()))
+            .map_err(|e| Error::BackendError(format!("{:?}", e)))
     }
 }
 
