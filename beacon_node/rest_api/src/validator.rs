@@ -32,27 +32,44 @@ impl ValidatorDuty {
 
 /// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch
 pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+    let log = get_logger_from_request(&req);
+    slog::trace!(log, "Validator duties requested of API: {:?}", &req);
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let head_state = &beacon_chain.head().beacon_state;
+    let mut head_state = beacon_chain
+        .state_now()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get current BeaconState {:?}", e)))?;
 
+    slog::trace!(log, "Got head state from request.");
     // Parse and check query parameters
     let query = UrlQuery::from_request(&req)?;
     let current_epoch = head_state.current_epoch();
     let epoch = match query.first_of(&["epoch"]) {
-        Ok((_, v)) => Epoch::new(v.parse::<u64>().map_err(|e| {
-            ApiError::InvalidQueryParams(format!("Invalid epoch parameter, must be a u64. {:?}", e))
-        })?),
+        Ok((_, v)) => {
+            slog::trace!(log, "Requested epoch {:?}", v);
+            Epoch::new(v.parse::<u64>().map_err(|e| {
+                slog::info!(log, "Invalid epoch {:?}", e);
+                ApiError::InvalidQueryParams(format!(
+                    "Invalid epoch parameter, must be a u64. {:?}",
+                    e
+                ))
+            })?)
+        }
         Err(_) => {
             // epoch not supplied, use the current epoch
+            slog::info!(log, "Using default epoch {:?}", current_epoch);
             current_epoch
         }
     };
     let relative_epoch = RelativeEpoch::from_epoch(current_epoch, epoch).map_err(|e| {
+        slog::info!(log, "Requested epoch out of range.");
         ApiError::InvalidQueryParams(format!(
             "Cannot get RelativeEpoch, epoch out of range: {:?}",
             e
         ))
     })?;
+    if let Some(s) = head_state.maybe_as_mut_ref() {
+        s.build_all_caches(&beacon_chain.spec).ok();
+    }
     let validators: Vec<PublicKey> = query
         .all_of("validator_pubkeys")?
         .iter()

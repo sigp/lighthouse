@@ -179,6 +179,7 @@ pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(
         .get::<Arc<BeaconChain<T>>>()
         .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".into()))?;
 
+    /*
     let _state_now = beacon_chain
         .state_now()
         .map_err(|e| ApiError::ServerError(format!("Unable to get current BeaconState {:?}", e)))?
@@ -188,8 +189,17 @@ pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(
         ))?
         .build_all_caches(&beacon_chain.spec)
         .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;
+        */
 
     Ok(beacon_chain.clone())
+}
+
+pub fn get_logger_from_request(req: &Request<Body>) -> slog::Logger {
+    let log = req
+        .extensions()
+        .get::<slog::Logger>()
+        .expect("Should always get the logger from the request, since we put it in there.");
+    log.to_owned()
 }
 
 #[cfg(test)]

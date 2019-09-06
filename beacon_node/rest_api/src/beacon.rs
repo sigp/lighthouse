@@ -6,7 +6,7 @@ use serde::Serialize;
 use ssz_derive::Encode;
 use std::sync::Arc;
 use store::Store;
-use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot, Validator};
 
 #[derive(Serialize)]
 pub struct HeadResponse {
@@ -162,21 +162,13 @@ pub fn get_validators<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     };
 
     let all_validators = &beacon_chain.head().beacon_state.validators;
-    let mut active_validators = Vec::with_capacity(all_validators.len());
-    for (_index, validator) in all_validators.iter().enumerate() {
-        if validator.is_active_at(epoch) {
-            active_validators.push(validator)
-        }
-    }
-    active_validators.shrink_to_fit();
-    let json: String = serde_json::to_string(&active_validators).map_err(|e| {
-        ApiError::ServerError(format!(
-            "Unable to serialize list of active validators: {:?}",
-            e
-        ))
-    })?;
+    let active_vals: Vec<Validator> = all_validators
+        .iter()
+        .filter(|v| v.is_active_at(epoch))
+        .cloned()
+        .collect();
 
-    Ok(success_response(Body::from(json)))
+    ResponseBuilder::new(&req).body(&active_vals)
 }
 
 #[derive(Serialize, Encode)]
