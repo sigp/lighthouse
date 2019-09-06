@@ -4,6 +4,7 @@ use super::*;
 use crate::cases::common::{SszStaticType, TestU128, TestU256};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::yaml_decode_file;
+use serde::{de::Error as SerdeError, Deserialize, Deserializer};
 use serde_derive::Deserialize;
 use ssz_derive::{Decode, Encode};
 use std::fs;
@@ -103,9 +104,8 @@ macro_rules! type_dispatch {
             "SmallTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* SmallTestStruct>, $($rest)*),
             "FixedTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* FixedTestStruct>, $($rest)*),
             "VarTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* VarTestStruct>, $($rest)*),
+            "ComplexTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ComplexTestStruct>, $($rest)*),
             "BitsStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* BitsStruct>, $($rest)*),
-            // TODO: enable ComplexTestStruct
-            "ComplexTestStruct" => Err(Error::SkippedKnownFailure),
             _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };
@@ -260,6 +260,18 @@ struct VarTestStruct {
     C: u8,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+struct ComplexTestStruct {
+    A: u16,
+    B: VariableList<u16, U128>,
+    C: u8,
+    #[serde(deserialize_with = "byte_list_from_hex_str")]
+    D: VariableList<u8, U256>,
+    E: VarTestStruct,
+    F: FixedVector<FixedTestStruct, U4>,
+    G: FixedVector<VarTestStruct, U2>,
+}
+
 #[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
 struct BitsStruct {
     A: BitList<U5>,
@@ -267,4 +279,24 @@ struct BitsStruct {
     C: BitVector<U1>,
     D: BitList<U6>,
     E: BitVector<U8>,
+}
+
+fn byte_list_from_hex_str<'de, D, N: Unsigned>(
+    deserializer: D,
+) -> Result<VariableList<u8, N>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+    let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
+
+    if decoded.len() > N::to_usize() {
+        return Err(D::Error::custom(format!(
+            "Too many values for list, got: {}, limit: {}",
+            decoded.len(),
+            N::to_usize()
+        )));
+    } else {
+        Ok(decoded.into())
+    }
 }
