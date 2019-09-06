@@ -129,10 +129,12 @@ impl<T: EthSpec> Eth1ChainBackend<T> for Web3Backend<T> {
     }
 
     fn queued_deposits(&self, beacon_state: &BeaconState<T>) -> Result<Vec<Deposit>> {
-        // TODO: fix the range of deposits to be returned.
         self.eth1
             .deposit_cache
-            .get_deposits_upto(beacon_state.eth1_data.deposit_count)
+            .get_deposits_in_range(
+                beacon_state.eth1_deposit_index,
+                beacon_state.eth1_data.deposit_count,
+            )
             .map_err(|e| Error::BackendError(format!("{:?}", e)))
     }
 }

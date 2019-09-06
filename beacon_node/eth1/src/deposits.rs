@@ -56,7 +56,11 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
 
     /// Return all `Deposit` structs till given index.
     /// TODO: construct incremental merkle tree. Repeated construction wasteful.
-    pub fn get_deposits_upto(&self, to_deposit_index: u64) -> Result<Vec<Deposit>> {
+    pub fn get_deposits_in_range(
+        &self,
+        from_deposit_index: u64,
+        to_deposit_index: u64,
+    ) -> Result<Vec<Deposit>> {
         let deposit_data = self.get_deposit_data(0, to_deposit_index)?;
         let deposit_data_hash: Vec<H256> = deposit_data
             .iter()
@@ -66,6 +70,7 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
         let deposits = deposit_data
             .into_iter()
             .enumerate()
+            .skip_while(|x| (x.0 as u64) < from_deposit_index)
             .map(|(i, val)| Deposit {
                 proof: tree.generate_proof(i + 1, 32).1.into(),
                 data: val,
