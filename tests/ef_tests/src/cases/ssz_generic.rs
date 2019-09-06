@@ -4,7 +4,7 @@ use super::*;
 use crate::cases::common::{SszStaticType, TestU128, TestU256};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::yaml_decode_file;
-use serde::{de::Error as SerdeError, Deserialize, Deserializer};
+use serde::{de::Error as SerdeError, Deserializer};
 use serde_derive::Deserialize;
 use ssz_derive::{Decode, Encode};
 use std::fs;
@@ -287,7 +287,7 @@ fn byte_list_from_hex_str<'de, D, N: Unsigned>(
 where
     D: Deserializer<'de>,
 {
-    let s: String = Deserialize::deserialize(deserializer)?;
+    let s: String = serde::de::Deserialize::deserialize(deserializer)?;
     let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
 
     if decoded.len() > N::to_usize() {
