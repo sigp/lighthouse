@@ -46,8 +46,8 @@ pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpe
     fork: Fork,
     /// The slot clock for this service.
     slot_clock: SystemTimeSlotClock,
-    /// The current slot we are processing.
-    current_slot: Slot,
+    /// The slot that is currently, or was previously processed by the service.
+    current_slot: Option<Slot>,
     slots_per_epoch: u64,
     /// The chain specification for this clients instance.
     spec: Arc<ChainSpec>,
@@ -168,8 +168,6 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             format!("Unable to start slot clock: {}.", e).into()
         })?;
 
-        let current_slot = slot_clock.now().unwrap_or_else(|| Slot::new(0));
-
         /* Generate the duties manager */
 
         // Load generated keypairs
@@ -200,7 +198,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         Ok(Service {
             fork,
             slot_clock,
-            current_slot,
+            current_slot: None,
             slots_per_epoch,
             spec,
             duties_manager,
@@ -296,27 +294,29 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
     /// Updates the known current slot and epoch.
     fn update_current_slot(&mut self) -> error_chain::Result<()> {
-        let current_slot = self
+        let wall_clock_slot = self
             .slot_clock
             .now()
             .ok_or_else::<error_chain::Error, _>(|| {
                 "Genesis is not in the past. Exiting.".into()
             })?;
 
-        let current_epoch = current_slot.epoch(self.slots_per_epoch);
+        let wall_clock_epoch = wall_clock_slot.epoch(self.slots_per_epoch);
 
         // this is a non-fatal error. If the slot clock repeats, the node could
         // have been slow to process the previous slot and is now duplicating tasks.
         // We ignore duplicated but raise a critical error.
-        if current_slot <= self.current_slot {
-            crit!(
-                self.log,
-                "The validator tried to duplicate a slot. Likely missed the previous slot"
-            );
-            return Err("Duplicate slot".into());
+        if let Some(current_slot) = self.current_slot {
+            if wall_clock_slot <= current_slot {
+                crit!(
+                    self.log,
+                    "The validator tried to duplicate a slot. Likely missed the previous slot"
+                );
+                return Err("Duplicate slot".into());
+            }
         }
-        self.current_slot = current_slot;
-        info!(self.log, "Processing"; "slot" => current_slot.as_u64(), "epoch" => current_epoch.as_u64());
+        self.current_slot = Some(wall_clock_slot);
+        info!(self.log, "Processing"; "slot" => wall_clock_slot.as_u64(), "epoch" => wall_clock_epoch.as_u64());
         Ok(())
     }
 
@@ -324,7 +324,10 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
     fn check_for_duties(&mut self) {
         let cloned_manager = self.duties_manager.clone();
         let cloned_log = self.log.clone();
-        let current_epoch = self.current_slot.epoch(self.slots_per_epoch);
+        let current_epoch = self
+            .current_slot
+            .expect("The current slot must be updated before checking for duties")
+            .epoch(self.slots_per_epoch);
         // spawn a new thread separate to the runtime
         // TODO: Handle thread termination/timeout
         // TODO: Add duties thread back in, with channel to process duties in duty change.
@@ -338,14 +341,19 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
     /// If there are any duties to process, spawn a separate thread and perform required actions.
     fn process_duties(&mut self) {
-        if let Some(work) = self.duties_manager.get_current_work(self.current_slot) {
+        if let Some(work) = self.duties_manager.get_current_work(
+            self.current_slot
+                .expect("The current slot must be updated before processing duties"),
+        ) {
             for (signer_index, work_type) in work {
                 if work_type.produce_block {
                     // we need to produce a block
                     // spawns a thread to produce a beacon block
                     let signers = self.duties_manager.signers.clone(); // this is an arc
                     let fork = self.fork.clone();
-                    let slot = self.current_slot;
+                    let slot = self
+                        .current_slot
+                        .expect("The current slot must be updated before processing duties");
                     let spec = self.spec.clone();
                     let beacon_node = self.beacon_block_client.clone();
                     let log = self.log.clone();
