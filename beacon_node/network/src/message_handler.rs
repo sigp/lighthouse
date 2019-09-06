@@ -9,7 +9,7 @@ use eth2_libp2p::{
 };
 use futures::future::Future;
 use futures::stream::Stream;
-use slog::{debug, trace, warn};
+use slog::{debug, o, trace, warn};
 use ssz::{Decode, DecodeError};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -51,7 +51,8 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<HandlerMessage>> {
-        trace!(log, "Service starting");
+        let message_handler_log = log.new(o!("Service"=> "Message Handler"));
+        trace!(message_handler_log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
@@ -63,7 +64,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         let mut handler = MessageHandler {
             network_send,
             message_processor,
-            log: log.clone(),
+            log: message_handler_log,
         };
 
         // spawn handler task and move the message handler instance into the spawned thread

@@ -34,13 +34,8 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage>();
         // launch message handler thread
-        let message_handler_log = log.new(o!("Service" => "MessageHandler"));
-        let message_handler_send = MessageHandler::spawn(
-            beacon_chain,
-            network_send.clone(),
-            executor,
-            message_handler_log,
-        )?;
+        let message_handler_send =
+            MessageHandler::spawn(beacon_chain, network_send.clone(), executor, log.clone())?;
 
         let network_log = log.new(o!("Service" => "Network"));
         // launch libp2p service

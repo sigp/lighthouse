@@ -352,7 +352,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             "count" => beacon_blocks.len(),
         );
 
-        self.send_to_sync(SyncMessage::RecentBeaconBlocksResponse {
+        self.send_to_sync(SyncMessage::BeaconBlocksResponse {
             peer_id,
             request_id,
             beacon_blocks,
@@ -368,12 +368,12 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ) {
         debug!(
             self.log,
-            "BeaconBlocksResponse";
+            "RecentBeaconBlocksResponse";
             "peer" => format!("{:?}", peer_id),
             "count" => beacon_blocks.len(),
         );
 
-        self.send_to_sync(SyncMessage::BeaconBlocksResponse {
+        self.send_to_sync(SyncMessage::RecentBeaconBlocksResponse {
             peer_id,
             request_id,
             beacon_blocks,

@@ -251,7 +251,7 @@ pub fn spawn<T: BeaconChainTypes>(
     // create an instance of the SyncManager
     let sync_manager = SyncManager {
         chain: beacon_chain,
-        state: ManagerState::Regular,
+        state: ManagerState::Stalled,
         input_channel: sync_recv,
         network,
         import_queue: HashMap::new(),
@@ -510,7 +510,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        blocks: Vec<BeaconBlock<T::EthSpec>>,
+        mut blocks: Vec<BeaconBlock<T::EthSpec>>,
     ) {
         // find the request
         let parent_request = match self
@@ -544,6 +544,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             );
             return;
         }
+
+        // add the block to response
+        parent_request
+            .downloaded_blocks
+            .push(blocks.pop().expect("must exist"));
 
         // queue for processing
         parent_request.state = BlockRequestsState::ReadyToProcess;
@@ -594,7 +599,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             "peer" => format!("{:?}", peer_id),
         );
         self.full_peers.insert(peer_id);
-        self.update_state();
     }
 
     /* Processing State Functions */
@@ -1077,7 +1081,6 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                 Ok(Async::Ready(Some(message))) => match message {
                     SyncMessage::AddPeer(peer_id, info) => {
                         self.add_peer(peer_id, info);
-                        dbg!("add peer");
                     }
                     SyncMessage::BeaconBlocksResponse {
                         peer_id,
@@ -1118,17 +1121,13 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
             //need to be called.
             let mut re_run = false;
 
-            dbg!(self.import_queue.len());
             // only process batch requests if there are any
             if !self.import_queue.is_empty() {
                 // process potential block requests
                 self.process_potential_block_requests();
 
-                dbg!(self.import_queue.len());
                 // process any complete long-range batches
                 re_run = re_run || self.process_complete_batches();
-                dbg!(self.import_queue.len());
-                dbg!(&self.state);
             }
 
             // only process parent objects if we are in regular sync
@@ -1140,9 +1139,6 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                 re_run = re_run || self.process_complete_parent_requests();
             }
 
-            dbg!(self.import_queue.len());
-            dbg!(&self.state);
-
             // Shutdown the thread if the chain has termined
             if let None = self.chain.upgrade() {
                 return Ok(Async::Ready(()));
@@ -1152,8 +1148,6 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                 break;
             }
         }
-        dbg!(self.import_queue.len());
-        dbg!(&self.state);
 
         // update the state of the manager
         self.update_state();
