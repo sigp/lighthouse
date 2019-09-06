@@ -152,45 +152,49 @@ impl Decoder for SSZOutboundCodec {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        match self.inner.decode(src).map_err(RPCError::from) {
-            Ok(Some(packet)) => match self.protocol.message_name.as_str() {
+        if src.is_empty() {
+            // the object sent could be empty. We return the empty object if this is the case
+            match self.protocol.message_name.as_str() {
                 "hello" => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCResponse::Hello(HelloMessage::from_ssz_bytes(
-                        &packet,
-                    )?))),
+                    "1" => Err(RPCError::Custom(
+                        "Hello stream terminated unexpectedly".into(),
+                    )), // cannot have an empty HELLO message. The stream has terminated unexpectedly
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 "goodbye" => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
                 "beacon_blocks" => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCResponse::BeaconBlocks(packet.to_vec()))),
+                    "1" => Ok(Some(RPCResponse::BeaconBlocks(Vec::new()))),
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 "recent_beacon_blocks" => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCResponse::RecentBeaconBlocks(packet.to_vec()))),
+                    "1" => Ok(Some(RPCResponse::RecentBeaconBlocks(Vec::new()))),
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 _ => unreachable!("Cannot negotiate an unknown protocol"),
-            },
-            Ok(None) => {
-                // the object sent could be a empty. We return the empty object if this is the case
-                match self.protocol.message_name.as_str() {
+            }
+        } else {
+            match self.inner.decode(src).map_err(RPCError::from) {
+                Ok(Some(packet)) => match self.protocol.message_name.as_str() {
                     "hello" => match self.protocol.version.as_str() {
-                        "1" => Ok(None), // cannot have an empty HELLO message. The stream has terminated unexpectedly
+                        "1" => Ok(Some(RPCResponse::Hello(HelloMessage::from_ssz_bytes(
+                            &packet,
+                        )?))),
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },
                     "goodbye" => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
                     "beacon_blocks" => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::BeaconBlocks(Vec::new()))),
+                        "1" => Ok(Some(RPCResponse::BeaconBlocks(packet.to_vec()))),
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },
                     "recent_beacon_blocks" => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::RecentBeaconBlocks(Vec::new()))),
+                        "1" => Ok(Some(RPCResponse::RecentBeaconBlocks(packet.to_vec()))),
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },
                     _ => unreachable!("Cannot negotiate an unknown protocol"),
-                }
+                },
+                Ok(None) => Ok(None), // waiting for more bytes
+                Err(e) => Err(e),
             }
-            Err(e) => Err(e),
         }
     }
 }

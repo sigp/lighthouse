@@ -79,15 +79,32 @@ impl Service {
             }
         };
 
-        // attempt to connect to user-input libp2p nodes
-        for multiaddr in config.libp2p_nodes {
+        // helper closure for dialing peers
+        let mut dial_addr = |multiaddr: Multiaddr| {
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
                 Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => format!("{}", multiaddr)),
                 Err(err) => debug!(
                     log,
-                    "Could not connect to peer"; "address" => format!("{}", multiaddr), "Error" => format!("{:?}", err)
+                    "Could not connect to peer"; "address" => format!("{}", multiaddr), "error" => format!("{:?}", err)
                 ),
             };
+        };
+
+        // attempt to connect to user-input libp2p nodes
+        for multiaddr in config.libp2p_nodes {
+            dial_addr(multiaddr);
+        }
+
+        // attempt to connect to any specified boot-nodes
+        for bootnode_enr in config.boot_nodes {
+            for multiaddr in bootnode_enr.multiaddr() {
+                // ignore udp multiaddr if it exists
+                let components = multiaddr.iter().collect::<Vec<_>>();
+                if let Protocol::Udp(_) = components[1] {
+                    continue;
+                }
+                dial_addr(multiaddr);
+            }
         }
 
         // subscribe to default gossipsub topics
@@ -145,16 +162,16 @@ impl Stream for Service {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
             match self.swarm.poll() {
-                //Behaviour events
                 Ok(Async::Ready(Some(event))) => match event {
-                    // TODO: Stub here for debugging
                     BehaviourEvent::GossipMessage {
+                        id,
                         source,
                         topics,
                         message,
                     } => {
                         trace!(self.log, "Gossipsub message received"; "service" => "Swarm");
                         return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
+                            id,
                             source,
                             topics,
                             message,
@@ -222,6 +239,7 @@ pub enum Libp2pEvent {
     PeerDisconnected(PeerId),
     /// Received pubsub message.
     PubsubMessage {
+        id: String,
         source: PeerId,
         topics: Vec<TopicHash>,
         message: PubsubMessage,
