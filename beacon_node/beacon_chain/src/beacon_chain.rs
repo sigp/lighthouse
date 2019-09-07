@@ -459,6 +459,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         None
     }
 
+    /// Returns the block canonical root of the current canonical chain at a given slot.
+    ///
+    /// Returns None if a block doesn't exist at the slot.
+    pub fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
+        self.rev_iter_block_roots()
+            .find(|(_root, slot)| *slot == target_slot)
+            .map(|(root, _slot)| root)
+    }
+
     /// Reads the slot clock (see `self.read_slot_clock()` and returns the number of slots since
     /// genesis.
     pub fn slots_since_genesis(&self) -> Option<SlotHeight> {
@@ -1017,7 +1026,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Load the parent blocks state from the database, returning an error if it is not found.
-        // It is an error because if know the parent block we should also know the parent state.
+        // It is an error because if we know the parent block we should also know the parent state.
         let parent_state_root = parent_block.state_root;
         let parent_state = self
             .store

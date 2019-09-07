@@ -34,10 +34,10 @@ pub fn run<T: BeaconChainTypes>(client: &Client<T>, executor: TaskExecutor, exit
         // Panics if libp2p is poisoned.
         let connected_peer_count = libp2p.lock().swarm.connected_peers();
 
-        debug!(log, "Libp2p connected peer status"; "peer_count" => connected_peer_count);
+        debug!(log, "Connected peer status"; "peer_count" => connected_peer_count);
 
         if connected_peer_count <= WARN_PEER_COUNT {
-            warn!(log, "Low libp2p peer count"; "peer_count" => connected_peer_count);
+            warn!(log, "Low peer count"; "peer_count" => connected_peer_count);
         }
 
         Ok(())

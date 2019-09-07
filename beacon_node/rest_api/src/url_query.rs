@@ -64,7 +64,7 @@ impl<'a> UrlQuery<'a> {
     /// Returns a vector of all values present where `key` is in `keys
     ///
     /// If no match is found, an `InvalidQueryParams` error is returned.
-    pub fn all_of(mut self, key: &str) -> Result<Vec<String>, ApiError> {
+    pub fn all_of(self, key: &str) -> Result<Vec<String>, ApiError> {
         let queries: Vec<_> = self
             .0
             .filter_map(|(k, v)| {

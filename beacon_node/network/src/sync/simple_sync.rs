@@ -1,23 +1,23 @@
-use super::manager::{ImportManager, ImportManagerOutcome};
-use crate::service::{NetworkMessage, OutgoingMessage};
+use super::manager::SyncMessage;
+use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, info, o, trace, warn};
 use ssz::Encode;
-use std::ops::Sub;
 use std::sync::Arc;
 use store::Store;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
+
+//TODO: Put a maximum limit on the number of block that can be requested.
+//TODO: Rate limit requests
 
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
-/// The number of slots behind our head that we still treat a peer as a fully synced peer.
-const FULL_PEER_TOLERANCE: u64 = 10;
 const SHOULD_FORWARD_GOSSIP_BLOCK: bool = true;
 const SHOULD_NOT_FORWARD_GOSSIP_BLOCK: bool = false;
 
@@ -49,45 +49,63 @@ impl<T: BeaconChainTypes> From<&Arc<BeaconChain<T>>> for PeerSyncInfo {
     }
 }
 
-/// The current syncing state.
-#[derive(PartialEq)]
-pub enum SyncState {
-    _Idle,
-    _Downloading,
-    _Stopped,
-}
-
-/// Simple Syncing protocol.
-pub struct SimpleSync<T: BeaconChainTypes> {
+/// Processes validated messages from the network. It relays necessary data to the syncing thread
+/// and processes blocks from the pubsub network.
+pub struct MessageProcessor<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
-    manager: ImportManager<T>,
+    /// A channel to the syncing thread.
+    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    /// A oneshot channel for destroying the sync thread.
+    _sync_exit: oneshot::Sender<()>,
+    /// A nextwork context to return and handle RPC requests.
     network: NetworkContext,
+    /// The `RPCHandler` logger.
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes> SimpleSync<T> {
-    /// Instantiate a `SimpleSync` instance, with no peers and an empty queue.
+impl<T: BeaconChainTypes> MessageProcessor<T> {
+    /// Instantiate a `MessageProcessor` instance
     pub fn new(
+        executor: &tokio::runtime::TaskExecutor,
         beacon_chain: Arc<BeaconChain<T>>,
         network_send: mpsc::UnboundedSender<NetworkMessage>,
         log: &slog::Logger,
     ) -> Self {
         let sync_logger = log.new(o!("Service"=> "Sync"));
+        let sync_network_context = NetworkContext::new(network_send.clone(), sync_logger.clone());
 
-        SimpleSync {
-            chain: beacon_chain.clone(),
-            manager: ImportManager::new(beacon_chain, log),
+        // spawn the sync thread
+        let (sync_send, _sync_exit) = super::manager::spawn(
+            executor,
+            Arc::downgrade(&beacon_chain),
+            sync_network_context,
+            sync_logger,
+        );
+
+        MessageProcessor {
+            chain: beacon_chain,
+            sync_send,
+            _sync_exit,
             network: NetworkContext::new(network_send, log.clone()),
-            log: sync_logger,
+            log: log.clone(),
         }
+    }
+
+    fn send_to_sync(&mut self, message: SyncMessage<T::EthSpec>) {
+        self.sync_send.try_send(message).unwrap_or_else(|_| {
+            warn!(
+                self.log,
+                "Could not send message to the sync service";
+            )
+        });
     }
 
     /// Handle a peer disconnect.
     ///
     /// Removes the peer from the manager.
     pub fn on_disconnect(&mut self, peer_id: PeerId) {
-        self.manager.peer_disconnect(&peer_id);
+        self.send_to_sync(SyncMessage::Disconnect(peer_id));
     }
 
     /// Handle the connection of a new peer.
@@ -107,6 +125,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         request_id: RequestId,
         hello: HelloMessage,
     ) {
+        // ignore hello responses if we are shutting down
         trace!(self.log, "HelloRequest"; "peer" => format!("{:?}", peer_id));
 
         // Say hello back.
@@ -149,7 +168,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         } else if remote.finalized_epoch <= local.finalized_epoch
             && remote.finalized_root != Hash256::zero()
             && local.finalized_root != Hash256::zero()
-            && (self.root_at_slot(start_slot(remote.finalized_epoch))
+            && (self.chain.root_at_slot(start_slot(remote.finalized_epoch))
                 != Some(remote.finalized_root))
         {
             // The remotes finalized epoch is less than or greater than ours, but the block root is
@@ -189,18 +208,16 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             .exists::<BeaconBlock<T::EthSpec>>(&remote.head_root)
             .unwrap_or_else(|_| false)
         {
+            trace!(
+                self.log, "Peer with known chain found";
+                "peer" => format!("{:?}", peer_id),
+                "remote_head_slot" => remote.head_slot,
+                "remote_latest_finalized_epoch" => remote.finalized_epoch,
+            );
+
             // If the node's best-block is already known to us and they are close to our current
             // head, treat them as a fully sync'd peer.
-            if self.chain.best_slot().sub(remote.head_slot).as_u64() < FULL_PEER_TOLERANCE {
-                self.manager.add_full_peer(peer_id);
-                self.process_sync();
-            } else {
-                debug!(
-                    self.log,
-                    "Out of sync peer connected";
-                    "peer" => format!("{:?}", peer_id),
-                );
-            }
+            self.send_to_sync(SyncMessage::AddPeer(peer_id, remote));
         } else {
             // The remote node has an equal or great finalized epoch and we don't know it's head.
             //
@@ -212,85 +229,8 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 "local_finalized_epoch" => local.finalized_epoch,
                 "remote_latest_finalized_epoch" => remote.finalized_epoch,
             );
-
-            self.manager.add_peer(peer_id, remote);
-            self.process_sync();
+            self.send_to_sync(SyncMessage::AddPeer(peer_id, remote));
         }
-    }
-
-    fn process_sync(&mut self) {
-        loop {
-            match self.manager.poll() {
-                ImportManagerOutcome::Hello(peer_id) => {
-                    trace!(
-                        self.log,
-                        "RPC Request";
-                        "method" => "HELLO",
-                        "peer" => format!("{:?}", peer_id)
-                    );
-                    self.network.send_rpc_request(
-                        None,
-                        peer_id,
-                        RPCRequest::Hello(hello_message(&self.chain)),
-                    );
-                }
-                ImportManagerOutcome::RequestBlocks {
-                    peer_id,
-                    request_id,
-                    request,
-                } => {
-                    trace!(
-                        self.log,
-                        "RPC Request";
-                        "method" => "BeaconBlocks",
-                        "id" => request_id,
-                        "count" => request.count,
-                        "peer" => format!("{:?}", peer_id)
-                    );
-                    self.network.send_rpc_request(
-                        Some(request_id),
-                        peer_id.clone(),
-                        RPCRequest::BeaconBlocks(request),
-                    );
-                }
-                ImportManagerOutcome::RecentRequest(peer_id, req) => {
-                    trace!(
-                        self.log,
-                        "RPC Request";
-                        "method" => "RecentBeaconBlocks",
-                        "count" => req.block_roots.len(),
-                        "peer" => format!("{:?}", peer_id)
-                    );
-                    self.network.send_rpc_request(
-                        None,
-                        peer_id.clone(),
-                        RPCRequest::RecentBeaconBlocks(req),
-                    );
-                }
-                ImportManagerOutcome::DownvotePeer(peer_id) => {
-                    trace!(
-                        self.log,
-                        "Peer downvoted";
-                        "peer" => format!("{:?}", peer_id)
-                    );
-                    // TODO: Implement reputation
-                    self.network
-                        .disconnect(peer_id.clone(), GoodbyeReason::Fault);
-                }
-                ImportManagerOutcome::Idle => {
-                    // nothing to do
-                    return;
-                }
-            }
-        }
-    }
-
-    //TODO: Move to beacon chain
-    fn root_at_slot(&self, target_slot: Slot) -> Option<Hash256> {
-        self.chain
-            .rev_iter_block_roots()
-            .find(|(_root, slot)| *slot == target_slot)
-            .map(|(root, _slot)| root)
     }
 
     /// Handle a `RecentBeaconBlocks` request from the peer.
@@ -321,7 +261,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
 
         debug!(
             self.log,
-            "BlockBodiesRequest";
+            "RecentBeaconBlocksRequest";
             "peer" => format!("{:?}", peer_id),
             "requested" => request.block_roots.len(),
             "returned" => blocks.len(),
@@ -380,18 +320,16 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
         blocks.reverse();
         blocks.dedup_by_key(|brs| brs.slot);
 
-        if blocks.len() as u64 != req.count {
-            debug!(
-                self.log,
-                "BeaconBlocksRequest response";
-                "peer" => format!("{:?}", peer_id),
-                "msg" => "Failed to return all requested hashes",
-                "start_slot" => req.start_slot,
-                "current_slot" => format!("{:?}", self.chain.slot()),
-                "requested" => req.count,
-                "returned" => blocks.len(),
-            );
-        }
+        debug!(
+            self.log,
+            "BeaconBlocksRequest response";
+            "peer" => format!("{:?}", peer_id),
+            "msg" => "Failed to return all requested hashes",
+            "start_slot" => req.start_slot,
+            "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
+            "requested" => req.count,
+            "returned" => blocks.len(),
+        );
 
         self.network.send_rpc_response(
             peer_id,
@@ -414,10 +352,11 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             "count" => beacon_blocks.len(),
         );
 
-        self.manager
-            .beacon_blocks_response(peer_id, request_id, beacon_blocks);
-
-        self.process_sync();
+        self.send_to_sync(SyncMessage::BeaconBlocksResponse {
+            peer_id,
+            request_id,
+            beacon_blocks,
+        });
     }
 
     /// Handle a `RecentBeaconBlocks` response from the peer.
@@ -429,15 +368,16 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
     ) {
         debug!(
             self.log,
-            "BeaconBlocksResponse";
+            "RecentBeaconBlocksResponse";
             "peer" => format!("{:?}", peer_id),
             "count" => beacon_blocks.len(),
         );
 
-        self.manager
-            .recent_blocks_response(peer_id, request_id, beacon_blocks);
-
-        self.process_sync();
+        self.send_to_sync(SyncMessage::RecentBeaconBlocksResponse {
+            peer_id,
+            request_id,
+            beacon_blocks,
+        });
     }
 
     /// Process a gossip message declaring a new block.
@@ -455,9 +395,9 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                 }
                 BlockProcessingOutcome::ParentUnknown { parent: _ } => {
                     // Inform the sync manager to find parents for this block
-                    trace!(self.log, "Unknown parent gossip";
+                    trace!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
-                    self.manager.add_unknown_block(block.clone(), peer_id);
+                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block.clone()));
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::FutureSlot {
@@ -468,7 +408,7 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::BlockIsAlreadyKnown => SHOULD_FORWARD_GOSSIP_BLOCK,
-                _ => SHOULD_NOT_FORWARD_GOSSIP_BLOCK,
+                _ => SHOULD_NOT_FORWARD_GOSSIP_BLOCK, //TODO: Decide if we want to forward these
             }
         } else {
             SHOULD_NOT_FORWARD_GOSSIP_BLOCK
@@ -491,15 +431,10 @@ impl<T: BeaconChainTypes> SimpleSync<T> {
             }
         }
     }
-
-    /// Generates our current state in the form of a HELLO RPC message.
-    pub fn generate_hello(&self) -> HelloMessage {
-        hello_message(&self.chain)
-    }
 }
 
 /// Build a `HelloMessage` representing the state of the given `beacon_chain`.
-fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMessage {
+pub(crate) fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMessage {
     let state = &beacon_chain.head().beacon_state;
 
     HelloMessage {
@@ -527,7 +462,7 @@ impl NetworkContext {
     pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
         warn!(
             &self.log,
-            "Disconnecting peer";
+            "Disconnecting peer (RPC)";
             "reason" => format!("{:?}", reason),
             "peer_id" => format!("{:?}", peer_id),
         );
@@ -560,12 +495,8 @@ impl NetworkContext {
     }
 
     fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
-        self.send(peer_id, OutgoingMessage::RPC(rpc_event))
-    }
-
-    fn send(&mut self, peer_id: PeerId, outgoing_message: OutgoingMessage) {
         self.network_send
-            .try_send(NetworkMessage::Send(peer_id, outgoing_message))
+            .try_send(NetworkMessage::RPC(peer_id, rpc_event))
             .unwrap_or_else(|_| {
                 warn!(
                     self.log,
