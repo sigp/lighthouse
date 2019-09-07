@@ -31,6 +31,11 @@ pub trait Handler {
             .join(Self::runner_name())
             .join(Self::handler_name());
 
+        // If the directory containing the tests does not exist, just let all tests pass.
+        if !handler_path.exists() {
+            return;
+        }
+
         // Iterate through test suites
         let test_cases = fs::read_dir(&handler_path)
             .expect("handler dir exists")
