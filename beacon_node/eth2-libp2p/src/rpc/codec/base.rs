@@ -101,13 +101,15 @@ where
     type Error = <TCodec as Decoder>::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        // if we have only received the response code, wait for more bytes
+        if src.len() == 1 {
+            return Ok(None);
+        }
+        // using the response code determine which kind of payload needs to be decoded.
         let response_code = {
             if let Some(resp_code) = self.response_code {
                 resp_code
             } else {
-                // buffer should not be empty
-                debug_assert!(!src.is_empty());
-
                 let resp_byte = src.split_to(1);
                 let mut resp_code_byte = [0; 1];
                 resp_code_byte.copy_from_slice(&resp_byte);
