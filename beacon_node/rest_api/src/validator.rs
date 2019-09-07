@@ -5,9 +5,8 @@ use bls::PublicKey;
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use store::Store;
 use types::beacon_state::EthSpec;
-use types::{BeaconBlock, BeaconState, Epoch, RelativeEpoch, Shard, Slot};
+use types::{Epoch, RelativeEpoch, Shard, Slot};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatorDuty {
@@ -61,7 +60,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         ))
     })?;
     //TODO: Handle an array of validators, currently only takes one
-    let mut validators: Vec<PublicKey> = match query.all_of("validator_pubkeys") {
+    let validators: Vec<PublicKey> = match query.all_of("validator_pubkeys") {
         Ok(v) => v
             .iter()
             .map(|pk| parse_pubkey(pk))

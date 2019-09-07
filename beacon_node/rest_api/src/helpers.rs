@@ -2,9 +2,7 @@ use crate::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKey;
 use hex;
-use hyper::{Body, Request, StatusCode};
-use serde::de::value::StringDeserializer;
-use serde_json::Deserializer;
+use hyper::{Body, Request};
 use store::{iter::AncestorIter, Store};
 use types::{BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
 
