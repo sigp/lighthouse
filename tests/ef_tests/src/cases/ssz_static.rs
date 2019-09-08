@@ -58,6 +58,7 @@ impl<T: SszStaticType + SignedRoot> LoadCase for SszStaticSR<T> {
 pub fn check_serialization<T: SszStaticType>(value: &T, serialized: &[u8]) -> Result<(), Error> {
     // Check serialization
     let serialized_result = value.as_ssz_bytes();
+    compare_result::<usize, Error>(&Ok(value.ssz_bytes_len()), &Some(serialized.len()))?;
     compare_result::<Vec<u8>, Error>(&Ok(serialized_result), &Some(serialized.to_vec()))?;
 
     // Check deserialization

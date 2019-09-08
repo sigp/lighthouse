@@ -27,6 +27,8 @@ pub trait Encode {
         BYTES_PER_LENGTH_OFFSET
     }
 
+    fn ssz_bytes_len(&self) -> usize;
+
     /// Returns the full-form encoding of this object.
     ///
     /// The default implementation of this method should suffice for most cases.

@@ -1,6 +1,5 @@
 //!Available RPC methods types and ids.
 
-use ssz::{impl_decode_via_from, impl_encode_via_from};
 use ssz_derive::{Decode, Encode};
 use types::{Epoch, Hash256, Slot};
 
@@ -66,8 +65,38 @@ impl Into<u64> for GoodbyeReason {
     }
 }
 
-impl_encode_via_from!(GoodbyeReason, u64);
-impl_decode_via_from!(GoodbyeReason, u64);
+impl ssz::Encode for GoodbyeReason {
+    fn is_ssz_fixed_len() -> bool {
+        <u64 as ssz::Encode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <u64 as ssz::Encode>::ssz_fixed_len()
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        0_u64.ssz_bytes_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let conv: u64 = self.clone().into();
+        conv.ssz_append(buf)
+    }
+}
+
+impl ssz::Decode for GoodbyeReason {
+    fn is_ssz_fixed_len() -> bool {
+        <u64 as ssz::Decode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <u64 as ssz::Decode>::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        u64::from_ssz_bytes(bytes).and_then(|n| Ok(n.into()))
+    }
+}
 
 /// Request a number of beacon block roots from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]

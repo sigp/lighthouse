@@ -36,7 +36,6 @@
 
 mod decode;
 mod encode;
-mod macros;
 
 pub use decode::{
     impls::decode_list_of_variable_length_items, Decode, DecodeError, SszDecoder, SszDecoderBuilder,
