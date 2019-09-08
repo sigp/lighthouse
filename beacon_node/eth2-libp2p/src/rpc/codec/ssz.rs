@@ -4,7 +4,7 @@ use crate::rpc::{
     protocol::{ProtocolId, RPCError},
 };
 use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use ssz::{Decode, Encode};
 use tokio::codec::{Decoder, Encoder};
 use unsigned_varint::codec::UviBytes;
@@ -56,6 +56,10 @@ impl Encoder for SSZInboundCodec {
                 .inner
                 .encode(Bytes::from(bytes), dst)
                 .map_err(RPCError::from);
+        } else {
+            // payload is empty, add a 0-byte length prefix
+            dst.reserve(1);
+            dst.put_u8(0);
         }
         Ok(())
     }
@@ -152,8 +156,8 @@ impl Decoder for SSZOutboundCodec {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.is_empty() {
-            // the object sent could be empty. We return the empty object if this is the case
+        if src.len() == 1 && src[0] == 0_u8 {
+            // the object is empty. We return the empty object if this is the case
             match self.protocol.message_name.as_str() {
                 "hello" => match self.protocol.version.as_str() {
                     "1" => Err(RPCError::Custom(
