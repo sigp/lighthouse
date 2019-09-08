@@ -127,12 +127,12 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                 );
                 self.message_processor.on_disconnect(peer_id);
             }
-            RPCRequest::BeaconBlocks(request) => self
+            RPCRequest::BlocksByRange(request) => self
                 .message_processor
-                .on_beacon_blocks_request(peer_id, request_id, request),
-            RPCRequest::RecentBeaconBlocks(request) => self
+                .on_blocks_by_range_request(peer_id, request_id, request),
+            RPCRequest::BlocksByRoot(request) => self
                 .message_processor
-                .on_recent_beacon_blocks_request(peer_id, request_id, request),
+                .on_blocks_by_root_request(peer_id, request_id, request),
         }
     }
 
@@ -155,10 +155,10 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                         self.message_processor
                             .on_hello_response(peer_id, hello_message);
                     }
-                    RPCResponse::BeaconBlocks(response) => {
+                    RPCResponse::BlocksByRange(response) => {
                         match self.decode_beacon_blocks(&response) {
                             Ok(beacon_blocks) => {
-                                self.message_processor.on_beacon_blocks_response(
+                                self.message_processor.on_blocks_by_range_response(
                                     peer_id,
                                     request_id,
                                     beacon_blocks,
@@ -170,10 +170,10 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                             }
                         }
                     }
-                    RPCResponse::RecentBeaconBlocks(response) => {
+                    RPCResponse::BlocksByRoot(response) => {
                         match self.decode_beacon_blocks(&response) {
                             Ok(beacon_blocks) => {
-                                self.message_processor.on_recent_beacon_blocks_response(
+                                self.message_processor.on_blocks_by_root_response(
                                     peer_id,
                                     request_id,
                                     beacon_blocks,

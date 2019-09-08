@@ -39,8 +39,8 @@ impl UpgradeInfo for RPCProtocol {
         vec![
             ProtocolId::new("hello", "1", "ssz"),
             ProtocolId::new("goodbye", "1", "ssz"),
-            ProtocolId::new("beacon_blocks", "1", "ssz"),
-            ProtocolId::new("recent_beacon_blocks", "1", "ssz"),
+            ProtocolId::new("blocks_by_range", "1", "ssz"),
+            ProtocolId::new("blocks_by_root", "1", "ssz"),
         ]
     }
 }
@@ -149,8 +149,8 @@ where
 pub enum RPCRequest {
     Hello(HelloMessage),
     Goodbye(GoodbyeReason),
-    BeaconBlocks(BeaconBlocksRequest),
-    RecentBeaconBlocks(RecentBeaconBlocksRequest),
+    BlocksByRange(BlocksByRangeRequest),
+    BlocksByRoot(BlocksByRootRequest),
 }
 
 impl UpgradeInfo for RPCRequest {
@@ -170,10 +170,8 @@ impl RPCRequest {
             // add more protocols when versions/encodings are supported
             RPCRequest::Hello(_) => vec![ProtocolId::new("hello", "1", "ssz")],
             RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", "1", "ssz")],
-            RPCRequest::BeaconBlocks(_) => vec![ProtocolId::new("beacon_blocks", "1", "ssz")],
-            RPCRequest::RecentBeaconBlocks(_) => {
-                vec![ProtocolId::new("recent_beacon_blocks", "1", "ssz")]
-            }
+            RPCRequest::BlocksByRange(_) => vec![ProtocolId::new("blocks_by_range", "1", "ssz")],
+            RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new("blocks_by_root", "1", "ssz")],
         }
     }
 
@@ -294,8 +292,8 @@ impl std::fmt::Display for RPCRequest {
         match self {
             RPCRequest::Hello(hello) => write!(f, "Hello Message: {}", hello),
             RPCRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
-            RPCRequest::BeaconBlocks(req) => write!(f, "Beacon Blocks: {}", req),
-            RPCRequest::RecentBeaconBlocks(req) => write!(f, "Recent Beacon Blocks: {:?}", req),
+            RPCRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
+            RPCRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
         }
     }
 }

@@ -1,6 +1,6 @@
 //! The `SyncManager` facilities the block syncing logic of lighthouse. The current networking
-//! specification provides two methods from which to obtain blocks from peers. The `BeaconBlocks`
-//! request and the `RecentBeaconBlocks` request. The former is used to obtain a large number of
+//! specification provides two methods from which to obtain blocks from peers. The `BlocksByRange`
+//! request and the `BlocksByRoot` request. The former is used to obtain a large number of
 //! blocks and the latter allows for searching for blocks given a block-hash.
 //!
 //! These two RPC methods are designed for two type of syncing.
@@ -91,14 +91,14 @@ const EMPTY_BATCH_TOLERANCE: usize = 100;
 pub enum SyncMessage<T: EthSpec> {
     /// A useful peer has been discovered.
     AddPeer(PeerId, PeerSyncInfo),
-    /// A `BeaconBlocks` response has been received.
-    BeaconBlocksResponse {
+    /// A `BlocksByRange` response has been received.
+    BlocksByRangeResponse {
         peer_id: PeerId,
         request_id: RequestId,
         beacon_blocks: Vec<BeaconBlock<T>>,
     },
-    /// A `RecentBeaconBlocks` response has been received.
-    RecentBeaconBlocksResponse {
+    /// A `BlocksByRoot` response has been received.
+    BlocksByRootResponse {
         peer_id: PeerId,
         request_id: RequestId,
         beacon_blocks: Vec<BeaconBlock<T>>,
@@ -353,7 +353,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    /// A `BeaconBlocks` request has received a response. This function process the response.
+    /// A `BlocksByRange` request has received a response. This function process the response.
     pub fn beacon_blocks_response(
         &mut self,
         peer_id: PeerId,
@@ -378,7 +378,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             Some(req) => req,
             _ => {
                 // No pending request, invalid request_id or coding error
-                warn!(self.log, "BeaconBlocks response unknown"; "request_id" => request_id);
+                warn!(self.log, "BlocksByRange response unknown"; "request_id" => request_id);
                 return;
             }
         };
@@ -392,7 +392,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // ^finalized slot     ^ requested start slot   ^ last known block       ^ remote head
 
         if blocks.is_empty() {
-            debug!(self.log, "BeaconBlocks response was empty"; "request_id" => request_id);
+            debug!(self.log, "BlocksByRange response was empty"; "request_id" => request_id);
             block_requests.consecutive_empty_batches += 1;
             if block_requests.consecutive_empty_batches >= EMPTY_BATCH_TOLERANCE {
                 warn!(self.log, "Peer returned too many empty block batches";
@@ -421,7 +421,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .add(MAX_BLOCKS_PER_REQUEST)
                 < last_sent_slot
         {
-            warn!(self.log, "BeaconBlocks response returned out of range blocks"; 
+            warn!(self.log, "BlocksByRange response returned out of range blocks"; 
                           "request_id" => request_id, 
                           "response_initial_slot" => blocks[0].slot, 
                           "requested_initial_slot" => block_requests.current_start_slot);
@@ -521,7 +521,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             Some(req) => req,
             None => {
                 // No pending request, invalid request_id or coding error
-                warn!(self.log, "RecentBeaconBlocks response unknown"; "request_id" => request_id);
+                warn!(self.log, "BlocksByRoot response unknown"; "request_id" => request_id);
                 return;
             }
         };
@@ -648,24 +648,25 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // process queued block requests
         for (peer_id, block_requests) in self.import_queue.iter_mut() {
-            if block_requests.state == BlockRequestsState::Queued {
-                let request_id = self.current_req_id;
-                block_requests.state = BlockRequestsState::Pending(request_id);
-                self.current_req_id += 1;
+                if block_requests.state == BlockRequestsState::Queued {
+                    let request_id = self.current_req_id;
+                    block_requests.state = BlockRequestsState::Pending(request_id);
+                    self.current_req_id += 1;
 
-                let request = BeaconBlocksRequest {
-                    head_block_root: block_requests.target_head_root,
-                    start_slot: block_requests.current_start_slot.as_u64(),
-                    count: MAX_BLOCKS_PER_REQUEST,
-                    step: 0,
-                };
-                request_blocks(
-                    &mut self.network,
-                    &self.log,
-                    peer_id.clone(),
-                    request_id,
-                    request,
-                );
+                    let request = BlocksByRangeRequest {
+                        head_block_root: block_requests.target_head_root,
+                        start_slot: block_requests.current_start_slot.as_u64(),
+                        count: MAX_BLOCKS_PER_REQUEST,
+                        step: 0,
+                    };
+                    request_blocks(
+                        &mut self.network,
+                        &self.log,
+                        peer_id.clone(),
+                        request_id,
+                        request,
+                    );
+                }
             }
         }
     }
@@ -771,7 +772,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.current_req_id += 1;
                 let last_element_index = parent_request.downloaded_blocks.len() - 1;
                 let parent_hash = parent_request.downloaded_blocks[last_element_index].parent_root;
-                let request = RecentBeaconBlocksRequest {
+                let request = BlocksByRootRequest {
                     block_roots: vec![parent_hash],
                 };
 
@@ -913,12 +914,12 @@ fn request_blocks(
     log: &slog::Logger,
     peer_id: PeerId,
     request_id: RequestId,
-    request: BeaconBlocksRequest,
+    request: BlocksByRangeRequest,
 ) {
     trace!(
         log,
         "RPC Request";
-        "method" => "BeaconBlocks",
+        "method" => "BlocksByRange",
         "id" => request_id,
         "count" => request.count,
         "peer" => format!("{:?}", peer_id)
@@ -926,7 +927,7 @@ fn request_blocks(
     network.send_rpc_request(
         Some(request_id),
         peer_id.clone(),
-        RPCRequest::BeaconBlocks(request),
+        RPCRequest::BlocksByRange(request),
     );
 }
 
@@ -935,19 +936,19 @@ fn recent_blocks_request(
     log: &slog::Logger,
     peer_id: PeerId,
     request_id: RequestId,
-    request: RecentBeaconBlocksRequest,
+    request: BlocksByRootRequest,
 ) {
     trace!(
         log,
         "RPC Request";
-        "method" => "RecentBeaconBlocks",
+        "method" => "BlocksByRoot",
         "count" => request.block_roots.len(),
         "peer" => format!("{:?}", peer_id)
     );
     network.send_rpc_request(
         Some(request_id),
         peer_id.clone(),
-        RPCRequest::RecentBeaconBlocks(request),
+        RPCRequest::BlocksByRoot(request),
     );
 }
 
@@ -1080,14 +1081,14 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                     SyncMessage::AddPeer(peer_id, info) => {
                         self.add_peer(peer_id, info);
                     }
-                    SyncMessage::BeaconBlocksResponse {
+                    SyncMessage::BlocksByRangeResponse {
                         peer_id,
                         request_id,
                         beacon_blocks,
                     } => {
                         self.beacon_blocks_response(peer_id, request_id, beacon_blocks);
                     }
-                    SyncMessage::RecentBeaconBlocksResponse {
+                    SyncMessage::BlocksByRootResponse {
                         peer_id,
                         request_id,
                         beacon_blocks,

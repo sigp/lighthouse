@@ -236,12 +236,12 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         }
     }
 
-    /// Handle a `RecentBeaconBlocks` request from the peer.
-    pub fn on_recent_beacon_blocks_request(
+    /// Handle a `BlocksByRoot` request from the peer.
+    pub fn on_blocks_by_root_request(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        request: RecentBeaconBlocksRequest,
+        request: BlocksByRootRequest,
     ) {
         let blocks: Vec<BeaconBlock<_>> = request
             .block_roots
@@ -264,7 +264,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
 
         debug!(
             self.log,
-            "RecentBeaconBlocksRequest";
+            "BlocksByRootRequest";
             "peer" => format!("{:?}", peer_id),
             "requested" => request.block_roots.len(),
             "returned" => blocks.len(),
@@ -273,20 +273,20 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         self.network.send_rpc_response(
             peer_id,
             request_id,
-            RPCResponse::BeaconBlocks(blocks.as_ssz_bytes()),
+            RPCResponse::BlocksByRange(blocks.as_ssz_bytes()),
         )
     }
 
-    /// Handle a `BeaconBlocks` request from the peer.
-    pub fn on_beacon_blocks_request(
+    /// Handle a `BlocksByRange` request from the peer.
+    pub fn on_blocks_by_range_request(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        req: BeaconBlocksRequest,
+        req: BlocksByRangeRequest,
     ) {
         debug!(
             self.log,
-            "BeaconBlocksRequest";
+            "BlocksByRangeRequest";
             "peer" => format!("{:?}", peer_id),
             "count" => req.count,
             "start_slot" => req.start_slot,
@@ -325,7 +325,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
 
         debug!(
             self.log,
-            "BeaconBlocksRequest response";
+            "BlocksByRangeRequest response";
             "peer" => format!("{:?}", peer_id),
             "msg" => "Failed to return all requested hashes",
             "start_slot" => req.start_slot,
@@ -337,12 +337,12 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         self.network.send_rpc_response(
             peer_id,
             request_id,
-            RPCResponse::BeaconBlocks(blocks.as_ssz_bytes()),
+            RPCResponse::BlocksByRange(blocks.as_ssz_bytes()),
         )
     }
 
-    /// Handle a `BeaconBlocks` response from the peer.
-    pub fn on_beacon_blocks_response(
+    /// Handle a `BlocksByRange` response from the peer.
+    pub fn on_blocks_by_range_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
@@ -350,20 +350,20 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ) {
         debug!(
             self.log,
-            "BeaconBlocksResponse";
+            "BlocksByRangeResponse";
             "peer" => format!("{:?}", peer_id),
             "count" => beacon_blocks.len(),
         );
 
-        self.send_to_sync(SyncMessage::BeaconBlocksResponse {
+        self.send_to_sync(SyncMessage::BlocksByRangeResponse {
             peer_id,
             request_id,
             beacon_blocks,
         });
     }
 
-    /// Handle a `RecentBeaconBlocks` response from the peer.
-    pub fn on_recent_beacon_blocks_response(
+    /// Handle a `BlocksByRoot` response from the peer.
+    pub fn on_blocks_by_root_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
@@ -371,12 +371,12 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ) {
         debug!(
             self.log,
-            "RecentBeaconBlocksResponse";
+            "BlocksByRootResponse";
             "peer" => format!("{:?}", peer_id),
             "count" => beacon_blocks.len(),
         );
 
-        self.send_to_sync(SyncMessage::RecentBeaconBlocksResponse {
+        self.send_to_sync(SyncMessage::BlocksByRootResponse {
             peer_id,
             request_id,
             beacon_blocks,
