@@ -1,8 +1,5 @@
 use crate::common::get_compact_committees_root;
-use apply_rewards::process_rewards_and_penalties;
 use errors::EpochProcessingError as Error;
-use process_slashings::process_slashings;
-use registry_updates::process_registry_updates;
 use std::collections::HashMap;
 use tree_hash::TreeHash;
 use types::*;
@@ -16,6 +13,10 @@ pub mod registry_updates;
 pub mod tests;
 pub mod validator_statuses;
 pub mod winning_root;
+
+pub use apply_rewards::process_rewards_and_penalties;
+pub use process_slashings::process_slashings;
+pub use registry_updates::process_registry_updates;
 
 /// Maps a shard to a winning root.
 ///
@@ -218,44 +219,28 @@ pub fn process_final_updates<T: EthSpec>(
         }
     }
 
-    // Update start shard.
-    state.start_shard = state.next_epoch_start_shard(spec)?;
-
-    // This is a hack to allow us to update index roots and slashed balances for the next epoch.
-    //
-    // The indentation here is to make it obvious where the weird stuff happens.
-    {
-        state.slot += 1;
-
-        // Set active index root
-        let index_epoch = next_epoch + spec.activation_exit_delay;
-        let indices_list = VariableList::<usize, T::ValidatorRegistryLimit>::from(
-            state.get_active_validator_indices(index_epoch),
-        );
-        state.set_active_index_root(
-            index_epoch,
-            Hash256::from_slice(&indices_list.tree_hash_root()),
-            spec,
-        )?;
-
-        // Reset slashings
-        state.set_slashings(next_epoch, 0)?;
-
-        // Set randao mix
-        state.set_randao_mix(next_epoch, *state.get_randao_mix(current_epoch)?)?;
-
-        state.slot -= 1;
-    }
+    // Set active index root
+    let index_epoch = next_epoch + spec.activation_exit_delay;
+    let indices_list = VariableList::<usize, T::ValidatorRegistryLimit>::from(
+        state.get_active_validator_indices(index_epoch),
+    );
+    state.set_active_index_root(
+        index_epoch,
+        Hash256::from_slice(&indices_list.tree_hash_root()),
+        spec,
+    )?;
 
     // Set committees root
-    // Note: we do this out-of-order w.r.t. to the spec, because we don't want the slot to be
-    // incremented. It's safe because the updates to slashings and the RANDAO mix (above) don't
-    // affect this.
     state.set_compact_committee_root(
         next_epoch,
         get_compact_committees_root(state, RelativeEpoch::Next, spec)?,
-        spec,
     )?;
+
+    // Reset slashings
+    state.set_slashings(next_epoch, 0)?;
+
+    // Set randao mix
+    state.set_randao_mix(next_epoch, *state.get_randao_mix(current_epoch)?)?;
 
     // Set historical root accumulator
     if next_epoch.as_u64() % (T::SlotsPerHistoricalRoot::to_u64() / T::slots_per_epoch()) == 0 {
@@ -264,6 +249,9 @@ pub fn process_final_updates<T: EthSpec>(
             .historical_roots
             .push(Hash256::from_slice(&historical_batch.tree_hash_root()))?;
     }
+
+    // Update start shard.
+    state.start_shard = state.get_epoch_start_shard(RelativeEpoch::Next)?;
 
     // Rotate current/previous epoch attestations
     state.previous_epoch_attestations =

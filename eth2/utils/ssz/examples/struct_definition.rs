@@ -12,6 +12,13 @@ impl Encode for Foo {
         <u16 as Encode>::is_ssz_fixed_len() && <Vec<u16> as Encode>::is_ssz_fixed_len()
     }
 
+    fn ssz_bytes_len(&self) -> usize {
+        <u16 as Encode>::ssz_fixed_len()
+            + ssz::BYTES_PER_LENGTH_OFFSET
+            + <u16 as Encode>::ssz_fixed_len()
+            + self.b.ssz_bytes_len()
+    }
+
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         let offset = <u16 as Encode>::ssz_fixed_len()
             + <Vec<u16> as Encode>::ssz_fixed_len()
