@@ -68,8 +68,11 @@ use tokio::sync::{mpsc, oneshot};
 use types::{BeaconBlock, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many blocks per batch
-/// is requested. Currently the value is small for testing. This will be incremented for
-/// production.
+/// is requested. There is a timeout for each batch request. If this value is too high, we will
+/// downvote peers with poor bandwidth. This can be set arbitrarily high, in which case the
+/// responder will fill the response up to the max request size, assuming they have the bandwidth
+/// to do so.
+//TODO: Make this dynamic based on peer's bandwidth
 const MAX_BLOCKS_PER_REQUEST: u64 = 50;
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -179,7 +182,18 @@ impl<T: EthSpec> BlockRequests<T> {
     fn update_start_slot(&mut self) {
         match self.sync_direction {
             SyncDirection::Initial | SyncDirection::Forwards => {
-                self.current_start_slot += Slot::from(MAX_BLOCKS_PER_REQUEST);
+                // the last request may not have returned all the required blocks (hit the rpc size
+                // limit). If so, start from the last returned slot
+                if !self.downloaded_blocks.is_empty()
+                    && self.downloaded_blocks[self.downloaded_blocks.len() - 1].slot
+                        > self.current_start_slot
+                {
+                    self.current_start_slot =
+                        self.downloaded_blocks[self.downloaded_blocks.len() - 1].slot
+                            + Slot::from(MAX_BLOCKS_PER_REQUEST);
+                } else {
+                    self.current_start_slot += Slot::from(MAX_BLOCKS_PER_REQUEST);
+                }
             }
             SyncDirection::Backwards => {
                 self.current_start_slot -= Slot::from(MAX_BLOCKS_PER_REQUEST);
@@ -354,7 +368,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     /// A `BlocksByRange` request has received a response. This function process the response.
-    pub fn beacon_blocks_response(
+    pub fn blocks_by_range_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
@@ -506,7 +520,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    pub fn recent_blocks_response(
+    pub fn blocks_by_root_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
@@ -1086,14 +1100,14 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                         request_id,
                         beacon_blocks,
                     } => {
-                        self.beacon_blocks_response(peer_id, request_id, beacon_blocks);
+                        self.blocks_by_range_response(peer_id, request_id, beacon_blocks);
                     }
                     SyncMessage::BlocksByRootResponse {
                         peer_id,
                         request_id,
                         beacon_blocks,
                     } => {
-                        self.recent_blocks_response(peer_id, request_id, beacon_blocks);
+                        self.blocks_by_root_response(peer_id, request_id, beacon_blocks);
                     }
                     SyncMessage::UnknownBlock(peer_id, block) => {
                         self.add_unknown_block(peer_id, block);
