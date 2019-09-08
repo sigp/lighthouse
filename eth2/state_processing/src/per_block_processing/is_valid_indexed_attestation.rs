@@ -55,6 +55,15 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
     check_sorted(&bit_0_indices)?;
     check_sorted(&bit_1_indices)?;
 
+    dbg!(indexed_attestation_signature_set(
+        state,
+        &indexed_attestation.signature,
+        &indexed_attestation,
+        spec
+    )?);
+    dbg!(&bit_0_indices);
+    dbg!(&bit_1_indices);
+
     if verify_signatures.is_true() {
         verify!(
             indexed_attestation_signature_set(
