@@ -81,9 +81,12 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     };
 
     let field_idents = get_serializable_named_field_idents(&struct_data);
+    let field_idents_a = get_serializable_named_field_idents(&struct_data);
     let field_types_a = get_serializable_field_types(&struct_data);
     let field_types_b = field_types_a.clone();
-    let field_types_c = field_types_a.clone();
+    let field_types_d = field_types_a.clone();
+    let field_types_e = field_types_a.clone();
+    let field_types_f = field_types_a.clone();
 
     let output = quote! {
         impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
@@ -105,9 +108,27 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
                 }
             }
 
+            fn ssz_bytes_len(&self) -> usize {
+                if <Self as ssz::Encode>::is_ssz_fixed_len() {
+                    <Self as ssz::Encode>::ssz_fixed_len()
+                } else {
+                    let mut len = 0;
+                    #(
+                        if <#field_types_d as ssz::Encode>::is_ssz_fixed_len() {
+                            len += <#field_types_e as ssz::Encode>::ssz_fixed_len();
+                        } else {
+                            len += ssz::BYTES_PER_LENGTH_OFFSET;
+                            len += self.#field_idents_a.ssz_bytes_len();
+                        }
+                    )*
+
+                    len
+                }
+            }
+
             fn ssz_append(&self, buf: &mut Vec<u8>) {
                 let offset = #(
-                        <#field_types_c as ssz::Encode>::ssz_fixed_len() +
+                        <#field_types_f as ssz::Encode>::ssz_fixed_len() +
                     )*
                         0;
 

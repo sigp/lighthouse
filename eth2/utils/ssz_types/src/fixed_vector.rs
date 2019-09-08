@@ -183,6 +183,10 @@ where
         }
     }
 
+    fn ssz_bytes_len(&self) -> usize {
+        self.vec.ssz_bytes_len()
+    }
+
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         if T::is_ssz_fixed_len() {
             buf.reserve(T::ssz_fixed_len() * self.len());
@@ -318,6 +322,7 @@ mod test {
 
     fn ssz_round_trip<T: Encode + Decode + std::fmt::Debug + PartialEq>(item: T) {
         let encoded = &item.as_ssz_bytes();
+        assert_eq!(item.ssz_bytes_len(), encoded.len());
         assert_eq!(T::from_ssz_bytes(&encoded), Ok(item));
     }
 
