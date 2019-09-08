@@ -408,7 +408,19 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::BlockIsAlreadyKnown => SHOULD_FORWARD_GOSSIP_BLOCK,
-                _ => SHOULD_NOT_FORWARD_GOSSIP_BLOCK, //TODO: Decide if we want to forward these
+                _ => {
+                    warn!(
+                        self.log,
+                        "Invalid gossip beacon block";
+                        "block slot" => block.slot
+                    );
+                    trace!(
+                        self.log,
+                        "Invalid gossip beacon block ssz";
+                        "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
+                    );
+                    SHOULD_NOT_FORWARD_GOSSIP_BLOCK //TODO: Decide if we want to forward these
+                }
             }
         } else {
             SHOULD_NOT_FORWARD_GOSSIP_BLOCK
@@ -419,7 +431,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ///
     /// Not currently implemented.
     pub fn on_attestation_gossip(&mut self, _peer_id: PeerId, msg: Attestation<T::EthSpec>) {
-        match self.chain.process_attestation(msg) {
+        match self.chain.process_attestation(msg.clone()) {
             Ok(outcome) => info!(
                 self.log,
                 "Processed attestation";
@@ -427,7 +439,12 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 "outcome" => format!("{:?}", outcome)
             ),
             Err(e) => {
-                warn!(self.log, "InvalidAttestation"; "source" => "gossip", "error" => format!("{:?}", e))
+                warn!(self.log, "Invalid gossip attestation"; "error" => format!("{:?}", e));
+                trace!(
+                    self.log,
+                    "Invalid gossip attestation ssz";
+                    "ssz" => format!("0x{}", hex::encode(msg.as_ssz_bytes())),
+                );
             }
         }
     }
