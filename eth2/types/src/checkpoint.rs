@@ -3,8 +3,7 @@ use crate::{Epoch, Hash256};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
-use tree_hash_derive::{SignedRoot, TreeHash};
+use tree_hash_derive::TreeHash;
 
 /// Casper FFG checkpoint, used in attestations.
 ///
@@ -22,7 +21,6 @@ use tree_hash_derive::{SignedRoot, TreeHash};
     Decode,
     TreeHash,
     TestRandom,
-    SignedRoot,
 )]
 pub struct Checkpoint {
     pub epoch: Epoch,

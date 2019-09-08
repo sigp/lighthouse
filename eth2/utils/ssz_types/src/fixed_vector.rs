@@ -172,7 +172,7 @@ where
     T: ssz::Encode,
 {
     fn is_ssz_fixed_len() -> bool {
-        true
+        T::is_ssz_fixed_len()
     }
 
     fn ssz_fixed_len() -> usize {
@@ -181,6 +181,10 @@ where
         } else {
             ssz::BYTES_PER_LENGTH_OFFSET
         }
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        self.vec.ssz_bytes_len()
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
@@ -220,13 +224,26 @@ where
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
         if bytes.is_empty() {
-            Ok(FixedVector::from(vec![]))
+            Err(ssz::DecodeError::InvalidByteLength {
+                len: 0,
+                expected: 1,
+            })
         } else if T::is_ssz_fixed_len() {
             bytes
                 .chunks(T::ssz_fixed_len())
                 .map(|chunk| T::from_ssz_bytes(chunk))
                 .collect::<Result<Vec<T>, _>>()
-                .and_then(|vec| Ok(vec.into()))
+                .and_then(|vec| {
+                    if vec.len() == N::to_usize() {
+                        Ok(vec.into())
+                    } else {
+                        Err(ssz::DecodeError::BytesInvalid(format!(
+                            "wrong number of vec elements, got: {}, expected: {}",
+                            vec.len(),
+                            N::to_usize()
+                        )))
+                    }
+                })
         } else {
             ssz::decode_list_of_variable_length_items(bytes).and_then(|vec| Ok(vec.into()))
         }
@@ -305,6 +322,7 @@ mod test {
 
     fn ssz_round_trip<T: Encode + Decode + std::fmt::Debug + PartialEq>(item: T) {
         let encoded = &item.as_ssz_bytes();
+        assert_eq!(item.ssz_bytes_len(), encoded.len());
         assert_eq!(T::from_ssz_bytes(&encoded), Ok(item));
     }
 

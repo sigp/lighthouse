@@ -288,3 +288,14 @@ impl std::error::Error for RPCError {
         }
     }
 }
+
+impl std::fmt::Display for RPCRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RPCRequest::Hello(hello) => write!(f, "Hello Message: {}", hello),
+            RPCRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
+            RPCRequest::BeaconBlocks(req) => write!(f, "Beacon Blocks: {}", req),
+            RPCRequest::RecentBeaconBlocks(req) => write!(f, "Recent Beacon Blocks: {:?}", req),
+        }
+    }
+}

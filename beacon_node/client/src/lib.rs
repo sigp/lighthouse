@@ -16,7 +16,7 @@ use slog::{crit, error, info, o};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 use types::EthSpec;
@@ -177,8 +177,18 @@ where
                 .map_err(error::Error::from)?,
         );
 
-        if beacon_chain.slot().is_err() {
-            panic!("Cannot start client before genesis!")
+        let since_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| format!("Unable to read system time: {}", e))?;
+        let since_genesis = Duration::from_secs(beacon_chain.head().beacon_state.genesis_time);
+
+        if since_genesis > since_epoch {
+            info!(
+                log,
+                "Starting node prior to genesis";
+                "now" => since_epoch.as_secs(),
+                "genesis_seconds" => since_genesis.as_secs(),
+            );
         }
 
         let network_config = &client_config.network;

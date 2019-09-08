@@ -4,25 +4,13 @@ use crate::{Checkpoint, Crosslink, Hash256};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
-use tree_hash_derive::{SignedRoot, TreeHash};
+use tree_hash_derive::TreeHash;
 
 /// The data upon which an attestation is based.
 ///
 /// Spec v0.8.0
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    Hash,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    SignedRoot,
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct AttestationData {
     // LMD GHOST vote

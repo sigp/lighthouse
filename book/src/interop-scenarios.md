@@ -25,8 +25,11 @@ cheat-sheet](./interop-cheat-sheet.md).
 To start a brand-new beacon node (with no history) use:
 
 ```
-$ ./beacon_node testnet -f quick 8 1567222226
+$ ./beacon_node testnet -f quick 8 <GENESIS_TIME>
 ```
+
+Where `GENESIS_TIME` is in [unix time](https://duckduckgo.com/?q=unix+time&t=ffab&ia=answer).
+
 > Notes:
 >
 > - This method conforms the ["Quick-start
