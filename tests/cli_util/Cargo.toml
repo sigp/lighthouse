@@ -13,3 +13,5 @@ serde = "1.0"
 serde_yaml = "0.8"
 simple_logger = "1.0"
 types = { path = "../../eth2/types" }
+state_processing = { path = "../../eth2/state_processing" }
+eth2_ssz = { path = "../../eth2/utils/ssz" }
