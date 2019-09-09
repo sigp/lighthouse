@@ -1039,11 +1039,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(db_read_timer);
 
         write_block(&block, block_root, &self.log);
-        write_state(
-            &format!("state_pre_block_{}", block_root),
-            &parent_state,
-            &self.log,
-        );
 
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
@@ -1068,6 +1063,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         metrics::stop_timer(committee_timer);
+
+        write_state(
+            &format!("state_pre_block_{}", block_root),
+            &state,
+            &self.log,
+        );
 
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
