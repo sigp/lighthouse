@@ -172,26 +172,21 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
 
 pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(
     req: &Request<Body>,
-) -> Result<Arc<BeaconChain<T>>, ApiError> {
+) -> Result<(Arc<BeaconChain<T>>, BeaconState<T::EthSpec>), ApiError> {
     // Get beacon state
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
         .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".into()))?;
-
-    /*
-    let _state_now = beacon_chain
+    let mut head_state = beacon_chain
         .state_now()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get current BeaconState {:?}", e)))?
-        .maybe_as_mut_ref()
-        .ok_or(ApiError::ServerError(
-            "Unable to get mutable BeaconState".into(),
-        ))?
-        .build_all_caches(&beacon_chain.spec)
-        .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;
-        */
+        .map_err(|e| ApiError::ServerError(format!("Unable to get current BeaconState {:?}", e)))?;
 
-    Ok(beacon_chain.clone())
+    if let Some(s) = head_state.maybe_as_mut_ref() {
+        s.build_all_caches(&beacon_chain.spec).ok();
+    }
+
+    Ok((beacon_chain.clone(), head_state.clone()))
 }
 
 pub fn get_logger_from_request(req: &Request<Body>) -> slog::Logger {

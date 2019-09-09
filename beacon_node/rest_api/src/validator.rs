@@ -34,10 +34,7 @@ impl ValidatorDuty {
 pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let log = get_logger_from_request(&req);
     slog::trace!(log, "Validator duties requested of API: {:?}", &req);
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let mut head_state = beacon_chain
-        .state_now()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get current BeaconState {:?}", e)))?;
+    let (beacon_chain, head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
     slog::trace!(log, "Got head state from request.");
     // Parse and check query parameters
@@ -67,9 +64,6 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
             e
         ))
     })?;
-    if let Some(s) = head_state.maybe_as_mut_ref() {
-        s.build_all_caches(&beacon_chain.spec).ok();
-    }
     let validators: Vec<PublicKey> = query
         .all_of("validator_pubkeys")?
         .iter()
@@ -163,7 +157,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 
 /// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
 pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
     let query = UrlQuery::from_request(&req)?;
     let slot = query
@@ -203,8 +197,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
 pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let head_state = &beacon_chain.head().beacon_state;
+    let (beacon_chain, head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
     let query = UrlQuery::from_request(&req)?;
     let val_pk_str = query

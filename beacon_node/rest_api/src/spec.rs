@@ -9,7 +9,7 @@ use types::EthSpec;
 
 /// HTTP handler to return the full spec object.
 pub fn get_spec<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
     let json: String = serde_json::to_string(&beacon_chain.spec)
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize spec: {:?}", e)))?;
