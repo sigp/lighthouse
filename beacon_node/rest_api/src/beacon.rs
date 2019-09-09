@@ -109,7 +109,7 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
 
 /// HTTP handler to return a `BeaconBlock` root at a given `slot`.
 pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let target = parse_slot(&slot_string)?;
@@ -126,10 +126,9 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 
 /// HTTP handler to return the `Fork` of the current head.
 pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let chain_head = beacon_chain.head();
+    let (_beacon_chain, head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
-    let json: String = serde_json::to_string(&chain_head.beacon_state.fork).map_err(|e| {
+    let json: String = serde_json::to_string(&head_state.fork).map_err(|e| {
         ApiError::ServerError(format!("Unable to serialize BeaconState::Fork: {:?}", e))
     })?;
 
@@ -141,7 +140,7 @@ pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
 /// The `Epoch` parameter can be any epoch number. If it is not specified,
 /// the current epoch is assumed.
 pub fn get_validators<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
     let epoch = match UrlQuery::from_request(&req) {
         // We have some parameters, so make sure it's the epoch one and parse it
@@ -183,7 +182,7 @@ pub struct StateResponse<T: EthSpec> {
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
 pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+    let (beacon_chain, head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
     let (key, value) = match UrlQuery::from_request(&req) {
         Ok(query) => {
@@ -199,10 +198,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         }
         Err(ApiError::InvalidQueryParams(_)) => {
             // No parameters provided at all, use current slot.
-            (
-                String::from("slot"),
-                beacon_chain.head().beacon_state.slot.to_string(),
-            )
+            (String::from("slot"), head_state.slot.to_string())
         }
         Err(e) => {
             return Err(e);
@@ -237,7 +233,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
 pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let slot = parse_slot(&slot_string)?;
@@ -254,7 +250,7 @@ pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
     req: Request<Body>,
 ) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
     let checkpoint = beacon_chain
         .head()
@@ -270,7 +266,7 @@ pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
 
 /// HTTP handler to return a `BeaconState` at the genesis block.
 pub fn get_genesis_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
 
     let (_root, state) = state_at_slot(&beacon_chain, Slot::new(0))?;
 
