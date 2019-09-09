@@ -359,7 +359,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
                     std::thread::spawn(move || {
-                        info!(log, "Producing a block"; "Validator"=> format!("{}", signers[signer_index]));
+                        info!(
+                            log,
+                            "Producing a block";
+                            "validator"=> format!("{}", signers[signer_index]),
+                            "slot"=> slot
+                        );
                         let signer = &signers[signer_index];
                         let mut block_producer = BlockProducer {
                             fork,
@@ -376,6 +381,9 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                 if work_type.attestation_duty.is_some() {
                     // we need to produce an attestation
                     // spawns a thread to produce and sign an attestation
+                    let slot = self
+                        .current_slot
+                        .expect("The current slot must be updated before processing duties");
                     let signers = self.duties_manager.signers.clone(); // this is an arc
                     let fork = self.fork.clone();
                     let spec = self.spec.clone();
@@ -383,7 +391,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
                     std::thread::spawn(move || {
-                        info!(log, "Producing an attestation"; "Validator"=> format!("{}", signers[signer_index]));
+                        info!(
+                            log,
+                            "Producing an attestation";
+                            "validator"=> format!("{}", signers[signer_index]),
+                            "slot"=> slot
+                        );
                         let signer = &signers[signer_index];
                         let mut attestation_producer = AttestationProducer {
                             fork,

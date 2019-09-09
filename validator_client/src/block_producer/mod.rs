@@ -59,9 +59,12 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
     /// Handle outputs and results from block production.
     pub fn handle_produce_block(&mut self, log: slog::Logger) {
         match self.produce_block() {
-            Ok(ValidatorEvent::BlockProduced(_slot)) => {
-                info!(log, "Block produced"; "Validator" => format!("{}", self.signer))
-            }
+            Ok(ValidatorEvent::BlockProduced(slot)) => info!(
+                log,
+                "Block produced";
+                "validator" => format!("{}", self.signer),
+                "slot" => slot,
+            ),
             Err(e) => error!(log, "Block production error"; "Error" => format!("{:?}", e)),
             Ok(ValidatorEvent::SignerRejection(_slot)) => {
                 error!(log, "Block production error"; "Error" => "Signer Could not sign the block".to_string())
@@ -105,12 +108,13 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
             .produce_beacon_block(self.slot, &randao_reveal)?
         {
             if self.safe_to_produce(&block) {
+                let slot = block.slot;
                 let domain = self
                     .spec
                     .get_domain(epoch, Domain::BeaconProposer, &self.fork);
                 if let Some(block) = self.sign_block(block, domain) {
                     self.beacon_node.publish_beacon_block(block)?;
-                    Ok(ValidatorEvent::BlockProduced(self.slot))
+                    Ok(ValidatorEvent::BlockProduced(slot))
                 } else {
                     Ok(ValidatorEvent::SignerRejection(self.slot))
                 }

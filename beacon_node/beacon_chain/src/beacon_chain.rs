@@ -9,7 +9,7 @@ use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{RwLock, RwLockReadGuard};
-use slog::{error, info, warn, Logger};
+use slog::{error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
@@ -639,6 +639,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::ATTESTATION_PRODUCTION_SUCCESSES);
         metrics::stop_timer(timer);
 
+        trace!(
+            self.log,
+            "Produced beacon attestation data";
+            "beacon_block_root" => format!("{}", head_block_root),
+            "shard" => shard,
+            "slot" => state.slot
+        );
+
         Ok(AttestationData {
             beacon_block_root: head_block_root,
             source: state.current_justified_checkpoint.clone(),
@@ -751,7 +759,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // has a higher slot than the attestation.
             //
             // Permitting this would allow for attesters to vote on _future_ slots.
-            if attestation_slot > state.slot {
+            if state.slot > attestation_slot {
                 Ok(AttestationProcessingOutcome::AttestsToFutureState {
                     state: state.slot,
                     attestation: attestation_slot,
@@ -1270,6 +1278,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
         metrics::stop_timer(timer);
 
+        trace!(
+            self.log,
+            "Produced beacon block";
+            "parent" => format!("{}", block.parent_root),
+            "attestations" => block.body.attestations.len(),
+            "slot" => block.slot
+        );
+
         Ok((block, state))
     }
 
@@ -1307,7 +1323,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 warn!(
                     self.log,
                     "Beacon chain re-org";
+                    "previous_head" => format!("{}", self.head().beacon_block_root),
                     "previous_slot" => previous_slot,
+                    "new_head_parent" => format!("{}", beacon_block.parent_root),
+                    "new_head" => format!("{}", beacon_block_root),
                     "new_slot" => new_slot
                 );
             } else {
