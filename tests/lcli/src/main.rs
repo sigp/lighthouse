@@ -15,10 +15,13 @@ use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, Mini
 fn main() {
     simple_logger::init().expect("logger should initialize");
 
-    let matches = App::new("Lighthouse Testing CLI Tool")
+    let matches = App::new("Lighthouse CLI Tool")
         .version("0.1.0")
         .author("Paul Hauner <paul@sigmaprime.io>")
-        .about("Performs various testing-related tasks.")
+        .about(
+            "Performs various testing-related tasks, modelled after zcli. \
+             by @protolambda.",
+        )
         .subcommand(
             SubCommand::with_name("genesis_yaml")
                 .about("Generates a genesis YAML file")
@@ -89,7 +92,7 @@ fn main() {
         )
         .subcommand(
             SubCommand::with_name("pretty-hex")
-                .about("Parses some SSZ as encoded as ASCII 0x-prefixed hex")
+                .about("Parses SSZ encoded as ASCII 0x-prefixed hex")
                 .version("0.1.0")
                 .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
@@ -154,7 +157,7 @@ fn main() {
         ("pretty-hex", Some(matches)) => {
             run_parse_hex(matches).unwrap_or_else(|e| error!("Failed to pretty print hex: {}", e))
         }
-        (other, _) => error!("Unknown subcommand supplied: {}", other),
+        (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
 }
 
