@@ -37,6 +37,12 @@ use types::*;
 //                          |-------must be this long------|
 pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 
+/// If true, everytime a block is processed the pre-state, post-state and block are written to SSZ
+/// files in the temp directory.
+///
+/// Only useful for testing.
+const WRITE_BLOCK_PROCESSING_SSZ: bool = true;
+
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
     /// Block was valid and imported into the block graph.
@@ -1463,41 +1469,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 }
 
 fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
-    let root = Hash256::from_slice(&state.tree_hash_root());
-    let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot, root);
-    let mut path = std::env::temp_dir().join("lighthouse");
-    let _ = fs::create_dir_all(path.clone());
-    path = path.join(filename);
+    if WRITE_BLOCK_PROCESSING_SSZ {
+        let root = Hash256::from_slice(&state.tree_hash_root());
+        let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot, root);
+        let mut path = std::env::temp_dir().join("lighthouse");
+        let _ = fs::create_dir_all(path.clone());
+        path = path.join(filename);
 
-    match fs::File::create(path.clone()) {
-        Ok(mut file) => {
-            let _ = file.write_all(&state.as_ssz_bytes());
+        match fs::File::create(path.clone()) {
+            Ok(mut file) => {
+                let _ = file.write_all(&state.as_ssz_bytes());
+            }
+            Err(e) => error!(
+                log,
+                "Failed to log state";
+                "path" => format!("{:?}", path),
+                "error" => format!("{:?}", e)
+            ),
         }
-        Err(e) => error!(
-            log,
-            "Failed to log state";
-            "path" => format!("{:?}", path),
-            "error" => format!("{:?}", e)
-        ),
     }
 }
 
 fn write_block<T: EthSpec>(block: &BeaconBlock<T>, root: Hash256, log: &Logger) {
-    let filename = format!("block_slot_{}_root{}.ssz", block.slot, root);
-    let mut path = std::env::temp_dir().join("lighthouse");
-    let _ = fs::create_dir_all(path.clone());
-    path = path.join(filename);
+    if WRITE_BLOCK_PROCESSING_SSZ {
+        let filename = format!("block_slot_{}_root{}.ssz", block.slot, root);
+        let mut path = std::env::temp_dir().join("lighthouse");
+        let _ = fs::create_dir_all(path.clone());
+        path = path.join(filename);
 
-    match fs::File::create(path.clone()) {
-        Ok(mut file) => {
-            let _ = file.write_all(&block.as_ssz_bytes());
+        match fs::File::create(path.clone()) {
+            Ok(mut file) => {
+                let _ = file.write_all(&block.as_ssz_bytes());
+            }
+            Err(e) => error!(
+                log,
+                "Failed to log block";
+                "path" => format!("{:?}", path),
+                "error" => format!("{:?}", e)
+            ),
         }
-        Err(e) => error!(
-            log,
-            "Failed to log block";
-            "path" => format!("{:?}", path),
-            "error" => format!("{:?}", e)
-        ),
     }
 }
 
