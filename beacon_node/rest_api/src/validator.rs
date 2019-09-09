@@ -1,11 +1,14 @@
 use super::{success_response, ApiResult};
 use crate::{helpers::*, ApiError, UrlQuery};
-use beacon_chain::BeaconChainTypes;
+use beacon_chain::{BeaconChainTypes, BlockProcessingOutcome};
 use bls::{AggregateSignature, PublicKey, Signature};
-use hyper::{Body, Request};
+use futures::future::Future;
+use futures::stream::Stream;
+use hyper::{Body, Error, Request};
 use serde::{Deserialize, Serialize};
+use slog::info;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BitList, Epoch, RelativeEpoch, Shard, Slot};
+use types::{Attestation, BeaconBlock, BitList, Epoch, RelativeEpoch, Shard, Slot};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatorDuty {
@@ -193,6 +196,54 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
             .expect("We should always be able to serialize a new block that we produced."),
     );
     Ok(success_response(body))
+}
+
+/// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
+pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+    let log = get_logger_from_request(&req);
+    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
+
+    let (_head, body) = req.into_parts();
+    let block_future = body
+        .fold(Vec::new(), |mut acc, chunk| {
+            acc.extend_from_slice(&*chunk);
+            futures::future::ok::<_, Error>(acc)
+        })
+        .map_err(|e| ApiError::ServerError(format!("Unable parse request body: {:?}", e)))
+        .and_then(|body| {
+            let block_result: Result<BeaconBlock<T::EthSpec>, ApiError> =
+                serde_json::from_slice(&body.as_slice()).map_err(|e| {
+                    ApiError::InvalidQueryParams(format!(
+                        "Unable to deserialize JSON into a BeaconBlock: {:?}",
+                        e
+                    ))
+                });
+            block_result
+        });
+    let block = block_future.wait()?;
+    match beacon_chain.process_block(block.clone()) {
+        Ok(BlockProcessingOutcome::Processed {
+            block_root: block_root,
+        }) => {
+            // Block was processed, publish via gossipsub
+            info!(log, "Processed valid block from API"; "block_slot" => block.slot, "block_root" => format!("{}", block_root));
+            publish_beacon_block_to_network::<T>(&req, block)?;
+        }
+        Ok(outcome) => {
+            return Err(ApiError::InvalidQueryParams(format!(
+                "The BeaconBlock could not be processed: {:?}",
+                outcome
+            )));
+        }
+        Err(e) => {
+            return Err(ApiError::ServerError(format!(
+                "Unable to process block: {:?}",
+                e
+            )));
+        }
+    }
+
+    Ok(success_response(Body::empty()))
 }
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.

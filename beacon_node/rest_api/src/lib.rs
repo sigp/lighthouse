@@ -14,6 +14,7 @@ mod url_query;
 mod validator;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use client_network::NetworkMessage;
 use client_network::Service as NetworkService;
 use eth2_config::Eth2Config;
 use hyper::rt::Future;
@@ -25,6 +26,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
+use tokio::sync::mpsc;
 use url_query::UrlQuery;
 
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
@@ -83,6 +85,7 @@ pub fn start_server<T: BeaconChainTypes>(
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network_service: Arc<NetworkService<T>>,
+    network_chan: mpsc::UnboundedSender<NetworkMessage>,
     db_path: PathBuf,
     eth2_config: Eth2Config,
     log: &slog::Logger,
@@ -113,6 +116,7 @@ pub fn start_server<T: BeaconChainTypes>(
         let beacon_chain = server_bc.clone();
         let db_path = db_path.clone();
         let network_service = network_service.clone();
+        let network_chan = network_chan.clone();
         let eth2_config = eth2_config.clone();
 
         // Create a simple handler for the router, inject our stateful objects into the request.
@@ -126,6 +130,8 @@ pub fn start_server<T: BeaconChainTypes>(
             req.extensions_mut().insert::<DBPath>(db_path.clone());
             req.extensions_mut()
                 .insert::<Arc<NetworkService<T>>>(network_service.clone());
+            req.extensions_mut()
+                .insert::<mpsc::UnboundedSender<NetworkMessage>>(network_chan.clone());
             req.extensions_mut()
                 .insert::<Arc<Eth2Config>>(eth2_config.clone());
 
@@ -177,7 +183,7 @@ pub fn start_server<T: BeaconChainTypes>(
                     validator::get_new_beacon_block::<T>(req)
                 }
                 (&Method::POST, "/beacon/validator/block") => {
-                    helpers::implementation_pending_response(req)
+                    validator::publish_beacon_block::<T>(req)
                 }
                 (&Method::GET, "/beacon/validator/attestation") => {
                     validator::get_new_attestation::<T>(req)
