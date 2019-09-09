@@ -1332,9 +1332,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 info!(
                     self.log,
-                    "new head block";
+                    "New head beacon block";
                     "justified_root" => format!("{}", beacon_state.current_justified_checkpoint.root),
+                    "justified_epoch" => beacon_state.current_justified_checkpoint.epoch,
                     "finalized_root" => format!("{}", beacon_state.finalized_checkpoint.root),
+                    "finalized_epoch" => beacon_state.finalized_checkpoint.epoch,
                     "root" => format!("{}", beacon_block_root),
                     "slot" => new_slot,
                 );
