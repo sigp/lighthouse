@@ -1,10 +1,13 @@
 #[macro_use]
 extern crate log;
 
+mod transition_blocks;
+
 use clap::{App, Arg, SubCommand};
 use std::fs::File;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+use transition_blocks::run_transition_blocks;
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
 
 fn main() {
@@ -54,47 +57,78 @@ fn main() {
                         .help("Output file for generated state."),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("transition-blocks")
+                .about("Performs a state transition given a pre-state and block")
+                .version("0.1.0")
+                .author("Paul Hauner <paul@sigmaprime.io>")
+                .arg(
+                    Arg::with_name("pre-state")
+                        .value_name("BEACON_STATE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Path to a SSZ file of the pre-state."),
+                )
+                .arg(
+                    Arg::with_name("block")
+                        .value_name("BEACON_BLOCK")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Path to a SSZ file of the block to apply to pre-state."),
+                )
+                .arg(
+                    Arg::with_name("output")
+                        .value_name("SSZ_FILE")
+                        .takes_value(true)
+                        .required(true)
+                        .default_value("./output.ssz")
+                        .help("Path to output a SSZ file."),
+                ),
+        )
         .get_matches();
 
-    if let Some(matches) = matches.subcommand_matches("genesis_yaml") {
-        let num_validators = matches
-            .value_of("num_validators")
-            .expect("slog requires num_validators")
-            .parse::<usize>()
-            .expect("num_validators must be a valid integer");
+    match matches.subcommand() {
+        ("genesis_yaml", Some(matches)) => {
+            let num_validators = matches
+                .value_of("num_validators")
+                .expect("slog requires num_validators")
+                .parse::<usize>()
+                .expect("num_validators must be a valid integer");
 
-        let genesis_time = if let Some(string) = matches.value_of("genesis_time") {
-            string
-                .parse::<u64>()
-                .expect("genesis_time must be a valid integer")
-        } else {
-            warn!("No genesis time supplied via CLI, using the current time.");
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("should obtain time since unix epoch")
-                .as_secs()
-        };
+            let genesis_time = if let Some(string) = matches.value_of("genesis_time") {
+                string
+                    .parse::<u64>()
+                    .expect("genesis_time must be a valid integer")
+            } else {
+                warn!("No genesis time supplied via CLI, using the current time.");
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("should obtain time since unix epoch")
+                    .as_secs()
+            };
 
-        let file = matches
-            .value_of("output_file")
-            .expect("slog requires output file")
-            .parse::<PathBuf>()
-            .expect("output_file must be a valid path");
+            let file = matches
+                .value_of("output_file")
+                .expect("slog requires output file")
+                .parse::<PathBuf>()
+                .expect("output_file must be a valid path");
 
-        info!(
-            "Creating genesis state with {} validators and genesis time {}.",
-            num_validators, genesis_time
-        );
+            info!(
+                "Creating genesis state with {} validators and genesis time {}.",
+                num_validators, genesis_time
+            );
 
-        match matches.value_of("spec").expect("spec is required by slog") {
-            "minimal" => genesis_yaml::<MinimalEthSpec>(num_validators, genesis_time, file),
-            "mainnet" => genesis_yaml::<MainnetEthSpec>(num_validators, genesis_time, file),
-            _ => unreachable!("guarded by slog possible_values"),
-        };
+            match matches.value_of("spec").expect("spec is required by slog") {
+                "minimal" => genesis_yaml::<MinimalEthSpec>(num_validators, genesis_time, file),
+                "mainnet" => genesis_yaml::<MainnetEthSpec>(num_validators, genesis_time, file),
+                _ => unreachable!("guarded by slog possible_values"),
+            };
 
-        info!("Genesis state YAML file created. Exiting successfully.");
-    } else {
-        error!("No subcommand supplied.")
+            info!("Genesis state YAML file created. Exiting successfully.");
+        }
+        ("transition-blocks", Some(matches)) => run_transition_blocks(matches)
+            .unwrap_or_else(|e| error!("Failed to transition blocks: {}", e)),
+        (other, _) => error!("Unknown subcommand supplied: {}", other),
     }
 }
 
