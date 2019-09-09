@@ -13,6 +13,7 @@ store =  { path = "../store" }
 eth2-libp2p =  { path = "../eth2-libp2p" }
 types = { path = "../../eth2/types" }
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
+hex = "0.3"
 eth2_ssz = "0.1"
 tree_hash = "0.1"
 futures = "0.1.25"

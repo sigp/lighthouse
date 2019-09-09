@@ -11,6 +11,7 @@ use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{RwLock, RwLockReadGuard};
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
+use ssz::Encode;
 use state_processing::per_block_processing::{
     errors::{
         AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
@@ -21,6 +22,8 @@ use state_processing::per_block_processing::{
 use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
 };
+use std::fs;
+use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, StateRootsIterator};
@@ -1035,6 +1038,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(db_read_timer);
 
+        write_block(&block, block_root, &self.log);
+
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
         // Keep a list of any states that were "skipped" (block-less) in between the parent state
@@ -1059,6 +1064,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(committee_timer);
 
+        write_state(
+            &format!("state_pre_block_{}", block_root),
+            &state,
+            &self.log,
+        );
+
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
         // Apply the received block to its parent state (which has been transitioned into this
@@ -1082,6 +1093,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let state_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_STATE_ROOT);
 
         let state_root = state.canonical_root();
+
+        write_state(
+            &format!("state_post_block_{}", block_root),
+            &state,
+            &self.log,
+        );
 
         if block.state_root != state_root {
             return Ok(BlockProcessingOutcome::StateRootMismatch {
@@ -1442,6 +1459,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         dump.reverse();
 
         Ok(dump)
+    }
+}
+
+fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
+    let root = Hash256::from_slice(&state.tree_hash_root());
+    let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot, root);
+    let mut path = std::env::temp_dir().join("lighthouse");
+    let _ = fs::create_dir_all(path.clone());
+    path = path.join(filename);
+
+    match fs::File::create(path.clone()) {
+        Ok(mut file) => {
+            let _ = file.write_all(&state.as_ssz_bytes());
+        }
+        Err(e) => error!(
+            log,
+            "Failed to log state";
+            "path" => format!("{:?}", path),
+            "error" => format!("{:?}", e)
+        ),
+    }
+}
+
+fn write_block<T: EthSpec>(block: &BeaconBlock<T>, root: Hash256, log: &Logger) {
+    let filename = format!("block_slot_{}_root{}.ssz", block.slot, root);
+    let mut path = std::env::temp_dir().join("lighthouse");
+    let _ = fs::create_dir_all(path.clone());
+    path = path.join(filename);
+
+    match fs::File::create(path.clone()) {
+        Ok(mut file) => {
+            let _ = file.write_all(&block.as_ssz_bytes());
+        }
+        Err(e) => error!(
+            log,
+            "Failed to log block";
+            "path" => format!("{:?}", path),
+            "error" => format!("{:?}", e)
+        ),
     }
 }
 
