@@ -1,11 +1,7 @@
 use clap::ArgMatches;
 use serde::Serialize;
-use ssz::{Decode, Encode};
-use state_processing::{per_block_processing, per_slot_processing, BlockSignatureStrategy};
-use std::fs::File;
-use std::io::prelude::*;
-use std::path::PathBuf;
-use types::{BeaconBlock, BeaconState, EthSpec, MinimalEthSpec};
+use ssz::Decode;
+use types::{BeaconBlock, BeaconState, MinimalEthSpec};
 
 pub fn run_parse_hex(matches: &ArgMatches) -> Result<(), String> {
     let type_str = matches
