@@ -206,7 +206,7 @@ where
         match protocol.encoding.as_str() {
             "ssz" | _ => {
                 let ssz_codec =
-                    BaseOutboundCodec::new(SSZOutboundCodec::new(protocol, MAX_RPC_SIZE));
+                    BaseOutboundCodec::new(protocol, SSZOutboundCodec::new(protocol, MAX_RPC_SIZE));
                 let codec = OutboundCodec::SSZ(ssz_codec);
                 Framed::new(socket, codec).send(self)
             }

@@ -51,7 +51,7 @@ impl Encoder for OutboundCodec {
 }
 
 impl Decoder for OutboundCodec {
-    type Item = RPCErrorResponse;
+    type Item = Vec<RPCErrorResponse>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {

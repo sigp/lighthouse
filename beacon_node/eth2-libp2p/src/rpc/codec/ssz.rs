@@ -178,24 +178,31 @@ impl Decoder for SSZOutboundCodec {
             }
         } else {
             match self.inner.decode(src).map_err(RPCError::from) {
-                Ok(Some(packet)) => match self.protocol.message_name.as_str() {
-                    "hello" => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::Hello(HelloMessage::from_ssz_bytes(
-                            &packet,
-                        )?))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
-                    },
-                    "goodbye" => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
-                    "blocks_by_range" => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::BlocksByRange(packet.to_vec()))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
-                    },
-                    "blocks_by_root" => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::BlocksByRoot(packet.to_vec()))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
-                    },
-                    _ => unreachable!("Cannot negotiate an unknown protocol"),
-                },
+                Ok(Some(mut packet)) => {
+                    // take the bytes from the buffer
+                    let raw_bytes = packet.take();
+
+                    match self.protocol.message_name.as_str() {
+                        "hello" => match self.protocol.version.as_str() {
+                            "1" => Ok(Some(RPCResponse::Hello(HelloMessage::from_ssz_bytes(
+                                &raw_bytes,
+                            )?))),
+                            _ => unreachable!("Cannot negotiate an unknown version"),
+                        },
+                        "goodbye" => {
+                            Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response"))
+                        }
+                        "blocks_by_range" => match self.protocol.version.as_str() {
+                            "1" => Ok(Some(RPCResponse::BlocksByRange(raw_bytes.to_vec()))),
+                            _ => unreachable!("Cannot negotiate an unknown version"),
+                        },
+                        "blocks_by_root" => match self.protocol.version.as_str() {
+                            "1" => Ok(Some(RPCResponse::BlocksByRoot(raw_bytes.to_vec()))),
+                            _ => unreachable!("Cannot negotiate an unknown version"),
+                        },
+                        _ => unreachable!("Cannot negotiate an unknown protocol"),
+                    }
+                }
                 Ok(None) => Ok(None), // waiting for more bytes
                 Err(e) => Err(e),
             }
