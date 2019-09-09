@@ -1,9 +1,11 @@
 #[macro_use]
 extern crate log;
 
+mod parse_hex;
 mod transition_blocks;
 
 use clap::{App, Arg, SubCommand};
+use parse_hex::run_parse_hex;
 use std::fs::File;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -85,6 +87,27 @@ fn main() {
                         .help("Path to output a SSZ file."),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("pretty-hex")
+                .about("Parses some SSZ as encoded as ASCII 0x-prefixed hex")
+                .version("0.1.0")
+                .author("Paul Hauner <paul@sigmaprime.io>")
+                .arg(
+                    Arg::with_name("type")
+                        .value_name("TYPE")
+                        .takes_value(true)
+                        .required(true)
+                        .possible_values(&["block"])
+                        .help("The schema of the supplied SSZ."),
+                )
+                .arg(
+                    Arg::with_name("hex_ssz")
+                        .value_name("HEX")
+                        .takes_value(true)
+                        .required(true)
+                        .help("SSZ encoded as 0x-prefixed hex"),
+                ),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -128,6 +151,9 @@ fn main() {
         }
         ("transition-blocks", Some(matches)) => run_transition_blocks(matches)
             .unwrap_or_else(|e| error!("Failed to transition blocks: {}", e)),
+        ("pretty-hex", Some(matches)) => {
+            run_parse_hex(matches).unwrap_or_else(|e| error!("Failed to pretty print hex: {}", e))
+        }
         (other, _) => error!("Unknown subcommand supplied: {}", other),
     }
 }
