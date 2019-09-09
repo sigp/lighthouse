@@ -1,11 +1,17 @@
 use crate::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKey;
+use eth2_libp2p::{PubsubMessage, Topic};
+use eth2_libp2p::{BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX};
 use hex;
 use hyper::{Body, Request};
+use network::NetworkMessage;
+use ssz::Encode;
+use std::borrow::BorrowMut;
 use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
-use types::{BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
+use tokio::sync::mpsc;
+use types::{BeaconBlock, BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// Parse a slot from a `0x` preixed string.
 ///
@@ -195,6 +201,40 @@ pub fn get_logger_from_request(req: &Request<Body>) -> slog::Logger {
         .get::<slog::Logger>()
         .expect("Should always get the logger from the request, since we put it in there.");
     log.to_owned()
+}
+
+pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
+    req: &Request<Body>,
+    block: BeaconBlock<T::EthSpec>,
+) -> Result<(), ApiError> {
+    // Get the network service from the request
+    let mut network_chan = req
+        .extensions()
+        .get::<mpsc::UnboundedSender<NetworkMessage>>()
+        .expect(
+            "Should always get the network channel from the request, since we put it in there.",
+        );
+
+    // create the network topic to send on
+    let topic_string = format!(
+        "/{}/{}/{}",
+        TOPIC_PREFIX, BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX
+    );
+    let topic = Topic::new(topic_string);
+    let message = PubsubMessage::Block(block.as_ssz_bytes());
+
+    // Publish the block to the p2p network via gossipsub.
+    if let Err(e) = &network_chan.try_send(NetworkMessage::Publish {
+        topics: vec![topic],
+        message: message,
+    }) {
+        return Err(ApiError::ServerError(format!(
+            "Unable to send new block to network: {:?}",
+            e
+        )));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
