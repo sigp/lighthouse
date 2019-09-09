@@ -34,21 +34,21 @@ pub struct PeerSyncInfo {
     pub head_slot: Slot,
 }
 
-impl From<HelloMessage> for PeerSyncInfo {
-    fn from(hello: HelloMessage) -> PeerSyncInfo {
+impl From<StatusMessage> for PeerSyncInfo {
+    fn from(status: StatusMessage) -> PeerSyncInfo {
         PeerSyncInfo {
-            fork_version: hello.fork_version,
-            finalized_root: hello.finalized_root,
-            finalized_epoch: hello.finalized_epoch,
-            head_root: hello.head_root,
-            head_slot: hello.head_slot,
+            fork_version: status.fork_version,
+            finalized_root: status.finalized_root,
+            finalized_epoch: status.finalized_epoch,
+            head_root: status.head_root,
+            head_slot: status.head_slot,
         }
     }
 }
 
 impl<T: BeaconChainTypes> From<&Arc<BeaconChain<T>>> for PeerSyncInfo {
     fn from(chain: &Arc<BeaconChain<T>>) -> PeerSyncInfo {
-        Self::from(hello_message(chain))
+        Self::from(status_message(chain))
     }
 }
 
@@ -113,47 +113,50 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
 
     /// Handle the connection of a new peer.
     ///
-    /// Sends a `Hello` message to the peer.
+    /// Sends a `Status` message to the peer.
     pub fn on_connect(&mut self, peer_id: PeerId) {
-        self.network
-            .send_rpc_request(None, peer_id, RPCRequest::Hello(hello_message(&self.chain)));
+        self.network.send_rpc_request(
+            None,
+            peer_id,
+            RPCRequest::Status(status_message(&self.chain)),
+        );
     }
 
-    /// Handle a `Hello` request.
+    /// Handle a `Status` request.
     ///
-    /// Processes the `HelloMessage` from the remote peer and sends back our `Hello`.
-    pub fn on_hello_request(
+    /// Processes the `Status` from the remote peer and sends back our `Status`.
+    pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        hello: HelloMessage,
+        status: StatusMessage,
     ) {
-        // ignore hello responses if we are shutting down
-        trace!(self.log, "HelloRequest"; "peer" => format!("{:?}", peer_id));
+        // ignore status responses if we are shutting down
+        trace!(self.log, "StatusRequest"; "peer" => format!("{:?}", peer_id));
 
-        // Say hello back.
+        // Say status back.
         self.network.send_rpc_response(
             peer_id.clone(),
             request_id,
-            RPCResponse::Hello(hello_message(&self.chain)),
+            RPCResponse::Status(status_message(&self.chain)),
         );
 
-        self.process_hello(peer_id, hello);
+        self.process_status(peer_id, hello);
     }
 
-    /// Process a `Hello` response from a peer.
-    pub fn on_hello_response(&mut self, peer_id: PeerId, hello: HelloMessage) {
-        trace!(self.log, "HelloResponse"; "peer" => format!("{:?}", peer_id));
+    /// Process a `Status` response from a peer.
+    pub fn on_status_response(&mut self, peer_id: PeerId, hello: StatusMessage) {
+        trace!(self.log, "StatusResponse"; "peer" => format!("{:?}", peer_id));
 
-        // Process the hello message, without sending back another hello.
-        self.process_hello(peer_id, hello);
+        // Process the status message, without sending back another hello.
+        self.process_status(peer_id, hello);
     }
 
-    /// Process a `Hello` message, requesting new blocks if appropriate.
+    /// Process a `Status` message, requesting new blocks if appropriate.
     ///
     /// Disconnects the peer if required.
-    fn process_hello(&mut self, peer_id: PeerId, hello: HelloMessage) {
-        let remote = PeerSyncInfo::from(hello);
+    fn process_status(&mut self, peer_id: PeerId, hello: StatusMessage) {
+        let remote = PeerSyncInfo::from(status);
         let local = PeerSyncInfo::from(&self.chain);
 
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
@@ -334,11 +337,12 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             "returned" => blocks.len(),
         );
 
-        self.network.send_rpc_response(
-            peer_id,
-            request_id,
-            RPCResponse::BlocksByRange(blocks.as_ssz_bytes()),
-        )
+        let response = blocks
+            .map(|b| RpcErrorResponse::Success(RPCResponse::BlocksByRange(b.as_ssz_bytes())))
+            .collect();
+
+        self.network
+            .send_multiple_rpc_response(peer_id, request_id, response)
     }
 
     /// Handle a `BlocksByRange` response from the peer.
@@ -477,11 +481,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     }
 }
 
-/// Build a `HelloMessage` representing the state of the given `beacon_chain`.
-pub(crate) fn hello_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> HelloMessage {
+/// Build a `StatusMessage` representing the state of the given `beacon_chain`.
+pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> StatusMessage {
     let state = &beacon_chain.head().beacon_state;
 
-    HelloMessage {
+    StatusMessage {
         fork_version: state.fork.current_version,
         finalized_root: state.finalized_checkpoint.root,
         finalized_epoch: state.finalized_checkpoint.epoch,
@@ -526,7 +530,7 @@ impl NetworkContext {
     }
 
     //TODO: Handle Error responses
-    pub fn send_rpc_response(
+    pub fn send_single_rpc_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
@@ -534,8 +538,20 @@ impl NetworkContext {
     ) {
         self.send_rpc_event(
             peer_id,
-            RPCEvent::Response(request_id, RPCErrorResponse::Success(rpc_response)),
+            RPCEvent::Response(
+                request_id,
+                smallvec![RPCErrorResponse::Success(rpc_response)],
+            ),
         );
+    }
+
+    pub fn send_multiple_rpc_response(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        rpc_response: SmallVec<[RPCResponse; MAX_BLOCKS_PER_REQUEST]>,
+    ) {
+        self.send_rpc_event(peer_id, RPCEvent::Response(request_id, rpc_response));
     }
 
     fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {

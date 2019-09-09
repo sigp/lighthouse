@@ -37,7 +37,7 @@ impl UpgradeInfo for RPCProtocol {
 
     fn protocol_info(&self) -> Self::InfoIter {
         vec![
-            ProtocolId::new("hello", "1", "ssz"),
+            ProtocolId::new("status", "1", "ssz"),
             ProtocolId::new("goodbye", "1", "ssz"),
             ProtocolId::new("blocks_by_range", "1", "ssz"),
             ProtocolId::new("blocks_by_root", "1", "ssz"),
@@ -168,12 +168,14 @@ impl RPCRequest {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RPCRequest::Hello(_) => vec![ProtocolId::new("hello", "1", "ssz")],
+            RPCRequest::Status(_) => vec![ProtocolId::new("hello", "1", "ssz")],
             RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", "1", "ssz")],
             RPCRequest::BlocksByRange(_) => vec![ProtocolId::new("blocks_by_range", "1", "ssz")],
             RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new("blocks_by_root", "1", "ssz")],
         }
     }
+
+    /* These functions are used in the handler for stream management */
 
     /// This specifies whether a stream should remain open and await a response, given a request.
     /// A GOODBYE request has no response.
@@ -181,6 +183,17 @@ impl RPCRequest {
         match self {
             RPCRequest::Goodbye(_) => false,
             _ => true,
+        }
+    }
+
+    /// Returns which methods expect multiple responses from the stream. If this is false and
+    /// the stream terminates, an error is given.
+    pub fn multiple_responses(&self) -> bool {
+        match self {
+            RPCRequest::Status(_) => false,
+            RPCRequest::Goodbye(_) => false,
+            RPCRequest::BlocksByRange(_) => true,
+            RPCRequest::BlocksByRoot(_) => true,
         }
     }
 }
@@ -290,7 +303,7 @@ impl std::error::Error for RPCError {
 impl std::fmt::Display for RPCRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCRequest::Hello(hello) => write!(f, "Hello Message: {}", hello),
+            RPCRequest::Hello(status) => write!(f, "Hello Message: {}", status),
             RPCRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             RPCRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             RPCRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),

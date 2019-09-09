@@ -1,8 +1,8 @@
+//! Syncing for lighthouse.
+//!
+//! Stores the various syncing methods for the beacon chain.
 mod manager;
-/// Syncing for lighthouse.
-///
-/// Stores the various syncing methods for the beacon chain.
-mod simple_sync;
+mod message_processor;
 
 pub use simple_sync::MessageProcessor;
 

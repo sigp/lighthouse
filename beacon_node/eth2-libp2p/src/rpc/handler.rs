@@ -1,5 +1,5 @@
 use super::methods::RequestId;
-use super::protocol::{RPCError, RPCProtocol, RPCRequest};
+use super::protocol::{RPCError, RPCProtocol, RPCRequest, RPCResponse};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
 use core::marker::PhantomData;
@@ -73,18 +73,21 @@ where
 {
     /// A response has been sent, pending writing and flush.
     ResponsePendingSend {
-        substream: futures::sink::Send<InboundFramed<TSubstream>>,
+        substream: futures::sink::SendAll<InboundFramed<TSubstream>, futures::stream::IterOk<smallvec::IntoIter<[RPCResponse; 20]>, ()>>
     },
     /// A request has been sent, and we are awaiting a response. This future is driven in the
     /// handler because GOODBYE requests can be handled and responses dropped instantly.
     RequestPendingResponse {
         /// The framed negotiated substream.
         substream: OutboundFramed<TSubstream>,
-        /// Keeps track of the request id and the request to permit forming advanced responses which require
-        /// data from the request.
-        rpc_event: RPCEvent,
+        /// Keeps track of the request id for the request. 
+        id: RequestId,
+        /// Keeps track of the actual request sent.
+        request: RPCRequest,
         /// The time  when the substream is closed.
         timeout: Instant,
+        /// The number of responses received.
+        received_responses: usize,
     },
 }
 
@@ -211,12 +214,14 @@ where
         }
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
-        if let RPCEvent::Request(id, req) = rpc_event {
-            if req.expect_response() {
+        if let RPCEvent::Request(id, request) = rpc_event {
+            if request.expect_response() {
                 let awaiting_stream = SubstreamState::RequestPendingResponse {
                     substream: out,
-                    rpc_event: RPCEvent::Request(id, req),
+                    id,
+                    request,
                     timeout: Instant::now() + Duration::from_secs(RESPONSE_TIMEOUT),
+                    received_responses: 0,
                 };
 
                 self.substreams.push(awaiting_stream);
@@ -233,9 +238,11 @@ where
             RPCEvent::Response(rpc_id, res) => {
                 // check if the stream matching the response still exists
                 if let Some(waiting_stream) = self.waiting_substreams.remove(&rpc_id) {
-                    // only send one response per stream. This must be in the waiting state.
+                    // Process the response stream. This must be in the waiting state.
+                    // build the stream from the response
+                    let stream = futures::stream::iter_ok::<_, ()>(res);
                     self.substreams.push(SubstreamState::ResponsePendingSend {
-                        substream: waiting_stream.substream.send(res),
+                        substream: waiting_stream.substream.send_all(stream),
                     });
                 }
             }
@@ -308,31 +315,57 @@ where
                 }
                 SubstreamState::RequestPendingResponse {
                     mut substream,
-                    rpc_event,
+                    id,
+                    request,
                     timeout,
+                    received_responses,
                 } => match substream.poll() {
-                    Ok(Async::Ready(response)) => {
-                        if let Some(response) = response {
+                    Ok(Async::Ready(Some(response))) => {
+                            if request.multiple_responses && received_responses <= MAX_RESPONSES  {
+                                self.substreams.push(SubstreamState::RequestPendingResponse {
+                                    substream,
+                                    rpc_event,
+                                    timeout,
+                                    received_responses: received_responses +1,
+                                });
+                            }
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                                RPCEvent::Response(rpc_event.id(), response),
+                                RPCEvent::Response(id, smallvec![response]),
                             )));
-                        } else {
-                            // stream closed early or nothing was sent
+                    },
+                    Ok(Async::Ready(Some(None))) => {
+                            // stream closed 
+                            // if we expected multiple streams send a stream termination, 
+                            // else report the stream terminating only.
+                            if request.multiple_responses && received_responses > 0 {
+                                let response =  {
+                                   let resp =  match request {
+                                    RPCRequest::BlocksByRange(_) => RPCResponse::BlocksByRange(None);
+                                    RPCRequest::BlocksByRoot(_) => RPCResponse::BlocksByRoot(None);
+                                    _ => unreachable!("Not multiple responses");
+                                };
+                                RPCErrorResponse::Success(resp)
+                                };
+
+                                return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                                                RPCEvent::Response(id, smallvec![response]))));
+                            } // else we return an error
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                                 RPCEvent::Error(
-                                    rpc_event.id(),
+                                    id,
                                     RPCError::Custom("Stream closed early. Empty response".into()),
                                 ),
                             )));
                         }
-                    }
                     Ok(Async::NotReady) => {
                         if Instant::now() < timeout {
                             self.substreams
                                 .push(SubstreamState::RequestPendingResponse {
                                     substream,
-                                    rpc_event,
+                                    id,
+                                    request,
                                     timeout,
+                                    received_responses,
                                 });
                         }
                     }
