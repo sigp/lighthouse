@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 clap = "2.33"
+hex = "0.3"
 log = "0.4"
 serde = "1.0"
 serde_yaml = "0.8"
