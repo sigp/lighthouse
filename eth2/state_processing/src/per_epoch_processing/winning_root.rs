@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use tree_hash::TreeHash;
 use types::*;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WinningRoot {
     pub crosslink: Crosslink,
     pub attesting_validator_indices: Vec<usize>,
