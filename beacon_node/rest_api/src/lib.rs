@@ -24,7 +24,6 @@ use hyper::server::conn::AddrStream;
 use hyper::service::{MakeService, Service};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use parking_lot::RwLock;
-use response_builder::ResponseBuilder;
 use slog::{info, o, warn};
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -59,6 +58,8 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
         metrics::inc_counter(&metrics::REQUEST_COUNT);
         let timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
 
+        // Add all the useful bits into the request, so that we can pull them out in the individual
+        // functions.
         req.extensions_mut()
             .insert::<slog::Logger>(self.log.clone());
         req.extensions_mut()
@@ -90,6 +91,7 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             (&Method::GET, "/network/listen_port") => network::get_listen_port::<T>(req),
             (&Method::GET, "/network/listen_addresses") => network::get_listen_addresses::<T>(req),
 
+            /*
             // Methods for Beacon Node
             (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
             (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),
@@ -137,13 +139,13 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             (&Method::GET, "/spec/eth2_config") => spec::get_eth2_config::<T>(req),
 
             (&Method::GET, "/metrics") => metrics::get_prometheus::<T>(req),
-
-            _ => Err(ApiError::NotFound(
+            */
+            _ => Box::new(futures::future::err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
-            )),
+            ))),
         };
 
-        let response = match result {
+        let response = match result.wait() {
             // Return the `hyper::Response`.
             Ok(response) => {
                 metrics::inc_counter(&metrics::SUCCESS_COUNT);
@@ -226,14 +228,6 @@ pub fn start_server<T: BeaconChainTypes>(
     executor.spawn(server);
 
     Ok(exit_signal)
-}
-
-fn success_response(body: Body) -> Response<Body> {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .body(body)
-        .expect("We should always be able to make response from the success body.")
 }
 
 #[derive(Clone)]

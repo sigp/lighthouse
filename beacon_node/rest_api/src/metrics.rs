@@ -1,4 +1,5 @@
-use crate::{helpers::*, success_response, ApiError, ApiResult, DBPath};
+use crate::helpers::*;
+use crate::{ApiError, ApiResult, DBPath};
 use beacon_chain::BeaconChainTypes;
 use http::HeaderValue;
 use hyper::{Body, Request};
@@ -62,7 +63,7 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 
     String::from_utf8(buffer)
         .map(|string| {
-            let mut response = success_response(Body::from(string));
+            let mut response = success_response_old(Body::from(string));
             // Need to change the header to text/plain for prometheus
             response.headers_mut().insert(
                 "content-type",
