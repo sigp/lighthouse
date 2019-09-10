@@ -14,13 +14,14 @@ mod spec;
 mod url_query;
 mod validator;
 
-use error::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::NetworkMessage;
 use client_network::Service as NetworkService;
+use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
 use hyper::rt::Future;
-use hyper::service::{Service, MakeService};
+use hyper::server::conn::AddrStream;
+use hyper::service::{MakeService, Service};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use parking_lot::RwLock;
 use response_builder::ResponseBuilder;
@@ -31,7 +32,6 @@ use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 use url_query::UrlQuery;
-use hyper::server::conn::AddrStream;
 
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
 pub use config::Config as ApiConfig;
@@ -39,35 +39,6 @@ use eth2_libp2p::rpc::RequestId;
 use serde::export::PhantomData;
 
 type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
-
-pub struct ApiMaker<T: BeaconChainTypes + 'static> {
-    log: slog::Logger,
-    beacon_chain: Arc<BeaconChain<T>>,
-    db_path: DBPath,
-    network_service: Arc<NetworkService<T>>,
-    network_channel: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
-    eth2_config: Arc<Eth2Config>,
-}
-
-impl<T: BeaconChainTypes> MakeService<AddrStream> for ApiMaker<T> {
-    type ReqBody = Body;
-    type ResBody = Body;
-    type Error = ApiError;
-    type Service = ApiService<T>;
-    type Future = futures::future::FutureResult<Self::Service, Self::MakeError>;
-    type MakeError = String;
-
-    fn make_service(&mut self, _ctx: AddrStream) -> Self::Future {
-        futures::future::ok(ApiService {
-            log: self.log.clone(),
-            beacon_chain: self.beacon_chain.clone(),
-            db_path: self.db_path.clone(),
-            network_service: self.network_service.clone(),
-            network_channel: self.network_channel.clone(),
-            eth2_config: self.eth2_config.clone(),
-        })
-    }
-}
 
 pub struct ApiService<T: BeaconChainTypes + 'static> {
     log: slog::Logger,
@@ -201,7 +172,6 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
         metrics::stop_timer(timer);
 
         Box::new(futures::future::ok(response))
-
     }
 }
 
@@ -236,15 +206,16 @@ pub fn start_server<T: BeaconChainTypes>(
     let server_bc = beacon_chain.clone();
     let eth2_config = Arc::new(eth2_config);
 
-    let service = move || ApiMaker {
-        log: log.clone(),
-        beacon_chain: beacon_chain.clone(),
-        db_path: db_path.clone(),
-        network_service: network_service.clone(),
-        network_channel: Arc::new(RwLock::new(network_chan.clone())),
-        eth2_config: eth2_config.clone(),
+    let service = move || -> futures::future::FutureResult<ApiService<T>, String> {
+        futures::future::ok(ApiService {
+            log: log.clone(),
+            beacon_chain: beacon_chain.clone(),
+            db_path: db_path.clone(),
+            network_service: network_service.clone(),
+            network_channel: Arc::new(RwLock::new(network_chan.clone())),
+            eth2_config: eth2_config.clone(),
+        })
     };
-
 
     let log_clone = log.clone();
     let server = Server::bind(&bind_addr)
