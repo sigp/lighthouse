@@ -36,4 +36,5 @@ lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 hex = "0.3.2"
 parking_lot = "0.9"
+futures = "0.1.25"
 
