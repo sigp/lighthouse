@@ -14,6 +14,7 @@ mod spec;
 mod url_query;
 mod validator;
 
+use error::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::NetworkMessage;
 use client_network::Service as NetworkService;
@@ -34,7 +35,6 @@ use url_query::UrlQuery;
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
 pub use config::Config as ApiConfig;
 use eth2_libp2p::rpc::RequestId;
-use serde::ser::StdError;
 
 type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 
@@ -158,18 +158,19 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             Ok(response) => {
                 metrics::inc_counter(&metrics::SUCCESS_COUNT);
                 slog::debug!(self.log, "Request successful: {:?}", path);
-                Box::new(response)
+                response
             }
             // Map the `ApiError` into `hyper::Response`.
             Err(e) => {
                 slog::debug!(self.log, "Request failure: {:?}", path);
-                Box::new(e.into())
+                e.into()
             }
         };
 
         metrics::stop_timer(timer);
 
         Box::new(futures::future::ok(response))
+
     }
 }
 
@@ -234,6 +235,15 @@ pub fn start_server<T: BeaconChainTypes>(
     executor.spawn(server);
 
     Ok(exit_signal)
+}
+
+impl<T: BeaconChainTypes> Future for ApiService<T> {
+    type Item = Result<Response<Body>, ApiError>;
+    type Error = ApiError;
+
+    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+        unimplemented!()
+    }
 }
 
 fn success_response(body: Body) -> Response<Body> {
