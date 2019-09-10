@@ -40,6 +40,12 @@ pub struct Config {
     /// Target number of connected peers.
     pub max_peers: usize,
 
+    /// A secp256k1 secret key, as bytes in ASCII-encoded hex.
+    ///
+    /// With or without `0x` prefix.
+    #[serde(skip)]
+    pub secret_key_hex: Option<String>,
+
     /// Gossipsub configuration parameters.
     #[serde(skip)]
     pub gs_config: GossipsubConfig,
@@ -70,6 +76,7 @@ impl Default for Config {
             discovery_address: "127.0.0.1".parse().expect("valid ip address"),
             discovery_port: 9000,
             max_peers: 10,
+            secret_key_hex: None,
             // Note: The topics by default are sent as plain strings. Hashes are an optional
             // parameter.
             gs_config: GossipsubConfigBuilder::new()
@@ -156,6 +163,10 @@ impl Config {
             self.discovery_port = disc_port_str
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid discovery port: {}", disc_port_str))?;
+        }
+
+        if let Some(p2p_priv_key) = args.value_of("p2p-priv-key") {
+            self.secret_key_hex = Some(p2p_priv_key.to_string());
         }
 
         Ok(())

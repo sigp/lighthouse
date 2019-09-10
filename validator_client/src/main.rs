@@ -16,6 +16,7 @@ use eth2_config::Eth2Config;
 use lighthouse_bootstrap::Bootstrapper;
 use protos::services_grpc::ValidatorServiceClient;
 use slog::{crit, error, info, o, Drain, Level, Logger};
+use std::path::PathBuf;
 use types::{InteropEthSpec, Keypair, MainnetEthSpec, MinimalEthSpec};
 
 pub const DEFAULT_SPEC: &str = "minimal";
@@ -131,6 +132,14 @@ fn main() {
                     .required(true)
                     .help("The number of validators."))
             )
+            .subcommand(SubCommand::with_name("interop-yaml")
+                .about("Loads plain-text secret keys from YAML files. Expects the interop format defined
+                       in the ethereum/eth2.0-pm repo.")
+                .arg(Arg::with_name("path")
+                    .value_name("PATH")
+                    .required(true)
+                    .help("Path to a YAML file."))
+            )
         )
         .get_matches();
 
@@ -143,8 +152,8 @@ fn main() {
         Some("crit") => drain.filter_level(Level::Critical),
         _ => unreachable!("guarded by clap"),
     };
-    let log = slog::Logger::root(drain.fuse(), o!());
-    let (client_config, eth2_config) = match get_configs(&matches, &log) {
+    let mut log = slog::Logger::root(drain.fuse(), o!());
+    let (client_config, eth2_config) = match get_configs(&matches, &mut log) {
         Ok(tuple) => tuple,
         Err(e) => {
             crit!(
@@ -195,8 +204,13 @@ fn main() {
 /// Parses the CLI arguments and attempts to load the client and eth2 configuration.
 ///
 /// This is not a pure function, it reads from disk and may contact network servers.
-pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<(ClientConfig, Eth2Config)> {
+pub fn get_configs(
+    cli_args: &ArgMatches,
+    mut log: &mut Logger,
+) -> Result<(ClientConfig, Eth2Config)> {
     let mut client_config = ClientConfig::default();
+
+    client_config.apply_cli_args(&cli_args, &mut log)?;
 
     if let Some(server) = cli_args.value_of("server") {
         client_config.server = server.to_string();
@@ -215,14 +229,14 @@ pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<(ClientConfig,
     }
 
     info!(
-        log,
+        *log,
         "Beacon node connection info";
         "grpc_port" => client_config.server_grpc_port,
         "http_port" => client_config.server_http_port,
         "server" => &client_config.server,
     );
 
-    match cli_args.subcommand() {
+    let (client_config, eth2_config) = match cli_args.subcommand() {
         ("testnet", Some(sub_cli_args)) => {
             if cli_args.is_present("eth2-config") && sub_cli_args.is_present("bootstrap") {
                 return Err(
@@ -234,7 +248,9 @@ pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<(ClientConfig,
             process_testnet_subcommand(sub_cli_args, client_config, log)
         }
         _ => return Err("You must use the testnet command. See '--help'.".into()),
-    }
+    }?;
+
+    Ok((client_config, eth2_config))
 }
 
 /// Parses the `testnet` CLI subcommand.
@@ -295,6 +311,21 @@ fn process_testnet_subcommand(
             );
 
             KeySource::TestingKeypairRange(first..first + count)
+        }
+        ("interop-yaml", Some(sub_cli_args)) => {
+            let path = sub_cli_args
+                .value_of("path")
+                .ok_or_else(|| "No yaml path supplied")?
+                .parse::<PathBuf>()
+                .map_err(|e| format!("Unable to parse yaml path: {:?}", e))?;
+
+            info!(
+                log,
+                "Loading keypairs from interop YAML format";
+                "path" => format!("{:?}", path),
+            );
+
+            KeySource::YamlKeypairs(path)
         }
         _ => KeySource::Disk,
     };

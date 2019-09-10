@@ -22,8 +22,13 @@ extern crate lazy_static;
 use eth2_hashing::hash;
 use milagro_bls::{Keypair, PublicKey, SecretKey};
 use num_bigint::BigUint;
+use serde_derive::{Deserialize, Serialize};
+use std::convert::TryInto;
+use std::fs::File;
+use std::path::PathBuf;
 
 pub const PRIVATE_KEY_BYTES: usize = 48;
+pub const PUBLIC_KEY_BYTES: usize = 48;
 pub const HASH_BYTES: usize = 32;
 
 lazy_static! {
@@ -62,4 +67,66 @@ pub fn keypair(validator_index: usize) -> Keypair {
         pk: PublicKey::from_secret_key(&sk),
         sk,
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct YamlKeypair {
+    /// Big-endian.
+    privkey: String,
+    /// Big-endian.
+    pubkey: String,
+}
+
+impl TryInto<Keypair> for YamlKeypair {
+    type Error = String;
+
+    fn try_into(self) -> Result<Keypair, Self::Error> {
+        let privkey = string_to_bytes(&self.privkey)?;
+        let pubkey = string_to_bytes(&self.pubkey)?;
+
+        if (privkey.len() > PRIVATE_KEY_BYTES) || (pubkey.len() > PUBLIC_KEY_BYTES) {
+            return Err("Public or private key is too long".into());
+        }
+
+        let sk = {
+            let mut bytes = vec![0; PRIVATE_KEY_BYTES - privkey.len()];
+            bytes.extend_from_slice(&privkey);
+            SecretKey::from_bytes(&bytes)
+                .map_err(|e| format!("Failed to decode bytes into secret key: {:?}", e))?
+        };
+
+        let pk = {
+            let mut bytes = vec![0; PUBLIC_KEY_BYTES - pubkey.len()];
+            bytes.extend_from_slice(&pubkey);
+            PublicKey::from_bytes(&bytes)
+                .map_err(|e| format!("Failed to decode bytes into public key: {:?}", e))?
+        };
+
+        Ok(Keypair { pk, sk })
+    }
+}
+
+fn string_to_bytes(string: &str) -> Result<Vec<u8>, String> {
+    let string = if string.starts_with("0x") {
+        &string[2..]
+    } else {
+        string
+    };
+
+    hex::decode(string).map_err(|e| format!("Unable to decode public or private key: {}", e))
+}
+
+/// Loads keypairs from a YAML encoded file.
+///
+/// Uses this as reference:
+/// https://github.com/ethereum/eth2.0-pm/blob/9a9dbcd95e2b8e10287797bd768014ab3d842e99/interop/mocked_start/keygen_10_validators.yaml
+pub fn keypairs_from_yaml_file(path: PathBuf) -> Result<Vec<Keypair>, String> {
+    let file =
+        File::open(path.clone()).map_err(|e| format!("Unable to open YAML key file: {}", e))?;
+
+    serde_yaml::from_reader::<_, Vec<YamlKeypair>>(file)
+        .map_err(|e| format!("Could not parse YAML: {:?}", e))?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<Vec<_>, String>>()
 }
