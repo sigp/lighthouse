@@ -203,7 +203,9 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
     Ok(success_response(body))
 }
 
-/// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
+/*
+
+ HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
 pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let _ = check_content_type_for_json(&req)?;
     let log = get_logger_from_request(&req);
@@ -232,11 +234,8 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
                     ))
                 });
             block_result
-        })
-        .unwrap()
-        .unwrap();
+        });
 
-    /*
         .map_err(|e| ApiError::ServerError(format!("Unable parse request body: {:?}", e)))
         .and_then(|body| {
             trace!(log, "parsing json");
@@ -251,7 +250,6 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         });
     tokio::run(block_future);
     let block = block_future.wait()?;
-    */
     trace!(log, "BeaconBlock successfully parsed from JSON"; "block" => serde_json::to_string(&block).expect("We should always be able to serialize a block that we just created."));
     match beacon_chain.process_block(block.clone()) {
         Ok(BlockProcessingOutcome::Processed { block_root }) => {
@@ -277,6 +275,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 
     Ok(success_response(Body::empty()))
 }
+    */
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
 pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
