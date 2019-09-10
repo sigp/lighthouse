@@ -79,7 +79,6 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
         let result = match (req.method(), path.as_ref()) {
             // Methods for Client
             (&Method::GET, "/node/version") => node::get_version(req),
-            /*
             (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
             (&Method::GET, "/node/syncing") => helpers::implementation_pending_response(req),
 
@@ -89,9 +88,7 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             (&Method::GET, "/network/peer_id") => network::get_peer_id::<T>(req),
             (&Method::GET, "/network/peers") => network::get_peer_list::<T>(req),
             (&Method::GET, "/network/listen_port") => network::get_listen_port::<T>(req),
-            (&Method::GET, "/network/listen_addresses") => {
-                network::get_listen_addresses::<T>(req)
-            }
+            (&Method::GET, "/network/listen_addresses") => network::get_listen_addresses::<T>(req),
 
             // Methods for Beacon Node
             (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
@@ -99,9 +96,7 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             (&Method::GET, "/beacon/block_root") => beacon::get_block_root::<T>(req),
             (&Method::GET, "/beacon/blocks") => helpers::implementation_pending_response(req),
             (&Method::GET, "/beacon/fork") => beacon::get_fork::<T>(req),
-            (&Method::GET, "/beacon/attestations") => {
-                helpers::implementation_pending_response(req)
-            }
+            (&Method::GET, "/beacon/attestations") => helpers::implementation_pending_response(req),
             (&Method::GET, "/beacon/attestations/pending") => {
                 helpers::implementation_pending_response(req)
             }
@@ -115,15 +110,9 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             }
 
             // Methods for Validator
-            (&Method::GET, "/beacon/validator/duties") => {
-                validator::get_validator_duties::<T>(req)
-            }
-            (&Method::GET, "/beacon/validator/block") => {
-                validator::get_new_beacon_block::<T>(req)
-            }
-            (&Method::POST, "/beacon/validator/block") => {
-                validator::publish_beacon_block::<T>(req)
-            }
+            (&Method::GET, "/beacon/validator/duties") => validator::get_validator_duties::<T>(req),
+            (&Method::GET, "/beacon/validator/block") => validator::get_new_beacon_block::<T>(req),
+            //(&Method::POST, "/beacon/validator/block") => validator::publish_beacon_block::<T>(req),
             (&Method::GET, "/beacon/validator/attestation") => {
                 validator::get_new_attestation::<T>(req)
             }
@@ -149,7 +138,6 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
 
             (&Method::GET, "/metrics") => metrics::get_prometheus::<T>(req),
 
-            */
             _ => Err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
             )),
@@ -208,8 +196,8 @@ pub fn start_server<T: BeaconChainTypes>(
 
     let service = move || -> futures::future::FutureResult<ApiService<T>, String> {
         futures::future::ok(ApiService {
-            log: log.clone(),
-            beacon_chain: beacon_chain.clone(),
+            log: server_log.clone(),
+            beacon_chain: server_bc.clone(),
             db_path: db_path.clone(),
             network_service: network_service.clone(),
             network_channel: Arc::new(RwLock::new(network_chan.clone())),

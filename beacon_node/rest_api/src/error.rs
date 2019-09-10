@@ -1,7 +1,7 @@
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use std::error::Error as StdError;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum ApiError {
     MethodNotAllowed(String),
     ServerError(String),
@@ -14,7 +14,7 @@ pub enum ApiError {
 pub type ApiResult = Result<Response<Body>, ApiError>;
 
 impl ApiError {
-    pub fn status_code(&self) -> (StatusCode, &String) {
+    pub fn status_code(self) -> (StatusCode, String) {
         match self {
             ApiError::MethodNotAllowed(desc) => (StatusCode::METHOD_NOT_ALLOWED, desc),
             ApiError::ServerError(desc) => (StatusCode::INTERNAL_SERVER_ERROR, desc),
@@ -30,10 +30,10 @@ impl Into<Response<Body>> for ApiError {
     fn into(self) -> Response<Body> {
         let status_code = self.status_code();
         Response::builder()
-        .status(status_code.0)
-        .header("content-type", "text/plain")
-        .body(Body::from(*status_code.1))
-        .expect("Response should always be created.")
+            .status(status_code.0)
+            .header("content-type", "text/plain")
+            .body(Body::from(status_code.1))
+            .expect("Response should always be created.")
     }
 }
 
@@ -63,7 +63,7 @@ impl StdError for ApiError {
 
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let status = self.status_code();
+        let status = self.clone().status_code();
         write!(f, "{:?}: {:?}", status.0, status.1)
     }
 }
