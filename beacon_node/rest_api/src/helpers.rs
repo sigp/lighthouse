@@ -4,10 +4,11 @@ use bls::PublicKey;
 use eth2_libp2p::{PubsubMessage, Topic};
 use eth2_libp2p::{BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX};
 use hex;
+use http::header;
 use hyper::{Body, Request};
 use network::NetworkMessage;
+use parking_lot::RwLock;
 use ssz::Encode;
-use std::borrow::BorrowMut;
 use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
@@ -38,6 +39,21 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
         Err(ApiError::InvalidQueryParams(
             "Root must have a  '0x' prefix".to_string(),
         ))
+    }
+}
+
+/// Checks the provided request to ensure that the `content-type` header.
+///
+/// The content-type header should either be omitted, in which case JSON is assumed, or it should
+/// explicity specify `application/json`. If anything else is provided, an error is returned.
+pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
+    match req.headers().get(header::CONTENT_TYPE) {
+        Some(h) if h == "application/json" => Ok(()),
+        Some(h) => Err(ApiError::InvalidQueryParams(format!(
+            "The provided content-type {:?} is not available, it must be JSON.",
+            h
+        ))),
+        _ => Ok(()),
     }
 }
 
@@ -204,17 +220,9 @@ pub fn get_logger_from_request(req: &Request<Body>) -> slog::Logger {
 }
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
-    req: &Request<Body>,
+    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
     block: BeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
-    // Get the network service from the request
-    let mut network_chan = req
-        .extensions()
-        .get::<mpsc::UnboundedSender<NetworkMessage>>()
-        .expect(
-            "Should always get the network channel from the request, since we put it in there.",
-        );
-
     // create the network topic to send on
     let topic_string = format!(
         "/{}/{}/{}",
@@ -224,7 +232,7 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     let message = PubsubMessage::Block(block.as_ssz_bytes());
 
     // Publish the block to the p2p network via gossipsub.
-    if let Err(e) = &network_chan.try_send(NetworkMessage::Publish {
+    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
         topics: vec![topic],
         message: message,
     }) {

@@ -5,8 +5,13 @@ use bls::{AggregateSignature, PublicKey, Signature};
 use futures::future::Future;
 use futures::stream::Stream;
 use hyper::{Body, Error, Request};
+use network::NetworkMessage;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use slog::info;
+use slog::{info, trace, warn};
+use std::sync::Arc;
+use tokio;
+use tokio::sync::mpsc;
 use types::beacon_state::EthSpec;
 use types::{Attestation, BeaconBlock, BitList, Epoch, RelativeEpoch, Shard, Slot};
 
@@ -200,17 +205,41 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 
 /// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
 pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+    let _ = check_content_type_for_json(&req)?;
     let log = get_logger_from_request(&req);
     let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
+    // Get the network sending channel from the request, for later transmission
+    let network_chan = req
+        .extensions()
+        .get::<Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>>()
+        .expect("Should always get the network channel from the request, since we put it in there.")
+        .clone();
 
-    let (_head, body) = req.into_parts();
-    let block_future = body
-        .fold(Vec::new(), |mut acc, chunk| {
-            acc.extend_from_slice(&*chunk);
-            futures::future::ok::<_, Error>(acc)
+    let body = req.into_body();
+    trace!(
+        log,
+        "Got the request body, now going to parse it into a block."
+    );
+    let block = body
+        .concat2()
+        .map(move |chunk| chunk.iter().cloned().collect::<Vec<u8>>())
+        .map(|chunks| {
+            let block_result: Result<BeaconBlock<T::EthSpec>, ApiError> =
+                serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
+                    ApiError::InvalidQueryParams(format!(
+                        "Unable to deserialize JSON into a BeaconBlock: {:?}",
+                        e
+                    ))
+                });
+            block_result
         })
+        .unwrap()
+        .unwrap();
+
+    /*
         .map_err(|e| ApiError::ServerError(format!("Unable parse request body: {:?}", e)))
         .and_then(|body| {
+            trace!(log, "parsing json");
             let block_result: Result<BeaconBlock<T::EthSpec>, ApiError> =
                 serde_json::from_slice(&body.as_slice()).map_err(|e| {
                     ApiError::InvalidQueryParams(format!(
@@ -220,16 +249,19 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
                 });
             block_result
         });
+    tokio::run(block_future);
     let block = block_future.wait()?;
+    */
+    trace!(log, "BeaconBlock successfully parsed from JSON"; "block" => serde_json::to_string(&block).expect("We should always be able to serialize a block that we just created."));
     match beacon_chain.process_block(block.clone()) {
-        Ok(BlockProcessingOutcome::Processed {
-            block_root: block_root,
-        }) => {
+        Ok(BlockProcessingOutcome::Processed { block_root }) => {
             // Block was processed, publish via gossipsub
-            info!(log, "Processed valid block from API"; "block_slot" => block.slot, "block_root" => format!("{}", block_root));
-            publish_beacon_block_to_network::<T>(&req, block)?;
+            info!(log, "Processed valid block from API, transmitting to network."; "block_slot" => block.slot, "block_root" => format!("{}", block_root));
+            publish_beacon_block_to_network::<T>(network_chan, block)?;
         }
         Ok(outcome) => {
+            warn!(log, "Block could not be processed, but is being sent to the network anyway."; "block_slot" => block.slot, "outcome" => format!("{:?}", outcome));
+            //TODO need to send to network and return http 202
             return Err(ApiError::InvalidQueryParams(format!(
                 "The BeaconBlock could not be processed: {:?}",
                 outcome
