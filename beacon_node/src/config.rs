@@ -13,7 +13,7 @@ pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 type Result<T> = std::result::Result<T, String>;
-type Config = (ClientConfig, Eth2Config);
+type Config = (ClientConfig, Eth2Config, Logger);
 
 /// Gets the fully-initialized global client and eth2 configuration objects.
 ///
@@ -22,8 +22,10 @@ type Config = (ClientConfig, Eth2Config);
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
-pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
-    let mut builder = ConfigBuilder::new(cli_args, log)?;
+pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
+    let log = core_log.clone();
+
+    let mut builder = ConfigBuilder::new(cli_args, core_log)?;
 
     if let Some(server) = cli_args.value_of("eth1-server") {
         builder.set_eth1_backend_method(Eth1BackendMethod::Web3 {
@@ -35,7 +37,7 @@ pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
 
     match cli_args.subcommand() {
         ("testnet", Some(sub_cmd_args)) => {
-            process_testnet_subcommand(&mut builder, sub_cmd_args, log)?
+            process_testnet_subcommand(&mut builder, sub_cmd_args, &log)?
         }
         // No sub-command assumes a resume operation.
         _ => {
@@ -216,15 +218,15 @@ fn process_testnet_subcommand(
 }
 
 /// Allows for building a set of configurations based upon `clap` arguments.
-struct ConfigBuilder<'a> {
-    log: &'a Logger,
+struct ConfigBuilder {
+    log: Logger,
     eth2_config: Eth2Config,
     client_config: ClientConfig,
 }
 
-impl<'a> ConfigBuilder<'a> {
+impl ConfigBuilder {
     /// Create a new builder with default settings.
-    pub fn new(cli_args: &'a ArgMatches, log: &'a Logger) -> Result<Self> {
+    pub fn new(cli_args: &ArgMatches, log: Logger) -> Result<Self> {
         // Read the `--datadir` flag.
         //
         // If it's not present, try and find the home directory (`~`) and push the default data
@@ -539,8 +541,7 @@ impl<'a> ConfigBuilder<'a> {
     /// cli_args).
     pub fn build(mut self, cli_args: &ArgMatches) -> Result<Config> {
         self.eth2_config.apply_cli_args(cli_args)?;
-        self.client_config
-            .apply_cli_args(cli_args, &mut self.log.clone())?;
+        self.client_config.apply_cli_args(cli_args, &mut self.log)?;
 
         if let Some(bump) = cli_args.value_of("port-bump") {
             let bump = bump
@@ -561,7 +562,7 @@ impl<'a> ConfigBuilder<'a> {
             return Err("Specification constant mismatch".into());
         }
 
-        Ok((self.client_config, self.eth2_config))
+        Ok((self.client_config, self.eth2_config, self.log))
     }
 }
 

@@ -8,7 +8,10 @@ use std::io::{Error, ErrorKind};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use types::{test_utils::generate_deterministic_keypair, EthSpec, MainnetEthSpec};
+use types::{
+    test_utils::{generate_deterministic_keypair, load_keypairs_from_yaml},
+    EthSpec, MainnetEthSpec,
+};
 
 pub const DEFAULT_SERVER: &str = "localhost";
 pub const DEFAULT_SERVER_GRPC_PORT: &str = "5051";
@@ -20,6 +23,8 @@ pub enum KeySource {
     Disk,
     /// Generate the keypairs (insecure, generates predictable keys).
     TestingKeypairRange(Range<usize>),
+    /// Load testing keypairs from YAML
+    YamlKeypairs(PathBuf),
 }
 
 impl Default for KeySource {
@@ -229,6 +234,14 @@ impl Config {
             KeySource::TestingKeypairRange(range) => {
                 warn!(log, "Using insecure private keys");
                 self.fetch_testing_keypairs(range.clone())?
+            }
+            KeySource::YamlKeypairs(path) => {
+                warn!(
+                    log,
+                    "Private keys are stored insecurely (plain text). Testing use only."
+                );
+
+                load_keypairs_from_yaml(path.to_path_buf())?
             }
         };
 
