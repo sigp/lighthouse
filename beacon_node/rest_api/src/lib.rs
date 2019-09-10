@@ -1,4 +1,6 @@
 #[macro_use]
+mod macros;
+#[macro_use]
 extern crate lazy_static;
 extern crate network as client_network;
 
@@ -91,7 +93,6 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             (&Method::GET, "/network/listen_port") => network::get_listen_port::<T>(req),
             (&Method::GET, "/network/listen_addresses") => network::get_listen_addresses::<T>(req),
 
-            /*
             // Methods for Beacon Node
             (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
             (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),
@@ -111,6 +112,7 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
                 helpers::implementation_pending_response(req)
             }
 
+            /*
             // Methods for Validator
             (&Method::GET, "/beacon/validator/duties") => validator::get_validator_duties::<T>(req),
             (&Method::GET, "/beacon/validator/block") => validator::get_new_beacon_block::<T>(req),
