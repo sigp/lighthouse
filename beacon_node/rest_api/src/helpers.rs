@@ -1,18 +1,45 @@
-use crate::{ApiError, ApiResult};
+use crate::response_builder::ResponseBuilder;
+use crate::{ApiError, ApiResult, BoxFut};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKey;
 use eth2_libp2p::{PubsubMessage, Topic};
 use eth2_libp2p::{BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX};
 use hex;
 use http::header;
-use hyper::{Body, Request};
+use hyper::{Body, Request, Response, StatusCode};
 use network::NetworkMessage;
 use parking_lot::RwLock;
+use serde::Serialize;
 use ssz::Encode;
 use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
+
+pub fn success_response<T: Serialize + Encode>(req: Request<Body>, item: &T) -> BoxFut {
+    Box::new(match ResponseBuilder::new(&req).body(item) {
+        Ok(resp) => futures::future::ok(resp),
+        Err(e) => futures::future::err(e),
+    })
+}
+
+pub fn success_response_json<T: Serialize>(req: Request<Body>, item: &T) -> BoxFut {
+    if let Err(e) = check_content_type_for_json(&req) {
+        return Box::new(futures::future::err(e));
+    }
+    Box::new(match ResponseBuilder::new(&req).body_json(item) {
+        Ok(resp) => futures::future::ok(resp),
+        Err(e) => futures::future::err(e),
+    })
+}
+
+pub fn success_response_old(body: Body) -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .body(body)
+        .expect("We should always be able to make response from the success body.")
+}
 
 /// Parse a slot from a `0x` preixed string.
 ///
@@ -22,6 +49,21 @@ pub fn parse_slot(string: &str) -> Result<Slot, ApiError> {
         .parse::<u64>()
         .map(Slot::from)
         .map_err(|e| ApiError::InvalidQueryParams(format!("Unable to parse slot: {:?}", e)))
+}
+
+/// Checks the provided request to ensure that the `content-type` header.
+///
+/// The content-type header should either be omitted, in which case JSON is assumed, or it should
+/// explicity specify `application/json`. If anything else is provided, an error is returned.
+pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
+    match req.headers().get(header::CONTENT_TYPE) {
+        Some(h) if h == "application/json" => Ok(()),
+        Some(h) => Err(ApiError::InvalidQueryParams(format!(
+            "The provided content-type {:?} is not available, this endpoint only supports json.",
+            h
+        ))),
+        _ => Ok(()),
+    }
 }
 
 /// Parse a root from a `0x` preixed string.
@@ -39,21 +81,6 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
         Err(ApiError::InvalidQueryParams(
             "Root must have a  '0x' prefix".to_string(),
         ))
-    }
-}
-
-/// Checks the provided request to ensure that the `content-type` header.
-///
-/// The content-type header should either be omitted, in which case JSON is assumed, or it should
-/// explicity specify `application/json`. If anything else is provided, an error is returned.
-pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
-    match req.headers().get(header::CONTENT_TYPE) {
-        Some(h) if h == "application/json" => Ok(()),
-        Some(h) => Err(ApiError::InvalidQueryParams(format!(
-            "The provided content-type {:?} is not available, it must be JSON.",
-            h
-        ))),
-        _ => Ok(()),
     }
 }
 
@@ -186,10 +213,11 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
     }
 }
 
-pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
-    Err(ApiError::NotImplemented(
+pub fn implementation_pending_response(_req: Request<Body>) -> BoxFut {
+    ApiError::NotImplemented(
         "API endpoint has not yet been implemented, but is planned to be soon.".to_owned(),
-    ))
+    )
+    .into()
 }
 
 pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(

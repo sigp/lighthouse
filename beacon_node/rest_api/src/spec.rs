@@ -1,4 +1,4 @@
-use super::{success_response, ApiResult};
+use super::ApiResult;
 use crate::helpers::*;
 use crate::ApiError;
 use beacon_chain::BeaconChainTypes;
@@ -14,7 +14,7 @@ pub fn get_spec<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
     let json: String = serde_json::to_string(&beacon_chain.spec)
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize spec: {:?}", e)))?;
 
-    Ok(success_response(Body::from(json)))
+    Ok(success_response_old(Body::from(json)))
 }
 
 /// HTTP handler to return the full Eth2Config object.
@@ -27,7 +27,7 @@ pub fn get_eth2_config<T: BeaconChainTypes + 'static>(req: Request<Body>) -> Api
     let json: String = serde_json::to_string(eth2_config.as_ref())
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize Eth2Config: {:?}", e)))?;
 
-    Ok(success_response(Body::from(json)))
+    Ok(success_response_old(Body::from(json)))
 }
 
 /// HTTP handler to return the full spec object.
@@ -35,5 +35,5 @@ pub fn get_slots_per_epoch<T: BeaconChainTypes + 'static>(_req: Request<Body>) -
     let json: String = serde_json::to_string(&T::EthSpec::slots_per_epoch())
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize epoch: {:?}", e)))?;
 
-    Ok(success_response(Body::from(json)))
+    Ok(success_response_old(Body::from(json)))
 }

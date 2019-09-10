@@ -1,3 +1,4 @@
+use crate::BoxFut;
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use std::error::Error as StdError;
 
@@ -37,6 +38,12 @@ impl Into<Response<Body>> for ApiError {
     }
 }
 
+impl Into<BoxFut> for ApiError {
+    fn into(self) -> BoxFut {
+        Box::new(futures::future::err(self))
+    }
+}
+
 impl From<store::Error> for ApiError {
     fn from(e: store::Error) -> ApiError {
         ApiError::ServerError(format!("Database error: {:?}", e))
@@ -52,6 +59,12 @@ impl From<types::BeaconStateError> for ApiError {
 impl From<state_processing::per_slot_processing::Error> for ApiError {
     fn from(e: state_processing::per_slot_processing::Error) -> ApiError {
         ApiError::ServerError(format!("PerSlotProcessing error: {:?}", e))
+    }
+}
+
+impl From<hyper::error::Error> for ApiError {
+    fn from(e: hyper::error::Error) -> ApiError {
+        ApiError::ServerError(format!("Networking error: {:?}", e))
     }
 }
 

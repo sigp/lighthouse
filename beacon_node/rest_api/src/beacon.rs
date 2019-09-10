@@ -1,5 +1,6 @@
-use super::{success_response, ApiResult, ResponseBuilder};
-use crate::{helpers::*, ApiError, UrlQuery};
+use crate::helpers::*;
+use crate::response_builder::ResponseBuilder;
+use crate::{ApiError, ApiResult, BoxFut, NetworkService, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use hyper::{Body, Request};
 use serde::Serialize;
@@ -57,7 +58,7 @@ pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
     let json: String = serde_json::to_string(&head)
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize HeadResponse: {:?}", e)))?;
 
-    Ok(success_response(Body::from(json)))
+    Ok(success_response_old(Body::from(json)))
 }
 
 #[derive(Serialize, Encode)]
@@ -121,7 +122,7 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     let json: String = serde_json::to_string(&root)
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize root: {:?}", e)))?;
 
-    Ok(success_response(Body::from(json)))
+    Ok(success_response_old(Body::from(json)))
 }
 
 /// HTTP handler to return the `Fork` of the current head.
@@ -132,7 +133,7 @@ pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
         ApiError::ServerError(format!("Unable to serialize BeaconState::Fork: {:?}", e))
     })?;
 
-    Ok(success_response(Body::from(json)))
+    Ok(success_response_old(Body::from(json)))
 }
 
 /// HTTP handler to return the set of validators for an `Epoch`
@@ -243,7 +244,7 @@ pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     let json: String = serde_json::to_string(&root)
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize root: {:?}", e)))?;
 
-    Ok(success_response(Body::from(json)))
+    Ok(success_response_old(Body::from(json)))
 }
 
 /// HTTP handler to return the highest finalized slot.
@@ -261,7 +262,7 @@ pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
     let json: String = serde_json::to_string(&checkpoint)
         .map_err(|e| ApiError::ServerError(format!("Unable to serialize checkpoint: {:?}", e)))?;
 
-    Ok(success_response(Body::from(json)))
+    Ok(success_response_old(Body::from(json)))
 }
 
 /// HTTP handler to return a `BeaconState` at the genesis block.

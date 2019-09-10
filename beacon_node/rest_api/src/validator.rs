@@ -1,5 +1,5 @@
-use super::{success_response, ApiResult};
-use crate::{helpers::*, ApiError, UrlQuery};
+use crate::helpers::*;
+use crate::{ApiError, ApiResult, UrlQuery};
 use beacon_chain::{BeaconChainTypes, BlockProcessingOutcome};
 use bls::{AggregateSignature, PublicKey, Signature};
 use futures::future::Future;
@@ -160,7 +160,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         serde_json::to_string(&duties)
             .expect("We should always be able to serialize the duties we created."),
     );
-    Ok(success_response(body))
+    Ok(success_response_old(body))
 }
 
 /// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
@@ -200,12 +200,10 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         serde_json::to_string(&new_block)
             .expect("We should always be able to serialize a new block that we produced."),
     );
-    Ok(success_response(body))
+    Ok(success_response_old(body))
 }
 
-/*
-
- HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
+/// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
 pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let _ = check_content_type_for_json(&req)?;
     let log = get_logger_from_request(&req);
@@ -222,7 +220,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         log,
         "Got the request body, now going to parse it into a block."
     );
-    let block = body
+    let block_future = body
         .concat2()
         .map(move |chunk| chunk.iter().cloned().collect::<Vec<u8>>())
         .map(|chunks| {
@@ -235,22 +233,8 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
                 });
             block_result
         });
-
-        .map_err(|e| ApiError::ServerError(format!("Unable parse request body: {:?}", e)))
-        .and_then(|body| {
-            trace!(log, "parsing json");
-            let block_result: Result<BeaconBlock<T::EthSpec>, ApiError> =
-                serde_json::from_slice(&body.as_slice()).map_err(|e| {
-                    ApiError::InvalidQueryParams(format!(
-                        "Unable to deserialize JSON into a BeaconBlock: {:?}",
-                        e
-                    ))
-                });
-            block_result
-        });
-    tokio::run(block_future);
-    let block = block_future.wait()?;
-    trace!(log, "BeaconBlock successfully parsed from JSON"; "block" => serde_json::to_string(&block).expect("We should always be able to serialize a block that we just created."));
+    let block = block_future.wait()??;
+    trace!(log, "BeaconBlock successfully parsed from JSON");
     match beacon_chain.process_block(block.clone()) {
         Ok(BlockProcessingOutcome::Processed { block_root }) => {
             // Block was processed, publish via gossipsub
@@ -273,9 +257,8 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         }
     }
 
-    Ok(success_response(Body::empty()))
+    Ok(success_response_old(Body::empty()))
 }
-    */
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
 pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
@@ -377,5 +360,5 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         serde_json::to_string(&attestation)
             .expect("We should always be able to serialize a new attestation that we produced."),
     );
-    Ok(success_response(body))
+    Ok(success_response_old(body))
 }
