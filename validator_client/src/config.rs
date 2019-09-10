@@ -232,7 +232,11 @@ impl Config {
         let keypairs = match &self.key_source {
             KeySource::Disk => self.fetch_keys_from_disk(log)?,
             KeySource::TestingKeypairRange(range) => {
-                warn!(log, "Using insecure private keys");
+                warn!(
+                    log,
+                    "Using insecure interop private keys";
+                    "range" => format!("{:?}", range)
+                );
                 self.fetch_testing_keypairs(range.clone())?
             }
             KeySource::YamlKeypairs(path) => {

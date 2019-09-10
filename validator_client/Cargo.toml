@@ -26,7 +26,7 @@ slot_clock = { path = "../eth2/utils/slot_clock" }
 types = { path = "../eth2/types" }
 serde = "1.0"
 serde_derive = "1.0"
-slog = "^2.2.3"
+slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "^2.3.0"
 slog-json = "^2.3"
 slog-term = "^2.4.0"

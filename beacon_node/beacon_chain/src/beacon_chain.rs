@@ -1386,9 +1386,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         new_head.beacon_state.build_all_caches(&self.spec)?;
 
+        trace!(self.log, "Taking write lock on head");
+
         // Update the checkpoint that stores the head of the chain at the time it received the
         // block.
         *self.canonical_head.write() = new_head;
+
+        trace!(self.log, "Dropping write lock on head");
 
         // Save `self` to `self.store`.
         self.persist()?;
