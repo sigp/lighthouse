@@ -82,7 +82,8 @@ fn main() {
         )
         .arg(
             Arg::with_name("server-grpc-port")
-                .long("g")
+                .long("server-grpc-port")
+                .short("g")
                 .value_name("PORT")
                 .help("Port to use for gRPC API connection to the server.")
                 .default_value(DEFAULT_SERVER_GRPC_PORT)
@@ -90,7 +91,8 @@ fn main() {
         )
         .arg(
             Arg::with_name("server-http-port")
-                .long("h")
+                .long("server-http-port")
+                .short("h")
                 .value_name("PORT")
                 .help("Port to use for HTTP API connection to the server.")
                 .default_value(DEFAULT_SERVER_HTTP_PORT)
@@ -104,7 +106,7 @@ fn main() {
                 .help("The title of the spec constants for chain config.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
-                .default_value("info"),
+                .default_value("trace"),
         )
         /*
          * The "testnet" sub-command.
@@ -152,7 +154,9 @@ fn main() {
         Some("crit") => drain.filter_level(Level::Critical),
         _ => unreachable!("guarded by clap"),
     };
+
     let mut log = slog::Logger::root(drain.fuse(), o!());
+
     let (client_config, eth2_config) = match get_configs(&matches, &mut log) {
         Ok(tuple) => tuple,
         Err(e) => {

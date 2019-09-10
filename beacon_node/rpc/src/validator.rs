@@ -25,8 +25,8 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
         req: GetDutiesRequest,
         sink: UnarySink<GetDutiesResponse>,
     ) {
-        let validators = req.get_validators();
         trace!(self.log, "RPC request"; "endpoint" => "GetValidatorDuties", "epoch" => req.get_epoch());
+        let validators = req.get_validators();
 
         let epoch = Epoch::from(req.get_epoch());
         let slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
