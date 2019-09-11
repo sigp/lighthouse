@@ -233,7 +233,7 @@ pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(
     let beacon_chain = req
         .extensions()
         .get::<Arc<BeaconChain<T>>>()
-        .expect("BeaconChain extension must be there, because we put it there.");
+        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".into()))?;
     let mut head_state = beacon_chain
         .state_now()
         .map_err(|e| ApiError::ServerError(format!("Unable to get current BeaconState {:?}", e)))?;

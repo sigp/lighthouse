@@ -95,6 +95,7 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             (&Method::GET, "/network/listen_port") => network::get_listen_port::<T>(req),
             (&Method::GET, "/network/listen_addresses") => network::get_listen_addresses::<T>(req),
 
+            /*
             // Methods for Beacon Node
             (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
             (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),
