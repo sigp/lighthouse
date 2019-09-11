@@ -22,7 +22,7 @@ use protos::services_grpc::{
     AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
     ValidatorServiceClient,
 };
-use slog::{crit, error, info, warn};
+use slog::{crit, error, info, trace, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -289,6 +289,11 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         /* process any required duties for validators */
         self.process_duties();
 
+        trace!(
+            self.log,
+            "Per slot execution finished";
+        );
+
         Ok(())
     }
 
@@ -328,6 +333,13 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             .current_slot
             .expect("The current slot must be updated before checking for duties")
             .epoch(self.slots_per_epoch);
+
+        trace!(
+            self.log,
+            "Checking for duties";
+            "epoch" => current_epoch
+        );
+
         // spawn a new thread separate to the runtime
         // TODO: Handle thread termination/timeout
         // TODO: Add duties thread back in, with channel to process duties in duty change.
@@ -345,6 +357,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             self.current_slot
                 .expect("The current slot must be updated before processing duties"),
         ) {
+            trace!(
+                self.log,
+                "Processing duties";
+                "work_items" => work.len()
+            );
+
             for (signer_index, work_type) in work {
                 if work_type.produce_block {
                     // we need to produce a block
@@ -359,7 +377,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
                     std::thread::spawn(move || {
-                        info!(log, "Producing a block"; "Validator"=> format!("{}", signers[signer_index]));
+                        info!(
+                            log,
+                            "Producing a block";
+                            "validator"=> format!("{}", signers[signer_index]),
+                            "slot"=> slot
+                        );
                         let signer = &signers[signer_index];
                         let mut block_producer = BlockProducer {
                             fork,
@@ -376,6 +399,9 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                 if work_type.attestation_duty.is_some() {
                     // we need to produce an attestation
                     // spawns a thread to produce and sign an attestation
+                    let slot = self
+                        .current_slot
+                        .expect("The current slot must be updated before processing duties");
                     let signers = self.duties_manager.signers.clone(); // this is an arc
                     let fork = self.fork.clone();
                     let spec = self.spec.clone();
@@ -383,7 +409,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
                     std::thread::spawn(move || {
-                        info!(log, "Producing an attestation"; "Validator"=> format!("{}", signers[signer_index]));
+                        info!(
+                            log,
+                            "Producing an attestation";
+                            "validator"=> format!("{}", signers[signer_index]),
+                            "slot"=> slot
+                        );
                         let signer = &signers[signer_index];
                         let mut attestation_producer = AttestationProducer {
                             fork,

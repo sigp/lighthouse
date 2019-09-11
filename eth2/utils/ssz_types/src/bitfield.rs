@@ -729,6 +729,13 @@ mod bitvector {
             assert_eq!(bitfield.ssz_bytes_len(), bytes.len(), "i = {}", i);
         }
     }
+
+    #[test]
+    fn excess_bits_nimbus() {
+        let bad = vec![0b0001_1111];
+
+        assert!(BitVector4::from_ssz_bytes(&bad).is_err());
+    }
 }
 
 #[cfg(test)]
