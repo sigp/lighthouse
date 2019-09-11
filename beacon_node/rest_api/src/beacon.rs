@@ -203,7 +203,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> BoxFut {
             try_future!(parse_slot(&value))
         )),
         ("root", value) => {
-            let root = &try_future!(parse_root(&value));
+            let root: &Hash256 = &try_future!(parse_root(&value));
 
             let state = try_future!(try_future!(beacon_chain.store.get(root))
                 .ok_or_else(|| ApiError::NotFound(format!("No state for root: {:?}", root))));

@@ -33,6 +33,7 @@ use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 use url_query::UrlQuery;
+use futures::future::IntoFuture;
 
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
 pub use config::Config as ApiConfig;
@@ -81,9 +82,10 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
         // Route the request to the correct handler.
         let result = match (req.method(), path.as_ref()) {
             // Methods for Client
-            (&Method::GET, "/node/version") => node::get_version(req),
-            (&Method::GET, "/node/genesis_time") => node::get_genesis_time::<T>(req),
-            (&Method::GET, "/node/syncing") => helpers::implementation_pending_response(req),
+            (&Method::GET, "/node/version") => Box::new(node::get_version(req).into_future()),
+            (&Method::GET, "/node/genesis_time") => Box::new(node::get_genesis_time::<T>(req).into_future()),
+            (&Method::GET, "/node/syncing") => Box::new(helpers::implementation_pending_response(req).into_future()),
+            /*
 
             // Methods for Network
             (&Method::GET, "/network/enr") => network::get_enr::<T>(req),
@@ -112,11 +114,12 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
                 helpers::implementation_pending_response(req)
             }
 
-            /*
             // Methods for Validator
             (&Method::GET, "/beacon/validator/duties") => validator::get_validator_duties::<T>(req),
             (&Method::GET, "/beacon/validator/block") => validator::get_new_beacon_block::<T>(req),
-            //(&Method::POST, "/beacon/validator/block") => validator::publish_beacon_block::<T>(req),
+            */
+            (&Method::POST, "/beacon/validator/block") => validator::publish_beacon_block::<T>(req),
+            /*
             (&Method::GET, "/beacon/validator/attestation") => {
                 validator::get_new_attestation::<T>(req)
             }
