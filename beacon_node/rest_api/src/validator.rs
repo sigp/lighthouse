@@ -34,7 +34,8 @@ impl ValidatorDuty {
 pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let log = get_logger_from_request(&req);
     slog::trace!(log, "Validator duties requested of API: {:?}", &req);
-    let (beacon_chain, head_state) = get_beacon_chain_from_request::<T>(&req)?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+    let head_state = get_head_state(beacon_chain.clone())?;
 
     slog::trace!(log, "Got head state from request.");
     // Parse and check query parameters
@@ -70,18 +71,6 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         .map(|pk| parse_pubkey(pk))
         .collect::<Result<Vec<_>, _>>()?;
     let mut duties: Vec<ValidatorDuty> = Vec::new();
-
-    // Update the committee cache
-    // TODO: Do we need to update the cache on the state, for the epoch which has been specified?
-    beacon_chain
-        .state_now()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get current BeaconState {:?}", e)))?
-        .maybe_as_mut_ref()
-        .ok_or(ApiError::ServerError(
-            "Unable to get mutable BeaconState".into(),
-        ))?
-        .build_committee_cache(relative_epoch, &beacon_chain.spec)
-        .map_err(|e| ApiError::ServerError(format!("Unable to build state caches: {:?}", e)))?;
 
     // Get a list of all validators for this epoch
     let validator_proposers: Vec<usize> = epoch
@@ -157,7 +146,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 
 /// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
 pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
 
     let query = UrlQuery::from_request(&req)?;
     let slot = query
@@ -197,7 +186,8 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
 pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let (beacon_chain, head_state) = get_beacon_chain_from_request::<T>(&req)?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+    let head_state = get_head_state(beacon_chain.clone())?;
 
     let query = UrlQuery::from_request(&req)?;
     let val_pk_str = query
