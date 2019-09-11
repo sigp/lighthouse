@@ -77,7 +77,11 @@ pub enum Eth1BackendMethod {
     /// Use the mocked eth1 backend used in interop testing
     Interop,
     /// Use a web3 connection to a running Eth1 node.
-    Web3 { server: String },
+    Web3 {
+        server: String,
+        contract_addr: String,
+        abi_path: PathBuf,
+    },
 }
 
 impl Default for Eth1BackendMethod {

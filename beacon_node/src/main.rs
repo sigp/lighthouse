@@ -172,6 +172,20 @@ fn main() {
                 .help("Specifies the server for a web3 connection to the Eth1 chain.")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("eth1-deposit-contract")
+                .long("eth1-deposit-contract-address")
+                .value_name("DEPOSIT-CONTRACT")
+                .help("Specifies the deposit contract address on the Eth1 chain.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("eth1-abi")
+                .long("eth1-deposit-contract-abi-path")
+                .value_name("ABI-PATH")
+                .help("Specifies the path for deposit contract ABI.")
+                .takes_value(true)
+        )
         /*
          * Database parameters.
          */

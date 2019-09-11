@@ -24,13 +24,18 @@ type Config = (ClientConfig, Eth2Config);
 /// response of some remote server.
 pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
     let mut builder = ConfigBuilder::new(cli_args, log)?;
-
     if let Some(server) = cli_args.value_of("eth1-server") {
-        builder.set_eth1_backend_method(Eth1BackendMethod::Web3 {
-            server: server.into(),
-        })
-    } else {
-        builder.set_eth1_backend_method(Eth1BackendMethod::Interop)
+        if let Some(deposit_contract) = cli_args.value_of("eth1-deposit-contract") {
+            if let Some(abi) = cli_args.value_of("eth1-abi") {
+                builder.set_eth1_backend_method(Eth1BackendMethod::Web3 {
+                    server: server.into(),
+                    contract_addr: deposit_contract.into(),
+                    abi_path: abi.into(),
+                })
+            } else {
+                builder.set_eth1_backend_method(Eth1BackendMethod::Interop)
+            }
+        }
     }
 
     match cli_args.subcommand() {
