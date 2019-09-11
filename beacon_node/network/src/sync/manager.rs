@@ -53,7 +53,9 @@
 //! fully sync'd peers. If `PARENT_FAIL_TOLERANCE` attempts at requesting the block fails, we
 //! drop the propagated block and downvote the peer that sent it to us.
 
-use super::simple_sync::{hello_message, NetworkContext, PeerSyncInfo, FUTURE_SLOT_TOLERANCE};
+use super::message_processor::{
+    status_message, NetworkContext, PeerSyncInfo, FUTURE_SLOT_TOLERANCE,
+};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RequestId};
@@ -716,8 +718,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         // check if the batch is complete, by verifying if we have reached the
                         // target head
                         if end_slot >= block_requests.target_head_slot {
-                            // Completed, re-hello the peer to ensure we are up to the latest head
-                            hello_peer(network_ref, log_ref, chain_ref.clone(), peer_id.clone());
+                            // Completed, re-status the peer to ensure we are up to the latest head
+                            status_peer(network_ref, log_ref, chain_ref.clone(), peer_id.clone());
                             // remove the request
                             false
                         } else {
@@ -906,7 +908,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
 /* Network Context Helper Functions */
 
-fn hello_peer<T: BeaconChainTypes>(
+fn status_peer<T: BeaconChainTypes>(
     network: &mut NetworkContext,
     log: &slog::Logger,
     chain: Weak<BeaconChain<T>>,
@@ -919,7 +921,7 @@ fn hello_peer<T: BeaconChainTypes>(
         "peer" => format!("{:?}", peer_id)
     );
     if let Some(chain) = chain.upgrade() {
-        network.send_rpc_request(None, peer_id, RPCRequest::Hello(hello_message(&chain)));
+        network.send_rpc_request(None, peer_id, RPCRequest::Status(status_message(&chain)));
     }
 }
 

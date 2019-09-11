@@ -40,9 +40,14 @@ impl Encoder for SSZInboundCodec {
         let bytes = match item {
             RPCErrorResponse::Success(resp) => {
                 match resp {
-                    RPCResponse::Hello(res) => res.as_ssz_bytes(),
-                    RPCResponse::BlocksByRange(res) => res, // already raw bytes
-                    RPCResponse::BlocksByRoot(res) => res,  // already raw bytes
+                    RPCResponse::Status(res) => res.as_ssz_bytes(),
+                    RPCResponse::BlocksByRange(Some(res)) => res, // already raw bytes
+                    RPCResponse::BlocksByRoot(Some(res)) => res,  // already raw bytes
+                    //TODO: Create an Inbound/Outbound RPC type to prevent these kinds of
+                    //statements
+                    RPCResponse::BlocksByRange(None) | RPCResponse::BlocksByRoot(None) => {
+                        unreachable!("Should never send none to be encoded")
+                    }
                 }
             }
             RPCErrorResponse::InvalidRequest(err) => err.as_ssz_bytes(),
@@ -73,8 +78,8 @@ impl Decoder for SSZInboundCodec {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match self.inner.decode(src).map_err(RPCError::from) {
             Ok(Some(packet)) => match self.protocol.message_name.as_str() {
-                "hello" => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCRequest::Hello(HelloMessage::from_ssz_bytes(
+                "status" => match self.protocol.version.as_str() {
+                    "1" => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
                         &packet,
                     )?))),
                     _ => unreachable!("Cannot negotiate an unknown version"),
@@ -134,7 +139,7 @@ impl Encoder for SSZOutboundCodec {
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
-            RPCRequest::Hello(req) => req.as_ssz_bytes(),
+            RPCRequest::Status(req) => req.as_ssz_bytes(),
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRange(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
@@ -159,19 +164,19 @@ impl Decoder for SSZOutboundCodec {
         if src.len() == 1 && src[0] == 0_u8 {
             // the object is empty. We return the empty object if this is the case
             match self.protocol.message_name.as_str() {
-                "hello" => match self.protocol.version.as_str() {
+                "status" => match self.protocol.version.as_str() {
                     "1" => Err(RPCError::Custom(
-                        "Hello stream terminated unexpectedly".into(),
+                        "Status stream terminated unexpectedly".into(),
                     )), // cannot have an empty HELLO message. The stream has terminated unexpectedly
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 "goodbye" => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
                 "blocks_by_range" => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCResponse::BlocksByRange(Vec::new()))),
+                    "1" => Ok(Some(RPCResponse::BlocksByRange(Some(Vec::new())))),
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 "blocks_by_root" => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCResponse::BlocksByRoot(Vec::new()))),
+                    "1" => Ok(Some(RPCResponse::BlocksByRoot(Some(Vec::new())))),
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 _ => unreachable!("Cannot negotiate an unknown protocol"),
@@ -183,8 +188,8 @@ impl Decoder for SSZOutboundCodec {
                     let raw_bytes = packet.take();
 
                     match self.protocol.message_name.as_str() {
-                        "hello" => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::Hello(HelloMessage::from_ssz_bytes(
+                        "status" => match self.protocol.version.as_str() {
+                            "1" => Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
                                 &raw_bytes,
                             )?))),
                             _ => unreachable!("Cannot negotiate an unknown version"),
@@ -193,11 +198,11 @@ impl Decoder for SSZOutboundCodec {
                             Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response"))
                         }
                         "blocks_by_range" => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::BlocksByRange(raw_bytes.to_vec()))),
+                            "1" => Ok(Some(RPCResponse::BlocksByRange(Some(raw_bytes.to_vec())))),
                             _ => unreachable!("Cannot negotiate an unknown version"),
                         },
                         "blocks_by_root" => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::BlocksByRoot(raw_bytes.to_vec()))),
+                            "1" => Ok(Some(RPCResponse::BlocksByRoot(Some(raw_bytes.to_vec())))),
                             _ => unreachable!("Cannot negotiate an unknown version"),
                         },
                         _ => unreachable!("Cannot negotiate an unknown protocol"),

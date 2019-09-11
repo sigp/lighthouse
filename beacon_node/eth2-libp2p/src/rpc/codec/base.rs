@@ -1,6 +1,6 @@
 //! This handles the various supported encoding mechanism for the Eth 2.0 RPC.
 
-use crate::rpc::{protocol::ProtocolId, ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
+use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
 use bytes::BufMut;
 use bytes::BytesMut;
 use tokio::codec::{Decoder, Encoder};
@@ -46,7 +46,7 @@ impl<TOutboundCodec> BaseOutboundCodec<TOutboundCodec>
 where
     TOutboundCodec: OutboundCodec,
 {
-    pub fn new(protocol: ProtocolId, codec: TOutboundCodec) -> Self {
+    pub fn new(codec: TOutboundCodec) -> Self {
         BaseOutboundCodec {
             inner: codec,
             past_response_code: None,

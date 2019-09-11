@@ -4,7 +4,7 @@
 mod manager;
 mod message_processor;
 
-pub use simple_sync::MessageProcessor;
+pub use message_processor::MessageProcessor;
 
 /// Currently implemented sync methods.
 pub enum SyncMethod {

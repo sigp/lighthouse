@@ -147,7 +147,7 @@ where
 
 #[derive(Debug, Clone)]
 pub enum RPCRequest {
-    Hello(HelloMessage),
+    Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(BlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
@@ -219,7 +219,7 @@ where
         match protocol.encoding.as_str() {
             "ssz" | _ => {
                 let ssz_codec =
-                    BaseOutboundCodec::new(protocol, SSZOutboundCodec::new(protocol, MAX_RPC_SIZE));
+                    BaseOutboundCodec::new(SSZOutboundCodec::new(protocol, MAX_RPC_SIZE));
                 let codec = OutboundCodec::SSZ(ssz_codec);
                 Framed::new(socket, codec).send(self)
             }
@@ -267,6 +267,12 @@ impl<T> From<tokio::timer::timeout::Error<T>> for RPCError {
     }
 }
 
+impl From<()> for RPCError {
+    fn from(_err: ()) -> Self {
+        RPCError::Custom("".into())
+    }
+}
+
 impl From<io::Error> for RPCError {
     fn from(err: io::Error) -> Self {
         RPCError::IoError(err)
@@ -303,7 +309,7 @@ impl std::error::Error for RPCError {
 impl std::fmt::Display for RPCRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCRequest::Hello(status) => write!(f, "Hello Message: {}", status),
+            RPCRequest::Status(status) => write!(f, "Status Message: {}", status),
             RPCRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             RPCRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             RPCRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),

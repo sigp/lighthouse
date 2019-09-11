@@ -1,7 +1,8 @@
-use super::methods::RequestId;
-use super::protocol::{RPCError, RPCProtocol, RPCRequest, RPCResponse};
+use super::methods::{RPCErrorResponse, RPCResponse, RequestId};
+use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
+use crate::rpc::MAX_RESPONSES;
 use core::marker::PhantomData;
 use fnv::FnvHashMap;
 use futures::prelude::*;
@@ -9,7 +10,7 @@ use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use std::time::{Duration, Instant};
 use tokio_io::{AsyncRead, AsyncWrite};
 
@@ -73,14 +74,17 @@ where
 {
     /// A response has been sent, pending writing and flush.
     ResponsePendingSend {
-        substream: futures::sink::SendAll<InboundFramed<TSubstream>, futures::stream::IterOk<smallvec::IntoIter<[RPCResponse; 20]>, ()>>
+        substream: futures::sink::SendAll<
+            InboundFramed<TSubstream>,
+            futures::stream::IterOk<smallvec::IntoIter<[RPCErrorResponse; MAX_RESPONSES]>, ()>,
+        >,
     },
     /// A request has been sent, and we are awaiting a response. This future is driven in the
     /// handler because GOODBYE requests can be handled and responses dropped instantly.
     RequestPendingResponse {
         /// The framed negotiated substream.
         substream: OutboundFramed<TSubstream>,
-        /// Keeps track of the request id for the request. 
+        /// Keeps track of the request id for the request.
         id: RequestId,
         /// Keeps track of the actual request sent.
         request: RPCRequest,
@@ -88,6 +92,12 @@ where
         timeout: Instant,
         /// The number of responses received.
         received_responses: usize,
+    },
+    OutboundClosing {
+        substream: OutboundFramed<TSubstream>,
+    },
+    InboundClosing {
+        substream: InboundFramed<TSubstream>,
     },
 }
 
@@ -291,9 +301,25 @@ where
             self.events_out.shrink_to_fit();
         }
 
-        // remove any streams that have expired
-        self.waiting_substreams
-            .retain(|_k, waiting_stream| Instant::now() <= waiting_stream.timeout);
+        // close any streams that have expired
+        let expired_streams: Vec<RequestId> = self
+            .waiting_substreams
+            .iter()
+            .filter(|(_id, waiting_stream)| Instant::now() >= waiting_stream.timeout)
+            .map(|(id, _v)| id)
+            .cloned()
+            .collect();
+
+        for expired_stream in &expired_streams {
+            // closes all expired streams
+            self.substreams.push(SubstreamState::InboundClosing {
+                substream: self
+                    .waiting_substreams
+                    .remove(expired_stream)
+                    .expect("must exist")
+                    .substream,
+            });
+        }
 
         // drive streams that need to be processed
         for n in (0..self.substreams.len()).rev() {
@@ -321,42 +347,50 @@ where
                     received_responses,
                 } => match substream.poll() {
                     Ok(Async::Ready(Some(response))) => {
-                            if request.multiple_responses && received_responses <= MAX_RESPONSES  {
-                                self.substreams.push(SubstreamState::RequestPendingResponse {
+                        if request.multiple_responses() && received_responses <= MAX_RESPONSES {
+                            self.substreams
+                                .push(SubstreamState::RequestPendingResponse {
                                     substream,
-                                    rpc_event,
+                                    id,
+                                    request,
                                     timeout,
-                                    received_responses: received_responses +1,
+                                    received_responses: received_responses + 1,
                                 });
-                            }
+                        } else {
+                            self.substreams
+                                .push(SubstreamState::OutboundClosing { substream });
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                                 RPCEvent::Response(id, smallvec![response]),
                             )));
-                    },
-                    Ok(Async::Ready(Some(None))) => {
-                            // stream closed 
-                            // if we expected multiple streams send a stream termination, 
-                            // else report the stream terminating only.
-                            if request.multiple_responses && received_responses > 0 {
-                                let response =  {
-                                   let resp =  match request {
-                                    RPCRequest::BlocksByRange(_) => RPCResponse::BlocksByRange(None);
-                                    RPCRequest::BlocksByRoot(_) => RPCResponse::BlocksByRoot(None);
-                                    _ => unreachable!("Not multiple responses");
+                        }
+                    }
+                    Ok(Async::Ready(None)) => {
+                        // stream closed
+                        // if we expected multiple streams send a stream termination,
+                        // else report the stream terminating only.
+                        if request.multiple_responses() && received_responses > 0 {
+                            let response = {
+                                let resp = match request {
+                                    RPCRequest::BlocksByRange(_) => {
+                                        RPCResponse::BlocksByRange(None)
+                                    }
+                                    RPCRequest::BlocksByRoot(_) => RPCResponse::BlocksByRoot(None),
+                                    _ => unreachable!("Not multiple responses"),
                                 };
                                 RPCErrorResponse::Success(resp)
-                                };
+                            };
 
-                                return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                                                RPCEvent::Response(id, smallvec![response]))));
-                            } // else we return an error
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                                RPCEvent::Error(
-                                    id,
-                                    RPCError::Custom("Stream closed early. Empty response".into()),
-                                ),
+                                RPCEvent::Response(id, smallvec![response]),
                             )));
-                        }
+                        } // else we return an error, stream should not have closed early.
+                        return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                            RPCEvent::Error(
+                                id,
+                                RPCError::Custom("Stream closed early. Empty response".into()),
+                            ),
+                        )));
+                    }
                     Ok(Async::NotReady) => {
                         if Instant::now() < timeout {
                             self.substreams
@@ -371,9 +405,23 @@ where
                     }
                     Err(e) => {
                         return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                            RPCEvent::Error(rpc_event.id(), e),
+                            RPCEvent::Error(id, e),
                         )))
                     }
+                },
+                SubstreamState::InboundClosing { mut substream } => match substream.close() {
+                    Ok(Async::Ready(())) => {} // drop the stream
+                    Ok(Async::NotReady) => self
+                        .substreams
+                        .push(SubstreamState::InboundClosing { substream }),
+                    Err(_) => {} // drop the stream
+                },
+                SubstreamState::OutboundClosing { mut substream } => match substream.close() {
+                    Ok(Async::Ready(())) => {} // drop the stream
+                    Ok(Async::NotReady) => self
+                        .substreams
+                        .push(SubstreamState::OutboundClosing { substream }),
+                    Err(_) => {} // drop the stream
                 },
             }
         }

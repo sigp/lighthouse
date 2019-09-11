@@ -11,7 +11,7 @@ use libp2p::swarm::{
     protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
-pub use methods::{ErrorMessage, HelloMessage, RPCErrorResponse, RPCResponse, RequestId};
+pub use methods::{ErrorMessage, RPCErrorResponse, RPCResponse, RequestId, StatusMessage};
 pub use protocol::{RPCError, RPCProtocol, RPCRequest};
 use slog::o;
 use smallvec::SmallVec;
@@ -23,7 +23,7 @@ mod handler;
 pub mod methods;
 mod protocol;
 
-const MAX_RESPONSES: usize = 20;
+pub const MAX_RESPONSES: usize = 20;
 
 /// The return type used in the behaviour and the resultant event from the protocols handler.
 #[derive(Debug)]

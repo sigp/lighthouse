@@ -11,7 +11,7 @@ pub type RequestId = usize;
 
 /// The HELLO request/response handshake message.
 #[derive(Encode, Decode, Clone, Debug)]
-pub struct HelloMessage {
+pub struct StatusMessage {
     /// The fork version of the chain we are broadcasting.
     pub fork_version: [u8; 4],
 
@@ -131,11 +131,12 @@ pub struct BlocksByRootRequest {
 #[derive(Debug, Clone)]
 pub enum RPCResponse {
     /// A HELLO message.
-    Hello(HelloMessage),
-    /// A response to a get BLOCKS_BY_RANGE request.
-    BlocksByRange(Vec<u8>),
+    Status(StatusMessage),
+    /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
+    /// batch.
+    BlocksByRange(Option<Vec<u8>>),
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Vec<u8>),
+    BlocksByRoot(Option<Vec<u8>>),
 }
 
 #[derive(Debug)]
@@ -187,18 +188,25 @@ impl ErrorMessage {
     }
 }
 
-impl std::fmt::Display for HelloMessage {
+impl std::fmt::Display for StatusMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Hello Message: Fork Version: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_version, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
+        write!(f, "Status Message: Fork Version: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_version, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
     }
 }
 
 impl std::fmt::Display for RPCResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCResponse::Hello(hello) => write!(f, "{}", hello),
-            RPCResponse::BlocksByRange(data) => write!(f, "<BlocksByRange>, len: {}", data.len()),
-            RPCResponse::BlocksByRoot(data) => write!(f, "<BlocksByRoot>, len: {}", data.len()),
+            RPCResponse::Status(status) => write!(f, "{}", status),
+            RPCResponse::BlocksByRange(Some(data)) => {
+                write!(f, "<BlocksByRange>, len: {}", data.len())
+            }
+            RPCResponse::BlocksByRoot(Some(data)) => {
+                write!(f, "<BlocksByRoot>, len: {}", data.len())
+            }
+            RPCResponse::BlocksByRange(None) | RPCResponse::BlocksByRoot(None) => {
+                write!(f, "End of stream")
+            }
         }
     }
 }

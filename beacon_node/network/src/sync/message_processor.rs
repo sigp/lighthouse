@@ -6,7 +6,8 @@ use beacon_chain::{
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{debug, error, info, o, trace, warn};
+use slog::{debug, info, o, trace, warn};
+use smallvec::{smallvec, SmallVec};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
@@ -135,27 +136,27 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         trace!(self.log, "StatusRequest"; "peer" => format!("{:?}", peer_id));
 
         // Say status back.
-        self.network.send_rpc_response(
+        self.network.send_single_rpc_response(
             peer_id.clone(),
             request_id,
             RPCResponse::Status(status_message(&self.chain)),
         );
 
-        self.process_status(peer_id, hello);
+        self.process_status(peer_id, status);
     }
 
     /// Process a `Status` response from a peer.
-    pub fn on_status_response(&mut self, peer_id: PeerId, hello: StatusMessage) {
+    pub fn on_status_response(&mut self, peer_id: PeerId, status: StatusMessage) {
         trace!(self.log, "StatusResponse"; "peer" => format!("{:?}", peer_id));
 
-        // Process the status message, without sending back another hello.
-        self.process_status(peer_id, hello);
+        // Process the status message, without sending back another status.
+        self.process_status(peer_id, status);
     }
 
     /// Process a `Status` message, requesting new blocks if appropriate.
     ///
     /// Disconnects the peer if required.
-    fn process_status(&mut self, peer_id: PeerId, hello: StatusMessage) {
+    fn process_status(&mut self, peer_id: PeerId, status: StatusMessage) {
         let remote = PeerSyncInfo::from(status);
         let local = PeerSyncInfo::from(&self.chain);
 
@@ -246,7 +247,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         request_id: RequestId,
         request: BlocksByRootRequest,
     ) {
-        let blocks: Vec<BeaconBlock<_>> = request
+        let response: Vec<RPCResponse> = request
             .block_roots
             .iter()
             .filter_map(|root| {
@@ -263,6 +264,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     None
                 }
             })
+            .map(|block| RPCResponse::BlocksByRoot(Some(block.as_ssz_bytes())))
             .collect();
 
         debug!(
@@ -270,14 +272,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             "BlocksByRootRequest";
             "peer" => format!("{:?}", peer_id),
             "requested" => request.block_roots.len(),
-            "returned" => blocks.len(),
+            "returned" => response.len(),
         );
 
-        self.network.send_rpc_response(
-            peer_id,
-            request_id,
-            RPCResponse::BlocksByRange(blocks.as_ssz_bytes()),
-        )
+        self.network
+            .send_multiple_rpc_response(peer_id, request_id, response)
     }
 
     /// Handle a `BlocksByRange` request from the peer.
@@ -338,7 +337,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         );
 
         let response = blocks
-            .map(|b| RpcErrorResponse::Success(RPCResponse::BlocksByRange(b.as_ssz_bytes())))
+            .iter()
+            .map(|b| RPCResponse::BlocksByRange(Some(b.as_ssz_bytes())))
             .collect();
 
         self.network
@@ -549,9 +549,15 @@ impl NetworkContext {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        rpc_response: SmallVec<[RPCResponse; MAX_BLOCKS_PER_REQUEST]>,
+        rpc_response: Vec<RPCResponse>,
     ) {
-        self.send_rpc_event(peer_id, RPCEvent::Response(request_id, rpc_response));
+        let response = SmallVec::from_vec(
+            rpc_response
+                .into_iter()
+                .map(|r| RPCErrorResponse::Success(r))
+                .collect::<Vec<_>>(),
+        );
+        self.send_rpc_event(peer_id, RPCEvent::Response(request_id, response));
     }
 
     fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
