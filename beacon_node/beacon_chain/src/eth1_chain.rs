@@ -122,9 +122,9 @@ impl<T: EthSpec> Eth1ChainBackend<T> for Web3Backend<T> {
     }
 
     fn eth1_data(&self, beacon_state: &BeaconState<T>) -> Result<Eth1Data> {
-        // TODO: fix previous eth1 distance based on spec.
+        // TODO: Find a better way to get `previous_eth1_distance`
         self.eth1
-            .get_eth1_votes(beacon_state, 1024)
+            .get_eth1_votes(beacon_state, beacon_state.eth1_data.block_hash)
             .map_err(|e| Error::BackendError(format!("{:?}", e)))
     }
 

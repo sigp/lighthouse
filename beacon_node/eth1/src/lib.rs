@@ -7,7 +7,7 @@ mod types;
 
 use crate::cache::*;
 use crate::deposits::*;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::types::Eth1DataFetcher;
 use eth2_types::*;
 use slog::{debug, info, o, warn};
@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 use web3::futures::{Future, Stream};
+use web3::types::{H256, U128};
 
 pub mod config;
 pub mod web3_fetcher;
@@ -48,8 +49,15 @@ impl<F: Eth1DataFetcher + 'static> Eth1<F> {
     pub fn get_eth1_votes<T: EthSpec>(
         &self,
         state: &BeaconState<T>,
-        previous_eth1_distance: u64,
+        previous_eth1_distance_hash: H256,
     ) -> Result<Eth1Data> {
+        // TODO: Need a better way to get `previous_eth1_distance`.
+        let previous_eth1_distance = tokio::runtime::current_thread::block_on_all(
+            self.fetcher
+                .get_block_height_by_hash(previous_eth1_distance_hash),
+        )?;
+        let previous_eth1_distance =
+            U128::as_u64(&previous_eth1_distance.ok_or(Error::InvalidParam)?);
         let new_eth1_data = self
             .eth1_data_cache
             .get_eth1_data_in_range(ETH1_FOLLOW_DISTANCE, 2 * ETH1_FOLLOW_DISTANCE);
