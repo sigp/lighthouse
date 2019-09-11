@@ -96,6 +96,28 @@ impl Eth1DataFetcher for Web3DataFetcher {
         )
     }
 
+    /// Get block height given the hash.
+    fn get_block_height_by_hash(
+        &self,
+        hash: H256,
+    ) -> Box<dyn Future<Item = Option<U128>, Error = Error> + Send> {
+        Box::new(
+            self.web3
+                .eth()
+                .block(BlockId::Hash(hash))
+                .map(|x| x.and_then(|b| b.number))
+                .map_err(|e| {
+                    println!("Error getting block number");
+                    Error::Web3Error(e)
+                })
+                .timeout(Duration::from_secs(10))
+                .map_err(|_| {
+                    println!("Timed out getting block_number");
+                    Error::Timeout
+                }),
+        )
+    }
+
     /// Get `deposit_count` from deposit contract at given eth1 block number.
     fn get_deposit_count(
         &self,

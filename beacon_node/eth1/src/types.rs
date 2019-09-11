@@ -18,6 +18,12 @@ pub trait Eth1DataFetcher: Send + Sync + Clone {
         height: u64,
     ) -> Box<dyn Future<Item = Option<H256>, Error = Error> + Send>;
 
+    /// Get block height corresponging to a block hash.
+    fn get_block_height_by_hash(
+        &self,
+        hash: H256,
+    ) -> Box<dyn Future<Item = Option<U128>, Error = Error> + Send>;
+
     /// Get deposit contract root at given eth1 block-number.
     fn get_deposit_root(
         &self,
