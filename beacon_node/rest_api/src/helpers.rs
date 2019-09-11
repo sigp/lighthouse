@@ -23,6 +23,13 @@ pub fn success_response<T: Serialize + Encode>(req: Request<Body>, item: &T) -> 
     })
 }
 
+pub fn success_response_2<T: Serialize + Encode>(req: Request<Body>, item: &T) -> ApiResult {
+    ResponseBuilder::new(&req).body(item)
+}
+pub fn success_response_2_json<T: Serialize>(req: Request<Body>, item: &T) -> ApiResult {
+    ResponseBuilder::new(&req).body_json(item)
+}
+
 pub fn success_response_json<T: Serialize>(req: Request<Body>, item: &T) -> BoxFut {
     if let Err(e) = check_content_type_for_json(&req) {
         return Box::new(futures::future::err(e));
@@ -213,11 +220,10 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
     }
 }
 
-pub fn implementation_pending_response(_req: Request<Body>) -> BoxFut {
-    ApiError::NotImplemented(
+pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
+    Err(ApiError::NotImplemented(
         "API endpoint has not yet been implemented, but is planned to be soon.".to_owned(),
-    )
-    .into()
+    ))
 }
 
 pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(

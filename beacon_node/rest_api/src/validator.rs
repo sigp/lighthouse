@@ -1,5 +1,6 @@
 use crate::helpers::*;
-use crate::{ApiError, ApiResult, UrlQuery};
+use crate::response_builder::ResponseBuilder;
+use crate::{ApiError, ApiResult, UrlQuery, BoxFut};
 use beacon_chain::{BeaconChainTypes, BlockProcessingOutcome};
 use bls::{AggregateSignature, PublicKey, Signature};
 use futures::future::Future;
@@ -204,10 +205,10 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 }
 
 /// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
-pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let _ = check_content_type_for_json(&req)?;
+pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> BoxFut {
+    let _ = try_future!(check_content_type_for_json(&req));
     let log = get_logger_from_request(&req);
-    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
+    let (beacon_chain, _head_state) = try_future!(get_beacon_chain_from_request::<T>(&req));
     // Get the network sending channel from the request, for later transmission
     let network_chan = req
         .extensions()
@@ -215,49 +216,53 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         .expect("Should always get the network channel from the request, since we put it in there.")
         .clone();
 
+    let response_builder = ResponseBuilder::new(&req);
+
     let body = req.into_body();
     trace!(
         log,
         "Got the request body, now going to parse it into a block."
     );
-    let block_future = body
+    Box::new(body
         .concat2()
-        .map(move |chunk| chunk.iter().cloned().collect::<Vec<u8>>())
-        .map(|chunks| {
-            let block_result: Result<BeaconBlock<T::EthSpec>, ApiError> =
-                serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
-                    ApiError::InvalidQueryParams(format!(
-                        "Unable to deserialize JSON into a BeaconBlock: {:?}",
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}",e)))
+        .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
+        .and_then(|chunks| {
+            serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
+                ApiError::InvalidQueryParams(format!(
+                    "Unable to deserialize JSON into a BeaconBlock: {:?}",
+                    e
+                ))
+            })
+        })
+        .and_then(move |block: BeaconBlock<T::EthSpec>| {
+            let slot = block.slot;
+            match beacon_chain.process_block(block.clone()) {
+                Ok(BlockProcessingOutcome::Processed { block_root }) => {
+                    // Block was processed, publish via gossipsub
+                    info!(log, "Processed valid block from API, transmitting to network."; "block_slot" => slot, "block_root" => format!("{}", block_root));
+                    publish_beacon_block_to_network::<T>(network_chan, block)
+                }
+                Ok(outcome) => {
+                    warn!(log, "Block could not be processed, but is being sent to the network anyway."; "block_slot" => slot, "outcome" => format!("{:?}", outcome));
+                    //TODO need to send to network and return http 202
+                    Err(ApiError::InvalidQueryParams(format!(
+                        "The BeaconBlock could not be processed: {:?}",
+                        outcome
+                    )))
+                }
+                Err(e) => {
+                    Err(ApiError::ServerError(format!(
+                        "Unable to process block: {:?}",
                         e
-                    ))
-                });
-            block_result
-        });
-    let block = block_future.wait()??;
-    trace!(log, "BeaconBlock successfully parsed from JSON");
-    match beacon_chain.process_block(block.clone()) {
-        Ok(BlockProcessingOutcome::Processed { block_root }) => {
-            // Block was processed, publish via gossipsub
-            info!(log, "Processed valid block from API, transmitting to network."; "block_slot" => block.slot, "block_root" => format!("{}", block_root));
-            publish_beacon_block_to_network::<T>(network_chan, block)?;
-        }
-        Ok(outcome) => {
-            warn!(log, "Block could not be processed, but is being sent to the network anyway."; "block_slot" => block.slot, "outcome" => format!("{:?}", outcome));
-            //TODO need to send to network and return http 202
-            return Err(ApiError::InvalidQueryParams(format!(
-                "The BeaconBlock could not be processed: {:?}",
-                outcome
-            )));
-        }
-        Err(e) => {
-            return Err(ApiError::ServerError(format!(
-                "Unable to process block: {:?}",
-                e
-            )));
-        }
-    }
+                    )))
+                }
+            }
+        }).and_then(|_| {
+            response_builder.body_json(&())
+        }))
 
-    Ok(success_response_old(Body::empty()))
+
 }
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
