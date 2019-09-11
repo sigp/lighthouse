@@ -48,15 +48,10 @@ pub fn per_epoch_processing<T: EthSpec>(
     process_justification_and_finalization(state, &validator_statuses.total_balances)?;
 
     // Crosslinks.
-    let winning_root_for_shards = process_crosslinks(state, spec)?;
+    process_crosslinks(state, spec)?;
 
     // Rewards and Penalties.
-    process_rewards_and_penalties(
-        state,
-        &mut validator_statuses,
-        &winning_root_for_shards,
-        spec,
-    )?;
+    process_rewards_and_penalties(state, &mut validator_statuses, spec)?;
 
     // Registry Updates.
     process_registry_updates(state, spec)?;
@@ -160,9 +155,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
 pub fn process_crosslinks<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
-) -> Result<WinningRootHashSet, Error> {
-    let mut winning_root_for_shards: WinningRootHashSet = HashMap::new();
-
+) -> Result<(), Error> {
     state.previous_crosslinks = state.current_crosslinks.clone();
 
     for &relative_epoch in &[RelativeEpoch::Previous, RelativeEpoch::Current] {
@@ -182,12 +175,11 @@ pub fn process_crosslinks<T: EthSpec>(
                 if 3 * winning_root.total_attesting_balance >= 2 * total_committee_balance {
                     state.current_crosslinks[shard as usize] = winning_root.crosslink.clone();
                 }
-                winning_root_for_shards.insert(shard, winning_root);
             }
         }
     }
 
-    Ok(winning_root_for_shards)
+    Ok(())
 }
 
 /// Finish up an epoch update.

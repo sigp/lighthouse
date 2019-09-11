@@ -50,9 +50,12 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
     /// Handle outputs and results from attestation production.
     pub fn handle_produce_attestation(&mut self, log: slog::Logger) {
         match self.produce_attestation() {
-            Ok(ValidatorEvent::AttestationProduced(_slot)) => {
-                info!(log, "Attestation produced"; "Validator" => format!("{}", self.signer))
-            }
+            Ok(ValidatorEvent::AttestationProduced(slot)) => info!(
+                log,
+                "Attestation produced";
+                "validator" => format!("{}", self.signer),
+                "slot" => slot,
+            ),
             Err(e) => error!(log, "Attestation production error"; "Error" => format!("{:?}", e)),
             Ok(ValidatorEvent::SignerRejection(_slot)) => {
                 error!(log, "Attestation production error"; "Error" => "Signer could not sign the attestation".to_string())
