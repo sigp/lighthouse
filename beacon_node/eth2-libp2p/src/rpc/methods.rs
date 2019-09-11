@@ -174,6 +174,39 @@ impl RPCErrorResponse {
             _ => RPCErrorResponse::Unknown(err),
         }
     }
+
+    /// Specifies which response allows for multiple chunks for the stream handler.
+    pub fn multiple_responses(&self) -> bool {
+        match self {
+            RPCErrorResponse::Success(resp) => match resp {
+                RPCResponse::Status(_) => false,
+                RPCResponse::BlocksByRange(_) => true,
+                RPCResponse::BlocksByRoot(_) => true,
+            },
+            _ => true,
+        }
+    }
+
+    /// Returns true if the response contains a `None` which signifies an end of stream.
+    pub fn is_none(&self) -> bool {
+        match self {
+            RPCErrorResponse::Success(resp) => match resp {
+                RPCResponse::BlocksByRange(None) => true,
+                RPCResponse::BlocksByRoot(None) => true,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Returns true if this response is an error. Used to terminate the stream after an error is
+    /// sent.
+    pub fn is_error(&self) -> bool {
+        match self {
+            RPCErrorResponse::Success(_) => false,
+            _ => true,
+        }
+    }
 }
 
 #[derive(Encode, Decode, Debug)]

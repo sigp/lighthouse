@@ -15,7 +15,6 @@ use tokio::sync::{mpsc, oneshot};
 use tree_hash::SignedRoot;
 use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
 
-//TODO: Put a maximum limit on the number of block that can be requested.
 //TODO: Rate limit requests
 
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.

@@ -2,7 +2,6 @@ use super::methods::{RPCErrorResponse, RPCResponse, RequestId};
 use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
-use crate::rpc::MAX_RESPONSES;
 use core::marker::PhantomData;
 use fnv::FnvHashMap;
 use futures::prelude::*;
@@ -10,17 +9,20 @@ use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use smallvec::{smallvec, SmallVec};
+use smallvec::SmallVec;
 use std::time::{Duration, Instant};
 use tokio_io::{AsyncRead, AsyncWrite};
+
+//TODO: Implement close() on the substream types to improve the poll code.
+//TODO: Implement check_timeout() on the substream types
 
 /// The time (in seconds) before a substream that is awaiting a response from the user times out.
 pub const RESPONSE_TIMEOUT: u64 = 10;
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
-pub struct RPCHandler<TSubstream>
+pub struct RPCHandler<TFramed, TSubstream>
 where
-    TSubstream: AsyncRead + AsyncWrite,
+    TFramed: Stream + Sink,
 {
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol>,
@@ -38,10 +40,13 @@ where
     dial_negotiated: u32,
 
     /// Map of current substreams awaiting a response to an RPC request.
-    waiting_substreams: FnvHashMap<RequestId, WaitingResponse<TSubstream>>,
+    waiting_substreams: FnvHashMap<RequestId, WaitingResponse<TFramed>>,
 
-    /// List of outbound substreams that need to be driven to completion.
-    substreams: Vec<SubstreamState<TSubstream>>,
+    /// List of single outbound substreams that need to be driven to completion.
+    substreams: Vec<SubstreamState<TFramed>>,
+
+    /// Map of outbound items that are queued as the stream processes them.
+    queued_outbound_items: FnvHashMap<RequestId, Vec<Option<RPCErrorResponse>>>,
 
     /// Sequential Id for waiting substreams.
     current_substream_id: RequestId,
@@ -60,50 +65,57 @@ where
 }
 
 /// An outbound substream is waiting a response from the user.
-struct WaitingResponse<TSubstream> {
+struct WaitingResponse<TFramed> {
     /// The framed negotiated substream.
-    substream: InboundFramed<TSubstream>,
+    substream: InboundFramed<TFramed>,
     /// The time when the substream is closed.
     timeout: Instant,
 }
 
 /// State of an outbound substream. Either waiting for a response, or in the process of sending.
-pub enum SubstreamState<TSubstream>
+pub enum SubstreamState<TFramed>
 where
-    TSubstream: AsyncRead + AsyncWrite,
+    TFramed: Stream + Sink,
 {
     /// A response has been sent, pending writing and flush.
     ResponsePendingSend {
-        substream: futures::sink::SendAll<
-            InboundFramed<TSubstream>,
-            futures::stream::IterOk<smallvec::IntoIter<[RPCErrorResponse; MAX_RESPONSES]>, ()>,
-        >,
+        /// The substream used to send the response
+        substream: futures::sink::Send<TFramed>,
+        /// The request id associated with the response.
+        request_id: RequestId,
+        /// Whether a stream termination is requested. If true the stream will be closed after
+        /// this send. Otherwise it will transition to an idle state until a stream termination is
+        /// requested or a timeout is reached.
+        closing: bool,
+    },
+    /// The response stream is idle and awaiting input from the application to send more chunked
+    /// responses.
+    ResponseIdle {
+        /// The substream used to send the response
+        substream: InboundFramed<TFramed>,
+        /// The id associated with the request.
+        request_id: RequestId,
+        /// A timeout for how long we keep idle streams for before closing the stream.
+        timeout: Instant,
     },
     /// A request has been sent, and we are awaiting a response. This future is driven in the
     /// handler because GOODBYE requests can be handled and responses dropped instantly.
     RequestPendingResponse {
         /// The framed negotiated substream.
-        substream: OutboundFramed<TSubstream>,
+        substream: OutboundFramed<TFramed>,
         /// Keeps track of the request id for the request.
         id: RequestId,
         /// Keeps track of the actual request sent.
         request: RPCRequest,
         /// The time  when the substream is closed.
         timeout: Instant,
-        /// The number of responses received.
-        received_responses: usize,
     },
-    OutboundClosing {
-        substream: OutboundFramed<TSubstream>,
-    },
-    InboundClosing {
-        substream: InboundFramed<TSubstream>,
-    },
+    Closing(TFramed),
 }
 
-impl<TSubstream> RPCHandler<TSubstream>
+impl<TFramed> RPCHandler<TSubstream>
 where
-    TSubstream: AsyncRead + AsyncWrite,
+    TFramed: Stream + Sink,
 {
     pub fn new(
         listen_protocol: SubstreamProtocol<RPCProtocol>,
@@ -116,6 +128,7 @@ where
             dial_queue: SmallVec::new(),
             dial_negotiated: 0,
             waiting_substreams: FnvHashMap::default(),
+            queued_outbound_items: FnvHashMap::default(),
             substreams: Vec::new(),
             current_substream_id: 1,
             max_dial_negotiated: 8,
@@ -155,17 +168,18 @@ where
     }
 }
 
-impl<TSubstream> Default for RPCHandler<TSubstream>
+impl<TFramed, TSubstream> Default for RPCHandler<TFramed, TSubstream>
 where
-    TSubstream: AsyncRead + AsyncWrite,
+    TFramed: Stream + Sink,
 {
     fn default() -> Self {
         RPCHandler::new(SubstreamProtocol::new(RPCProtocol), Duration::from_secs(30))
     }
 }
 
-impl<TSubstream> ProtocolsHandler for RPCHandler<TSubstream>
+impl<TFramed, TSubstream> ProtocolsHandler for RPCHandler<TFramed, TSubstream>
 where
+    TFramed: Stream + Sink,
     TSubstream: AsyncRead + AsyncWrite,
 {
     type InEvent = RPCEvent;
@@ -231,7 +245,6 @@ where
                     id,
                     request,
                     timeout: Instant::now() + Duration::from_secs(RESPONSE_TIMEOUT),
-                    received_responses: 0,
                 };
 
                 self.substreams.push(awaiting_stream);
@@ -246,14 +259,45 @@ where
         match rpc_event {
             RPCEvent::Request(_, _) => self.send_request(rpc_event),
             RPCEvent::Response(rpc_id, res) => {
+                //TODO: Restructure the stream management for multiple chunks
+
+                //All this logic is to prevent multiple channel sends. A generalised response could
+                //be terminated if every response sent a None to terminate the stream.
+
+                let res_is_multiple = res.multiple_responses();
+                let res_end_of_stream = res.is_none();
+                // and add data to them, until the stream is terminated.
                 // check if the stream matching the response still exists
                 if let Some(waiting_stream) = self.waiting_substreams.remove(&rpc_id) {
                     // Process the response stream. This must be in the waiting state.
                     // build the stream from the response
-                    let stream = futures::stream::iter_ok::<_, ()>(res);
+                    // If it's a single rpc request or an error, close the stream after
+                    let res_is_error = res.is_error();
                     self.substreams.push(SubstreamState::ResponsePendingSend {
-                        substream: waiting_stream.substream.send_all(stream),
+                        substream: waiting_stream.substream.send(res),
+                        request_id: rpc_id,
+                        closing: !res_is_multiple | res_is_error, // close if an error or we are not expecting more responses
                     });
+                } else {
+                    // It could be that this is a multiple response, so we add it to the queue
+                    // of responses to send
+                    if res_is_multiple {
+                        // if end of stream apply to the queue
+                        if res_end_of_stream {
+                            (*self
+                                .queued_outbound_items
+                                .entry(rpc_id)
+                                .or_insert_with(Vec::new))
+                            .push(None);
+                        } else {
+                            // add the item to the queue
+                            (*self
+                                .queued_outbound_items
+                                .entry(rpc_id)
+                                .or_insert_with(Vec::new))
+                            .push(Some(res));
+                        }
+                    }
                 }
             }
             RPCEvent::Error(_, _) => {}
@@ -312,25 +356,75 @@ where
 
         for expired_stream in &expired_streams {
             // closes all expired streams
-            self.substreams.push(SubstreamState::InboundClosing {
-                substream: self
-                    .waiting_substreams
+            self.substreams.push(SubstreamState::InboundClosing(
+                self.waiting_substreams
                     .remove(expired_stream)
                     .expect("must exist")
                     .substream,
-            });
+            ));
         }
 
         // drive streams that need to be processed
         for n in (0..self.substreams.len()).rev() {
             let stream = self.substreams.swap_remove(n);
             match stream {
-                SubstreamState::ResponsePendingSend { mut substream } => {
+                SubstreamState::ResponsePendingSend {
+                    mut substream,
+                    request_id,
+                    closing,
+                } => {
                     match substream.poll() {
-                        Ok(Async::Ready(_substream)) => {} // sent and flushed
+                        Ok(Async::Ready(raw_substream)) => {
+                            // completed the send
+
+                            // close the stream if required
+                            if closing {
+                                self.substreams
+                                    .push(SubstreamState::InboundClosing(raw_substream));
+                            }
+                            // check for queued chunks
+                            else if let Some(queue) =
+                                self.queued_outbound_items.get_mut(&request_id)
+                            {
+                                if !queue.is_empty() {
+                                    // we have queued items
+                                    // element exists
+                                    match queue.remove(0) {
+                                        Some(chunk) => self.substreams.push(
+                                            SubstreamState::ResponsePendingSend {
+                                                substream: raw_substream.send(chunk),
+                                                request_id,
+                                                closing: false,
+                                            },
+                                        ),
+                                        None => self
+                                            .substreams
+                                            .push(SubstreamState::InboundClosing(raw_substream)),
+                                    }
+                                } else {
+                                    // no items queued set to idle
+                                    self.substreams.push(SubstreamState::ResponseIdle {
+                                        substream: raw_substream,
+                                        request_id,
+                                        timeout: Instant::now()
+                                            + Duration::from_secs(RESPONSE_TIMEOUT),
+                                    });
+                                }
+                            } else {
+                                // queue hasn't been established - set the stream to idle
+                                self.substreams.push(SubstreamState::ResponseIdle {
+                                    substream: raw_substream,
+                                    request_id,
+                                    timeout: Instant::now() + Duration::from_secs(RESPONSE_TIMEOUT),
+                                });
+                            }
+                        }
                         Ok(Async::NotReady) => {
-                            self.substreams
-                                .push(SubstreamState::ResponsePendingSend { substream });
+                            self.substreams.push(SubstreamState::ResponsePendingSend {
+                                substream,
+                                request_id,
+                                closing,
+                            });
                         }
                         Err(e) => {
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
@@ -339,28 +433,38 @@ where
                         }
                     }
                 }
+                /*
+                SubstreamState::ResponseIdle {
+                    substeam,
+                    request_id,
+                    timeout,
+                } =>  {
+                    // send something if it's there, otherwise check a timeout
+                    if self.queu
+
+
+                    */
                 SubstreamState::RequestPendingResponse {
                     mut substream,
                     id,
                     request,
                     timeout,
-                    received_responses,
                 } => match substream.poll() {
                     Ok(Async::Ready(Some(response))) => {
-                        if request.multiple_responses() && received_responses <= MAX_RESPONSES {
+                        if request.multiple_responses() {
                             self.substreams
                                 .push(SubstreamState::RequestPendingResponse {
                                     substream,
                                     id,
                                     request,
-                                    timeout,
-                                    received_responses: received_responses + 1,
+                                    timeout: Instant::now() + Duration::from_secs(RESPONSE_TIMEOUT),
                                 });
                         } else {
+                            // only expect a single response, close the stream
                             self.substreams
-                                .push(SubstreamState::OutboundClosing { substream });
+                                .push(SubstreamState::OutboundClosing(substream));
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                                RPCEvent::Response(id, smallvec![response]),
+                                RPCEvent::Response(id, response),
                             )));
                         }
                     }
@@ -368,7 +472,8 @@ where
                         // stream closed
                         // if we expected multiple streams send a stream termination,
                         // else report the stream terminating only.
-                        if request.multiple_responses() && received_responses > 0 {
+                        if request.multiple_responses() {
+                            // return and end of stream result
                             let response = {
                                 let resp = match request {
                                     RPCRequest::BlocksByRange(_) => {
@@ -381,7 +486,7 @@ where
                             };
 
                             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                                RPCEvent::Response(id, smallvec![response]),
+                                RPCEvent::Response(id, response),
                             )));
                         } // else we return an error, stream should not have closed early.
                         return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
@@ -399,8 +504,11 @@ where
                                     id,
                                     request,
                                     timeout,
-                                    received_responses,
                                 });
+                        } else {
+                            // timed out, close the stream
+                            self.substreams
+                                .push(SubstreamState::OutboundClosing(substream));
                         }
                     }
                     Err(e) => {
@@ -409,18 +517,18 @@ where
                         )))
                     }
                 },
-                SubstreamState::InboundClosing { mut substream } => match substream.close() {
+                SubstreamState::Closing(mut substream) => match substream.close() {
                     Ok(Async::Ready(())) => {} // drop the stream
                     Ok(Async::NotReady) => self
                         .substreams
-                        .push(SubstreamState::InboundClosing { substream }),
+                        .push(SubstreamState::InboundClosing(substream)),
                     Err(_) => {} // drop the stream
                 },
-                SubstreamState::OutboundClosing { mut substream } => match substream.close() {
+                SubstreamState::OutboundClosing(mut substream) => match substream.close() {
                     Ok(Async::Ready(())) => {} // drop the stream
                     Ok(Async::NotReady) => self
                         .substreams
-                        .push(SubstreamState::OutboundClosing { substream }),
+                        .push(SubstreamState::OutboundClosing(substream)),
                     Err(_) => {} // drop the stream
                 },
             }
@@ -446,3 +554,43 @@ where
         Ok(Async::NotReady)
     }
 }
+
+/*
+// Check for new items to send to the queue
+fn update_stream<TSubstream, TInOutStream>(substreams: &mut Vec<SubstreamState<TSubstream>, raw_substream: TInOutStream, queued_outbound_items: &mut FnvHashMap<RequestId, Vec<Option<RPCErrorResponse>>>) {
+                            if let Some(queue) =
+                                queued_outbound_items.get_mut(&request_id)
+                            {
+                                if !queue.is_empty() {
+                                    // we have queued items
+                                    // element exists
+                                    match queue.remove(0) {
+                                        Some(chunk) => substreams.push(
+                                            SubstreamState::ResponsePendingSend {
+                                                substream: raw_substream.send(chunk),
+                                                request_id,
+                                                closing: false,
+                                            },
+                                        ),
+                                        None => self
+                                            .substreams
+                                            .push(SubstreamState::InboundClosing(raw_substream)),
+                                    }
+                                } else {
+                                    // no items queued set to idle
+                                    self.substreams.push(SubstreamState::ResponseIdle {
+                                        substream: raw_substream,
+                                        request_id,
+                                        timeout: Instant::now()
+                                            + Duration::from_secs(RESPONSE_TIMEOUT),
+                                    });
+                                }
+                            } else {
+                                // queue hasn't been established - set the stream to idle
+                                self.substreams.push(SubstreamState::ResponseIdle {
+                                    substream: raw_substream,
+                                    request_id,
+                                    timeout: Instant::now() + Duration::from_secs(RESPONSE_TIMEOUT),
+                                });
+                            }
+*/

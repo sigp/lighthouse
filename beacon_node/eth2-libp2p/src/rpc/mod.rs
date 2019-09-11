@@ -14,7 +14,6 @@ use libp2p::{Multiaddr, PeerId};
 pub use methods::{ErrorMessage, RPCErrorResponse, RPCResponse, RequestId, StatusMessage};
 pub use protocol::{RPCError, RPCProtocol, RPCRequest};
 use slog::o;
-use smallvec::SmallVec;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -22,8 +21,6 @@ pub(crate) mod codec;
 mod handler;
 pub mod methods;
 mod protocol;
-
-pub const MAX_RESPONSES: usize = 20;
 
 /// The return type used in the behaviour and the resultant event from the protocols handler.
 #[derive(Debug)]
@@ -33,11 +30,9 @@ pub enum RPCEvent {
     Request(RequestId, RPCRequest),
 
     /// A response that is being sent or has been received from the RPC protocol. The first parameter returns
-    /// that which was sent with the corresponding request, the second is a single chunk and the
-    /// third signifies if the entire request is complete (true) or more responses are coming
-    /// (false). This flag prevents an extra response being sent to the channel to signify the
-    /// end of the stream.
-    Response(RequestId, SmallVec<[RPCErrorResponse; MAX_RESPONSES]>),
+    /// that which was sent with the corresponding request, the second is a single chunk of a
+    /// response.
+    Response(RequestId, RPCErrorResponse),
     /// An Error occurred.
     Error(RequestId, RPCError),
 }
