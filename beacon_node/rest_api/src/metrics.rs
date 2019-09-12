@@ -31,7 +31,7 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
 
-    let (beacon_chain, _head_state) = get_beacon_chain_from_request::<T>(&req)?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
     let db_path = req
         .extensions()
         .get::<DBPath>()
