@@ -28,7 +28,6 @@ pub enum RPCEvent {
     /// An inbound/outbound request for RPC protocol. The first parameter is a sequential
     /// id which tracks an awaiting substream for the response.
     Request(RequestId, RPCRequest),
-
     /// A response that is being sent or has been received from the RPC protocol. The first parameter returns
     /// that which was sent with the corresponding request, the second is a single chunk of a
     /// response.

@@ -75,12 +75,12 @@ use types::{BeaconBlock, EthSpec, Hash256, Slot};
 /// responder will fill the response up to the max request size, assuming they have the bandwidth
 /// to do so.
 //TODO: Make this dynamic based on peer's bandwidth
-const MAX_BLOCKS_PER_REQUEST: u64 = 50;
+const BLOCKS_PER_REQUEST: u64 = 50;
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
 /// fully sync'd peer.
-const SLOT_IMPORT_TOLERANCE: usize = 10;
+const SLOT_IMPORT_TOLERANCE: usize = 20;
 /// How many attempts we try to find a parent of a block before we give up trying .
 const PARENT_FAIL_TOLERANCE: usize = 3;
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
@@ -100,13 +100,13 @@ pub enum SyncMessage<T: EthSpec> {
     BlocksByRangeResponse {
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_blocks: Vec<BeaconBlock<T>>,
+        beacon_block: Option<BeaconBlock<T>>,
     },
     /// A `BlocksByRoot` response has been received.
     BlocksByRootResponse {
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_blocks: Vec<BeaconBlock<T>>,
+        beacon_block: Option<BeaconBlock<T>>,
     },
     /// A block with an unknown parent has been received.
     UnknownBlock(PeerId, BeaconBlock<T>),

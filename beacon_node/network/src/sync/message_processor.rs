@@ -7,7 +7,6 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, info, o, trace, warn};
-use smallvec::{smallvec, SmallVec};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
@@ -135,7 +134,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         trace!(self.log, "StatusRequest"; "peer" => format!("{:?}", peer_id));
 
         // Say status back.
-        self.network.send_single_rpc_response(
+        self.network.send_rpc_response(
             peer_id.clone(),
             request_id,
             RPCResponse::Status(status_message(&self.chain)),
@@ -246,36 +245,35 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         request_id: RequestId,
         request: BlocksByRootRequest,
     ) {
-        let response: Vec<RPCResponse> = request
-            .block_roots
-            .iter()
-            .filter_map(|root| {
-                if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
-                    Some(block)
-                } else {
-                    debug!(
-                        self.log,
-                        "Peer requested unknown block";
-                        "peer" => format!("{:?}", peer_id),
-                        "request_root" => format!("{:}", root),
-                    );
-
-                    None
-                }
-            })
-            .map(|block| RPCResponse::BlocksByRoot(Some(block.as_ssz_bytes())))
-            .collect();
-
+        let mut send_block_count = 0;
+        for root in request.block_roots.iter() {
+            if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
+                self.network.send_rpc_response(
+                    peer_id,
+                    request_id,
+                    RPCResponse::BlocksByRoot(Some(block.as_ssz_bytes())),
+                );
+                send_block_count += 1;
+            } else {
+                debug!(
+                    self.log,
+                    "Peer requested unknown block";
+                    "peer" => format!("{:?}", peer_id),
+                    "request_root" => format!("{:}", root),
+                );
+            }
+        }
         debug!(
             self.log,
             "BlocksByRootRequest";
             "peer" => format!("{:?}", peer_id),
             "requested" => request.block_roots.len(),
-            "returned" => response.len(),
+            "returned" => send_block_count,
         );
 
+        // send stream termination
         self.network
-            .send_multiple_rpc_response(peer_id, request_id, response)
+            .send_rpc_response(peer_id, request_id, RPCResponse::BlocksByRoot(None));
     }
 
     /// Handle a `BlocksByRange` request from the peer.
@@ -297,6 +295,10 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         // Currently for skipped slots, the blocks returned could be less than the requested range.
         // In the current implementation we read from the db then filter out out-of-range blocks.
         // Improving the db schema to prevent this would be ideal.
+
+        //TODO: This really needs to be read forward for infinite streams
+        // We should be reading the first block from the db, sending, then reading the next... we
+        // need a forwards iterator!!
 
         let mut blocks: Vec<BeaconBlock<T::EthSpec>> = self
             .chain
@@ -328,20 +330,23 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             self.log,
             "BlocksByRangeRequest response";
             "peer" => format!("{:?}", peer_id),
-            "msg" => "Failed to return all requested hashes",
+            "msg" => "Failed to return all requested blocks",
             "start_slot" => req.start_slot,
             "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
             "requested" => req.count,
             "returned" => blocks.len(),
         );
 
-        let response = blocks
-            .iter()
-            .map(|b| RPCResponse::BlocksByRange(Some(b.as_ssz_bytes())))
-            .collect();
-
+        for block in blocks {
+            self.network.send_rpc_response(
+                peer_id,
+                request_id,
+                RPCResponse::BlocksByRange(Some(block.as_ssz_bytes())),
+            );
+        }
+        // send the stream terminator
         self.network
-            .send_multiple_rpc_response(peer_id, request_id, response)
+            .send_rpc_response(peer_id, request_id, RPCResponse::BlocksByRange(None));
     }
 
     /// Handle a `BlocksByRange` response from the peer.
@@ -349,19 +354,21 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_blocks: Vec<BeaconBlock<T::EthSpec>>,
+        beacon_block: Option<BeaconBlock<T::EthSpec>>,
     ) {
+        /*
         debug!(
             self.log,
             "BlocksByRangeResponse";
             "peer" => format!("{:?}", peer_id),
             "count" => beacon_blocks.len(),
         );
+        */
 
         self.send_to_sync(SyncMessage::BlocksByRangeResponse {
             peer_id,
             request_id,
-            beacon_blocks,
+            beacon_block,
         });
     }
 
@@ -370,19 +377,21 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_blocks: Vec<BeaconBlock<T::EthSpec>>,
+        beacon_block: Option<BeaconBlock<T::EthSpec>>,
     ) {
-        debug!(
+        /* Maybe not for now
+        trace!(
             self.log,
             "BlocksByRootResponse";
             "peer" => format!("{:?}", peer_id),
             "count" => beacon_blocks.len(),
         );
+        */
 
         self.send_to_sync(SyncMessage::BlocksByRootResponse {
             peer_id,
             request_id,
-            beacon_blocks,
+            beacon_block,
         });
     }
 
@@ -529,7 +538,7 @@ impl NetworkContext {
     }
 
     //TODO: Handle Error responses
-    pub fn send_single_rpc_response(
+    pub fn send_rpc_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
@@ -537,26 +546,8 @@ impl NetworkContext {
     ) {
         self.send_rpc_event(
             peer_id,
-            RPCEvent::Response(
-                request_id,
-                smallvec![RPCErrorResponse::Success(rpc_response)],
-            ),
+            RPCEvent::Response(request_id, RPCErrorResponse::Success(rpc_response)),
         );
-    }
-
-    pub fn send_multiple_rpc_response(
-        &mut self,
-        peer_id: PeerId,
-        request_id: RequestId,
-        rpc_response: Vec<RPCResponse>,
-    ) {
-        let response = SmallVec::from_vec(
-            rpc_response
-                .into_iter()
-                .map(|r| RPCErrorResponse::Success(r))
-                .collect::<Vec<_>>(),
-        );
-        self.send_rpc_event(peer_id, RPCEvent::Response(request_id, response));
     }
 
     fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {

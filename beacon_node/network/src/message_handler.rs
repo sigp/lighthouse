@@ -115,9 +115,9 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     /// A new RPC request has been received from the network.
     fn handle_rpc_request(&mut self, peer_id: PeerId, request_id: RequestId, request: RPCRequest) {
         match request {
-            RPCRequest::Hello(hello_message) => {
+            RPCRequest::Status(status_message) => {
                 self.message_processor
-                    .on_hello_request(peer_id, request_id, hello_message)
+                    .on_status_request(peer_id, request_id, status_message)
             }
             RPCRequest::Goodbye(goodbye_reason) => {
                 debug!(
@@ -151,17 +151,17 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             RPCErrorResponse::Unknown(error) => warn!(self.log, "Unknown peer error";"peer" => format!("{:?}", peer_id), "error" => error.as_string()),
             RPCErrorResponse::Success(response) => {
                 match response {
-                    RPCResponse::Hello(hello_message) => {
+                    RPCResponse::Status(status_message) => {
                         self.message_processor
-                            .on_hello_response(peer_id, hello_message);
+                            .on_status_response(peer_id, status_message);
                     }
                     RPCResponse::BlocksByRange(response) => {
-                        match self.decode_beacon_blocks(&response) {
-                            Ok(beacon_blocks) => {
+                        match self.decode_beacon_block(response) {
+                            Ok(beacon_block) => {
                                 self.message_processor.on_blocks_by_range_response(
                                     peer_id,
                                     request_id,
-                                    beacon_blocks,
+                                    beacon_block,
                                 );
                             }
                             Err(e) => {
@@ -171,12 +171,12 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                         }
                     }
                     RPCResponse::BlocksByRoot(response) => {
-                        match self.decode_beacon_blocks(&response) {
-                            Ok(beacon_blocks) => {
+                        match self.decode_beacon_block(response) {
+                            Ok(beacon_block) => {
                                 self.message_processor.on_blocks_by_root_response(
                                     peer_id,
                                     request_id,
-                                    beacon_blocks,
+                                    beacon_block,
                                 );
                             }
                             Err(e) => {
@@ -332,16 +332,17 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 
     /* Req/Resp Domain Decoding  */
 
-    /// Verifies and decodes an ssz-encoded list of `BeaconBlock`s. This list may contain empty
-    /// entries encoded with an SSZ NULL.
-    fn decode_beacon_blocks(
+    /// Verifies and decodes an ssz-encoded `BeaconBlock`. If `None` is passed, this represents a
+    /// stream termination.
+    fn decode_beacon_block(
         &self,
-        beacon_blocks: &[u8],
-    ) -> Result<Vec<BeaconBlock<T::EthSpec>>, DecodeError> {
-        if beacon_blocks.is_empty() {
-            return Ok(Vec::new());
-        }
+        beacon_blocks: Option<Vec<u8>>,
+    ) -> Result<Option<BeaconBlock<T::EthSpec>>, DecodeError> {
         //TODO: Implement faster block verification before decoding entirely
-        Vec::from_ssz_bytes(&beacon_blocks)
+        if let Some(blocks) = beacon_blocks {
+            Ok(Some(BeaconBlock::from_ssz_bytes(&blocks)?))
+        } else {
+            Ok(None)
+        }
     }
 }
