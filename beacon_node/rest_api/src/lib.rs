@@ -21,6 +21,7 @@ use client_network::NetworkMessage;
 use client_network::Service as NetworkService;
 use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
+use futures::future::IntoFuture;
 use hyper::rt::Future;
 use hyper::server::conn::AddrStream;
 use hyper::service::{MakeService, Service};
@@ -33,7 +34,6 @@ use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 use url_query::UrlQuery;
-use futures::future::IntoFuture;
 
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
 pub use config::Config as ApiConfig;
@@ -49,6 +49,14 @@ pub struct ApiService<T: BeaconChainTypes + 'static> {
     network_service: Arc<NetworkService<T>>,
     network_channel: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
     eth2_config: Arc<Eth2Config>,
+}
+
+fn into_boxfut<F: IntoFuture + 'static>(item: F) -> BoxFut
+where
+    F: IntoFuture<Item = Response<Body>, Error = ApiError>,
+    F::Future: Send,
+{
+    Box::new(item.into_future())
 }
 
 impl<T: BeaconChainTypes> Service for ApiService<T> {
@@ -82,20 +90,25 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
         // Route the request to the correct handler.
         let result = match (req.method(), path.as_ref()) {
             // Methods for Client
-            (&Method::GET, "/node/version") => Box::new(node::get_version(req).into_future()),
-            (&Method::GET, "/node/genesis_time") => Box::new(node::get_genesis_time::<T>(req).into_future()),
-            (&Method::GET, "/node/syncing") => Box::new(helpers::implementation_pending_response(req).into_future()),
-            /*
+            (&Method::GET, "/node/version") => into_boxfut(node::get_version(req)),
+            (&Method::GET, "/node/genesis_time") => into_boxfut(node::get_genesis_time::<T>(req)),
+            (&Method::GET, "/node/syncing") => {
+                into_boxfut(helpers::implementation_pending_response(req))
+            }
 
             // Methods for Network
-            (&Method::GET, "/network/enr") => network::get_enr::<T>(req),
-            (&Method::GET, "/network/peer_count") => network::get_peer_count::<T>(req),
-            (&Method::GET, "/network/peer_id") => network::get_peer_id::<T>(req),
-            (&Method::GET, "/network/peers") => network::get_peer_list::<T>(req),
-            (&Method::GET, "/network/listen_port") => network::get_listen_port::<T>(req),
-            (&Method::GET, "/network/listen_addresses") => network::get_listen_addresses::<T>(req),
-
+            (&Method::GET, "/network/enr") => into_boxfut(network::get_enr::<T>(req)),
+            (&Method::GET, "/network/peer_count") => into_boxfut(network::get_peer_count::<T>(req)),
+            (&Method::GET, "/network/peer_id") => into_boxfut(network::get_peer_id::<T>(req)),
+            (&Method::GET, "/network/peers") => into_boxfut(network::get_peer_list::<T>(req)),
+            (&Method::GET, "/network/listen_port") => {
+                into_boxfut(network::get_listen_port::<T>(req))
+            }
+            (&Method::GET, "/network/listen_addresses") => {
+                into_boxfut(network::get_listen_addresses::<T>(req))
+            }
             /*
+
             // Methods for Beacon Node
             (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
             (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),

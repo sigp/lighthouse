@@ -191,13 +191,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         Ok(query) => {
             // We have *some* parameters, just check them.
             let query_params = ["root", "slot"];
-            match query.first_of(&query_params) {
-                Ok((k, v)) => (k, v),
-                Err(e) => {
-                    // Wrong parameters provided, or another error, return the error.
-                    return Err(e);
-                }
-            }
+            query.first_of(&query_params)?
         }
         Err(ApiError::InvalidQueryParams(_)) => {
             // No parameters provided at all, use current slot.

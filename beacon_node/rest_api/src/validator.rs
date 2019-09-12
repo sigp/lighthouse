@@ -1,6 +1,6 @@
 use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, UrlQuery, BoxFut};
+use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
 use beacon_chain::{BeaconChainTypes, BlockProcessingOutcome};
 use bls::{AggregateSignature, PublicKey, Signature};
 use futures::future::Future;
@@ -197,7 +197,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> BoxFut {
     let _ = try_future!(check_content_type_for_json(&req));
     let log = get_logger_from_request(&req);
-    let (beacon_chain, _head_state) = try_future!(get_beacon_chain_from_request::<T>(&req));
+    let beacon_chain = try_future!(get_beacon_chain_from_request::<T>(&req));
     // Get the network sending channel from the request, for later transmission
     let network_chan = req
         .extensions()
@@ -250,8 +250,6 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         }).and_then(|_| {
             response_builder.body_json(&())
         }))
-
-
 }
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.

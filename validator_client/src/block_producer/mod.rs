@@ -63,12 +63,12 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
     pub fn handle_produce_block(&mut self) {
         match self.produce_block() {
             Ok(ValidatorEvent::BlockProduced(slot)) => info!(
-                log,
+                self.log,
                 "Block produced";
                 "validator" => format!("{}", self.signer),
                 "slot" => slot,
             ),
-            Err(e) => error!(log, "Block production error"; "Error" => format!("{:?}", e)),
+            Err(e) => error!(self.log, "Block production error"; "Error" => format!("{:?}", e)),
             Ok(ValidatorEvent::SignerRejection(_slot)) => {
                 error!(self.log, "Block production error"; "Error" => "Signer Could not sign the block".to_string())
             }

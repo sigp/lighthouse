@@ -1,4 +1,6 @@
 use crate::BoxFut;
+use futures::future::IntoFuture;
+use futures::Future;
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use std::error::Error as StdError;
 
