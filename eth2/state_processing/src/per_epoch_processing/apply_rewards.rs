@@ -1,5 +1,5 @@
 use super::validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
-use super::{Error, WinningRootHashSet};
+use super::Error;
 use integer_sqrt::IntegerSquareRoot;
 use types::*;
 
@@ -36,7 +36,6 @@ impl std::ops::AddAssign for Delta {
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
-    winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     if state.current_epoch() == T::genesis_epoch() {
@@ -53,15 +52,13 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
     let mut deltas = vec![Delta::default(); state.balances.len()];
 
     get_attestation_deltas(&mut deltas, state, &validator_statuses, spec)?;
+
+    // Update statuses with the information from winning roots.
+    validator_statuses.process_winning_roots(state, spec)?;
+
     get_crosslink_deltas(&mut deltas, state, &validator_statuses, spec)?;
 
-    get_proposer_deltas(
-        &mut deltas,
-        state,
-        validator_statuses,
-        winning_root_for_shards,
-        spec,
-    )?;
+    get_proposer_deltas(&mut deltas, state, validator_statuses, spec)?;
 
     // Apply the deltas, over-flowing but not under-flowing (saturating at 0 instead).
     for (i, delta) in deltas.iter().enumerate() {
@@ -79,12 +76,8 @@ fn get_proposer_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
-    winning_root_for_shards: &WinningRootHashSet,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // Update statuses with the information from winning roots.
-    validator_statuses.process_winning_roots(state, winning_root_for_shards, spec)?;
-
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
         if validator.is_previous_epoch_attester {
             let inclusion = validator

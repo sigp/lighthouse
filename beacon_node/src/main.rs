@@ -116,6 +116,13 @@ fn main() {
                 .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer without an ENR.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("p2p-priv-key")
+                .long("p2p-priv-key")
+                .value_name("HEX")
+                .help("A secp256k1 secret key, represented as ASCII-encoded hex bytes (with or without 0x prefix).")
+                .takes_value(true),
+        )
         /*
          * gRPC parameters.
          */
@@ -355,13 +362,15 @@ fn main() {
         "Ethereum 2.0 is pre-release. This software is experimental."
     );
 
+    let log_clone = log.clone();
+
     // Load the process-wide configuration.
     //
     // May load this from disk or create a new configuration, depending on the CLI flags supplied.
-    let (client_config, eth2_config) = match get_configs(&matches, &log) {
+    let (client_config, eth2_config, log) = match get_configs(&matches, log) {
         Ok(configs) => configs,
         Err(e) => {
-            crit!(log, "Failed to load configuration"; "error" => e);
+            crit!(log_clone, "Failed to load configuration. Exiting"; "error" => e);
             return;
         }
     };

@@ -8,8 +8,8 @@ use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
-use parking_lot::{RwLock, RwLockReadGuard};
-use slog::{error, info, warn, Logger};
+use parking_lot::RwLock;
+use slog::{error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
@@ -36,6 +36,12 @@ use types::*;
 //
 //                          |-------must be this long------|
 pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
+
+/// If true, everytime a block is processed the pre-state, post-state and block are written to SSZ
+/// files in the temp directory.
+///
+/// Only useful for testing.
+const WRITE_BLOCK_PROCESSING_SSZ: bool = true;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -81,35 +87,6 @@ pub enum AttestationProcessingOutcome {
         finalized: Epoch,
     },
     Invalid(AttestationValidationError),
-}
-
-/// Effectively a `Cow<BeaconState>`, however when it is `Borrowed` it holds a `RwLockReadGuard` (a
-/// read-lock on some read/write-locked state).
-///
-/// Only has a small subset of the functionality of a `std::borrow::Cow`.
-pub enum BeaconStateCow<'a, T: EthSpec> {
-    Borrowed(RwLockReadGuard<'a, CheckPoint<T>>),
-    Owned(BeaconState<T>),
-}
-
-impl<'a, T: EthSpec> BeaconStateCow<'a, T> {
-    pub fn maybe_as_mut_ref(&mut self) -> Option<&mut BeaconState<T>> {
-        match self {
-            BeaconStateCow::Borrowed(_) => None,
-            BeaconStateCow::Owned(ref mut state) => Some(state),
-        }
-    }
-}
-
-impl<'a, T: EthSpec> std::ops::Deref for BeaconStateCow<'a, T> {
-    type Target = BeaconState<T>;
-
-    fn deref(&self) -> &BeaconState<T> {
-        match self {
-            BeaconStateCow::Borrowed(checkpoint) => &checkpoint.beacon_state,
-            BeaconStateCow::Owned(state) => &state,
-        }
-    }
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -332,13 +309,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
     ///     returned may be earlier than the wall-clock slot.
     pub fn rev_iter_block_roots(&self) -> ReverseBlockRootIterator<T::EthSpec, T::Store> {
-        let state = &self.head().beacon_state;
-        let block_root = self.head().beacon_block_root;
-        let block_slot = state.slot;
+        let head = self.head();
 
-        let iter = BlockRootsIterator::owned(self.store.clone(), state.clone());
+        let iter = BlockRootsIterator::owned(self.store.clone(), head.beacon_state);
 
-        ReverseBlockRootIterator::new((block_root, block_slot), iter)
+        ReverseBlockRootIterator::new((head.beacon_block_root, head.beacon_block.slot), iter)
     }
 
     /// Iterates across all `(state_root, slot)` pairs from the head of the chain (inclusive) to
@@ -351,13 +326,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
     ///     returned may be earlier than the wall-clock slot.
     pub fn rev_iter_state_roots(&self) -> ReverseStateRootIterator<T::EthSpec, T::Store> {
-        let state = &self.head().beacon_state;
-        let state_root = self.head().beacon_state_root;
-        let state_slot = state.slot;
+        let head = self.head();
+        let slot = head.beacon_state.slot;
 
-        let iter = StateRootsIterator::owned(self.store.clone(), state.clone());
+        let iter = StateRootsIterator::owned(self.store.clone(), head.beacon_state);
 
-        ReverseStateRootIterator::new((state_root, state_slot), iter)
+        ReverseStateRootIterator::new((head.beacon_state_root, slot), iter)
     }
 
     /// Returns the block at the given root, if any.
@@ -372,32 +346,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get(block_root)?)
     }
 
-    /// Returns a read-lock guarded `CheckPoint` struct for reading the head (as chosen by the
-    /// fork-choice rule).
+    /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";
+    /// the head of the canonical `BeaconChain`.
     ///
     /// It is important to note that the `beacon_state` returned may not match the present slot. It
     /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
-    pub fn head<'a>(&'a self) -> RwLockReadGuard<'a, CheckPoint<T::EthSpec>> {
-        self.canonical_head.read()
+    pub fn head(&self) -> CheckPoint<T::EthSpec> {
+        self.canonical_head.read().clone()
     }
 
     /// Returns the `BeaconState` at the given slot.
     ///
-    /// May return:
-    ///
-    ///  - A new state loaded from the database (for states prior to the head)
-    ///  - A reference to the head state (note: this keeps a read lock on the head, try to use
-    ///  sparingly).
-    ///  - The head state, but with skipped slots (for states later than the head).
-    ///
     ///  Returns `None` when the state is not found in the database or there is an error skipping
     ///  to a future state.
-    pub fn state_at_slot(&self, slot: Slot) -> Result<BeaconStateCow<T::EthSpec>, Error> {
-        let head_state = &self.head().beacon_state;
+    pub fn state_at_slot(&self, slot: Slot) -> Result<BeaconState<T::EthSpec>, Error> {
+        let head_state = self.head().beacon_state;
 
         if slot == head_state.slot {
-            Ok(BeaconStateCow::Borrowed(self.head()))
+            Ok(head_state)
         } else if slot > head_state.slot {
             let head_state_slot = head_state.slot;
             let mut state = head_state.clone();
@@ -417,7 +384,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                 };
             }
-            Ok(BeaconStateCow::Owned(state))
+            Ok(state)
         } else {
             let state_root = self
                 .rev_iter_state_roots()
@@ -425,11 +392,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map(|(root, _slot)| root)
                 .ok_or_else(|| Error::NoStateForSlot(slot))?;
 
-            Ok(BeaconStateCow::Owned(
-                self.store
-                    .get(&state_root)?
-                    .ok_or_else(|| Error::NoStateForSlot(slot))?,
-            ))
+            Ok(self
+                .store
+                .get(&state_root)?
+                .ok_or_else(|| Error::NoStateForSlot(slot))?)
         }
     }
 
@@ -441,7 +407,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     ///  Returns `None` when there is an error skipping to a future state or the slot clock cannot
     ///  be read.
-    pub fn state_now(&self) -> Result<BeaconStateCow<T::EthSpec>, Error> {
+    pub fn wall_clock_state(&self) -> Result<BeaconState<T::EthSpec>, Error> {
         self.state_at_slot(self.slot()?)
     }
 
@@ -493,14 +459,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_state = &self.head().beacon_state;
 
         let mut state = if epoch(slot) == epoch(head_state.slot) {
-            BeaconStateCow::Borrowed(self.head())
+            self.head().beacon_state.clone()
         } else {
             self.state_at_slot(slot)?
         };
 
-        if let Some(state) = state.maybe_as_mut_ref() {
-            state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-        }
+        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         if epoch(state.slot) != epoch(slot) {
             return Err(Error::InvariantViolated(format!(
@@ -528,14 +492,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_state = &self.head().beacon_state;
 
         let mut state = if epoch == as_epoch(head_state.slot) {
-            BeaconStateCow::Borrowed(self.head())
+            self.head().beacon_state.clone()
         } else {
             self.state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))?
         };
 
-        if let Some(state) = state.maybe_as_mut_ref() {
-            state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-        }
+        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         if as_epoch(state.slot) != epoch {
             return Err(Error::InvariantViolated(format!(
@@ -563,11 +525,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
     ) -> Result<AttestationData, Error> {
         let state = self.state_at_slot(slot)?;
+        let head = self.head();
 
-        let head_block_root = self.head().beacon_block_root;
-        let head_block_slot = self.head().beacon_block.slot;
-
-        self.produce_attestation_data_for_block(shard, head_block_root, head_block_slot, &*state)
+        self.produce_attestation_data_for_block(
+            shard,
+            head.beacon_block_root,
+            head.beacon_block.slot,
+            &state,
+        )
     }
 
     /// Produce an `AttestationData` that attests to the chain denoted by `block_root` and `state`.
@@ -632,6 +597,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Collect some metrics.
         metrics::inc_counter(&metrics::ATTESTATION_PRODUCTION_SUCCESSES);
         metrics::stop_timer(timer);
+
+        trace!(
+            self.log,
+            "Produced beacon attestation data";
+            "beacon_block_root" => format!("{}", head_block_root),
+            "shard" => shard,
+            "slot" => state.slot
+        );
 
         Ok(AttestationData {
             beacon_block_root: head_block_root,
@@ -745,7 +718,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // has a higher slot than the attestation.
             //
             // Permitting this would allow for attesters to vote on _future_ slots.
-            if attestation_slot > state.slot {
+            if state.slot > attestation_slot {
                 Ok(AttestationProcessingOutcome::AttestsToFutureState {
                     state: state.slot,
                     attestation: attestation_slot,
@@ -886,10 +859,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
     pub fn process_voluntary_exit(&self, exit: VoluntaryExit) -> Result<(), ExitValidationError> {
-        match self.state_now() {
-            Ok(state) => self
-                .op_pool
-                .insert_voluntary_exit(exit, &*state, &self.spec),
+        match self.wall_clock_state() {
+            Ok(state) => self.op_pool.insert_voluntary_exit(exit, &state, &self.spec),
             Err(e) => {
                 error!(
                     &self.log,
@@ -904,8 +875,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Accept some transfer and queue it for inclusion in an appropriate block.
     pub fn process_transfer(&self, transfer: Transfer) -> Result<(), TransferValidationError> {
-        match self.state_now() {
-            Ok(state) => self.op_pool.insert_transfer(transfer, &*state, &self.spec),
+        match self.wall_clock_state() {
+            Ok(state) => self.op_pool.insert_transfer(transfer, &state, &self.spec),
             Err(e) => {
                 error!(
                     &self.log,
@@ -923,10 +894,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         proposer_slashing: ProposerSlashing,
     ) -> Result<(), ProposerSlashingValidationError> {
-        match self.state_now() {
+        match self.wall_clock_state() {
             Ok(state) => {
                 self.op_pool
-                    .insert_proposer_slashing(proposer_slashing, &*state, &self.spec)
+                    .insert_proposer_slashing(proposer_slashing, &state, &self.spec)
             }
             Err(e) => {
                 error!(
@@ -945,10 +916,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attester_slashing: AttesterSlashing<T::EthSpec>,
     ) -> Result<(), AttesterSlashingValidationError> {
-        match self.state_now() {
+        match self.wall_clock_state() {
             Ok(state) => {
                 self.op_pool
-                    .insert_attester_slashing(attester_slashing, &*state, &self.spec)
+                    .insert_attester_slashing(attester_slashing, &state, &self.spec)
             }
             Err(e) => {
                 error!(
@@ -1264,6 +1235,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
         metrics::stop_timer(timer);
 
+        trace!(
+            self.log,
+            "Produced beacon block";
+            "parent" => format!("{}", block.parent_root),
+            "attestations" => block.body.attestations.len(),
+            "slot" => block.slot
+        );
+
         Ok((block, state))
     }
 
@@ -1301,15 +1280,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 warn!(
                     self.log,
                     "Beacon chain re-org";
+                    "previous_head" => format!("{}", self.head().beacon_block_root),
                     "previous_slot" => previous_slot,
+                    "new_head_parent" => format!("{}", beacon_block.parent_root),
+                    "new_head" => format!("{}", beacon_block_root),
                     "new_slot" => new_slot
                 );
             } else {
                 info!(
                     self.log,
-                    "new head block";
+                    "New head beacon block";
                     "justified_root" => format!("{}", beacon_state.current_justified_checkpoint.root),
+                    "justified_epoch" => beacon_state.current_justified_checkpoint.epoch,
                     "finalized_root" => format!("{}", beacon_state.finalized_checkpoint.root),
+                    "finalized_epoch" => beacon_state.finalized_checkpoint.epoch,
                     "root" => format!("{}", beacon_block_root),
                     "slot" => new_slot,
                 );
@@ -1359,9 +1343,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         new_head.beacon_state.build_all_caches(&self.spec)?;
 
+        trace!(self.log, "Taking write lock on head");
+
         // Update the checkpoint that stores the head of the chain at the time it received the
         // block.
         *self.canonical_head.write() = new_head;
+
+        trace!(self.log, "Dropping write lock on head");
 
         // Save `self` to `self.store`.
         self.persist()?;
@@ -1463,41 +1451,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 }
 
 fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
-    let root = Hash256::from_slice(&state.tree_hash_root());
-    let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot, root);
-    let mut path = std::env::temp_dir().join("lighthouse");
-    let _ = fs::create_dir_all(path.clone());
-    path = path.join(filename);
+    if WRITE_BLOCK_PROCESSING_SSZ {
+        let root = Hash256::from_slice(&state.tree_hash_root());
+        let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot, root);
+        let mut path = std::env::temp_dir().join("lighthouse");
+        let _ = fs::create_dir_all(path.clone());
+        path = path.join(filename);
 
-    match fs::File::create(path.clone()) {
-        Ok(mut file) => {
-            let _ = file.write_all(&state.as_ssz_bytes());
+        match fs::File::create(path.clone()) {
+            Ok(mut file) => {
+                let _ = file.write_all(&state.as_ssz_bytes());
+            }
+            Err(e) => error!(
+                log,
+                "Failed to log state";
+                "path" => format!("{:?}", path),
+                "error" => format!("{:?}", e)
+            ),
         }
-        Err(e) => error!(
-            log,
-            "Failed to log state";
-            "path" => format!("{:?}", path),
-            "error" => format!("{:?}", e)
-        ),
     }
 }
 
 fn write_block<T: EthSpec>(block: &BeaconBlock<T>, root: Hash256, log: &Logger) {
-    let filename = format!("block_slot_{}_root{}.ssz", block.slot, root);
-    let mut path = std::env::temp_dir().join("lighthouse");
-    let _ = fs::create_dir_all(path.clone());
-    path = path.join(filename);
+    if WRITE_BLOCK_PROCESSING_SSZ {
+        let filename = format!("block_slot_{}_root{}.ssz", block.slot, root);
+        let mut path = std::env::temp_dir().join("lighthouse");
+        let _ = fs::create_dir_all(path.clone());
+        path = path.join(filename);
 
-    match fs::File::create(path.clone()) {
-        Ok(mut file) => {
-            let _ = file.write_all(&block.as_ssz_bytes());
+        match fs::File::create(path.clone()) {
+            Ok(mut file) => {
+                let _ = file.write_all(&block.as_ssz_bytes());
+            }
+            Err(e) => error!(
+                log,
+                "Failed to log block";
+                "path" => format!("{:?}", path),
+                "error" => format!("{:?}", e)
+            ),
         }
-        Err(e) => error!(
-            log,
-            "Failed to log block";
-            "path" => format!("{:?}", path),
-            "error" => format!("{:?}", e)
-        ),
     }
 }
 
