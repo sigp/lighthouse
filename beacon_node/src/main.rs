@@ -357,6 +357,14 @@ fn main() {
 
     let log = slog::Logger::root(drain.fuse(), o!());
 
+    if std::mem::size_of::<usize>() != 8 {
+        crit!(
+            log,
+            "Lighthouse only supports 64bit CPUs";
+            "detected" => format!("{}bit", std::mem::size_of::<usize>() * 8)
+        );
+    }
+
     warn!(
         log,
         "Ethereum 2.0 is pre-release. This software is experimental."
