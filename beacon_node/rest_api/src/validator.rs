@@ -149,11 +149,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 
         duties.append(&mut vec![duty]);
     }
-    let body = Body::from(
-        serde_json::to_string(&duties)
-            .expect("We should always be able to serialize the duties we created."),
-    );
-    Ok(success_response_old(body))
+    ResponseBuilder::new(&req).body_json(&duties)
 }
 
 /// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
@@ -189,10 +185,6 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
             ))
         })?;
 
-    let body = Body::from(
-        serde_json::to_string(&new_block)
-            .expect("We should always be able to serialize a new block that we produced."),
-    );
     ResponseBuilder::new(&req).body(&new_block)
 }
 
@@ -359,9 +351,5 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         signature: AggregateSignature::new(),
     };
 
-    let body = Body::from(
-        serde_json::to_string(&attestation)
-            .expect("We should always be able to serialize a new attestation that we produced."),
-    );
-    Ok(success_response_old(body))
+    ResponseBuilder::new(&req).body(&attestation)
 }

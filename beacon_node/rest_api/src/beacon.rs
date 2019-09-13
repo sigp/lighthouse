@@ -55,10 +55,7 @@ pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
         previous_justified_block_root: chain_head.beacon_state.previous_justified_checkpoint.root,
     };
 
-    let json: String = serde_json::to_string(&head)
-        .map_err(|e| ApiError::ServerError(format!("Unable to serialize HeadResponse: {:?}", e)))?;
-
-    Ok(success_response_old(Body::from(json)))
+    ResponseBuilder::new(&req).body(&head)
 }
 
 #[derive(Serialize, Encode)]
@@ -119,10 +116,7 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
         ApiError::NotFound(format!("Unable to find BeaconBlock for slot {:?}", target))
     })?;
 
-    let json: String = serde_json::to_string(&root)
-        .map_err(|e| ApiError::ServerError(format!("Unable to serialize root: {:?}", e)))?;
-
-    Ok(success_response_old(Body::from(json)))
+    ResponseBuilder::new(&req).body(&root)
 }
 
 /// HTTP handler to return the `Fork` of the current head.
@@ -231,10 +225,7 @@ pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 
     let root = state_root_at_slot(&beacon_chain, slot)?;
 
-    let json: String = serde_json::to_string(&root)
-        .map_err(|e| ApiError::ServerError(format!("Unable to serialize root: {:?}", e)))?;
-
-    Ok(success_response_old(Body::from(json)))
+    ResponseBuilder::new(&req).body(&root)
 }
 
 /// HTTP handler to return the highest finalized slot.
@@ -246,10 +237,7 @@ pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
 
     let checkpoint = head_state.finalized_checkpoint.clone();
 
-    let json: String = serde_json::to_string(&checkpoint)
-        .map_err(|e| ApiError::ServerError(format!("Unable to serialize checkpoint: {:?}", e)))?;
-
-    Ok(success_response_old(Body::from(json)))
+    ResponseBuilder::new(&req).body(&checkpoint)
 }
 
 /// HTTP handler to return a `BeaconState` at the genesis block.
