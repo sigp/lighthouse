@@ -1,10 +1,10 @@
 use crate::helpers::{
     check_content_type_for_json, get_beacon_chain_from_request, get_logger_from_request,
-    parse_pubkey, publish_beacon_block_to_network,
+    parse_pubkey, publish_attestation_to_network, publish_beacon_block_to_network,
 };
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
-use beacon_chain::{BeaconChainTypes, BlockProcessingOutcome};
+use beacon_chain::{AttestationProcessingOutcome, BeaconChainTypes, BlockProcessingOutcome};
 use bls::{AggregateSignature, PublicKey, Signature};
 use futures::future::Future;
 use futures::stream::Stream;
@@ -228,16 +228,16 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
                     publish_beacon_block_to_network::<T>(network_chan, block)
                 }
                 Ok(outcome) => {
-                    warn!(log, "Block could not be processed, but is being sent to the network anyway."; "block_slot" => slot, "outcome" => format!("{:?}", outcome));
-                    //TODO need to send to network and return http 202
-                    Err(ApiError::BadRequest(format!(
-                        "The BeaconBlock could not be processed: {:?}",
+                    warn!(log, "BeaconBlock could not be processed, but is being sent to the network anyway."; "outcome" => format!("{:?}", outcome));
+                    publish_beacon_block_to_network::<T>(network_chan, block)?;
+                    Err(ApiError::ProcessingError(format!(
+                        "The BeaconBlock could not be processed, but has still been published: {:?}",
                         outcome
                     )))
                 }
                 Err(e) => {
                     Err(ApiError::ServerError(format!(
-                        "Unable to process block: {:?}",
+                        "Error while processing block: {:?}",
                         e
                     )))
                 }
@@ -350,4 +350,62 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
     };
 
     ResponseBuilder::new(&req)?.body(&attestation)
+}
+
+/// HTTP Handler to publish an Attestation, which has been signed by a validator.
+pub fn publish_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> BoxFut {
+    let _ = try_future!(check_content_type_for_json(&req));
+    let log = get_logger_from_request(&req);
+    let beacon_chain = try_future!(get_beacon_chain_from_request::<T>(&req));
+    // Get the network sending channel from the request, for later transmission
+    let network_chan = req
+        .extensions()
+        .get::<Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>>()
+        .expect("Should always get the network channel from the request, since we put it in there.")
+        .clone();
+
+    let response_builder = ResponseBuilder::new(&req);
+
+    let body = req.into_body();
+    trace!(
+        log,
+        "Got the request body, now going to parse it into an attesation."
+    );
+    Box::new(body
+        .concat2()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}",e)))
+        .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
+        .and_then(|chunks| {
+            serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
+                ApiError::BadRequest(format!(
+                    "Unable to deserialize JSON into a BeaconBlock: {:?}",
+                    e
+                ))
+            })
+        })
+        .and_then(move |attestation: Attestation<T::EthSpec>| {
+            match beacon_chain.process_attestation(attestation.clone()) {
+                Ok(AttestationProcessingOutcome::Processed) => {
+                    // Block was processed, publish via gossipsub
+                    info!(log, "Processed valid attestation from API, transmitting to network.");
+                    publish_attestation_to_network::<T>(network_chan, attestation)
+                }
+                Ok(outcome) => {
+                    warn!(log, "Attestation could not be processed, but is being sent to the network anyway."; "outcome" => format!("{:?}", outcome));
+                    publish_attestation_to_network::<T>(network_chan, attestation)?;
+                    Err(ApiError::ProcessingError(format!(
+                        "The Attestation could not be processed, but has still been published: {:?}",
+                        outcome
+                    )))
+                }
+                Err(e) => {
+                    Err(ApiError::ServerError(format!(
+                        "Error while processing attestation: {:?}",
+                        e
+                    )))
+                }
+            }
+        }).and_then(|_| {
+        response_builder?.body_no_ssz(&())
+    }))
 }
