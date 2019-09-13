@@ -55,7 +55,7 @@ pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
         previous_justified_block_root: chain_head.beacon_state.previous_justified_checkpoint.root,
     };
 
-    ResponseBuilder::new(&req).body(&head)
+    ResponseBuilder::new(&req)?.body(&head)
 }
 
 #[derive(Serialize, Encode)]
@@ -102,7 +102,7 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         beacon_block: block,
     };
 
-    ResponseBuilder::new(&req).body(&response)
+    ResponseBuilder::new(&req)?.body(&response)
 }
 
 /// HTTP handler to return a `BeaconBlock` root at a given `slot`.
@@ -116,13 +116,13 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
         ApiError::NotFound(format!("Unable to find BeaconBlock for slot {:?}", target))
     })?;
 
-    ResponseBuilder::new(&req).body(&root)
+    ResponseBuilder::new(&req)?.body(&root)
 }
 
 /// HTTP handler to return the `Fork` of the current head.
 pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    ResponseBuilder::new(&req).body(&beacon_chain.head().beacon_state.fork)
+    ResponseBuilder::new(&req)?.body(&beacon_chain.head().beacon_state.fork)
 }
 
 /// HTTP handler to return the set of validators for an `Epoch`
@@ -157,7 +157,7 @@ pub fn get_validators<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
         .cloned()
         .collect();
 
-    ResponseBuilder::new(&req).body(&active_vals)
+    ResponseBuilder::new(&req)?.body(&active_vals)
 }
 
 #[derive(Serialize, Encode)]
@@ -210,7 +210,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
         beacon_state: state,
     };
 
-    ResponseBuilder::new(&req).body(&response)
+    ResponseBuilder::new(&req)?.body(&response)
 }
 
 /// HTTP handler to return a `BeaconState` root at a given `slot`.
@@ -225,7 +225,7 @@ pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 
     let root = state_root_at_slot(&beacon_chain, slot)?;
 
-    ResponseBuilder::new(&req).body(&root)
+    ResponseBuilder::new(&req)?.body(&root)
 }
 
 /// HTTP handler to return the highest finalized slot.
@@ -237,7 +237,7 @@ pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
 
     let checkpoint = head_state.finalized_checkpoint.clone();
 
-    ResponseBuilder::new(&req).body(&checkpoint)
+    ResponseBuilder::new(&req)?.body(&checkpoint)
 }
 
 /// HTTP handler to return a `BeaconState` at the genesis block.
@@ -246,5 +246,5 @@ pub fn get_genesis_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> A
 
     let (_root, state) = state_at_slot(&beacon_chain, Slot::new(0))?;
 
-    ResponseBuilder::new(&req).body(&state)
+    ResponseBuilder::new(&req)?.body(&state)
 }

@@ -15,7 +15,7 @@ pub fn get_listen_addresses<T: BeaconChainTypes>(req: Request<Body>) -> ApiResul
         .get::<Arc<NetworkService<T>>>()
         .expect("The network service should always be there, we put it there");
     let multiaddresses: Vec<Multiaddr> = network.listen_multiaddrs();
-    ResponseBuilder::new(&req).body_json(&multiaddresses)
+    ResponseBuilder::new(&req)?.body_no_ssz(&multiaddresses)
 }
 
 /// HTTP handler to return the network port the client is listening on.
@@ -27,7 +27,7 @@ pub fn get_listen_port<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
         .get::<Arc<NetworkService<T>>>()
         .expect("The network service should always be there, we put it there")
         .clone();
-    ResponseBuilder::new(&req).body(&network.listen_port())
+    ResponseBuilder::new(&req)?.body(&network.listen_port())
 }
 
 /// HTTP handler to return the Discv5 ENR from the client's libp2p service.
@@ -38,7 +38,7 @@ pub fn get_enr<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
         .extensions()
         .get::<Arc<NetworkService<T>>>()
         .expect("The network service should always be there, we put it there");
-    ResponseBuilder::new(&req).body_json(&network.local_enr().to_base64())
+    ResponseBuilder::new(&req)?.body_no_ssz(&network.local_enr().to_base64())
 }
 
 /// HTTP handler to return the `PeerId` from the client's libp2p service.
@@ -49,7 +49,7 @@ pub fn get_peer_id<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
         .extensions()
         .get::<Arc<NetworkService<T>>>()
         .expect("The network service should always be there, we put it there");
-    ResponseBuilder::new(&req).body_json(&network.local_peer_id().to_base58())
+    ResponseBuilder::new(&req)?.body_no_ssz(&network.local_peer_id().to_base58())
 }
 
 /// HTTP handler to return the number of peers connected in the client's libp2p service.
@@ -58,7 +58,7 @@ pub fn get_peer_count<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
         .extensions()
         .get::<Arc<NetworkService<T>>>()
         .expect("The network service should always be there, we put it there");
-    ResponseBuilder::new(&req).body(&network.connected_peers())
+    ResponseBuilder::new(&req)?.body(&network.connected_peers())
 }
 
 /// HTTP handler to return the list of peers connected to the client's libp2p service.
@@ -74,5 +74,5 @@ pub fn get_peer_list<T: BeaconChainTypes>(req: Request<Body>) -> ApiResult {
         .iter()
         .map(PeerId::to_string)
         .collect();
-    ResponseBuilder::new(&req).body_json(&connected_peers)
+    ResponseBuilder::new(&req)?.body_no_ssz(&connected_peers)
 }

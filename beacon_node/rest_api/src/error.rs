@@ -9,6 +9,7 @@ pub enum ApiError {
     NotImplemented(String),
     InvalidQueryParams(String),
     NotFound(String),
+    UnsupportedType(String),
     ImATeapot(String), // Just in case.
 }
 
@@ -22,6 +23,7 @@ impl ApiError {
             ApiError::NotImplemented(desc) => (StatusCode::NOT_IMPLEMENTED, desc),
             ApiError::InvalidQueryParams(desc) => (StatusCode::BAD_REQUEST, desc),
             ApiError::NotFound(desc) => (StatusCode::NOT_FOUND, desc),
+            ApiError::UnsupportedType(desc) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, desc),
             ApiError::ImATeapot(desc) => (StatusCode::IM_A_TEAPOT, desc),
         }
     }
