@@ -127,13 +127,7 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 /// HTTP handler to return the `Fork` of the current head.
 pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let head_state = get_head_state(beacon_chain)?;
-
-    let json: String = serde_json::to_string(&head_state.fork).map_err(|e| {
-        ApiError::ServerError(format!("Unable to serialize BeaconState::Fork: {:?}", e))
-    })?;
-
-    Ok(success_response(Body::from(json)))
+    ResponseBuilder::new(&req).body(&beacon_chain.head().beacon_state)
 }
 
 /// HTTP handler to return the set of validators for an `Epoch`
