@@ -2,15 +2,19 @@
 extern crate log;
 
 mod parse_hex;
+mod pycli;
 mod transition_blocks;
 
 use clap::{App, Arg, SubCommand};
 use parse_hex::run_parse_hex;
+use pycli::run_pycli;
 use std::fs::File;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transition_blocks::run_transition_blocks;
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
+
+type LocalEthSpec = MinimalEthSpec;
 
 fn main() {
     simple_logger::init().expect("logger should initialize");
@@ -111,6 +115,21 @@ fn main() {
                         .help("SSZ encoded as 0x-prefixed hex"),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("pycli")
+                .about("TODO")
+                .version("0.1.0")
+                .author("Paul Hauner <paul@sigmaprime.io>")
+                .arg(
+                    Arg::with_name("pycli-path")
+                        .long("pycli-path")
+                        .short("p")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .default_value("../../pycli")
+                        .help("Path to the pycli repository."),
+                ),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -157,6 +176,8 @@ fn main() {
         ("pretty-hex", Some(matches)) => {
             run_parse_hex(matches).unwrap_or_else(|e| error!("Failed to pretty print hex: {}", e))
         }
+        ("pycli", Some(matches)) => run_pycli::<LocalEthSpec>(matches)
+            .unwrap_or_else(|e| error!("Failed to run pycli: {}", e)),
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
 }
