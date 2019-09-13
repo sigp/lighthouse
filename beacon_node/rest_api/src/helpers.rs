@@ -21,7 +21,7 @@ pub fn parse_slot(string: &str) -> Result<Slot, ApiError> {
     string
         .parse::<u64>()
         .map(Slot::from)
-        .map_err(|e| ApiError::InvalidQueryParams(format!("Unable to parse slot: {:?}", e)))
+        .map_err(|e| ApiError::BadRequest(format!("Unable to parse slot: {:?}", e)))
 }
 
 /// Checks the provided request to ensure that the `content-type` header.
@@ -31,7 +31,7 @@ pub fn parse_slot(string: &str) -> Result<Slot, ApiError> {
 pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
     match req.headers().get(header::CONTENT_TYPE) {
         Some(h) if h == "application/json" => Ok(()),
-        Some(h) => Err(ApiError::InvalidQueryParams(format!(
+        Some(h) => Err(ApiError::BadRequest(format!(
             "The provided content-type {:?} is not available, this endpoint only supports json.",
             h
         ))),
@@ -49,9 +49,9 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
         let trimmed = string.trim_start_matches(PREFIX);
         trimmed
             .parse()
-            .map_err(|e| ApiError::InvalidQueryParams(format!("Unable to parse root: {:?}", e)))
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse root: {:?}", e)))
     } else {
-        Err(ApiError::InvalidQueryParams(
+        Err(ApiError::BadRequest(
             "Root must have a  '0x' prefix".to_string(),
         ))
     }
@@ -62,13 +62,13 @@ pub fn parse_pubkey(string: &str) -> Result<PublicKey, ApiError> {
     const PREFIX: &str = "0x";
     if string.starts_with(PREFIX) {
         let pubkey_bytes = hex::decode(string.trim_start_matches(PREFIX))
-            .map_err(|e| ApiError::InvalidQueryParams(format!("Invalid hex string: {:?}", e)))?;
+            .map_err(|e| ApiError::BadRequest(format!("Invalid hex string: {:?}", e)))?;
         let pubkey = PublicKey::from_bytes(pubkey_bytes.as_slice()).map_err(|e| {
-            ApiError::InvalidQueryParams(format!("Unable to deserialize public key: {:?}.", e))
+            ApiError::BadRequest(format!("Unable to deserialize public key: {:?}.", e))
         })?;
         return Ok(pubkey);
     } else {
-        return Err(ApiError::InvalidQueryParams(
+        return Err(ApiError::BadRequest(
             "Public key must have a  '0x' prefix".to_string(),
         ));
     }
@@ -145,7 +145,7 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         //
         // We could actually speculate about future state roots by skipping slots, however that's
         // likely to cause confusion for API users.
-        Err(ApiError::InvalidQueryParams(format!(
+        Err(ApiError::BadRequest(format!(
             "Requested slot {} is past the current slot {}",
             slot, current_slot
         )))

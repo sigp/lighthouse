@@ -17,22 +17,23 @@ pub struct ResponseBuilder {
 
 impl ResponseBuilder {
     pub fn new(req: &Request<Body>) -> Result<Self, ApiError> {
-        let content_header = req
+        let content_header: String = req
             .headers()
             .get(header::CONTENT_TYPE)
             .map_or(Ok(""), |h| h.to_str())
             .map_err(|e| {
-                ApiError::InvalidQueryParams(format!(
+                ApiError::BadRequest(format!(
                     "The content-type header contains invalid characters: {:?}",
                     e
                 ))
             })
             .map(|h| String::from(h))?;
 
+        // JSON is our default encoding, unless something else is requested.
         let encoding = match content_header {
             ref h if h.starts_with("application/ssz") => Encoding::SSZ,
             ref h if h.starts_with("application/yaml") => Encoding::YAML,
-            ref h if h.starts_with("text/plain") => Encoding::TEXT,
+            ref h if h.starts_with("text/") => Encoding::TEXT,
             _ => Encoding::JSON,
         };
         Ok(Self { encoding })
