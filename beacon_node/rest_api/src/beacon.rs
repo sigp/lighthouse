@@ -122,7 +122,7 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 /// HTTP handler to return the `Fork` of the current head.
 pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    ResponseBuilder::new(&req).body(&beacon_chain.head().beacon_state)
+    ResponseBuilder::new(&req).body(&beacon_chain.head().beacon_state.fork)
 }
 
 /// HTTP handler to return the set of validators for an `Epoch`
