@@ -152,7 +152,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 
         duties.append(&mut vec![duty]);
     }
-    ResponseBuilder::new(&req).body_json(&duties)
+    ResponseBuilder::new(&req)?.body_no_ssz(&duties)
 }
 
 /// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
@@ -188,7 +188,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
             ))
         })?;
 
-    ResponseBuilder::new(&req).body(&new_block)
+    ResponseBuilder::new(&req)?.body(&new_block)
 }
 
 /// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
@@ -246,7 +246,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
                 }
             }
         }).and_then(|_| {
-            response_builder.body_json(&())
+            response_builder?.body_no_ssz(&())
         }))
 }
 
@@ -354,5 +354,5 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         signature: AggregateSignature::new(),
     };
 
-    ResponseBuilder::new(&req).body(&attestation)
+    ResponseBuilder::new(&req)?.body(&attestation)
 }

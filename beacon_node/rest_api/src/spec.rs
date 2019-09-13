@@ -11,7 +11,7 @@ use types::EthSpec;
 /// HTTP handler to return the full spec object.
 pub fn get_spec<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    ResponseBuilder::new(&req).body_json(&beacon_chain.spec)
+    ResponseBuilder::new(&req)?.body_no_ssz(&beacon_chain.spec)
 }
 
 /// HTTP handler to return the full Eth2Config object.
@@ -21,10 +21,10 @@ pub fn get_eth2_config<T: BeaconChainTypes + 'static>(req: Request<Body>) -> Api
         .get::<Arc<Eth2Config>>()
         .ok_or_else(|| ApiError::ServerError("Eth2Config extension missing".to_string()))?;
 
-    ResponseBuilder::new(&req).body_json(eth2_config.as_ref())
+    ResponseBuilder::new(&req)?.body_no_ssz(eth2_config.as_ref())
 }
 
 /// HTTP handler to return the full spec object.
 pub fn get_slots_per_epoch<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    ResponseBuilder::new(&req).body(&T::EthSpec::slots_per_epoch())
+    ResponseBuilder::new(&req)?.body(&T::EthSpec::slots_per_epoch())
 }

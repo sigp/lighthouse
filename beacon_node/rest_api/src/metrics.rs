@@ -62,6 +62,6 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
         .unwrap();
 
     String::from_utf8(buffer)
-        .map(|string| ResponseBuilder::new(&req).body_text(string))
+        .map(|string| ResponseBuilder::new(&req)?.body_text(string))
         .map_err(|e| ApiError::ServerError(format!("Failed to encode prometheus info: {:?}", e)))?
 }
