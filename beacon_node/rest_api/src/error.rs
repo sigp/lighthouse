@@ -10,7 +10,8 @@ pub enum ApiError {
     BadRequest(String),
     NotFound(String),
     UnsupportedType(String),
-    ImATeapot(String), // Just in case.
+    ImATeapot(String),       // Just in case.
+    ProcessingError(String), // A 202 error, for when a block/attestation cannot be processed, but still transmitted.
 }
 
 pub type ApiResult = Result<Response<Body>, ApiError>;
@@ -25,6 +26,7 @@ impl ApiError {
             ApiError::NotFound(desc) => (StatusCode::NOT_FOUND, desc),
             ApiError::UnsupportedType(desc) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, desc),
             ApiError::ImATeapot(desc) => (StatusCode::IM_A_TEAPOT, desc),
+            ApiError::ProcessingError(desc) => (StatusCode::ACCEPTED, desc),
         }
     }
 }
@@ -34,7 +36,7 @@ impl Into<Response<Body>> for ApiError {
         let status_code = self.status_code();
         Response::builder()
             .status(status_code.0)
-            .header("content-type", "text/plain")
+            .header("content-type", "text/plain; charset=utf-8")
             .body(Body::from(status_code.1))
             .expect("Response should always be created.")
     }

@@ -2,7 +2,9 @@ use crate::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKey;
 use eth2_libp2p::{PubsubMessage, Topic};
-use eth2_libp2p::{BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX};
+use eth2_libp2p::{
+    BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX,
+};
 use hex;
 use http::header;
 use hyper::{Body, Request};
@@ -12,7 +14,7 @@ use ssz::Encode;
 use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
-use types::{BeaconBlock, BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
+use types::{Attestation, BeaconBlock, BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// Parse a slot from a `0x` preixed string.
 ///
@@ -227,10 +229,36 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     // Publish the block to the p2p network via gossipsub.
     if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
         topics: vec![topic],
-        message: message,
+        message,
     }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new block to network: {:?}",
+            e
+        )));
+    }
+
+    Ok(())
+}
+
+pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
+    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
+    attestation: Attestation<T::EthSpec>,
+) -> Result<(), ApiError> {
+    // create the network topic to send on
+    let topic_string = format!(
+        "/{}/{}/{}",
+        TOPIC_PREFIX, BEACON_ATTESTATION_TOPIC, TOPIC_ENCODING_POSTFIX
+    );
+    let topic = Topic::new(topic_string);
+    let message = PubsubMessage::Attestation(attestation.as_ssz_bytes());
+
+    // Publish the attestation to the p2p network via gossipsub.
+    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
+        topics: vec![topic],
+        message,
+    }) {
+        return Err(ApiError::ServerError(format!(
+            "Unable to send new attestation to network: {:?}",
             e
         )));
     }

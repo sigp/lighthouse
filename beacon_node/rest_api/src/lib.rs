@@ -140,7 +140,7 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
                 into_boxfut(validator::get_new_attestation::<T>(req))
             }
             (&Method::POST, "/beacon/validator/attestation") => {
-                into_boxfut(helpers::implementation_pending_response(req))
+                validator::publish_attestation::<T>(req)
             }
 
             (&Method::GET, "/beacon/state") => into_boxfut(beacon::get_state::<T>(req)),
@@ -164,6 +164,7 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             (&Method::GET, "/spec/eth2_config") => into_boxfut(spec::get_eth2_config::<T>(req)),
 
             (&Method::GET, "/metrics") => into_boxfut(metrics::get_prometheus::<T>(req)),
+
             _ => Box::new(futures::future::err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
             ))),
