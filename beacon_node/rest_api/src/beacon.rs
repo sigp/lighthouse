@@ -8,7 +8,7 @@ use std::sync::Arc;
 use store::Store;
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot, Validator};
 
-#[derive(Serialize)]
+#[derive(Serialize, Encode)]
 pub struct HeadResponse {
     pub slot: Slot,
     pub block_root: Hash256,
@@ -184,7 +184,7 @@ pub struct StateResponse<T: EthSpec> {
 /// the current head by skipping slots.
 pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let head_state = get_head_state(beacon_chain.clone())?;
+    let head_state = beacon_chain.head().beacon_state;
 
     let (key, value) = match UrlQuery::from_request(&req) {
         Ok(query) => {
@@ -253,7 +253,7 @@ pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
     req: Request<Body>,
 ) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let head_state = get_head_state(beacon_chain)?;
+    let head_state = beacon_chain.head().beacon_state;
 
     let checkpoint = head_state.finalized_checkpoint.clone();
 
