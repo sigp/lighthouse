@@ -1,6 +1,6 @@
-use crate::helpers::*;
+use crate::helpers::get_beacon_chain_from_request;
 use crate::response_builder::ResponseBuilder;
-use crate::{ApiResult, BoxFut};
+use crate::ApiResult;
 use beacon_chain::BeaconChainTypes;
 use hyper::{Body, Request};
 use version;

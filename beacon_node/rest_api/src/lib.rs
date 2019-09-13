@@ -23,9 +23,8 @@ use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
 use futures::future::IntoFuture;
 use hyper::rt::Future;
-use hyper::server::conn::AddrStream;
-use hyper::service::{MakeService, Service};
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use hyper::service::Service;
+use hyper::{Body, Method, Request, Response, Server};
 use parking_lot::RwLock;
 use slog::{info, o, warn};
 use std::ops::Deref;
@@ -37,8 +36,6 @@ use url_query::UrlQuery;
 
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
 pub use config::Config as ApiConfig;
-use eth2_libp2p::rpc::RequestId;
-use serde::export::PhantomData;
 
 type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 
@@ -107,58 +104,66 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             (&Method::GET, "/network/listen_addresses") => {
                 into_boxfut(network::get_listen_addresses::<T>(req))
             }
-            /*
 
             // Methods for Beacon Node
-            (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req),
-            (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req),
-            (&Method::GET, "/beacon/block_root") => beacon::get_block_root::<T>(req),
-            (&Method::GET, "/beacon/blocks") => helpers::implementation_pending_response(req),
-            (&Method::GET, "/beacon/fork") => beacon::get_fork::<T>(req),
-            (&Method::GET, "/beacon/attestations") => helpers::implementation_pending_response(req),
+            (&Method::GET, "/beacon/head") => into_boxfut(beacon::get_head::<T>(req)),
+            (&Method::GET, "/beacon/block") => into_boxfut(beacon::get_block::<T>(req)),
+            (&Method::GET, "/beacon/block_root") => into_boxfut(beacon::get_block_root::<T>(req)),
+            (&Method::GET, "/beacon/blocks") => {
+                into_boxfut(helpers::implementation_pending_response(req))
+            }
+            (&Method::GET, "/beacon/fork") => into_boxfut(beacon::get_fork::<T>(req)),
+            (&Method::GET, "/beacon/attestations") => {
+                into_boxfut(helpers::implementation_pending_response(req))
+            }
             (&Method::GET, "/beacon/attestations/pending") => {
-                helpers::implementation_pending_response(req)
+                into_boxfut(helpers::implementation_pending_response(req))
             }
 
-            (&Method::GET, "/beacon/validators") => beacon::get_validators::<T>(req),
+            (&Method::GET, "/beacon/validators") => into_boxfut(beacon::get_validators::<T>(req)),
             (&Method::GET, "/beacon/validators/indicies") => {
-                helpers::implementation_pending_response(req)
+                into_boxfut(helpers::implementation_pending_response(req))
             }
             (&Method::GET, "/beacon/validators/pubkeys") => {
-                helpers::implementation_pending_response(req)
+                into_boxfut(helpers::implementation_pending_response(req))
             }
 
             // Methods for Validator
-            (&Method::GET, "/beacon/validator/duties") => validator::get_validator_duties::<T>(req),
-            (&Method::GET, "/beacon/validator/block") => validator::get_new_beacon_block::<T>(req),
-            */
+            (&Method::GET, "/beacon/validator/duties") => {
+                into_boxfut(validator::get_validator_duties::<T>(req))
+            }
+            (&Method::GET, "/beacon/validator/block") => {
+                into_boxfut(validator::get_new_beacon_block::<T>(req))
+            }
             (&Method::POST, "/beacon/validator/block") => validator::publish_beacon_block::<T>(req),
-            /*
             (&Method::GET, "/beacon/validator/attestation") => {
-                validator::get_new_attestation::<T>(req)
+                into_boxfut(validator::get_new_attestation::<T>(req))
             }
             (&Method::POST, "/beacon/validator/attestation") => {
-                helpers::implementation_pending_response(req)
+                into_boxfut(helpers::implementation_pending_response(req))
             }
 
-            (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req),
-            (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req),
+            (&Method::GET, "/beacon/state") => into_boxfut(beacon::get_state::<T>(req)),
+            (&Method::GET, "/beacon/state_root") => into_boxfut(beacon::get_state_root::<T>(req)),
             (&Method::GET, "/beacon/state/current_finalized_checkpoint") => {
-                beacon::get_current_finalized_checkpoint::<T>(req)
+                into_boxfut(beacon::get_current_finalized_checkpoint::<T>(req))
             }
-            (&Method::GET, "/beacon/state/genesis") => beacon::get_genesis_state::<T>(req),
+            (&Method::GET, "/beacon/state/genesis") => {
+                into_boxfut(beacon::get_genesis_state::<T>(req))
+            }
             //TODO: Add aggreggate/filtered state lookups here, e.g. /beacon/validators/balances
 
             // Methods for bootstrap and checking configuration
-            (&Method::GET, "/spec") => spec::get_spec::<T>(req),
-            (&Method::GET, "/spec/slots_per_epoch") => spec::get_slots_per_epoch::<T>(req),
-            (&Method::GET, "/spec/deposit_contract") => {
-                helpers::implementation_pending_response(req)
+            (&Method::GET, "/spec") => into_boxfut(spec::get_spec::<T>(req)),
+            (&Method::GET, "/spec/slots_per_epoch") => {
+                into_boxfut(spec::get_slots_per_epoch::<T>(req))
             }
-            (&Method::GET, "/spec/eth2_config") => spec::get_eth2_config::<T>(req),
+            (&Method::GET, "/spec/deposit_contract") => {
+                into_boxfut(helpers::implementation_pending_response(req))
+            }
+            (&Method::GET, "/spec/eth2_config") => into_boxfut(spec::get_eth2_config::<T>(req)),
 
-            (&Method::GET, "/metrics") => metrics::get_prometheus::<T>(req),
-            */
+            (&Method::GET, "/metrics") => into_boxfut(metrics::get_prometheus::<T>(req)),
             _ => Box::new(futures::future::err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
             ))),

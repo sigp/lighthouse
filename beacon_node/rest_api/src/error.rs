@@ -1,7 +1,5 @@
 use crate::BoxFut;
-use futures::future::IntoFuture;
-use futures::Future;
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use hyper::{Body, Response, StatusCode};
 use std::error::Error as StdError;
 
 #[derive(PartialEq, Debug, Clone)]
@@ -71,7 +69,7 @@ impl From<hyper::error::Error> for ApiError {
 }
 
 impl StdError for ApiError {
-    fn cause(&self) -> Option<&StdError> {
+    fn cause(&self) -> Option<&dyn StdError> {
         None
     }
 }

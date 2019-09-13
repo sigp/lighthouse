@@ -1,9 +1,8 @@
-use crate::error::{ApiError, ApiResult};
-use crate::helpers::*;
+use crate::error::ApiResult;
 use crate::response_builder::ResponseBuilder;
 use crate::NetworkService;
 use beacon_chain::BeaconChainTypes;
-use eth2_libp2p::{Enr, Multiaddr, PeerId};
+use eth2_libp2p::{Multiaddr, PeerId};
 use hyper::{Body, Request};
 use std::sync::Arc;
 

@@ -1,11 +1,14 @@
-use crate::helpers::*;
+use crate::helpers::{
+    check_content_type_for_json, get_beacon_chain_from_request, get_logger_from_request,
+    parse_pubkey, publish_beacon_block_to_network,
+};
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
 use beacon_chain::{BeaconChainTypes, BlockProcessingOutcome};
 use bls::{AggregateSignature, PublicKey, Signature};
 use futures::future::Future;
 use futures::stream::Stream;
-use hyper::{Body, Error, Request};
+use hyper::{Body, Request};
 use network::NetworkMessage;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
