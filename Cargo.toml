@@ -34,7 +34,7 @@ members = [
 	"beacon_node/version",
 	"beacon_node/beacon_chain",
 	"tests/ef_tests",
-	"tests/lcli",
+	"lcli",
 	"protos",
 	"validator_client",
 	"account_manager",
