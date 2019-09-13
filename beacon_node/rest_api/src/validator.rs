@@ -44,7 +44,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
     let log = get_logger_from_request(&req);
     slog::trace!(log, "Validator duties requested of API: {:?}", &req);
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let head_state = get_head_state(beacon_chain.clone())?;
+    let mut head_state = beacon_chain.head().beacon_state;
 
     slog::trace!(log, "Got head state from request.");
     // Parse and check query parameters
@@ -81,6 +81,10 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         .collect::<Result<Vec<_>, _>>()?;
     let mut duties: Vec<ValidatorDuty> = Vec::new();
 
+    // Build cache for the requested epoch
+    head_state
+        .build_committee_cache(relative_epoch, &beacon_chain.spec)
+        .map_err(|e| ApiError::ServerError(format!("Unable to build committee cache: {:?}", e)))?;
     // Get a list of all validators for this epoch
     let validator_proposers: Vec<usize> = epoch
         .slot_iter(T::EthSpec::slots_per_epoch())
@@ -88,7 +92,6 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
             head_state
                 .get_beacon_proposer_index(slot, relative_epoch, &beacon_chain.spec)
                 .map_err(|e| {
-                    // TODO: why are we getting an uninitialized state error here???
                     ApiError::ServerError(format!(
                         "Unable to get proposer index for validator: {:?}",
                         e
@@ -190,7 +193,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         serde_json::to_string(&new_block)
             .expect("We should always be able to serialize a new block that we produced."),
     );
-    Ok(success_response_old(body))
+    ResponseBuilder::new(&req).body(&new_block)
 }
 
 /// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
@@ -255,7 +258,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
 pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let head_state = get_head_state(beacon_chain.clone())?;
+    let mut head_state = beacon_chain.head().beacon_state;
 
     let query = UrlQuery::from_request(&req)?;
     let val_pk_str = query
@@ -263,6 +266,9 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         .map(|(_key, value)| value)?;
     let val_pk = parse_pubkey(val_pk_str.as_str())?;
 
+    head_state
+        .update_pubkey_cache()
+        .map_err(|e| ApiError::ServerError(format!("Unable to build pubkey cache: {:?}", e)))?;
     // Get the validator index from the supplied public key
     // If it does not exist in the index, we cannot continue.
     let val_index = head_state
@@ -274,6 +280,10 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
             "The provided validator public key does not correspond to a validator index.".into(),
         ))?;
 
+    // Build cache for the requested epoch
+    head_state
+        .build_committee_cache(RelativeEpoch::Current, &beacon_chain.spec)
+        .map_err(|e| ApiError::ServerError(format!("Unable to build committee cache: {:?}", e)))?;
     // Get the duties of the validator, to make sure they match up.
     // If they don't have duties this epoch, then return an error
     let val_duty = head_state

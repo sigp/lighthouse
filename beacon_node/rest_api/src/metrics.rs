@@ -1,5 +1,5 @@
-use crate::helpers::*;
-use crate::{ApiError, ApiResult, DBPath};
+use crate::response_builder::ResponseBuilder;
+use crate::{helpers::*, success_response, ApiError, ApiResult, DBPath};
 use beacon_chain::BeaconChainTypes;
 use http::HeaderValue;
 use hyper::{Body, Request};

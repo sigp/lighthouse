@@ -238,16 +238,6 @@ pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(
     Ok(beacon_chain.clone())
 }
 
-pub fn get_head_state<T: BeaconChainTypes + 'static>(
-    bc: Arc<BeaconChain<T>>,
-) -> Result<BeaconState<T::EthSpec>, ApiError> {
-    let mut head_state = bc.head().beacon_state;
-    head_state
-        .build_all_caches(&bc.spec)
-        .map_err(|e| ApiError::ServerError(format!("Unable to build state cache: {:?}", e)))?;
-    Ok(head_state)
-}
-
 pub fn get_logger_from_request(req: &Request<Body>) -> slog::Logger {
     let log = req
         .extensions()

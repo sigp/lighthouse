@@ -13,6 +13,5 @@ pub fn get_version(req: Request<Body>) -> ApiResult {
 /// Read the genesis time from the current beacon chain state.
 pub fn get_genesis_time<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
     let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let head_state = get_head_state(beacon_chain)?;
-    ResponseBuilder::new(&req).body(&head_state.genesis_time)
+    ResponseBuilder::new(&req).body(&beacon_chain.head().beacon_state.genesis_time)
 }
