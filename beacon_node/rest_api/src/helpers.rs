@@ -1,52 +1,18 @@
-use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, BoxFut};
+use crate::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKey;
 use eth2_libp2p::{PubsubMessage, Topic};
 use eth2_libp2p::{BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX};
 use hex;
 use http::header;
-use hyper::{Body, Request, Response, StatusCode};
+use hyper::{Body, Request};
 use network::NetworkMessage;
 use parking_lot::RwLock;
-use serde::Serialize;
 use ssz::Encode;
 use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
-
-pub fn success_response<T: Serialize + Encode>(req: Request<Body>, item: &T) -> BoxFut {
-    Box::new(match ResponseBuilder::new(&req).body(item) {
-        Ok(resp) => futures::future::ok(resp),
-        Err(e) => futures::future::err(e),
-    })
-}
-
-pub fn success_response_2<T: Serialize + Encode>(req: Request<Body>, item: &T) -> ApiResult {
-    ResponseBuilder::new(&req).body(item)
-}
-pub fn success_response_2_json<T: Serialize>(req: Request<Body>, item: &T) -> ApiResult {
-    ResponseBuilder::new(&req).body_json(item)
-}
-
-pub fn success_response_json<T: Serialize>(req: Request<Body>, item: &T) -> BoxFut {
-    if let Err(e) = check_content_type_for_json(&req) {
-        return Box::new(futures::future::err(e));
-    }
-    Box::new(match ResponseBuilder::new(&req).body_json(item) {
-        Ok(resp) => futures::future::ok(resp),
-        Err(e) => futures::future::err(e),
-    })
-}
-
-pub fn success_response_old(body: Body) -> Response<Body> {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .body(body)
-        .expect("We should always be able to make response from the success body.")
-}
 
 /// Parse a slot from a `0x` preixed string.
 ///
