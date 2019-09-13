@@ -7,7 +7,7 @@ pub enum ApiError {
     MethodNotAllowed(String),
     ServerError(String),
     NotImplemented(String),
-    InvalidQueryParams(String),
+    BadRequest(String),
     NotFound(String),
     UnsupportedType(String),
     ImATeapot(String), // Just in case.
@@ -21,7 +21,7 @@ impl ApiError {
             ApiError::MethodNotAllowed(desc) => (StatusCode::METHOD_NOT_ALLOWED, desc),
             ApiError::ServerError(desc) => (StatusCode::INTERNAL_SERVER_ERROR, desc),
             ApiError::NotImplemented(desc) => (StatusCode::NOT_IMPLEMENTED, desc),
-            ApiError::InvalidQueryParams(desc) => (StatusCode::BAD_REQUEST, desc),
+            ApiError::BadRequest(desc) => (StatusCode::BAD_REQUEST, desc),
             ApiError::NotFound(desc) => (StatusCode::NOT_FOUND, desc),
             ApiError::UnsupportedType(desc) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, desc),
             ApiError::ImATeapot(desc) => (StatusCode::IM_A_TEAPOT, desc),

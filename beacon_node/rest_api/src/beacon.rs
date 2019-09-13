@@ -139,10 +139,7 @@ pub fn get_validators<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
             .parse::<u64>()
             .map(Epoch::from)
             .map_err(|e| {
-                ApiError::InvalidQueryParams(format!(
-                    "Invalid epoch parameter, must be a u64. {:?}",
-                    e
-                ))
+                ApiError::BadRequest(format!("Invalid epoch parameter, must be a u64. {:?}", e))
             })?,
         // In this case, our url query did not contain any parameters, so we take the default
         Err(_) => beacon_chain.epoch().map_err(|e| {
@@ -181,7 +178,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
             let query_params = ["root", "slot"];
             query.first_of(&query_params)?
         }
-        Err(ApiError::InvalidQueryParams(_)) => {
+        Err(ApiError::BadRequest(_)) => {
             // No parameters provided at all, use current slot.
             (String::from("slot"), head_state.slot.to_string())
         }
