@@ -165,6 +165,14 @@ fn main() {
 
     let mut log = slog::Logger::root(drain.fuse(), o!());
 
+    if std::mem::size_of::<usize>() != 8 {
+        crit!(
+            log,
+            "Lighthouse only supports 64bit CPUs";
+            "detected" => format!("{}bit", std::mem::size_of::<usize>() * 8)
+        );
+    }
+
     let (client_config, eth2_config) = match get_configs(&matches, &mut log) {
         Ok(tuple) => tuple,
         Err(e) => {
