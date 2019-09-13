@@ -644,7 +644,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Attempt to process the attestation using the `self.head()` state.
             //
             // This is purely an effort to avoid loading a `BeaconState` unnecessarily from the DB.
-            // Take a read lock on the head beacon state.
             let state = &self.head().beacon_state;
 
             // If it turns out that the attestation was made using the head state, then there
@@ -673,12 +672,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &attestation_head_block,
                 );
             }
-
-            // Ensure the read-lock from `self.head()` is dropped.
-            //
-            // This is likely unnecessary, however it remains as a reminder to ensure this lock
-            // isn't hogged.
-            std::mem::drop(state);
 
             // Use the `data.beacon_block_root` to load the state from the latest non-skipped
             // slot preceding the attestation's creation.
