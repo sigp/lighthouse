@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 beacon_chain = { path = "../beacon_chain" }
+store = { path = "../store" }
 network = { path = "../network" }
 eth2-libp2p = { path = "../eth2-libp2p" }
 rpc = { path = "../rpc" }

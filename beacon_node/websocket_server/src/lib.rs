@@ -1,5 +1,7 @@
-use serde_derive::{Deserialize, Serialize};
+use beacon_chain::events::{EventHandler, EventKind};
+use serde::{Deserialize, Serialize};
 use slog::{error, info, Logger};
+use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::thread;
 use types::EthSpec;
@@ -25,19 +27,44 @@ impl Default for Config {
     }
 }
 
-pub struct WebSocketSender {
-    sender: Sender,
+pub struct WebSocketSender<T: EthSpec> {
+    sender: Option<Sender>,
+    _phantom: PhantomData<T>,
 }
 
-impl WebSocketSender {
+impl<T: EthSpec> WebSocketSender<T> {
+    /// Creates a dummy websocket server that never starts and where all future calls are no-ops.
+    pub fn dummy() -> Self {
+        Self {
+            sender: None,
+            _phantom: PhantomData,
+        }
+    }
+
     pub fn send_string(&self, string: String) -> Result<(), String> {
-        self.sender
-            .send(string)
-            .map_err(|e| format!("Unable to broadcast to websocket clients: {:?}", e))
+        if let Some(sender) = &self.sender {
+            sender
+                .send(string)
+                .map_err(|e| format!("Unable to broadcast to websocket clients: {:?}", e))
+        } else {
+            Ok(())
+        }
     }
 }
 
-pub fn start_server<T: EthSpec>(config: &Config, log: &Logger) -> Result<WebSocketSender, String> {
+impl<T: EthSpec> EventHandler<T> for WebSocketSender<T> {
+    fn register(&self, kind: EventKind<T>) -> Result<(), String> {
+        self.send_string(
+            serde_json::to_string(&kind)
+                .map_err(|e| format!("Unable to serialize event: {:?}", e))?,
+        )
+    }
+}
+
+pub fn start_server<T: EthSpec>(
+    config: &Config,
+    log: &Logger,
+) -> Result<WebSocketSender<T>, String> {
     let server_string = format!("{}:{}", config.listen_address, config.port);
 
     info!(
@@ -70,6 +97,7 @@ pub fn start_server<T: EthSpec>(config: &Config, log: &Logger) -> Result<WebSock
     });
 
     Ok(WebSocketSender {
-        sender: broadcaster,
+        sender: Some(broadcaster),
+        _phantom: PhantomData,
     })
 }

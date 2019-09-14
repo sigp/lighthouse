@@ -1,19 +1,17 @@
-use client::{
-    error, notifier, BeaconChainTypes, Client, ClientConfig, ClientType, Eth1BackendMethod,
-    Eth2Config,
-};
+use client::{error, notifier, Client, ClientConfig, Eth1BackendMethod, Eth2Config};
 use futures::sync::oneshot;
 use futures::Future;
 use slog::{error, info};
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
+use store::Store;
 use store::{DiskStore, MemoryStore};
 use tokio::runtime::Builder;
 use tokio::runtime::Runtime;
 use tokio::runtime::TaskExecutor;
 use tokio_timer::clock::Clock;
-use types::{InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 
 /// Reads the configuration and initializes a `BeaconChain` with the required types and parameters.
 ///
@@ -52,14 +50,7 @@ pub fn run_beacon_node(
 
     macro_rules! run_client {
         ($store: ty, $eth_spec: ty) => {
-            run::<ClientType<$store, $eth_spec>>(
-                &db_path,
-                client_config,
-                eth2_config,
-                executor,
-                runtime,
-                log,
-            )
+            run::<$store, $eth_spec>(&db_path, client_config, eth2_config, executor, runtime, log)
         };
     }
 
@@ -82,7 +73,7 @@ pub fn run_beacon_node(
 }
 
 /// Performs the type-generic parts of launching a `BeaconChain`.
-fn run<T>(
+fn run<S, E>(
     db_path: &Path,
     client_config: ClientConfig,
     eth2_config: Eth2Config,
@@ -91,12 +82,13 @@ fn run<T>(
     log: &slog::Logger,
 ) -> error::Result<()>
 where
-    T: BeaconChainTypes + Clone,
-    T::Store: OpenDatabase,
+    S: Store + Clone + 'static + OpenDatabase,
+    E: EthSpec,
 {
-    let store = T::Store::open_database(&db_path)?;
+    let store = S::open_database(&db_path)?;
 
-    let client: Client<T> = Client::new(client_config, eth2_config, store, log.clone(), &executor)?;
+    let client: Client<S, E> =
+        Client::new(client_config, eth2_config, store, log.clone(), &executor)?;
 
     // run service until ctrl-c
     let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
