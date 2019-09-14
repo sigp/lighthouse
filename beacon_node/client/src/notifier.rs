@@ -1,11 +1,12 @@
 use crate::Client;
-use beacon_chain::BeaconChainTypes;
 use exit_future::Exit;
 use futures::{Future, Stream};
 use slog::{debug, o, warn};
 use std::time::{Duration, Instant};
+use store::Store;
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
+use types::EthSpec;
 
 /// The interval between heartbeat events.
 pub const HEARTBEAT_INTERVAL_SECONDS: u64 = 15;
@@ -17,7 +18,11 @@ pub const WARN_PEER_COUNT: usize = 1;
 /// durations.
 ///
 /// Presently unused, but remains for future use.
-pub fn run<T: BeaconChainTypes>(client: &Client<T>, executor: TaskExecutor, exit: Exit) {
+pub fn run<S, E>(client: &Client<S, E>, executor: TaskExecutor, exit: Exit)
+where
+    S: Store + Clone + 'static,
+    E: EthSpec,
+{
     // notification heartbeat
     let interval = Interval::new(
         Instant::now(),
