@@ -27,6 +27,7 @@ pub struct Config {
     pub network: network::NetworkConfig,
     pub rpc: rpc::RPCConfig,
     pub rest_api: rest_api::ApiConfig,
+    pub websocket_server: websocket_server::Config,
 }
 
 /// Defines how the client should initialize a BeaconChain.
@@ -96,6 +97,7 @@ impl Default for Config {
             network: NetworkConfig::new(),
             rpc: <_>::default(),
             rest_api: <_>::default(),
+            websocket_server: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
             beacon_chain_start_method: <_>::default(),
             eth1_backend_method: <_>::default(),

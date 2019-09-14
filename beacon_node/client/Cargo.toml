@@ -10,6 +10,7 @@ network = { path = "../network" }
 eth2-libp2p = { path = "../eth2-libp2p" }
 rpc = { path = "../rpc" }
 rest_api = { path = "../rest_api" }
+websocket_server = { path = "../websocket_server" }
 prometheus = "^0.6"
 types = { path = "../../eth2/types" }
 tree_hash = "0.1"

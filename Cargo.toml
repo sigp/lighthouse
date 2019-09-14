@@ -33,6 +33,7 @@ members = [
     "beacon_node/rpc",
 	"beacon_node/version",
 	"beacon_node/beacon_chain",
+	"beacon_node/websocket_server",
 	"tests/ef_tests",
 	"lcli",
 	"protos",
