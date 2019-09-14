@@ -229,6 +229,11 @@ where
             None
         };
 
+        // Start the websocket server
+        let _websocket_sender = if client_config.websocket_server.enabled {
+            websocket_server::start_server::<T::EthSpec>(&client_config.websocket_server, &log)?;
+        };
+
         let (slot_timer_exit_signal, exit) = exit_future::signal();
         if let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() {
             // set up the validator work interval - start at next slot and proceed every slot
