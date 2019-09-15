@@ -64,6 +64,8 @@ where
     pub slot_timer_exit_signal: Option<Signal>,
     /// Signal to terminate the API
     pub api_exit_signal: Option<Signal>,
+    /// Signal to terminate the websocket server
+    pub websocket_exit_signal: Option<Signal>,
     /// The clients logger.
     log: slog::Logger,
     /*
@@ -182,11 +184,17 @@ where
             InteropEth1ChainBackend::new(String::new()).map_err(|e| format!("{:?}", e))?;
 
         // Start the websocket server.
-        let websocket_sender: WebSocketSender<E> = if client_config.websocket_server.enabled {
-            websocket_server::start_server(&client_config.websocket_server, &log)?
-        } else {
-            WebSocketSender::dummy()
-        };
+        let (websocket_sender, websocket_exit_signal): (WebSocketSender<E>, Option<_>) =
+            if client_config.websocket_server.enabled {
+                let (sender, exit) = websocket_server::start_server(
+                    &client_config.websocket_server,
+                    executor,
+                    &log,
+                )?;
+                (sender, Some(exit))
+            } else {
+                (WebSocketSender::dummy(), None)
+            };
 
         let beacon_chain: Arc<BeaconChain<RuntimeBeaconChainTypes<S, E>>> = Arc::new(
             beacon_chain_builder
@@ -278,6 +286,7 @@ where
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
             api_exit_signal,
+            websocket_exit_signal,
             log,
             network,
         })
