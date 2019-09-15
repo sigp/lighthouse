@@ -1,6 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
-use types::{Attestation, BeaconBlock, EthSpec, Hash256};
+use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256};
 
 pub trait EventHandler<T: EthSpec>: Sized + Send + Sync {
     fn register(&self, kind: EventKind<T>) -> Result<(), String>;
@@ -32,6 +32,10 @@ pub enum EventKind<T: EthSpec> {
         reorg: bool,
         current_head_beacon_block_root: Hash256,
         previous_head_beacon_block_root: Hash256,
+    },
+    BeaconFinalization {
+        epoch: Epoch,
+        root: Hash256,
     },
     BeaconBlockImported {
         block_root: Hash256,
