@@ -1,7 +1,9 @@
 use beacon_chain::events::{EventHandler, EventKind};
-use slog::{error, info, Logger};
+use futures::Future;
+use slog::{debug, error, info, warn, Logger};
 use std::marker::PhantomData;
 use std::thread;
+use tokio::runtime::TaskExecutor;
 use types::EthSpec;
 use ws::{Sender, WebSocket};
 
@@ -45,8 +47,9 @@ impl<T: EthSpec> EventHandler<T> for WebSocketSender<T> {
 
 pub fn start_server<T: EthSpec>(
     config: &Config,
+    executor: &TaskExecutor,
     log: &Logger,
-) -> Result<WebSocketSender<T>, String> {
+) -> Result<(WebSocketSender<T>, exit_future::Signal), String> {
     let server_string = format!("{}:{}", config.listen_address, config.port);
 
     info!(
@@ -61,12 +64,38 @@ pub fn start_server<T: EthSpec>(
 
     let broadcaster = server.broadcaster();
 
+    // Produce a signal/channel that can gracefully shutdown the websocket server.
+    let exit_signal = {
+        let (exit_signal, exit) = exit_future::signal();
+
+        let log_inner = log.clone();
+        let broadcaster_inner = server.broadcaster();
+        let exit_future = exit.and_then(move |_| {
+            if let Err(e) = broadcaster_inner.shutdown() {
+                warn!(
+                    log_inner,
+                    "Websocket server errored on shutdown";
+                    "error" => format!("{:?}", e)
+                );
+            } else {
+                info!(log_inner, "Websocket server shutdown");
+            }
+            Ok(())
+        });
+
+        // Place a future on the executor that will shutdown the websocket server when the
+        // application exits.
+        executor.spawn(exit_future);
+
+        exit_signal
+    };
+
     let log_inner = log.clone();
     let _handle = thread::spawn(move || match server.listen(server_string) {
         Ok(_) => {
-            info!(
+            debug!(
                 log_inner,
-                "Websocket server stopped";
+                "Websocket server thread stopped";
             );
         }
         Err(e) => {
@@ -78,8 +107,11 @@ pub fn start_server<T: EthSpec>(
         }
     });
 
-    Ok(WebSocketSender {
-        sender: Some(broadcaster),
-        _phantom: PhantomData,
-    })
+    Ok((
+        WebSocketSender {
+            sender: Some(broadcaster),
+            _phantom: PhantomData,
+        },
+        exit_signal,
+    ))
 }
