@@ -1379,8 +1379,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let previous_slot = self.head().beacon_block.slot;
             let new_slot = beacon_block.slot;
 
+            let is_reorg = self.head().beacon_block_root != beacon_block.parent_root;
+
             // If we switched to a new chain (instead of building atop the present chain).
-            if self.head().beacon_block_root != beacon_block.parent_root {
+            if is_reorg {
                 metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
                 warn!(
                     self.log,
@@ -1415,12 +1417,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     new_epoch: new_finalized_epoch,
                 })
             } else {
-                self.update_canonical_head(CheckPoint {
+                let previous_head_beacon_block_root = self.canonical_head.read().beacon_block_root;
+                let current_head_beacon_block_root = beacon_block_root;
+
+                let mut new_head = CheckPoint {
                     beacon_block,
                     beacon_block_root,
                     beacon_state,
                     beacon_state_root,
-                })?;
+                };
+
+                new_head.beacon_state.build_all_caches(&self.spec)?;
+
+                let timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
+
+                // Update the checkpoint that stores the head of the chain at the time it received the
+                // block.
+                *self.canonical_head.write() = new_head;
+
+                metrics::stop_timer(timer);
+
+                // Save `self` to `self.store`.
+                self.persist()?;
+
+                let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
+                    reorg: is_reorg,
+                    previous_head_beacon_block_root,
+                    current_head_beacon_block_root,
+                });
 
                 if new_finalized_epoch != old_finalized_epoch {
                     self.after_finalization(old_finalized_epoch, finalized_root)?;
@@ -1440,28 +1464,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         result
-    }
-
-    /// Update the canonical head to `new_head`.
-    fn update_canonical_head(&self, mut new_head: CheckPoint<T::EthSpec>) -> Result<(), Error> {
-        let timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
-
-        new_head.beacon_state.build_all_caches(&self.spec)?;
-
-        trace!(self.log, "Taking write lock on head");
-
-        // Update the checkpoint that stores the head of the chain at the time it received the
-        // block.
-        *self.canonical_head.write() = new_head;
-
-        trace!(self.log, "Dropping write lock on head");
-
-        // Save `self` to `self.store`.
-        self.persist()?;
-
-        metrics::stop_timer(timer);
-
-        Ok(())
     }
 
     /// Called after `self` has had a new block finalized.
@@ -1494,6 +1496,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
 
             self.op_pool.prune_all(&finalized_state, &self.spec);
+
+            let _ = self.event_handler.register(EventKind::BeaconFinalization {
+                epoch: new_finalized_epoch,
+                root: finalized_block_root,
+            });
 
             Ok(())
         }
