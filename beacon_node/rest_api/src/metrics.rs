@@ -1,8 +1,9 @@
-use crate::{success_response, ApiError, ApiResult, DBPath};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use crate::helpers::get_beacon_chain_from_request;
+use crate::response_builder::ResponseBuilder;
+use crate::{ApiError, ApiResult, DBPath};
+use beacon_chain::BeaconChainTypes;
 use hyper::{Body, Request};
 use prometheus::{Encoder, TextEncoder};
-use std::sync::Arc;
 
 pub use lighthouse_metrics::*;
 
@@ -30,10 +31,7 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
 
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
+    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
     let db_path = req
         .extensions()
         .get::<DBPath>()
@@ -64,6 +62,6 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
         .unwrap();
 
     String::from_utf8(buffer)
-        .map(|string| success_response(Body::from(string)))
-        .map_err(|e| ApiError::ServerError(format!("Failed to encode prometheus info: {:?}", e)))
+        .map(|string| ResponseBuilder::new(&req)?.body_text(string))
+        .map_err(|e| ApiError::ServerError(format!("Failed to encode prometheus info: {:?}", e)))?
 }
