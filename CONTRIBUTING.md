@@ -31,7 +31,7 @@ same. We operate like a typical open-source project operating on GitHub: the
 repository [Issues](https://github.com/sigp/lighthouse/issues) is where we
 track what needs to be done and [Pull
 Requests](https://github.com/sigp/lighthouse/pulls) is where code gets
-reviewed. We use [gitter](https://gitter.im/sigp/lighthouse) to chat
+reviewed. We use [Discord](https://discord.gg/cyAszAh) to chat
 informally.
 
 ### General Work-Flow
@@ -48,7 +48,7 @@ questions.
    your changes in to the main repository.
 4. Wait for the repository maintainers to **review your changes** to ensure the
    issue is addressed satisfactorily. Optionally, mention your PR on
-[gitter](https://gitter.im/sigp/lighthouse).
+[Discord](https://discord.gg/cyAszAh).
 5. If the issue is addressed the repository maintainers will **merge your
    pull-request** and you'll be an official contributor!
 
@@ -87,7 +87,7 @@ or provide some constructive feedback.
 There's great
 [guide](https://akrabat.com/the-beginners-guide-to-contributing-to-a-github-project/)
 by Rob Allen that provides much more detail on each of these steps, if you're
-having trouble. As always, jump on [gitter](https://gitter.im/sigp/lighthouse)
+having trouble. As always, jump on [Discord](https://discord.gg/cyAszAh)
 if you get stuck.
 
 

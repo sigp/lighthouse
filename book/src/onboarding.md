@@ -1,6 +1,11 @@
 # Contributing to Lighthouse
 
-[![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/sigp/lighthouse?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+  
+[![Chat Badge]][Chat Link]
+
+[Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
+[Chat Link]: https://discord.gg/cyAszAh
+
 
 Lighthouse is an open-source Ethereum Serenity client built in
 [Rust](https://www.rust-lang.org/).
@@ -24,8 +29,8 @@ huge task and we refuse to conduct an inappropriate ICO or charge licensing
 fees.  Instead, we fund development through grants and support from Sigma
 Prime.
 
-If you have any additional questions, please feel free to jump on the
-[gitter](https://gitter.im/sigp/lighthouse) and have a chat with all of us.
+If you have any additional questions, please feel free to jump on our
+[Discord](https://discord.gg/cyAszAh) and have a chat with all of us.
 
 **Pre-reading Materials:**
 
@@ -38,7 +43,7 @@ If you'd like to contribute, try having a look through the [open
 issues](https://github.com/sigp/lighthouse/issues) (tip: look for the [good
 first
 issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
-tag) and ping us on the [gitter](https://gitter.im/sigp/lighthouse) channel. We need
+tag) and ping us on our [Discord](https://discord.gg/cyAszAh) server. We need
 your support!
 
 ## Understanding Serenity
@@ -157,7 +162,7 @@ Pull requests should be reviewed by **at least** one "*core developer*"
 (someone with write-access to the repo). This should ensure bugs are caught and
 the code is kept in a consistent state that follows all conventions and style.
 
-All discussion (whether in PRs or Issues or in the Gitter) should be respectful
+All discussion (whether in PRs or Issues or on Discord) should be respectful
 and intellectual. Have fun, but always respect the limits of other people.
 
 **Testing**

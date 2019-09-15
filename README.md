@@ -166,7 +166,7 @@ If you'd like to contribute, try having a look through the [open
 issues](https://github.com/sigp/lighthouse/issues) (tip: look for the [good
 first
 issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
-tag) and ping us on the [gitter](https://gitter.im/sigp/lighthouse) channel. We need
+tag) and ping us on our [discord](https://discord.gg/cyAszAh) server. We need
 your support!
 
 ## Contact
