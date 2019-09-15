@@ -22,6 +22,8 @@ assumes significant prior knowledge of Ethereum 2.0.
 
 Topics:
 
+- Learn more about [Lighthouse](./lighthouse.md).
+- Have a look at our [onboarding documents](./onboarding.md).
 - Get started with [development environment setup](./setup.md).
 - See the [interop docs](./interop.md).
 - [Run a simple testnet](./simple-testnet.md) in Only Three CLI Commands™.
