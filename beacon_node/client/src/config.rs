@@ -173,6 +173,7 @@ impl Config {
         self.network.apply_cli_args(args)?;
         self.rpc.apply_cli_args(args)?;
         self.rest_api.apply_cli_args(args)?;
+        self.websocket_server.apply_cli_args(args)?;
 
         if let Some(log_file) = args.value_of("logfile") {
             self.log_file = PathBuf::from(log_file);

@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 beacon_chain = { path = "../beacon_chain" }
+clap = "2.32.0"
 exit-future = "0.1.3"
 futures = "0.1.25"
 serde = "1.0"

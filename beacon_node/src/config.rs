@@ -552,6 +552,7 @@ impl ConfigBuilder {
             self.client_config.network.discovery_port += bump;
             self.client_config.rpc.port += bump;
             self.client_config.rest_api.port += bump;
+            self.client_config.websocket_server.port += bump;
         }
 
         if self.eth2_config.spec_constants != self.client_config.spec_constants {
