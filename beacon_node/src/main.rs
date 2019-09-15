@@ -147,7 +147,7 @@ fn main() {
                 .conflicts_with("port-bump")
                 .takes_value(true),
         )
-        /* Client related arguments */
+        /* REST API related arguments */
         .arg(
             Arg::with_name("no-api")
                 .long("no-api")
@@ -167,6 +167,29 @@ fn main() {
                 .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .conflicts_with("port-bump")
+                .takes_value(true),
+        )
+        /* Websocket related arguments */
+        .arg(
+            Arg::with_name("no-ws")
+                .long("no-ws")
+                .help("Disable websocket server.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("ws-address")
+                .long("ws-address")
+                .value_name("ADDRESS")
+                .help("Set the listen address for the websocket server.")
+                .conflicts_with_all(&["no-ws"])
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("ws-port")
+                .long("ws-port")
+                .value_name("PORT")
+                .help("Set the listen TCP port for the websocket server.")
+                .conflicts_with_all(&["no-ws", "port-bump"])
                 .takes_value(true),
         )
 

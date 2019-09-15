@@ -1,31 +1,13 @@
 use beacon_chain::events::{EventHandler, EventKind};
-use serde::{Deserialize, Serialize};
 use slog::{error, info, Logger};
 use std::marker::PhantomData;
-use std::net::Ipv4Addr;
 use std::thread;
 use types::EthSpec;
 use ws::{Sender, WebSocket};
 
-/// The core configuration of a Lighthouse beacon node.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    pub enabled: bool,
-    /// The IPv4 address the REST API HTTP server will listen on.
-    pub listen_address: Ipv4Addr,
-    /// The port the REST API HTTP server will listen on.
-    pub port: u16,
-}
+mod config;
 
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            enabled: true,
-            listen_address: Ipv4Addr::new(127, 0, 0, 1),
-            port: 5053,
-        }
-    }
-}
+pub use config::Config;
 
 pub struct WebSocketSender<T: EthSpec> {
     sender: Option<Sender>,
