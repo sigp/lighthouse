@@ -12,7 +12,7 @@ impl<'a> UrlQuery<'a> {
     /// Returns `Err` if `req` does not contain any query parameters.
     pub fn from_request<T>(req: &'a Request<T>) -> Result<Self, ApiError> {
         let query_str = req.uri().query().ok_or_else(|| {
-            ApiError::InvalidQueryParams(
+            ApiError::BadRequest(
                 "URL query must be valid and contain at least one key.".to_string(),
             )
         })?;
@@ -28,7 +28,7 @@ impl<'a> UrlQuery<'a> {
             .find(|(key, _value)| keys.contains(&&**key))
             .map(|(key, value)| (key.into_owned(), value.into_owned()))
             .ok_or_else(|| {
-                ApiError::InvalidQueryParams(format!(
+                ApiError::BadRequest(format!(
                     "URL query must contain at least one of the following keys: {:?}",
                     keys
                 ))
@@ -48,13 +48,13 @@ impl<'a> UrlQuery<'a> {
             if first_key == key {
                 Ok(first_value.to_string())
             } else {
-                Err(ApiError::InvalidQueryParams(format!(
+                Err(ApiError::BadRequest(format!(
                     "Only the {} query parameter is supported",
                     key
                 )))
             }
         } else {
-            Err(ApiError::InvalidQueryParams(format!(
+            Err(ApiError::BadRequest(format!(
                 "Only one query parameter is allowed, {} supplied",
                 queries.len()
             )))

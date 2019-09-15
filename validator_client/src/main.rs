@@ -55,7 +55,6 @@ fn main() {
         )
         .arg(
             Arg::with_name("spec")
-                .short("s")
                 .long("spec")
                 .value_name("TITLE")
                 .help("Specifies the default eth2 spec type.")
@@ -141,6 +140,15 @@ fn main() {
                     .value_name("PATH")
                     .required(true)
                     .help("Path to a YAML file."))
+            )
+        )
+        .subcommand(SubCommand::with_name("sign_block")
+            .about("Connects to the beacon server, requests a new block (after providing reveal),\
+            and prints the signed block to standard out")
+            .arg(Arg::with_name("validator")
+                .value_name("VALIDATOR")
+                .required(true)
+                .help("The pubkey of the validator that should sign the block.")
             )
         )
         .get_matches();

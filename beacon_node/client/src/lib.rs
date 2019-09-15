@@ -240,6 +240,7 @@ where
                 executor,
                 beacon_chain.clone(),
                 network.clone(),
+                network_send.clone(),
                 client_config.db_path().expect("unable to read datadir"),
                 eth2_config.clone(),
                 &log,
