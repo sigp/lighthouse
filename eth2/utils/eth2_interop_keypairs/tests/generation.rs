@@ -20,7 +20,7 @@ fn reference_private_keys() {
         "19554639423851580804889717218680781396599791537051606512605582393920758869044",
     ];
     reference
-        .into_iter()
+        .iter()
         .enumerate()
         .for_each(|(i, reference)| {
             let bytes = be_private_key(i);
@@ -47,7 +47,7 @@ fn reference_public_keys() {
         "mJNBPAAoOj+e2f2YRd2hzqOCKNIlZ/lUHczDV+VKLWpuIEEDySVky8BfSQWsfEk6",
     ];
     reference
-        .into_iter()
+        .iter()
         .enumerate()
         .for_each(|(i, reference)| {
             let pair = keypair(i);
