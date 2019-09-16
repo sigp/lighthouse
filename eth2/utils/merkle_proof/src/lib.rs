@@ -205,7 +205,7 @@ mod tests {
         let merkle_tree = MerkleTree::create(&leaves, depth);
         let merkle_root = merkle_tree.hash();
 
-        let proofs_ok = (0..leaves.len()).into_iter().all(|i| {
+        let proofs_ok = (0..leaves.len()).all(|i| {
             let (leaf, branch) = merkle_tree.generate_proof(i, depth);
             leaf == leaves[i] && verify_merkle_proof(leaf, &branch, depth, i, merkle_root)
         });
