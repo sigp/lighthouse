@@ -21,7 +21,7 @@ lazy_static! {
 
     /// Zero nodes to act as "synthetic" left and right subtrees of other zero nodes.
     static ref ZERO_NODES: Vec<MerkleTree> = {
-        (0..MAX_TREE_DEPTH + 1).map(MerkleTree::Zero).collect()
+        (0..=MAX_TREE_DEPTH).map(MerkleTree::Zero).collect()
     };
 }
 

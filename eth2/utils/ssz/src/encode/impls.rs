@@ -239,7 +239,7 @@ impl<T: Encode> Encode for Vec<T> {
         if <T as Encode>::is_ssz_fixed_len() {
             <T as Encode>::ssz_fixed_len() * self.len()
         } else {
-            let mut len = self.into_iter().map(|item| item.ssz_bytes_len()).sum();
+            let mut len = self.iter().map(|item| item.ssz_bytes_len()).sum();
             len += BYTES_PER_LENGTH_OFFSET * self.len();
             len
         }
