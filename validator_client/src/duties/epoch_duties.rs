@@ -118,14 +118,14 @@ impl EpochDutiesMap {
         if let Some(epoch_duty) = epoch_duties.get(signer) {
             if let Some(duty) = epoch_duty {
                 // Retrieves the duty for a validator at a given slot
-                return Ok(duty.is_work_slot(slot));
+                Ok(duty.is_work_slot(slot))
             } else {
                 // the validator isn't active
-                return Ok(None);
+                Ok(None)
             }
         } else {
             // validator isn't known
-            return Err(EpochDutiesMapError::UnknownValidator);
+            Err(EpochDutiesMapError::UnknownValidator)
         }
     }
 }

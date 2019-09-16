@@ -1062,7 +1062,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if block.slot <= finalized_slot {
             return Ok(BlockProcessingOutcome::WouldRevertFinalizedSlot {
                 block_slot: block.slot,
-                finalized_slot: finalized_slot,
+                finalized_slot,
             });
         }
 
@@ -1459,7 +1459,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // End fork choice metrics timer.
         metrics::stop_timer(timer);
 
-        if let Err(_) = result {
+        if result.is_err() {
             metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
         }
 

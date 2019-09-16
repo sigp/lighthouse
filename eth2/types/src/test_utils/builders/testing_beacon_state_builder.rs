@@ -123,7 +123,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
             .collect::<Vec<_>>()
             .into();
 
-        let genesis_time = 1567052589; // 29 August, 2019;
+        let genesis_time = 1_567_052_589; // 29 August, 2019;
 
         let mut state = BeaconState::new(
             genesis_time,
