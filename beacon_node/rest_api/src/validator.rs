@@ -268,9 +268,12 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         .map_err(|e| {
             ApiError::ServerError(format!("Unable to read validator index cache. {:?}", e))
         })?
-        .ok_or_else(|| ApiError::BadRequest(
-            "The provided validator public key does not correspond to a validator index.".into(),
-        ))?;
+        .ok_or_else(|| {
+            ApiError::BadRequest(
+                "The provided validator public key does not correspond to a validator index."
+                    .into(),
+            )
+        })?;
 
     // Build cache for the requested epoch
     head_state

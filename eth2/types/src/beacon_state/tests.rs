@@ -231,8 +231,8 @@ mod committees {
             shuffle_list(active_indices, spec.shuffle_round_count, &seed[..], false).unwrap();
 
         let mut expected_indices_iter = shuffling.iter();
-        let mut expected_shards_iter = (0..T::ShardCount::to_u64())
-            .map(|i| (start_shard + i) % T::ShardCount::to_u64());
+        let mut expected_shards_iter =
+            (0..T::ShardCount::to_u64()).map(|i| (start_shard + i) % T::ShardCount::to_u64());
 
         // Loop through all slots in the epoch being tested.
         for slot in epoch.slot_iter(T::slots_per_epoch()) {

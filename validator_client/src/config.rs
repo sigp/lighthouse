@@ -219,9 +219,7 @@ impl Config {
         &self,
         range: std::ops::Range<usize>,
     ) -> Result<Vec<Keypair>, String> {
-        Ok(range
-            .map(generate_deterministic_keypair)
-            .collect())
+        Ok(range.map(generate_deterministic_keypair).collect())
     }
 
     /// Loads the keypairs according to `self.key_source`. Will return one or more keypairs, or an

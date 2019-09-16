@@ -223,13 +223,13 @@ fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
     }
     // Invalid
     else if let Ok(decoded) = T::from_ssz_bytes(&serialized) {
-            return Err(Error::DidntFail(format!(
-                "Decoded invalid bytes into: {:?}",
-                decoded
-            )));
-        }
-    Ok(())
+        return Err(Error::DidntFail(format!(
+            "Decoded invalid bytes into: {:?}",
+            decoded
+        )));
     }
+    Ok(())
+}
 
 // Containers for SSZ generic tests
 #[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
