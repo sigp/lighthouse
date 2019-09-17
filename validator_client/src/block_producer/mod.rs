@@ -1,9 +1,11 @@
 mod beacon_node_block;
 mod grpc;
+mod rest;
 
-use self::beacon_node_block::BeaconNodeBlock;
-pub use self::beacon_node_block::{BeaconNodeError, PublishOutcome};
+pub use self::beacon_node_block::BeaconNodeBlock;
 pub use self::grpc::BeaconBlockGrpcClient;
+pub use self::rest::BeaconBlockRestClient;
+pub use crate::error::{BeaconNodeError, PublishOutcome};
 use crate::signer::Signer;
 use core::marker::PhantomData;
 use serde_json;

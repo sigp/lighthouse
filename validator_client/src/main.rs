@@ -3,6 +3,7 @@ mod block_producer;
 mod config;
 mod duties;
 pub mod error;
+mod rest_client;
 mod service;
 mod signer;
 

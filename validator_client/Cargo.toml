@@ -24,9 +24,11 @@ grpcio = { version = "0.4", default-features = false, features = ["protobuf-code
 protos = { path = "../protos" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
 types = { path = "../eth2/types" }
+rest_api = { path = "../beacon_node/rest_api" }
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "^1.0"
+serde_yaml = "0.8"
 slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "^2.3.0"
 slog-json = "^2.3"
@@ -38,3 +40,6 @@ bincode = "^1.1.2"
 futures = "0.1.25"
 dirs = "2.0.1"
 logging = { path = "../eth2/utils/logging" }
+hyper = "0.12.35"
+url = "2.0"
+itertools = "0.8.0"

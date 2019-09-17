@@ -1,10 +1,7 @@
 use super::EpochDuties;
+use crate::error::BeaconNodeError;
+use crate::service::BoxFut;
 use types::{Epoch, PublicKey};
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum BeaconNodeDutiesError {
-    RemoteFailure(String),
-}
 
 /// Defines the methods required to obtain a validators shuffling from a Beacon Node.
 pub trait BeaconNodeDuties: Send + Sync {
@@ -16,5 +13,5 @@ pub trait BeaconNodeDuties: Send + Sync {
         &self,
         epoch: Epoch,
         pub_keys: &[PublicKey],
-    ) -> Result<EpochDuties, BeaconNodeDutiesError>;
+    ) -> BoxFut<EpochDuties, BeaconNodeError>;
 }

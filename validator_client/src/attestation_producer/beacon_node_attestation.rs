@@ -1,5 +1,6 @@
 //TODO: generalise these enums to the crate
-use crate::block_producer::{BeaconNodeError, PublishOutcome};
+use crate::error::{BeaconNodeError, PublishOutcome};
+use crate::service::BoxFut;
 use types::{Attestation, AttestationData, EthSpec, Slot};
 
 /// Defines the methods required to produce and publish attestations on a Beacon Node. Abstracts the
@@ -11,7 +12,7 @@ pub trait BeaconNodeAttestation: Send + Sync {
         &self,
         slot: Slot,
         shard: u64,
-    ) -> Result<AttestationData, BeaconNodeError>;
+    ) -> BoxFut<AttestationData, BeaconNodeError>;
 
     /// Request that the node publishes a attestation.
     ///
@@ -19,5 +20,5 @@ pub trait BeaconNodeAttestation: Send + Sync {
     fn publish_attestation<T: EthSpec>(
         &self,
         attestation: Attestation<T>,
-    ) -> Result<PublishOutcome, BeaconNodeError>;
+    ) -> BoxFut<PublishOutcome, BeaconNodeError>;
 }

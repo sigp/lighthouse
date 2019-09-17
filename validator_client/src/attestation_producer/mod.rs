@@ -1,12 +1,14 @@
 mod beacon_node_attestation;
 mod grpc;
+mod rest;
 
 use std::sync::Arc;
 use types::{ChainSpec, Domain, EthSpec, Fork};
 //TODO: Move these higher up in the crate
+pub use self::rest::BeaconBlockRestClient;
 use super::block_producer::{BeaconNodeError, PublishOutcome, ValidatorEvent};
 use crate::signer::Signer;
-use beacon_node_attestation::BeaconNodeAttestation;
+pub use beacon_node_attestation::BeaconNodeAttestation;
 use core::marker::PhantomData;
 use slog::{error, info, warn};
 use tree_hash::TreeHash;
@@ -95,9 +97,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
             let domain = self.spec.get_domain(epoch, Domain::Attestation, &self.fork);
             if let Some(attestation) = self.sign_attestation(attestation, self.duty, domain) {
                 match self.beacon_node.publish_attestation(attestation) {
-                    Ok(PublishOutcome::InvalidAttestation(_string)) => {
-                        Ok(ValidatorEvent::InvalidAttestation)
-                    }
+                    Ok(PublishOutcome::Invalid(_string)) => Ok(ValidatorEvent::InvalidAttestation),
                     Ok(PublishOutcome::Valid) => {
                         Ok(ValidatorEvent::AttestationProduced(self.duty.slot))
                     }

@@ -1,4 +1,6 @@
 use super::beacon_node_block::*;
+use crate::error::{BeaconNodeError, PublishOutcome};
+use crate::service::BoxFut;
 use protos::services::{
     BeaconBlock as GrpcBeaconBlock, ProduceBeaconBlockRequest, PublishBeaconBlockRequest,
 };
@@ -18,14 +20,12 @@ impl BeaconBlockGrpcClient {
     pub fn new(client: Arc<BeaconBlockServiceClient>) -> Self {
         Self { client }
     }
-}
 
-impl BeaconNodeBlock for BeaconBlockGrpcClient {
     /// Request a Beacon Node (BN) to produce a new block at the supplied slot.
     ///
     /// Returns `None` if it is not possible to produce at the supplied slot. For example, if the
     /// BN is unable to find a parent block.
-    fn produce_beacon_block<T: EthSpec>(
+    fn produce_beacon_block_result<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &Signature,
@@ -46,8 +46,9 @@ impl BeaconNodeBlock for BeaconBlockGrpcClient {
             let block = reply.get_block();
             let ssz = block.get_ssz();
 
-            let block =
-                BeaconBlock::from_ssz_bytes(&ssz).map_err(|_| BeaconNodeError::DecodeFailure)?;
+            let block = BeaconBlock::from_ssz_bytes(&ssz).map_err(|_| {
+                BeaconNodeError::DecodeFailure("Cannot decode block from SSZ".into())
+            })?;
 
             Ok(Some(block))
         } else {
@@ -59,7 +60,7 @@ impl BeaconNodeBlock for BeaconBlockGrpcClient {
     ///
     /// Generally, this will be called after a `produce_beacon_block` call with a block that has
     /// been completed (signed) by the validator client.
-    fn publish_beacon_block<T: EthSpec>(
+    fn publish_beacon_block_result<T: EthSpec>(
         &self,
         block: BeaconBlock<T>,
     ) -> Result<PublishOutcome, BeaconNodeError> {
@@ -81,7 +82,30 @@ impl BeaconNodeBlock for BeaconBlockGrpcClient {
             Ok(PublishOutcome::Valid)
         } else {
             // TODO: distinguish between different errors
-            Ok(PublishOutcome::InvalidBlock("Publish failed".to_string()))
+            Ok(PublishOutcome::Invalid("Publish failed".to_string()))
         }
+    }
+}
+
+impl BeaconNodeBlock for BeaconBlockGrpcClient {
+    /// Wraps `produce_beacon_block_result` in futures.
+    fn produce_beacon_block<T: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &Signature,
+    ) -> BoxFut<Option<BeaconBlock<T>>, BeaconNodeError> {
+        Box::new(futures::future::result(
+            self.produce_beacon_block_result(slot, randao_reveal),
+        ))
+    }
+
+    /// Wraps `produce_beacon_block_result` in futures.
+    fn publish_beacon_block<T: EthSpec>(
+        &self,
+        block: BeaconBlock<T>,
+    ) -> BoxFut<PublishOutcome, BeaconNodeError> {
+        Box::new(futures::future::result(
+            self.publish_beacon_block_result(block),
+        ))
     }
 }

@@ -1,14 +1,17 @@
 mod beacon_node_duties;
 mod epoch_duties;
 mod grpc;
+mod rest;
 // TODO: reintroduce tests
 //#[cfg(test)]
 //mod test_node;
 
-pub use self::beacon_node_duties::{BeaconNodeDuties, BeaconNodeDutiesError};
+pub use self::beacon_node_duties::BeaconNodeDuties;
 use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
 pub use self::epoch_duties::{EpochDutiesMap, WorkInfo};
+pub use self::rest::ValidatorServiceRestClient;
 use super::signer::Signer;
+use crate::error::BeaconNodeError;
 use futures::Async;
 use slog::{debug, error, info};
 use std::fmt::Display;
@@ -30,7 +33,7 @@ pub enum UpdateOutcome {
 #[derive(Debug, PartialEq)]
 pub enum Error {
     DutiesMapPoisoned,
-    BeaconNodeDutiesError(BeaconNodeDutiesError),
+    BeaconNodeDutiesError(BeaconNodeError),
     UnknownEpoch,
     UnknownValidator,
 }
@@ -115,8 +118,8 @@ impl<U: BeaconNodeDuties, S: Signer + Display> DutiesManager<U, S> {
 }
 
 //TODO: Use error_chain to handle errors
-impl From<BeaconNodeDutiesError> for Error {
-    fn from(e: BeaconNodeDutiesError) -> Error {
+impl From<BeaconNodeError> for Error {
+    fn from(e: BeaconNodeError) -> Error {
         Error::BeaconNodeDutiesError(e)
     }
 }

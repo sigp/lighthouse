@@ -33,6 +33,32 @@ impl Default for KeySource {
     }
 }
 
+/// Defines the encoding for the API
+///
+/// The validator client can speak to the beacon node in a number of encodings. Currently both JSON
+/// and YAML are supported.
+#[derive(Clone, Serialize, Deserialize)]
+pub enum ApiEncodingFormat {
+    JSON,
+    YAML,
+}
+
+/// Presently, the validator client supports both gRPC and Restful HTTP
+#[derive(Clone, Serialize, Deserialize)]
+pub enum ServerType {
+    GRPC,
+    REST,
+}
+
+impl ApiEncodingFormat {
+    pub fn get_content_type(&self) -> String {
+        match self {
+            ApiEncodingFormat::JSON => "application/json".into(),
+            ApiEncodingFormat::YAML => "application/yaml".into(),
+        }
+    }
+}
+
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -45,10 +71,12 @@ pub struct Config {
     pub log_file: PathBuf,
     /// The server at which the Beacon Node can be contacted
     pub server: String,
-    /// The gRPC port on the server
-    pub server_grpc_port: u16,
-    /// The HTTP port on the server, for the REST API.
-    pub server_http_port: u16,
+    /// The HTTP or gRPC port on the server
+    pub server_port: u16,
+    /// What type of server we are connecting to
+    pub server_type: ServerType,
+    /// Which format the REST API sends/received data in.
+    pub api_encoding: ApiEncodingFormat,
     /// The number of slots per epoch.
     pub slots_per_epoch: u64,
 }
@@ -63,12 +91,11 @@ impl Default for Config {
             key_source: <_>::default(),
             log_file: PathBuf::from(""),
             server: DEFAULT_SERVER.into(),
-            server_grpc_port: DEFAULT_SERVER_GRPC_PORT
-                .parse::<u16>()
-                .expect("gRPC port constant should be valid"),
-            server_http_port: DEFAULT_SERVER_GRPC_PORT
+            server_port: DEFAULT_SERVER_HTTP_PORT
                 .parse::<u16>()
                 .expect("HTTP port constant should be valid"),
+            server_type: ServerType::REST,
+            api_encoding: ApiEncodingFormat::JSON,
             slots_per_epoch: MainnetEthSpec::slots_per_epoch(),
         }
     }

@@ -1,5 +1,7 @@
-use super::beacon_node_duties::{BeaconNodeDuties, BeaconNodeDutiesError};
+use super::beacon_node_duties::BeaconNodeDuties;
 use super::epoch_duties::{EpochDuties, EpochDuty};
+use crate::error::BeaconNodeError;
+use crate::service::BoxFut;
 // to use if we manually specify a timeout
 //use grpcio::CallOption;
 use protos::services::{GetDutiesRequest, Validators};
@@ -9,13 +11,13 @@ use std::collections::HashMap;
 // use std::time::Duration;
 use types::{AttestationDuty, Epoch, PublicKey, Slot};
 
-impl BeaconNodeDuties for ValidatorServiceClient {
+impl ValidatorServiceClient {
     /// Requests all duties (block signing and committee attesting) from the Beacon Node (BN).
-    fn request_duties(
+    fn request_duties_result(
         &self,
         epoch: Epoch,
         pub_keys: &[PublicKey],
-    ) -> Result<EpochDuties, BeaconNodeDutiesError> {
+    ) -> Result<EpochDuties, BeaconNodeError> {
         // Get the required duties from all validators
         // build the request
         let mut req = GetDutiesRequest::new();
@@ -28,9 +30,9 @@ impl BeaconNodeDuties for ValidatorServiceClient {
         // let call_opt = CallOption::default().timeout(Duration::from_secs(2));
 
         // send the request, get the duties reply
-        let reply = self
-            .get_validator_duties(&req)
-            .map_err(|err| BeaconNodeDutiesError::RemoteFailure(format!("{:?}", err)))?;
+        let reply = self.get_validator_duties(&req).map_err(|err| {
+            BeaconNodeError::RemoteFailure(format!("Cannot get duties: {:?}", err))
+        })?;
 
         let mut epoch_duties: HashMap<PublicKey, Option<EpochDuty>> = HashMap::new();
         for (index, validator_duty) in reply.get_active_validators().iter().enumerate() {
@@ -63,5 +65,17 @@ impl BeaconNodeDuties for ValidatorServiceClient {
             epoch_duties.insert(pub_keys[index].clone(), Some(epoch_duty));
         }
         Ok(epoch_duties)
+    }
+}
+
+impl BeaconNodeDuties for ValidatorServiceClient {
+    fn request_duties(
+        &self,
+        epoch: Epoch,
+        pub_keys: &[PublicKey],
+    ) -> BoxFut<EpochDuties, BeaconNodeError> {
+        Box::new(futures::future::result(
+            self.request_duties_result(epoch, pub_keys),
+        ))
     }
 }

@@ -9,18 +9,22 @@
 /// data from the beacon node and performs the signing before publishing the block to the beacon
 /// node.
 use crate::attestation_producer::AttestationProducer;
-use crate::block_producer::{BeaconBlockGrpcClient, BlockProducer};
-use crate::config::Config as ValidatorConfig;
+use crate::attestation_producer::BeaconNodeAttestation;
+use crate::block_producer::{
+    BeaconBlockGrpcClient, BeaconBlockRestClient, BeaconNodeBlock, BlockProducer,
+};
+use crate::config::{Config as ValidatorConfig, ServerType};
 use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
 use crate::error as error_chain;
+use crate::rest_client::RestClient;
 use crate::signer::Signer;
 use bls::Keypair;
 use eth2_config::Eth2Config;
 use grpcio::{ChannelBuilder, EnvBuilder};
 use protos::services::Empty;
 use protos::services_grpc::{
-    AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
-    ValidatorServiceClient,
+    AttestationServiceClient, BeaconBlockService, BeaconBlockServiceClient,
+    BeaconNodeServiceClient, ValidatorServiceClient,
 };
 use slog::{crit, error, info, trace, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
@@ -34,6 +38,10 @@ use tokio::timer::Interval;
 use tokio_timer::clock::Clock;
 use types::{ChainSpec, Epoch, EthSpec, Fork, Slot};
 
+/// A type for returning a future of whatever object we're playing with
+/// (usually BeaconBlock or Attestation)
+pub type BoxFut<T, E> = Box<dyn Future<Item = T, Error = E> + Send>;
+
 /// A fixed amount of time after a slot to perform operations. This gives the node time to complete
 /// per-slot processes.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
@@ -41,7 +49,13 @@ const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
 //TODO: Generalize the BeaconNode types to use testing
-pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> {
+pub struct Service<
+    D: BeaconNodeDuties + 'static,
+    S: Signer + 'static,
+    E: EthSpec,
+    B: BeaconNodeBlock,
+    A: BeaconNodeAttestation,
+> {
     /// The node's current fork version we are processing on.
     fork: Fork,
     /// The slot clock for this service.
@@ -52,111 +66,47 @@ pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpe
     /// The chain specification for this clients instance.
     spec: Arc<ChainSpec>,
     /// The duties manager which maintains the state of when to perform actions.
-    duties_manager: Arc<DutiesManager<B, S>>,
+    duties_manager: Arc<DutiesManager<D, S>>,
     // GRPC Clients
     /// The beacon block GRPC client.
-    beacon_block_client: Arc<BeaconBlockGrpcClient>,
+    beacon_block_client: Arc<B>,
     /// The attester GRPC client.
-    attestation_client: Arc<AttestationServiceClient>,
+    attestation_client: Arc<A>,
     /// The validator client logger.
     log: slog::Logger,
     _phantom: PhantomData<E>,
 }
 
-impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, S, E> {
+impl<
+        D: BeaconNodeDuties + 'static,
+        S: Signer + 'static,
+        E: EthSpec,
+        B: BeaconNodeBlock,
+        A: BeaconNodeAttestation,
+    > Service<D, S, E, B, A>
+{
     ///  Initial connection to the beacon node to determine its properties.
     ///
     ///  This tries to connect to a beacon node. Once connected, it initialised the gRPC clients
     ///  and returns an instance of the service.
     fn initialize_service(
-        client_config: ValidatorConfig,
+        validator_config: ValidatorConfig,
         eth2_config: Eth2Config,
         log: slog::Logger,
-    ) -> error_chain::Result<Service<ValidatorServiceClient, Keypair, E>> {
+    ) -> error_chain::Result<Service<D, Keypair, E, B, A>> {
         let server_url = format!(
             "{}:{}",
-            client_config.server, client_config.server_grpc_port
+            validator_config.server, validator_config.server_port
         );
 
         let env = Arc::new(EnvBuilder::new().build());
-        // Beacon node gRPC beacon node endpoints.
-        let beacon_node_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
-            BeaconNodeServiceClient::new(ch)
-        };
 
-        // retrieve node information and validate the beacon node
-        let node_info = loop {
-            match beacon_node_client.info(&Empty::new()) {
-                Err(e) => {
-                    let retry_seconds = 5;
-                    warn!(
-                        log,
-                        "Could not connect to beacon node";
-                        "error" => format!("{:?}", e),
-                        "retry_in" => format!("{} seconds", retry_seconds),
-                    );
-                    std::thread::sleep(Duration::from_secs(retry_seconds));
-                    continue;
-                }
-                Ok(info) => {
-                    // verify the node's network id
-                    if eth2_config.spec.network_id != info.network_id as u8 {
-                        error!(
-                            log,
-                            "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
-                        );
-                        return Err(format!("Beacon node has the wrong chain id. Expected chain id: {}, node's chain id: {}", eth2_config.spec.network_id, info.network_id).into());
-                    }
-                    break info;
-                }
-            };
-        };
+        // Start by building all things common to GRPC/REST
 
         // build requisite objects to form Self
         let genesis_time = node_info.get_genesis_time();
         let genesis_slot = Slot::from(node_info.get_genesis_slot());
-
-        info!(
-            log,
-            "Beacon node connected";
-            "version" => node_info.version.clone(),
-            "network_id" => node_info.network_id,
-            "genesis_time" => genesis_time
-        );
-
-        let proto_fork = node_info.get_fork();
-        let mut previous_version: [u8; 4] = [0; 4];
-        let mut current_version: [u8; 4] = [0; 4];
-        previous_version.copy_from_slice(&proto_fork.get_previous_version()[..4]);
-        current_version.copy_from_slice(&proto_fork.get_current_version()[..4]);
-        let fork = Fork {
-            previous_version,
-            current_version,
-            epoch: Epoch::from(proto_fork.get_epoch()),
-        };
-
-        // initialize the RPC clients
-
-        // Beacon node gRPC beacon block endpoints.
-        let beacon_block_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
-            let beacon_block_service_client = Arc::new(BeaconBlockServiceClient::new(ch));
-            // a wrapper around the service client to implement the beacon block node trait
-            Arc::new(BeaconBlockGrpcClient::new(beacon_block_service_client))
-        };
-
-        // Beacon node gRPC validator endpoints.
-        let validator_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
-            Arc::new(ValidatorServiceClient::new(ch))
-        };
-
-        //Beacon node gRPC attester endpoints.
-        let attestation_client = {
-            let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
-            Arc::new(AttestationServiceClient::new(ch))
-        };
+        let spec = Arc::new(eth2_config.spec);
 
         // build the validator slot clock
         let slot_clock = SystemTimeSlotClock::from_eth2_genesis(
@@ -168,10 +118,8 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             format!("Unable to start slot clock: {}.", e).into()
         })?;
 
-        /* Generate the duties manager */
-
         // Load generated keypairs
-        let keypairs = Arc::new(client_config.fetch_keys(&log)?);
+        let keypairs = Arc::new(validator_config.fetch_keys(&log)?);
 
         let slots_per_epoch = E::slots_per_epoch();
 
@@ -184,29 +132,124 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         // produce work on.
         let duties_map = RwLock::new(EpochDutiesMap::new(slots_per_epoch));
 
-        // builds a manager which maintains the list of current duties for all known validators
-        // and can check when a validator needs to perform a task.
-        let duties_manager = Arc::new(DutiesManager {
-            duties_map,
-            // these are abstract objects capable of signing
-            signers: keypairs,
-            beacon_node: validator_client,
-        });
+        let proto_fork = node_info.get_fork();
+        let mut previous_version: [u8; 4] = [0; 4];
+        let mut current_version: [u8; 4] = [0; 4];
+        previous_version.copy_from_slice(&proto_fork.get_previous_version()[..4]);
+        current_version.copy_from_slice(&proto_fork.get_current_version()[..4]);
+        let fork = Fork {
+            previous_version,
+            current_version,
+            epoch: Epoch::from(proto_fork.get_epoch()),
+        };
 
-        let spec = Arc::new(eth2_config.spec);
+        match validator_config.server_type {
+            ServerType::GRPC => {
+                // Beacon node gRPC beacon node endpoints.
+                let beacon_node_client = {
+                    let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
+                    BeaconNodeServiceClient::new(ch)
+                };
 
-        Ok(Service {
-            fork,
-            slot_clock,
-            current_slot: None,
-            slots_per_epoch,
-            spec,
-            duties_manager,
-            beacon_block_client,
-            attestation_client,
-            log,
-            _phantom: PhantomData,
-        })
+                // retrieve node information and validate the beacon node
+                let node_info = loop {
+                    match beacon_node_client.info(&Empty::new()) {
+                        Err(e) => {
+                            let retry_seconds = 5;
+                            warn!(
+                                log,
+                                "Could not connect to beacon node";
+                                "error" => format!("{:?}", e),
+                                "retry_in" => format!("{} seconds", retry_seconds),
+                            );
+                            std::thread::sleep(Duration::from_secs(retry_seconds));
+                            continue;
+                        }
+                        Ok(info) => {
+                            // verify the node's network id
+                            if eth2_config.spec.network_id != info.network_id as u8 {
+                                error!(
+                            log,
+                            "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
+                        );
+                                return Err(format!("Beacon node has the wrong chain id. Expected chain id: {}, node's chain id: {}", eth2_config.spec.network_id, info.network_id).into());
+                            }
+                            break info;
+                        }
+                    };
+                };
+
+                info!(
+                    log,
+                    "Beacon node connected via gRPC";
+                    "version" => node_info.version.clone(),
+                    "network_id" => node_info.network_id,
+                    "genesis_time" => genesis_time
+                );
+
+                // initialize the RPC clients
+
+                // Beacon node gRPC beacon block endpoints.
+                let beacon_block_client = {
+                    let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
+                    let beacon_block_service_client = Arc::new(BeaconBlockServiceClient::new(ch));
+                    // a wrapper around the service client to implement the beacon block node trait
+                    Arc::new(BeaconBlockGrpcClient::new(beacon_block_service_client))
+                };
+
+                // Beacon node gRPC validator endpoints.
+                let validator_client = {
+                    let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
+                    Arc::new(ValidatorServiceClient::new(ch))
+                };
+
+                //Beacon node gRPC attester endpoints.
+                let attestation_client = {
+                    let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
+                    Arc::new(AttestationServiceClient::new(ch))
+                };
+
+                // builds a manager which maintains the list of current duties for all known validators
+                // and can check when a validator needs to perform a task.
+                let duties_manager = Arc::new(DutiesManager {
+                    duties_map,
+                    // these are abstract objects capable of signing
+                    signers: keypairs,
+                    beacon_node: validator_client,
+                });
+
+                Ok(Service {
+                    fork,
+                    slot_clock,
+                    current_slot: None,
+                    slots_per_epoch,
+                    spec,
+                    duties_manager,
+                    beacon_block_client,
+                    attestation_client,
+                    log,
+                    _phantom: PhantomData,
+                })
+            }
+            ServerType::REST => {
+                let beacon_block_client = Arc::new(BeaconBlockRestClient {
+                    endpoint: "/beacon/validator/block".into(),
+                    client: RestClient::new(&validator_config),
+                });
+                Ok(Service {
+                    fork,
+                    slot_clock,
+                    current_slot: None,
+                    slots_per_epoch,
+                    spec,
+                    duties_manager,
+                    beacon_block_client,
+                    attestation_client,
+                    log,
+                    _phantom: PhantomData,
+                })
+            }
+        }
     }
 
     /// Initialise the service then run the core thread.

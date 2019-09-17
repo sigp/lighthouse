@@ -19,6 +19,7 @@ impl ResponseBuilder {
     pub fn new(req: &Request<Body>) -> Result<Self, ApiError> {
         let content_header: String = req
             .headers()
+            //TODO: This should be 'Accept' not, 'content-type'
             .get(header::CONTENT_TYPE)
             .map_or(Ok(""), |h| h.to_str())
             .map_err(|e| {

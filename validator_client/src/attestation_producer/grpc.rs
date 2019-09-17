@@ -1,5 +1,6 @@
 use super::beacon_node_attestation::BeaconNodeAttestation;
 use crate::block_producer::{BeaconNodeError, PublishOutcome};
+use crate::service::BoxFut;
 use protos::services_grpc::AttestationServiceClient;
 use ssz::{Decode, Encode};
 
@@ -8,8 +9,8 @@ use protos::services::{
 };
 use types::{Attestation, AttestationData, EthSpec, Slot};
 
-impl BeaconNodeAttestation for AttestationServiceClient {
-    fn produce_attestation_data(
+impl AttestationServiceClient {
+    fn produce_attestation_data_result(
         &self,
         slot: Slot,
         shard: u64,
@@ -22,13 +23,14 @@ impl BeaconNodeAttestation for AttestationServiceClient {
             .produce_attestation_data(&req)
             .map_err(|err| BeaconNodeError::RemoteFailure(format!("{:?}", err)))?;
 
-        let attestation_data =
-            AttestationData::from_ssz_bytes(reply.get_attestation_data().get_ssz())
-                .map_err(|_| BeaconNodeError::DecodeFailure)?;
+        let attestation_data = AttestationData::from_ssz_bytes(
+            reply.get_attestation_data().get_ssz(),
+        )
+        .map_err(|_| BeaconNodeError::DecodeFailure("Cannot decode attestation from SSZ".into()))?;
         Ok(attestation_data)
     }
 
-    fn publish_attestation<T: EthSpec>(
+    fn publish_attestation_result<T: EthSpec>(
         &self,
         attestation: Attestation<T>,
     ) -> Result<PublishOutcome, BeaconNodeError> {
@@ -49,9 +51,28 @@ impl BeaconNodeAttestation for AttestationServiceClient {
             Ok(PublishOutcome::Valid)
         } else {
             // TODO: distinguish between different errors
-            Ok(PublishOutcome::InvalidAttestation(
-                "Publish failed".to_string(),
-            ))
+            Ok(PublishOutcome::Invalid("Publish failed".to_string()))
         }
+    }
+}
+
+impl BeaconNodeAttestation for AttestationServiceClient {
+    fn produce_attestation_data(
+        &self,
+        slot: Slot,
+        shard: u64,
+    ) -> BoxFut<AttestationData, BeaconNodeError> {
+        Box::new(futures::future::result(
+            self.produce_attestation_data_result(slot, shard),
+        ))
+    }
+
+    fn publish_attestation<T: EthSpec>(
+        &self,
+        attestation: Attestation<T>,
+    ) -> BoxFut<PublishOutcome, BeaconNodeError> {
+        Box::new(futures::future::result(
+            self.publish_attestation_result(attestation),
+        ))
     }
 }
