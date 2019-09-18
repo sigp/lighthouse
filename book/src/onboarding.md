@@ -54,7 +54,7 @@ Ethereum's Serenity is based on a Proof-of-Stake based sharded beacon chain.
 is for!*)
 
 Read through our [Understanding
-Serenity](https://github.com/sigp/lighthouse/blob/master/docs/serenity.md) docs
+Serenity](./serenity.md) docs
 to learn more! (*unless you've already read it.*)
 
 The document explains the necessary fundamentals for understanding Ethereum,
