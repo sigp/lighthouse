@@ -2,6 +2,7 @@
 
 * [Introduction](./intro.md)
     * [About Lighthouse](./lighthouse.md)
+    * [Serenity](./serenity.md)
     * [Contributing](./onboarding.md)
 * [Development Environment](./setup.md)
 * [Websocket Interface](./websockets.md)
