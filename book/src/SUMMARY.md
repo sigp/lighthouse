@@ -1,6 +1,8 @@
 # Summary
 
 * [Introduction](./intro.md)
+    * [About Lighthouse](./lighthouse.md)
+    * [Contributing](./onboarding.md)
 * [Development Environment](./setup.md)
 * [Websocket Interface](./websockets.md)
 * [Simple Local Testnet](./simple-testnet.md)

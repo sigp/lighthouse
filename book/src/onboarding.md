@@ -21,7 +21,7 @@ appreciated and your contributions will help not only the community but all
 the contributors.
 
 We've bundled up our Goals, Ethos and Ideology into one document for you to
-read through, please read our [About Lighthouse](lighthouse.md) docs. :smile:
+read through, please read our [About Lighthouse](lighthouse.md) docs.
 
 Layer-1 infrastructure is a critical component for the ecosystem and relies
 heavily on contributions from the community. Building Ethereum Serenity is a
@@ -51,11 +51,11 @@ your support!
 Ethereum's Serenity is based on a Proof-of-Stake based sharded beacon chain.
 
 (*If you don't know what that is, don't `panic`, that's what this documentation
-is for!* :smile:)
+is for!*)
 
 Read through our [Understanding
 Serenity](https://github.com/sigp/lighthouse/blob/master/docs/serenity.md) docs
-to learn more! :smile: (*unless you've already read it.*)
+to learn more! (*unless you've already read it.*)
 
 The document explains the necessary fundamentals for understanding Ethereum,
 Proof-of-Stake and the Serenity we are working towards.
