@@ -19,7 +19,7 @@
 //!
 //! Batch Syncing
 //!
-//! This syncing process start by requesting `MAX_BLOCKS_PER_REQUEST` blocks from a peer with an
+//! This syncing process start by requesting `BLOCKS_PER_REQUEST` blocks from a peer with an
 //! unknown chain (with a greater slot height) starting from our current head slot. If the earliest
 //! block returned is known to us, then the group of blocks returned form part of a known chain,
 //! and we process this batch of blocks, before requesting more batches forward and processing
@@ -192,13 +192,13 @@ impl<T: EthSpec> BlockRequests<T> {
                 {
                     self.current_start_slot =
                         self.downloaded_blocks[self.downloaded_blocks.len() - 1].slot
-                            + Slot::from(MAX_BLOCKS_PER_REQUEST);
+                            + Slot::from(BLOCKS_PER_REQUEST);
                 } else {
-                    self.current_start_slot += Slot::from(MAX_BLOCKS_PER_REQUEST);
+                    self.current_start_slot += Slot::from(BLOCKS_PER_REQUEST);
                 }
             }
             SyncDirection::Backwards => {
-                self.current_start_slot -= Slot::from(MAX_BLOCKS_PER_REQUEST);
+                self.current_start_slot -= Slot::from(BLOCKS_PER_REQUEST);
             }
         }
         self.state = BlockRequestsState::Queued;
@@ -374,7 +374,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        mut blocks: Vec<BeaconBlock<T::EthSpec>>,
+        mut block: Option<BeaconBlock<T::EthSpec>>,
     ) {
         // ensure the underlying chain still exists
         let chain = match self.chain.upgrade() {
@@ -414,7 +414,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 warn!(self.log, "Peer returned too many empty block batches";
                       "peer" => format!("{:?}", peer_id));
                 block_requests.state = BlockRequestsState::Failed;
-            } else if block_requests.current_start_slot + MAX_BLOCKS_PER_REQUEST
+            } else if block_requests.current_start_slot + BLOCKS_PER_REQUEST
                 >= block_requests.target_head_slot
             {
                 warn!(self.log, "Peer did not return blocks it claimed to possess";
@@ -432,10 +432,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // Note that the order of blocks is verified in block processing
         let last_sent_slot = blocks[blocks.len() - 1].slot;
         if block_requests.current_start_slot > blocks[0].slot
-            || block_requests
-                .current_start_slot
-                .add(MAX_BLOCKS_PER_REQUEST)
-                < last_sent_slot
+            || block_requests.current_start_slot.add(BLOCKS_PER_REQUEST) < last_sent_slot
         {
             warn!(self.log, "BlocksByRange response returned out of range blocks"; 
                           "request_id" => request_id, 
@@ -526,7 +523,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        mut blocks: Vec<BeaconBlock<T::EthSpec>>,
+        mut block: Option<BeaconBlock<T::EthSpec>>,
     ) {
         // find the request
         let parent_request = match self
@@ -672,7 +669,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     let request = BlocksByRangeRequest {
                         head_block_root: block_requests.target_head_root,
                         start_slot: block_requests.current_start_slot.as_u64(),
-                        count: MAX_BLOCKS_PER_REQUEST,
+                        count: BLOCKS_PER_REQUEST,
                         step: 0,
                     };
                     request_blocks(
@@ -1100,16 +1097,16 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                     SyncMessage::BlocksByRangeResponse {
                         peer_id,
                         request_id,
-                        beacon_blocks,
+                        beacon_block,
                     } => {
-                        self.blocks_by_range_response(peer_id, request_id, beacon_blocks);
+                        self.blocks_by_range_response(peer_id, request_id, beacon_block);
                     }
                     SyncMessage::BlocksByRootResponse {
                         peer_id,
                         request_id,
-                        beacon_blocks,
+                        beacon_block,
                     } => {
-                        self.blocks_by_root_response(peer_id, request_id, beacon_blocks);
+                        self.blocks_by_root_response(peer_id, request_id, beacon_block);
                     }
                     SyncMessage::UnknownBlock(peer_id, block) => {
                         self.add_unknown_block(peer_id, block);

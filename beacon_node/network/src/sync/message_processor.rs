@@ -356,14 +356,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         request_id: RequestId,
         beacon_block: Option<BeaconBlock<T::EthSpec>>,
     ) {
-        /*
-        debug!(
+        trace!(
             self.log,
             "BlocksByRangeResponse";
             "peer" => format!("{:?}", peer_id),
-            "count" => beacon_blocks.len(),
         );
-        */
 
         self.send_to_sync(SyncMessage::BlocksByRangeResponse {
             peer_id,
@@ -379,14 +376,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         request_id: RequestId,
         beacon_block: Option<BeaconBlock<T::EthSpec>>,
     ) {
-        /* Maybe not for now
         trace!(
             self.log,
             "BlocksByRootResponse";
             "peer" => format!("{:?}", peer_id),
-            "count" => beacon_blocks.len(),
         );
-        */
 
         self.send_to_sync(SyncMessage::BlocksByRootResponse {
             peer_id,
