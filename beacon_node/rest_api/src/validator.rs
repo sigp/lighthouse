@@ -22,7 +22,7 @@ use types::{Attestation, BeaconBlock, BitList, Epoch, RelativeEpoch, Shard, Slot
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatorDuty {
     /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
-    pub validator_pubkey: String,
+    pub validator_pubkey: PublicKey,
     /// The slot at which the validator must attest.
     pub attestation_slot: Option<Slot>,
     /// The shard in which the validator must attest.
@@ -34,7 +34,7 @@ pub struct ValidatorDuty {
 impl ValidatorDuty {
     pub fn new() -> ValidatorDuty {
         ValidatorDuty {
-            validator_pubkey: "".to_string(),
+            validator_pubkey: PublicKey::new,
             attestation_slot: None,
             attestation_shard: None,
             block_proposal_slot: None,
@@ -212,13 +212,14 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}",e)))
         .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
         .and_then(|chunks| {
-            serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
-                ApiError::BadRequest(format!(
-                    "Unable to deserialize JSON into a BeaconBlock: {:?}",
-                    e
-                ))
-            })
-        })
+
+            serde_json::from_slice(&chunks.as_slice())
+        }).map_err(|e| {
+ApiError::BadRequest(format!(
+"Unable to deserialize JSON into a BeaconBlock: {:?}",
+e
+))
+    })
         .and_then(move |block: BeaconBlock<T::EthSpec>| {
             let slot = block.slot;
             match beacon_chain.process_block(block.clone()) {

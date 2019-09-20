@@ -33,6 +33,7 @@ use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 use url_query::UrlQuery;
+use config::ApiEncodingFormat;
 
 pub use crate::helpers::parse_pubkey;
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};

@@ -12,14 +12,13 @@ use types::{Attestation, BeaconBlock, EthSpec, Signature, Slot};
 use url::Url;
 
 pub struct RestClient<T: Connect> {
+    pub config: ValidatorConfig,
     base_url: Url,
-    pub api_encoding: ApiEncodingFormat,
-    config: ValidatorConfig,
     client: Client<T>,
 }
 
 impl<T: Connect> RestClient<T> {
-    pub fn new(config: &ValidatorConfig) -> Result<Self, ValidatorError> {
+    pub fn new(config: ValidatorConfig) -> Result<Self, ValidatorError> {
         //TODO: Make this generic, so it can take unix sockets
         let mut base_url = Url::parse(config.server.as_str())?;
         base_url.set_port(Some(config.server_http_port)).map_err(
@@ -32,9 +31,8 @@ impl<T: Connect> RestClient<T> {
             ))?;
         let client = Client::builder().keep_alive(false).build_http();
         Ok(Self {
+            config,
             base_url,
-            api_encoding: config.clone().api_encoding,
-            config: config.clone(),
             client,
         })
     }

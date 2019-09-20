@@ -41,7 +41,7 @@ impl<T: Connect> BeaconNodeBlock for BeaconBlockRestClient<T> {
                     .concat2()
                     .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
                     .and_then(|chunks| {
-                        let block: BeaconBlock<U> = match self.client.api_encoding {
+                        let block: BeaconBlock<U> = match self.client.config.api_encoding {
                             ApiEncodingFormat::JSON => serde_json::from_slice(&chunks.as_slice()),
                             ApiEncodingFormat::YAML => serde_yaml::from_slice(&chunks.as_slice()),
                         };

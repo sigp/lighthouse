@@ -13,6 +13,8 @@ use types::{
     EthSpec, MainnetEthSpec,
 };
 
+pub use rest_api::config::ApiEncodingFormat;
+
 pub const DEFAULT_SERVER: &str = "localhost";
 pub const DEFAULT_SERVER_GRPC_PORT: &str = "5051";
 pub const DEFAULT_SERVER_HTTP_PORT: &str = "5052";
@@ -33,15 +35,6 @@ impl Default for KeySource {
     }
 }
 
-/// Defines the encoding for the API
-///
-/// The validator client can speak to the beacon node in a number of encodings. Currently both JSON
-/// and YAML are supported.
-#[derive(Clone, Serialize, Deserialize)]
-pub enum ApiEncodingFormat {
-    JSON,
-    YAML,
-}
 
 /// Presently, the validator client supports both gRPC and Restful HTTP
 #[derive(Clone, Serialize, Deserialize)]
@@ -50,15 +43,12 @@ pub enum ServerType {
     REST,
 }
 
-impl ApiEncodingFormat {
-    pub fn get_content_type(&self) -> String {
-        match self {
-            ApiEncodingFormat::JSON => "application/json".into(),
-            ApiEncodingFormat::YAML => "application/yaml".into(),
-        }
+
+impl From<BeaconNodeError> for ValidatorError {
+    fn from(e: BeaconNodeError) -> ValidatorError {
+        ValidatorError::BeaconNodeError(e)
     }
 }
-
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Config {

@@ -46,9 +46,10 @@ impl<T: Connect> BeaconNodeDuties for ValidatorServiceRestClient<T> {
                     .concat2()
                     .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
                     .and_then(|chunks| {
-                        let duties: Vec<ValidatorDuty> = match self.client.api_encoding {
+                        let duties: Vec<ValidatorDuty> = match self.client.config.api_encoding {
                             ApiEncodingFormat::JSON => serde_json::from_slice(&chunks.as_slice()),
                             ApiEncodingFormat::YAML => serde_yaml::from_slice(&chunks.as_slice()),
+                            ApiEncodingFormat::SSZ => ssz::from(&chunks.as_slice()),
                         };
                         duties.into_iter()
                     })
