@@ -39,7 +39,6 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
                 fetch_eth1_data_in_range(0, distance, curr_block_number, fetcher)
                     .for_each(move |data| {
                         let data = data?;
-                        println!("Cache data: {:#?}", data);
                         let mut eth1_cache = cache_updated.write();
                         eth1_cache.insert(data.0, data.1);
                         Ok(())
@@ -134,7 +133,7 @@ mod tests {
 
     fn setup() -> Web3DataFetcher {
         let config = Config::default();
-        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address);
+        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout);
         return w3.unwrap();
     }
 
@@ -143,17 +142,14 @@ mod tests {
         let w3 = setup();
         let when = Instant::now() + Duration::from_millis(5000);
         let task1 = Delay::new(when)
-            .and_then(|_| {
-                println!("Hello world!");
-                Ok(())
-            })
+            .and_then(|_| Ok(()))
             .map_err(|e| panic!("delay errored; err={:?}", e));
         tokio::run(task1);
         let task2 = fetch_eth1_data(0, 10.into(), Arc::new(w3)).and_then(|data| {
-            println!("{:?}", data);
+            assert!(data.is_ok(), "Failed to fetch eth1 data");
             Ok(())
         });
-        tokio::run(task2.map_err(|e| println!("Some error {:?}", e)));
+        tokio::run(task2.map_err(|e| panic!("{:?}", e)));
     }
 
     #[test]
@@ -161,7 +157,7 @@ mod tests {
         let w3 = setup();
         let interval = {
             let update_duration = Duration::from_secs(15);
-            Interval::new(Instant::now(), update_duration).map_err(|e| println!("{:?}", e))
+            Interval::new(Instant::now(), update_duration).map_err(|e| panic!("{:?}", e))
         };
 
         let cache = Eth1DataCache::new(Arc::new(w3));
@@ -169,10 +165,10 @@ mod tests {
         let task = interval.take(100).for_each(move |_| {
             let _c = cache_inside.clone();
             cache
-                .update_cache(3 + 1)
+                .update_cache(4)
                 .and_then(move |_| Ok(()))
-                .map_err(|e| println!("Some error {:?}", e))
+                .map_err(|e| panic!("Failed to update cache {:?}", e))
         });
-        tokio::run(task.map_err(|e| println!("Some error {:?}", e)));
+        tokio::run(task.map_err(|e| panic!("{:?}", e)));
     }
 }

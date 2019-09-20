@@ -122,7 +122,7 @@ mod tests {
 
     fn setup() -> Web3DataFetcher {
         let config = Config::default();
-        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address);
+        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout);
         return w3.unwrap();
     }
 
@@ -131,17 +131,16 @@ mod tests {
         let w3 = setup();
         let interval = {
             let update_duration = Duration::from_secs(15);
-            Interval::new(Instant::now(), update_duration).map_err(|e| println!("{:?}", e))
+            Interval::new(Instant::now(), update_duration).map_err(|e| panic!("{:?}", e))
         };
 
         let deposit_cache = Arc::new(DepositCache::new(Arc::new(w3)));
         let task = interval.take(100).for_each(move |_| {
-            // let c = cache_inside.clone();
             deposit_cache
                 .update_deposits(0)
                 .and_then(move |_| Ok(()))
-                .map_err(|e| println!("Some error {:?}", e))
+                .map_err(|e| panic!("Error updating deposits {:?}", e))
         });
-        tokio::run(task.map_err(|e| println!("Some error {:?}", e)));
+        tokio::run(task.map_err(|e| panic!("{:?}", e)));
     }
 }

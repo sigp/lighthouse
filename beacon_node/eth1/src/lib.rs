@@ -130,52 +130,78 @@ pub fn run<F: Eth1DataFetcher + 'static>(
     let log = log.new(o!("service" => "eth1_chain"));
 
     // Run a task for calling `update_cache` periodically.
+    // TODO: Get values from config.
     let eth1_block_time_seconds: u64 = 5; // Approximate block time for eth1 chain.
     let eth1_block_interval: u64 = 3; // Interval of eth1 blocks to update eth1_data_cache.
     let interval_log = log.clone();
     let eth1_data_interval = {
         // Set the interval to fire every `eth1_block_interval` blocks.
         let update_duration = Duration::from_secs(eth1_block_interval * eth1_block_time_seconds);
-        Interval::new(Instant::now(), update_duration)
-            .map_err(move |_| warn!(interval_log, "Interval timer failing"))
+        Interval::new(Instant::now(), update_duration).map_err(move |e| {
+            warn!(
+                interval_log,
+                "Interval timer failing";
+                "error" => format!("{:?}", e),
+            )
+        })
     };
     let eth1_data_cache = eth1.eth1_data_cache.clone();
     let eth1_cache_log = log.clone();
     info!(eth1_cache_log, "Cache updation service started");
     executor.spawn(eth1_data_interval.for_each(move |_| {
         let log = eth1_cache_log.clone();
+        let log_err = log.clone();
         eth1_data_cache
             .update_cache(eth1_block_interval + 1) // distance of block_interval + safety_interval
             .and_then(move |_| {
                 debug!(log, "Updating eth1 data cache");
                 Ok(())
             })
-            .map_err(|e| println!("Updating eth1 cache failed {:?}", e))
+            .map_err(move |e| {
+                warn!(
+                    log_err,
+                    "Updating eth1 cache failed";
+                    "error" => format!("{:?}", e),
+                )
+            })
     }));
 
     // Run a task for calling `update_deposits` periodically.
+    // TODO: Get values from config.
     let deposits_updation_interval = 40; // Interval of eth1 blocks to update deposits.
     let interval_log = log.clone();
     let deposits_interval = {
         // Set the interval to fire every `deposits_updation_interval` blocks
         let update_duration =
             Duration::from_secs(deposits_updation_interval * eth1_block_time_seconds);
-        Interval::new(Instant::now(), update_duration)
-            .map_err(move |_| warn!(interval_log, "Interval timer failing"))
+        Interval::new(Instant::now(), update_duration).map_err(move |e| {
+            warn!(
+                interval_log,
+                "Interval timer failing";
+                "error" => format!("{:?}", e),
+            )
+        })
     };
     let eth1_deposit_cache = eth1.deposit_cache.clone();
     let confirmations = 10;
     let deposit_log = log.clone();
     info!(deposit_log, "Deposits updation service started");
     executor.spawn(deposits_interval.for_each(move |_| {
-        let deposit_log = deposit_log.clone();
+        let log = deposit_log.clone();
+        let log_err = log.clone();
         eth1_deposit_cache
-            .update_deposits(confirmations) // distance of block_interval + safety_interval
+            .update_deposits(confirmations)
             .and_then(move |_| {
-                debug!(deposit_log, "Updating deposits cache");
+                debug!(log, "Updating deposits cache");
                 Ok(())
             })
-            .map_err(|e| println!("Updating deposits cache failed {:?}", e))
+            .map_err(move |e| {
+                warn!(
+                    log_err,
+                    "Updating deposits cache failed";
+                    "error" => format!("{:?}", e),
+                )
+            })
     }));
 }
 
@@ -202,14 +228,13 @@ mod tests {
 
     fn setup_w3() -> Web3DataFetcher {
         let config = Config::default();
-        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address);
+        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout);
         return w3.unwrap();
     }
 
     #[test]
     fn test_integration() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        println!("Testing");
         let executor = runtime.executor();
         let log = setup_log();
         let w3 = setup_w3();
