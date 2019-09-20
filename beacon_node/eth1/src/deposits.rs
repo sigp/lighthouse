@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn test_logs_updation() {
+    fn test_log_update() {
         let w3 = setup();
         let interval = {
             let update_duration = Duration::from_secs(15);

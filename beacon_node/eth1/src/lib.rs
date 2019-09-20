@@ -147,7 +147,7 @@ pub fn run<F: Eth1DataFetcher + 'static>(
     };
     let eth1_data_cache = eth1.eth1_data_cache.clone();
     let eth1_cache_log = log.clone();
-    info!(eth1_cache_log, "Cache updation service started");
+    info!(eth1_cache_log, "Cache update service started");
     executor.spawn(eth1_data_interval.for_each(move |_| {
         let log = eth1_cache_log.clone();
         let log_err = log.clone();
@@ -168,12 +168,12 @@ pub fn run<F: Eth1DataFetcher + 'static>(
 
     // Run a task for calling `update_deposits` periodically.
     // TODO: Get values from config.
-    let deposits_updation_interval = 40; // Interval of eth1 blocks to update deposits.
+    let deposits_update_interval = 40; // Interval of eth1 blocks to update deposits.
     let interval_log = log.clone();
     let deposits_interval = {
-        // Set the interval to fire every `deposits_updation_interval` blocks
+        // Set the interval to fire every `deposits_update_interval` blocks
         let update_duration =
-            Duration::from_secs(deposits_updation_interval * eth1_block_time_seconds);
+            Duration::from_secs(deposits_update_interval * eth1_block_time_seconds);
         Interval::new(Instant::now(), update_duration).map_err(move |e| {
             error!(
                 interval_log,
@@ -185,7 +185,7 @@ pub fn run<F: Eth1DataFetcher + 'static>(
     let eth1_deposit_cache = eth1.deposit_cache.clone();
     let confirmations = 10;
     let deposit_log = log.clone();
-    info!(deposit_log, "Deposits updation service started");
+    info!(deposit_log, "Deposits update service started");
     executor.spawn(deposits_interval.for_each(move |_| {
         let log = deposit_log.clone();
         let log_err = log.clone();
