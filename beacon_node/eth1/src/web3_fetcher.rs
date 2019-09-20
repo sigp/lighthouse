@@ -282,26 +282,6 @@ mod tests {
     use super::*;
     use crate::config::Config;
 
-    // Currently, for testing the functionality, we are using the ganache testnet config from the
-    // [lodestar repo](https://github.com/pawanjay176/lodestar/tree/master/packages/lodestar) with some minor modifications for testing purposes.
-    //
-    // Instructions for getting the test environment setup:
-    // * Clone the above repository.
-    // * Run `yarn install && lerna run build`
-    //
-    // Useful commands:
-    //
-    // 1. `./bin/lodestar eth1:dev -m "vast thought differ pull jewel broom cook wrist tribe word before omit" --blockTime 15`
-    //
-    // Runs a local testnet with the provided mnemonic with 10 accounts and block time of 15 seconds and deploys the deposit contract.
-    //
-    // Note: Setting a block time is useful for testing since we want to look for deposits dating back `n` blocks. By default, ganache mines a block only when it receives a transaction.
-    //
-    // 2. `./bin/lodestar deposit -m "vast thought differ pull jewel broom cook wrist tribe word before omit" -n http://127.0.0.1:8545 -c 0x8c594691C0E592FFA21F153a16aE41db5beFcaaa --delay 5`
-    //
-    // Sends a deposit from 10 addresses to the deposit contract at intervals of delay.
-    //
-
     fn setup() -> Web3DataFetcher {
         let config = Config::default();
         let w3 = Web3DataFetcher::new(&config.endpoint, &config.address);

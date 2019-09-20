@@ -1,3 +1,32 @@
+//! This crate is responsible for interacting with the eth1 chain to:
+//! * Get deposits from deposit contract logs.
+//! * Get and process state of the deposit contract for coming to consensus on state of eth1 chain.
+//!
+//!
+//! Currently, for testing the functionality, we are using the ganache testnet config from the
+//! [lodestar repo](https://github.com/pawanjay176/lodestar/tree/master/packages/lodestar) with some minor modifications for testing purposes.
+//!
+//! **NOTE**: The current testing strategy needs to be revamped and also be made
+//! compatible with CI.
+//!
+//! Instructions for getting the test environment setup:
+//! * Clone the above repository.
+//! * Run `yarn install && lerna run build`
+//!
+//!
+//! Useful commands:
+//!
+//! 1. `./bin/lodestar eth1:dev -m "vast thought differ pull jewel broom cook wrist tribe word before omit" --blockTime 15`
+//!
+//! Runs a local testnet with the provided mnemonic with 10 accounts and block time of 15 seconds and deploys the deposit contract.
+//!
+//! Note: Setting a block time is useful for testing since we want to look for deposits dating back `n` blocks. By default, ganache mines a block only when it receives a transaction.
+//!
+//! 2. `./bin/lodestar deposit -m "vast thought differ pull jewel broom cook wrist tribe word before omit" -n http://127.0.0.1:8545 -c 0x8c594691C0E592FFA21F153a16aE41db5beFcaaa --delay 5`
+//!
+//! Sends a deposit from 10 addresses to the deposit contract at intervals of `delay`.
+//!
+
 extern crate types as eth2_types;
 
 mod cache;
