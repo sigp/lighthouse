@@ -69,7 +69,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     println!("Error getting block number");
                     Error::Web3Error(e)
                 })
-                .timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(self.timeout))
                 .map_err(|_| {
                     println!("Timed out getting block_number");
                     Error::Timeout
@@ -91,7 +91,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     println!("Error getting block hash");
                     Error::Web3Error(e)
                 })
-                .timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(self.timeout))
                 .map_err(|_| {
                     println!("Timed out getting block_hash");
                     Error::Timeout
@@ -113,7 +113,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     println!("Error getting block number");
                     Error::Web3Error(e)
                 })
-                .timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(self.timeout))
                 .map_err(|_| {
                     println!("Timed out getting block_number");
                     Error::Timeout
@@ -143,7 +143,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     println!("Error getting deposit count");
                     Error::ContractError(e)
                 })
-                .timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(self.timeout))
                 .map_err(|_| {
                     println!("Timed out getting deposit count");
                     Error::Timeout
@@ -170,7 +170,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     println!("Error getting deposit root");
                     Error::ContractError(e)
                 })
-                .timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(self.timeout))
                 .map_err(|_| {
                     println!("Timed out getting deposit root");
                     Error::Timeout
@@ -188,7 +188,9 @@ impl Eth1DataFetcher for Web3DataFetcher {
         let filter = FilterBuilder::default()
             .address(vec![self.contract.address()])
             .topics(
-                Some(vec![DEPOSIT_CONTRACT_HASH.parse().unwrap()]),
+                Some(vec![DEPOSIT_CONTRACT_HASH
+                    .parse()
+                    .expect("Invalid deposit contract hash")]),
                 None,
                 None,
                 None,
@@ -218,7 +220,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 }
                 Ok(())
             })
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(self.timeout))
             .map_err(|_| {
                 println!("Timed out getting deposit logs");
                 Error::Timeout
@@ -296,7 +298,6 @@ mod tests {
         let mut runtime = tokio::runtime::Runtime::new().unwrap();
         let w3 = setup();
         let block_number = runtime.block_on(w3.get_current_block_number());
-        println!("{:?}", block_number);
         assert!(block_number.is_ok());
     }
 
@@ -306,7 +307,6 @@ mod tests {
         let w3 = setup();
         let block_hash = w3.get_block_hash_by_height(1);
         let block_hash = runtime.block_on(block_hash).unwrap();
-        println!("{:?}", block_hash);
         assert!(block_hash.is_some());
     }
 
@@ -316,7 +316,6 @@ mod tests {
         let w3 = setup();
         let deposit_count = w3.get_deposit_count(None);
         let deposit_count = runtime.block_on(deposit_count).unwrap();
-        println!("{:?}", deposit_count);
         assert!(deposit_count.is_ok());
     }
 
@@ -325,8 +324,7 @@ mod tests {
         let mut runtime = tokio::runtime::Runtime::new().unwrap();
         let w3 = setup();
         let deposit_root = w3.get_deposit_root(None);
-        let deposit_root = runtime.block_on(deposit_root).unwrap();
-        println!("{:?}", deposit_root);
+        let _deposit_root = runtime.block_on(deposit_root).unwrap();
     }
 
 }
