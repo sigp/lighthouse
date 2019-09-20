@@ -33,11 +33,13 @@ pub struct Web3DataFetcher {
     web3: Arc<web3::api::Web3<web3::transports::ws::WebSocket>>,
     /// Deposit Contract
     contract: Contract<web3::transports::ws::WebSocket>,
+    /// Timeout for eth1 requests in seconds.
+    timeout: u64,
 }
 
 impl Web3DataFetcher {
     /// Create a new Web3 object.
-    pub fn new(endpoint: &str, deposit_contract_addr: &str) -> Result<Self> {
+    pub fn new(endpoint: &str, deposit_contract_addr: &str, timeout: u64) -> Result<Self> {
         let (event_loop, transport) = WebSocket::new(endpoint)?;
         let web3 = Web3::new(transport);
         let contract = Contract::from_json(
@@ -51,6 +53,7 @@ impl Web3DataFetcher {
             event_loop: Arc::new(event_loop),
             web3: Arc::new(web3),
             contract: contract,
+            timeout: timeout,
         })
     }
 }
@@ -284,7 +287,7 @@ mod tests {
 
     fn setup() -> Web3DataFetcher {
         let config = Config::default();
-        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address);
+        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout);
         return w3.unwrap();
     }
 
