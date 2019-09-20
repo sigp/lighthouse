@@ -70,14 +70,15 @@ impl<F: Eth1DataFetcher> Eth1DataCache<F> {
                 fetch_eth1_data(distance, current_block_number, self.fetcher.clone()),
             )? {
                 let mut cache_write = self.cache.write();
-                cache_write.insert(block_number, eth1_data);
-                return Ok(cache_write
-                    .get(&block_number)
-                    .ok_or(Error::InvalidData)? // Note: Is this the right error type?
-                    .clone());
+                cache_write.insert(block_number, eth1_data.clone());
+                return Ok(eth1_data);
+            } else {
+                // Note: Should never reach here
+                return Err(Error::Web3Error(web3::error::Error::InvalidResponse(
+                    "Failed to fetch eth1 data".to_string(),
+                )));
             }
         }
-        Err(Error::InvalidData)
     }
 
     /// Returns a Vec<Eth1Data> corresponding to given distance range.
@@ -117,7 +118,11 @@ fn fetch_eth1_data<F: Eth1DataFetcher>(
         let eth1_data = Eth1Data {
             deposit_root: data.0,
             deposit_count: data.1?,
-            block_hash: data.2.ok_or(Error::DecodingError)?,
+            block_hash: data
+                .2
+                .ok_or(Error::Web3Error(web3::error::Error::InvalidResponse(
+                    "Block at given height does not exist".to_string(),
+                )))?,
         };
         Ok((block_number, eth1_data))
     })

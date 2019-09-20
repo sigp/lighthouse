@@ -85,8 +85,11 @@ impl<F: Eth1DataFetcher + 'static> Eth1<F> {
             self.fetcher
                 .get_block_height_by_hash(previous_eth1_distance_hash),
         )?;
-        let previous_eth1_distance =
-            U128::as_u64(&previous_eth1_distance.ok_or(Error::InvalidParam)?);
+        let previous_eth1_distance = U128::as_u64(&previous_eth1_distance.ok_or(
+            Error::Web3Error(web3::error::Error::InvalidResponse(
+                "Block with given hash does not exist".to_string(),
+            )),
+        )?);
         let new_eth1_data = self
             .eth1_data_cache
             .get_eth1_data_in_range(ETH1_FOLLOW_DISTANCE, 2 * ETH1_FOLLOW_DISTANCE);

@@ -44,9 +44,11 @@ impl Web3DataFetcher {
         let web3 = Web3::new(transport);
         let contract = Contract::from_json(
             web3.eth(),
-            deposit_contract_addr
-                .parse()
-                .map_err(|_| Error::InvalidParam)?,
+            deposit_contract_addr.parse().map_err(|_| {
+                Error::Web3Error(web3::error::Error::Decoder(
+                    "Failed to parse deposit contract address".to_string(),
+                ))
+            })?,
             &ABI,
         )?;
         Ok(Web3DataFetcher {
@@ -137,7 +139,11 @@ impl Eth1DataFetcher for Web3DataFetcher {
                 )
                 .map(|x| {
                     let data: Vec<u8> = x;
-                    vec_to_u64_le(&data)
+                    vec_to_u64_le(&data).ok_or(Error::ContractError(
+                        web3::contract::Error::InvalidOutputType(
+                            "Error parsing deposit count from deposit contract".to_string(),
+                        ),
+                    ))
                 })
                 .map_err(|e| {
                     println!("Error getting deposit count");
@@ -230,14 +236,14 @@ impl Eth1DataFetcher for Web3DataFetcher {
 }
 
 // Converts a valid vector to a u64.
-pub fn vec_to_u64_le(bytes: &[u8]) -> Result<u64> {
+pub fn vec_to_u64_le(bytes: &[u8]) -> Option<u64> {
     let mut array = [0; 8];
     if bytes.len() == 8 {
         let bytes = &bytes[..array.len()];
         array.copy_from_slice(bytes);
-        Ok(u64::from_le_bytes(array))
+        Some(u64::from_le_bytes(array))
     } else {
-        Err(Error::DecodingError)
+        None
     }
 }
 
@@ -247,6 +253,7 @@ pub fn parse_logs(log: Log, types: &[ParamType]) -> Result<Vec<Token>> {
 }
 
 /// Parse logs from deposit contract.
+/// Returns (DepositIndex, DepositData)
 pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData)> {
     let deposit_event_params = &[
         ParamType::FixedBytes(48), // pubkey
@@ -264,21 +271,37 @@ pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData)> {
             _ => None,
         })
         .collect::<Option<Vec<_>>>()
-        .ok_or(Error::DecodingError)?;
+        .ok_or(Error::ContractError(
+            web3::contract::Error::InvalidOutputType(
+                "Invalid token in deposit contract logs".to_string(),
+            ),
+        ))?;
 
-    // Event should have exactly 5 parameters.
+    // Deposit contract events should have exactly 5 parameters.
     if params.len() == 5 {
         Ok((
-            vec_to_u64_le(&params[4])?,
+            vec_to_u64_le(&params[4]).ok_or(Error::ContractError(
+                web3::contract::Error::InvalidOutputType(
+                    "Error parsing deposit index from deposit contract logs".to_string(),
+                ),
+            ))?,
             DepositData {
                 pubkey: PublicKeyBytes::from_bytes(&params[0])?,
                 withdrawal_credentials: H256::from_slice(&params[1]),
-                amount: vec_to_u64_le(&params[2])?,
+                amount: vec_to_u64_le(&params[2]).ok_or(Error::ContractError(
+                    web3::contract::Error::InvalidOutputType(
+                        "Error parsing deposit amount from deposit contract logs".to_string(),
+                    ),
+                ))?,
                 signature: SignatureBytes::from_bytes(&params[3])?,
             },
         ))
     } else {
-        Err(Error::DecodingError)
+        Err(Error::ContractError(
+            web3::contract::Error::InvalidOutputType(
+                "Invalid number of parameters in deposit contract log".to_string(),
+            ),
+        ))
     }
 }
 

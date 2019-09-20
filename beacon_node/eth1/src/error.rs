@@ -10,12 +10,8 @@ pub enum Error {
     Timeout,
     /// Error on interacting with a contract on Eth1.
     ContractError(web3::contract::Error),
-    /// Decoding error.
-    DecodingError,
-    /// Invalid parameters
-    InvalidParam,
-    /// Invalid data
-    InvalidData,
+    /// SSZ Decoding error.
+    SszDecodingError(ssz::DecodeError),
     /// Missing deposit index
     MissingDeposit(u64),
 }
@@ -39,8 +35,8 @@ impl From<AbiError> for Error {
 }
 
 impl From<ssz::DecodeError> for Error {
-    fn from(_err: ssz::DecodeError) -> Self {
-        Error::DecodingError
+    fn from(err: ssz::DecodeError) -> Self {
+        Error::SszDecodingError(err)
     }
 }
 
