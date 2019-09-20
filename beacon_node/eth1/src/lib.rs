@@ -39,7 +39,7 @@ use crate::deposits::*;
 use crate::error::{Error, Result};
 use crate::types::Eth1DataFetcher;
 use eth2_types::*;
-use slog::{debug, info, o, warn};
+use slog::{debug, error, info, o};
 use std::cmp::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -138,7 +138,7 @@ pub fn run<F: Eth1DataFetcher + 'static>(
         // Set the interval to fire every `eth1_block_interval` blocks.
         let update_duration = Duration::from_secs(eth1_block_interval * eth1_block_time_seconds);
         Interval::new(Instant::now(), update_duration).map_err(move |e| {
-            warn!(
+            error!(
                 interval_log,
                 "Interval timer failing";
                 "error" => format!("{:?}", e),
@@ -158,7 +158,7 @@ pub fn run<F: Eth1DataFetcher + 'static>(
                 Ok(())
             })
             .map_err(move |e| {
-                warn!(
+                error!(
                     log_err,
                     "Updating eth1 cache failed";
                     "error" => format!("{:?}", e),
@@ -175,7 +175,7 @@ pub fn run<F: Eth1DataFetcher + 'static>(
         let update_duration =
             Duration::from_secs(deposits_updation_interval * eth1_block_time_seconds);
         Interval::new(Instant::now(), update_duration).map_err(move |e| {
-            warn!(
+            error!(
                 interval_log,
                 "Interval timer failing";
                 "error" => format!("{:?}", e),
@@ -196,7 +196,7 @@ pub fn run<F: Eth1DataFetcher + 'static>(
                 Ok(())
             })
             .map_err(move |e| {
-                warn!(
+                error!(
                     log_err,
                     "Updating deposits cache failed";
                     "error" => format!("{:?}", e),
