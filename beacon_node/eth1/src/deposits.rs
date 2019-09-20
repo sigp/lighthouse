@@ -113,6 +113,7 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use crate::web3_fetcher::Web3DataFetcher;
     use std::time::{Duration, Instant};
     use tokio;
@@ -120,10 +121,8 @@ mod tests {
     use web3::futures::Stream;
 
     fn setup() -> Web3DataFetcher {
-        let deposit_contract_address = "8c594691C0E592FFA21F153a16aE41db5beFcaaa";
-        let mut abi_path = std::env::current_dir().unwrap();
-        abi_path.push("deposit_contract.json");
-        let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract_address, abi_path);
+        let config = Config::default();
+        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address);
         return w3.unwrap();
     }
 
