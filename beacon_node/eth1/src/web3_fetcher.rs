@@ -1,33 +1,8 @@
-//! Module that interacts with the Eth1 chain. Used here mainly to process deposits from deposit contract in
-//! the Eth1 chain.
-//!
-//! Currently, for testing the functionality, we are using the ganache testnet config from the
-//! [lodestar repo](https://github.com/pawanjay176/lodestar/tree/master/packages/lodestar) with some minor modifications for testing purposes.
-//!
-//! Instructions for getting the test environment setup:
-//! * Clone the above repository.
-//! * Run `yarn install && lerna run build`
-//!
-//! Useful commands:
-//!
-//! 1. `./bin/lodestar eth1:dev -m "vast thought differ pull jewel broom cook wrist tribe word before omit" --blockTime 15`
-//!
-//! Runs a local testnet with the provided mnemonic with 10 accounts and block time of 15 seconds and deploys the deposit contract.
-//!
-//! Note: Setting a block time is useful for testing since we want to look for deposits dating back `n` blocks. By default, ganache mines a block only when it receives a transaction.
-//!
-//! 2. `./bin/lodestar deposit -m "vast thought differ pull jewel broom cook wrist tribe word before omit" -n http://127.0.0.1:8545 -c 0x8c594691C0E592FFA21F153a16aE41db5beFcaaa --delay 5`
-//!
-//! Sends a deposit from 10 addresses to the deposit contract at intervals of delay.
-//!
-
 use bls::{PublicKeyBytes, SignatureBytes};
 use ethabi::{decode, ParamType, Token};
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
-use std::fs;
 use std::marker::Send;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::prelude::*;
@@ -42,6 +17,13 @@ use web3::Web3;
 use crate::error::{Error, Result};
 use crate::types::Eth1DataFetcher;
 
+// ABI bytes.
+const ABI: &'static [u8] = include_bytes!("../abi/v0.8.3_validator_registration.json");
+
+// Keccak256 hash of "DepositEvent" in bytes for passing to log filter.
+const DEPOSIT_CONTRACT_HASH: &str =
+    r"649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5";
+
 /// Wrapper around web3 api.
 /// Transport hardcoded to ws since its needed for subscribing to logs.
 #[derive(Clone, Debug)]
@@ -55,20 +37,15 @@ pub struct Web3DataFetcher {
 
 impl Web3DataFetcher {
     /// Create a new Web3 object.
-    pub fn new(
-        endpoint: &str,
-        deposit_contract_addr: &str,
-        deposit_contract_abi: PathBuf,
-    ) -> Result<Self> {
+    pub fn new(endpoint: &str, deposit_contract_addr: &str) -> Result<Self> {
         let (event_loop, transport) = WebSocket::new(endpoint)?;
-        let abi = fs::read(deposit_contract_abi).map_err(|_| Error::InvalidParam)?;
         let web3 = Web3::new(transport);
         let contract = Contract::from_json(
             web3.eth(),
             deposit_contract_addr
                 .parse()
                 .map_err(|_| Error::InvalidParam)?,
-            &abi,
+            &ABI,
         )?;
         Ok(Web3DataFetcher {
             event_loop: Arc::new(event_loop),
@@ -205,9 +182,6 @@ impl Eth1DataFetcher for Web3DataFetcher {
         end_block: BlockNumber,
         cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
     ) -> Box<dyn Future<Item = (), Error = Error> + Send> {
-        /// Keccak256 hash of "DepositEvent" in bytes for passing to log filter.
-        const DEPOSIT_CONTRACT_HASH: &str =
-            "649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5";
         let filter = FilterBuilder::default()
             .address(vec![self.contract.address()])
             .topics(
@@ -306,15 +280,31 @@ pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
 
-    // Note: Running tests using ganache-cli instance with config
-    // from https://github.com/ChainSafe/lodestar#starting-private-eth1-chain
+    // Currently, for testing the functionality, we are using the ganache testnet config from the
+    // [lodestar repo](https://github.com/pawanjay176/lodestar/tree/master/packages/lodestar) with some minor modifications for testing purposes.
+    //
+    // Instructions for getting the test environment setup:
+    // * Clone the above repository.
+    // * Run `yarn install && lerna run build`
+    //
+    // Useful commands:
+    //
+    // 1. `./bin/lodestar eth1:dev -m "vast thought differ pull jewel broom cook wrist tribe word before omit" --blockTime 15`
+    //
+    // Runs a local testnet with the provided mnemonic with 10 accounts and block time of 15 seconds and deploys the deposit contract.
+    //
+    // Note: Setting a block time is useful for testing since we want to look for deposits dating back `n` blocks. By default, ganache mines a block only when it receives a transaction.
+    //
+    // 2. `./bin/lodestar deposit -m "vast thought differ pull jewel broom cook wrist tribe word before omit" -n http://127.0.0.1:8545 -c 0x8c594691C0E592FFA21F153a16aE41db5beFcaaa --delay 5`
+    //
+    // Sends a deposit from 10 addresses to the deposit contract at intervals of delay.
+    //
 
     fn setup() -> Web3DataFetcher {
-        let deposit_contract_address = "8c594691C0E592FFA21F153a16aE41db5beFcaaa";
-        let mut abi_path = std::env::current_dir().unwrap();
-        abi_path.push("deposit_contract.json");
-        let w3 = Web3DataFetcher::new("ws://localhost:8545", deposit_contract_address, abi_path);
+        let config = Config::default();
+        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address);
         return w3.unwrap();
     }
 
