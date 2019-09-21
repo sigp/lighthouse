@@ -5,40 +5,27 @@ mod metrics;
 mod system_time_slot_clock;
 mod testing_slot_clock;
 
-use std::time::{Duration, Instant, SystemTime, SystemTimeError, UNIX_EPOCH};
+use std::time::Duration;
 
 pub use crate::system_time_slot_clock::SystemTimeSlotClock;
 pub use crate::testing_slot_clock::TestingSlotClock;
 pub use metrics::scrape_for_metrics;
 pub use types::Slot;
 
+/// A clock that reports the current slot.
+///
+/// The clock is not required to be monotonically increasing and may go backwards.
 pub trait SlotClock: Send + Sync + Sized {
-    fn from_eth2_genesis(
-        genesis_slot: Slot,
-        genesis_seconds: u64,
-        slot_duration: Duration,
-    ) -> Result<Self, SystemTimeError> {
-        let duration_between_now_and_unix_epoch = SystemTime::now().duration_since(UNIX_EPOCH)?;
-        let duration_between_unix_epoch_and_genesis = Duration::from_secs(genesis_seconds);
+    /// Creates a new slot clock where the first slot is `genesis_slot`, genesis occured
+    /// `genesis_duration` after the `UNIX_EPOCH` and each slot is `slot_duration` apart.
+    fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self;
 
-        let genesis_instant = if duration_between_now_and_unix_epoch
-            < duration_between_unix_epoch_and_genesis
-        {
-            Instant::now()
-                + (duration_between_unix_epoch_and_genesis - duration_between_now_and_unix_epoch)
-        } else {
-            Instant::now()
-                - (duration_between_now_and_unix_epoch - duration_between_unix_epoch_and_genesis)
-        };
-
-        Ok(Self::new(genesis_slot, genesis_instant, slot_duration))
-    }
-
-    fn new(genesis_slot: Slot, genesis: Instant, slot_duration: Duration) -> Self;
-
+    /// Returns the slot at this present time.
     fn now(&self) -> Option<Slot>;
 
-    fn duration_to_next_slot(&self) -> Option<Duration>;
-
+    /// Returns the duration between slots
     fn slot_duration(&self) -> Duration;
+
+    /// Returns the duration until the next slot.
+    fn duration_to_next_slot(&self) -> Option<Duration>;
 }
