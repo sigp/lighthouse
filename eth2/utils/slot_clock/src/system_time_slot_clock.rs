@@ -1,5 +1,5 @@
 use super::SlotClock;
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::Slot;
 
 pub use std::time::SystemTimeError;
@@ -8,53 +8,60 @@ pub use std::time::SystemTimeError;
 #[derive(Clone)]
 pub struct SystemTimeSlotClock {
     genesis_slot: Slot,
-    genesis: Instant,
+    genesis_duration: Duration,
     slot_duration: Duration,
 }
 
 impl SlotClock for SystemTimeSlotClock {
-    fn new(genesis_slot: Slot, genesis: Instant, slot_duration: Duration) -> Self {
+    fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self {
         if slot_duration.as_millis() == 0 {
             panic!("SystemTimeSlotClock cannot have a < 1ms slot duration.");
         }
 
         Self {
             genesis_slot,
-            genesis,
+            genesis_duration,
             slot_duration,
         }
     }
 
     fn now(&self) -> Option<Slot> {
-        let now = Instant::now();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+        let genesis = self.genesis_duration;
 
-        if now < self.genesis {
-            None
-        } else {
-            let slot = Slot::from(
-                (now.duration_since(self.genesis).as_millis() / self.slot_duration.as_millis())
-                    as u64,
-            );
+        if now > genesis {
+            let since_genesis = now
+                .checked_sub(genesis)
+                .expect("Control flow ensures now is greater than genesis");
+            let slot =
+                Slot::from((since_genesis.as_millis() / self.slot_duration.as_millis()) as u64);
             Some(slot + self.genesis_slot)
+        } else {
+            None
         }
     }
 
     fn duration_to_next_slot(&self) -> Option<Duration> {
-        let now = Instant::now();
-        if now < self.genesis {
-            Some(self.genesis - now)
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+        let genesis = self.genesis_duration;
+
+        let slot_start = |slot: Slot| -> Duration {
+            let slot = slot.as_u64() as u32;
+            genesis + slot * self.slot_duration
+        };
+
+        if now > genesis {
+            Some(
+                slot_start(self.now()? + 1)
+                    .checked_sub(now)
+                    .expect("The next slot cannot start before now"),
+            )
         } else {
-            let duration_since_genesis = now - self.genesis;
-            let millis_since_genesis = duration_since_genesis.as_millis();
-            let millis_per_slot = self.slot_duration.as_millis();
-
-            let current_slot = millis_since_genesis / millis_per_slot;
-            let next_slot = current_slot + 1;
-
-            let next_slot =
-                self.genesis + Duration::from_millis((next_slot * millis_per_slot) as u64);
-
-            Some(next_slot.duration_since(now))
+            Some(
+                genesis
+                    .checked_sub(now)
+                    .expect("Control flow ensures genesis is greater than or equal to now"),
+            )
         }
     }
 
@@ -75,30 +82,28 @@ mod tests {
     fn test_slot_now() {
         let genesis_slot = Slot::new(0);
 
-        let prior_genesis =
-            |seconds_prior: u64| Instant::now() - Duration::from_secs(seconds_prior);
+        let prior_genesis = |milliseconds_prior: u64| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("should get system time")
+                - Duration::from_millis(milliseconds_prior)
+        };
 
         let clock =
             SystemTimeSlotClock::new(genesis_slot, prior_genesis(0), Duration::from_secs(1));
         assert_eq!(clock.now(), Some(Slot::new(0)));
 
         let clock =
-            SystemTimeSlotClock::new(genesis_slot, prior_genesis(5), Duration::from_secs(1));
+            SystemTimeSlotClock::new(genesis_slot, prior_genesis(5_000), Duration::from_secs(1));
         assert_eq!(clock.now(), Some(Slot::new(5)));
 
-        let clock = SystemTimeSlotClock::new(
-            genesis_slot,
-            Instant::now() - Duration::from_millis(500),
-            Duration::from_secs(1),
-        );
+        let clock =
+            SystemTimeSlotClock::new(genesis_slot, prior_genesis(500), Duration::from_secs(1));
         assert_eq!(clock.now(), Some(Slot::new(0)));
         assert!(clock.duration_to_next_slot().unwrap() < Duration::from_millis(500));
 
-        let clock = SystemTimeSlotClock::new(
-            genesis_slot,
-            Instant::now() - Duration::from_millis(1_500),
-            Duration::from_secs(1),
-        );
+        let clock =
+            SystemTimeSlotClock::new(genesis_slot, prior_genesis(1_500), Duration::from_secs(1));
         assert_eq!(clock.now(), Some(Slot::new(1)));
         assert!(clock.duration_to_next_slot().unwrap() < Duration::from_millis(500));
     }
@@ -106,18 +111,26 @@ mod tests {
     #[test]
     #[should_panic]
     fn zero_seconds() {
-        SystemTimeSlotClock::new(Slot::new(0), Instant::now(), Duration::from_secs(0));
+        SystemTimeSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(0));
     }
 
     #[test]
     #[should_panic]
     fn zero_millis() {
-        SystemTimeSlotClock::new(Slot::new(0), Instant::now(), Duration::from_millis(0));
+        SystemTimeSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_millis(0),
+        );
     }
 
     #[test]
     #[should_panic]
     fn less_than_one_millis() {
-        SystemTimeSlotClock::new(Slot::new(0), Instant::now(), Duration::from_nanos(999));
+        SystemTimeSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_nanos(999),
+        );
     }
 }

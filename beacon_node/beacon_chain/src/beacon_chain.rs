@@ -158,12 +158,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ));
 
         // Slot clock
-        let slot_clock = T::SlotClock::from_eth2_genesis(
+        let slot_clock = T::SlotClock::new(
             spec.genesis_slot,
-            genesis_state.genesis_time,
+            Duration::from_secs(genesis_state.genesis_time),
             Duration::from_millis(spec.milliseconds_per_slot),
-        )
-        .map_err(|_| Error::SlotClockDidNotStart)?;
+        );
 
         info!(log, "Beacon chain initialized from genesis";
               "validator_count" => genesis_state.validators.len(),
@@ -202,12 +201,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let state = &p.canonical_head.beacon_state;
 
-        let slot_clock = T::SlotClock::from_eth2_genesis(
+        let slot_clock = T::SlotClock::new(
             spec.genesis_slot,
-            state.genesis_time,
+            Duration::from_secs(state.genesis_time),
             Duration::from_millis(spec.milliseconds_per_slot),
-        )
-        .map_err(|_| Error::SlotClockDidNotStart)?;
+        );
 
         let last_finalized_root = p.canonical_head.beacon_state.finalized_checkpoint.root;
         let last_finalized_block = &p.canonical_head.beacon_block;
