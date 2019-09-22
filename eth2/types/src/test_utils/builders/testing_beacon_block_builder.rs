@@ -3,6 +3,7 @@ use crate::{
         TestingAttestationBuilder, TestingAttesterSlashingBuilder, TestingDepositBuilder,
         TestingProposerSlashingBuilder, TestingTransferBuilder, TestingVoluntaryExitBuilder,
     },
+    typenum::U4294967296,
     *,
 };
 use rayon::prelude::*;
@@ -207,7 +208,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         amount: u64,
         // TODO: deal with the fact deposits no longer have explicit indices
         _index: u64,
-        state: &BeaconState<T>,
+        state: &mut BeaconState<T>,
         spec: &ChainSpec,
     ) {
         let keypair = Keypair::random();
@@ -220,7 +221,23 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             spec,
         );
 
-        self.block.body.deposits.push(builder.build()).unwrap()
+        // Vector implementation will be removed later on.
+        let deposit = builder.build();
+        let deposits = vec![deposit];
+        let leaves: Vec<_> = deposits
+            .iter()
+            .map(|deposit| deposit.data.clone())
+            .collect();
+
+        // Inspired by initalize_beacon_state_from_eth1 (genesis.rs)
+        // Adding the deposit_root and incrementing the deposit_count.
+        // Iterating over object of length == 1. Will be removed later on.
+        for (index, deposit) in deposits.into_iter().enumerate() {
+            let deposit_data_list = VariableList::<_, U4294967296>::from(leaves[..=index].to_vec());
+            state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
+            state.eth1_data.deposit_count += 1;
+            self.block.body.deposits.push(deposit).unwrap();
+        }
     }
 
     /// Insert a `Valid` exit into the state.

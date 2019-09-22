@@ -30,6 +30,47 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         self.state_builder.build_caches(&spec).unwrap();
     }
 
+    pub fn build_with_deposit(
+        mut self,
+        randao_sk: Option<SecretKey>,
+        previous_block_root: Option<Hash256>,
+        spec: &ChainSpec,
+    ) -> (BeaconBlock<T>, BeaconState<T>) {
+        let (mut state, keypairs) = self.state_builder.build();
+
+        let builder = &mut self.block_builder;
+
+        builder.set_slot(state.slot);
+
+        match previous_block_root {
+            Some(root) => builder.set_parent_root(root),
+            None => builder.set_parent_root(Hash256::from_slice(
+                &state.latest_block_header.signed_root(),
+            )),
+        }
+
+        let proposer_index = state
+            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
+            .unwrap();
+        let keypair = &keypairs[proposer_index];
+
+        match randao_sk {
+            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
+            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+        }
+
+        self.block_builder.insert_deposit(
+            32_000_000_000,
+            10,
+            &mut state,
+            spec,
+        );
+
+        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+
+        (block, state)
+    }
+
     pub fn build(
         mut self,
         randao_sk: Option<SecretKey>,
