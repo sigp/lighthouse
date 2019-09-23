@@ -7,7 +7,7 @@ use crate::{
     *,
 };
 use merkle_proof::MerkleTree;
-use int_to_bytes::int_to_bytes32;
+// use int_to_bytes::int_to_bytes32;
 use rayon::prelude::*;
 use tree_hash::{SignedRoot, TreeHash};
 
@@ -240,6 +240,15 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             .map(|data| Hash256::from_slice(&data.tree_hash_root()))
             .collect::<Vec<_>>();
 
+        // Copying the int_to_bytes32 implementation used
+        // in beacon_chain_builders to make sure it's exactly the same code
+        // Should be removed later on
+        let int_to_bytes32 = |int: usize| {
+            let mut vec = int.to_le_bytes().to_vec();
+            vec.resize(32, 0);
+            vec
+        };
+
         // Building proofs
         let mut proofs = vec![];
         for i in 1..=deposit_root_leaves.len() {
@@ -249,7 +258,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             );
 
             let (_, mut proof) = tree.generate_proof(i - 1, spec.deposit_contract_tree_depth as usize);
-            proof.push(Hash256::from_slice(&int_to_bytes32(i as u64)));
+            proof.push(Hash256::from_slice(&int_to_bytes32(i)));
 
             assert_eq!(
                 proof.len(),
@@ -277,7 +286,9 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         for (index, deposit) in deposits.into_iter().enumerate() {
             let deposit_data_list = VariableList::<_, U4294967296>::from(leaves[..=index].to_vec());
             state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
-            self.block.body.deposits.push(deposit);
+            // Not calling unwrap here because we want to try
+            // inserting more than the limit and we don't want it to panic.
+            let _ = self.block.body.deposits.push(deposit);
         }
         // for deposit in deposits {
             // self.block.body.deposits.push(deposit);
