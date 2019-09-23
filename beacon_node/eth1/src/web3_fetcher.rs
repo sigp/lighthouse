@@ -1,6 +1,7 @@
 use bls::{PublicKeyBytes, SignatureBytes};
 use ethabi::{decode, ParamType, Token};
 use parking_lot::RwLock;
+use slog::{error, o, info};
 use std::collections::BTreeMap;
 use std::marker::Send;
 use std::sync::Arc;
@@ -35,11 +36,18 @@ pub struct Web3DataFetcher {
     contract: Contract<web3::transports::ws::WebSocket>,
     /// Timeout for eth1 requests in seconds.
     timeout: u64,
+    log: slog::Logger,
 }
 
 impl Web3DataFetcher {
     /// Create a new Web3 object.
-    pub fn new(endpoint: &str, deposit_contract_addr: &str, timeout: u64) -> Result<Self> {
+    pub fn new(
+        endpoint: &str,
+        deposit_contract_addr: &str,
+        timeout: u64,
+        log: &slog::Logger,
+    ) -> Result<Self> {
+        let log = log.new(o!("eth1_chain" => "web3_fetcher"));
         let (event_loop, transport) = WebSocket::new(endpoint)?;
         let web3 = Web3::new(transport);
         let contract = Contract::from_json(
@@ -56,6 +64,7 @@ impl Web3DataFetcher {
             web3: Arc::new(web3),
             contract: contract,
             timeout: timeout,
+            log: log,
         })
     }
 }
@@ -63,19 +72,21 @@ impl Web3DataFetcher {
 impl Eth1DataFetcher for Web3DataFetcher {
     /// Get block_number of current block.
     fn get_current_block_number(&self) -> Box<dyn Future<Item = U256, Error = Error> + Send> {
+        let log = self.log.clone();
         Box::new(
             self.web3
                 .eth()
                 .block_number()
-                .map_err(|e| {
-                    println!("Error getting block number");
+                .map_err(move |e| {
+                    error!(
+                        log,
+                        "Error getting block number";
+                        "error" => format!("{:?}", e),
+                    );
                     Error::Web3Error(e)
                 })
                 .timeout(Duration::from_secs(self.timeout))
-                .map_err(|_| {
-                    println!("Timed out getting block_number");
-                    Error::Timeout
-                }),
+                .map_err(|_| Error::Timeout),
         )
     }
 
@@ -84,20 +95,22 @@ impl Eth1DataFetcher for Web3DataFetcher {
         &self,
         height: u64,
     ) -> Box<dyn Future<Item = Option<H256>, Error = Error> + Send> {
+        let log = self.log.clone();
         Box::new(
             self.web3
                 .eth()
                 .block(BlockId::Number(BlockNumber::Number(height)))
                 .map(|x| x.and_then(|b| b.hash))
-                .map_err(|e| {
-                    println!("Error getting block hash");
+                .map_err(move |e| {
+                    error!(
+                        log,
+                        "Error getting block hash";
+                        "error" => format!("{:?}", e),
+                    );
                     Error::Web3Error(e)
                 })
                 .timeout(Duration::from_secs(self.timeout))
-                .map_err(|_| {
-                    println!("Timed out getting block_hash");
-                    Error::Timeout
-                }),
+                .map_err(|_| Error::Timeout),
         )
     }
 
@@ -106,20 +119,22 @@ impl Eth1DataFetcher for Web3DataFetcher {
         &self,
         hash: H256,
     ) -> Box<dyn Future<Item = Option<U128>, Error = Error> + Send> {
+        let log = self.log.clone();
         Box::new(
             self.web3
                 .eth()
                 .block(BlockId::Hash(hash))
                 .map(|x| x.and_then(|b| b.number))
-                .map_err(|e| {
-                    println!("Error getting block number");
+                .map_err(move |e| {
+                    error!(
+                        log,
+                        "Error getting block number";
+                        "error" => format!("{:?}", e),
+                    );
                     Error::Web3Error(e)
                 })
                 .timeout(Duration::from_secs(self.timeout))
-                .map_err(|_| {
-                    println!("Timed out getting block_number");
-                    Error::Timeout
-                }),
+                .map_err(|_| Error::Timeout),
         )
     }
 
@@ -128,6 +143,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
         &self,
         block_number: Option<BlockNumber>,
     ) -> Box<dyn Future<Item = Result<u64>, Error = Error> + Send> {
+        let log = self.log.clone();
         Box::new(
             self.contract
                 .query(
@@ -145,15 +161,16 @@ impl Eth1DataFetcher for Web3DataFetcher {
                         ),
                     ))
                 })
-                .map_err(|e| {
-                    println!("Error getting deposit count");
+                .map_err(move |e| {
+                    error!(
+                        log,
+                        "Error getting deposit count";
+                        "error" => format!("{:?}", e),
+                    );
                     Error::ContractError(e)
                 })
                 .timeout(Duration::from_secs(self.timeout))
-                .map_err(|_| {
-                    println!("Timed out getting deposit count");
-                    Error::Timeout
-                }),
+                .map_err(|_| Error::Timeout),
         )
     }
 
@@ -162,6 +179,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
         &self,
         block_number: Option<BlockNumber>,
     ) -> Box<dyn Future<Item = H256, Error = Error> + Send> {
+        let log = self.log.clone();
         Box::new(
             self.contract
                 .query(
@@ -172,15 +190,16 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     block_number,
                 )
                 .map(|x: Vec<u8>| H256::from_slice(&x))
-                .map_err(|e| {
-                    println!("Error getting deposit root");
+                .map_err(move |e| {
+                    error!(
+                        log,
+                        "Error getting deposit root";
+                        "error" => format!("{:?}", e),
+                    );
                     Error::ContractError(e)
                 })
                 .timeout(Duration::from_secs(self.timeout))
-                .map_err(|_| {
-                    println!("Timed out getting deposit root");
-                    Error::Timeout
-                }),
+                .map_err(|_| Error::Timeout),
         )
     }
 
@@ -191,6 +210,7 @@ impl Eth1DataFetcher for Web3DataFetcher {
         end_block: BlockNumber,
         cache: Arc<RwLock<BTreeMap<u64, DepositData>>>,
     ) -> Box<dyn Future<Item = (), Error = Error> + Send> {
+        let log = self.log.clone();
         let filter = FilterBuilder::default()
             .address(vec![self.contract.address()])
             .topics(
@@ -204,17 +224,21 @@ impl Eth1DataFetcher for Web3DataFetcher {
             .from_block(start_block)
             .to_block(end_block)
             .build();
-        println!(
-            "Getting deposit logs in range {:?} to {:?}",
-            start_block, end_block
+        info!(
+            &log,
+            "Getting deposit logs in range {:?} to {:?}", start_block, end_block
         );
         let future = self
             .web3
             .eth()
             .logs(filter)
             .and_then(move |logs| Ok(logs)) // Additional `and_then` to convert error type.
-            .map_err(|e| {
-                println!("Error getting deposit logs");
+            .map_err(move |e| {
+                error!(
+                    log,
+                    "Error getting deposit logs";
+                    "error" => format!("{:?}", e),
+                );
                 Error::Web3Error(e)
             })
             .and_then(move |logs| {
@@ -222,15 +246,11 @@ impl Eth1DataFetcher for Web3DataFetcher {
                     let parsed_logs = parse_deposit_logs(log)?;
                     let mut logs = cache.write();
                     logs.insert(parsed_logs.0, parsed_logs.1);
-                    println!("New log is {:?}", *logs);
                 }
                 Ok(())
             })
             .timeout(Duration::from_secs(self.timeout))
-            .map_err(|_| {
-                println!("Timed out getting deposit logs");
-                Error::Timeout
-            });
+            .map_err(|_| Error::Timeout);
         Box::new(future)
     }
 }
