@@ -61,7 +61,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         }
 
         self.block_builder.insert_deposit(
-            32_000_000_000,
+            spec.max_effective_balance,
             1,
             num_deposits,
             &mut state,
