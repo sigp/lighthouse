@@ -129,6 +129,7 @@ impl<T: EthSpec> BlockBuilder<T> {
             builder.insert_deposit(
                 32_000_000_000,
                 state.eth1_data.deposit_count + (i as u64),
+                1,
                 &mut state,
                 spec,
             );

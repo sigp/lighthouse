@@ -30,8 +30,9 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         self.state_builder.build_caches(&spec).unwrap();
     }
 
-    pub fn build_with_deposit(
+    pub fn build_with_n_deposits(
         mut self,
+        num_deposits: u64,
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
@@ -61,7 +62,8 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         self.block_builder.insert_deposit(
             32_000_000_000,
-            10,
+            1,
+            num_deposits,
             &mut state,
             spec,
         );

@@ -6,6 +6,8 @@ use crate::{
     typenum::U4294967296,
     *,
 };
+use merkle_proof::MerkleTree;
+use int_to_bytes::int_to_bytes32;
 use rayon::prelude::*;
 use tree_hash::{SignedRoot, TreeHash};
 
@@ -208,36 +210,82 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         amount: u64,
         // TODO: deal with the fact deposits no longer have explicit indices
         _index: u64,
+        num_deposits: u64,
         state: &mut BeaconState<T>,
         spec: &ChainSpec,
     ) {
-        let keypair = Keypair::random();
+        let mut deposits = vec![];
+        for _ in 0..num_deposits {
+            let keypair = Keypair::random();
 
-        let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
-        builder.sign(
-            &keypair,
-            state.slot.epoch(T::slots_per_epoch()),
-            &state.fork,
-            spec,
-        );
+            let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
+                builder.sign(
+                 &keypair,
+                 state.slot.epoch(T::slots_per_epoch()),
+                 &state.fork,
+                 spec,
+                );
 
-        // Vector implementation will be removed later on.
-        let deposit = builder.build();
-        let deposits = vec![deposit];
+            deposits.push(builder.build());
+        }
+
+        // Inspired from beacon_chain_builder.rs
+        let datas = deposits
+            .par_iter()
+            .map(|deposit| deposit.data.clone())
+            .collect::<Vec<_>>();
+
+        let deposit_root_leaves = datas
+            .par_iter()
+            .map(|data| Hash256::from_slice(&data.tree_hash_root()))
+            .collect::<Vec<_>>();
+
+        // Building proofs
+        let mut proofs = vec![];
+        for i in 1..=deposit_root_leaves.len() {
+            let tree = MerkleTree::create(
+                &deposit_root_leaves[0..i],
+                spec.deposit_contract_tree_depth as usize,
+            );
+
+            let (_, mut proof) = tree.generate_proof(i - 1, spec.deposit_contract_tree_depth as usize);
+            proof.push(Hash256::from_slice(&int_to_bytes32(i as u64)));
+
+            assert_eq!(
+                proof.len(),
+                spec.deposit_contract_tree_depth as usize + 1,
+                "Deposit proof should be correct len",
+            );
+
+            proofs.push(proof);
+        }
+
+        let deposits = datas
+            .par_iter()
+            .zip(proofs.into_par_iter())
+            .map(|(data, proof)| (data.clone(), proof.into()))
+            .map(|(data, proof)| Deposit { proof, data })
+            .collect::<Vec<_>>();
+        
+        // Inspired by initalize_beacon_state_from_eth1 (genesis.rs)
+        // Updating the deposit_root and pushing deposits
         let leaves: Vec<_> = deposits
             .iter()
             .map(|deposit| deposit.data.clone())
             .collect();
 
-        // Inspired by initalize_beacon_state_from_eth1 (genesis.rs)
-        // Adding the deposit_root and incrementing the deposit_count.
-        // Iterating over object of length == 1. Will be removed later on.
         for (index, deposit) in deposits.into_iter().enumerate() {
             let deposit_data_list = VariableList::<_, U4294967296>::from(leaves[..=index].to_vec());
             state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
-            state.eth1_data.deposit_count += 1;
-            self.block.body.deposits.push(deposit).unwrap();
+            self.block.body.deposits.push(deposit);
         }
+        // for deposit in deposits {
+            // self.block.body.deposits.push(deposit);
+        // }
+        // let deposit_data_list = VariableList::<_, U4294967296>::from(datas[..].to_vec());
+        // state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
+        state.eth1_data.deposit_count = num_deposits;
+        state.eth1_deposit_index = 0;
     }
 
     /// Insert a `Valid` exit into the state.
