@@ -174,16 +174,9 @@ fn main() {
         )
         .arg(
             Arg::with_name("eth1-deposit-contract")
-                .long("eth1-deposit-contract-address")
+                .long("eth1-deposit-contract")
                 .value_name("DEPOSIT-CONTRACT")
                 .help("Specifies the deposit contract address on the Eth1 chain.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("eth1-abi")
-                .long("eth1-deposit-contract-abi-path")
-                .value_name("ABI-PATH")
-                .help("Specifies the path for deposit contract ABI.")
                 .takes_value(true)
         )
         /*

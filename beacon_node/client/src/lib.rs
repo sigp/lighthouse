@@ -170,7 +170,7 @@ where
         };
 
         let eth1_backend =
-            T::Eth1Chain::new(String::new(), String::new(), std::path::PathBuf::new())
+            T::Eth1Chain::new(String::new(), String::new(), &log)
                 .map_err(|e| format!("{:?}", e))?;
         let beacon_chain: Arc<BeaconChain<T>> = Arc::new(
             beacon_chain_builder

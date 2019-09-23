@@ -3,10 +3,11 @@ use eth1::web3_fetcher::Web3DataFetcher;
 use eth1::Eth1;
 use eth2_hashing::hash;
 use std::marker::PhantomData;
-use std::path::PathBuf;
 use types::{BeaconState, Deposit, Eth1Data, EthSpec, Hash256};
-
 type Result<T> = std::result::Result<T, Error>;
+
+// Timeout for requests to eth1 node in seconds.
+const WEB3_TIMEOUT: u64 = 10;
 
 /// Holds an `Eth1ChainBackend` and serves requests from the `BeaconChain`.
 pub struct Eth1Chain<T: BeaconChainTypes> {
@@ -52,7 +53,7 @@ pub enum Error {
 }
 
 pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
-    fn new(server: String, contract_addr: String, abi_path: PathBuf) -> Result<Self>;
+    fn new(server: String, contract_addr: String, log: &slog::Logger) -> Result<Self>;
 
     /// Returns the `Eth1Data` that should be included in a block being produced for the given
     /// `state`.
@@ -73,7 +74,7 @@ pub struct InteropEth1ChainBackend<T: EthSpec> {
 }
 
 impl<T: EthSpec> Eth1ChainBackend<T> for InteropEth1ChainBackend<T> {
-    fn new(_server: String, _contract_addr: String, _abi_path: PathBuf) -> Result<Self> {
+    fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self> {
         Ok(Self::default())
     }
 
@@ -112,8 +113,8 @@ pub struct Web3Backend<T: EthSpec> {
 }
 
 impl<T: EthSpec> Eth1ChainBackend<T> for Web3Backend<T> {
-    fn new(server: String, contract_addr: String, abi_path: PathBuf) -> Result<Self> {
-        let w3 = Web3DataFetcher::new(&server, &contract_addr, abi_path)
+    fn new(server: String, contract_addr: String, log: &slog::Logger) -> Result<Self> {
+        let w3 = Web3DataFetcher::new(&server, &contract_addr, WEB3_TIMEOUT, &log)
             .map_err(|e| Error::BackendError(format!("{:?}", e)))?;
         Ok(Web3Backend {
             eth1: Eth1::new(w3),
