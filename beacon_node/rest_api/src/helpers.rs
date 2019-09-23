@@ -1,10 +1,20 @@
 use crate::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKey;
+use eth2_libp2p::{PubsubMessage, Topic};
+use eth2_libp2p::{
+    BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX,
+};
 use hex;
+use http::header;
 use hyper::{Body, Request};
+use network::NetworkMessage;
+use parking_lot::RwLock;
+use ssz::Encode;
+use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
-use types::{BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
+use tokio::sync::mpsc;
+use types::{Attestation, BeaconBlock, BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// Parse a slot from a `0x` preixed string.
 ///
@@ -13,7 +23,22 @@ pub fn parse_slot(string: &str) -> Result<Slot, ApiError> {
     string
         .parse::<u64>()
         .map(Slot::from)
-        .map_err(|e| ApiError::InvalidQueryParams(format!("Unable to parse slot: {:?}", e)))
+        .map_err(|e| ApiError::BadRequest(format!("Unable to parse slot: {:?}", e)))
+}
+
+/// Checks the provided request to ensure that the `content-type` header.
+///
+/// The content-type header should either be omitted, in which case JSON is assumed, or it should
+/// explicity specify `application/json`. If anything else is provided, an error is returned.
+pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
+    match req.headers().get(header::CONTENT_TYPE) {
+        Some(h) if h == "application/json" => Ok(()),
+        Some(h) => Err(ApiError::BadRequest(format!(
+            "The provided content-type {:?} is not available, this endpoint only supports json.",
+            h
+        ))),
+        _ => Ok(()),
+    }
 }
 
 /// Parse a root from a `0x` preixed string.
@@ -26,9 +51,9 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
         let trimmed = string.trim_start_matches(PREFIX);
         trimmed
             .parse()
-            .map_err(|e| ApiError::InvalidQueryParams(format!("Unable to parse root: {:?}", e)))
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse root: {:?}", e)))
     } else {
-        Err(ApiError::InvalidQueryParams(
+        Err(ApiError::BadRequest(
             "Root must have a  '0x' prefix".to_string(),
         ))
     }
@@ -39,13 +64,13 @@ pub fn parse_pubkey(string: &str) -> Result<PublicKey, ApiError> {
     const PREFIX: &str = "0x";
     if string.starts_with(PREFIX) {
         let pubkey_bytes = hex::decode(string.trim_start_matches(PREFIX))
-            .map_err(|e| ApiError::InvalidQueryParams(format!("Invalid hex string: {:?}", e)))?;
+            .map_err(|e| ApiError::BadRequest(format!("Invalid hex string: {:?}", e)))?;
         let pubkey = PublicKey::from_bytes(pubkey_bytes.as_slice()).map_err(|e| {
-            ApiError::InvalidQueryParams(format!("Unable to deserialize public key: {:?}.", e))
+            ApiError::BadRequest(format!("Unable to deserialize public key: {:?}.", e))
         })?;
         return Ok(pubkey);
     } else {
-        return Err(ApiError::InvalidQueryParams(
+        return Err(ApiError::BadRequest(
             "Public key must have a  '0x' prefix".to_string(),
         ));
     }
@@ -122,7 +147,7 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         //
         // We could actually speculate about future state roots by skipping slots, however that's
         // likely to cause confusion for API users.
-        Err(ApiError::InvalidQueryParams(format!(
+        Err(ApiError::BadRequest(format!(
             "Requested slot {} is past the current slot {}",
             slot, current_slot
         )))
@@ -167,6 +192,78 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
     Err(ApiError::NotImplemented(
         "API endpoint has not yet been implemented, but is planned to be soon.".to_owned(),
     ))
+}
+
+pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(
+    req: &Request<Body>,
+) -> Result<(Arc<BeaconChain<T>>), ApiError> {
+    // Get beacon state
+    let beacon_chain = req
+        .extensions()
+        .get::<Arc<BeaconChain<T>>>()
+        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".into()))?;
+
+    Ok(beacon_chain.clone())
+}
+
+pub fn get_logger_from_request(req: &Request<Body>) -> slog::Logger {
+    let log = req
+        .extensions()
+        .get::<slog::Logger>()
+        .expect("Should always get the logger from the request, since we put it in there.");
+    log.to_owned()
+}
+
+pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
+    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
+    block: BeaconBlock<T::EthSpec>,
+) -> Result<(), ApiError> {
+    // create the network topic to send on
+    let topic_string = format!(
+        "/{}/{}/{}",
+        TOPIC_PREFIX, BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX
+    );
+    let topic = Topic::new(topic_string);
+    let message = PubsubMessage::Block(block.as_ssz_bytes());
+
+    // Publish the block to the p2p network via gossipsub.
+    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
+        topics: vec![topic],
+        message,
+    }) {
+        return Err(ApiError::ServerError(format!(
+            "Unable to send new block to network: {:?}",
+            e
+        )));
+    }
+
+    Ok(())
+}
+
+pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
+    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
+    attestation: Attestation<T::EthSpec>,
+) -> Result<(), ApiError> {
+    // create the network topic to send on
+    let topic_string = format!(
+        "/{}/{}/{}",
+        TOPIC_PREFIX, BEACON_ATTESTATION_TOPIC, TOPIC_ENCODING_POSTFIX
+    );
+    let topic = Topic::new(topic_string);
+    let message = PubsubMessage::Attestation(attestation.as_ssz_bytes());
+
+    // Publish the attestation to the p2p network via gossipsub.
+    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
+        topics: vec![topic],
+        message,
+    }) {
+        return Err(ApiError::ServerError(format!(
+            "Unable to send new attestation to network: {:?}",
+            e
+        )));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
