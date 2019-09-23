@@ -373,8 +373,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(head_state)
         } else if slot > head_state.slot {
             let head_state_slot = head_state.slot;
-            let mut state = head_state.clone();
-            drop(head_state);
+            let mut state = head_state;
             while state.slot < slot {
                 match per_slot_processing(&mut state, &self.spec) {
                     Ok(()) => (),
