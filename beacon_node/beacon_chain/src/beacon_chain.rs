@@ -393,7 +393,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             let state_root = self
                 .rev_iter_state_roots()
-                .find(|(_root, s)| *s == slot)
+                .take_while(|(_root, current_slot)| *current_slot >= slot)
+                .find(|(_root, current_slot)| *current_slot == slot)
                 .map(|(root, _slot)| root)
                 .ok_or_else(|| Error::NoStateForSlot(slot))?;
 
