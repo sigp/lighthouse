@@ -10,7 +10,7 @@ use std::net::Ipv4Addr;
 pub enum ApiEncodingFormat {
     JSON,
     YAML,
-    SSZ
+    SSZ,
 }
 
 impl ApiEncodingFormat {
@@ -28,7 +28,7 @@ impl From<&str> for ApiEncodingFormat {
         match f {
             "application/yaml" => ApiEncodingFormat::YAML,
             "application/ssz" => ApiEncodingFormat::SSZ,
-            _ => ApiEncodingFormat::JSON
+            _ => ApiEncodingFormat::JSON,
         }
     }
 }

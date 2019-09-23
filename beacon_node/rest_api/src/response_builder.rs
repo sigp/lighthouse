@@ -1,9 +1,9 @@
 use super::{ApiError, ApiResult};
+use crate::config::ApiEncodingFormat;
 use http::header;
 use hyper::{Body, Request, Response, StatusCode};
 use serde::Serialize;
 use ssz::Encode;
-use crate::config::ApiEncodingFormat;
 
 pub struct ResponseBuilder {
     encoding: ApiEncodingFormat,

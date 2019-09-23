@@ -19,6 +19,7 @@ mod validator;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::NetworkMessage;
 use client_network::Service as NetworkService;
+use config::ApiEncodingFormat;
 use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
 use futures::future::IntoFuture;
@@ -33,7 +34,6 @@ use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 use url_query::UrlQuery;
-use config::ApiEncodingFormat;
 
 pub use crate::helpers::parse_pubkey;
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};

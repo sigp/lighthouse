@@ -35,14 +35,12 @@ impl Default for KeySource {
     }
 }
 
-
 /// Presently, the validator client supports both gRPC and Restful HTTP
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ServerType {
     GRPC,
     REST,
 }
-
 
 impl From<BeaconNodeError> for ValidatorError {
     fn from(e: BeaconNodeError) -> ValidatorError {
