@@ -42,7 +42,7 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 /// files in the temp directory.
 ///
 /// Only useful for testing.
-const WRITE_BLOCK_PROCESSING_SSZ: bool = true;
+const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
