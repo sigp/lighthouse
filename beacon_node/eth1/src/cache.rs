@@ -135,10 +135,18 @@ mod tests {
     use crate::web3_fetcher::Web3DataFetcher;
     use std::time::{Duration, Instant};
     use tokio::timer::{Delay, Interval};
+    use slog::{o, Drain};
+
+    fn setup_log() -> slog::Logger {
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        slog::Logger::root(drain, o!())
+    }
 
     fn setup() -> Web3DataFetcher {
         let config = Config::default();
-        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout);
+        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout, &setup_log());
         return w3.unwrap();
     }
 

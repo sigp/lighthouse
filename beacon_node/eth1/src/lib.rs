@@ -231,7 +231,7 @@ mod tests {
 
     fn setup_w3() -> Web3DataFetcher {
         let config = Config::default();
-        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout);
+        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout, &setup_log());
         return w3.unwrap();
     }
 

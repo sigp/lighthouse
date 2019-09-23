@@ -11,6 +11,8 @@ use types::{Deposit, DepositData};
 use web3::futures::Future;
 use web3::types::BlockNumber;
 
+const DEPOSIT_TREE_HEIGHT: usize = 32;
+
 /// Cache for all deposits received in DepositContract.
 #[derive(Clone, Debug)]
 pub struct DepositCache<F: Eth1DataFetcher> {
@@ -66,7 +68,7 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
             .iter()
             .map(|n| H256::from_slice(&n.tree_hash_root()))
             .collect();
-        let tree = MerkleTree::create(&deposit_data_hash, 32); // DEPOSIT_TREE_HEIGHT
+        let tree = MerkleTree::create(&deposit_data_hash, DEPOSIT_TREE_HEIGHT);
         let deposits = deposit_data
             .into_iter()
             .enumerate()
@@ -119,10 +121,18 @@ mod tests {
     use tokio;
     use tokio::timer::Interval;
     use web3::futures::Stream;
+    use slog::{o, Drain};
+
+    fn setup_log() -> slog::Logger {
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        slog::Logger::root(drain, o!())
+    }
 
     fn setup() -> Web3DataFetcher {
         let config = Config::default();
-        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout);
+        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout, &setup_log());
         return w3.unwrap();
     }
 
