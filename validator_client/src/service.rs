@@ -389,8 +389,9 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                             signer,
                             slots_per_epoch,
                             _phantom: PhantomData::<E>,
+                            log,
                         };
-                        block_producer.handle_produce_block(log);
+                        block_producer.handle_produce_block();
                     });
                 }
                 if work_type.attestation_duty.is_some() {

@@ -1,0 +1,2064 @@
+openapi: "3.0.2"
+info:
+  title: "Lighthouse REST API"
+  description: ""
+  version: "0.2.0"
+  license:
+    name: "Apache 2.0"
+    url: "https://www.apache.org/licenses/LICENSE-2.0.html"
+tags:
+  - name: Phase0
+    description: Endpoints which will be implemented for phase 0 of Ethereum Serenity
+  - name: Phase1
+    description: Endpoints which will be implemented for phase 1 of Ethereum Serenity
+  - name: Future
+    description: Potential future endpoints or optional nice-to-haves
+  - name: RFC
+    description: Do we need these endpoints at all? This is a request for comments if you think they're useful.
+
+paths:
+  /node/version:
+    get:
+      tags:
+        - Phase0
+      summary: "Get version string of the running beacon node."
+      description: "Requests that the beacon node identify information about its implementation in a format similar to a  [HTTP User-Agent](https://tools.ietf.org/html/rfc7231#section-5.5.3) field."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/version'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /node/genesis_time:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the genesis_time parameter from beacon node configuration."
+      description: "Requests the genesis_time parameter from the beacon node, which should be consistent across all beacon nodes that follow the same beacon chain."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/genesis_time'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+
+  /node/syncing:
+    get:
+      tags:
+        - Phase0
+      summary: "Poll to see if the the beacon node is syncing."
+      description: "Requests the beacon node to describe if it's currently syncing or not, and if it is, what block it is up to. This is modelled after the Eth1.0 JSON-RPC eth_syncing call.."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_syncing:
+                    type: boolean
+                    description: "A boolean of whether the node is currently syncing or not."
+                  sync_status:
+                    $ref: '#/components/schemas/SyncingStatus'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /network/enr:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the node's Ethereum Node Record (ENR)."
+      description: "The Ethereum Node Record (ENR) contains a compressed public key, an IPv4 address, a TCP port and a UDP port, which is all encoded using base64. This endpoint fetches the base64 encoded version of the ENR for the running beacon node."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ENR'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /network/peer_count:
+    get:
+      tags:
+        - Phase0
+      summary: "The number of established peers"
+      description: "Requests the beacon node to identify the number of peers with which an established connection is currently maintained."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: uint64
+                example: 25
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /network/peer_id:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the node's libp2p peer ID."
+      description: "Requests the node to provide it's libp2p ['peer ID'](https://github.com/libp2p/specs/blob/master/peer-ids/peer-ids.md), which is a base58 encoded SHA2-256 'multihash' of the node's public key struct."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                type: string
+                format: byte
+                example: "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N"
+                pattern: "^[1-9A-HJ-NP-Za-km-z]{46}$"
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /network/peers:
+    get:
+      tags:
+        - Phase0
+      summary: "List the networking peers with which the node is communicating."
+      description: "Requests that the beacon node identify all of the peers with which it is communicating, including established connections and connections which it is attempting to establish."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Peer'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /network/listen_port:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the TCP port number for the libp2p listener."
+      description: "Libp2p is configured to listen to a particular TCP port upon startup of the beacon node. This endpoint returns the port number that the beacon node is listening on. Please note, this is for the libp2p communications, not for discovery."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: uint16
+                example: 9000
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /network/listen_addresses:
+    get:
+      tags:
+        - Phase0
+      summary: "Identify the port and addresses listened to by the beacon node."
+      description: "Libp2p is configured to listen to a particular address, on a particular port. This address is represented the [`multiaddr`](https://multiformats.io/multiaddr/) format, and this endpoint requests the beacon node to list all listening addresses in this format."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                    $ref: '#/components/schemas/multiaddr'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /network/stats:
+    get:
+      tags:
+        - RFC
+      summary: "Get some simple network statistics from the node."
+      description: "Request that the beacon node provide some historical summary information about its networking interface."
+      #TODO: Do we actually collect these stats? Should we?
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bytes_sent:
+                    type: integer
+                    format: uint64
+                    description: "The total number of bytes sent by the beacon node since it was started."
+                  bytes_received:
+                    type: integer
+                    format: uint64
+                    description: "The total number of bytes sent by the beacon node since it was started."
+                  peers_seen:
+                    type: integer
+                    format: uint64
+                    description: "The total number of unique peers (by multiaddr) that have been discovered since the beacon node instance was started."
+                    #TODO: This might be too difficult to collect
+
+  /network/block_discovery:
+    get:
+      tags:
+        - RFC
+      summary: "Identify the time at which particular blocks were first seen."
+      description: "Request the node to provide the time at which particular blocks were first seen on the network."
+      parameters:
+        - name: block_roots
+          description: "Provide an array of block roots for which the discovered time is to be returned."
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              format: bytes
+              pattern: "^0x[a-fA-F0-9]{64}$"
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    root:
+                      type: string
+                      format: bytes
+                      description: "The merkle root of the block."
+                      pattern: "^0x[a-fA-F0-9]{64}$"
+                    discovered_time:
+                      type: integer
+                      format: uint64
+                      description: "UNIX time in milliseconds that the block was first discovered, either from a network peer or the validator client."
+
+  /beacon/head:
+    get:
+      tags:
+        - Phase0
+      summary: "Detail the current perspective of the beacon node."
+      description: "Request the beacon node to identify the most up-to-date information about the beacon chain from its perspective. This includes the latest block, which slots have been finalized, etc."
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                description: "The latest information about the head of the beacon chain."
+                properties:
+                  slot:
+                    type: integer
+                    format: uint64
+                    description: "The slot of the head block."
+                  block_root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The merkle tree root of the canonical head block in the beacon node."
+                  state_root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The merkle tree root of the current beacon state."
+                  finalized_slot:
+                    type: integer
+                    format: uint64
+                    description: "The slot number of the most recent finalized slot."
+                  finalized_block_root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The block root for the most recent finalized block."
+                  justified_slot:
+                    type: integer
+                    format: uint64
+                    description: "The slot number of the most recent justified slot."
+                  justified_block_root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The block root of the most recent justified block."
+                  previous_justified_slot:
+                    type: integer
+                    format: uint64
+                    description: "The slot number of the second most recent justified slot."
+                  previous_justified_block_root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The block root of the second most recent justified block."
+        500:
+          $ref: '#/components/responses/InternalError'
+
+
+  /beacon/block:
+    get:
+      tags:
+        - Phase0
+      summary: 'Retrieve blocks by root or slot.'
+      description: "Request that the beacon node return beacon chain blocks that match the provided criteria (a block root or beacon chain slot). Only one of the parameters can be be provided at a time."
+      parameters:
+        - name: root
+          description: "Filter by block root."
+          in: query
+          required: false
+          schema:
+            type: string
+            format: bytes
+            pattern: "^0x[a-fA-F0-9]{64}$"
+        - name: slot
+          description: "Filter blocks by slot number. Only one block which has been finalized, or is believed to be the canonical block for that slot, is returned."
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BeaconBlock'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /beacon/block_root:
+    get:
+      tags:
+        - Phase0
+      summary: "Retrieve the canonical block root, given a particular slot."
+      description: "Request that the beacon node return the root of the canonical beacon chain block, which matches the provided slot number."
+      parameters:
+        - name: slot
+          description: "Filter blocks by slot number. Only one block which has been finalized, or is believed to be the canonical block for that slot, is returned."
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response.
+          content:
+            application/json:
+              schema:
+                type: string
+                format: byte
+                pattern: "^0x[a-fA-F0-9]{64}$"
+                description: "The 0x prefixed block root."
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /beacon/blocks:
+    get:
+      tags:
+        - Phase0
+      summary: 'Retrieve blocks by root, slot, or epoch.'
+      description: "Request that the node return beacon chain blocks that match the provided criteria (a block root, beacon chain slot, or epoch). Only one of the parameters should be provided as a criteria."
+      parameters:
+        - name: root
+          description: "Filter by block root, returning a single block."
+          in: query
+          required: false
+          schema:
+            type: string
+            format: bytes
+            pattern: "^0x[a-fA-F0-9]{64}$"
+        - name: slot
+          description: "Filter blocks by slot number. It is possible that multiple blocks will be returned if the slot has not yet been finalized, or if the node has seen blocks from multiple forks."
+          #TODO: Is this description accurate?
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+        - name: epoch
+          description: "Filter blocks by epoch, returning all blocks found for the provided epoch. It is possible that multiple blocks will be returned with the same slot number if the slot has not yet been finalized, or if the node has seen blocks from multiple forks."
+          #TODO: Should this actually return no more than one block per slot, if it has been finalized? i.e. not blocks on multiple forks?
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BeaconBlock'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+          #TODO: Make this request error more specific if one of the parameters is not provided correctly.
+
+
+  /beacon/fork:
+    get:
+      tags:
+        - Phase0
+      summary: 'Retrieve the current Fork information.'
+      description: 'Request the beacon node identify the fork it is currently on, from the beacon state.'
+      responses:
+        200:
+          description: Success response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fork'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+
+  /beacon/attestations:
+    get:
+      tags:
+        - Phase0
+      summary: 'Retrieve attestations by root, slot, or epoch.'
+      description: "Request that the node return all attestations which it has seen, that match the provided criteria (a block root, beacon chain slot, or epoch). Only one of the parameters should be provided as a criteria."
+      parameters:
+        - name: root
+          description: "Filter by block root, returning attestations associated with that block."
+          in: query
+          required: false
+          schema:
+            type: string
+            format: bytes
+            pattern: "^0x[a-fA-F0-9]{64}$"
+        - name: slot
+          description: "Filter attestations by slot number."
+          #TODO: Is this description accurate?
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+        - name: epoch
+          description: "Filter attestations by epoch number."
+          #TODO: Should this actually return no more than one block per slot, if it has been finalized? i.e. not blocks on multiple forks?
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Attestation'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+          #TODO: Make this request error more specific if one of the parameters is not provided correctly.
+
+  /beacon/attestations/pending:
+    get:
+      tags:
+        - Phase0
+      summary: 'Retrieve all pending attestations.'
+      description: "Request that the node return all attestations which is currently holding in a pending state; i.e. is not associated with a finalized slot."
+      responses:
+        200:
+          description: Success response.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Attestation'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+          #TODO: Make this request error more specific if one of the parameters is not provided correctly.
+
+  /beacon/validators:
+    get:
+      tags:
+        - Phase0
+      summary: "List the set of active validators for an epoch."
+      description: "Request the beacon node to list the active validators for the specified epoch, or the current epoch if none is specified."
+      parameters:
+        - name: epoch
+          description: "The epoch for which the list of validators should be returned."
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  epoch:
+                    type: integer
+                    format: uint64
+                    description: "The epoch in which the list of validators are active."
+                  validators:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Validator'
+
+  /beacon/validators/activesetchanges:
+    get:
+      tags:
+        - RFC
+      summary: "Retrieve the changes in active validator set."
+      description: "Request that the beacon node describe the changes that occurred at the specified epoch, as compared with the prior epoch."
+      parameters:
+        - name: epoch
+          description: "The epoch for which the validator change comparison should be made. The current epoch is used if this value is omitted."
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  epoch:
+                    type: integer
+                    format: uint64
+                    description: "The epoch for which the returned active validator changes are provided."
+                  activated_public_keys:
+                    type: array
+                    description: "The list of validator public keys which were activated in the epoch."
+                    items:
+                      $ref: '#/components/schemas/pubkey'
+                  exited_public_keys:
+                    type: array
+                    description: "The list of validator public keys which exited in the epoch."
+                    items:
+                      $ref: '#/components/schemas/pubkey'
+                  ejected_public_keys:
+                    type: array
+                    description: "The list of validator public keys which were ejected in the epoch."
+                    items:
+                      $ref: '#/components/schemas/pubkey'
+
+  /beacon/validators/assignments:
+    get:
+      tags:
+        - RFC
+      summary: "Retrieve the assigned responsibilities for validators in a particular epoch."
+      description: "Request that the beacon node list the duties which have been assigned to the active validator set in a particular epoch."
+      parameters:
+        - name: epoch
+          description: "The epoch for which the validator assignments should be made. The current epoch is used if this value is omitted."
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  epoch:
+                    type: integer
+                    format: uint64
+                    description: "The epoch for which the returned active validator changes are provided."
+                  duties:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ValidatorDuty'
+                    #TODO: This does not include the crosslink committee value, which must be included for Phase1?
+
+  /beacon/validators/indices:
+    get:
+      tags:
+        - Phase0
+      summary: "Resolve a set of validator public keys to their validator indices."
+      description: "Attempt to resolve the public key of a set of validators to their corresponding ValidatorIndex values. Generally the mapping from validator public key to index should never change, however it is possible in some scenarios."
+      parameters:
+        - name: pubkeys
+          in: query
+          required: true
+          description: "An array of hex-encoded BLS public keys, for which the ValidatorIndex values should be returned."
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/pubkey'
+            minItems: 1
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ValidatorIndexMapping'
+
+  /beacon/validators/pubkeys:
+    get:
+      tags:
+        - Phase0
+      summary: "Resolve a set of validator indicies to their public keys."
+      description: "Attempt to resolve the ValidatorIndex of a set of validators to their corresponding public keys. Generally the mapping from ValidatorIndex to public key should never change, however it is possible in some scenarios."
+      parameters:
+        - name: indices
+          in: query
+          required: true
+          description: "An array of ValidatorIndex values, for which the public keys should be returned."
+          schema:
+            type: array
+            items:
+              type: integer
+              format: uint64
+              description: "The ValidatorIndex values to be resolved."
+            minItems: 1
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ValidatorIndexMapping'
+
+  /beacon/validators/balances:
+    get:
+      tags:
+        - RFC
+      summary: "Retrieve the balances of validators at a specified epoch."
+      description: "Retrieve the balances of validators at a specified epoch (or the current epoch if none specified). The list of balances can be filtered by providing a list of validator public keys or indices."
+      parameters:
+        - name: epoch
+          in: query
+          required: false
+          description: "The epoch at which the balances are to be measured."
+          schema:
+            type: integer
+            format: uint64
+        - name: validator_pubkeys
+          in: query
+          required: false
+          description: "An array of hex-encoded BLS public keys, for which the balances should be returned."
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/pubkey'
+            minItems: 1
+        - name: validator_indices
+          in: query
+          required: false
+          description: "An array of ValidatorIndex values, for which the balances should be returned."
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/pubkey'
+            minItems: 1
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  epoch:
+                    type: integer
+                    format: uint64
+                    description: "The epoch for which the returned active validator changes are provided."
+                  balances:
+                    type: array
+                    items:
+                      title: ValidatorBalances
+                      type: object
+                      properties:
+                        pubkey:
+                          $ref: '#/components/schemas/pubkey'
+                        index:
+                          type: integer
+                          format: uint64
+                          description: "The global ValidatorIndex of the validator."
+                        balance:
+                          type: integer
+                          format: uint64
+                          description: "The balance of the validator at the specified epoch, expressed in Gwei"
+
+  /beacon/validators/participation:
+    get:
+      tags:
+        - RFC
+      summary: "Retrieve aggregate information about validator participation in an epoch."
+      description: "Retrieve some aggregate information about the participation of validators in a specified epoch (or the current epoch if none specified)."
+      parameters:
+        - name: epoch
+          in: query
+          required: false
+          description: "The epoch at which the participation is to be measured."
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  epoch:
+                    type: string
+                    format: uint64
+                    description: "The epoch for which the participation information is provided."
+                  finalized:
+                    type: boolean
+                    format: boolean
+                    description: "Whether the epoch has been finalized or not."
+                  global_participation_rate:
+                    type: number
+                    format: float
+                    description: "The percentage of validator participation in the given epoch."
+                    minimum: 0.0
+                    maximum: 1.0
+                  voted_ether:
+                    type: integer
+                    format: uint64
+                    description: "The total amount of ether, expressed in Gwei, that has been used in voting for the specified epoch."
+                  eligible_ether:
+                    type: integer
+                    format: uint64
+                    description: "The total amount of ether, expressed in Gwei, that is eligible for voting in the specified epoch."
+
+  /beacon/validators/queue:
+    get:
+      tags:
+        - RFC
+      summary: "Retrieve information about the validator queue at the specified epoch."
+      description: "Retrieve information about the queue of validators for the specified epoch (or the current epoch if none specified)."
+      parameters:
+        - name: epoch
+          in: query
+          required: false
+          description: "The epoch at which the validator queue is to be measured."
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  epoch:
+                    type: string
+                    format: uint64
+                    description: "The epoch for which the validator queue information is provided."
+                  churn_limit:
+                    type: integer
+                    format: uint64
+                    description: "The validator churn limit for the specified epoch."
+                  activation_public_keys:
+                    type: array
+                    description: "The public keys of validators which are queued for activation."
+                    items:
+                      $ref: "#/components/schemas/pubkey"
+                  exit_public_keys:
+                    type: array
+                    description: "The public keys of validators which are queued for exiting."
+                    items:
+                      $ref: '#/components/schemas/pubkey'
+
+  #TODO: Add the endpoints that enable a validator to join, exit, withdraw, etc.
+  /beacon/validator/duties:
+    get:
+      tags:
+        - Phase0
+      summary: "Get validator duties for the requested validators."
+      description: "Requests the beacon node to provide a set of _duties_, which are actions that should be performed by validators, for a particular epoch. Duties should only need to be checked once per epoch, however a chain reorganization (of > MIN_SEED_LOOKAHEAD epochs) could occur, resulting in a change of duties. For full safety, this API call should be polled at every slot to ensure that chain reorganizations are recognized, and to ensure that the beacon node is properly synchronized. If no epoch parameter is provided, then the current epoch is assumed."
+      parameters:
+        - name: validator_pubkeys
+          in: query
+          required: true
+          description: "An array of hex-encoded BLS public keys"
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/pubkey'
+            minItems: 1
+        - name: epoch
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ValidatorDuty'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+        503:
+          $ref: '#/components/responses/CurrentlySyncing'
+
+  /beacon/validator/block:
+    get:
+      tags:
+        - Phase0
+      summary: "Produce a new block, without signature."
+      description: "Requests a beacon node to produce a valid block, which can then be signed by a validator."
+      parameters:
+        - name: slot
+          in: query
+          required: true
+          description: "The slot for which the block should be proposed."
+          schema:
+            type: integer
+            format: uint64
+        - name: randao_reveal
+          in: query
+          required: true
+          description: "The validator's randao reveal value."
+          schema:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{192}$"
+            description: "A valid BLS signature."
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconBlock'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+        503:
+          $ref: '#/components/responses/CurrentlySyncing'
+    post:
+      tags:
+        - Phase0
+      summary: "Publish a signed block."
+      description: "Instructs the beacon node to broadcast a newly signed beacon block to the beacon network, to be included in the beacon chain. The beacon node is not required to validate the signed `BeaconBlock`, and a successful response (20X) only indicates that the broadcast has been successful. The beacon node is expected to integrate the new block into its state, and therefore validate the block internally, however blocks which fail the validation are still broadcast but a different status code is returned (202)"
+      requestBody:
+        description: "The `BeaconBlock` object, as sent from the beacon node originally, but now with the signature field completed. Must be sent in JSON format in the body of the request."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BeaconBlock'
+      responses:
+        200:
+          description: "The block was validated successfully and has been broadcast. It has also been integrated into the beacon node's database."
+        202:
+          description: "The block failed validation, but was successfully broadcast anyway. It was not integrated into the beacon node's database."
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+        503:
+          $ref: '#/components/responses/CurrentlySyncing'
+
+  /beacon/validator/attestation:
+    get:
+      tags:
+        - Phase0
+      summary: "Produce an attestation, without signature."
+      description: "Requests that the beacon node produce an Attestation, with a blank signature field, which the validator will then sign."
+      parameters:
+        - name: validator_pubkey
+          in: query
+          required: true
+          description: "Uniquely identifying which validator this attestation is to be produced for."
+          schema:
+            $ref: '#/components/schemas/pubkey'
+        - name: poc_bit
+          in: query
+          required: true
+          description: "The proof-of-custody bit that is to be reported by the requesting validator. This bit will be inserted into the appropriate location in the returned `Attestation`."
+          schema:
+            type: integer
+            format: uint32
+            minimum: 0
+            maximum: 1
+        - name: slot
+          in: query
+          required: true
+          description: "The slot for which the attestation should be proposed."
+          schema:
+            type: integer
+        - name: shard
+          in: query
+          required: true
+          description: "The shard number for which the attestation is to be proposed."
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attestation'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+        503:
+          $ref: '#/components/responses/CurrentlySyncing'
+    post:
+      tags:
+        - Phase0
+      summary: "Publish a signed attestation."
+      description: "Instructs the beacon node to broadcast a newly signed Attestation object to the intended shard subnet. The beacon node is not required to validate the signed Attestation, and a successful response (20X) only indicates that the broadcast has been successful. The beacon node is expected to integrate the new attestation into its state, and therefore validate the attestation internally, however attestations which fail the validation are still broadcast but a different status code is returned (202)"
+      requestBody:
+        description: "An `Attestation` structure, as originally provided by the beacon node, but now with the signature field completed. Must be sent in JSON format in the body of the request."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Attestation'
+      responses:
+        200:
+          description: "The attestation was validated successfully and has been broadcast. It has also been integrated into the beacon node's database."
+        202:
+          description: "The attestation failed validation, but was successfully broadcast anyway. It was not integrated into the beacon node's database."
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+        503:
+          $ref: '#/components/responses/CurrentlySyncing'
+
+  /beacon/state:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the full beacon state, at a particular slot or block root."
+      description: "Requests the beacon node to provide the full beacon state object, and the state root, given a particular slot number or block root. If no parameters are provided, the latest slot of the beacon node (the 'head' slot) is used."
+      parameters:
+        - name: root
+          description: "The block root at which the state should be provided."
+          in: query
+          required: false
+          schema:
+            type: string
+            format: bytes
+            pattern: "^0x[a-fA-F0-9]{64}$"
+        - name: slot
+          description: "The slot number at which the state should be provided."
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                  beacon_state:
+                    $ref: '#/components/schemas/BeaconState'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /beacon/state_root:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the beacon state root, at a particular slot."
+      description: "Requests the beacon node to provide the root of the beacon state object, given a particular slot number."
+      parameters:
+        - name: slot
+          description: "The slot number at which the state should be provided."
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  root:
+                    type: string
+                    format: bytes
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The state root"
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /beacon/state/current_finalized_checkpoint:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the current finalized checkpoint."
+      #TODO: is this description correct?
+      description: "Requests the beacon node to provide the checkpoint for the current finalized epoch."
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Checkpoint'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /beacon/state/genesis:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the full beacon state, as it was at genesis."
+      description: "Requests the beacon node to provide the full beacon state object and the state root, as it was for the genesis block."
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconState'
+            application/yaml:
+              schema:
+                $ref: '#/components/schemas/BeaconState'
+        400:
+          $ref: '#/components/responses/InvalidRequest'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /spec:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the current ChainSpec configuration."
+      description: "Requests the beacon node to provide the configuration that it has used to start the beacon chain."
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChainSpec'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /spec/slots_per_epoch:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the configured number of slots per epoch."
+      description: "The number of slots in each epoch is part of the Eth2.0 spec. This function simply returns an integer representing this value."
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: uint64
+                example: 64
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /spec/deposit_contract:
+    get:
+      tags:
+        - Phase0
+      summary: "Get the address of the Ethereum 1 deposit contract."
+      description: "Requests the address of the deposit contract on the Ethereum 1 chain, which was used to start the current beacon chain."
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ethereum_address'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /spec/eth2_config:
+    get:
+      tags:
+        - Phase0
+      summary: "Gets the Eth2.0 spec, including the identifying string."
+      description: ""
+      responses:
+        200:
+          description: Success response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  spec_constants:
+                    type: string
+                    example: "mainnet"
+                  spec:
+                    $ref: '#/components/schemas/ChainSpec'
+        500:
+          $ref: '#/components/responses/InternalError'
+
+  /metrics:
+    get:
+      tags:
+        - Phase0
+      summary: "Get Promethius metrics for the node"
+      description: "Fetches a range of metrics for measuring nodes health. It is intended for this endpoint to be consumed by Promethius."
+      responses:
+        200:
+          description: Request successful
+          content:
+            text/plain:
+              example: "# HELP beacon_head_state_active_validators_total Count of active validators at the head of the chain
+                        # TYPE beacon_head_state_active_validators_total gauge
+                        beacon_head_state_active_validators_total 16
+                        # HELP beacon_head_state_current_justified_epoch Current justified epoch at the head of the chain
+                        # TYPE beacon_head_state_current_justified_epoch gauge
+                        beacon_head_state_current_justified_epoch 0
+                        # HELP beacon_head_state_current_justified_root Current justified root at the head of the chain
+                        # TYPE beacon_head_state_current_justified_root gauge
+                        beacon_head_state_current_justified_root 0
+                        # HELP beacon_head_state_eth1_deposit_index Eth1 deposit index at the head of the chain
+                        # TYPE beacon_head_state_eth1_deposit_index gauge
+                        beacon_head_state_eth1_deposit_index 16
+                        # HELP beacon_head_state_finalized_epoch Finalized epoch at the head of the chain
+                        # TYPE beacon_head_state_finalized_epoch gauge
+                        beacon_head_state_finalized_epoch 0
+                        # HELP beacon_head_state_finalized_root Finalized root at the head of the chain
+                        # TYPE beacon_head_state_finalized_root gauge
+                        beacon_head_state_finalized_root 0
+                        # HELP beacon_head_state_latest_block_slot Latest block slot at the head of the chain
+                        # TYPE beacon_head_state_latest_block_slot gauge
+                        beacon_head_state_latest_block_slot 0
+                        # HELP beacon_head_state_previous_justified_epoch Previous justified epoch at the head of the chain
+                        # TYPE beacon_head_state_previous_justified_epoch gauge
+                        beacon_head_state_previous_justified_epoch 0
+                        # HELP beacon_head_state_previous_justified_root Previous justified root at the head of the chain
+                        # TYPE beacon_head_state_previous_justified_root gauge
+                        beacon_head_state_previous_justified_root 0
+                        # HELP beacon_head_state_root Root of the block at the head of the chain
+                        # TYPE beacon_head_state_root gauge
+                        beacon_head_state_root -7566315470565629000
+                        # HELP beacon_head_state_shard_total Count of shards in the beacon chain
+                        # TYPE beacon_head_state_shard_total gauge
+                        beacon_head_state_shard_total 8
+                        # HELP beacon_head_state_slashed_validators_total Count of all slashed validators at the head of the chain
+                        # TYPE beacon_head_state_slashed_validators_total gauge
+                        beacon_head_state_slashed_validators_total 0"
+
+components:
+  schemas:
+    pubkey:
+      type: string
+      format: byte
+      pattern: "^0x[a-fA-F0-9]{96}$"
+      description: "The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._"
+      example: "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc"
+
+    version:
+      type: string
+      description: "A string which uniquely identifies the client implementation and its version; similar to [HTTP User-Agent](https://tools.ietf.org/html/rfc7231#section-5.5.3)."
+      example: "Lighthouse / v0.1.5 (Linux x86_64)"
+
+    genesis_time:
+      type: integer
+      format: uint64
+      description: "The genesis_time configured for the beacon node, which is the unix time at which the Eth2.0 chain began."
+      example: 1557716289
+
+    connection_duration:
+      type: integer
+      format: uint64
+      description: "The number of seconds that an established network connection has persisted."
+      #TODO: Is it reasonable to store the connection duration? Do we have this information? Need to ask Age.
+      example: 3600
+
+    multiaddr:
+      type: string
+      description: "The multiaddr address of a network peer."
+      nullable: true
+      #TODO Define an example and pattern for a multiaddr string.
+
+    ethereum_address:
+      type: string
+      format: byte
+      pattern: "^0x[a-fA-F0-9]{64}$"
+      description: "A hex encoded ethereum address."
+
+    ENR:
+      type: string
+      format: byte
+      example: "-IW4QHzEZbIB0YN47bVlsUrGbcL9vl21n7xF5gRKjMNkJ4MxfcwiqrsE7Ows8EnzOvC8P4ZyAjfOhr2ffk0bWAxDGq8BgmlwhH8AAAGDdGNwgiMog3VkcIIjKIlzZWNwMjU2azGhAjzKzqo5c33ydUUHrWJ4FWwIXJa2MN9BBsgZkj6mhthp"
+      pattern: "^[^-A-Za-z0-9+/=]+$"
+
+    Shard:
+      type: integer
+      format: uint64
+      description: "A shard number."
+      example: 5
+      maximum: 1023
+      minimum: 0
+
+    Checkpoint:
+      type: object
+      description: "A checkpoint."
+      properties:
+        epoch:
+          type: integer
+          format: uint64
+          description: "The epoch to which the checkpoint applies."
+        root:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "A block root, which is being checkpointed."
+
+    Peer:
+      type: object
+      properties:
+        connection_status:
+          $ref: '#/components/schemas/ConnectionStatus'
+        connection_duration:
+          $ref: '#/components/schemas/connection_duration'
+        multiaddr:
+          $ref: '#/components/schemas/multiaddr'
+        measured_delay:
+          type: integer
+          format: uint64
+          description: "The round trip network delay to the peer, measured in milliseconds"
+          #TODO: Do we have the RTT information?
+
+    ConnectionStatus:
+      type: string
+      #TODO: Define the ENUM and possible connection states
+
+    ValidatorIndexMapping:
+      type: object
+      properties:
+        pubkey:
+          $ref: '#/components/schemas/pubkey'
+        index:
+          type: integer
+          format: uint64
+          description: "The global ValidatorIndex value."
+
+    Validator:
+      type: object
+      properties:
+        public_key:
+          $ref: '#/components/schemas/pubkey'
+        withdrawal_credentials:
+          type: string
+          format: bytes
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "The 32 byte hash of the public key which the validator uses for withdrawing their rewards."
+          example: "0x00ec7ef7780c9d151597924036262dd28dc60e1228f4da6fecf9d402cb3f3594"
+        effective_balance:
+          type: integer
+          format: uint64
+          description: "The effective balance of the validator, measured in Gwei."
+          example: 32000000000
+        slashed:
+          type: boolean
+          description: "Whether the validator has or has not been slashed."
+          example: false
+        activation_eligiblity_epoch:
+          type: integer
+          format: uint64
+          description: "The epoch when the validator became or will become eligible for activation. This field may be zero if the validator was present in the Ethereum 2.0 genesis."
+        activation_epoch:
+          type: integer
+          format: uint64
+          description: "Epoch when the validator was or will be activated. This field may be zero if the validator was present in the Ethereum 2.0 genesis."
+        exit_epoch:
+          type: integer
+          format: uint64
+          nullable: true
+          description: "Epoch when the validator was exited, or null if the validator has not exited."
+          example: 18446744073709551615
+        withdrawable_epoch:
+          type: integer
+          format: uint64
+          nullable: true
+          description: "Epoch when the validator is eligible to withdraw their funds, or null if the validator has not exited."
+          example: 18446744073709551615
+
+    ValidatorDuty:
+      type: object
+      properties:
+        validator_pubkey:
+          $ref: '#/components/schemas/pubkey'
+        attestation_slot:
+          type: integer
+          format: uint64
+          description: "The slot at which the validator must attest."
+        attestation_shard:
+          type: integer
+          format: uint64
+          description: "The shard in which the validator must attest."
+        block_proposal_slot:
+          type: integer
+          format: uint64
+          nullable: true
+          description: "The slot in which a validator must propose a block, or `null` if block production is not required."
+
+    SyncingStatus:
+      type: object
+      nullable: true
+      properties:
+        starting_slot:
+          type: integer
+          format: uint64
+          description: "The slot at which syncing started (will only be reset after the sync reached its head)"
+        current_slot:
+          type: integer
+          format: uint64
+          description: "The most recent slot synchronised by the beacon node."
+        highest_slot:
+          type: integer
+          format: uint64
+          description: "Globally, the estimated most recent slot number, or current target slot number."
+
+    Eth1Data:
+      type: object
+      description: "The [`Eth1Data`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#eth1data) object from the Eth2.0 spec."
+      properties:
+        deposit_root:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "Root of the deposit tree."
+        deposit_count:
+          type: integer
+          format: uint64
+          description: "Total number of deposits."
+        block_hash:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "Ethereum 1.x block hash."
+
+    BeaconBlock:
+      description: "The [`BeaconBlock`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#beaconblock) object from the Eth2.0 spec."
+      allOf:
+        - $ref: '#/components/schemas/BeaconBlockCommon'
+        - type: object
+          properties:
+            body:
+              $ref: '#/components/schemas/BeaconBlockBody'
+
+    BeaconBlockHeader:
+      description: "The [`BeaconBlockHeader`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#beaconblockheader) object from the Eth2.0 spec."
+      allOf:
+        - $ref: '#/components/schemas/BeaconBlockCommon'
+        - type: object
+          properties:
+            body_root:
+              type: string
+              format: bytes
+              pattern: "^0x[a-fA-F0-9]{64}$"
+              description: "The tree hash merkle root of the `BeaconBlockBody` for the `BeaconBlock`"
+
+    BeaconBlockCommon:
+      # An abstract object to collect the common fields between the BeaconBlockHeader and the BeaconBlock objects
+      type: object
+      properties:
+        slot:
+          type: integer
+          format: uint64
+          description: "The slot to which this block corresponds."
+        parent_root:
+          type: string
+          format: bytes
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "The signing merkle root of the parent `BeaconBlock`."
+        state_root:
+          type: string
+          format: bytes
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "The tree hash merkle root of the `BeaconState` for the `BeaconBlock`."
+        signature:
+          type: string
+          format: bytes
+          pattern: "^0x[a-fA-F0-9]{192}$"
+          example: "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+          description: "The BLS signature of the `BeaconBlock` made by the validator of the block."
+
+    BeaconBlockBody:
+      type: object
+      description: "The [`BeaconBlockBody`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#beaconblockbody) object from the Eth2.0 spec."
+      properties:
+        randao_reveal:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{192}$"
+          description: "The RanDAO reveal value provided by the validator."
+        eth1_data:
+          $ref: '#/components/schemas/Eth1Data'
+        graffiti:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+        proposer_slashings:
+          type: array
+          items:
+            title: ProposerSlashings
+            type: object
+            description: "The [`ProposerSlashing`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#proposerslashing) object from the Eth2.0 spec."
+            properties:
+              proposer_index:
+                type: integer
+                format: uint64
+                description: "The index of the proposer to be slashed."
+              header_1:
+                $ref: '#/components/schemas/BeaconBlockHeader'
+              header_2:
+                $ref: '#/components/schemas/BeaconBlockHeader'
+        attester_slashings:
+          type: array
+          items:
+            title: AttesterSlashings
+            type: object
+            description: "The [`AttesterSlashing`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#attesterslashing) object from the Eth2.0 spec."
+            properties:
+              attestation_1:
+                $ref: '#/components/schemas/Attestation'
+              attestation_2:
+                $ref: '#/components/schemas/Attestation'
+        attestations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attestation'
+        deposits:
+          type: array
+          items:
+            title: Deposit
+            type: object
+            description: "The [`Deposit`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#deposit) object from the Eth2.0 spec."
+            properties:
+              proof:
+                type: array
+                description: "Branch in the deposit tree."
+                items:
+                  type: string
+                  format: byte
+                  pattern: "^0x[a-fA-F0-9]{64}$"
+                minItems: 32
+                maxItems: 32
+              index:
+                type: integer
+                format: uint64
+                description: "Index in the deposit tree."
+              data:
+                title: DepositData
+                type: object
+                description: "The [`DepositData`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#depositdata) object from the Eth2.0 spec."
+                properties:
+                  pubkey:
+                    $ref: '#/components/schemas/pubkey'
+                  withdrawal_credentials:
+                    type: string
+                    format: byte
+                    pattern: "^0x[a-fA-F0-9]{64}$"
+                    description: "The withdrawal credentials."
+                  amount:
+                    type: integer
+                    format: uint64
+                    description: "Amount in Gwei."
+                  signature:
+                    type: string
+                    format: byte
+                    pattern: "^0x[a-fA-F0-9]{192}$"
+                    description: "Container self-signature."
+        voluntary_exits:
+          type: array
+          items:
+            title: VoluntaryExit
+            type: object
+            description: "The [`VoluntaryExit`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#voluntaryexit) object from the Eth2.0 spec."
+            properties:
+              epoch:
+                type: integer
+                format: uint64
+                description: "Minimum epoch for processing exit."
+              validator_index:
+                type: integer
+                format: uint64
+                description: "Index of the exiting validator."
+              signature:
+                type: string
+                format: byte
+                pattern: "^0x[a-fA-F0-9]{192}$"
+                description: "Validator signature."
+        transfers:
+          type: array
+          items:
+            title: Transfer
+            type: object
+            description: "The [`Transfer`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#transfer) object from the Eth2.0 spec."
+            properties:
+              sender:
+                type: integer
+                format: uint64
+                description: "Sender index."
+              recipient:
+                type: integer
+                format: uint64
+                description: "Recipient index."
+              amount:
+                type: integer
+                format: uint64
+                description: "Amount in Gwei."
+              fee:
+                type: integer
+                format: uint64
+                description: "Fee in Gwei for block producer."
+              slot:
+                type: integer
+                format: uint64
+                description: "Inclusion slot."
+              pubkey:
+                type: string
+                format: byte
+                pattern: "^0x[a-fA-F0-9]{96}$"
+                description: "Sender withdrawal public key."
+              signature:
+                type: string
+                format: byte
+                pattern: "^0x[a-fA-F0-9]{192}$"
+                description: "Sender signature."
+
+    BeaconState:
+      type: object
+      description: "The [`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/dev/specs/core/0_beacon-chain.md#beaconstate) object from the Eth2.0 spec."
+      properties:
+        genesis_time:
+          $ref: '#/components/schemas/genesis_time'
+        slot:
+          type: integer
+          format: uint64
+          description: "The latest slot, which the state represents."
+        fork:
+          $ref: '#/components/schemas/Fork'
+        latest_block_header:
+          $ref: '#/components/schemas/BeaconBlockHeader'
+        #TODO: Are these descriptions correct?
+        block_roots:
+          type: array
+          description: "The historical block roots."
+          minLength: 8192
+          maxLength: 8192 #The SLOTS_PER_HISTORICAL_ROOT value from the Eth2.0 Spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "A block root"
+        state_roots:
+          type: array
+          description: "The historical state roots."
+          minLength: 8192
+          maxLength: 8192 #The SLOTS_PER_HISTORICAL_ROOT value from the Eth2.0 Spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "A state root"
+        historical_roots:
+          type: array
+          #TODO: are these historical *state* roots?
+          description: "The historical state roots."
+          maxLength: 16777216 #The HISTORICAL_ROOTS_LIMIT value from the Eth2.0 Spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "A state root"
+        eth1_data:
+          $ref: '#/components/schemas/Eth1Data'
+        eth1_data_votes:
+          type: array
+          description: "The validator votes for the Eth1Data."
+          maxLength: 1024 #The SLOTS_PER_ETH1_VOTING_PERIOD value from the Eth2.0 spec.
+          items:
+            $ref: '#/components/schemas/Eth1Data'
+        eth1_deposit_index:
+          type: integer
+          format: uint64
+          #TODO: Clarify this description
+          description: "The index of the Eth1 deposit."
+        validators:
+          type: array
+          description: "A list of the current validators."
+          maxLength: 1099511627776
+          items:
+            $ref: '#/components/schemas/Validator'
+        balances:
+          type: array
+          description: "An array of the validator balances."
+          maxLength: 1099511627776
+          items:
+            type: integer
+            format: uint64
+            description: "The validator balance in GWei."
+        start_shard:
+          $ref: '#/components/schemas/Shard'
+        randao_mixes:
+          type: array
+          description: "The hashes for the randao mix."
+          minLength: 65536
+          maxLength: 65536 #The EPOCHS_PER_HISTORICAL_VECTOR value from the Eth2.0 spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "A randao mix hash."
+        active_index_roots:
+          type: array
+          description: "Active index digests for light clients."
+          minLength: 65536
+          maxLength: 65536 #The EPOCHS_PER_HISTORICAL_VECTOR value from the Eth2.0 spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "Active index digest"
+        compact_committees_roots:
+          type: array
+          description: "Committee digests for light clients."
+          minLength: 65536
+          maxLength: 65536 #The EPOCHS_PER_HISTORICAL_VECTOR value from the Eth2.0 spec.
+          items:
+            type: string
+            format: byte
+            pattern: "^0x[a-fA-F0-9]{64}$"
+            description: "Committee digest."
+        slashings:
+          type: array
+          description: "Per-epoch sums of slashed effective balances."
+          minLength: 8192
+          maxLength: 8192 #The EPOCHS_PER_SLASHINGS_VECTOR value from the Eth2.0 spec.
+          items:
+            type: integer
+            format: uint64
+            description: "Sum of slashed balance for an epoch."
+        previous_epoch_attestations:
+          type: array
+          description: "A list of attestations in the previous epoch."
+          maxLength: 8192 # MAX_ATTESTATIONS * SLOTS_PER_EPOCH from the Eth2.0 spec.
+          items:
+            $ref: '#/components/schemas/PendingAttestation'
+        current_epoch_attestations:
+          type: array
+          description: "A list of attestations in the current epoch."
+          maxLength: 8192 # MAX_ATTESTATIONS * SLOTS_PER_EPOCH from the Eth2.0 spec.
+          items:
+            $ref: '#/components/schemas/PendingAttestation'
+        previous_crosslinks:
+          type: array
+          description: "The shard crosslinks from the previous epoch."
+          minLength: 1024
+          maxLength: 1024 #The SHARD_COUNT value from the Eth2.0 spec
+          items:
+            $ref: '#/components/schemas/Crosslink'
+        current_crosslinks:
+          type: array
+          description: "The shard crosslinks for the current epoch."
+          minLength: 1024
+          maxLength: 1024 #The SHARD_COUNT value from the Eth2.0 spec
+          items:
+            $ref: '#/components/schemas/Crosslink'
+        justification_bits:
+          type: array
+          description: "Bit set for every recent justified epoch."
+          minLength: 4
+          maxLength: 4 #The JUSTIFICATION_BITS_LENGTH from the Eth2.0 spec.
+          items:
+            type: boolean
+            #TODO: Check this description
+            description: "Whethere the recent epochs have been finalized."
+        previous_justified_checkpoint:
+          $ref: '#/components/schemas/Checkpoint'
+        current_justified_checkpoint:
+          $ref: '#/components/schemas/Checkpoint'
+        finalized_checkpoint:
+          $ref: '#/components/schemas/Checkpoint'
+
+    Fork:
+      type: object
+      description: "The [`Fork`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#Fork) object from the Eth2.0 spec."
+      properties:
+        previous_version:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{8}$"
+          description: "Previous fork version."
+        current_version:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{8}$"
+          description: "Current fork version."
+        epoch:
+          type: integer
+          format: uint64
+          description: "Fork epoch number."
+
+    Attestation:
+      type: object
+      description: "The [`Attestation`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#attestation) object from the Eth2.0 spec."
+      properties:
+        aggregation_bitfield:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]+$"
+          description: "Attester aggregation bitfield."
+        custody_bitfield:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]+$"
+          description: "Custody bitfield."
+        signature:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{192}$"
+          description: "BLS aggregate signature."
+        data:
+          $ref: '#/components/schemas/AttestationData'
+
+    IndexedAttestation:
+      type: object
+      description: "The [`IndexedAttestation`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#indexedattestation) object from the Eth2.0 spec."
+      properties:
+        custody_bit_0_indices:
+          type: array
+          description: "Validator indices for 0 bits."
+          items:
+            type: integer
+            format: uint64
+        custody_bit_1_indices:
+          type: array
+          description: "Validator indices for 1 bits."
+          items:
+            type: integer
+            format: uint64
+        signature:
+          type: string
+          format: bytes
+          pattern: "^0x[a-fA-F0-9]{192}$"
+          example: "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+          description: "The BLS signature of the `IndexedAttestation`, created by the validator of the attestation."
+        data:
+          $ref: '#/components/schemas/AttestationData'
+
+    PendingAttestation:
+      type: object
+      description: "The [`PendingAttestation`](https://github.com/ethereum/eth2.0-specs/blob/v0.8.3/specs/core/0_beacon-chain.md#pendingattestation) object from the Eth2.0 spec."
+      properties:
+        aggregation_bits:
+          type: array
+          description: "The bits representing aggregation of validator signatures and attestations."
+          maxLength: 4096 #The MAX_VALIDATORS_PER_COMMITTEE value from the Eth2.0 spec.
+          items:
+            type: boolean
+            description: "Whether the validator has been aggregated or not"
+        data:
+          $ref: '#/components/schemas/AttestationData'
+        inclusion_delay:
+          type: integer
+          format: uint64
+          description: "The Slot at which it should be included."
+        proposer_index:
+          type: integer
+          format: uint64
+          #TODO: This is the block proposer index, not the attestaion right?
+          description: "The ValidatorIndex of the block proposer"
+
+
+
+
+
+
+
+    AttestationData:
+      type: object
+      description: "The [`AttestationData`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#attestationdata) object from the Eth2.0 spec."
+      properties:
+        beacon_block_root:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "LMD GHOST vote."
+        source_epoch:
+          type: integer
+          format: uint64
+          description: "Source epoch from FFG vote."
+        source_root:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "Source root from FFG vote."
+        target_epoch:
+          type: integer
+          format: uint64
+          description: "Target epoch from FFG vote."
+        target_root:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "Target root from FFG vote."
+        crosslink:
+          $ref: '#/components/schemas/Crosslink'
+
+
+    Crosslink:
+      type: object
+      description: "The [`Crosslink`](https://github.com/ethereum/eth2.0-specs/blob/master/specs/core/0_beacon-chain.md#crosslink) object from the Eth2.0 spec, contains data from epochs [`start_epoch`, `end_epoch`)."
+      properties:
+        shard:
+          type: integer
+          format: uint64
+          description: "The shard number."
+        start_epoch:
+          type: integer
+          format: uint64
+          description: "The first epoch which the crosslinking data references."
+        end_epoch:
+          type: integer
+          format: uint64
+          description: "The 'end' epoch referred to by the crosslinking data; no data in this Crosslink should refer to the `end_epoch` since it is not included in the crosslinking data interval."
+        parent_root:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "Root of the previous crosslink."
+        data_root:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{64}$"
+          description: "Root of the crosslinked shard data since the previous crosslink."
+
+    ChainSpec:
+      type: object
+      description: "Stores all of the values which specify a particular chain. The `ChainSpec` object in Lighthouse"
+      properties:
+        base_rewards_per_epoch:
+          type: integer
+          format: uint64
+          example: 5
+        deposit_contract_tree_depth:
+          type: integer
+          format: uint64
+          example: 32
+        seconds_per_day:
+          type: integer
+          format: uint64
+          example: 86400
+        target_committee_size:
+          type: integer
+          format: uint64
+          example: 128
+        min_per_epoch_churn_limit:
+          type: integer
+          format: uint64
+          example: 4
+        churn_limit_quotient:
+          type: integer
+          format: uint64
+          example: 65536
+        shuffle_round_count:
+          type: integer
+          format: uint8
+          example: 90
+        min_genesis_active_validator_count:
+          type: integer
+          format: uint64
+          example: 65536
+        min_genesis_time:
+          type: integer
+          format: uint64
+          example: 1578009600
+        min_deposit_amount:
+          type: integer
+          format: uint64
+          example: 1000000000
+        max_effective_balance:
+          type: integer
+          format: uint64
+          example: 32000000000
+        ejection_balance:
+          type: integer
+          format: uint64
+          example: 16000000000
+        effective_balance_increment:
+          type: integer
+          format: uint64
+          example: 1000000000
+        genesis_slot:
+          type: integer
+          format: uint64
+          example: 0
+        bls_withdrawal_prefix_byte:
+          type: string
+          format: byte
+          pattern: "^0x[a-fA-F0-9]{2}$"
+          example: "0x00"
+        milliseconds_per_slot:
+          type: integer
+          format: uint64
+          example: 6000
+        min_attestation_inclusion_delay:
+          type: integer
+          format: uint64
+          example: 1
+        min_seed_lookahead:
+          type: integer
+          format: uint64
+          example: 1
+        activation_exit_delay:
+          type: integer
+          format: uint64
+          example: 4
+        min_validator_withdrawability_delay:
+          type: integer
+          format: uint64
+          example: 256
+        persistent_committee_period:
+          type: integer
+          format: uint64
+          example: 2048
+        max_epochs_per_crosslink:
+          type: integer
+          format: uint64
+          example: 64
+        min_epochs_to_inactivity_penalty:
+          type: integer
+          format: uint64
+          example: 4
+        base_reward_factor:
+          type: integer
+          format: uint64
+          example: 64
+        whistleblower_reward_quotient:
+          type: integer
+          format: uint64
+          example: 512
+        proposer_reward_quotient:
+          type: integer
+          format: uint64
+          example: 8
+        inactivity_penalty_quotient:
+          type: integer
+          format: uint64
+          example: 33554432
+        min_slashing_penalty_quotient:
+          type: integer
+          format: uint64
+          example: 32
+        domain_beacon_proposer:
+          type: integer
+          format: uint32
+          example: 0
+        domain_randao:
+          type: integer
+          format: uint32
+          example: 1
+        domain_attestation:
+          type: integer
+          format: uint32
+          example: 2
+        domain_deposit:
+          type: integer
+          format: uint32
+          example: 3
+        domain_voluntary_exit:
+          type: integer
+          format: uint32
+          example: 4
+        domain_transfer:
+          type: integer
+          format: uint32
+          example: 5
+        boot_nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ENR'
+        network_id:
+          type: integer
+          format: uint8
+          example: 2
+
+
+  responses:
+    Success:
+      description: "Request successful."
+      #TODO: Make response descriptions consistent
+    InvalidRequest:
+      description: "Invalid request syntax."
+    InternalError:
+      description: "Beacon node internal error."
+    CurrentlySyncing:
+      description: "Beacon node is currently syncing, try again later."
+    NotFound:
+      description: "The requested API endpoint does not exist."
+
+externalDocs:
+  description: Ethereum 2.0 Specification on Github
+  url: 'https://github.com/ethereum/eth2.0-specs'
+
+
+#TODO: Define the components of the WebSockets API
