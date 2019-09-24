@@ -58,6 +58,7 @@ pub fn verify_deposit_merkle_proof<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<()> {
     let leaf = deposit.data.tree_hash_root();
+    dbg!(state.eth1_data.deposit_root);
 
     verify!(
         verify_merkle_proof(
