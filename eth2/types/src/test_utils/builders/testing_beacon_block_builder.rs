@@ -262,12 +262,6 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             let (_, mut proof) = tree.generate_proof(i - 1, spec.deposit_contract_tree_depth as usize);
             proof.push(Hash256::from_slice(&int_to_bytes32(i)));
 
-            assert_eq!(
-                proof.len(),
-                spec.deposit_contract_tree_depth as usize + 1,
-                "Deposit proof should be correct len",
-            );
-
             proofs.push(proof);
         }
 
@@ -287,7 +281,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
 
         // Taking all the leaves and putting them in a VarList
         let deposit_data_list = VariableList::<_, U4294967296>::from(leaves[..].to_vec());
-        // BUilding the deposit_root frmo the deposit_data_list
+        // Building the deposit_root from the deposit_data_list
         state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
 
         for (index, deposit) in deposits.into_iter().enumerate() {
