@@ -215,8 +215,8 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         state: &mut BeaconState<T>,
         spec: &ChainSpec,
     ) {
-        // Building deposits
-        let mut deposits = vec![];
+        // Vector containing deposits' data
+        let mut datas = vec![];
         for _ in 0..num_deposits {
             let keypair = Keypair::random();
 
@@ -228,32 +228,26 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                  spec,
                 );
 
-            deposits.push(builder.build());
+            datas.push(builder.build().data);
         }
-
-        // Vector containing data of each deposit
-        let datas = deposits
-            .par_iter()
-            .map(|deposit| deposit.data.clone())
-            .collect::<Vec<_>>();
 
         // Vector containing all leaves
         let leaves = datas
-            .par_iter()
+            .iter()
             .map(|data| Hash256::from_slice(&data.tree_hash_root()))
             .collect::<Vec<_>>();
-
-        // Building the merkle tree used for generating proofs
-        let tree = MerkleTree::create(
-            &leaves[..],
-            spec.deposit_contract_tree_depth as usize,
-        );
 
         // Building a VarList from leaves
         let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
 
         // Setitng the deposit_root to be the tree_hash_root of the VarList
         state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
+
+        // Building the merkle tree used for generating proofs
+        let tree = MerkleTree::create(
+            &leaves[..],
+            spec.deposit_contract_tree_depth as usize,
+        );
 
         // Building proofs
         let mut proofs = vec![];
