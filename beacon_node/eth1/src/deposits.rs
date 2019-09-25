@@ -112,16 +112,16 @@ impl<F: Eth1DataFetcher> DepositCache<F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "integration_tests"))]
 mod tests {
     use super::*;
     use crate::config::Config;
     use crate::web3_fetcher::Web3DataFetcher;
+    use slog::{o, Drain};
     use std::time::{Duration, Instant};
     use tokio;
     use tokio::timer::Interval;
     use web3::futures::Stream;
-    use slog::{o, Drain};
 
     fn setup_log() -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -132,7 +132,12 @@ mod tests {
 
     fn setup() -> Web3DataFetcher {
         let config = Config::default();
-        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout, &setup_log());
+        let w3 = Web3DataFetcher::new(
+            &config.endpoint,
+            &config.address,
+            config.timeout,
+            &setup_log(),
+        );
         return w3.unwrap();
     }
 

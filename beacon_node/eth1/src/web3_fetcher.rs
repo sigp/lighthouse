@@ -1,7 +1,7 @@
 use bls::{PublicKeyBytes, SignatureBytes};
 use ethabi::{decode, ParamType, Token};
 use parking_lot::RwLock;
-use slog::{error, o, info};
+use slog::{error, info, o};
 use std::collections::BTreeMap;
 use std::marker::Send;
 use std::sync::Arc;
@@ -325,7 +325,7 @@ pub fn parse_deposit_logs(log: Log) -> Result<(u64, DepositData)> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "integration_tests"))]
 mod tests {
     use super::*;
     use crate::config::Config;
@@ -340,7 +340,12 @@ mod tests {
 
     fn setup() -> Web3DataFetcher {
         let config = Config::default();
-        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout, &setup_log());
+        let w3 = Web3DataFetcher::new(
+            &config.endpoint,
+            &config.address,
+            config.timeout,
+            &setup_log(),
+        );
         return w3.unwrap();
     }
 

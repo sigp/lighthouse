@@ -208,7 +208,7 @@ pub fn run<F: Eth1DataFetcher + 'static>(
     }));
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "integration_tests"))]
 mod tests {
     use super::*;
     use crate::config::Config;
@@ -231,7 +231,12 @@ mod tests {
 
     fn setup_w3() -> Web3DataFetcher {
         let config = Config::default();
-        let w3 = Web3DataFetcher::new(&config.endpoint, &config.address, config.timeout, &setup_log());
+        let w3 = Web3DataFetcher::new(
+            &config.endpoint,
+            &config.address,
+            config.timeout,
+            &setup_log(),
+        );
         return w3.unwrap();
     }
 
