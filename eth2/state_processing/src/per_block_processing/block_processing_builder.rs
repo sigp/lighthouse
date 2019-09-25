@@ -60,7 +60,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
         }
 
-        self.block_builder.insert_deposit(
+        self.block_builder.insert_deposits(
             spec.max_effective_balance,
             1,
             num_deposits,

@@ -206,7 +206,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     }
 
     /// Insert a `Valid` deposit into the state.
-    pub fn insert_deposit(
+    pub fn insert_deposits(
         &mut self,
         amount: u64,
         // TODO: deal with the fact deposits no longer have explicit indices

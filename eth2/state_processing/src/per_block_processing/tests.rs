@@ -133,7 +133,7 @@ fn valid_deposit() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
 
-    let (block, mut state) = builder.build_with_n_deposits(1, None, None, &spec);
+    let (block, mut state) = builder.build_with_n_deposits(2, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
