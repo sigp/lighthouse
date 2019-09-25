@@ -6,7 +6,7 @@ use crate::{
     typenum::U4294967296,
     *,
 };
-use merkle_proof::{MerkleTree, verify_merkle_proof};
+use merkle_proof::{MerkleTree};
 // use int_to_bytes::int_to_bytes32;
 use rayon::prelude::*;
 use int_to_bytes::int_to_bytes32;
@@ -215,6 +215,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         state: &mut BeaconState<T>,
         spec: &ChainSpec,
     ) {
+        // Building deposits
         let mut deposits = vec![];
         for _ in 0..num_deposits {
             let keypair = Keypair::random();
@@ -230,41 +231,39 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             deposits.push(builder.build());
         }
 
-        // Inspired from beacon_chain_builder.rs
+        // Vector containing data of each deposit
         let datas = deposits
             .par_iter()
             .map(|deposit| deposit.data.clone())
             .collect::<Vec<_>>();
 
-        let deposit_root_leaves = datas
+        // Vector containing all leaves
+        let leaves = datas
             .par_iter()
             .map(|data| Hash256::from_slice(&data.tree_hash_root()))
             .collect::<Vec<_>>();
 
-        // quickcheck
+        // Building the merkle tree used for generating proofs
         let tree = MerkleTree::create(
-            &deposit_root_leaves[..],
+            &leaves[..],
             spec.deposit_contract_tree_depth as usize,
         );
 
-        state.eth1_data.deposit_root = tree.hash();
+        // Building a VarList from leaves
+        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
 
+        // Setitng the deposit_root to be the tree_hash_root of the VarList
+        state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
+
+        // Building proofs
         let mut proofs = vec![];
-        for i in 0..deposit_root_leaves.len() {
-            let (leaf, mut proof) = tree.generate_proof(i, spec.deposit_contract_tree_depth as usize);
-            // proof.push(Hash256::from_slice(&int_to_bytes32(i as u64)));
-            let verified = leaf == deposit_root_leaves[i] && verify_merkle_proof(
-                leaf,
-                &proof,
-                spec.deposit_contract_tree_depth as usize,
-                i,
-                state.eth1_data.deposit_root
-            );
-            dbg!(verified);
-            dbg!(proof.len());
+        for i in 0..leaves.len() {
+            let (_, mut proof) = tree.generate_proof(i, spec.deposit_contract_tree_depth as usize);
+            proof.push(Hash256::from_slice(&int_to_bytes32(leaves.len() as u64)));
             proofs.push(proof);
         }
 
+        // Building deposits
         let deposits = datas
             .into_par_iter()
             .zip(proofs.into_par_iter())
@@ -272,11 +271,12 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             .map(|(data, proof)| Deposit { proof, data })
             .collect::<Vec<_>>();
 
+        // Pushing deposits to block body
         for deposit in deposits {
-            dbg!(deposit.proof.len());
             let _ = self.block.body.deposits.push(deposit);
         }
 
+        // Manually setting the deposit_count to process deposits
         state.eth1_data.deposit_count = num_deposits;
         state.eth1_deposit_index = 0;
     }
