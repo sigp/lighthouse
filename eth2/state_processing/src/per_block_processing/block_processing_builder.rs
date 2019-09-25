@@ -1,5 +1,5 @@
 use tree_hash::SignedRoot;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder, DepositTestTask};
 use types::*;
 
 pub struct BlockProcessingBuilder<T: EthSpec> {
@@ -33,6 +33,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
     pub fn build_with_n_deposits(
         mut self,
         num_deposits: u64,
+        test_task: DepositTestTask,
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
@@ -62,6 +63,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         self.block_builder.insert_deposits(
             spec.max_effective_balance,
+            test_task,
             1,
             num_deposits,
             &mut state,

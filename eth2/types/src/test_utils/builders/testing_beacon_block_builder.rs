@@ -7,10 +7,16 @@ use crate::{
     *,
 };
 use merkle_proof::{MerkleTree};
-// use int_to_bytes::int_to_bytes32;
 use rayon::prelude::*;
 use int_to_bytes::int_to_bytes32;
 use tree_hash::{SignedRoot, TreeHash};
+
+pub enum DepositTestTask {
+    Valid,
+    BadPubKey,
+    BadWithdrawCred,
+    BadSig,
+}
 
 /// Builds a beacon block to be used for testing purposes.
 ///
@@ -209,6 +215,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     pub fn insert_deposits(
         &mut self,
         amount: u64,
+        test_task: DepositTestTask,
         // TODO: deal with the fact deposits no longer have explicit indices
         _index: u64,
         num_deposits: u64,
@@ -221,13 +228,13 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             let keypair = Keypair::random();
 
             let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
-                builder.sign(
-                 &keypair,
-                 state.slot.epoch(T::slots_per_epoch()),
-                 &state.fork,
-                 spec,
-                );
-
+            builder.sign(
+                &test_task,
+                &keypair,
+                state.slot.epoch(T::slots_per_epoch()),
+                &state.fork,
+                spec,
+            );
             datas.push(builder.build().data);
         }
 

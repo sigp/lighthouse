@@ -5,6 +5,7 @@ use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
 use types::*;
+use types::test_utils::{DepositTestTask};
 
 pub const VALIDATOR_COUNT: usize = 10;
 pub const NUM_DEPOSITS: u64 = 1;
@@ -133,8 +134,9 @@ fn invalid_randao_reveal_signature() {
 fn valid_4_deposits() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
+    let test_task = DepositTestTask::Valid;
 
-    let (block, mut state) = builder.build_with_n_deposits(4, None, None, &spec);
+    let (block, mut state) = builder.build_with_n_deposits(4, test_task, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -151,8 +153,9 @@ fn valid_4_deposits() {
 fn invalid_deposit_deposit_count_too_big() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
+    let test_task = DepositTestTask::Valid;
 
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, None, None, &spec);
+    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let big_deposit_count = NUM_DEPOSITS + 1;
     state.eth1_data.deposit_count = big_deposit_count;
@@ -174,8 +177,9 @@ fn invalid_deposit_deposit_count_too_big() {
 fn invalid_deposit_deposit_count_too_small() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
+    let test_task = DepositTestTask::Valid;
 
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, None, None, &spec);
+    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let small_deposit_count = NUM_DEPOSITS - 1;
     state.eth1_data.deposit_count = small_deposit_count;
@@ -197,8 +201,9 @@ fn invalid_deposit_deposit_count_too_small() {
 fn invalid_deposit_deposit_index_offset() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
+    let test_task = DepositTestTask::Valid;
 
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, None, None, &spec);
+    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     state.eth1_data.deposit_count += 1;
     state.eth1_deposit_index += 1;
@@ -215,6 +220,65 @@ fn invalid_deposit_deposit_index_offset() {
         reason: DepositInvalid::BadMerkleProof
     }));
 }
+
+#[test]
+fn invalid_deposit_wrong_pubkey() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = DepositTestTask::BadPubKey;
+
+    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn invalid_deposit_wrong_withdraw_cred() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = DepositTestTask::BadWithdrawCred;
+
+    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    assert_eq!(result, Ok(()));
+}
+
+
+#[test]
+fn invalid_deposit_wrong_sig() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = DepositTestTask::BadSig;
+
+    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    assert_eq!(result, Ok(()));
+}
+
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
     let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);

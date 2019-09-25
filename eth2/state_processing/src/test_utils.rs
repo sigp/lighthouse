@@ -1,5 +1,5 @@
 use log::info;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder, DepositTestTask};
 use types::{EthSpec, *};
 
 pub struct BlockBuilder<T: EthSpec> {
@@ -127,6 +127,7 @@ impl<T: EthSpec> BlockBuilder<T> {
         // Insert `Deposit` objects.
         builder.insert_deposits(
             32_000_000_000,
+            DepositTestTask::Valid,
             state.eth1_data.deposit_count,
             self.num_deposits as u64,
             &mut state,
