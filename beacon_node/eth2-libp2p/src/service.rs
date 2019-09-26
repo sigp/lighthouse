@@ -49,7 +49,6 @@ impl Service {
         };
 
         // load the private key from CLI flag, disk or generate a new one
-        // let local_private_key = load_private_key(&config, &log);
         let local_peer_id = PeerId::from(local_keypair.public());
         info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", local_peer_id));
 

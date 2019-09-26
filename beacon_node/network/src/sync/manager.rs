@@ -648,26 +648,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // process queued block requests
         for (peer_id, block_requests) in self.import_queue.iter_mut() {
-            {
-                if block_requests.state == BlockRequestsState::Queued {
-                    let request_id = self.current_req_id;
-                    block_requests.state = BlockRequestsState::Pending(request_id);
-                    self.current_req_id += 1;
+            if block_requests.state == BlockRequestsState::Queued {
+                let request_id = self.current_req_id;
+                block_requests.state = BlockRequestsState::Pending(request_id);
+                self.current_req_id += 1;
 
-                    let request = BeaconBlocksRequest {
-                        head_block_root: block_requests.target_head_root,
-                        start_slot: block_requests.current_start_slot.as_u64(),
-                        count: MAX_BLOCKS_PER_REQUEST,
-                        step: 0,
-                    };
-                    request_blocks(
-                        &mut self.network,
-                        &self.log,
-                        peer_id.clone(),
-                        request_id,
-                        request,
-                    );
-                }
+                let request = BeaconBlocksRequest {
+                    head_block_root: block_requests.target_head_root,
+                    start_slot: block_requests.current_start_slot.as_u64(),
+                    count: MAX_BLOCKS_PER_REQUEST,
+                    step: 0,
+                };
+                request_blocks(
+                    &mut self.network,
+                    &self.log,
+                    peer_id.clone(),
+                    request_id,
+                    request,
+                );
             }
         }
     }
