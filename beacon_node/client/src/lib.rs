@@ -68,10 +68,6 @@ where
     pub websocket_exit_signal: Option<Signal>,
     /// The clients logger.
     log: slog::Logger,
-    /*
-    /// Marker to pin the beacon chain generics.
-    phantom: PhantomData<BeaconChainTypes>,
-    */
 }
 
 impl<S, E> Client<S, E>

@@ -73,11 +73,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                 .for_each(move |msg| Ok(handler.handle_message(msg)))
                 .map_err(move |_| {
                     debug!(log, "Network message handler terminated.");
-                }), /*
-                    .then(move |_| {
-                        debug!(log.clone(), "Message handler shutdown");
-                    }),
-                    */
+                }),
         );
 
         Ok(handler_send)
