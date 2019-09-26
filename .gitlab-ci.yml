@@ -49,7 +49,11 @@ build-rust-docs:
 build-book:
   stage: document
   script:
-    - mdbook build book
+    - cargo install mdbook & mdbook build book
     - aws s3 sync book/book/ s3://lighthouse-book.sigmaprime.io/ --exclude '.lock' --delete
-  only:
-    - master
+  # TODO before merging to master:
+  #
+  # Ensure documentation only happens for master.
+  #
+  # only:
+  #  - master
