@@ -1,5 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
+use crate::cases::common::BlsCase;
 use bls::{AggregateSignature, Signature};
 use serde_derive::Deserialize;
 
@@ -9,11 +10,7 @@ pub struct BlsAggregateSigs {
     pub output: String,
 }
 
-impl YamlDecode for BlsAggregateSigs {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(yaml).unwrap())
-    }
-}
+impl BlsCase for BlsAggregateSigs {}
 
 impl Case for BlsAggregateSigs {
     fn result(&self, _case_index: usize) -> Result<(), Error> {

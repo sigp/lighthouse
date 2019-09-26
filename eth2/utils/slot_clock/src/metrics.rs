@@ -17,8 +17,8 @@ lazy_static! {
 
 /// Update the global metrics `DEFAULT_REGISTRY` with info from the slot clock.
 pub fn scrape_for_metrics<T: EthSpec, U: SlotClock>(clock: &U) {
-    let present_slot = match clock.present_slot() {
-        Ok(Some(slot)) => slot,
+    let present_slot = match clock.now() {
+        Some(slot) => slot,
         _ => Slot::new(0),
     };
 
@@ -28,5 +28,8 @@ pub fn scrape_for_metrics<T: EthSpec, U: SlotClock>(clock: &U) {
         present_slot.epoch(T::slots_per_epoch()).as_u64() as i64,
     );
     set_gauge(&SLOTS_PER_EPOCH, T::slots_per_epoch() as i64);
-    set_gauge(&MILLISECONDS_PER_SLOT, clock.slot_duration_millis() as i64);
+    set_gauge(
+        &MILLISECONDS_PER_SLOT,
+        clock.slot_duration().as_millis() as i64,
+    );
 }

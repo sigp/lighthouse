@@ -94,7 +94,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     /// Creates the builder from an existing set of keypairs.
     pub fn from_keypairs(keypairs: Vec<Keypair>, spec: &ChainSpec) -> Self {
         let validator_count = keypairs.len();
-        let starting_balance = 32_000_000_000;
+        let starting_balance = spec.max_effective_balance;
 
         debug!(
             "Building {} Validator objects from keypairs...",
@@ -123,8 +123,10 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
             .collect::<Vec<_>>()
             .into();
 
+        let genesis_time = 1567052589; // 29 August, 2019;
+
         let mut state = BeaconState::new(
-            spec.min_genesis_time,
+            genesis_time,
             Eth1Data {
                 deposit_root: Hash256::zero(),
                 deposit_count: 0,

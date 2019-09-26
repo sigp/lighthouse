@@ -182,7 +182,7 @@ macro_rules! impl_display {
                 &self,
                 record: &slog::Record,
                 key: slog::Key,
-                serializer: &mut slog::Serializer,
+                serializer: &mut dyn slog::Serializer,
             ) -> slog::Result {
                 slog::Value::serialize(&self.0, record, key, serializer)
             }
@@ -199,6 +199,10 @@ macro_rules! impl_ssz {
 
             fn ssz_fixed_len() -> usize {
                 <u64 as Encode>::ssz_fixed_len()
+            }
+
+            fn ssz_bytes_len(&self) -> usize {
+                0_u64.ssz_bytes_len()
             }
 
             fn ssz_append(&self, buf: &mut Vec<u8>) {

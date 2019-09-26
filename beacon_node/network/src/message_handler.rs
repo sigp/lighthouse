@@ -1,6 +1,6 @@
 use crate::error;
 use crate::service::NetworkMessage;
-use crate::sync::SimpleSync;
+use crate::sync::MessageProcessor;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     behaviour::PubsubMessage,
@@ -9,18 +9,22 @@ use eth2_libp2p::{
 };
 use futures::future::Future;
 use futures::stream::Stream;
-use slog::{debug, trace, warn};
+use slog::{debug, o, trace, warn};
 use ssz::{Decode, DecodeError};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{Attestation, AttesterSlashing, BeaconBlock, ProposerSlashing, VoluntaryExit};
 
-/// Handles messages received from the network and client and organises syncing.
+/// Handles messages received from the network and client and organises syncing. This
+/// functionality of this struct is to validate an decode messages from the network before
+/// passing them to the internal message processor. The message processor spawns a syncing thread
+/// which manages which blocks need to be requested and processed.
 pub struct MessageHandler<T: BeaconChainTypes> {
-    /// Currently loaded and initialised beacon chain.
-    _chain: Arc<BeaconChain<T>>,
-    /// The syncing framework.
-    sync: SimpleSync<T>,
+    /// A channel to the network service to allow for gossip propagation.
+    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    /// Processes validated and decoded messages from the network. Has direct access to the
+    /// sync manager.
+    message_processor: MessageProcessor<T>,
     /// The `MessageHandler` logger.
     log: slog::Logger,
 }
@@ -34,8 +38,9 @@ pub enum HandlerMessage {
     PeerDisconnected(PeerId),
     /// An RPC response/request has been received.
     RPC(PeerId, RPCEvent),
-    /// A gossip message has been received.
-    PubsubMessage(PeerId, PubsubMessage),
+    /// A gossip message has been received. The fields are: message id, the peer that sent us this
+    /// message and the message itself.
+    PubsubMessage(String, PeerId, PubsubMessage),
 }
 
 impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
@@ -46,17 +51,20 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<HandlerMessage>> {
-        trace!(log, "Service starting");
+        let message_handler_log = log.new(o!("Service"=> "Message Handler"));
+        trace!(message_handler_log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
-        // Initialise sync and begin processing in thread
-        let sync = SimpleSync::new(beacon_chain.clone(), network_send, &log);
+
+        // Initialise a message instance, which itself spawns the syncing thread.
+        let message_processor =
+            MessageProcessor::new(executor, beacon_chain, network_send.clone(), &log);
 
         // generate the Message handler
         let mut handler = MessageHandler {
-            _chain: beacon_chain.clone(),
-            sync,
-            log: log.clone(),
+            network_send,
+            message_processor,
+            log: message_handler_log,
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
@@ -76,19 +84,19 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         match message {
             // we have initiated a connection to a peer
             HandlerMessage::PeerDialed(peer_id) => {
-                self.sync.on_connect(peer_id);
+                self.message_processor.on_connect(peer_id);
             }
             // A peer has disconnected
             HandlerMessage::PeerDisconnected(peer_id) => {
-                self.sync.on_disconnect(peer_id);
+                self.message_processor.on_disconnect(peer_id);
             }
             // An RPC message request/response has been received
             HandlerMessage::RPC(peer_id, rpc_event) => {
                 self.handle_rpc_message(peer_id, rpc_event);
             }
             // An RPC message request/response has been received
-            HandlerMessage::PubsubMessage(peer_id, gossip) => {
-                self.handle_gossip(peer_id, gossip);
+            HandlerMessage::PubsubMessage(id, peer_id, gossip) => {
+                self.handle_gossip(id, peer_id, gossip);
             }
         }
     }
@@ -108,7 +116,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     fn handle_rpc_request(&mut self, peer_id: PeerId, request_id: RequestId, request: RPCRequest) {
         match request {
             RPCRequest::Hello(hello_message) => {
-                self.sync
+                self.message_processor
                     .on_hello_request(peer_id, request_id, hello_message)
             }
             RPCRequest::Goodbye(goodbye_reason) => {
@@ -117,13 +125,13 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                     "peer" => format!("{:?}", peer_id),
                     "reason" => format!("{:?}", goodbye_reason),
                 );
-                self.sync.on_disconnect(peer_id);
+                self.message_processor.on_disconnect(peer_id);
             }
             RPCRequest::BeaconBlocks(request) => self
-                .sync
+                .message_processor
                 .on_beacon_blocks_request(peer_id, request_id, request),
             RPCRequest::RecentBeaconBlocks(request) => self
-                .sync
+                .message_processor
                 .on_recent_beacon_blocks_request(peer_id, request_id, request),
         }
     }
@@ -150,12 +158,13 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             RPCErrorResponse::Success(response) => {
                 match response {
                     RPCResponse::Hello(hello_message) => {
-                        self.sync.on_hello_response(peer_id, hello_message);
+                        self.message_processor
+                            .on_hello_response(peer_id, hello_message);
                     }
                     RPCResponse::BeaconBlocks(response) => {
                         match self.decode_beacon_blocks(&response) {
                             Ok(beacon_blocks) => {
-                                self.sync.on_beacon_blocks_response(
+                                self.message_processor.on_beacon_blocks_response(
                                     peer_id,
                                     request_id,
                                     beacon_blocks,
@@ -170,7 +179,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                     RPCResponse::RecentBeaconBlocks(response) => {
                         match self.decode_beacon_blocks(&response) {
                             Ok(beacon_blocks) => {
-                                self.sync.on_recent_beacon_blocks_response(
+                                self.message_processor.on_recent_beacon_blocks_response(
                                     peer_id,
                                     request_id,
                                     beacon_blocks,
@@ -194,24 +203,37 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     }
 
     /// Handle RPC messages
-    fn handle_gossip(&mut self, peer_id: PeerId, gossip_message: PubsubMessage) {
+    fn handle_gossip(&mut self, id: String, peer_id: PeerId, gossip_message: PubsubMessage) {
         match gossip_message {
             PubsubMessage::Block(message) => match self.decode_gossip_block(message) {
                 Ok(block) => {
-                    let _should_forward_on = self.sync.on_block_gossip(peer_id, block);
+                    let should_forward_on = self
+                        .message_processor
+                        .on_block_gossip(peer_id.clone(), block);
+                    // TODO: Apply more sophisticated validation and decoding logic
+                    if should_forward_on {
+                        self.propagate_message(id, peer_id.clone());
+                    }
                 }
                 Err(e) => {
                     debug!(self.log, "Invalid gossiped beacon block"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
                 }
             },
             PubsubMessage::Attestation(message) => match self.decode_gossip_attestation(message) {
-                Ok(attestation) => self.sync.on_attestation_gossip(peer_id, attestation),
+                Ok(attestation) => {
+                    // TODO: Apply more sophisticated validation and decoding logic
+                    self.propagate_message(id, peer_id.clone());
+                    self.message_processor
+                        .on_attestation_gossip(peer_id, attestation);
+                }
                 Err(e) => {
                     debug!(self.log, "Invalid gossiped attestation"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
                 }
             },
             PubsubMessage::VoluntaryExit(message) => match self.decode_gossip_exit(message) {
                 Ok(_exit) => {
+                    // TODO: Apply more sophisticated validation and decoding logic
+                    self.propagate_message(id, peer_id.clone());
                     // TODO: Handle exits
                     debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id) );
                 }
@@ -222,6 +244,8 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             PubsubMessage::ProposerSlashing(message) => {
                 match self.decode_gossip_proposer_slashing(message) {
                     Ok(_slashing) => {
+                        // TODO: Apply more sophisticated validation and decoding logic
+                        self.propagate_message(id, peer_id.clone());
                         // TODO: Handle proposer slashings
                         debug!(self.log, "Received a proposer slashing"; "peer_id" => format!("{}", peer_id) );
                     }
@@ -233,6 +257,8 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             PubsubMessage::AttesterSlashing(message) => {
                 match self.decode_gossip_attestation_slashing(message) {
                     Ok(_slashing) => {
+                        // TODO: Apply more sophisticated validation and decoding logic
+                        self.propagate_message(id, peer_id.clone());
                         // TODO: Handle attester slashings
                         debug!(self.log, "Received an attester slashing"; "peer_id" => format!("{}", peer_id) );
                     }
@@ -246,6 +272,21 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                 debug!(self.log, "Unknown Gossip Message"; "peer_id" => format!("{}", peer_id), "Message" => format!("{:?}", message));
             }
         }
+    }
+
+    /// Informs the network service that the message should be forwarded to other peers.
+    fn propagate_message(&mut self, message_id: String, propagation_source: PeerId) {
+        self.network_send
+            .try_send(NetworkMessage::Propagate {
+                propagation_source,
+                message_id,
+            })
+            .unwrap_or_else(|_| {
+                warn!(
+                    self.log,
+                    "Could not send propagation request to the network service"
+                )
+            });
     }
 
     /* Decoding of gossipsub objects from the network.

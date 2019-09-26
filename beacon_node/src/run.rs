@@ -1,19 +1,17 @@
-use client::{
-    error, notifier, BeaconChainTypes, Client, ClientConfig, ClientType, Eth2Config,
-    InitialiseBeaconChain,
-};
+use client::{error, notifier, Client, ClientConfig, Eth1BackendMethod, Eth2Config};
 use futures::sync::oneshot;
 use futures::Future;
 use slog::{error, info};
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
+use store::Store;
 use store::{DiskStore, MemoryStore};
 use tokio::runtime::Builder;
 use tokio::runtime::Runtime;
 use tokio::runtime::TaskExecutor;
 use tokio_timer::clock::Clock;
-use types::{InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 
 /// Reads the configuration and initializes a `BeaconChain` with the required types and parameters.
 ///
@@ -44,63 +42,29 @@ pub fn run_beacon_node(
 
     info!(
         log,
-        "BeaconNode init";
-        "p2p_listen_address" => format!("{:?}", &other_client_config.network.listen_address),
-        "data_dir" => format!("{:?}", other_client_config.data_dir()),
-        "network_dir" => format!("{:?}", other_client_config.network.network_dir),
-        "spec_constants" => &spec_constants,
+        "Starting beacon node";
+        "p2p_listen_address" => format!("{}", &other_client_config.network.listen_address),
         "db_type" => &other_client_config.db_type,
+        "spec_constants" => &spec_constants,
     );
 
+    macro_rules! run_client {
+        ($store: ty, $eth_spec: ty) => {
+            run::<$store, $eth_spec>(&db_path, client_config, eth2_config, executor, runtime, log)
+        };
+    }
+
+    if let Eth1BackendMethod::Web3 { .. } = client_config.eth1_backend_method {
+        return Err("Starting from web3 backend is not supported for interop.".into());
+    }
+
     match (db_type.as_str(), spec_constants.as_str()) {
-        ("disk", "minimal") => run::<ClientType<DiskStore, MinimalEthSpec>>(
-            &db_path,
-            client_config,
-            eth2_config,
-            executor,
-            runtime,
-            log,
-        ),
-        ("memory", "minimal") => run::<ClientType<MemoryStore, MinimalEthSpec>>(
-            &db_path,
-            client_config,
-            eth2_config,
-            executor,
-            runtime,
-            log,
-        ),
-        ("disk", "mainnet") => run::<ClientType<DiskStore, MainnetEthSpec>>(
-            &db_path,
-            client_config,
-            eth2_config,
-            executor,
-            runtime,
-            log,
-        ),
-        ("memory", "mainnet") => run::<ClientType<MemoryStore, MainnetEthSpec>>(
-            &db_path,
-            client_config,
-            eth2_config,
-            executor,
-            runtime,
-            log,
-        ),
-        ("disk", "interop") => run::<ClientType<DiskStore, InteropEthSpec>>(
-            &db_path,
-            client_config,
-            eth2_config,
-            executor,
-            runtime,
-            log,
-        ),
-        ("memory", "interop") => run::<ClientType<MemoryStore, InteropEthSpec>>(
-            &db_path,
-            client_config,
-            eth2_config,
-            executor,
-            runtime,
-            log,
-        ),
+        ("disk", "minimal") => run_client!(DiskStore, MinimalEthSpec),
+        ("disk", "mainnet") => run_client!(DiskStore, MainnetEthSpec),
+        ("disk", "interop") => run_client!(DiskStore, InteropEthSpec),
+        ("memory", "minimal") => run_client!(MemoryStore, MinimalEthSpec),
+        ("memory", "mainnet") => run_client!(MemoryStore, MainnetEthSpec),
+        ("memory", "interop") => run_client!(MemoryStore, InteropEthSpec),
         (db_type, spec) => {
             error!(log, "Unknown runtime configuration"; "spec_constants" => spec, "db_type" => db_type);
             Err("Unknown specification and/or db_type.".into())
@@ -109,7 +73,7 @@ pub fn run_beacon_node(
 }
 
 /// Performs the type-generic parts of launching a `BeaconChain`.
-fn run<T>(
+fn run<S, E>(
     db_path: &Path,
     client_config: ClientConfig,
     eth2_config: Eth2Config,
@@ -118,12 +82,13 @@ fn run<T>(
     log: &slog::Logger,
 ) -> error::Result<()>
 where
-    T: BeaconChainTypes + InitialiseBeaconChain<T> + Clone,
-    T::Store: OpenDatabase,
+    S: Store + Clone + 'static + OpenDatabase,
+    E: EthSpec,
 {
-    let store = T::Store::open_database(&db_path)?;
+    let store = S::open_database(&db_path)?;
 
-    let client: Client<T> = Client::new(client_config, eth2_config, store, log.clone(), &executor)?;
+    let client: Client<S, E> =
+        Client::new(client_config, eth2_config, store, log.clone(), &executor)?;
 
     // run service until ctrl-c
     let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();

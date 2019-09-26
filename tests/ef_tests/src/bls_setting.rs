@@ -2,7 +2,6 @@ use self::BlsSetting::*;
 use crate::error::Error;
 use serde_repr::Deserialize_repr;
 
-// TODO: use this in every test case
 #[derive(Deserialize_repr, Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum BlsSetting {

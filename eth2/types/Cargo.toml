@@ -31,3 +31,4 @@ tree_hash_derive = "0.2"
 
 [dev-dependencies]
 env_logger = "0.6.0"
+serde_json = "^1.0"

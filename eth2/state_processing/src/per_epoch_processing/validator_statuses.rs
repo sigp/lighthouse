@@ -1,4 +1,4 @@
-use super::WinningRootHashSet;
+use super::{winning_root::winning_root, WinningRootHashSet};
 use crate::common::get_attesting_indices;
 use types::*;
 
@@ -292,9 +292,29 @@ impl ValidatorStatuses {
     pub fn process_winning_roots<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
-        winning_roots: &WinningRootHashSet,
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
+        // We must re-calculate the winning roots here because it is possible that they have
+        // changed since the first time they were calculated.
+        //
+        // This is because we altered the state during the first time we calculated the winning
+        // roots.
+        let winning_root_for_shards = {
+            let mut winning_root_for_shards = WinningRootHashSet::new();
+            let relative_epoch = RelativeEpoch::Previous;
+
+            let epoch = relative_epoch.into_epoch(state.current_epoch());
+            for offset in 0..state.get_committee_count(relative_epoch)? {
+                let shard = (state.get_epoch_start_shard(relative_epoch)? + offset)
+                    % T::ShardCount::to_u64();
+                if let Some(winning_root) = winning_root(state, shard, epoch, spec)? {
+                    winning_root_for_shards.insert(shard, winning_root);
+                }
+            }
+
+            winning_root_for_shards
+        };
+
         // Loop through each slot in the previous epoch.
         for slot in state.previous_epoch().slot_iter(T::slots_per_epoch()) {
             let crosslink_committees_at_slot = state.get_crosslink_committees_at_slot(slot)?;
@@ -302,7 +322,7 @@ impl ValidatorStatuses {
             // Loop through each committee in the slot.
             for c in crosslink_committees_at_slot {
                 // If there was some winning crosslink root for the committee's shard.
-                if let Some(winning_root) = winning_roots.get(&c.shard) {
+                if let Some(winning_root) = winning_root_for_shards.get(&c.shard) {
                     let total_committee_balance = state.get_total_balance(&c.committee, spec)?;
                     for &validator_index in &winning_root.attesting_validator_indices {
                         // Take note of the balance information for the winning root, it will be

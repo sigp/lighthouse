@@ -13,6 +13,10 @@ macro_rules! impl_encodable_for_uint {
                 $bit_size / 8
             }
 
+            fn ssz_bytes_len(&self) -> usize {
+                $bit_size / 8
+            }
+
             fn ssz_append(&self, buf: &mut Vec<u8>) {
                 buf.extend_from_slice(&self.to_le_bytes());
             }
@@ -55,6 +59,23 @@ macro_rules! impl_encode_for_tuples {
                             0
                     } else {
                         BYTES_PER_LENGTH_OFFSET
+                    }
+                }
+
+                fn ssz_bytes_len(&self) -> usize {
+                    if <Self as Encode>::is_ssz_fixed_len() {
+                        <Self as Encode>::ssz_fixed_len()
+                    } else {
+                        let mut len = 0;
+                        $(
+                            len += if <$T as Encode>::is_ssz_fixed_len() {
+                                <$T as Encode>::ssz_fixed_len()
+                            } else {
+                                BYTES_PER_LENGTH_OFFSET +
+                                self.$idx.ssz_bytes_len()
+                            };
+                        )*
+                        len
                     }
                 }
 
@@ -185,6 +206,19 @@ impl<T: Encode> Encode for Option<T> {
         false
     }
 
+    fn ssz_bytes_len(&self) -> usize {
+        if let Some(some) = self {
+            let len = if <T as Encode>::is_ssz_fixed_len() {
+                <T as Encode>::ssz_fixed_len()
+            } else {
+                some.ssz_bytes_len()
+            };
+            len + BYTES_PER_LENGTH_OFFSET
+        } else {
+            BYTES_PER_LENGTH_OFFSET
+        }
+    }
+
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         match self {
             None => buf.append(&mut encode_union_index(0)),
@@ -199,6 +233,16 @@ impl<T: Encode> Encode for Option<T> {
 impl<T: Encode> Encode for Vec<T> {
     fn is_ssz_fixed_len() -> bool {
         false
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        if <T as Encode>::is_ssz_fixed_len() {
+            <T as Encode>::ssz_fixed_len() * self.len()
+        } else {
+            let mut len = self.into_iter().map(|item| item.ssz_bytes_len()).sum();
+            len += BYTES_PER_LENGTH_OFFSET * self.len();
+            len
+        }
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
@@ -229,6 +273,10 @@ impl Encode for bool {
         1
     }
 
+    fn ssz_bytes_len(&self) -> usize {
+        1
+    }
+
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&(*self as u8).to_le_bytes());
     }
@@ -241,6 +289,10 @@ impl Encode for NonZeroUsize {
 
     fn ssz_fixed_len() -> usize {
         <usize as Encode>::ssz_fixed_len()
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        std::mem::size_of::<usize>()
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
@@ -257,6 +309,10 @@ impl Encode for H256 {
         32
     }
 
+    fn ssz_bytes_len(&self) -> usize {
+        32
+    }
+
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(self.as_bytes());
     }
@@ -268,6 +324,10 @@ impl Encode for U256 {
     }
 
     fn ssz_fixed_len() -> usize {
+        32
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
         32
     }
 
@@ -289,6 +349,10 @@ impl Encode for U128 {
         16
     }
 
+    fn ssz_bytes_len(&self) -> usize {
+        16
+    }
+
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         let n = <Self as Encode>::ssz_fixed_len();
         let s = buf.len();
@@ -306,6 +370,10 @@ macro_rules! impl_encodable_for_u8_array {
             }
 
             fn ssz_fixed_len() -> usize {
+                $len
+            }
+
+            fn ssz_bytes_len(&self) -> usize {
                 $len
             }
 

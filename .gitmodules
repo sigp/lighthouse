@@ -1,3 +1,0 @@
-[submodule "tests/ef_tests/eth2.0-spec-tests"]
-	path = tests/ef_tests/eth2.0-spec-tests
-	url = https://github.com/ethereum/eth2.0-spec-tests
