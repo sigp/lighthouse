@@ -41,13 +41,6 @@ pub fn run_transition_blocks(matches: &ArgMatches) -> Result<(), String> {
         .write_all(&post_state.as_ssz_bytes())
         .map_err(|e| format!("Unable to write to output file: {:?}", e))?;
 
-    /*
-    println!(
-        "{}",
-        serde_yaml::to_string(&post_state).expect("Should serialize state")
-    );
-    */
-
     Ok(())
 }
 
