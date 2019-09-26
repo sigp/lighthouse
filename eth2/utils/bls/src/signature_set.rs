@@ -7,7 +7,7 @@ use milagro_bls::AggregateSignature as RawAggregateSignature;
 type Message = Vec<u8>;
 type Domain = u64;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SignedMessage<'a> {
     signing_keys: Vec<&'a G1Point>,
     message: Message,
@@ -25,7 +25,7 @@ impl<'a> SignedMessage<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SignatureSet<'a> {
     pub signature: &'a G2Point,
     signed_messages: Vec<SignedMessage<'a>>,

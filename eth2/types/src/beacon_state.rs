@@ -60,6 +60,22 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
 }
 
+/// Control whether an epoch-indexed field can be indexed at the next epoch or not.
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum AllowNextEpoch {
+    True,
+    False,
+}
+
+impl AllowNextEpoch {
+    fn upper_bound_of(self, current_epoch: Epoch) -> Epoch {
+        match self {
+            AllowNextEpoch::True => current_epoch + 1,
+            AllowNextEpoch::False => current_epoch,
+        }
+    }
+}
+
 /// The state of the `BeaconChain` at some slot.
 ///
 /// Spec v0.8.0
@@ -108,12 +124,12 @@ where
     pub start_shard: u64,
     pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
     #[compare_fields(as_slice)]
-    active_index_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
+    pub active_index_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
     #[compare_fields(as_slice)]
-    compact_committees_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
+    pub compact_committees_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
 
     // Slashings
-    slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
+    pub slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations
     pub previous_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
@@ -280,14 +296,6 @@ impl<T: EthSpec> BeaconState<T> {
         let cache = self.cache(relative_epoch)?;
 
         Ok(cache.epoch_start_shard())
-    }
-
-    pub fn next_epoch_start_shard(&self, spec: &ChainSpec) -> Result<u64, Error> {
-        let cache = self.cache(RelativeEpoch::Current)?;
-        let active_validator_count = cache.active_validator_count();
-        let shard_delta = T::get_shard_delta(active_validator_count, spec.target_committee_size);
-
-        Ok((self.start_shard + shard_delta) % T::ShardCount::to_u64())
     }
 
     /// Get the slot of an attestation.
@@ -463,12 +471,16 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Safely obtains the index for `randao_mixes`
     ///
-    /// Spec v0.8.0
-    fn get_randao_mix_index(&self, epoch: Epoch) -> Result<usize, Error> {
+    /// Spec v0.8.1
+    fn get_randao_mix_index(
+        &self,
+        epoch: Epoch,
+        allow_next_epoch: AllowNextEpoch,
+    ) -> Result<usize, Error> {
         let current_epoch = self.current_epoch();
         let len = T::EpochsPerHistoricalVector::to_u64();
 
-        if epoch + len > current_epoch && epoch <= current_epoch {
+        if current_epoch < epoch + len && epoch <= allow_next_epoch.upper_bound_of(current_epoch) {
             Ok(epoch.as_usize() % len as usize)
         } else {
             Err(Error::EpochOutOfBounds)
@@ -496,7 +508,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.8.1
     pub fn get_randao_mix(&self, epoch: Epoch) -> Result<&Hash256, Error> {
-        let i = self.get_randao_mix_index(epoch)?;
+        let i = self.get_randao_mix_index(epoch, AllowNextEpoch::False)?;
         Ok(&self.randao_mixes[i])
     }
 
@@ -504,21 +516,29 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.8.1
     pub fn set_randao_mix(&mut self, epoch: Epoch, mix: Hash256) -> Result<(), Error> {
-        let i = self.get_randao_mix_index(epoch)?;
+        let i = self.get_randao_mix_index(epoch, AllowNextEpoch::True)?;
         self.randao_mixes[i] = mix;
         Ok(())
     }
 
     /// Safely obtains the index for `active_index_roots`, given some `epoch`.
     ///
+    /// If `allow_next_epoch` is `True`, then we allow an _extra_ one epoch of lookahead.
+    ///
     /// Spec v0.8.1
-    fn get_active_index_root_index(&self, epoch: Epoch, spec: &ChainSpec) -> Result<usize, Error> {
+    fn get_active_index_root_index(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+        allow_next_epoch: AllowNextEpoch,
+    ) -> Result<usize, Error> {
         let current_epoch = self.current_epoch();
 
         let lookahead = spec.activation_exit_delay;
         let lookback = self.active_index_roots.len() as u64 - lookahead;
+        let epoch_upper_bound = allow_next_epoch.upper_bound_of(current_epoch) + lookahead;
 
-        if epoch + lookback > current_epoch && current_epoch + lookahead >= epoch {
+        if current_epoch < epoch + lookback && epoch <= epoch_upper_bound {
             Ok(epoch.as_usize() % self.active_index_roots.len())
         } else {
             Err(Error::EpochOutOfBounds)
@@ -529,7 +549,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.8.1
     pub fn get_active_index_root(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Hash256, Error> {
-        let i = self.get_active_index_root_index(epoch, spec)?;
+        let i = self.get_active_index_root_index(epoch, spec, AllowNextEpoch::False)?;
         Ok(self.active_index_roots[i])
     }
 
@@ -542,7 +562,7 @@ impl<T: EthSpec> BeaconState<T> {
         index_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let i = self.get_active_index_root_index(epoch, spec)?;
+        let i = self.get_active_index_root_index(epoch, spec, AllowNextEpoch::True)?;
         self.active_index_roots[i] = index_root;
         Ok(())
     }
@@ -556,19 +576,17 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Safely obtains the index for `compact_committees_roots`, given some `epoch`.
     ///
-    /// Spec v0.8.0
+    /// Spec v0.8.1
     fn get_compact_committee_root_index(
         &self,
         epoch: Epoch,
-        spec: &ChainSpec,
+        allow_next_epoch: AllowNextEpoch,
     ) -> Result<usize, Error> {
         let current_epoch = self.current_epoch();
+        let len = T::EpochsPerHistoricalVector::to_u64();
 
-        let lookahead = spec.activation_exit_delay;
-        let lookback = self.compact_committees_roots.len() as u64 - lookahead;
-
-        if epoch + lookback > current_epoch && current_epoch + lookahead >= epoch {
-            Ok(epoch.as_usize() % self.compact_committees_roots.len())
+        if current_epoch < epoch + len && epoch <= allow_next_epoch.upper_bound_of(current_epoch) {
+            Ok(epoch.as_usize() % len as usize)
         } else {
             Err(Error::EpochOutOfBounds)
         }
@@ -576,26 +594,21 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Return the `compact_committee_root` at a recent `epoch`.
     ///
-    /// Spec v0.8.0
-    pub fn get_compact_committee_root(
-        &self,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<Hash256, Error> {
-        let i = self.get_compact_committee_root_index(epoch, spec)?;
+    /// Spec v0.8.1
+    pub fn get_compact_committee_root(&self, epoch: Epoch) -> Result<Hash256, Error> {
+        let i = self.get_compact_committee_root_index(epoch, AllowNextEpoch::False)?;
         Ok(self.compact_committees_roots[i])
     }
 
     /// Set the `compact_committee_root` at a recent `epoch`.
     ///
-    /// Spec v0.8.0
+    /// Spec v0.8.1
     pub fn set_compact_committee_root(
         &mut self,
         epoch: Epoch,
         index_root: Hash256,
-        spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let i = self.get_compact_committee_root_index(epoch, spec)?;
+        let i = self.get_compact_committee_root_index(epoch, AllowNextEpoch::True)?;
         self.compact_committees_roots[i] = index_root;
         Ok(())
     }
@@ -646,14 +659,19 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Safely obtain the index for `slashings`, given some `epoch`.
     ///
-    /// Spec v0.8.0
-    fn get_slashings_index(&self, epoch: Epoch) -> Result<usize, Error> {
+    /// Spec v0.8.1
+    fn get_slashings_index(
+        &self,
+        epoch: Epoch,
+        allow_next_epoch: AllowNextEpoch,
+    ) -> Result<usize, Error> {
         // We allow the slashings vector to be accessed at any cached epoch at or before
-        // the current epoch.
-        if epoch <= self.current_epoch()
-            && epoch + T::EpochsPerSlashingsVector::to_u64() >= self.current_epoch() + 1
+        // the current epoch, or the next epoch if `AllowNextEpoch::True` is passed.
+        let current_epoch = self.current_epoch();
+        if current_epoch < epoch + T::EpochsPerSlashingsVector::to_u64()
+            && epoch <= allow_next_epoch.upper_bound_of(current_epoch)
         {
-            Ok((epoch.as_u64() % T::EpochsPerSlashingsVector::to_u64()) as usize)
+            Ok(epoch.as_usize() % T::EpochsPerSlashingsVector::to_usize())
         } else {
             Err(Error::EpochOutOfBounds)
         }
@@ -668,17 +686,17 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Get the total slashed balances for some epoch.
     ///
-    /// Spec v0.8.0
+    /// Spec v0.8.1
     pub fn get_slashings(&self, epoch: Epoch) -> Result<u64, Error> {
-        let i = self.get_slashings_index(epoch)?;
+        let i = self.get_slashings_index(epoch, AllowNextEpoch::False)?;
         Ok(self.slashings[i])
     }
 
     /// Set the total slashed balances for some epoch.
     ///
-    /// Spec v0.8.0
+    /// Spec v0.8.1
     pub fn set_slashings(&mut self, epoch: Epoch, value: u64) -> Result<(), Error> {
-        let i = self.get_slashings_index(epoch)?;
+        let i = self.get_slashings_index(epoch, AllowNextEpoch::True)?;
         self.slashings[i] = value;
         Ok(())
     }

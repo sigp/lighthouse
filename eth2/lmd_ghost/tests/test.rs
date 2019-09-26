@@ -4,7 +4,8 @@
 extern crate lazy_static;
 
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness as BaseBeaconChainHarness, BlockStrategy,
+    generate_deterministic_keypairs, AttestationStrategy,
+    BeaconChainHarness as BaseBeaconChainHarness, BlockStrategy,
 };
 use lmd_ghost::{LmdGhost, ThreadSafeReducedTree as BaseThreadSafeReducedTree};
 use rand::{prelude::*, rngs::StdRng};
@@ -51,7 +52,7 @@ struct ForkedHarness {
 impl ForkedHarness {
     /// A new standard instance of with constant parameters.
     pub fn new() -> Self {
-        let harness = BeaconChainHarness::new(VALIDATOR_COUNT);
+        let harness = BeaconChainHarness::new(generate_deterministic_keypairs(VALIDATOR_COUNT));
 
         // Move past the zero slot.
         harness.advance_slot();

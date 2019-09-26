@@ -1,130 +1,132 @@
 //! Produces the "deterministic" validator private keys used for inter-operability testing for
 //! Ethereum 2.0 clients.
 //!
-//! Each private key is the first hash in the sha2 hash-chain that is less than 2^255. As such,
-//! keys generated here are **not secret** and are **not for production use**.
+//! Each private key is the sha2 hash of the validator index (little-endian, padded to 32 bytes),
+//! modulo the BLS-381 curve order.
 //!
-//! Note: these keys have not been tested against a reference implementation, yet.
+//! Keys generated here are **not secret** and are **not for production use**. It is trivial to
+//! know the secret key for any validator.
+//!
+//!## Reference
+//!
+//! Reference implementation:
+//!
+//! https://github.com/ethereum/eth2.0-pm/blob/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start/keygen.py
+//!
+//!
+//! This implementation passes the [reference implementation
+//! tests](https://github.com/ethereum/eth2.0-pm/blob/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start/keygen_test_vector.yaml).
+#[macro_use]
+extern crate lazy_static;
 
 use eth2_hashing::hash;
+use milagro_bls::{Keypair, PublicKey, SecretKey};
 use num_bigint::BigUint;
+use serde_derive::{Deserialize, Serialize};
+use std::convert::TryInto;
+use std::fs::File;
+use std::path::PathBuf;
 
-pub const CURVE_ORDER_BITS: usize = 255;
 pub const PRIVATE_KEY_BYTES: usize = 48;
+pub const PUBLIC_KEY_BYTES: usize = 48;
 pub const HASH_BYTES: usize = 32;
 
-fn hash_big_int_le(uint: BigUint) -> BigUint {
-    let mut preimage = uint.to_bytes_le();
-    preimage.resize(32, 0_u8);
-    BigUint::from_bytes_le(&hash(&preimage))
+lazy_static! {
+    static ref CURVE_ORDER: BigUint =
+        "52435875175126190479447740508185965837690552500527637822603658699938581184513"
+            .parse::<BigUint>()
+            .expect("Curve order should be valid");
 }
 
-fn private_key(validator_index: usize) -> BigUint {
-    let mut key = BigUint::from(validator_index);
-    loop {
-        key = hash_big_int_le(key);
-        if key.bits() <= CURVE_ORDER_BITS {
-            break key;
-        }
-    }
-}
-
-/// Generates an **unsafe** BLS12-381 private key for the given validator index, where that private
-/// key is represented in big-endian bytes.
+/// Return a G1 point for the given `validator_index`, encoded as a compressed point in
+/// big-endian byte-ordering.
 pub fn be_private_key(validator_index: usize) -> [u8; PRIVATE_KEY_BYTES] {
-    let vec = private_key(validator_index).to_bytes_be();
+    let preimage = {
+        let mut bytes = [0; HASH_BYTES];
+        let index = validator_index.to_le_bytes();
+        bytes[0..index.len()].copy_from_slice(&index);
+        bytes
+    };
 
-    let mut out = [0; PRIVATE_KEY_BYTES];
-    out[PRIVATE_KEY_BYTES - vec.len()..PRIVATE_KEY_BYTES].copy_from_slice(&vec);
-    out
+    let privkey = BigUint::from_bytes_le(&hash(&preimage)) % &*CURVE_ORDER;
+
+    let mut bytes = [0; PRIVATE_KEY_BYTES];
+    let privkey_bytes = privkey.to_bytes_be();
+    bytes[PRIVATE_KEY_BYTES - privkey_bytes.len()..].copy_from_slice(&privkey_bytes);
+    bytes
 }
 
-/// Generates an **unsafe** BLS12-381 private key for the given validator index, where that private
-/// key is represented in little-endian bytes.
-pub fn le_private_key(validator_index: usize) -> [u8; PRIVATE_KEY_BYTES] {
-    let vec = private_key(validator_index).to_bytes_le();
+/// Return a public and private keypair for a given `validator_index`.
+pub fn keypair(validator_index: usize) -> Keypair {
+    let sk = SecretKey::from_bytes(&be_private_key(validator_index)).expect(&format!(
+        "Should build valid private key for validator index {}",
+        validator_index
+    ));
 
-    let mut out = [0; PRIVATE_KEY_BYTES];
-    out[0..vec.len()].copy_from_slice(&vec);
-    out
+    Keypair {
+        pk: PublicKey::from_secret_key(&sk),
+        sk,
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[derive(Serialize, Deserialize)]
+struct YamlKeypair {
+    /// Big-endian.
+    privkey: String,
+    /// Big-endian.
+    pubkey: String,
+}
 
-    fn flip(vec: &[u8]) -> Vec<u8> {
-        let len = vec.len();
-        let mut out = vec![0; len];
-        for i in 0..len {
-            out[len - 1 - i] = vec[i];
+impl TryInto<Keypair> for YamlKeypair {
+    type Error = String;
+
+    fn try_into(self) -> Result<Keypair, Self::Error> {
+        let privkey = string_to_bytes(&self.privkey)?;
+        let pubkey = string_to_bytes(&self.pubkey)?;
+
+        if (privkey.len() > PRIVATE_KEY_BYTES) || (pubkey.len() > PUBLIC_KEY_BYTES) {
+            return Err("Public or private key is too long".into());
         }
-        out
-    }
 
-    fn pad_le_bls(mut vec: Vec<u8>) -> Vec<u8> {
-        vec.resize(PRIVATE_KEY_BYTES, 0_u8);
-        vec
-    }
+        let sk = {
+            let mut bytes = vec![0; PRIVATE_KEY_BYTES - privkey.len()];
+            bytes.extend_from_slice(&privkey);
+            SecretKey::from_bytes(&bytes)
+                .map_err(|e| format!("Failed to decode bytes into secret key: {:?}", e))?
+        };
 
-    fn pad_be_bls(mut vec: Vec<u8>) -> Vec<u8> {
-        let mut out = vec![0; PRIVATE_KEY_BYTES - vec.len()];
-        out.append(&mut vec);
-        out
-    }
+        let pk = {
+            let mut bytes = vec![0; PUBLIC_KEY_BYTES - pubkey.len()];
+            bytes.extend_from_slice(&pubkey);
+            PublicKey::from_bytes(&bytes)
+                .map_err(|e| format!("Failed to decode bytes into public key: {:?}", e))?
+        };
 
-    fn pad_le_hash(index: usize) -> Vec<u8> {
-        let mut vec = index.to_le_bytes().to_vec();
-        vec.resize(HASH_BYTES, 0_u8);
-        vec
+        Ok(Keypair { pk, sk })
     }
+}
 
-    fn multihash(index: usize, rounds: usize) -> Vec<u8> {
-        let mut vec = pad_le_hash(index);
-        for _ in 0..rounds {
-            vec = hash(&vec);
-        }
-        vec
-    }
+fn string_to_bytes(string: &str) -> Result<Vec<u8>, String> {
+    let string = if string.starts_with("0x") {
+        &string[2..]
+    } else {
+        string
+    };
 
-    fn compare(validator_index: usize, preimage: &[u8]) {
-        assert_eq!(
-            &le_private_key(validator_index)[..],
-            &pad_le_bls(hash(preimage))[..]
-        );
-        assert_eq!(
-            &be_private_key(validator_index)[..],
-            &pad_be_bls(flip(&hash(preimage)))[..]
-        );
-    }
+    hex::decode(string).map_err(|e| format!("Unable to decode public or private key: {}", e))
+}
 
-    #[test]
-    fn consistency() {
-        for i in 0..256 {
-            let le = BigUint::from_bytes_le(&le_private_key(i));
-            let be = BigUint::from_bytes_be(&be_private_key(i));
-            assert_eq!(le, be);
-        }
-    }
+/// Loads keypairs from a YAML encoded file.
+///
+/// Uses this as reference:
+/// https://github.com/ethereum/eth2.0-pm/blob/9a9dbcd95e2b8e10287797bd768014ab3d842e99/interop/mocked_start/keygen_10_validators.yaml
+pub fn keypairs_from_yaml_file(path: PathBuf) -> Result<Vec<Keypair>, String> {
+    let file =
+        File::open(path.clone()).map_err(|e| format!("Unable to open YAML key file: {}", e))?;
 
-    #[test]
-    fn non_repeats() {
-        // These indices only need one hash to be in the curve order.
-        compare(0, &pad_le_hash(0));
-        compare(3, &pad_le_hash(3));
-    }
-
-    #[test]
-    fn repeats() {
-        // Index 5 needs 5x hashes to get into the curve order.
-        compare(5, &multihash(5, 5));
-    }
-
-    #[test]
-    fn doesnt_panic() {
-        for i in 0..256 {
-            be_private_key(i);
-            le_private_key(i);
-        }
-    }
+    serde_yaml::from_reader::<_, Vec<YamlKeypair>>(file)
+        .map_err(|e| format!("Could not parse YAML: {:?}", e))?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<Vec<_>, String>>()
 }

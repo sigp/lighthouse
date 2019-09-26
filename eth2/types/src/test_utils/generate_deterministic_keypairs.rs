@@ -1,7 +1,8 @@
 use crate::*;
-use eth2_interop_keypairs::be_private_key;
+use eth2_interop_keypairs::{keypair, keypairs_from_yaml_file};
 use log::debug;
 use rayon::prelude::*;
+use std::path::PathBuf;
 
 /// Generates `validator_count` keypairs where the secret key is derived solely from the index of
 /// the validator.
@@ -15,8 +16,8 @@ pub fn generate_deterministic_keypairs(validator_count: usize) -> Vec<Keypair> {
 
     let keypairs: Vec<Keypair> = (0..validator_count)
         .collect::<Vec<usize>>()
-        .par_iter()
-        .map(|&i| generate_deterministic_keypair(i))
+        .into_par_iter()
+        .map(generate_deterministic_keypair)
         .collect();
 
     keypairs
@@ -26,8 +27,20 @@ pub fn generate_deterministic_keypairs(validator_count: usize) -> Vec<Keypair> {
 ///
 /// This is used for testing only, and not to be used in production!
 pub fn generate_deterministic_keypair(validator_index: usize) -> Keypair {
-    let sk = SecretKey::from_bytes(&be_private_key(validator_index))
-        .expect("be_private_key always returns valid keys");
-    let pk = PublicKey::from_secret_key(&sk);
-    Keypair { sk, pk }
+    let raw = keypair(validator_index);
+    Keypair {
+        pk: PublicKey::from_raw(raw.pk),
+        sk: SecretKey::from_raw(raw.sk),
+    }
+}
+
+/// Loads a list of keypairs from file.
+pub fn load_keypairs_from_yaml(path: PathBuf) -> Result<Vec<Keypair>, String> {
+    Ok(keypairs_from_yaml_file(path)?
+        .into_iter()
+        .map(|raw| Keypair {
+            pk: PublicKey::from_raw(raw.pk),
+            sk: SecretKey::from_raw(raw.sk),
+        })
+        .collect())
 }
