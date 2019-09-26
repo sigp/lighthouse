@@ -22,12 +22,12 @@ use protos::services_grpc::{
     AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
     ValidatorServiceClient,
 };
-use slog::{crit, error, info, warn};
+use slog::{crit, error, info, trace, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::runtime::Builder;
 use tokio::timer::Interval;
@@ -46,8 +46,8 @@ pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpe
     fork: Fork,
     /// The slot clock for this service.
     slot_clock: SystemTimeSlotClock,
-    /// The current slot we are processing.
-    current_slot: Slot,
+    /// The slot that is currently, or was previously processed by the service.
+    current_slot: Option<Slot>,
     slots_per_epoch: u64,
     /// The chain specification for this clients instance.
     spec: Arc<ChainSpec>,
@@ -100,19 +100,6 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     continue;
                 }
                 Ok(info) => {
-                    // verify the node's genesis time
-                    if SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs()
-                        < info.genesis_time
-                    {
-                        error!(
-                            log,
-                            "Beacon Node's genesis time is in the future. No work to do.\n Exiting"
-                        );
-                        return Err("Genesis time in the future".into());
-                    }
                     // verify the node's network id
                     if eth2_config.spec.network_id != info.network_id as u8 {
                         error!(
@@ -172,18 +159,11 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         };
 
         // build the validator slot clock
-        let slot_clock = SystemTimeSlotClock::from_eth2_genesis(
+        let slot_clock = SystemTimeSlotClock::new(
             genesis_slot,
-            genesis_time,
+            Duration::from_secs(genesis_time),
             Duration::from_millis(eth2_config.spec.milliseconds_per_slot),
-        )
-        .ok_or_else::<error_chain::Error, _>(|| {
-            "Unable to start slot clock. Genesis may not have occurred yet. Exiting.".into()
-        })?;
-
-        let current_slot = slot_clock.now().ok_or_else::<error_chain::Error, _>(|| {
-            "Genesis has not yet occurred. Exiting.".into()
-        })?;
+        );
 
         /* Generate the duties manager */
 
@@ -215,7 +195,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         Ok(Service {
             fork,
             slot_clock,
-            current_slot,
+            current_slot: None,
             slots_per_epoch,
             spec,
             duties_manager,
@@ -237,7 +217,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         let mut service = Service::<ValidatorServiceClient, Keypair, E>::initialize_service(
             client_config,
             eth2_config,
-            log,
+            log.clone(),
         )?;
 
         // we have connected to a node and established its parameters. Spin up the core service
@@ -253,7 +233,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             .slot_clock
             .duration_to_next_slot()
             .ok_or_else::<error_chain::Error, _>(|| {
-                "Genesis is not in the past. Exiting.".into()
+                "Unable to determine duration to next slot. Exiting.".into()
             })?;
 
         // set up the validator work interval - start at next slot and proceed every slot
@@ -263,6 +243,19 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             //TODO: Handle checked add correctly
             Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
         };
+
+        if service.slot_clock.now().is_none() {
+            warn!(
+                log,
+                "Starting node prior to genesis";
+            );
+        }
+
+        info!(
+            log,
+            "Waiting for next slot";
+            "seconds_to_wait" => duration_to_next_slot.as_secs()
+        );
 
         /* kick off the core service */
         runtime.block_on(
@@ -293,32 +286,39 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         /* process any required duties for validators */
         self.process_duties();
 
+        trace!(
+            self.log,
+            "Per slot execution finished";
+        );
+
         Ok(())
     }
 
     /// Updates the known current slot and epoch.
     fn update_current_slot(&mut self) -> error_chain::Result<()> {
-        let current_slot = self
+        let wall_clock_slot = self
             .slot_clock
             .now()
             .ok_or_else::<error_chain::Error, _>(|| {
                 "Genesis is not in the past. Exiting.".into()
             })?;
 
-        let current_epoch = current_slot.epoch(self.slots_per_epoch);
+        let wall_clock_epoch = wall_clock_slot.epoch(self.slots_per_epoch);
 
         // this is a non-fatal error. If the slot clock repeats, the node could
         // have been slow to process the previous slot and is now duplicating tasks.
         // We ignore duplicated but raise a critical error.
-        if current_slot <= self.current_slot {
-            crit!(
-                self.log,
-                "The validator tried to duplicate a slot. Likely missed the previous slot"
-            );
-            return Err("Duplicate slot".into());
+        if let Some(current_slot) = self.current_slot {
+            if wall_clock_slot <= current_slot {
+                crit!(
+                    self.log,
+                    "The validator tried to duplicate a slot. Likely missed the previous slot"
+                );
+                return Err("Duplicate slot".into());
+            }
         }
-        self.current_slot = current_slot;
-        info!(self.log, "Processing"; "slot" => current_slot.as_u64(), "epoch" => current_epoch.as_u64());
+        self.current_slot = Some(wall_clock_slot);
+        info!(self.log, "Processing"; "slot" => wall_clock_slot.as_u64(), "epoch" => wall_clock_epoch.as_u64());
         Ok(())
     }
 
@@ -326,7 +326,17 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
     fn check_for_duties(&mut self) {
         let cloned_manager = self.duties_manager.clone();
         let cloned_log = self.log.clone();
-        let current_epoch = self.current_slot.epoch(self.slots_per_epoch);
+        let current_epoch = self
+            .current_slot
+            .expect("The current slot must be updated before checking for duties")
+            .epoch(self.slots_per_epoch);
+
+        trace!(
+            self.log,
+            "Checking for duties";
+            "epoch" => current_epoch
+        );
+
         // spawn a new thread separate to the runtime
         // TODO: Handle thread termination/timeout
         // TODO: Add duties thread back in, with channel to process duties in duty change.
@@ -340,20 +350,36 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
     /// If there are any duties to process, spawn a separate thread and perform required actions.
     fn process_duties(&mut self) {
-        if let Some(work) = self.duties_manager.get_current_work(self.current_slot) {
+        if let Some(work) = self.duties_manager.get_current_work(
+            self.current_slot
+                .expect("The current slot must be updated before processing duties"),
+        ) {
+            trace!(
+                self.log,
+                "Processing duties";
+                "work_items" => work.len()
+            );
+
             for (signer_index, work_type) in work {
                 if work_type.produce_block {
                     // we need to produce a block
                     // spawns a thread to produce a beacon block
                     let signers = self.duties_manager.signers.clone(); // this is an arc
                     let fork = self.fork.clone();
-                    let slot = self.current_slot;
+                    let slot = self
+                        .current_slot
+                        .expect("The current slot must be updated before processing duties");
                     let spec = self.spec.clone();
                     let beacon_node = self.beacon_block_client.clone();
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
                     std::thread::spawn(move || {
-                        info!(log, "Producing a block"; "Validator"=> format!("{}", signers[signer_index]));
+                        info!(
+                            log,
+                            "Producing a block";
+                            "validator"=> format!("{}", signers[signer_index]),
+                            "slot"=> slot
+                        );
                         let signer = &signers[signer_index];
                         let mut block_producer = BlockProducer {
                             fork,
@@ -363,13 +389,17 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                             signer,
                             slots_per_epoch,
                             _phantom: PhantomData::<E>,
+                            log,
                         };
-                        block_producer.handle_produce_block(log);
+                        block_producer.handle_produce_block();
                     });
                 }
                 if work_type.attestation_duty.is_some() {
                     // we need to produce an attestation
                     // spawns a thread to produce and sign an attestation
+                    let slot = self
+                        .current_slot
+                        .expect("The current slot must be updated before processing duties");
                     let signers = self.duties_manager.signers.clone(); // this is an arc
                     let fork = self.fork.clone();
                     let spec = self.spec.clone();
@@ -377,7 +407,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
                     std::thread::spawn(move || {
-                        info!(log, "Producing an attestation"; "Validator"=> format!("{}", signers[signer_index]));
+                        info!(
+                            log,
+                            "Producing an attestation";
+                            "validator"=> format!("{}", signers[signer_index]),
+                            "slot"=> slot
+                        );
                         let signer = &signers[signer_index];
                         let mut attestation_producer = AttestationProducer {
                             fork,

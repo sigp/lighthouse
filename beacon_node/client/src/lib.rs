@@ -16,22 +16,23 @@ use slog::{crit, error, info, o};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
 use types::EthSpec;
+use websocket_server::WebSocketSender;
 
 pub use beacon_chain::{BeaconChainTypes, Eth1ChainBackend, InteropEth1ChainBackend};
 pub use config::{BeaconChainStartMethod, Config as ClientConfig, Eth1BackendMethod};
 pub use eth2_config::Eth2Config;
 
 #[derive(Clone)]
-pub struct ClientType<S: Store, E: EthSpec> {
+pub struct RuntimeBeaconChainTypes<S: Store, E: EthSpec> {
     _phantom_s: PhantomData<S>,
     _phantom_e: PhantomData<E>,
 }
 
-impl<S, E> BeaconChainTypes for ClientType<S, E>
+impl<S, E> BeaconChainTypes for RuntimeBeaconChainTypes<S, E>
 where
     S: Store + 'static,
     E: EthSpec,
@@ -41,38 +42,44 @@ where
     type LmdGhost = ThreadSafeReducedTree<S, E>;
     type Eth1Chain = InteropEth1ChainBackend<E>;
     type EthSpec = E;
+    type EventHandler = WebSocketSender<E>;
 }
 
 /// Main beacon node client service. This provides the connection and initialisation of the clients
 /// sub-services in multiple threads.
-pub struct Client<T: BeaconChainTypes> {
+pub struct Client<S, E>
+where
+    S: Store + Clone + 'static,
+    E: EthSpec,
+{
     /// Configuration for the lighthouse client.
     _client_config: ClientConfig,
     /// The beacon chain for the running client.
-    beacon_chain: Arc<BeaconChain<T>>,
+    beacon_chain: Arc<BeaconChain<RuntimeBeaconChainTypes<S, E>>>,
     /// Reference to the network service.
-    pub network: Arc<NetworkService<T>>,
+    pub network: Arc<NetworkService<RuntimeBeaconChainTypes<S, E>>>,
     /// Signal to terminate the RPC server.
     pub rpc_exit_signal: Option<Signal>,
     /// Signal to terminate the slot timer.
     pub slot_timer_exit_signal: Option<Signal>,
     /// Signal to terminate the API
     pub api_exit_signal: Option<Signal>,
+    /// Signal to terminate the websocket server
+    pub websocket_exit_signal: Option<Signal>,
     /// The clients logger.
     log: slog::Logger,
-    /// Marker to pin the beacon chain generics.
-    phantom: PhantomData<T>,
 }
 
-impl<T> Client<T>
+impl<S, E> Client<S, E>
 where
-    T: BeaconChainTypes + Clone,
+    S: Store + Clone + 'static,
+    E: EthSpec,
 {
     /// Generate an instance of the client. Spawn and link all internal sub-processes.
     pub fn new(
         client_config: ClientConfig,
         eth2_config: Eth2Config,
-        store: T::Store,
+        store: S,
         log: slog::Logger,
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
@@ -169,17 +176,40 @@ where
             }
         };
 
-        let eth1_backend =
-            T::Eth1Chain::new(String::new(), String::new(), &log)
-                .map_err(|e| format!("{:?}", e))?;
-        let beacon_chain: Arc<BeaconChain<T>> = Arc::new(
+        let eth1_backend = InteropEth1ChainBackend::new(String::new(), String::new(), &log)
+            .map_err(|e| format!("{:?}", e))?;
+
+        // Start the websocket server.
+        let (websocket_sender, websocket_exit_signal): (WebSocketSender<E>, Option<_>) =
+            if client_config.websocket_server.enabled {
+                let (sender, exit) = websocket_server::start_server(
+                    &client_config.websocket_server,
+                    executor,
+                    &log,
+                )?;
+                (sender, Some(exit))
+            } else {
+                (WebSocketSender::dummy(), None)
+            };
+
+        let beacon_chain: Arc<BeaconChain<RuntimeBeaconChainTypes<S, E>>> = Arc::new(
             beacon_chain_builder
-                .build(store, eth1_backend)
+                .build(store, eth1_backend, websocket_sender)
                 .map_err(error::Error::from)?,
         );
 
-        if beacon_chain.slot().is_err() {
-            panic!("Cannot start client before genesis!")
+        let since_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| format!("Unable to read system time: {}", e))?;
+        let since_genesis = Duration::from_secs(beacon_chain.head().beacon_state.genesis_time);
+
+        if since_genesis > since_epoch {
+            info!(
+                log,
+                "Starting node prior to genesis";
+                "now" => since_epoch.as_secs(),
+                "genesis_seconds" => since_genesis.as_secs(),
+            );
         }
 
         let network_config = &client_config.network;
@@ -206,6 +236,7 @@ where
                 executor,
                 beacon_chain.clone(),
                 network.clone(),
+                network_send.clone(),
                 client_config.db_path().expect("unable to read datadir"),
                 eth2_config.clone(),
                 &log,
@@ -252,14 +283,14 @@ where
             rpc_exit_signal,
             slot_timer_exit_signal: Some(slot_timer_exit_signal),
             api_exit_signal,
+            websocket_exit_signal,
             log,
             network,
-            phantom: PhantomData,
         })
     }
 }
 
-impl<T: BeaconChainTypes> Drop for Client<T> {
+impl<S: Store + Clone, E: EthSpec> Drop for Client<S, E> {
     fn drop(&mut self) {
         // Save the beacon chain to it's store before dropping.
         let _result = self.beacon_chain.persist();

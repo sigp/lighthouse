@@ -13,7 +13,7 @@ pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 type Result<T> = std::result::Result<T, String>;
-type Config = (ClientConfig, Eth2Config);
+type Config = (ClientConfig, Eth2Config, Logger);
 
 /// Gets the fully-initialized global client and eth2 configuration objects.
 ///
@@ -22,8 +22,11 @@ type Config = (ClientConfig, Eth2Config);
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
-pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
-    let mut builder = ConfigBuilder::new(cli_args, log)?;
+pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
+    let log = core_log.clone();
+
+    let mut builder = ConfigBuilder::new(cli_args, core_log)?;
+
     if let Some(server) = cli_args.value_of("eth1-server") {
         if let Some(deposit_contract) = cli_args.value_of("eth1-deposit-contract") {
             if let Some(abi) = cli_args.value_of("eth1-abi") {
@@ -40,7 +43,7 @@ pub fn get_configs(cli_args: &ArgMatches, log: &Logger) -> Result<Config> {
 
     match cli_args.subcommand() {
         ("testnet", Some(sub_cmd_args)) => {
-            process_testnet_subcommand(&mut builder, sub_cmd_args, log)?
+            process_testnet_subcommand(&mut builder, sub_cmd_args, &log)?
         }
         // No sub-command assumes a resume operation.
         _ => {
@@ -142,6 +145,7 @@ fn process_testnet_subcommand(
                 .and_then(|s| s.parse::<u16>().ok());
 
             builder.import_bootstrap_libp2p_address(server, port)?;
+            builder.import_bootstrap_enr_address(server)?;
             builder.import_bootstrap_eth2_config(server)?;
 
             builder.set_beacon_chain_start_method(BeaconChainStartMethod::HttpBootstrap {
@@ -220,15 +224,15 @@ fn process_testnet_subcommand(
 }
 
 /// Allows for building a set of configurations based upon `clap` arguments.
-struct ConfigBuilder<'a> {
-    log: &'a Logger,
+struct ConfigBuilder {
+    log: Logger,
     eth2_config: Eth2Config,
     client_config: ClientConfig,
 }
 
-impl<'a> ConfigBuilder<'a> {
+impl ConfigBuilder {
     /// Create a new builder with default settings.
-    pub fn new(cli_args: &'a ArgMatches, log: &'a Logger) -> Result<Self> {
+    pub fn new(cli_args: &ArgMatches, log: Logger) -> Result<Self> {
         // Read the `--datadir` flag.
         //
         // If it's not present, try and find the home directory (`~`) and push the default data
@@ -306,7 +310,7 @@ impl<'a> ConfigBuilder<'a> {
         self.client_config.eth1_backend_method = method;
     }
 
-    /// Import the libp2p address for `server` into the list of bootnodes in `self`.
+    /// Import the libp2p address for `server` into the list of libp2p nodes to connect with.
     ///
     /// If `port` is `Some`, it is used as the port for the `Multiaddr`. If `port` is `None`,
     /// attempts to connect to the `server` via HTTP and retrieve it's libp2p listen port.
@@ -332,6 +336,28 @@ impl<'a> ConfigBuilder<'a> {
             warn!(
                 self.log,
                 "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
+            );
+        };
+
+        Ok(())
+    }
+
+    /// Import the enr address for `server` into the list of initial enrs (boot nodes).
+    pub fn import_bootstrap_enr_address(&mut self, server: &str) -> Result<()> {
+        let bootstrapper = Bootstrapper::connect(server.to_string(), &self.log)?;
+
+        if let Ok(enr) = bootstrapper.enr() {
+            info!(
+                self.log,
+                "Loaded bootstrapper libp2p address";
+                "enr" => format!("{:?}", enr)
+            );
+
+            self.client_config.network.boot_nodes.push(enr);
+        } else {
+            warn!(
+                self.log,
+                "Unable to estimate a bootstrapper enr address, this node may not find any peers."
             );
         };
 
@@ -521,8 +547,7 @@ impl<'a> ConfigBuilder<'a> {
     /// cli_args).
     pub fn build(mut self, cli_args: &ArgMatches) -> Result<Config> {
         self.eth2_config.apply_cli_args(cli_args)?;
-        self.client_config
-            .apply_cli_args(cli_args, &mut self.log.clone())?;
+        self.client_config.apply_cli_args(cli_args, &mut self.log)?;
 
         if let Some(bump) = cli_args.value_of("port-bump") {
             let bump = bump
@@ -533,6 +558,7 @@ impl<'a> ConfigBuilder<'a> {
             self.client_config.network.discovery_port += bump;
             self.client_config.rpc.port += bump;
             self.client_config.rest_api.port += bump;
+            self.client_config.websocket_server.port += bump;
         }
 
         if self.eth2_config.spec_constants != self.client_config.spec_constants {
@@ -543,7 +569,7 @@ impl<'a> ConfigBuilder<'a> {
             return Err("Specification constant mismatch".into());
         }
 
-        Ok((self.client_config, self.eth2_config))
+        Ok((self.client_config, self.eth2_config, self.log))
     }
 }
 

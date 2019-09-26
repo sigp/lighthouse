@@ -33,14 +33,14 @@ fn main() {
         .arg(
             Arg::with_name("logfile")
                 .long("logfile")
-                .value_name("logfile")
+                .value_name("FILE")
                 .help("File path where output will be written.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("network-dir")
                 .long("network-dir")
-                .value_name("NETWORK-DIR")
+                .value_name("DIR")
                 .help("Data directory for network keys.")
                 .takes_value(true)
                 .global(true)
@@ -83,7 +83,7 @@ fn main() {
             Arg::with_name("boot-nodes")
                 .long("boot-nodes")
                 .allow_hyphen_values(true)
-                .value_name("BOOTNODES")
+                .value_name("ENR-LIST")
                 .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network.")
                 .takes_value(true),
         )
@@ -116,6 +116,13 @@ fn main() {
                 .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer without an ENR.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("p2p-priv-key")
+                .long("p2p-priv-key")
+                .value_name("HEX")
+                .help("A secp256k1 secret key, represented as ASCII-encoded hex bytes (with or without 0x prefix).")
+                .takes_value(true),
+        )
         /*
          * gRPC parameters.
          */
@@ -128,18 +135,19 @@ fn main() {
         .arg(
             Arg::with_name("rpc-address")
                 .long("rpc-address")
-                .value_name("Address")
+                .value_name("ADDRESS")
                 .help("Listen address for RPC endpoint.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("rpc-port")
                 .long("rpc-port")
+                .value_name("PORT")
                 .help("Listen port for RPC endpoint.")
                 .conflicts_with("port-bump")
                 .takes_value(true),
         )
-        /* Client related arguments */
+        /* REST API related arguments */
         .arg(
             Arg::with_name("no-api")
                 .long("no-api")
@@ -149,16 +157,39 @@ fn main() {
         .arg(
             Arg::with_name("api-address")
                 .long("api-address")
-                .value_name("APIADDRESS")
+                .value_name("ADDRESS")
                 .help("Set the listen address for the RESTful HTTP API server.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("api-port")
                 .long("api-port")
-                .value_name("APIPORT")
+                .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .conflicts_with("port-bump")
+                .takes_value(true),
+        )
+        /* Websocket related arguments */
+        .arg(
+            Arg::with_name("no-ws")
+                .long("no-ws")
+                .help("Disable websocket server.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("ws-address")
+                .long("ws-address")
+                .value_name("ADDRESS")
+                .help("Set the listen address for the websocket server.")
+                .conflicts_with_all(&["no-ws"])
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("ws-port")
+                .long("ws-port")
+                .value_name("PORT")
+                .help("Set the listen TCP port for the websocket server.")
+                .conflicts_with_all(&["no-ws", "port-bump"])
                 .takes_value(true),
         )
 
@@ -202,13 +233,6 @@ fn main() {
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .default_value("trace"),
-        )
-        .arg(
-            Arg::with_name("verbosity")
-                .short("v")
-                .multiple(true)
-                .help("Sets the verbosity level")
-                .takes_value(true),
         )
         /*
          * The "testnet" sub-command.
@@ -363,18 +387,28 @@ fn main() {
 
     let log = slog::Logger::root(drain.fuse(), o!());
 
+    if std::mem::size_of::<usize>() != 8 {
+        crit!(
+            log,
+            "Lighthouse only supports 64bit CPUs";
+            "detected" => format!("{}bit", std::mem::size_of::<usize>() * 8)
+        );
+    }
+
     warn!(
         log,
         "Ethereum 2.0 is pre-release. This software is experimental."
     );
 
+    let log_clone = log.clone();
+
     // Load the process-wide configuration.
     //
     // May load this from disk or create a new configuration, depending on the CLI flags supplied.
-    let (client_config, eth2_config) = match get_configs(&matches, &log) {
+    let (client_config, eth2_config, log) = match get_configs(&matches, log) {
         Ok(configs) => configs,
         Err(e) => {
-            crit!(log, "Failed to load configuration"; "error" => e);
+            crit!(log_clone, "Failed to load configuration. Exiting"; "error" => e);
             return;
         }
     };

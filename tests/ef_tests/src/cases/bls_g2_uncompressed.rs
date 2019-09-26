@@ -1,5 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
+use crate::cases::common::BlsCase;
 use bls::hash_on_g2;
 use serde_derive::Deserialize;
 
@@ -9,16 +10,12 @@ pub struct BlsG2UncompressedInput {
     pub domain: String,
 }
 
+impl BlsCase for BlsG2UncompressedInput {}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsG2Uncompressed {
     pub input: BlsG2UncompressedInput,
     pub output: Vec<Vec<String>>,
-}
-
-impl YamlDecode for BlsG2Uncompressed {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(yaml).unwrap())
-    }
 }
 
 impl Case for BlsG2Uncompressed {

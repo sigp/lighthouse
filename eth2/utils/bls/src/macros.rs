@@ -9,6 +9,10 @@ macro_rules! impl_ssz {
                 $byte_size
             }
 
+            fn ssz_bytes_len(&self) -> usize {
+                $byte_size
+            }
+
             fn ssz_append(&self, buf: &mut Vec<u8>) {
                 buf.append(&mut self.as_bytes())
             }

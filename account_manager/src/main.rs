@@ -125,9 +125,13 @@ fn main() {
                 }
             }
         }
-        _ => panic!(
-            "The account manager must be run with a subcommand. See help for more information."
-        ),
+        _ => {
+            crit!(
+                log,
+                "The account manager must be run with a subcommand. See help for more information."
+            );
+            return;
+        }
     }
 }
 

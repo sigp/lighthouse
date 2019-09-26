@@ -42,8 +42,12 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
     block_signed_root: Option<Hash256>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let block_proposer = &state.validators
-        [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
+    let proposer_index =
+        state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?;
+    let block_proposer = &state
+        .validators
+        .get(proposer_index)
+        .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?;
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),

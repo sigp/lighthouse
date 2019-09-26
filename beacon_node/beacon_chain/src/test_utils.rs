@@ -1,6 +1,6 @@
 use crate::{
-    AttestationProcessingOutcome, BeaconChain, BeaconChainBuilder, BeaconChainTypes,
-    BlockProcessingOutcome, InteropEth1ChainBackend,
+    events::NullEventHandler, AttestationProcessingOutcome, BeaconChain, BeaconChainBuilder,
+    BeaconChainTypes, BlockProcessingOutcome, InteropEth1ChainBackend,
 };
 use lmd_ghost::LmdGhost;
 use rayon::prelude::*;
@@ -68,6 +68,7 @@ where
     type LmdGhost = L;
     type Eth1Chain = InteropEth1ChainBackend<E>;
     type EthSpec = E;
+    type EventHandler = NullEventHandler<E>;
 }
 
 /// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
@@ -103,7 +104,11 @@ where
         let chain =
             BeaconChainBuilder::quick_start(HARNESS_GENESIS_TIME, &keypairs, spec.clone(), log)
                 .unwrap_or_else(|e| panic!("Failed to create beacon chain builder: {}", e))
-                .build(store.clone(), InteropEth1ChainBackend::default())
+                .build(
+                    store.clone(),
+                    InteropEth1ChainBackend::default(),
+                    NullEventHandler::default(),
+                )
                 .unwrap_or_else(|e| panic!("Failed to build beacon chain: {}", e));
 
         Self {

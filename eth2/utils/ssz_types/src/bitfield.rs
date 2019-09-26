@@ -476,6 +476,12 @@ impl<N: Unsigned + Clone> Encode for Bitfield<Variable<N>> {
         false
     }
 
+    fn ssz_bytes_len(&self) -> usize {
+        // We could likely do better than turning this into bytes and reading the length, however
+        // it is kept this way for simplicity.
+        self.clone().into_bytes().len()
+    }
+
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         buf.append(&mut self.clone().into_bytes())
     }
@@ -496,6 +502,10 @@ impl<N: Unsigned + Clone> Decode for Bitfield<Variable<N>> {
 impl<N: Unsigned + Clone> Encode for Bitfield<Fixed<N>> {
     fn is_ssz_fixed_len() -> bool {
         true
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        self.as_slice().len()
     }
 
     fn ssz_fixed_len() -> usize {
@@ -616,6 +626,7 @@ mod bitvector {
     pub type BitVector4 = BitVector<typenum::U4>;
     pub type BitVector8 = BitVector<typenum::U8>;
     pub type BitVector16 = BitVector<typenum::U16>;
+    pub type BitVector64 = BitVector<typenum::U64>;
 
     #[test]
     fn ssz_encode() {
@@ -705,6 +716,25 @@ mod bitvector {
 
     fn assert_round_trip<T: Encode + Decode + PartialEq + std::fmt::Debug>(t: T) {
         assert_eq!(T::from_ssz_bytes(&t.as_ssz_bytes()).unwrap(), t);
+    }
+
+    #[test]
+    fn ssz_bytes_len() {
+        for i in 0..64 {
+            let mut bitfield = BitVector64::new();
+            for j in 0..i {
+                bitfield.set(j, true).expect("should set bit in bounds");
+            }
+            let bytes = bitfield.as_ssz_bytes();
+            assert_eq!(bitfield.ssz_bytes_len(), bytes.len(), "i = {}", i);
+        }
+    }
+
+    #[test]
+    fn excess_bits_nimbus() {
+        let bad = vec![0b0001_1111];
+
+        assert!(BitVector4::from_ssz_bytes(&bad).is_err());
     }
 }
 
@@ -1151,5 +1181,17 @@ mod bitlist {
             bitfield.iter().collect::<Vec<bool>>(),
             vec![false, false, true, false, false, false, false, false, true]
         );
+    }
+
+    #[test]
+    fn ssz_bytes_len() {
+        for i in 1..64 {
+            let mut bitfield = BitList1024::with_capacity(i).unwrap();
+            for j in 0..i {
+                bitfield.set(j, true).expect("should set bit in bounds");
+            }
+            let bytes = bitfield.as_ssz_bytes();
+            assert_eq!(bitfield.ssz_bytes_len(), bytes.len(), "i = {}", i);
+        }
     }
 }

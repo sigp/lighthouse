@@ -9,11 +9,8 @@ See the [Quick instructions](#quick-instructions) for a summary or the
 
 1. Install Rust + Cargo with [rustup](https://rustup.rs/).
 1. Install build dependencies using your package manager.
-    - `$ <package-manager> clang protobuf libssl-dev cmake git-lfs`
-	- Ensure [git-lfs](https://git-lfs.github.com/) is installed with `git lfs
-		install`.
-1. Clone the [sigp/lighthouse](https://github.com/sigp/lighthouse), ensuring to
-   **initialize submodules**.
+    - `$ <package-manager> clang protobuf libssl-dev cmake`
+1. Clone the [sigp/lighthouse](https://github.com/sigp/lighthouse).
 1. In the root of the repo, run the tests with `cargo test --all --release`.
 1. Then, build the binaries with `cargo build --all --release`.
 1. Lighthouse is now fully built and tested.
@@ -37,13 +34,8 @@ steps:
 	  - `protobuf`: required for protobuf serialization (gRPC)
       - `libssl-dev`: also gRPC
 	  - `cmake`: required for building protobuf
-	  - `git-lfs`: The Git extension for [Large File
-	    Support](https://git-lfs.github.com/) (required for Ethereum Foundation
-	    test vectors).
-   1. Clone the repository with submodules: `git clone --recursive
-	  https://github.com/sigp/lighthouse`.  If you're already cloned the repo,
-	  ensure testing submodules are present: `$ git submodule init; git
-	  submodule update`
+   1. Clone the repository with submodules: `git clone
+	  https://github.com/sigp/lighthouse`.
    1. Change directory to the root of the repository.
    1. Run the test suite with `cargo test --all --release`. The build and test
 	  process can take several minutes. If you experience any failures on
@@ -63,3 +55,27 @@ Perl](http://strawberryperl.com/), or alternatively use a choco install command
 Additionally, the dependency `protoc-grpcio v0.3.1` is reported to have issues
 compiling in Windows. You can specify a known working version by editing
 version in `protos/Cargo.toml`  section to `protoc-grpcio = "<=0.3.0"`.
+
+## eth2.0-spec-tests
+
+The
+[ethereum/eth2.0-spec-tests](https://github.com/ethereum/eth2.0-spec-tests/)
+repository contains a large set of tests that verify Lighthouse behaviour
+against the Ethereum Foundation specifications.
+
+The `tests/ef_tests` crate runs these tests and it has some interesting
+behaviours:
+
+- If the `tests/ef_tests/eth2.0-spec-tests` directory is not present, all tests
+	indicate a `pass` when they did not actually run.
+- If that directory _is_ present, the tests are executed faithfully, failing if
+	a discrepancy is found.
+
+The `tests/ef_tests/eth2.0-spec-tests` directory is not present by default. To
+obtain it, use the Makefile in the root of the repository:
+
+```
+make ef_tests
+```
+
+_Note: this will download 100+ MB of test files from the [ethereum/eth2.0-spec-tests](https://github.com/ethereum/eth2.0-spec-tests/)._

@@ -1,6 +1,6 @@
 use super::SlotClock;
 use std::sync::RwLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use types::Slot;
 
 /// A slot clock where the slot is manually set instead of being determined by the system time.
@@ -21,7 +21,7 @@ impl TestingSlotClock {
 }
 
 impl SlotClock for TestingSlotClock {
-    fn new(genesis_slot: Slot, _genesis: Instant, _slot_duration: Duration) -> Self {
+    fn new(genesis_slot: Slot, _genesis_duration: Duration, _slot_duration: Duration) -> Self {
         TestingSlotClock {
             slot: RwLock::new(genesis_slot),
         }
@@ -49,7 +49,9 @@ mod tests {
 
     #[test]
     fn test_slot_now() {
-        let clock = TestingSlotClock::new(Slot::new(10), Instant::now(), Duration::from_secs(0));
+        let null = Duration::from_secs(0);
+
+        let clock = TestingSlotClock::new(Slot::new(10), null, null);
         assert_eq!(clock.now(), Some(Slot::new(10)));
         clock.set_slot(123);
         assert_eq!(clock.now(), Some(Slot::new(123)));

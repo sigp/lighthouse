@@ -1,5 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
+use crate::cases::common::BlsCase;
 use bls::{compress_g2, hash_on_g2};
 use serde_derive::Deserialize;
 
@@ -15,11 +16,7 @@ pub struct BlsG2Compressed {
     pub output: Vec<String>,
 }
 
-impl YamlDecode for BlsG2Compressed {
-    fn yaml_decode(yaml: &str) -> Result<Self, Error> {
-        Ok(serde_yaml::from_str(yaml).unwrap())
-    }
-}
+impl BlsCase for BlsG2Compressed {}
 
 impl Case for BlsG2Compressed {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
@@ -45,14 +42,9 @@ impl Case for BlsG2Compressed {
     }
 }
 
-// Converts a vector to u64 (from big endian)
+// Converts a vector to u64 (from little endian)
 fn bytes_to_u64(array: &[u8]) -> u64 {
-    let mut result: u64 = 0;
-    for (i, value) in array.iter().rev().enumerate() {
-        if i == 8 {
-            break;
-        }
-        result += u64::pow(2, i as u32 * 8) * u64::from(*value);
-    }
-    result
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(array);
+    u64::from_le_bytes(bytes)
 }
