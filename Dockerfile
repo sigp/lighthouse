@@ -4,10 +4,6 @@ RUN apt-get update && apt-get install -y clang libclang-dev cmake build-essentia
 
 RUN add-apt-repository -y ppa:git-core/ppa
 
-RUN curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | bash
-
-RUN apt-get install -y git-lfs
-
 RUN git clone https://github.com/google/protobuf.git && \
     cd protobuf && \
     ./autogen.sh && \
@@ -24,4 +20,4 @@ RUN mkdir -p /cache/cargocache && chmod -R ugo+rwX /cache/cargocache
 
 ENV CARGO_HOME /cache/cargocache
 
-RUN rustup component add rustfmt clippy
+RUN rustup component add rustfmt clippy mdbook

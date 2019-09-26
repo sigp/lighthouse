@@ -36,12 +36,20 @@ test-fake-crypto:
   script:
     - cargo test --manifest-path tests/ef_tests/Cargo.toml --release --features fake_crypto
 
-documentation:
+build-rust-docs:
   stage: document
   script:
     - cargo doc --no-deps
     - aws s3 sync target/doc/ s3://lighthouse-docs.sigmaprime.io/ --exclude '.lock' --delete
   # Configure the below when we want to have a default page (and update S3 bucket index).
   #    - echo '<meta http-equiv="refresh" content="0; url={{ LIBRARY NAME }}">' > public/index.html
+  only:
+    - master
+
+build-book:
+  stage: document
+  script:
+    - mdbook build book
+    - aws s3 sync book/book/ s3://lighthouse-book.sigmaprime.io/ --exclude '.lock' --delete
   only:
     - master
