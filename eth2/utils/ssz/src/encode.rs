@@ -27,6 +27,10 @@ pub trait Encode {
         BYTES_PER_LENGTH_OFFSET
     }
 
+    /// Returns the size (in bytes) when `self` is serialized.
+    ///
+    /// Returns the same value as `self.as_ssz_bytes().len()` but this method is significantly more
+    /// efficient.
     fn ssz_bytes_len(&self) -> usize;
 
     /// Returns the full-form encoding of this object.

@@ -42,7 +42,7 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 /// files in the temp directory.
 ///
 /// Only useful for testing.
-const WRITE_BLOCK_PROCESSING_SSZ: bool = true;
+const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -158,12 +158,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ));
 
         // Slot clock
-        let slot_clock = T::SlotClock::from_eth2_genesis(
+        let slot_clock = T::SlotClock::new(
             spec.genesis_slot,
-            genesis_state.genesis_time,
+            Duration::from_secs(genesis_state.genesis_time),
             Duration::from_millis(spec.milliseconds_per_slot),
-        )
-        .map_err(|_| Error::SlotClockDidNotStart)?;
+        );
 
         info!(log, "Beacon chain initialized from genesis";
               "validator_count" => genesis_state.validators.len(),
@@ -202,12 +201,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let state = &p.canonical_head.beacon_state;
 
-        let slot_clock = T::SlotClock::from_eth2_genesis(
+        let slot_clock = T::SlotClock::new(
             spec.genesis_slot,
-            state.genesis_time,
+            Duration::from_secs(state.genesis_time),
             Duration::from_millis(spec.milliseconds_per_slot),
-        )
-        .map_err(|_| Error::SlotClockDidNotStart)?;
+        );
 
         let last_finalized_root = p.canonical_head.beacon_state.finalized_checkpoint.root;
         let last_finalized_block = &p.canonical_head.beacon_block;
@@ -375,8 +373,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(head_state)
         } else if slot > head_state.slot {
             let head_state_slot = head_state.slot;
-            let mut state = head_state.clone();
-            drop(head_state);
+            let mut state = head_state;
             while state.slot < slot {
                 match per_slot_processing(&mut state, &self.spec) {
                     Ok(()) => (),
@@ -396,7 +393,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             let state_root = self
                 .rev_iter_state_roots()
-                .find(|(_root, s)| *s == slot)
+                .take_while(|(_root, current_slot)| *current_slot >= slot)
+                .find(|(_root, current_slot)| *current_slot == slot)
                 .map(|(root, _slot)| root)
                 .ok_or_else(|| Error::NoStateForSlot(slot))?;
 
