@@ -22,50 +22,6 @@ pub fn run_pycli<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     Ok(())
 }
 
-/*
- * TODO: loading from file.
- *
-use regex::Regex;
-use std::collections::HashMap;
-use std::ffi::OsString;
-
-const BLOCK_PREFIX: &str = "block_";
-const PRE_PREFIX: &str = "state_pre_";
-const POST_PREFIX: &str = "state_post_";
-
-struct Case<T: EthSpec> {
-    pre: Option<BeaconState<T>>,
-    post: Option<BeaconState<T>>,
-    block: Option<BeaconBlock<T>>,
-}
-
-fn get_sets<T: EthSpec>(dir: PathBuf) -> Result<(), String> {
-    let map: HashMap<String, Case<T>> = HashMap::new();
-
-    fs::read_dir(dir)
-        .map_err(|e| format!("Unable to read source directory: {:?}", e))?
-        .filter_map(Result::ok)
-        .map(|f| f.file_name().into_string())
-        .filter_map(Result::ok)
-        .try_for_each(|filename| {
-            if filename.starts_with(BLOCK_PREFIX) {
-                let regex = Regex::new(r".*root0x(.........)")
-                    .map_err(|e| format!("Failed to compile block regex: {:?}", e))?;
-                let captures = regex.captures(&filename).
-            // block
-            } else if filename.starts_with(PRE_PREFIX) {
-                dbg!("pre state");
-            } else if filename.starts_with(POST_PREFIX) {
-                dbg!("post state");
-            } else {
-                dbg!("unknown file");
-            }
-
-            Ok(())
-        })
-}
-*/
-
 /// A wrapper around Danny Ryan's `pycli` utility:
 ///
 /// https://github.com/djrtwo/pycli
