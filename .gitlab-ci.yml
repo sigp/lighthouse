@@ -1,6 +1,6 @@
 #Adapted from https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
 
-image: 'sigp/lighthouse:latest'
+image: 'paulhauner/lighthouse:publish-book'
 
 stages:
   - test
@@ -49,7 +49,7 @@ variables:
 build-book:
   stage: document
   script:
-    - cargo install mdbook & mdbook build book
+    - mdbook build book
     - aws s3 sync book/book/ s3://lighthouse-book.sigmaprime.io/ --exclude '.lock' --delete
   # TODO before merging to master:
   #
