@@ -22,4 +22,6 @@ ENV CARGO_HOME /cache/cargocache
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-RUN rustup component add rustfmt clippy mdbook
+RUN rustup component add rustfmt clippy
+
+RUN cargo install mdbook
