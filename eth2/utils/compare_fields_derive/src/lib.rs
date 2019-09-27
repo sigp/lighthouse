@@ -6,12 +6,10 @@ use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
 fn is_slice(field: &syn::Field) -> bool {
-    for attr in &field.attrs {
-        if attr.tts.to_string() == "( as_slice )" {
-            return true;
-        }
-    }
-    false
+    field.attrs.iter().any(|attr| {
+        attr.path.is_ident("compare_fields")
+            && attr.tts.to_string().replace(" ", "") == "(as_slice)"
+    })
 }
 
 #[proc_macro_derive(CompareFields, attributes(compare_fields))]
