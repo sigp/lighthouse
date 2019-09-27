@@ -20,8 +20,6 @@ RUN mkdir -p /cache/cargocache && chmod -R ugo+rwX /cache/cargocache
 
 ENV CARGO_HOME /cache/cargocache
 
-ENV PATH="/root/.cargo/bin:${PATH}"
-
 RUN rustup component add rustfmt clippy
 
 RUN cargo install mdbook
