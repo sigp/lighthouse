@@ -150,6 +150,28 @@ fn valid_4_deposits() {
 }
 
 #[test]
+fn valid_insert_max_deposits_plus_one() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = DepositTestTask::Valid;
+    let num_deposits = <MainnetEthSpec as EthSpec>::MaxDeposits::to_u64() + 1;
+
+    let (block, mut state) = builder.build_with_n_deposits(num_deposits, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Should return ok because actual size of deposits vector should be MaxDeposits.
+    assert_eq!(result, Ok(()));
+}
+
+
+#[test]
 fn invalid_deposit_deposit_count_too_big() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
@@ -167,6 +189,7 @@ fn invalid_deposit_deposit_count_too_big() {
         &spec,
     );
 
+    // Expecting DepositCountInvalid because we incremented the deposit_count
     assert_eq!(result, Err(BlockProcessingError::DepositCountInvalid {
         expected: big_deposit_count as usize,
         found: 1
@@ -191,6 +214,7 @@ fn invalid_deposit_deposit_count_too_small() {
         &spec,
     );
 
+    // Expecting DepositCountInvalid because we decremented the deposit_count
     assert_eq!(result, Err(BlockProcessingError::DepositCountInvalid {
         expected: small_deposit_count as usize,
         found: 1
@@ -198,7 +222,7 @@ fn invalid_deposit_deposit_count_too_small() {
 }
 
 #[test]
-fn invalid_deposit_deposit_index_offset() {
+fn invalid_deposit_deposit_bad_merkle_proof() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = DepositTestTask::Valid;
@@ -215,6 +239,7 @@ fn invalid_deposit_deposit_index_offset() {
         &spec,
     );
 
+    // Expecting BadMerkleProof because the proofs were created with different indices
     assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
         index: state.eth1_deposit_index as usize - 1,
         reason: DepositInvalid::BadMerkleProof
@@ -237,28 +262,12 @@ fn invalid_deposit_wrong_pubkey() {
         &spec,
     );
 
-    assert_eq!(result, Ok(()));
+    // Expecting BadSignature because the public key provided does not correspond to the correct public key
+    assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
+        index: state.eth1_deposit_index as usize - 1,
+        reason: DepositInvalid::BadSignature
+    }));
 }
-
-#[test]
-fn invalid_deposit_wrong_withdraw_cred() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec);
-    let test_task = DepositTestTask::BadWithdrawCred;
-
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    assert_eq!(result, Ok(()));
-}
-
 
 #[test]
 fn invalid_deposit_wrong_sig() {
@@ -268,6 +277,7 @@ fn invalid_deposit_wrong_sig() {
 
     let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
+    // Expecting BadSignature because the block signature does not correspond to the correct public key
     let result = per_block_processing(
         &mut state,
         &block,
@@ -276,8 +286,30 @@ fn invalid_deposit_wrong_sig() {
         &spec,
     );
 
-    assert_eq!(result, Ok(()));
+    assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
+        index: state.eth1_deposit_index as usize - 1,
+        reason: DepositInvalid::BadSignature
+    }));
 }
+
+// #[test]
+// fn invalid_deposit_invalid_pub_key() {
+    // let spec = MainnetEthSpec::default_spec();
+    // let builder = get_builder(&spec);
+    // let test_task = DepositTestTask::InvalidPubKey;
+// 
+    // let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+// 
+    // let result = per_block_processing(
+        // &mut state,
+        // &block,
+        // None,
+        // BlockSignatureStrategy::VerifyIndividual,
+        // &spec,
+    // );
+// 
+    // assert_eq!(result, Ok(()));
+// }
 
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {

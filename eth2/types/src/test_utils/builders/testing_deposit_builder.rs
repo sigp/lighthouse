@@ -1,5 +1,6 @@
 use crate::*;
 use crate::test_utils::{DepositTestTask};
+use ssz::{Decode, Encode};
 use bls::{get_withdrawal_credentials, PublicKeyBytes, SignatureBytes};
 
 
@@ -33,19 +34,23 @@ impl TestingDepositBuilder {
     /// - `proof_of_possession`
     pub fn sign(&mut self, test_task: &DepositTestTask, keypair: &Keypair, epoch: Epoch, fork: &Fork, spec: &ChainSpec) {
         let new_key = Keypair::random();
-        let mut withdraw_cred = &keypair.pk;
         let mut pubkey = keypair.pk.clone();
-        let mut sig_key  = &keypair.sk;
+        let mut secret_key = keypair.sk.clone();
 
         match test_task {
             DepositTestTask::BadPubKey => pubkey = new_key.pk,
-            DepositTestTask::BadWithdrawCred => withdraw_cred = &new_key.pk,
-            DepositTestTask::BadSig => sig_key = &new_key.sk,
+            DepositTestTask::InvalidPubKey => {
+                let mut public_key_bytes: Vec<u8> = vec![0; 48];
+                public_key_bytes[0] = 255;
+                let ssz_bytes: Vec<u8> = public_key_bytes.as_ssz_bytes();
+                pubkey = PublicKey::from_ssz_bytes(&ssz_bytes).unwrap();
+            },
+            DepositTestTask::BadSig => secret_key = new_key.sk,
             _ => (),
         }
 
         let withdrawal_credentials = Hash256::from_slice(
-            &get_withdrawal_credentials(withdraw_cred, spec.bls_withdrawal_prefix_byte)[..],
+            &get_withdrawal_credentials(&keypair.pk, spec.bls_withdrawal_prefix_byte)[..],
         );
 
         // Building the data and signing it
@@ -54,7 +59,7 @@ impl TestingDepositBuilder {
         self.deposit.data.signature =
             self.deposit
                 .data
-                .create_signature(sig_key, epoch, fork, spec);
+                .create_signature(&secret_key, epoch, fork, spec);
     }
 
     /// Builds the deposit, consuming the builder.
