@@ -444,9 +444,8 @@ pub fn process_deposit<T: EthSpec>(
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
-        if verify_deposit_signature(state, deposit, spec).is_err() {
-            return Ok(());
-        }
+        verify_deposit_signature(state, deposit, spec)
+            .map_err(|e| e.into_with_index(deposit_index))?;
 
         // Create a new validator.
         let validator = Validator {
