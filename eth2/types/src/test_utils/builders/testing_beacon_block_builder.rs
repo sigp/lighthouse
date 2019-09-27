@@ -278,6 +278,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         }
 
         // Manually setting the deposit_count to process deposits
+        // This is for test purposes only
         state.eth1_data.deposit_count = num_deposits;
         state.eth1_deposit_index = 0;
     }
