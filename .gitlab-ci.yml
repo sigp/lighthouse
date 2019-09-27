@@ -9,6 +9,7 @@ stages:
 variables:
     CARGO_HOME: /cache/cargocache
 
+
     # check-fmt:
     #   stage: test
     #   script:
