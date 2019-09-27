@@ -241,8 +241,8 @@ mod test {
 
         assert_eq!(collected.len(), expected_len);
 
-        for i in 0..expected_len {
-            assert_eq!(collected[i].0, Hash256::from_low_u64_be(i as u64));
+        for (i, item) in collected.iter().enumerate() {
+            assert_eq!(item.0, Hash256::from_low_u64_be(i as u64));
         }
     }
 
@@ -290,8 +290,8 @@ mod test {
 
         assert_eq!(collected.len(), expected_len, "collection length incorrect");
 
-        for i in 0..expected_len {
-            let (hash, slot) = collected[i];
+        for (i, item) in collected.iter().enumerate() {
+            let (hash, slot) = *item;
 
             assert_eq!(slot, i as u64, "slot mismatch at {}: {} vs {}", i, slot, i);
 
