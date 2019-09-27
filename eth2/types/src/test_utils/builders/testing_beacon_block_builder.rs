@@ -14,8 +14,8 @@ use tree_hash::{SignedRoot, TreeHash};
 pub enum DepositTestTask {
     Valid,
     BadPubKey,
-    BadWithdrawCred,
     BadSig,
+    InvalidPubKey,
 }
 
 /// Builds a beacon block to be used for testing purposes.
