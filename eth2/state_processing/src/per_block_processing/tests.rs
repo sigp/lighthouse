@@ -247,6 +247,29 @@ fn invalid_deposit_deposit_bad_merkle_proof() {
 }
 
 #[test]
+fn invalid_deposit_underflow() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = DepositTestTask::BadPubKey;
+
+    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting BadSignature because the public key provided does not correspond to the correct public key
+    assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
+        index: state.eth1_deposit_index as usize - 1,
+        reason: DepositInvalid::BadSignature
+    }));
+}
+
+#[test]
 fn invalid_deposit_wrong_pubkey() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
@@ -292,25 +315,29 @@ fn invalid_deposit_wrong_sig() {
     }));
 }
 
-// #[test]
-// fn invalid_deposit_invalid_pub_key() {
-    // let spec = MainnetEthSpec::default_spec();
-    // let builder = get_builder(&spec);
-    // let test_task = DepositTestTask::InvalidPubKey;
-// 
-    // let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
-// 
-    // let result = per_block_processing(
-        // &mut state,
-        // &block,
-        // None,
-        // BlockSignatureStrategy::VerifyIndividual,
-        // &spec,
-    // );
-// 
-    // assert_eq!(result, Ok(()));
-// }
+#[test]
+fn invalid_deposit_invalid_pub_key() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = DepositTestTask::InvalidPubKey;
 
+    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+
+    let bad_index = state.eth1_deposit_index as usize;
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting BadBlsBytes because we passed in invalid publickeybytes in the public key field of the deposit data.
+    assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
+        index: bad_index,
+        reason: DepositInvalid::BadBlsBytes
+    }));
+}
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
     let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);

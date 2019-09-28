@@ -1,5 +1,5 @@
 use crate::common::{initiate_validator_exit, slash_validator};
-use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex};
+use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex, DepositInvalid};
 use rayon::prelude::*;
 use signature_sets::{block_proposal_signature_set, randao_signature_set};
 use std::collections::HashSet;
@@ -428,9 +428,13 @@ pub fn process_deposit<T: EthSpec>(
     state.update_pubkey_cache()?;
 
     let pubkey: PublicKey = match (&deposit.data.pubkey).try_into() {
-        Err(_) => return Ok(()), //bad public key => return early
-        Ok(k) => k,
+        Ok(key) => key,
+        Err(_) => return Err(BlockProcessingError::DepositInvalid {
+            index: deposit_index,
+            reason: DepositInvalid::BadBlsBytes
+        })
     };
+
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
     let validator_index = get_existing_validator_index(state, &pubkey)

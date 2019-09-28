@@ -1,6 +1,5 @@
 use crate::*;
 use crate::test_utils::{DepositTestTask};
-use ssz::{Decode, Encode};
 use bls::{get_withdrawal_credentials, PublicKeyBytes, SignatureBytes};
 
 
@@ -34,16 +33,16 @@ impl TestingDepositBuilder {
     /// - `proof_of_possession`
     pub fn sign(&mut self, test_task: &DepositTestTask, keypair: &Keypair, epoch: Epoch, fork: &Fork, spec: &ChainSpec) {
         let new_key = Keypair::random();
-        let mut pubkey = keypair.pk.clone();
+        let mut pubkeybytes = PublicKeyBytes::from(keypair.pk.clone());
         let mut secret_key = keypair.sk.clone();
 
         match test_task {
-            DepositTestTask::BadPubKey => pubkey = new_key.pk,
+            DepositTestTask::BadPubKey => pubkeybytes = PublicKeyBytes::from(new_key.pk.clone()),
             DepositTestTask::InvalidPubKey => {
+                // Creating invalid public key bytes
                 let mut public_key_bytes: Vec<u8> = vec![0; 48];
                 public_key_bytes[0] = 255;
-                let ssz_bytes: Vec<u8> = public_key_bytes.as_ssz_bytes();
-                pubkey = PublicKey::from_ssz_bytes(&ssz_bytes).unwrap();
+                pubkeybytes = PublicKeyBytes::from_bytes(&public_key_bytes).unwrap();
             },
             DepositTestTask::BadSig => secret_key = new_key.sk,
             _ => (),
@@ -54,7 +53,7 @@ impl TestingDepositBuilder {
         );
 
         // Building the data and signing it
-        self.deposit.data.pubkey = PublicKeyBytes::from(pubkey);
+        self.deposit.data.pubkey = pubkeybytes;
         self.deposit.data.withdrawal_credentials = withdrawal_credentials;
         self.deposit.data.signature =
             self.deposit
