@@ -4,8 +4,8 @@ use super::block_processing_builder::BlockProcessingBuilder;
 use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
+use types::test_utils::DepositTestTask;
 use types::*;
-use types::test_utils::{DepositTestTask};
 
 pub const VALIDATOR_COUNT: usize = 10;
 pub const NUM_DEPOSITS: u64 = 1;
@@ -129,7 +129,7 @@ fn invalid_randao_reveal_signature() {
     // should get a BadRandaoSignature error
     assert_eq!(result, Err(BlockProcessingError::RandaoSignatureInvalid));
 }
- 
+
 #[test]
 fn valid_4_deposits() {
     let spec = MainnetEthSpec::default_spec();
@@ -156,7 +156,8 @@ fn valid_insert_max_deposits_plus_one() {
     let test_task = DepositTestTask::Valid;
     let num_deposits = <MainnetEthSpec as EthSpec>::MaxDeposits::to_u64() + 1;
 
-    let (block, mut state) = builder.build_with_n_deposits(num_deposits, test_task, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_deposits(num_deposits, test_task, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -170,14 +171,14 @@ fn valid_insert_max_deposits_plus_one() {
     assert_eq!(result, Ok(()));
 }
 
-
 #[test]
 fn invalid_deposit_deposit_count_too_big() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = DepositTestTask::Valid;
 
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let big_deposit_count = NUM_DEPOSITS + 1;
     state.eth1_data.deposit_count = big_deposit_count;
@@ -190,10 +191,13 @@ fn invalid_deposit_deposit_count_too_big() {
     );
 
     // Expecting DepositCountInvalid because we incremented the deposit_count
-    assert_eq!(result, Err(BlockProcessingError::DepositCountInvalid {
-        expected: big_deposit_count as usize,
-        found: 1
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::DepositCountInvalid {
+            expected: big_deposit_count as usize,
+            found: 1
+        })
+    );
 }
 
 #[test]
@@ -202,7 +206,8 @@ fn invalid_deposit_count_too_small() {
     let builder = get_builder(&spec);
     let test_task = DepositTestTask::Valid;
 
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let small_deposit_count = NUM_DEPOSITS - 1;
     state.eth1_data.deposit_count = small_deposit_count;
@@ -216,10 +221,13 @@ fn invalid_deposit_count_too_small() {
     );
 
     // Expecting DepositCountInvalid because we decremented the deposit_count
-    assert_eq!(result, Err(BlockProcessingError::DepositCountInvalid {
-        expected: small_deposit_count as usize,
-        found: 1
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::DepositCountInvalid {
+            expected: small_deposit_count as usize,
+            found: 1
+        })
+    );
 }
 
 #[test]
@@ -228,7 +236,8 @@ fn invalid_deposit_bad_merkle_proof() {
     let builder = get_builder(&spec);
     let test_task = DepositTestTask::Valid;
 
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let bad_index = state.eth1_deposit_index as usize;
 
@@ -245,10 +254,13 @@ fn invalid_deposit_bad_merkle_proof() {
     );
 
     // Expecting BadMerkleProof because the proofs were created with different indices
-    assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
-        index: bad_index,
-        reason: DepositInvalid::BadMerkleProof
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::DepositInvalid {
+            index: bad_index,
+            reason: DepositInvalid::BadMerkleProof
+        })
+    );
 }
 
 #[test]
@@ -257,7 +269,8 @@ fn invalid_deposit_wrong_pubkey() {
     let builder = get_builder(&spec);
     let test_task = DepositTestTask::BadPubKey;
 
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let bad_index = state.eth1_deposit_index as usize;
 
@@ -270,10 +283,13 @@ fn invalid_deposit_wrong_pubkey() {
     );
 
     // Expecting BadSignature because the public key provided does not correspond to the correct public key
-    assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
-        index: bad_index,
-        reason: DepositInvalid::BadSignature
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::DepositInvalid {
+            index: bad_index,
+            reason: DepositInvalid::BadSignature
+        })
+    );
 }
 
 #[test]
@@ -282,7 +298,8 @@ fn invalid_deposit_wrong_sig() {
     let builder = get_builder(&spec);
     let test_task = DepositTestTask::BadSig;
 
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let bad_index = state.eth1_deposit_index as usize;
 
@@ -295,10 +312,13 @@ fn invalid_deposit_wrong_sig() {
     );
 
     // Expecting BadSignature because the block signature does not correspond to the correct public key
-    assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
-        index: bad_index,
-        reason: DepositInvalid::BadSignature
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::DepositInvalid {
+            index: bad_index,
+            reason: DepositInvalid::BadSignature
+        })
+    );
 }
 
 #[test]
@@ -307,7 +327,8 @@ fn invalid_deposit_invalid_pub_key() {
     let builder = get_builder(&spec);
     let test_task = DepositTestTask::InvalidPubKey;
 
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let bad_index = state.eth1_deposit_index as usize;
 
@@ -320,10 +341,13 @@ fn invalid_deposit_invalid_pub_key() {
     );
 
     // Expecting BadBlsBytes because we passed in invalid publickeybytes in the public key field of the deposit data.
-    assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
-        index: bad_index,
-        reason: DepositInvalid::BadBlsBytes
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::DepositInvalid {
+            index: bad_index,
+            reason: DepositInvalid::BadBlsBytes
+        })
+    );
 }
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {

@@ -6,9 +6,9 @@ use crate::{
     typenum::U4294967296,
     *,
 };
-use merkle_proof::{MerkleTree};
-use rayon::prelude::*;
 use int_to_bytes::int_to_bytes32;
+use merkle_proof::MerkleTree;
+use rayon::prelude::*;
 use tree_hash::{SignedRoot, TreeHash};
 
 pub enum DepositTestTask {
@@ -251,10 +251,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
 
         // Building the merkle tree used for generating proofs
-        let tree = MerkleTree::create(
-            &leaves[..],
-            spec.deposit_contract_tree_depth as usize,
-        );
+        let tree = MerkleTree::create(&leaves[..], spec.deposit_contract_tree_depth as usize);
 
         // Building proofs
         let mut proofs = vec![];

@@ -1,5 +1,7 @@
 use crate::common::{initiate_validator_exit, slash_validator};
-use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex, DepositInvalid};
+use errors::{
+    BlockOperationError, BlockProcessingError, DepositInvalid, HeaderInvalid, IntoWithIndex,
+};
 use rayon::prelude::*;
 use signature_sets::{block_proposal_signature_set, randao_signature_set};
 use std::collections::HashSet;
@@ -429,10 +431,12 @@ pub fn process_deposit<T: EthSpec>(
 
     let pubkey: PublicKey = match (&deposit.data.pubkey).try_into() {
         Ok(key) => key,
-        Err(_) => return Err(BlockProcessingError::DepositInvalid {
-            index: deposit_index,
-            reason: DepositInvalid::BadBlsBytes
-        })
+        Err(_) => {
+            return Err(BlockProcessingError::DepositInvalid {
+                index: deposit_index,
+                reason: DepositInvalid::BadBlsBytes,
+            })
+        }
     };
 
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
