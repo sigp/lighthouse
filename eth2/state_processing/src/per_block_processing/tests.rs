@@ -197,7 +197,7 @@ fn invalid_deposit_deposit_count_too_big() {
 }
 
 #[test]
-fn invalid_deposit_deposit_count_too_small() {
+fn invalid_deposit_count_too_small() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = DepositTestTask::Valid;
@@ -206,6 +206,7 @@ fn invalid_deposit_deposit_count_too_small() {
 
     let small_deposit_count = NUM_DEPOSITS - 1;
     state.eth1_data.deposit_count = small_deposit_count;
+
     let result = per_block_processing(
         &mut state,
         &block,
@@ -222,15 +223,19 @@ fn invalid_deposit_deposit_count_too_small() {
 }
 
 #[test]
-fn invalid_deposit_deposit_bad_merkle_proof() {
+fn invalid_deposit_bad_merkle_proof() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = DepositTestTask::Valid;
 
     let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
+    let bad_index = state.eth1_deposit_index as usize;
+
+    // Manually offsetting deposit count and index to trigger bad merkle proof
     state.eth1_data.deposit_count += 1;
     state.eth1_deposit_index += 1;
+
     let result = per_block_processing(
         &mut state,
         &block,
@@ -241,31 +246,8 @@ fn invalid_deposit_deposit_bad_merkle_proof() {
 
     // Expecting BadMerkleProof because the proofs were created with different indices
     assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
-        index: state.eth1_deposit_index as usize - 1,
+        index: bad_index,
         reason: DepositInvalid::BadMerkleProof
-    }));
-}
-
-#[test]
-fn invalid_deposit_underflow() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec);
-    let test_task = DepositTestTask::BadPubKey;
-
-    let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting BadSignature because the public key provided does not correspond to the correct public key
-    assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
-        index: state.eth1_deposit_index as usize - 1,
-        reason: DepositInvalid::BadSignature
     }));
 }
 
@@ -277,6 +259,8 @@ fn invalid_deposit_wrong_pubkey() {
 
     let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
+    let bad_index = state.eth1_deposit_index as usize;
+
     let result = per_block_processing(
         &mut state,
         &block,
@@ -287,7 +271,7 @@ fn invalid_deposit_wrong_pubkey() {
 
     // Expecting BadSignature because the public key provided does not correspond to the correct public key
     assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
-        index: state.eth1_deposit_index as usize - 1,
+        index: bad_index,
         reason: DepositInvalid::BadSignature
     }));
 }
@@ -300,7 +284,8 @@ fn invalid_deposit_wrong_sig() {
 
     let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
-    // Expecting BadSignature because the block signature does not correspond to the correct public key
+    let bad_index = state.eth1_deposit_index as usize;
+
     let result = per_block_processing(
         &mut state,
         &block,
@@ -309,8 +294,9 @@ fn invalid_deposit_wrong_sig() {
         &spec,
     );
 
+    // Expecting BadSignature because the block signature does not correspond to the correct public key
     assert_eq!(result, Err(BlockProcessingError::DepositInvalid {
-        index: state.eth1_deposit_index as usize - 1,
+        index: bad_index,
         reason: DepositInvalid::BadSignature
     }));
 }
@@ -324,6 +310,7 @@ fn invalid_deposit_invalid_pub_key() {
     let (block, mut state) = builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
 
     let bad_index = state.eth1_deposit_index as usize;
+
     let result = per_block_processing(
         &mut state,
         &block,
