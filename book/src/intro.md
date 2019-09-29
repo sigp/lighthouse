@@ -1,9 +1,9 @@
-# Lighthouse Documentation
+# Lighthouse Book
 
-[![Build Status]][Build Link] [![Doc Status]][Doc Link] [![Chat Badge]][Chat Link]
+_Documentation for Lighthouse users and developers._
 
-[Build Status]: https://gitlab.sigmaprime.io/sigp/lighthouse/badges/master/build.svg
-[Build Link]: https://gitlab.sigmaprime.io/sigp/lighthouse/pipelines
+[![Doc Status]][Doc Link] [![Chat Badge]][Chat Link]
+
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
 [Doc Status]:https://img.shields.io/badge/rust--docs-master-orange
@@ -12,16 +12,19 @@
 Lighthouse is an **Ethereum 2.0 client** that connects to other Ethereum 2.0
 clients to form a resilient and decentralized proof-of-stake blockchain.
 
-It is written in Rust, maintained by Sigma Prime and funded by the Ethereum
-Foundation, Consensys and other individuals and organisations.
+We implement the specification as defined in the
+[ethereum/eth2.0-specs](https://github.com/ethereum/eth2.0-specs) repository.
 
-## Developer Resources
+## Topics
 
-Documentation is presently targeted at **researchers and developers**. It
-assumes significant prior knowledge of Ethereum 2.0.
-
-Topics:
+You may read this book from start to finish, or jump to some of these topics:
 
 - Get started with [development environment setup](./setup.md).
-- See the [interop docs](./interop.md).
-- [Run a simple testnet](./simple-testnet.md) in Only Three CLI Commands™.
+- Utilize the whole stack by starting a [local testnet](./testnets.md) (it's easy!).
+- Query the [RESTful HTTP API](./http.md) (it supports JSON).
+- Listen to events with the [JSON WebSocket API](./websockets.md).
+- Read the hardcore [Rust code documentation](http://lighthouse-docs.sigmaprime.io/).
+
+
+Prospective contributors can read the [Contributing](./contributing.md) section
+to understand how we develop and test Lighthouse.

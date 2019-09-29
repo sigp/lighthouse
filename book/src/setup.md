@@ -1,10 +1,5 @@
 # Development Environment Setup
 
-Follow this guide to get a Lighthouse development environment up-and-running.
-
-See the [Quick instructions](#quick-instructions) for a summary or the
-[Detailed instructions](#detailed-instructions) for clarification.
-
 ## Quick instructions
 
 1. Install Rust + Cargo with [rustup](https://rustup.rs/).
@@ -42,11 +37,9 @@ steps:
 	  `master`, please raise an
 	  [issue](https://github.com/sigp/lighthouse/issues).
 
-### Notes:
+Note: Lighthouse targets Rust `stable` but generally runs on `nightly` too.
 
-Lighthouse targets Rust `stable` but generally runs on `nightly` too.
-
-#### Note for Windows users:
+## Windows
 
 Perl may also be required to build lighthouse. You can install [Strawberry
 Perl](http://strawberryperl.com/), or alternatively use a choco install command
@@ -55,27 +48,3 @@ Perl](http://strawberryperl.com/), or alternatively use a choco install command
 Additionally, the dependency `protoc-grpcio v0.3.1` is reported to have issues
 compiling in Windows. You can specify a known working version by editing
 version in `protos/Cargo.toml`  section to `protoc-grpcio = "<=0.3.0"`.
-
-## eth2.0-spec-tests
-
-The
-[ethereum/eth2.0-spec-tests](https://github.com/ethereum/eth2.0-spec-tests/)
-repository contains a large set of tests that verify Lighthouse behaviour
-against the Ethereum Foundation specifications.
-
-The `tests/ef_tests` crate runs these tests and it has some interesting
-behaviours:
-
-- If the `tests/ef_tests/eth2.0-spec-tests` directory is not present, all tests
-	indicate a `pass` when they did not actually run.
-- If that directory _is_ present, the tests are executed faithfully, failing if
-	a discrepancy is found.
-
-The `tests/ef_tests/eth2.0-spec-tests` directory is not present by default. To
-obtain it, use the Makefile in the root of the repository:
-
-```
-make ef_tests
-```
-
-_Note: this will download 100+ MB of test files from the [ethereum/eth2.0-spec-tests](https://github.com/ethereum/eth2.0-spec-tests/)._
