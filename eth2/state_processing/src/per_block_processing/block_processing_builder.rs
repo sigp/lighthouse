@@ -1,7 +1,7 @@
-use tree_hash::SignedRoot;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder, ExitTestTask};
-use types::*;
 use std::convert::TryInto;
+use tree_hash::SignedRoot;
+use types::test_utils::{ExitTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::*;
 
 pub struct BlockProcessingBuilder<T: EthSpec> {
     pub state_builder: TestingBeaconStateBuilder<T>,
@@ -39,7 +39,6 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
     ) -> (BeaconBlock<T>, BeaconState<T>) {
-
         let (mut state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -70,20 +69,20 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
                         &mut state,
                         (0 as usize).try_into().unwrap(),
                         &keypairs[0].sk,
-                        spec
+                        spec,
                     )
                 }
             }
             _ => {
                 for (i, keypair) in keypairs.iter().take(num_exits).enumerate() {
-            self.block_builder.insert_exit(
-                &test_task,
-                &mut state,
-                (i as usize).try_into().unwrap(),
-                &keypair.sk,
-                spec
-            );
-        }
+                    self.block_builder.insert_exit(
+                        &test_task,
+                        &mut state,
+                        (i as usize).try_into().unwrap(),
+                        &keypair.sk,
+                        spec,
+                    );
+                }
             }
         }
 

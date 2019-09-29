@@ -1,5 +1,5 @@
 use log::info;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder, ExitTestTask};
+use types::test_utils::{ExitTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::{EthSpec, *};
 
 pub struct BlockBuilder<T: EthSpec> {

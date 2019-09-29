@@ -249,24 +249,23 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         match test_task {
             ExitTestTask::BadSignature => *sk = SecretKey::random(),
             ExitTestTask::ValidatorUnknown => validator_index = 4242,
-            ExitTestTask::AlreadyExited => state.validators[validator_index as usize].exit_epoch = Epoch::from(314159 as u64),
-            ExitTestTask::NotActive => state.validators[validator_index as usize].activation_epoch = Epoch::from(314159 as u64),
+            ExitTestTask::AlreadyExited => {
+                state.validators[validator_index as usize].exit_epoch = Epoch::from(314159 as u64)
+            }
+            ExitTestTask::NotActive => {
+                state.validators[validator_index as usize].activation_epoch =
+                    Epoch::from(314159 as u64)
+            }
             ExitTestTask::FutureEpoch => exit_epoch = spec.far_future_epoch,
             _ => (),
         }
 
-        let mut builder = TestingVoluntaryExitBuilder::new(
-            exit_epoch,
-            validator_index,
-        );
+        let mut builder = TestingVoluntaryExitBuilder::new(exit_epoch, validator_index);
 
         builder.sign(sk, &state.fork, spec);
 
         // Using let _ because we don't want to call unwrap
-        let _ = self.block
-            .body
-            .voluntary_exits
-            .push(builder.build());
+        let _ = self.block.body.voluntary_exits.push(builder.build());
     }
 
     /// Insert a `Valid` transfer into the state.

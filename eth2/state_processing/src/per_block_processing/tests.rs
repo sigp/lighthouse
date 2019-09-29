@@ -4,8 +4,8 @@ use super::block_processing_builder::BlockProcessingBuilder;
 use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
+use types::test_utils::ExitTestTask;
 use types::*;
-use types::test_utils::{ExitTestTask};
 
 pub const VALIDATOR_COUNT: usize = 10;
 pub const SLOT_OFFSET: u64 = 4;
@@ -132,7 +132,7 @@ fn invalid_randao_reveal_signature() {
 }
 
 #[test]
-fn valid_insert_3_exits () {
+fn valid_insert_3_exits() {
     use std::cmp::max;
 
     let spec = MainnetEthSpec::default_spec();
@@ -156,8 +156,7 @@ fn valid_insert_3_exits () {
 }
 
 #[test]
-fn valid_insert_max_exits_plus_one () {
-
+fn valid_insert_max_exits_plus_one() {
     let spec = MainnetEthSpec::default_spec();
     let num_exits = <MainnetEthSpec as EthSpec>::MaxVoluntaryExits::to_u64() as usize + 1;
     let num_validators = num_exits + 1;
@@ -178,7 +177,6 @@ fn valid_insert_max_exits_plus_one () {
     // containing exits shouldn't be bigger than MaxVoluntaryExits.
     assert_eq!(result, Ok(()));
 }
-
 
 #[test]
 fn invalid_exit_validator_unknown() {
@@ -201,10 +199,13 @@ fn invalid_exit_validator_unknown() {
     );
 
     // Expecting Validator Unknwon because the exit index is incorrect
-    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
-        index: 0,
-        reason: ExitInvalid::ValidatorUnknown(4242),
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ExitInvalid {
+            index: 0,
+            reason: ExitInvalid::ValidatorUnknown(4242),
+        })
+    );
 }
 
 #[test]
@@ -228,10 +229,13 @@ fn invalid_exit_already_exited() {
     );
 
     // Expecting already exited because we manually set the exit_epoch to be different than far_future_epoch.
-    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
-        index: 0,
-        reason: ExitInvalid::AlreadyExited(0),
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ExitInvalid {
+            index: 0,
+            reason: ExitInvalid::AlreadyExited(0),
+        })
+    );
 }
 
 #[test]
@@ -255,10 +259,13 @@ fn invalid_exit_not_active() {
     );
 
     // Expecting NotActive because we manually set the activation_epoch to be in the future
-    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
-        index: 0,
-        reason: ExitInvalid::NotActive(0),
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ExitInvalid {
+            index: 0,
+            reason: ExitInvalid::NotActive(0),
+        })
+    );
 }
 
 #[test]
@@ -284,11 +291,10 @@ fn invalid_exit_already_initiated() {
     // Expecting AlreadyInitiatedExit because we are inserting the same exit twice
     assert_eq!(result, Ok(()));
     // assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
-        // index: 0,
-        // reason: ExitInvalid::AlreadyInitiatedExited(0),
+    // index: 0,
+    // reason: ExitInvalid::AlreadyInitiatedExited(0),
     // }));
 }
-
 
 #[test]
 fn invalid_exit_future_epoch() {
@@ -311,10 +317,16 @@ fn invalid_exit_future_epoch() {
     );
 
     // Expecting FutureEpoch because we set the exit_epoch to be far_future_epoch
-    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
-        index: 0,
-        reason: ExitInvalid::FutureEpoch { state: Epoch::from(2048 as u64), exit: spec.far_future_epoch}
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ExitInvalid {
+            index: 0,
+            reason: ExitInvalid::FutureEpoch {
+                state: Epoch::from(2048 as u64),
+                exit: spec.far_future_epoch
+            }
+        })
+    );
 }
 
 #[test]
@@ -338,15 +350,17 @@ fn invalid_exit_too_young() {
     );
 
     // Expecting TooYoung because validator has not been active for long enough when trying to exit
-    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
-        index: 0,
-        reason: ExitInvalid::TooYoungToExit {
-            current_epoch: Epoch::from(SLOT_OFFSET),
-            earliest_exit_epoch: Epoch::from(2048 as u64)
-        },
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ExitInvalid {
+            index: 0,
+            reason: ExitInvalid::TooYoungToExit {
+                current_epoch: Epoch::from(SLOT_OFFSET),
+                earliest_exit_epoch: Epoch::from(2048 as u64)
+            },
+        })
+    );
 }
-
 
 #[test]
 fn invalid_exit_bad_signature() {
@@ -369,15 +383,20 @@ fn invalid_exit_bad_signature() {
     );
 
     // Expecting Bad Signature because we signed with a different secret key than the correct one.
-    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
-        index: 0,
-        reason: ExitInvalid::BadSignature,
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ExitInvalid {
+            index: 0,
+            reason: ExitInvalid::BadSignature,
+        })
+    );
 }
 
-
-fn get_builder(spec: &ChainSpec, slot_offset: u64, num_validators: usize) -> (BlockProcessingBuilder<MainnetEthSpec>) {
-
+fn get_builder(
+    spec: &ChainSpec,
+    slot_offset: u64,
+    num_validators: usize,
+) -> (BlockProcessingBuilder<MainnetEthSpec>) {
     let mut builder = BlockProcessingBuilder::new(num_validators, &spec);
 
     // Set the state and block to be in the last slot of the `slot_offset`th epoch.
