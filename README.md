@@ -59,7 +59,7 @@ Current development overview:
 The [Lighthouse Book](lighthouse-book.sigmaprime.io/) contains information
 for testnet users and developers.
 
-Code documentation is generated via `cargo doc` and is hosted at
+Code documentation is generated via `cargo doc` and hosted at
 [lighthouse-docs.sigmaprime.io](http://lighthouse-docs.sigmaprime.io/).
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
