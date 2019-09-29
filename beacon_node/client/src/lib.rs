@@ -305,7 +305,7 @@ fn log_new_slot<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog::Lo
         info!(
             log,
             "Slot start";
-            "best_block_slot" => best_slot,
+            "best_slot" => best_slot,
             "slot" => current_slot,
         );
         debug!(
@@ -313,7 +313,6 @@ fn log_new_slot<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog::Lo
             "Slot info";
             "skip_slots" => current_slot.saturating_sub(best_slot),
             "best_block_root" => format!("{}", latest_block_root),
-            "best_block_slot" => best_slot,
             "slot" => current_slot,
         );
     } else {
