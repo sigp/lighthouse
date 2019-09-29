@@ -15,6 +15,17 @@ pub struct TestingBeaconBlockBuilder<T: EthSpec> {
     pub block: BeaconBlock<T>,
 }
 
+/// Enum used for passing test options to builder
+pub enum ExitTestTask {
+    Valid,
+    ValidatorUnknown,
+    AlreadyExited,
+    AlreadyInitiated,
+    FutureEpoch,
+    TooYoung,
+    BadSignature,
+}
+
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Create a new builder from genesis.
     pub fn new(spec: &ChainSpec) -> Self {
@@ -226,17 +237,27 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Insert a `Valid` exit into the state.
     pub fn insert_exit(
         &mut self,
+        test_task: &ExitTestTask,
         state: &BeaconState<T>,
-        validator_index: u64,
+        mut validator_index: u64,
         secret_key: &SecretKey,
         spec: &ChainSpec,
     ) {
+        let sk = &mut secret_key.clone();
+
+        match test_task {
+            ExitTestTask::BadSignature => *sk = SecretKey::random(),
+            ExitTestTask::ValidatorUnknown => validator_index = 4242,
+            _ => (),
+        }
+        let newkey = &sk;
+
         let mut builder = TestingVoluntaryExitBuilder::new(
             state.slot.epoch(T::slots_per_epoch()),
             validator_index,
         );
 
-        builder.sign(secret_key, &state.fork, spec);
+        builder.sign(newkey, &state.fork, spec);
 
         self.block
             .body

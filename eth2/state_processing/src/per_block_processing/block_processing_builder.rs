@@ -1,5 +1,5 @@
 use tree_hash::SignedRoot;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder, ExitTestTask};
 use types::*;
 use std::convert::TryInto;
 
@@ -34,6 +34,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
     pub fn build_with_n_exits(
         mut self,
         num_exits: usize,
+        test_task: ExitTestTask,
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
@@ -64,6 +65,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         // Will fail if num_exits > keypairs.len()
         for (i, keypair) in keypairs.iter().take(num_exits).enumerate() {
             self.block_builder.insert_exit(
+                &test_task,
                 &state,
                 (i as usize).try_into().unwrap(),
                 &keypair.sk,

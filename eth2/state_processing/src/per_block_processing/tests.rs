@@ -5,6 +5,7 @@ use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
 use types::*;
+use types::test_utils::{ExitTestTask};
 
 pub const VALIDATOR_COUNT: usize = 10;
 pub const SLOT_OFFSET: u64 = 4;
@@ -137,9 +138,10 @@ fn valid_insert_3_exits () {
     let spec = MainnetEthSpec::default_spec();
     let num_exits = 3;
     let num_validators = max(VALIDATOR_COUNT, num_exits);
+    let test_task = ExitTestTask::Valid;
     let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
 
-    let (block, mut state) = builder.build_with_n_exits(num_exits, None, None, &spec);
+    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -149,7 +151,62 @@ fn valid_insert_3_exits () {
         &spec,
     );
 
+    // Expecting Ok because these are valid deposits.
     assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn invalid_validator_unknown() {
+    use std::cmp::max;
+
+    let spec = MainnetEthSpec::default_spec();
+    let num_exits = 1;
+    let test_task = ExitTestTask::ValidatorUnknown;
+    let num_validators = max(VALIDATOR_COUNT, num_exits);
+    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
+
+    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting Validator Unknwon because the exit index is incorrect
+    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
+        index: 0,
+        reason: ExitInvalid::ValidatorUnknown(4242),
+    }));
+}
+
+#[test]
+fn invalid_bad_signature() {
+    use std::cmp::max;
+
+    let spec = MainnetEthSpec::default_spec();
+    let num_exits = 1;
+    let test_task = ExitTestTask::BadSignature;
+    let num_validators = max(VALIDATOR_COUNT, num_exits);
+    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
+
+    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting Bad Signature because we signed with a different secret key than the correct one.
+    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
+        index: 0,
+        reason: ExitInvalid::BadSignature,
+    }));
 }
 
 

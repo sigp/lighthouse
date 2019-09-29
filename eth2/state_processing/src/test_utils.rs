@@ -1,5 +1,5 @@
 use log::info;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder, ExitTestTask};
 use types::{EthSpec, *};
 
 pub struct BlockBuilder<T: EthSpec> {
@@ -141,6 +141,7 @@ impl<T: EthSpec> BlockBuilder<T> {
             let validator_index = validators_iter.next().expect("Insufficient validators.");
 
             builder.insert_exit(
+                &ExitTestTask::Valid,
                 &state,
                 validator_index,
                 &keypairs[validator_index as usize].sk,
