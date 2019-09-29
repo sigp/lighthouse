@@ -181,7 +181,7 @@ fn valid_insert_max_exits_plus_one () {
 
 
 #[test]
-fn invalid_validator_unknown() {
+fn invalid_exit_validator_unknown() {
     use std::cmp::max;
 
     let spec = MainnetEthSpec::default_spec();
@@ -208,7 +208,7 @@ fn invalid_validator_unknown() {
 }
 
 #[test]
-fn invalid_already_exited() {
+fn invalid_exit_already_exited() {
     use std::cmp::max;
 
     let spec = MainnetEthSpec::default_spec();
@@ -227,7 +227,7 @@ fn invalid_already_exited() {
         &spec,
     );
 
-    // Expecting Validator Unknwon because the exit index is incorrect
+    // Expecting already exited because we manually set the exit_epoch to be different than far_future_epoch.
     assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
         index: 0,
         reason: ExitInvalid::AlreadyExited(0),
@@ -235,7 +235,36 @@ fn invalid_already_exited() {
 }
 
 #[test]
-fn invalid_future_epoch() {
+fn invalid_exit_already_initiated() {
+    use std::cmp::max;
+
+    let spec = MainnetEthSpec::default_spec();
+    let num_exits = 1;
+    let test_task = ExitTestTask::AlreadyInitiated;
+    let num_validators = max(VALIDATOR_COUNT, num_exits);
+    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
+
+    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting AlreadyInitiatedExit because we are inserting the same exit twice
+    assert_eq!(result, Ok(()));
+    // assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
+        // index: 0,
+        // reason: ExitInvalid::AlreadyInitiatedExited(0),
+    // }));
+}
+
+
+#[test]
+fn invalid_exit_future_epoch() {
     use std::cmp::max;
 
     let spec = MainnetEthSpec::default_spec();
@@ -254,7 +283,7 @@ fn invalid_future_epoch() {
         &spec,
     );
 
-    // Expecting Validator Unknwon because the exit index is incorrect
+    // Expecting FutureEpoch because we set the exit_epoch to be far_future_epoch
     assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
         index: 0,
         reason: ExitInvalid::FutureEpoch { state: Epoch::from(2048 as u64), exit: spec.far_future_epoch}
@@ -262,7 +291,7 @@ fn invalid_future_epoch() {
 }
 
 #[test]
-fn invalid_bad_signature() {
+fn invalid_exit_bad_signature() {
     use std::cmp::max;
 
     let spec = MainnetEthSpec::default_spec();

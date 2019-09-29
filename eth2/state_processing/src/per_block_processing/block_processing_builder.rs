@@ -62,7 +62,20 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
         }
 
-        for (i, keypair) in keypairs.iter().take(num_exits).enumerate() {
+        match test_task {
+            ExitTestTask::AlreadyInitiated => {
+                for _ in 0..2 {
+                    self.block_builder.insert_exit(
+                        &test_task,
+                        &mut state,
+                        (0 as usize).try_into().unwrap(),
+                        &keypairs[0].sk,
+                        spec
+                    )
+                }
+            }
+            _ => {
+                for (i, keypair) in keypairs.iter().take(num_exits).enumerate() {
             self.block_builder.insert_exit(
                 &test_task,
                 &mut state,
@@ -70,6 +83,8 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
                 &keypair.sk,
                 spec
             );
+        }
+            }
         }
 
         let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
