@@ -12,7 +12,7 @@ use beacon_chain::{
 use exit_future::Signal;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
-use slog::{crit, error, info, o};
+use slog::{crit, debug, error, info, o};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -305,11 +305,17 @@ fn log_new_slot<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog::Lo
         info!(
             log,
             "Slot start";
+            "best_block_slot" => best_slot,
+            "slot" => current_slot,
+        );
+        debug!(
+            log,
+            "Slot info";
             "skip_slots" => current_slot.saturating_sub(best_slot),
             "best_block_root" => format!("{}", latest_block_root),
             "best_block_slot" => best_slot,
             "slot" => current_slot,
-        )
+        );
     } else {
         error!(
             log,
