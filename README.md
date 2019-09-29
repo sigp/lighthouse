@@ -56,7 +56,7 @@ Current development overview:
 
 ## Documentation
 
-The [Lighthouse Book](lighthouse-book.sigmaprime.io/) contains information
+The [Lighthouse Book](http://lighthouse-book.sigmaprime.io/) contains information
 for testnet users and developers.
 
 Code documentation is generated via `cargo doc` and hosted at
