@@ -7,11 +7,13 @@ use tree_hash::SignedRoot;
 use types::*;
 
 pub const VALIDATOR_COUNT: usize = 10;
+pub const SLOT_OFFSET: u64 = 4;
+pub const EXIT_SLOT_OFFSET: u64 = 2048;
 
 #[test]
 fn valid_block_ok() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec);
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
     let (block, mut state) = builder.build(None, None, &spec);
 
     let result = per_block_processing(
@@ -28,7 +30,7 @@ fn valid_block_ok() {
 #[test]
 fn invalid_block_header_state_slot() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec);
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
     let (mut block, mut state) = builder.build(None, None, &spec);
 
     state.slot = Slot::new(133713);
@@ -53,7 +55,7 @@ fn invalid_block_header_state_slot() {
 #[test]
 fn invalid_parent_block_root() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec);
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
     let invalid_parent_root = Hash256::from([0xAA; 32]);
     let (block, mut state) = builder.build(None, Some(invalid_parent_root), &spec);
 
@@ -79,7 +81,7 @@ fn invalid_parent_block_root() {
 #[test]
 fn invalid_block_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec);
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
     let (mut block, mut state) = builder.build(None, None, &spec);
 
     // sign the block with a keypair that is not the expected proposer
@@ -110,7 +112,7 @@ fn invalid_block_signature() {
 #[test]
 fn invalid_randao_reveal_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec);
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
 
     // sign randao reveal with random keypair
     let keypair = Keypair::random();
@@ -128,12 +130,36 @@ fn invalid_randao_reveal_signature() {
     assert_eq!(result, Err(BlockProcessingError::RandaoSignatureInvalid));
 }
 
-fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
-    let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);
+#[test]
+fn valid_insert_3_exits () {
+    use std::cmp::max;
+
+    let spec = MainnetEthSpec::default_spec();
+    let num_exits = 3;
+    let num_validators = max(VALIDATOR_COUNT, num_exits);
+    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
+
+    let (block, mut state) = builder.build_with_n_exits(num_exits, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    assert_eq!(result, Ok(()));
+}
+
+
+fn get_builder(spec: &ChainSpec, slot_offset: u64, num_validators: usize) -> (BlockProcessingBuilder<MainnetEthSpec>) {
+
+    let mut builder = BlockProcessingBuilder::new(num_validators, &spec);
 
     // Set the state and block to be in the last slot of the 4th epoch.
     let last_slot_of_epoch =
-        (MainnetEthSpec::genesis_epoch() + 4).end_slot(MainnetEthSpec::slots_per_epoch());
+        (MainnetEthSpec::genesis_epoch() + slot_offset).end_slot(MainnetEthSpec::slots_per_epoch());
     builder.set_slot(last_slot_of_epoch);
     builder.build_caches(&spec);
 
