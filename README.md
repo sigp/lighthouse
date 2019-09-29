@@ -22,7 +22,7 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 Lighthouse is:
 
 - Fully open-source, licensed under Apache 2.0.
-- Security-focused, fuzzing has begun and security reviews are planned
+- Security-focused. Fuzzing has begun and security reviews are planned
 	for late-2019.
 - Built in [Rust](https://www.rust-lang.org/), a modern language providing unique safety guarantees and
 	excellent performance (comparable to C++).
@@ -31,11 +31,9 @@ Lighthouse is:
 - Actively involved in the specification and security analysis of the emerging
     Ethereum 2.0 specification.
 
+Like all Ethereum 2.0 clients, Lighthouse is a work-in-progress.
 
 ## Development Status
-
-Lighthouse, like all Ethereum 2.0 clients, is a work-in-progress. Instructions
-are provided for developers and researchers.
 
 Current development overview:
 
@@ -49,8 +47,8 @@ Current development overview:
 
 - ~~**April 2019**: Inital single-client testnets.~~
 - ~~**September 2019**: Inter-operability with other Ethereum 2.0 clients.~~
-- **Early-October 2019**: `lighthouse-0.0.1` release: A relatively stable testnet for
-  developers.
+- **Early-October 2019**: `lighthouse-0.0.1` release: All major phase 0
+     features implemented.
 - **Q4 2019**: Public, multi-client testnet with user-facing functionality.
 - **Q4 2019**: Third-party security review.
 - **Q1 2020**: Production Beacon Chain testnet (tentative).
@@ -58,10 +56,11 @@ Current development overview:
 
 ## Documentation
 
-- The [Lighthouse Book](lighthouse-book.sigmaprime.io/) contains information
-	for running and developing Lighthouse.
-- Code documentation is generated via `cargo doc` and is [hosted
-    here](http://lighthouse-docs.sigmaprime.io/).
+The [Lighthouse Book](lighthouse-book.sigmaprime.io/) contains information
+for testnet users and developers.
+
+Code documentation is generated via `cargo doc` and is hosted at
+[lighthouse-docs.sigmaprime.io](http://lighthouse-docs.sigmaprime.io/).
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 \#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or
@@ -69,7 +68,7 @@ If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 
 ## Contributing
 
-**Lighthouse welcomes contributors.**
+Lighthouse welcomes contributors.
 
 If you are looking to contribute, please head to the
 [Contributing](http://lighthouse-book.sigmaprime.io/contributing.html) section
