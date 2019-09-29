@@ -238,26 +238,28 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     pub fn insert_exit(
         &mut self,
         test_task: &ExitTestTask,
-        state: &BeaconState<T>,
+        state: &mut BeaconState<T>,
         mut validator_index: u64,
         secret_key: &SecretKey,
         spec: &ChainSpec,
     ) {
         let sk = &mut secret_key.clone();
+        let mut exit_epoch = state.slot.epoch(T::slots_per_epoch());
 
         match test_task {
             ExitTestTask::BadSignature => *sk = SecretKey::random(),
             ExitTestTask::ValidatorUnknown => validator_index = 4242,
+            ExitTestTask::AlreadyExited => state.validators[validator_index as usize].exit_epoch = Epoch::from(314159 as u64),
+            ExitTestTask::FutureEpoch => exit_epoch = spec.far_future_epoch,
             _ => (),
         }
-        let newkey = &sk;
 
         let mut builder = TestingVoluntaryExitBuilder::new(
-            state.slot.epoch(T::slots_per_epoch()),
+            exit_epoch,
             validator_index,
         );
 
-        builder.sign(newkey, &state.fork, spec);
+        builder.sign(sk, &state.fork, spec);
 
         self.block
             .body

@@ -142,7 +142,7 @@ impl<T: EthSpec> BlockBuilder<T> {
 
             builder.insert_exit(
                 &ExitTestTask::Valid,
-                &state,
+                &mut state,
                 validator_index,
                 &keypairs[validator_index as usize].sk,
                 spec,

@@ -40,7 +40,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         spec: &ChainSpec,
     ) -> (BeaconBlock<T>, BeaconState<T>) {
 
-        let (state, keypairs) = self.state_builder.build();
+        let (mut state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
         builder.set_slot(state.slot);
@@ -66,7 +66,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         for (i, keypair) in keypairs.iter().take(num_exits).enumerate() {
             self.block_builder.insert_exit(
                 &test_task,
-                &state,
+                &mut state,
                 (i as usize).try_into().unwrap(),
                 &keypair.sk,
                 spec

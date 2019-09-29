@@ -183,6 +183,60 @@ fn invalid_validator_unknown() {
 }
 
 #[test]
+fn invalid_already_exited() {
+    use std::cmp::max;
+
+    let spec = MainnetEthSpec::default_spec();
+    let num_exits = 1;
+    let test_task = ExitTestTask::AlreadyExited;
+    let num_validators = max(VALIDATOR_COUNT, num_exits);
+    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
+
+    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting Validator Unknwon because the exit index is incorrect
+    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
+        index: 0,
+        reason: ExitInvalid::AlreadyExited(0),
+    }));
+}
+
+#[test]
+fn invalid_future_epoch() {
+    use std::cmp::max;
+
+    let spec = MainnetEthSpec::default_spec();
+    let num_exits = 1;
+    let test_task = ExitTestTask::FutureEpoch;
+    let num_validators = max(VALIDATOR_COUNT, num_exits);
+    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
+
+    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting Validator Unknwon because the exit index is incorrect
+    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
+        index: 0,
+        reason: ExitInvalid::FutureEpoch { state: Epoch::from(2048 as u64), exit: spec.far_future_epoch}
+    }));
+}
+
+#[test]
 fn invalid_bad_signature() {
     use std::cmp::max;
 
