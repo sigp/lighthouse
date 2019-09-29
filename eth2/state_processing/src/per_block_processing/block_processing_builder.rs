@@ -62,7 +62,6 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
         }
 
-        // Will fail if num_exits > keypairs.len()
         for (i, keypair) in keypairs.iter().take(num_exits).enumerate() {
             self.block_builder.insert_exit(
                 &test_task,
@@ -74,6 +73,9 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         }
 
         let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+        // dbg!(&block.body.voluntary_exits);
+        // dbg!(block.body.voluntary_exits.len());
+        // panic!("toto");
 
         (block, state)
     }

@@ -156,6 +156,31 @@ fn valid_insert_3_exits () {
 }
 
 #[test]
+fn valid_insert_max_exits_plus_one () {
+
+    let spec = MainnetEthSpec::default_spec();
+    let num_exits = <MainnetEthSpec as EthSpec>::MaxVoluntaryExits::to_u64() as usize + 1;
+    let num_validators = num_exits + 1;
+    let test_task = ExitTestTask::Valid;
+    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
+
+    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting Ok because these are valid deposits, and the vector
+    // containing exits shouldn't be bigger than MaxVoluntaryExits.
+    assert_eq!(result, Ok(()));
+}
+
+
+#[test]
 fn invalid_validator_unknown() {
     use std::cmp::max;
 

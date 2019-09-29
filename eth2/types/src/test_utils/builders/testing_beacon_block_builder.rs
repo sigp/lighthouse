@@ -261,11 +261,11 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
 
         builder.sign(sk, &state.fork, spec);
 
-        self.block
+        // Using let _ because we don't want to call unwrap
+        let _ = self.block
             .body
             .voluntary_exits
-            .push(builder.build())
-            .unwrap()
+            .push(builder.build());
     }
 
     /// Insert a `Valid` transfer into the state.
