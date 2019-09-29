@@ -22,7 +22,6 @@ pub enum ExitTestTask {
     BadSignature,
     FutureEpoch,
     NotActive,
-    TooYoung,
     Valid,
     ValidatorUnknown,
 }

@@ -318,6 +318,37 @@ fn invalid_exit_future_epoch() {
 }
 
 #[test]
+fn invalid_exit_too_young() {
+    use std::cmp::max;
+
+    let spec = MainnetEthSpec::default_spec();
+    let num_exits = 1;
+    let test_task = ExitTestTask::Valid;
+    let num_validators = max(VALIDATOR_COUNT, num_exits);
+    let builder = get_builder(&spec, SLOT_OFFSET, num_validators);
+
+    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting TooYoung because validator has not been active for long enough when trying to exit
+    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
+        index: 0,
+        reason: ExitInvalid::TooYoungToExit {
+            current_epoch: Epoch::from(SLOT_OFFSET),
+            earliest_exit_epoch: Epoch::from(2048 as u64)
+        },
+    }));
+}
+
+
+#[test]
 fn invalid_exit_bad_signature() {
     use std::cmp::max;
 
@@ -349,7 +380,7 @@ fn get_builder(spec: &ChainSpec, slot_offset: u64, num_validators: usize) -> (Bl
 
     let mut builder = BlockProcessingBuilder::new(num_validators, &spec);
 
-    // Set the state and block to be in the last slot of the 4th epoch.
+    // Set the state and block to be in the last slot of the `slot_offset`th epoch.
     let last_slot_of_epoch =
         (MainnetEthSpec::genesis_epoch() + slot_offset).end_slot(MainnetEthSpec::slots_per_epoch());
     builder.set_slot(last_slot_of_epoch);
