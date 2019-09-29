@@ -2,16 +2,16 @@
 
 An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prime.
 
-[![Build Status]][Build Link] [![Doc Status]][Doc Link] [![Chat Badge]][Chat Link] [![Swagger Badge]][Swagger Link]
+[![Build Status]][Build Link] [![Book Status]][Book Link] [![RustDoc Status]][RustDoc Link] [![Chat Badge]][Chat Link] [![Swagger Badge]][Swagger Link]
 
 [Build Status]: https://gitlab.sigmaprime.io/sigp/lighthouse/badges/master/build.svg
 [Build Link]: https://gitlab.sigmaprime.io/sigp/lighthouse/pipelines
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
-[Doc Status]:https://img.shields.io/badge/user--docs-master-informational
-[Doc Link]: http://lighthouse-book.sigmaprime.io/
-[Doc Status]:https://img.shields.io/badge/code--docs-master-orange
-[Doc Link]: http://lighthouse-docs.sigmaprime.io/
+[Book Status]:https://img.shields.io/badge/user--docs-master-informational
+[Book Link]: http://lighthouse-book.sigmaprime.io/
+[RustDoc Status]:https://img.shields.io/badge/code--docs-master-orange
+[RustDoc Link]: http://lighthouse-docs.sigmaprime.io/
 [Swagger Badge]: https://img.shields.io/badge/Open%20API-0.2.0-success
 [Swagger Link]: https://app.swaggerhub.com/apis-docs/spble/lighthouse_rest_api/0.2.0
 
