@@ -17,13 +17,14 @@ pub struct TestingBeaconBlockBuilder<T: EthSpec> {
 
 /// Enum used for passing test options to builder
 pub enum ExitTestTask {
+    AlreadyInitiated,
+    AlreadyExited,
+    BadSignature,
+    FutureEpoch,
+    NotActive,
+    TooYoung,
     Valid,
     ValidatorUnknown,
-    AlreadyExited,
-    AlreadyInitiated,
-    FutureEpoch,
-    TooYoung,
-    BadSignature,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
@@ -250,6 +251,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             ExitTestTask::BadSignature => *sk = SecretKey::random(),
             ExitTestTask::ValidatorUnknown => validator_index = 4242,
             ExitTestTask::AlreadyExited => state.validators[validator_index as usize].exit_epoch = Epoch::from(314159 as u64),
+            ExitTestTask::NotActive => state.validators[validator_index as usize].activation_epoch = Epoch::from(314159 as u64),
             ExitTestTask::FutureEpoch => exit_epoch = spec.far_future_epoch,
             _ => (),
         }

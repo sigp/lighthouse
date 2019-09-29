@@ -235,6 +235,33 @@ fn invalid_exit_already_exited() {
 }
 
 #[test]
+fn invalid_exit_not_active() {
+    use std::cmp::max;
+
+    let spec = MainnetEthSpec::default_spec();
+    let num_exits = 1;
+    let test_task = ExitTestTask::NotActive;
+    let num_validators = max(VALIDATOR_COUNT, num_exits);
+    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
+
+    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting NotActive because we manually set the activation_epoch to be in the future
+    assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
+        index: 0,
+        reason: ExitInvalid::NotActive(0),
+    }));
+}
+
+#[test]
 fn invalid_exit_already_initiated() {
     use std::cmp::max;
 
