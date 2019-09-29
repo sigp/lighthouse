@@ -15,6 +15,8 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 [Swagger Badge]: https://img.shields.io/badge/Open%20API-0.2.0-success
 [Swagger Link]: https://app.swaggerhub.com/apis-docs/spble/lighthouse_rest_api/0.2.0
 
+![terminalize](https://i.postimg.cc/PJ3D3bWz/terminalize.gif)
+
 ## Overview
 
 Lighthouse is:
@@ -62,8 +64,8 @@ Current development overview:
     here](http://lighthouse-docs.sigmaprime.io/).
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
-\#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
-[company website](https://sigmaprime.io).
+\#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or
+[sigmaprime.io](https://sigmaprime.io).
 
 ## Contributing
 
@@ -83,9 +85,8 @@ Encrypt sensitive messages using our [PGP key](https://keybase.io/sigp).
 
 ## Donations
 
-Lighthouse is an open-source project and effectively public good. Funding
-public goods is hard and we're grateful for the donations we receive from the
-community via:
+Lighthouse is an open-source project and a public good. Funding public goods is
+hard and we're grateful for the donations we receive from the community via:
 
 - [Gitcoin Grants](https://gitcoin.co/grants/25/lighthouse-ethereum-20-client).
 - Ethereum address: `0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b` (donation.sigmaprime.eth).
