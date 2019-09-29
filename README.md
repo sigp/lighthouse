@@ -8,7 +8,9 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 [Build Link]: https://gitlab.sigmaprime.io/sigp/lighthouse/pipelines
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
-[Doc Status]: https://img.shields.io/badge/docs-master-blue.svg
+[Doc Status]:https://img.shields.io/badge/user--docs-master-informational
+[Doc Link]: http://lighthouse-book.sigmaprime.io/
+[Doc Status]:https://img.shields.io/badge/code--docs-master-orange
 [Doc Link]: http://lighthouse-docs.sigmaprime.io/
 [Swagger Badge]: https://img.shields.io/badge/Open%20API-0.2.0-success
 [Swagger Link]: https://app.swaggerhub.com/apis-docs/spble/lighthouse_rest_api/0.2.0
@@ -45,7 +47,6 @@ Current development overview:
 
 - ~~**April 2019**: Inital single-client testnets.~~
 - ~~**September 2019**: Inter-operability with other Ethereum 2.0 clients.~~
-- ~~**September 2019**: Initial WASM integration.~~
 - **Early-October 2019**: `lighthouse-0.0.1` release: A relatively stable testnet for
   developers.
 - **Q4 2019**: Public, multi-client testnet with user-facing functionality.
@@ -58,7 +59,7 @@ Current development overview:
 - The [Lighthouse Book](lighthouse-book.sigmaprime.io/) contains information
 	for running and developing Lighthouse.
 - Code documentation is generated via `cargo doc` and is [hosted
-- here](http://lighthouse-docs.sigmaprime.io/).
+    here](http://lighthouse-docs.sigmaprime.io/).
 
 If you'd like some background on Sigma Prime, please see the [Lighthouse Update
 \#00](https://lighthouse.sigmaprime.io/update-00.html) blog post or the
@@ -86,8 +87,5 @@ Lighthouse is an open-source project and effectively public good. Funding
 public goods is hard and we're grateful for the donations we receive from the
 community via:
 
-- [Gitcoin Grants](https://gitcoin.co/grants/25/lighthouse-ethereum-20-client) page.
-- Our Ethereum address: `0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b` (donation.sigmaprime.eth).
-
-All donations go directly to the Ethereum 2.0 effort and fund developers and
-testing infrastructure.
+- [Gitcoin Grants](https://gitcoin.co/grants/25/lighthouse-ethereum-20-client).
+- Ethereum address: `0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b` (donation.sigmaprime.eth).
