@@ -6,8 +6,8 @@ use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
 use types::*;
 
-pub const VALIDATOR_COUNT: usize = 10;
-pub const NUM_ATTESTATIONS: u64 = 2;
+pub const VALIDATOR_COUNT: usize = 100;
+pub const NUM_ATTESTATIONS: u64 = 10;
 
 #[test]
 fn valid_block_ok() {
