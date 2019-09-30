@@ -1,6 +1,6 @@
 # Simple Local Testnet
 
-With a functional [development environment](setup), starting a local multi-node
+With a functional [development environment](./setup.md), starting a local multi-node
 testnet is easy:
 
 1. Start the first node: `$ ./beacon_node testnet -f recent 8`
