@@ -117,5 +117,4 @@ mod tests {
     }
 
     ssz_tests!(Validator);
-
 }

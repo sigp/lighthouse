@@ -23,5 +23,4 @@ mod tests {
     use crate::*;
 
     ssz_tests!(PendingAttestation<MainnetEthSpec>);
-
 }
