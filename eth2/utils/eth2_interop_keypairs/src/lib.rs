@@ -58,10 +58,12 @@ pub fn be_private_key(validator_index: usize) -> [u8; PRIVATE_KEY_BYTES] {
 
 /// Return a public and private keypair for a given `validator_index`.
 pub fn keypair(validator_index: usize) -> Keypair {
-    let sk = SecretKey::from_bytes(&be_private_key(validator_index)).expect(&format!(
-        "Should build valid private key for validator index {}",
-        validator_index
-    ));
+    let sk = SecretKey::from_bytes(&be_private_key(validator_index)).unwrap_or_else(|_| {
+        panic!(
+            "Should build valid private key for validator index {}",
+            validator_index
+        )
+    });
 
     Keypair {
         pk: PublicKey::from_secret_key(&sk),

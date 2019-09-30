@@ -19,4 +19,4 @@ types = { path = "../../types" }
 [dependencies]
 ethereum-types = "0.6"
 eth2_hashing = "0.1"
-lazy_static = "0.1"
+lazy_static = "1.4"

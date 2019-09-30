@@ -125,6 +125,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     log: Logger,
 }
 
+type BeaconInfo<T> = (BeaconBlock<T>, BeaconState<T>);
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn from_genesis(
@@ -1060,7 +1062,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if block.slot <= finalized_slot {
             return Ok(BlockProcessingOutcome::WouldRevertFinalizedSlot {
                 block_slot: block.slot,
-                finalized_slot: finalized_slot,
+                finalized_slot,
             });
         }
 
@@ -1258,7 +1260,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         randao_reveal: Signature,
         slot: Slot,
-    ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
+    ) -> Result<BeaconInfo<T::EthSpec>, BlockProductionError> {
         let state = self
             .state_at_slot(slot - 1)
             .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
@@ -1279,7 +1281,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
+    ) -> Result<BeaconInfo<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
@@ -1457,7 +1459,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // End fork choice metrics timer.
         metrics::stop_timer(timer);
 
-        if let Err(_) = result {
+        if result.is_err() {
             metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
         }
 

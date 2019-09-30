@@ -130,6 +130,6 @@ fn verify_casper_ffg_vote<'a, T: EthSpec>(
         );
         Ok(state.get_previous_crosslink(data.crosslink.shard)?)
     } else {
-        return Err(error(Invalid::BadTargetEpoch));
+        Err(error(Invalid::BadTargetEpoch))
     }
 }

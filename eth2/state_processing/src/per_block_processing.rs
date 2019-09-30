@@ -59,8 +59,8 @@ pub enum VerifySignatures {
 }
 
 impl VerifySignatures {
-    pub fn is_true(&self) -> bool {
-        *self == VerifySignatures::True
+    pub fn is_true(self) -> bool {
+        self == VerifySignatures::True
     }
 }
 

@@ -70,7 +70,7 @@ impl<T: EthSpec> BlockBuilder<T> {
         builder.set_parent_root(parent_root);
 
         // Used as a stream of validator indices for use in slashings, exits, etc.
-        let mut validators_iter = (0..keypairs.len() as u64).into_iter();
+        let mut validators_iter = 0..keypairs.len() as u64;
 
         // Insert `ProposerSlashing` objects.
         for _ in 0..self.num_proposer_slashings {
@@ -171,7 +171,7 @@ impl<T: EthSpec> BlockBuilder<T> {
         info!("Inserted {} transfers.", builder.block.body.transfers.len());
 
         // Set the eth1 data to be different from the state.
-        self.block_builder.block.body.eth1_data.block_hash = Hash256::from_slice(&vec![42; 32]);
+        self.block_builder.block.body.eth1_data.block_hash = Hash256::from_slice(&[42; 32]);
 
         let block = self
             .block_builder
