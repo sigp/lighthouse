@@ -7,6 +7,7 @@ use tree_hash::SignedRoot;
 use types::*;
 
 pub const VALIDATOR_COUNT: usize = 10;
+pub const NUM_ATTESTATIONS: u64 = 2;
 
 #[test]
 fn valid_block_ok() {
@@ -126,6 +127,23 @@ fn invalid_randao_reveal_signature() {
 
     // should get a BadRandaoSignature error
     assert_eq!(result, Err(BlockProcessingError::RandaoSignatureInvalid));
+}
+
+#[test]
+fn valid_attestations() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let (block, mut state) = builder.build_with_n_attestations(NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    assert_eq!(result, Ok(()));
 }
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {

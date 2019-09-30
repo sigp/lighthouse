@@ -30,6 +30,51 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         self.state_builder.build_caches(&spec).unwrap();
     }
 
+    pub fn build_with_n_attestations(
+        mut self,
+        num_attestations: u64,
+        randao_sk: Option<SecretKey>,
+        previous_block_root: Option<Hash256>,
+        spec: &ChainSpec,
+    ) -> (BeaconBlock<T>, BeaconState<T>) {
+        let (state, keypairs) = self.state_builder.build();
+        let builder = &mut self.block_builder;
+
+        builder.set_slot(state.slot);
+
+        match previous_block_root {
+            Some(root) => builder.set_parent_root(root),
+            None => builder.set_parent_root(Hash256::from_slice(
+                &state.latest_block_header.signed_root(),
+            )),
+        }
+
+        let proposer_index = state
+            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
+            .unwrap();
+        let keypair = &keypairs[proposer_index];
+
+        match randao_sk {
+            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
+            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+        }
+
+        let all_secret_keys: Vec<&SecretKey> = keypairs.iter().map(|keypair| &keypair.sk).collect();
+        let num_attestations = num_attestations;
+        self.block_builder.insert_attestations(
+            &state,
+            &all_secret_keys,
+            num_attestations as usize,
+            spec,
+        )
+        .unwrap();
+
+        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+
+        (block, state)
+    }
+
+
     pub fn build(
         mut self,
         randao_sk: Option<SecretKey>,
