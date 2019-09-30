@@ -52,12 +52,12 @@ impl TestingAttestationDataBuilder {
 
         let crosslink = Crosslink {
             shard,
-            parent_root: Hash256::from_slice(&parent_crosslink.tree_hash_root()),
-            start_epoch: parent_crosslink.end_epoch,
+            parent_root: Hash256::from_slice(&parent_crosslink.tree_hash_root()), // 0xc78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c
+            start_epoch: parent_crosslink.end_epoch, // 0
             end_epoch: std::cmp::min(
                 target.epoch,
                 parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
-            ),
+            ), // 4
             data_root: Hash256::zero(),
         };
 

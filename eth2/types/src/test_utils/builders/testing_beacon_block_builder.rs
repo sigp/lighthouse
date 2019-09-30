@@ -15,6 +15,10 @@ pub struct TestingBeaconBlockBuilder<T: EthSpec> {
     pub block: BeaconBlock<T>,
 }
 
+pub enum AttestationTestTask {
+    Valid,
+}
+
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Create a new builder from genesis.
     pub fn new(spec: &ChainSpec) -> Self {
@@ -103,6 +107,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// to aggregate these split attestations.
     pub fn insert_attestations(
         &mut self,
+        test_task: &AttestationTestTask,
         state: &BeaconState<T>,
         secret_keys: &[&SecretKey],
         num_attestations: usize,

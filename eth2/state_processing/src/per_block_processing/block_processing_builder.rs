@@ -1,5 +1,5 @@
 use tree_hash::SignedRoot;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{AttestationTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::*;
 
 pub struct BlockProcessingBuilder<T: EthSpec> {
@@ -32,6 +32,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
     pub fn build_with_n_attestations(
         mut self,
+        test_task: &AttestationTestTask,
         num_attestations: u64,
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
@@ -62,6 +63,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         let all_secret_keys: Vec<&SecretKey> = keypairs.iter().map(|keypair| &keypair.sk).collect();
         let num_attestations = num_attestations;
         self.block_builder.insert_attestations(
+            test_task,
             &state,
             &all_secret_keys,
             num_attestations as usize,

@@ -1,5 +1,5 @@
 use log::info;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{AttestationTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::{EthSpec, *};
 
 pub struct BlockBuilder<T: EthSpec> {
@@ -113,6 +113,7 @@ impl<T: EthSpec> BlockBuilder<T> {
         let all_secret_keys: Vec<&SecretKey> = keypairs.iter().map(|keypair| &keypair.sk).collect();
         builder
             .insert_attestations(
+                &AttestationTestTask::Valid,
                 &state,
                 &all_secret_keys,
                 self.num_attestations as usize,

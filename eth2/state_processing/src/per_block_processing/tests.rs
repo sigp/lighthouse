@@ -5,9 +5,10 @@ use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
 use types::*;
+use types::test_utils::AttestationTestTask;
 
 pub const VALIDATOR_COUNT: usize = 100;
-pub const NUM_ATTESTATIONS: u64 = 10;
+pub const NUM_ATTESTATIONS: u64 = 1;
 
 #[test]
 fn valid_block_ok() {
@@ -133,7 +134,8 @@ fn invalid_randao_reveal_signature() {
 fn valid_attestations() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
-    let (block, mut state) = builder.build_with_n_attestations(NUM_ATTESTATIONS, None, None, &spec);
+    let test_task = AttestationTestTask::Valid;
+    let (block, mut state) = builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
