@@ -230,9 +230,8 @@ fn invalid_attestation_no_committee_for_shard() {
         &spec,
     );
 
-    // Missing Comment
+    // Expecting NoCommiteeForShard because we manually set the crosslink's shard to be invalid
     assert_eq!(result, Err(BlockProcessingError::BeaconStateError(BeaconStateError::NoCommitteeForShard)));
-
 }
 
 
