@@ -331,7 +331,7 @@ pub enum ExitInvalid {
     /// The specified validator has a non-maximum exit epoch.
     AlreadyExited(u64),
     /// The specified validator has already initiated exit.
-    AlreadyInitiatedExited(u64),
+    AlreadyInitiatedExit(u64),
     /// The exit is for a future epoch.
     FutureEpoch { state: Epoch, exit: Epoch },
     /// The validator has not been active for long enough.

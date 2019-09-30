@@ -293,7 +293,7 @@ fn invalid_exit_already_initiated() {
         result,
         Err(BlockProcessingError::ExitInvalid {
             index: 1,
-            reason: ExitInvalid::AlreadyInitiatedExited(1),
+            reason: ExitInvalid::AlreadyInitiatedExit(1),
         })
     );
 }

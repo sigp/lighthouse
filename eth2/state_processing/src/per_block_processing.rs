@@ -497,7 +497,7 @@ pub fn process_exits<T: EthSpec>(
             Err(BeaconStateError::AlreadyInitiated) => {
                 return Err(BlockProcessingError::ExitInvalid {
                     index: i,
-                    reason: ExitInvalid::AlreadyInitiatedExited(i as u64),
+                    reason: ExitInvalid::AlreadyInitiatedExit(i as u64),
                 })
             }
             Err(e) => return Err(BlockProcessingError::BeaconStateError(e)),
