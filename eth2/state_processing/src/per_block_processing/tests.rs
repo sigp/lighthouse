@@ -31,8 +31,8 @@ fn invalid_block_header_state_slot() {
     let builder = get_builder(&spec);
     let (mut block, mut state) = builder.build(None, None, &spec);
 
-    state.slot = Slot::new(133713);
-    block.slot = Slot::new(424242);
+    state.slot = Slot::new(133_713);
+    block.slot = Slot::new(424_242);
 
     let result = per_block_processing(
         &mut state,

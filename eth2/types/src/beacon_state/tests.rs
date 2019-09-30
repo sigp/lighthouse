@@ -192,7 +192,7 @@ fn tree_hash_cache() {
 
     assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
 
-    state.slot = state.slot + 1;
+    state.slot += 1;
 
     let root = state.update_tree_hash_cache().unwrap();
     assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
@@ -231,9 +231,8 @@ mod committees {
             shuffle_list(active_indices, spec.shuffle_round_count, &seed[..], false).unwrap();
 
         let mut expected_indices_iter = shuffling.iter();
-        let mut expected_shards_iter = (0..T::ShardCount::to_u64())
-            .into_iter()
-            .map(|i| (start_shard + i) % T::ShardCount::to_u64());
+        let mut expected_shards_iter =
+            (0..T::ShardCount::to_u64()).map(|i| (start_shard + i) % T::ShardCount::to_u64());
 
         // Loop through all slots in the epoch being tested.
         for slot in epoch.slot_iter(T::slots_per_epoch()) {
@@ -306,7 +305,6 @@ mod committees {
         let (mut state, _keypairs): (BeaconState<T>, _) = builder.build();
 
         let distinct_hashes: Vec<Hash256> = (0..T::epochs_per_historical_vector())
-            .into_iter()
             .map(|i| Hash256::from_low_u64_be(i as u64))
             .collect();
         state.randao_mixes = FixedVector::from(distinct_hashes);

@@ -137,7 +137,7 @@ impl<T: BeaconChainTypes> BeaconChainBuilder<T> {
             BuildStrategy::LoadFromStore => {
                 BeaconChain::from_store(store, eth1_backend, event_handler, self.spec, self.log)
                     .map_err(|e| format!("Error loading BeaconChain from database: {:?}", e))?
-                    .ok_or_else(|| format!("Unable to find exising BeaconChain in database."))?
+                    .ok_or_else(|| "Unable to find exising BeaconChain in database.".to_string())?
             }
             BuildStrategy::FromGenesis {
                 genesis_block,

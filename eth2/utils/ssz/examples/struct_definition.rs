@@ -57,7 +57,7 @@ impl Decode for Foo {
 }
 
 fn main() {
-    let foo = Foo {
+    let my_foo = Foo {
         a: 42,
         b: vec![0, 1, 2, 3],
         c: 11,
@@ -65,9 +65,9 @@ fn main() {
 
     let bytes = vec![42, 0, 8, 0, 0, 0, 11, 0, 0, 1, 2, 3];
 
-    assert_eq!(foo.as_ssz_bytes(), bytes);
+    assert_eq!(my_foo.as_ssz_bytes(), bytes);
 
     let decoded_foo = Foo::from_ssz_bytes(&bytes).unwrap();
 
-    assert_eq!(foo, decoded_foo);
+    assert_eq!(my_foo, decoded_foo);
 }
