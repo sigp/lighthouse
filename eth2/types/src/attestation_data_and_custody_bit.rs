@@ -19,5 +19,4 @@ mod test {
     use super::*;
 
     ssz_tests!(AttestationDataAndCustodyBit);
-
 }
