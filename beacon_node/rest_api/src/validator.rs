@@ -190,7 +190,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 
 /// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
 pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> BoxFut {
-    let _ = try_future!(check_content_type_for_json(&req));
+    try_future!(check_content_type_for_json(&req));
     let log = get_logger_from_request(&req);
     let beacon_chain = try_future!(get_beacon_chain_from_request::<T>(&req));
     // Get the network sending channel from the request, for later transmission
@@ -268,9 +268,12 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         .map_err(|e| {
             ApiError::ServerError(format!("Unable to read validator index cache. {:?}", e))
         })?
-        .ok_or(ApiError::BadRequest(
-            "The provided validator public key does not correspond to a validator index.".into(),
-        ))?;
+        .ok_or_else(|| {
+            ApiError::BadRequest(
+                "The provided validator public key does not correspond to a validator index."
+                    .into(),
+            )
+        })?;
 
     // Build cache for the requested epoch
     head_state
@@ -286,7 +289,7 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
                 e
             ))
         })?
-        .ok_or(ApiError::BadRequest("No validator duties could be found for the requested validator. Cannot provide valid attestation.".into()))?;
+        .ok_or_else(|| ApiError::BadRequest("No validator duties could be found for the requested validator. Cannot provide valid attestation.".into()))?;
 
     // Check that we are requesting an attestation during the slot where it is relevant.
     let present_slot = beacon_chain.slot().map_err(|e| ApiError::ServerError(
@@ -354,7 +357,7 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
 
 /// HTTP Handler to publish an Attestation, which has been signed by a validator.
 pub fn publish_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> BoxFut {
-    let _ = try_future!(check_content_type_for_json(&req));
+    try_future!(check_content_type_for_json(&req));
     let log = get_logger_from_request(&req);
     let beacon_chain = try_future!(get_beacon_chain_from_request::<T>(&req));
     // Get the network sending channel from the request, for later transmission

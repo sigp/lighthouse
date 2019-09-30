@@ -8,7 +8,6 @@ fn main() {
     let vec: Vec<u64> = vec![4242; 8196];
 
     let output: Vec<Vec<u64>> = (0..40_000)
-        .into_iter()
         .map(|_| Vec::from_ssz_bytes(&vec.as_ssz_bytes()).unwrap())
         .collect();
 

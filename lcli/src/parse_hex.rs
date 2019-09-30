@@ -21,7 +21,7 @@ pub fn run_parse_hex(matches: &ArgMatches) -> Result<(), String> {
     info!("Using minimal spec");
     info!("Type: {:?}", type_str);
 
-    match type_str.as_ref() {
+    match type_str {
         "block" => decode_and_print::<BeaconBlock<MinimalEthSpec>>(&hex)?,
         "state" => decode_and_print::<BeaconState<MinimalEthSpec>>(&hex)?,
         other => return Err(format!("Unknown type: {}", other)),
