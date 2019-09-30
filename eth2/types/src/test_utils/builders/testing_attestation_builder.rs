@@ -24,7 +24,7 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
         let mut aggregation_bits = BitList::with_capacity(committee.len()).unwrap();
         let mut custody_bits = BitList::with_capacity(committee.len()).unwrap();
 
-        for (i, _) in committee.iter().enumerate() {
+        for i in 0..committee.len() {
             custody_bits.set(i, false).unwrap();
             aggregation_bits.set(i, false).unwrap();
         }
