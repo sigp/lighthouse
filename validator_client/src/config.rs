@@ -271,7 +271,7 @@ impl Config {
         let mut perm = key_file.metadata()?.permissions();
         perm.set_mode((libc::S_IWUSR | libc::S_IRUSR) as u32);
         key_file.set_permissions(perm)?;
-        
+
         bincode::serialize_into(&mut key_file, &key)
             .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
         Ok(key_path)
