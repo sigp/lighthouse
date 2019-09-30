@@ -28,3 +28,11 @@ You may read this book from start to finish, or jump to some of these topics:
 
 Prospective contributors can read the [Contributing](./contributing.md) section
 to understand how we develop and test Lighthouse.
+
+## About this Book
+
+This book is open source, contribute at
+[github.com/sigp/lighthouse/book](https://github.com/sigp/lighthouse/tree/master/book).
+
+The Lighthouse CI/CD system maintains a hosted version of the `master` branch
+at [lighthouse-book.sigmaprime.io](http://lighthouse-book.sigmaprime.io).
