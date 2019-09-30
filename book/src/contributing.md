@@ -12,7 +12,7 @@ to work on.
 
 To start contributing,
 
-1. Setup a [development environment](./setup.md)
+1. Setup a [development environment](./setup.md).
 2. Browse through the [open issues](https://github.com/sigp/lighthouse/issues)
    (tip: look for the [good first
    issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
@@ -42,7 +42,7 @@ Please use [clippy](https://github.com/rust-lang/rust-clippy) and
 [rustfmt](https://github.com/rust-lang/rustfmt) to detect common mistakes and
 inconsistent code formatting:
 
-```
+```bash
 $ cargo clippy --all
 $ cargo fmt --all --check
 ```
@@ -80,7 +80,6 @@ pub fn my_function(&mut self, _something &[u8]) -> Result<String, Error> {
 ```rust
 // Comment for this struct
 struct Lighthouse {}
-
 fn make_blockchain() {} // A comment on the same line after a space
 ```
 
@@ -103,10 +102,10 @@ pub struct LighthouseConfig {
 ### Rust Resources
 
 Rust is an extremely powerful, low-level programming language that provides
-freedom and performance to create powerful projects. The [Rust 
+freedom and performance to create powerful projects. The [Rust
 Book](https://doc.rust-lang.org/stable/book/) provides insight into the Rust
 language and some of the coding style to follow (As well as acting as a great
-introduction and tutorial for the language.)
+introduction and tutorial for the language).
 
 Rust has a steep learning curve, but there are many resources to help. We
 suggest:

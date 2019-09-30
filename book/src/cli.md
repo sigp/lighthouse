@@ -26,19 +26,19 @@ Each binary supports the `--help` flag, this is the best source of
 documentation.
 
 
-```
+```bash
 $ ./beacon_node --help
 ```
 
-```
+```bash
 $ ./validator_client --help
 ```
 
-```
+```bash
 $ ./account_manager --help
 ```
 
-```
+```bash
 $ ./lcli --help
 ```
 

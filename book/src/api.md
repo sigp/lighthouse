@@ -10,4 +10,4 @@ The Lighthouse `beacon_node` provides two APIs for local consumption:
 ## Security
 
 These endpoints are not designed to be exposed to the public Internet or
-untrusted users. They may pose a considerable DoS vector when used improperly.
+untrusted users. They may pose a considerable DoS attack vector when used improperly.

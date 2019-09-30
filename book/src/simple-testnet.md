@@ -14,11 +14,11 @@ testnet is easy:
 First, setup a Lighthouse development environment and navigate to the
 `target/release` directory (this is where the binaries are located).
 
-## Starting the Beacon Node
+## Starting a beacon node
 
 Start a new node (creating a fresh database and configuration in `~/.lighthouse`), using:
 
-```
+```bash
 $ ./beacon_node testnet -f recent 8
 ```
 
@@ -30,11 +30,11 @@ $ ./beacon_node testnet -f recent 8
 > - See `$ ./beacon_node testnet recent --help` for more configuration options,
 >   including `minimal`/`mainnet` specification.
 
-## Starting the Validator Client
+## Starting a validator client
 
 In a new terminal window, start the validator client with:
 
-```
+```bash
 $ ./validator_client testnet -b insecure 0 8
 ```
 
@@ -49,15 +49,15 @@ $ ./validator_client testnet -b insecure 0 8
 > - The validator client will try to connect to the beacon node at `localhost`.
 >   See `--help` to configure that address and other features.
 
-## Adding another Beacon Node
+## Adding another beacon node
 
 You may connect another (non-validating) node to your local network using the
 lighthouse `bootstrap` command.
 
-In a new terminal terminal, run:
+In a new terminal window, run:
 
 
-```
+```bash
 $ ./beacon_node -b 10 testnet -r bootstrap
 ```
 

@@ -22,8 +22,7 @@
 ### Windows
 
 Perl may also be required to build Lighthouse. You can install [Strawberry
-Perl](http://strawberryperl.com/), or alternatively use a choco install command
-`choco install strawberryperl`.
+Perl](http://strawberryperl.com/), or alternatively if you're using the [Chocolatey](https://chocolatey.org/) package manager for Windows, use the following choco install command: `choco install strawberryperl`.
 
 Additionally, the dependency `protoc-grpcio v0.3.1` is reported to have issues
 compiling in Windows. You can specify a known working version by editing

@@ -23,28 +23,28 @@ The following CLI flags control the HTTP server:
 In addition to the complete Open API docs (see above), some examples are
 provided below.
 
-Examples assume there is a Lighthouse node exposing a HTTP API on
-`localhost:5052`. Responses are JSON.
+_Examples assume there is a Lighthouse node exposing a HTTP API on
+`localhost:5052`. Responses are JSON._
 
 ### Get the node's beacon chain head
 
-```
-curl localhost:5052/beacon/head
+```bash
+$ curl localhost:5052/beacon/head
 
 {"slot":0,"block_root":"0x827bf71805540aa13f6d8c7d18b41b287b2094a4d7a28cbb8deb061dbf5df4f5","state_root":"0x90a78d73294bc9c7519a64e1912161be0e823eb472012ff54204e15a4d717fa5"}%
 ```
 
 ### Get the node's finalized checkpoint
 
-```
-curl localhost:5052/beacon/latest_finalized_checkpoint
+```bash
+$ curl localhost:5052/beacon/latest_finalized_checkpoint
 
 {"epoch":0,"root":"0x0000000000000000000000000000000000000000000000000000000000000000"}%
 ```
 
 ### Get the node's ENR
 
-```
+```bash
 $ curl localhost:5052/network/enr
 
 "-IW4QFyf1VlY5pZs0xZuvKMRZ9_cdl9WMCDAAJXZiZiuGcfRYoU40VPrYDLQj5prneJIz3zcbTjHp9BbThc-yiymJO8HgmlwhH8AAAGDdGNwgiMog3VkcIIjKIlzZWNwMjU2azGhAjg0-DsTkQynhJCRnLLttBK1RS78lmUkLa-wgzAi-Ob5"%
@@ -52,7 +52,7 @@ $ curl localhost:5052/network/enr
 
 ### Get a list of connected peer ids
 
-```
+```bash
 $ curl localhost:5052/network/peers
 
 ["QmeMFRTWfo3KbVG7dEBXGhyRMa29yfmnJBXW84rKuGEhuL"]%
@@ -60,8 +60,8 @@ $ curl localhost:5052/network/peers
 
 ### Get the node's peer id
 
-```
-curl localhost:5052/network/peer_id
+```bash
+$ curl localhost:5052/network/peer_id
 
 "QmRD1qs2AqNNRdBcGHUGpUGkpih5cmdL32mhh22Sy79xsJ"%
 ```
@@ -70,8 +70,8 @@ curl localhost:5052/network/peer_id
 
 Lists all the libp2p multiaddrs that the node is listening on.
 
-```
-curl localhost:5052/network/listen_addresses
+```bash
+$ curl localhost:5052/network/listen_addresses
 
 ["/ip4/127.0.0.1/tcp/9000","/ip4/192.168.1.121/tcp/9000","/ip4/172.17.0.1/tcp/9000","/ip4/172.42.0.1/tcp/9000","/ip6/::1/tcp/9000","/ip6/fdd3:c293:1bc::203/tcp/9000","/ip6/fdd3:c293:1bc:0:9aa9:b2ea:c610:44db/tcp/9000"]%
 ```
@@ -80,6 +80,6 @@ curl localhost:5052/network/listen_addresses
 
 Returns the genesis state and state root in your terminal, in YAML.
 
-```
+```bash
 $ curl --header "Content-Type: application/yaml" "localhost:5052/beacon/state?slot=0"
 ```

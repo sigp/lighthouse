@@ -11,12 +11,12 @@ You can see the full set of tests we run in the
 file. The following two commands should complete successfully before CI can
 pass:
 
-```
+```bash
 $ cargo test --all --all-features
 $ cargo fmt --all --check
 ```
 
-Note: Travis CI is used, however it does not run the full test suite.
+_Note: Travis CI is also used, however it does not run the full test suite._
 
 ### Ethereum 2.0 Spec Tests
 

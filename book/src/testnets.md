@@ -5,11 +5,11 @@ to Eth2 beacon chain testnets.
 
 For detailed documentation, use the `--help` flag on the CLI:
 
-```
+```bash
 $ ./beacon_node testnet --help
 ```
 
-```
+```bash
 $ ./validator_client testnet --help
 ```
 
@@ -19,12 +19,12 @@ All examples assume a working [development environment](./setup.md) and
 commands are based in the `target/release` directory (this is the build dir for
 `cargo`).
 
-### Start beacon node given a validator count and genesis_time
+### Start a beacon node given a validator count and genesis_time
 
 
 To start a brand-new beacon node (with no history) use:
 
-```
+```bash
 $ ./beacon_node testnet -f quick 8 <GENESIS_TIME>
 ```
 
@@ -40,7 +40,7 @@ method in the `ethereum/eth2.0-pm` repository.
 > - `8` is the validator count and `1567222226` is the genesis time.
 > - See `$ ./beacon_node testnet quick --help` for more configuration options.
 
-### Start Beacon Node given a genesis state file
+### Start a beacon node given a genesis state file
 
 A genesis state can be read from file using the `testnet file` subcommand.
 There are three supported formats:
@@ -51,7 +51,7 @@ There are three supported formats:
 
 Start a new node using `/tmp/genesis.ssz` as the genesis state:
 
-```
+```bash
 $ ./beacon_node testnet --spec minimal -f file ssz /tmp/genesis.ssz
 ```
 
@@ -66,7 +66,7 @@ $ ./beacon_node testnet --spec minimal -f file ssz /tmp/genesis.ssz
 
 To start a brand-new validator client (with no history) use:
 
-```
+```bash
 $ ./validator_client testnet -b insecure 0 8
 ```
 
@@ -93,7 +93,7 @@ Genesis states can downloaded from a running Lighthouse node via the HTTP API. T
 
 Using `curl`, a genesis state can be downloaded to `/tmp/genesis.ssz`:
 
-```
+```bash
 $ curl --header "Content-Type: application/ssz" "localhost:5052/beacon/state/genesis" -o /tmp/genesis.ssz
 ```
 
@@ -108,18 +108,18 @@ the `--libp2p-addresses` command.
 
 #### Example:
 
-```
+```bash
 $ ./beacon_node --libp2p-addresses /ip4/192.168.0.1/tcp/9000
 ```
 
-### Specify a boot node by ENR
+### Specify a boot node by ENR (Ethereum Name Record)
 
 You can specify a static list of Discv5 addresses when booting Lighthouse using
 the `--boot-nodes` command.
 
 #### Example:
 
-```
+```bash
 $ ./beacon_node --boot-nodes -IW4QB2Hi8TPuEzQ41Cdf1r2AUU1FFVFDBJdJyOkWk2qXpZfFZQy2YnJIyoT_5fnbtrXUouoskmydZl4pIg90clIkYUDgmlwhH8AAAGDdGNwgiMog3VkcIIjKIlzZWNwMjU2azGhAjg0-DsTkQynhJCRnLLttBK1RS78lmUkLa-wgzAi-Ob5
 ```
 
@@ -133,7 +133,7 @@ ports by some `n`.
 
 Increase all ports by `10` (using multiples of `10` is recommended).
 
-```
+```bash
 $ ./beacon_node -b 10
 ```
 
@@ -142,11 +142,11 @@ $ ./beacon_node -b 10
 Lighthouse can run at quite low slot times when there are few validators (e.g.,
 `500 ms` slot times should be fine for 8 validators).
 
-#### Example
+#### Example:
 
 The `-t` (`--slot-time`) flag specifies the milliseconds per slot.
 
-```
+```bash
 $ ./beacon_node testnet -t 500 recent 8
 ```
 
