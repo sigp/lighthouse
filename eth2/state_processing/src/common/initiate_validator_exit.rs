@@ -15,7 +15,7 @@ pub fn initiate_validator_exit<T: EthSpec>(
 
     // Return if the validator already initiated exit
     if state.validators[index].exit_epoch != spec.far_future_epoch {
-        return Ok(());
+        return Err(Error::AlreadyInitiated);
     }
 
     // Compute exit queue epoch

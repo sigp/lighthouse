@@ -29,6 +29,7 @@ const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    AlreadyInitiated,
     EpochOutOfBounds,
     SlotOutOfBounds,
     ShardOutOfBounds,

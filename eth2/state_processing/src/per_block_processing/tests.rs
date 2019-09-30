@@ -289,11 +289,13 @@ fn invalid_exit_already_initiated() {
     );
 
     // Expecting AlreadyInitiatedExit because we are inserting the same exit twice
-    assert_eq!(result, Ok(()));
-    // assert_eq!(result, Err(BlockProcessingError::ExitInvalid {
-    // index: 0,
-    // reason: ExitInvalid::AlreadyInitiatedExited(0),
-    // }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ExitInvalid {
+            index: 1,
+            reason: ExitInvalid::AlreadyInitiatedExited(1),
+        })
+    );
 }
 
 #[test]

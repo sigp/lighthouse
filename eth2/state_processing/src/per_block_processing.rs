@@ -1,5 +1,7 @@
 use crate::common::{initiate_validator_exit, slash_validator};
-use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex};
+use errors::{
+    BlockOperationError, BlockProcessingError, ExitInvalid, HeaderInvalid, IntoWithIndex,
+};
 use rayon::prelude::*;
 use signature_sets::{block_proposal_signature_set, randao_signature_set};
 use std::collections::HashSet;
@@ -490,8 +492,17 @@ pub fn process_exits<T: EthSpec>(
         })?;
 
     // Update the state in series.
-    for exit in voluntary_exits {
-        initiate_validator_exit(state, exit.validator_index as usize, spec)?;
+    for (i, exit) in voluntary_exits.iter().enumerate() {
+        match initiate_validator_exit(state, exit.validator_index as usize, spec) {
+            Err(BeaconStateError::AlreadyInitiated) => {
+                return Err(BlockProcessingError::ExitInvalid {
+                    index: i,
+                    reason: ExitInvalid::AlreadyInitiatedExited(i as u64),
+                })
+            }
+            Err(e) => return Err(BlockProcessingError::BeaconStateError(e)),
+            Ok(_) => (),
+        };
     }
 
     Ok(())
