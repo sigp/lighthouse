@@ -15,7 +15,7 @@ impl TestingAttestationDataBuilder {
     pub fn new<T: EthSpec>(
         test_task: &AttestationTestTask,
         state: &BeaconState<T>,
-        shard: u64,
+        mut shard: u64,
         slot: Slot,
         spec: &ChainSpec,
     ) -> Self {
@@ -57,21 +57,24 @@ impl TestingAttestationDataBuilder {
             target.epoch,
             parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
         );
+        let mut parent_root = Hash256::from_slice(&parent_crosslink.tree_hash_root());
 
         match test_task {
-            AttestationTestTask::Start => start = Epoch::from(10 as u64),
-            AttestationTestTask::End => end = Epoch::from(0 as u64),
+            AttestationTestTask::BadParentCrosslinkStartEpoch=> start = Epoch::from(10 as u64),
+            AttestationTestTask::BadParentCrosslinkEndEpoch=> end = Epoch::from(0 as u64),
+            AttestationTestTask::BadParentCrosslinkHash => parent_root = Hash256::zero(),
+            AttestationTestTask::NoCommiteeForShard => shard += 2,
+            // AttestationTestTask::BadSource =>
+            // AttestationTestTask::BadTarget =>
+            // AttestationTestTask::BadBeaconBlockRoot =>
             _ => (),
         }
         let crosslink = Crosslink {
             shard,
-            parent_root: Hash256::from_slice(&parent_crosslink.tree_hash_root()), // 0xc78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c
-            start_epoch: start,//parent_crosslink.end_epoch, // 0
-            end_epoch: end, //, std::cmp::min(
-//                target.epoch,
-//                parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
-//            ), // 4
-            data_root: Hash256::zero(),
+            parent_root,
+            start_epoch: start,// 0
+            end_epoch: end, // 4
+            data_root: parent_root,
         };
 
         let data = AttestationData {

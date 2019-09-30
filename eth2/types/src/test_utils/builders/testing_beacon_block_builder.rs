@@ -17,8 +17,10 @@ pub struct TestingBeaconBlockBuilder<T: EthSpec> {
 
 pub enum AttestationTestTask {
     Valid,
-    End,
-    Start,
+    BadParentCrosslinkStartEpoch,
+    BadParentCrosslinkEndEpoch,
+    BadParentCrosslinkHash,
+    NoCommiteeForShard,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
