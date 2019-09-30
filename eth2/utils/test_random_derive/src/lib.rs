@@ -9,12 +9,9 @@ use syn::{parse_macro_input, DeriveInput};
 ///
 /// The field attribute is: `#[test_random(default)]`
 fn should_use_default(field: &syn::Field) -> bool {
-    for attr in &field.attrs {
-        if attr.tts.to_string() == "( default )" {
-            return true;
-        }
-    }
-    false
+    field.attrs.iter().any(|attr| {
+        attr.path.is_ident("test_random") && attr.tts.to_string().replace(" ", "") == "(default)"
+    })
 }
 
 #[proc_macro_derive(TestRandom, attributes(test_random))]

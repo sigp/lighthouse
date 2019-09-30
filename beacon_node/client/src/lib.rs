@@ -12,6 +12,7 @@ use beacon_chain::{
 use exit_future::Signal;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
+use rest_api::NetworkInfo;
 use slog::{crit, error, info, o};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
@@ -231,12 +232,15 @@ where
 
         // Start the `rest_api` service
         let api_exit_signal = if client_config.rest_api.enabled {
+            let network_info = NetworkInfo {
+                network_service: network.clone(),
+                network_chan: network_send.clone(),
+            };
             match rest_api::start_server(
                 &client_config.rest_api,
                 executor,
                 beacon_chain.clone(),
-                network.clone(),
-                network_send.clone(),
+                network_info,
                 client_config.db_path().expect("unable to read datadir"),
                 eth2_config.clone(),
                 &log,

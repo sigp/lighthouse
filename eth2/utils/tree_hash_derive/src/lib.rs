@@ -2,7 +2,7 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
 /// Returns a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
@@ -31,10 +31,9 @@ fn get_hashable_named_field_idents<'a>(struct_data: &'a syn::DataStruct) -> Vec<
 ///
 /// The field attribute is: `#[tree_hash(skip_hashing)]`
 fn should_skip_hashing(field: &syn::Field) -> bool {
-    field
-        .attrs
-        .iter()
-        .any(|attr| attr.into_token_stream().to_string() == "# [ tree_hash ( skip_hashing ) ]")
+    field.attrs.iter().any(|attr| {
+        attr.path.is_ident("tree_hash") && attr.tts.to_string().replace(" ", "") == "(skip_hashing)"
+    })
 }
 
 /// Implements `tree_hash::TreeHash` for some `struct`.
@@ -131,8 +130,8 @@ fn get_signed_root_named_field_idents(struct_data: &syn::DataStruct) -> Vec<&syn
 }
 
 fn should_skip_signed_root(field: &syn::Field) -> bool {
-    field
-        .attrs
-        .iter()
-        .any(|attr| attr.into_token_stream().to_string() == "# [ signed_root ( skip_hashing ) ]")
+    field.attrs.iter().any(|attr| {
+        attr.path.is_ident("signed_root")
+            && attr.tts.to_string().replace(" ", "") == "(skip_hashing)"
+    })
 }

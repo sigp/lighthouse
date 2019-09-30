@@ -214,7 +214,7 @@ mod test {
         state_a.slot = Slot::from(slots_per_historical_root);
         state_b.slot = Slot::from(slots_per_historical_root * 2);
 
-        let mut hashes = (0..).into_iter().map(|i| Hash256::from_low_u64_be(i));
+        let mut hashes = (0..).map(Hash256::from_low_u64_be);
 
         for root in &mut state_a.block_roots[..] {
             *root = hashes.next().unwrap()
@@ -230,7 +230,7 @@ mod test {
         let iter = BlockRootsIterator::new(store.clone(), &state_b);
 
         assert!(
-            iter.clone().find(|(_root, slot)| *slot == 0).is_some(),
+            iter.clone().any(|(_root, slot)| slot == 0),
             "iter should contain zero slot"
         );
 
@@ -241,8 +241,8 @@ mod test {
 
         assert_eq!(collected.len(), expected_len);
 
-        for i in 0..expected_len {
-            assert_eq!(collected[i].0, Hash256::from_low_u64_be(i as u64));
+        for (i, item) in collected.iter().enumerate() {
+            assert_eq!(item.0, Hash256::from_low_u64_be(i as u64));
         }
     }
 
@@ -257,17 +257,17 @@ mod test {
         state_a.slot = Slot::from(slots_per_historical_root);
         state_b.slot = Slot::from(slots_per_historical_root * 2);
 
-        let mut hashes = (0..).into_iter().map(|i| Hash256::from_low_u64_be(i));
+        let mut hashes = (0..).map(Hash256::from_low_u64_be);
 
         for slot in 0..slots_per_historical_root {
             state_a
                 .set_state_root(Slot::from(slot), hashes.next().unwrap())
-                .expect(&format!("should set state_a slot {}", slot));
+                .unwrap_or_else(|_| panic!("should set state_a slot {}", slot));
         }
         for slot in slots_per_historical_root..slots_per_historical_root * 2 {
             state_b
                 .set_state_root(Slot::from(slot), hashes.next().unwrap())
-                .expect(&format!("should set state_b slot {}", slot));
+                .unwrap_or_else(|_| panic!("should set state_b slot {}", slot));
         }
 
         let state_a_root = Hash256::from_low_u64_be(slots_per_historical_root as u64);
@@ -279,7 +279,7 @@ mod test {
         let iter = StateRootsIterator::new(store.clone(), &state_b);
 
         assert!(
-            iter.clone().find(|(_root, slot)| *slot == 0).is_some(),
+            iter.clone().any(|(_root, slot)| slot == 0),
             "iter should contain zero slot"
         );
 
@@ -290,8 +290,8 @@ mod test {
 
         assert_eq!(collected.len(), expected_len, "collection length incorrect");
 
-        for i in 0..expected_len {
-            let (hash, slot) = collected[i];
+        for (i, item) in collected.iter().enumerate() {
+            let (hash, slot) = *item;
 
             assert_eq!(slot, i as u64, "slot mismatch at {}: {} vs {}", i, slot, i);
 

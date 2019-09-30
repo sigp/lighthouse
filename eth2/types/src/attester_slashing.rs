@@ -21,5 +21,4 @@ mod tests {
     use crate::*;
 
     ssz_tests!(AttesterSlashing<MainnetEthSpec>);
-
 }

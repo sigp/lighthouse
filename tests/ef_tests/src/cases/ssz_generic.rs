@@ -222,15 +222,12 @@ fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
         }
     }
     // Invalid
-    else {
-        if let Ok(decoded) = T::from_ssz_bytes(&serialized) {
-            return Err(Error::DidntFail(format!(
-                "Decoded invalid bytes into: {:?}",
-                decoded
-            )));
-        }
+    else if let Ok(decoded) = T::from_ssz_bytes(&serialized) {
+        return Err(Error::DidntFail(format!(
+            "Decoded invalid bytes into: {:?}",
+            decoded
+        )));
     }
-
     Ok(())
 }
 
@@ -291,11 +288,11 @@ where
     let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
 
     if decoded.len() > N::to_usize() {
-        return Err(D::Error::custom(format!(
+        Err(D::Error::custom(format!(
             "Too many values for list, got: {}, limit: {}",
             decoded.len(),
             N::to_usize()
-        )));
+        )))
     } else {
         Ok(decoded.into())
     }

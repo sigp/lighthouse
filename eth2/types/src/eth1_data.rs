@@ -23,5 +23,4 @@ mod tests {
     use super::*;
 
     ssz_tests!(Eth1Data);
-
 }
