@@ -15,16 +15,9 @@ $ ./validator_client testnet --help
 
 ## Examples
 
-- [Starting from a`validator_count, genesis_time` tuple](#quick-start)
-- [Starting a node from a genesis state file](#state-file)
-- [Starting a validator client](#val-client)
-- [Exporting a genesis state file](#export) from a running Lighthouse
-	node
-
 All examples assume a working [development environment](./setup.md) and
 commands are based in the `target/release` directory (this is the build dir for
 `cargo`).
-
 
 ### Start beacon node given a validator count and genesis_time
 

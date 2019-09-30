@@ -20,10 +20,10 @@ We implement the specification as defined in the
 You may read this book from start to finish, or jump to some of these topics:
 
 - Get started with [development environment setup](./setup.md).
-- Utilize the whole stack by starting a [local testnet](./testnets.md) (it's easy!).
-- Query the [RESTful HTTP API](./http.md) (it supports JSON).
+- Utilize the whole stack by starting a [simple local testnet](./simple-testnet.md).
+- Query the [RESTful HTTP API](./http.md) using `curl`.
 - Listen to events with the [JSON WebSocket API](./websockets.md).
-- Read the hardcore [Rust code documentation](http://lighthouse-docs.sigmaprime.io/).
+- View the [Rust code docs](http://lighthouse-docs.sigmaprime.io/).
 
 
 Prospective contributors can read the [Contributing](./contributing.md) section

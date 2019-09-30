@@ -51,7 +51,7 @@ The `beacon_node` CLI has two primary tasks:
 
 ## Creating a new database
 
-Use the `$./beacon_node testnet` command (see [testnets](testnets) for more
+Use the `$./beacon_node testnet` command (see [testnets](./testnets.md) for more
 information).
 
 ## Resuming from an existing database
