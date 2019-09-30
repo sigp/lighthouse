@@ -171,17 +171,17 @@ impl Config {
             .map_err(|e| format!("Unable to deserialize private key: {:?}", e))?;
 
         let ki = key.identifier();
-        if &ki
-            != &path
+        if ki
+            != path
                 .file_name()
                 .ok_or_else(|| "Invalid path".to_string())?
                 .to_string_lossy()
         {
-            return Err(format!(
+            Err(format!(
                 "The validator key ({:?}) did not match the directory filename {:?}.",
                 ki,
                 path.to_str()
-            ));
+            ))
         } else {
             Ok(key)
         }
@@ -219,10 +219,7 @@ impl Config {
         &self,
         range: std::ops::Range<usize>,
     ) -> Result<Vec<Keypair>, String> {
-        Ok(range
-            .into_iter()
-            .map(generate_deterministic_keypair)
-            .collect())
+        Ok(range.map(generate_deterministic_keypair).collect())
     }
 
     /// Loads the keypairs according to `self.key_source`. Will return one or more keypairs, or an

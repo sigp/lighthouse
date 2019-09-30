@@ -233,7 +233,7 @@ impl ConfigBuilder {
         // directory onto it.
         let data_dir: PathBuf = cli_args
             .value_of("datadir")
-            .map(|string| PathBuf::from(string))
+            .map(PathBuf::from)
             .or_else(|| {
                 dirs::home_dir().map(|mut home| {
                     home.push(DEFAULT_DATA_DIR);
@@ -528,9 +528,9 @@ impl ConfigBuilder {
             .parse::<Ipv4Addr>()
             .map_err(|e| format!("Unable to parse default listen address: {:?}", e))?;
 
-        self.client_config.network.listen_address = addr.clone().into();
-        self.client_config.rpc.listen_address = addr.clone();
-        self.client_config.rest_api.listen_address = addr.clone();
+        self.client_config.network.listen_address = addr.into();
+        self.client_config.rpc.listen_address = addr;
+        self.client_config.rest_api.listen_address = addr;
 
         Ok(())
     }
@@ -557,8 +557,8 @@ impl ConfigBuilder {
 
         if self.eth2_config.spec_constants != self.client_config.spec_constants {
             crit!(self.log, "Specification constants do not match.";
-                  "client_config" => format!("{}", self.client_config.spec_constants),
-                  "eth2_config" => format!("{}", self.eth2_config.spec_constants)
+                  "client_config" => self.client_config.spec_constants.to_string(),
+                  "eth2_config" => self.eth2_config.spec_constants.to_string()
             );
             return Err("Specification constant mismatch".into());
         }
