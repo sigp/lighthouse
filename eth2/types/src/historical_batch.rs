@@ -23,5 +23,4 @@ mod tests {
     pub type FoundationHistoricalBatch = HistoricalBatch<MainnetEthSpec>;
 
     ssz_tests!(FoundationHistoricalBatch);
-
 }

@@ -58,5 +58,4 @@ mod tests {
     use crate::*;
 
     ssz_tests!(Attestation<MainnetEthSpec>);
-
 }
