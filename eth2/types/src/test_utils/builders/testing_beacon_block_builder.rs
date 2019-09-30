@@ -17,6 +17,8 @@ pub struct TestingBeaconBlockBuilder<T: EthSpec> {
 
 pub enum AttestationTestTask {
     Valid,
+    End,
+    Start,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
@@ -181,7 +183,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             .par_iter()
             .map(|(slot, committee, signing_validators, shard)| {
                 let mut builder =
-                    TestingAttestationBuilder::new(state, committee, *slot, *shard, spec);
+                    TestingAttestationBuilder::new(test_task, state, committee, *slot, *shard, spec);
 
                 let signing_secret_keys: Vec<&SecretKey> = signing_validators
                     .iter()

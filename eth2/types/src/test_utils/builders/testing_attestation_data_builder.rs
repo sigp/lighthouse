@@ -1,5 +1,6 @@
 use crate::*;
 use tree_hash::TreeHash;
+use crate::test_utils::{AttestationTestTask};
 
 /// Builds an `AttestationData` to be used for testing purposes.
 ///
@@ -12,6 +13,7 @@ impl TestingAttestationDataBuilder {
     /// Configures a new `AttestationData` which attests to all of the same parameters as the
     /// state.
     pub fn new<T: EthSpec>(
+        test_task: &AttestationTestTask,
         state: &BeaconState<T>,
         shard: u64,
         slot: Slot,
@@ -50,24 +52,35 @@ impl TestingAttestationDataBuilder {
             state.get_current_crosslink(shard).unwrap()
         };
 
+        let mut start= parent_crosslink.end_epoch;
+        let mut end= std::cmp::min(
+            target.epoch,
+            parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
+        );
+
+        match test_task {
+            AttestationTestTask::Start => start = Epoch::from(10 as u64),
+            AttestationTestTask::End => end = Epoch::from(0 as u64),
+            _ => (),
+        }
         let crosslink = Crosslink {
             shard,
             parent_root: Hash256::from_slice(&parent_crosslink.tree_hash_root()), // 0xc78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c
-            start_epoch: parent_crosslink.end_epoch, // 0
-            end_epoch: std::cmp::min(
-                target.epoch,
-                parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
-            ), // 4
+            start_epoch: start,//parent_crosslink.end_epoch, // 0
+            end_epoch: end, //, std::cmp::min(
+//                target.epoch,
+//                parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
+//            ), // 4
             data_root: Hash256::zero(),
         };
 
         let data = AttestationData {
             // LMD GHOST vote
-            beacon_block_root: *state.get_block_root(slot).unwrap(),
+            beacon_block_root: *state.get_block_root(slot).unwrap(), // 0x000
 
             // FFG Vote
-            source,
-            target,
+            source, // Checkpoint {2, 0x000}
+            target, // Checkpoint {4, 0x000}
 
             // Crosslink vote
             crosslink,

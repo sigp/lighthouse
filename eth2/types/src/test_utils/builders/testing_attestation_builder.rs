@@ -1,4 +1,4 @@
-use crate::test_utils::TestingAttestationDataBuilder;
+use crate::test_utils::{AttestationTestTask, TestingAttestationDataBuilder};
 use crate::*;
 use tree_hash::TreeHash;
 
@@ -13,13 +13,14 @@ pub struct TestingAttestationBuilder<T: EthSpec> {
 impl<T: EthSpec> TestingAttestationBuilder<T> {
     /// Create a new attestation builder.
     pub fn new(
+        test_task: &AttestationTestTask,
         state: &BeaconState<T>,
         committee: &[usize],
         slot: Slot,
         shard: u64,
         spec: &ChainSpec,
     ) -> Self {
-        let data_builder = TestingAttestationDataBuilder::new(state, shard, slot, spec);
+        let data_builder = TestingAttestationDataBuilder::new(test_task, state, shard, slot, spec);
 
         let mut aggregation_bits = BitList::with_capacity(committee.len()).unwrap();
         let mut custody_bits = BitList::with_capacity(committee.len()).unwrap();
