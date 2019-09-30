@@ -45,7 +45,7 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
     let check_sorted = |list: &[u64]| -> Result<()> {
         list.windows(2).enumerate().try_for_each(|(i, pair)| {
             if pair[0] >= pair[1] {
-                return Err(error(Invalid::BadValidatorIndicesOrdering(i)));
+                Err(error(Invalid::BadValidatorIndicesOrdering(i)))
             } else {
                 Ok(())
             }

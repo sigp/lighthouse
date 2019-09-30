@@ -77,12 +77,8 @@ impl<U: BeaconNodeDuties, S: Signer + Display> DutiesManager<U, S> {
     pub fn run_update(&self, epoch: Epoch, log: slog::Logger) -> Result<Async<()>, ()> {
         match self.update(epoch) {
             Err(error) => error!(log, "Epoch duties poll error"; "error" => format!("{:?}", error)),
-            Ok(UpdateOutcome::NoChange(epoch)) => {
-                debug!(log, "No change in duties"; "epoch" => epoch)
-            }
-            Ok(UpdateOutcome::DutiesChanged(epoch, duties)) => {
-                info!(log, "Duties changed (potential re-org)"; "epoch" => epoch, "duties" => format!("{:?}", duties))
-            }
+            Ok(UpdateOutcome::NoChange(epoch)) => debug!(log, "No change in duties"; "epoch" => epoch),
+            Ok(UpdateOutcome::DutiesChanged(epoch, duties)) => info!(log, "Duties changed (potential re-org)"; "epoch" => epoch, "duties" => format!("{:?}", duties)),
             Ok(UpdateOutcome::NewDuties(epoch, duties)) => {
                 info!(log, "New duties obtained"; "epoch" => epoch);
                 print_duties(&log, duties);

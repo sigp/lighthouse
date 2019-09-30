@@ -48,6 +48,11 @@ pub struct ApiService<T: BeaconChainTypes + 'static> {
     eth2_config: Arc<Eth2Config>,
 }
 
+pub struct NetworkInfo<T: BeaconChainTypes> {
+    pub network_service: Arc<NetworkService<T>>,
+    pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
+}
+
 fn into_boxfut<F: IntoFuture + 'static>(item: F) -> BoxFut
 where
     F: IntoFuture<Item = Response<Body>, Error = ApiError>,
@@ -194,8 +199,7 @@ pub fn start_server<T: BeaconChainTypes>(
     config: &ApiConfig,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_service: Arc<NetworkService<T>>,
-    network_chan: mpsc::UnboundedSender<NetworkMessage>,
+    network_info: NetworkInfo<T>,
     db_path: PathBuf,
     eth2_config: Eth2Config,
     log: &slog::Logger,
@@ -226,8 +230,8 @@ pub fn start_server<T: BeaconChainTypes>(
             log: server_log.clone(),
             beacon_chain: server_bc.clone(),
             db_path: db_path.clone(),
-            network_service: network_service.clone(),
-            network_channel: Arc::new(RwLock::new(network_chan.clone())),
+            network_service: network_info.network_service.clone(),
+            network_channel: Arc::new(RwLock::new(network_info.network_chan.clone())),
             eth2_config: eth2_config.clone(),
         })
     };

@@ -19,14 +19,11 @@ fn reference_private_keys() {
         "2908643403277969554503670470854573663206729491025062456164283925661321952518",
         "19554639423851580804889717218680781396599791537051606512605582393920758869044",
     ];
-    reference
-        .into_iter()
-        .enumerate()
-        .for_each(|(i, reference)| {
-            let bytes = be_private_key(i);
-            let num = BigUint::from_bytes_be(&bytes);
-            assert_eq!(&num.to_str_radix(10), reference)
-        });
+    reference.iter().enumerate().for_each(|(i, reference)| {
+        let bytes = be_private_key(i);
+        let num = BigUint::from_bytes_be(&bytes);
+        assert_eq!(&num.to_str_radix(10), reference)
+    });
 }
 
 #[test]
@@ -46,19 +43,16 @@ fn reference_public_keys() {
         "ptMQ27+rmiJFD1mZP4ekzl22Ij87Xx8w0sTscYki1ADgs8d0HejlmWD3JBGg7hCn",
         "mJNBPAAoOj+e2f2YRd2hzqOCKNIlZ/lUHczDV+VKLWpuIEEDySVky8BfSQWsfEk6",
     ];
-    reference
-        .into_iter()
-        .enumerate()
-        .for_each(|(i, reference)| {
-            let pair = keypair(i);
-            let reference = base64::decode(reference).expect("Reference should be valid base64");
+    reference.iter().enumerate().for_each(|(i, reference)| {
+        let pair = keypair(i);
+        let reference = base64::decode(reference).expect("Reference should be valid base64");
 
-            assert_eq!(
-                reference.len(),
-                48,
-                "Reference should be 48 bytes (public key size)"
-            );
+        assert_eq!(
+            reference.len(),
+            48,
+            "Reference should be 48 bytes (public key size)"
+        );
 
-            assert_eq!(pair.pk.as_bytes(), reference);
-        });
+        assert_eq!(pair.pk.as_bytes(), reference);
+    });
 }

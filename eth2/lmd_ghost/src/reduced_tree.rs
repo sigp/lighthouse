@@ -246,7 +246,7 @@ where
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
         match self.latest_votes.get_ref(validator_index) {
-            Some(Some(v)) => Some((v.hash.clone(), v.slot.clone())),
+            Some(Some(v)) => Some((v.hash, v.slot)),
             _ => None,
         }
     }

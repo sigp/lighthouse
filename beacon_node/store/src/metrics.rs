@@ -94,7 +94,7 @@ pub fn scrape_for_metrics(db_path: &PathBuf) {
     let db_size = if let Ok(iter) = fs::read_dir(db_path) {
         iter.filter_map(std::result::Result::ok)
             .map(size_of_dir_entry)
-            .fold(0_u64, |sum, val| sum + val)
+            .sum()
     } else {
         0
     };

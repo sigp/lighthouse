@@ -68,11 +68,11 @@ pub fn parse_pubkey(string: &str) -> Result<PublicKey, ApiError> {
         let pubkey = PublicKey::from_bytes(pubkey_bytes.as_slice()).map_err(|e| {
             ApiError::BadRequest(format!("Unable to deserialize public key: {:?}.", e))
         })?;
-        return Ok(pubkey);
+        Ok(pubkey)
     } else {
-        return Err(ApiError::BadRequest(
+        Err(ApiError::BadRequest(
             "Public key must have a  '0x' prefix".to_string(),
-        ));
+        ))
     }
 }
 

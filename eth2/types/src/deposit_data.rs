@@ -55,5 +55,4 @@ mod tests {
     use super::*;
 
     ssz_tests!(DepositData);
-
 }

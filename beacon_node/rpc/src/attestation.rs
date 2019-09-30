@@ -119,7 +119,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 self.network_chan
                     .try_send(NetworkMessage::Publish {
                         topics: vec![topic],
-                        message: message,
+                        message,
                     })
                     .unwrap_or_else(|e| {
                         error!(
