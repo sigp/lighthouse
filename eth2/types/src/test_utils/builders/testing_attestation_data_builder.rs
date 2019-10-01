@@ -1,6 +1,6 @@
+use crate::test_utils::AttestationTestTask;
 use crate::*;
 use tree_hash::TreeHash;
-use crate::test_utils::{AttestationTestTask};
 
 /// Builds an `AttestationData` to be used for testing purposes.
 ///
@@ -24,13 +24,13 @@ impl TestingAttestationDataBuilder {
 
         let is_previous_epoch = slot.epoch(T::slots_per_epoch()) != current_epoch;
 
-        let source = if is_previous_epoch {
+        let mut source = if is_previous_epoch {
             state.previous_justified_checkpoint.clone()
         } else {
             state.current_justified_checkpoint.clone()
         };
 
-        let target = if is_previous_epoch {
+        let mut target = if is_previous_epoch {
             Checkpoint {
                 epoch: previous_epoch,
                 root: *state
@@ -52,19 +52,30 @@ impl TestingAttestationDataBuilder {
             state.get_current_crosslink(shard).unwrap()
         };
 
-        let mut start= parent_crosslink.end_epoch;
-        let mut end= std::cmp::min(
+        let mut start = parent_crosslink.end_epoch;
+        let mut end = std::cmp::min(
             target.epoch,
             parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
         );
         let mut parent_root = Hash256::from_slice(&parent_crosslink.tree_hash_root());
 
         match test_task {
-            AttestationTestTask::BadParentCrosslinkStartEpoch=> start = Epoch::from(10 as u64),
-            AttestationTestTask::BadParentCrosslinkEndEpoch=> end = Epoch::from(0 as u64),
+            AttestationTestTask::BadParentCrosslinkStartEpoch => start = Epoch::from(10 as u64),
+            AttestationTestTask::BadParentCrosslinkEndEpoch => end = Epoch::from(0 as u64),
             AttestationTestTask::BadParentCrosslinkHash => parent_root = Hash256::zero(),
             AttestationTestTask::NoCommiteeForShard => shard += 2,
-            // AttestationTestTask::BadSource =>
+            AttestationTestTask::BadSource => {
+                source = Checkpoint {
+                    epoch: Epoch::from(8 as u64),
+                    root: Hash256::zero(),
+                }
+            }
+            AttestationTestTask::BadTarget => {
+                target = Checkpoint {
+                    epoch: Epoch::from(8 as u64),
+                    root: Hash256::zero(),
+                }
+            }
             // AttestationTestTask::BadTarget =>
             // AttestationTestTask::BadBeaconBlockRoot =>
             _ => (),
@@ -72,8 +83,8 @@ impl TestingAttestationDataBuilder {
         let crosslink = Crosslink {
             shard,
             parent_root,
-            start_epoch: start,// 0
-            end_epoch: end, // 4
+            start_epoch: start, // 0
+            end_epoch: end,     // 4
             data_root: parent_root,
         };
 

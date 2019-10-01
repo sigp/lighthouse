@@ -4,8 +4,8 @@ use super::block_processing_builder::BlockProcessingBuilder;
 use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
-use types::*;
 use types::test_utils::AttestationTestTask;
+use types::*;
 
 pub const VALIDATOR_COUNT: usize = 100;
 pub const NUM_ATTESTATIONS: u64 = 1;
@@ -135,7 +135,8 @@ fn valid_attestations() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = AttestationTestTask::Valid;
-    let (block, mut state) = builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -153,7 +154,8 @@ fn invalid_attestation_parent_crosslink_start_epoch() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = AttestationTestTask::BadParentCrosslinkStartEpoch;
-    let (block, mut state) = builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -164,10 +166,13 @@ fn invalid_attestation_parent_crosslink_start_epoch() {
     );
 
     // Expecting BadParentCrosslinkEndEpoch because we manually set an invalid crosslink start epoch
-    assert_eq!(result, Err(BlockProcessingError::AttestationInvalid {
-        index: 0,
-        reason: AttestationInvalid::BadParentCrosslinkStartEpoch
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::BadParentCrosslinkStartEpoch
+        })
+    );
 }
 
 #[test]
@@ -175,7 +180,8 @@ fn invalid_attestation_parent_crosslink_end_epoch() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = AttestationTestTask::BadParentCrosslinkEndEpoch;
-    let (block, mut state) = builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -186,10 +192,13 @@ fn invalid_attestation_parent_crosslink_end_epoch() {
     );
 
     // Expecting BadParentCrosslinkEndEpoch because we manually set an invalid crosslink end epoch
-    assert_eq!(result, Err(BlockProcessingError::AttestationInvalid {
-        index: 0,
-        reason: AttestationInvalid::BadParentCrosslinkEndEpoch
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::BadParentCrosslinkEndEpoch
+        })
+    );
 }
 
 #[test]
@@ -197,7 +206,8 @@ fn invalid_attestation_parent_crosslink_hash() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = AttestationTestTask::BadParentCrosslinkHash;
-    let (block, mut state) = builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -208,11 +218,13 @@ fn invalid_attestation_parent_crosslink_hash() {
     );
 
     // Expecting BadParentCrosslinkHash because we manually set an invalid crosslink parent_root
-    assert_eq!(result, Err(BlockProcessingError::AttestationInvalid {
-        index: 0,
-        reason: AttestationInvalid::BadParentCrosslinkHash
-    }));
-
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::BadParentCrosslinkHash
+        })
+    );
 }
 
 #[test]
@@ -220,7 +232,8 @@ fn invalid_attestation_no_committee_for_shard() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = AttestationTestTask::NoCommiteeForShard;
-    let (block, mut state) = builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -231,9 +244,80 @@ fn invalid_attestation_no_committee_for_shard() {
     );
 
     // Expecting NoCommiteeForShard because we manually set the crosslink's shard to be invalid
-    assert_eq!(result, Err(BlockProcessingError::BeaconStateError(BeaconStateError::NoCommitteeForShard)));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::BeaconStateError(
+            BeaconStateError::NoCommitteeForShard
+        ))
+    );
 }
 
+#[test]
+fn invalid_attestation_badsource() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttestationTestTask::BadSource;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting WrongJustifiedCheckpoint because we manually set the
+    // source field of the AttestationData object to be invalid
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::WrongJustifiedCheckpoint {
+                state: Checkpoint {
+                    epoch: Epoch::from(2 as u64),
+                    root: Hash256::zero(),
+                },
+                attestation: Checkpoint {
+                    epoch: Epoch::from(0 as u64),
+                    root: Hash256::zero(),
+                },
+                is_current: true,
+            }
+        })
+    );
+}
+
+#[test]
+fn invalid_attestation_badtarget() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttestationTestTask::BadTarget;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting EpochTooLow because we manually set the
+    // target field of the AttestationData object to be invalid
+
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::BeaconStateError(
+            BeaconStateError::RelativeEpochError(RelativeEpochError::EpochTooLow {
+                base: Epoch::from(4 as u64),
+                other: Epoch::from(0 as u64),
+            })
+        ))
+    );
+}
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
     let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);

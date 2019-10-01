@@ -21,6 +21,8 @@ pub enum AttestationTestTask {
     BadParentCrosslinkEndEpoch,
     BadParentCrosslinkHash,
     NoCommiteeForShard,
+    BadSource,
+    BadTarget,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
@@ -184,8 +186,9 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         let attestations: Vec<_> = committees
             .par_iter()
             .map(|(slot, committee, signing_validators, shard)| {
-                let mut builder =
-                    TestingAttestationBuilder::new(test_task, state, committee, *slot, *shard, spec);
+                let mut builder = TestingAttestationBuilder::new(
+                    test_task, state, committee, *slot, *shard, spec,
+                );
 
                 let signing_secret_keys: Vec<&SecretKey> = signing_validators
                     .iter()

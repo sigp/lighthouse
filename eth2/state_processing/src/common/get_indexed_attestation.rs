@@ -98,8 +98,14 @@ mod test {
             .map(|validator_index| &keypairs[*validator_index].sk)
             .collect::<Vec<_>>();
 
-        let mut attestation_builder =
-            TestingAttestationBuilder::new(&AttestationTestTask::Valid, &state, &cc.committee, cc.slot, shard, &spec);
+        let mut attestation_builder = TestingAttestationBuilder::new(
+            &AttestationTestTask::Valid,
+            &state,
+            &cc.committee,
+            cc.slot,
+            shard,
+            &spec,
+        );
         attestation_builder
             .sign(&bit_0_indices, &bit_0_keys, &state.fork, &spec, false)
             .sign(&bit_1_indices, &bit_1_keys, &state.fork, &spec, true);
