@@ -6,7 +6,6 @@ edition = "2018"
 
 [dev-dependencies]
 eth1_test_rig = { path = "../../tests/eth1_test_rig" }
-types = { path = "../../eth2/types"}
 
 [dependencies]
 reqwest = "0.9"
@@ -16,3 +15,4 @@ futures = "0.1.25"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 hex = "0.4"
+types = { path = "../../eth2/types"}

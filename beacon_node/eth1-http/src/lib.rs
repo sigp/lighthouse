@@ -3,23 +3,27 @@ use reqwest::{r#async::ClientBuilder, StatusCode};
 use serde_json::{json, Value};
 use std::ops::Range;
 use std::time::Duration;
+use types::Hash256;
 
-/// The topic for deposit contract events.
-const DEPOSIT_EVENT_TOPIC: &str =
+pub const DEPOSIT_EVENT_TOPIC: &str =
     "0x649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5";
 
+/// `keccak("get_deposit_root()")[0..4]`
+pub const DEPOSIT_ROOT_FN_SIGNATURE: &str = "0x863a311b";
+/// `keccak("get_deposit_count()")[0..4]`
+pub const DEPOSIT_COUNT_FN_SIGNATURE: &str = "0x621fd130";
+
+pub const DEPOSIT_ROOT_BYTES: usize = 32;
+pub const DEPOSIT_COUNT_RESPONSE_BYTES: usize = 96;
+
+/// Returns the current block number.
+///
+/// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub fn get_block_number(
     endpoint: &str,
     timeout: Duration,
 ) -> impl Future<Item = u64, Error = String> {
-    let body = json! ({
-        "jsonrpc": "2.0",
-        "method": "eth_blockNumber",
-        "params": [],
-        "id": 1
-    });
-
-    send_rpc_request(endpoint, body.to_string(), timeout)
+    send_rpc_request(endpoint, "eth_blockNumber", json!([]), timeout)
         .and_then(|response_body| {
             hex_to_u64(
                 response_result(&response_body)?
@@ -30,31 +34,128 @@ pub fn get_block_number(
         .map_err(|e| format!("Failed to get block number: {}", e))
 }
 
+/// Returns the value of the `get_deposit_count()` call at the given `address` for the given
+/// `block_number`.
+///
+/// Assumes that the `address` has the same ABI as the eth2 deposit contract.
+///
+/// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
+pub fn get_deposit_count(
+    endpoint: &str,
+    address: &str,
+    block_number: u64,
+    timeout: Duration,
+) -> impl Future<Item = u64, Error = String> {
+    call(
+        endpoint,
+        address,
+        DEPOSIT_COUNT_FN_SIGNATURE,
+        block_number,
+        timeout,
+    )
+    .and_then(|bytes| {
+        if bytes.len() == DEPOSIT_COUNT_RESPONSE_BYTES {
+            let mut array = [0; 8];
+            array.copy_from_slice(&bytes[32 + 32..32 + 32 + 8]);
+            Ok(u64::from_le_bytes(array))
+        } else {
+            Err(format!(
+                "Deposit count response was not {} bytes: {:?}",
+                DEPOSIT_COUNT_RESPONSE_BYTES, bytes
+            ))
+        }
+    })
+}
+
+/// Returns the value of the `get_hash_tree_root()` call at the given `block_number`.
+///
+/// Assumes that the `address` has the same ABI as the eth2 deposit contract.
+///
+/// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
+pub fn get_deposit_root(
+    endpoint: &str,
+    address: &str,
+    block_number: u64,
+    timeout: Duration,
+) -> impl Future<Item = Hash256, Error = String> {
+    call(
+        endpoint,
+        address,
+        DEPOSIT_ROOT_FN_SIGNATURE,
+        block_number,
+        timeout,
+    )
+    .and_then(|bytes| {
+        if bytes.len() == DEPOSIT_ROOT_BYTES {
+            Ok(Hash256::from_slice(&bytes))
+        } else {
+            Err(format!(
+                "Deposit root response was not {} bytes: {:?}",
+                DEPOSIT_ROOT_BYTES, bytes
+            ))
+        }
+    })
+}
+
+/// Performs a instant, no-transaction call to the contract `address` with the given `0x`-prefixed
+/// `hex_data`.
+///
+/// Returns bytes, if any.
+///
+/// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
+fn call(
+    endpoint: &str,
+    address: &str,
+    hex_data: &str,
+    block_number: u64,
+    timeout: Duration,
+) -> impl Future<Item = Vec<u8>, Error = String> {
+    let params = json! ([
+        {
+            "to": address,
+            "data": hex_data,
+        },
+        format!("0x{:x}", block_number)
+    ]);
+
+    send_rpc_request(endpoint, "eth_call", params, timeout)
+        .and_then(|response_body| {
+            hex_to_bytes(
+                response_result(&response_body)?
+                    .as_str()
+                    .ok_or_else(|| "'result' value was not a string".to_string())?,
+            )
+        })
+        .map_err(|e| format!("Failed to get logs in range: {}", e))
+}
+
+/// A reduced set of fields from an Eth1 contract log.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Log {
     block_number: u64,
     data: Vec<u8>,
 }
 
+/// Returns logs for the `DEPOSIT_EVENT_TOPIC`, for the given `address` in the given
+/// `block_height_range`.
+///
+/// It's not clear from the Ethereum JSON-RPC docs if this range is inclusive or not.
+///
+/// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub fn get_deposit_logs_in_range(
     endpoint: &str,
     address: &str,
     block_height_range: Range<u64>,
     timeout: Duration,
 ) -> impl Future<Item = Vec<Log>, Error = String> {
-    let body = json! ({
-        "jsonrpc": "2.0",
-        "method": "eth_getLogs",
-        "params": [{
-            "address": address,
-            "topics": [DEPOSIT_EVENT_TOPIC],
-            "fromBlock": format!("0x{:x}", block_height_range.start),
-            "toBlock": format!("0x{:x}", block_height_range.end),
-        }],
-        "id": 1
-    });
+    let params = json! ([{
+        "address": address,
+        "topics": [DEPOSIT_EVENT_TOPIC],
+        "fromBlock": format!("0x{:x}", block_height_range.start),
+        "toBlock": format!("0x{:x}", block_height_range.end),
+    }]);;
 
-    send_rpc_request(endpoint, body.to_string(), timeout)
+    send_rpc_request(endpoint, "eth_getLogs", params, timeout)
         .and_then(|response_body| {
             response_result(&response_body)?
                 .as_array()
@@ -89,9 +190,18 @@ pub fn get_deposit_logs_in_range(
 /// Tries to receive the response and parse the body as a `String`.
 fn send_rpc_request(
     endpoint: &str,
-    body: String,
+    method: &str,
+    params: Value,
     timeout: Duration,
 ) -> impl Future<Item = String, Error = String> {
+    let body = json! ({
+        "jsonrpc": "2.0",
+        "method": method,
+        "params": params,
+        "id": 1
+    })
+    .to_string();
+
     ClientBuilder::new()
         .timeout(timeout)
         .build()
@@ -202,6 +312,28 @@ mod tests {
             .expect("should get logs")
     }
 
+    fn blocking_deposit_root(deposit_contract: &DepositContract, block_number: u64) -> Hash256 {
+        runtime()
+            .block_on(get_deposit_root(
+                ENDPOINT,
+                &deposit_contract.address(),
+                block_number,
+                timeout(),
+            ))
+            .expect("should get deposit root")
+    }
+
+    fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64) -> u64 {
+        runtime()
+            .block_on(get_deposit_count(
+                ENDPOINT,
+                &deposit_contract.address(),
+                block_number,
+                timeout(),
+            ))
+            .expect("should get deposit count")
+    }
+
     #[test]
     fn block_number() {
         runtime()
@@ -213,23 +345,46 @@ mod tests {
     }
 
     #[test]
-    fn deposit_log() {
+    fn incrementing_deposits() {
         let deposit_contract =
             DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
 
-        // Ensure we start with no logs
-        let logs = blocking_deposit_logs(&deposit_contract, 0..blocking_block_number());
+        let block_number = blocking_block_number();
+        let logs = blocking_deposit_logs(&deposit_contract, 0..block_number);
         assert_eq!(logs.len(), 0);
 
+        let mut old_root = blocking_deposit_root(&deposit_contract, block_number);
+
+        assert_eq!(
+            blocking_deposit_count(&deposit_contract, block_number),
+            0,
+            "should have deposit count zero"
+        );
+
         for i in 1..=3 {
-            // Add a deposit
             deposit_contract
                 .deposit(random_deposit_data())
                 .expect("should perform a deposit");
 
-            // Ensure a log has been added each time
-            let logs = blocking_deposit_logs(&deposit_contract, 0..blocking_block_number());
-            assert_eq!(logs.len(), i);
+            // Check the logs.
+            let block_number = blocking_block_number();
+            let logs = blocking_deposit_logs(&deposit_contract, 0..block_number);
+            assert_eq!(logs.len(), i, "the number of logs should be as expected");
+
+            // Check the deposit count.
+            assert_eq!(
+                blocking_deposit_count(&deposit_contract, block_number),
+                i as u64,
+                "should have a correct deposit count"
+            );
+
+            // Check the deposit root.
+            let new_root = blocking_deposit_root(&deposit_contract, block_number);
+            assert_ne!(
+                new_root, old_root,
+                "deposit root should change with each deposit"
+            );
+            old_root = new_root
         }
     }
 }
