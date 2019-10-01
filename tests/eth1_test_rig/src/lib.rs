@@ -1,11 +1,19 @@
 use futures::Future;
+use ssz::Encode;
 use std::sync::Arc;
+use tokio::runtime::Runtime;
+use types::DepositData;
 use web3::contract::{Contract, Options};
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, U256};
 use web3::{Transport, Web3};
 
-const DEPLOYER_ACCOUNTS_INDEX: usize = 1;
+const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
+const DEPOSIT_ACCOUNTS_INDEX: usize = 1;
+
+const CONFIRMATIONS: usize = 0;
+const CONTRACT_DEPLOY_GAS: usize = 1_000_000_000;
+const DEPOSIT_GAS: usize = 1_000_000_000;
 
 // Deposit contract
 pub const ABI: &'static [u8] = include_bytes!("../contract/v0.8.3_validator_registration.json");
@@ -30,8 +38,7 @@ impl DepositContract {
             .map_err(|e| format!("Failed to start websocket transport: {:?}", e))?;
         let web3 = Web3::new(transport);
 
-        let deposit_contract_address = tokio::runtime::Runtime::new()
-            .map_err(|e| format!("Failed to start tokio runtime: {}", e))?
+        let deposit_contract_address = runtime()?
             .block_on(deploy_deposit_contract(web3.clone()))
             .map_err(|e| format!("Failed to deploy contract: {}", e))?;
 
@@ -45,10 +52,54 @@ impl DepositContract {
         })
     }
 
-    /// The deposit contract's address.
+    /// The deposit contract's address in `0x00ab...` format.
     pub fn address(&self) -> String {
-        self.contract.address().to_string()
+        format!("0x{:x}", self.contract.address())
     }
+
+    pub fn deposit(&self, deposit_data: DepositData) -> Result<(), String> {
+        let contract = self.contract.clone();
+
+        let future = self
+            .web3
+            .eth()
+            .accounts()
+            .map_err(|e| format!("Failed to get accounts: {:?}", e))
+            .and_then(|accounts| {
+                accounts
+                    .get(DEPOSIT_ACCOUNTS_INDEX)
+                    .cloned()
+                    .ok_or_else(|| format!("Insufficient accounts for deposit"))
+            })
+            .and_then(move |from_address| {
+                let params = (
+                    deposit_data.pubkey.as_ssz_bytes(),
+                    deposit_data.withdrawal_credentials.as_ssz_bytes(),
+                    deposit_data.signature.as_ssz_bytes(),
+                );
+                let options = Options {
+                    gas: Some(U256::from(DEPOSIT_GAS)),
+                    value: Some(from_gwei(deposit_data.amount)),
+                    ..Options::default()
+                };
+                contract
+                    .call("deposit", params, from_address, options)
+                    .map_err(|e| format!("Failed to call deposit fn: {:?}", e))
+            })
+            .map(|_| ());
+
+        runtime()?
+            .block_on(future)
+            .map_err(|e| format!("Deposit failed: {:?}", e))
+    }
+}
+
+fn from_gwei(gwei: u64) -> U256 {
+    U256::from(gwei) * U256::exp10(9)
+}
+
+fn runtime() -> Result<Runtime, String> {
+    Runtime::new().map_err(|e| format!("Failed to start tokio runtime: {}", e))
 }
 
 fn deploy_deposit_contract<T: Transport>(
@@ -68,9 +119,9 @@ fn deploy_deposit_contract<T: Transport>(
         .and_then(move |deploy_address| {
             Contract::deploy(web3.eth(), &ABI)
                 .map_err(|e| format!("Unable to build contract deployer: {:?}", e))?
-                .confirmations(0)
+                .confirmations(CONFIRMATIONS)
                 .options(Options {
-                    gas: Some(U256::from(1_000_000_000)),
+                    gas: Some(U256::from(CONTRACT_DEPLOY_GAS)),
                     ..Options::default()
                 })
                 .execute(bytecode, (), deploy_address)
