@@ -431,7 +431,6 @@ pub fn process_deposit<T: EthSpec>(
         Err(_) => return Ok(()), //bad public key => return early
         Ok(k) => k,
     };
-
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
     let validator_index = get_existing_validator_index(state, &pubkey)
