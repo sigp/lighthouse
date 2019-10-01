@@ -1,7 +1,5 @@
 use crate::common::{initiate_validator_exit, slash_validator};
-use errors::{
-    BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex,
-};
+use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex};
 use rayon::prelude::*;
 use signature_sets::{block_proposal_signature_set, randao_signature_set};
 use std::collections::HashSet;
