@@ -228,7 +228,7 @@ fn invalid_exit_already_exited() {
         &spec,
     );
 
-    // Expecting already exited because we manually set the exit_epoch to be different than far_future_epoch.
+    // Expecting AlreadyExited because we manually set the exit_epoch to be different than far_future_epoch.
     assert_eq!(
         result,
         Err(BlockProcessingError::ExitInvalid {
@@ -288,14 +288,8 @@ fn invalid_exit_already_initiated() {
         &spec,
     );
 
-    // Expecting AlreadyInitiatedExit because we are inserting the same exit twice
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::ExitInvalid {
-            index: 1,
-            reason: ExitInvalid::AlreadyInitiatedExit(1),
-        })
-    );
+    // Expecting Ok(()) even though we inserted the same exit twice
+    assert_eq!(result, Ok(()));
 }
 
 #[test]
