@@ -5,9 +5,9 @@ use std::ops::Range;
 use std::time::Duration;
 use types::Hash256;
 
+/// `keccak("DepositEvent(bytes,bytes,bytes,bytes,bytes)")`
 pub const DEPOSIT_EVENT_TOPIC: &str =
     "0x649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5";
-
 /// `keccak("get_deposit_root()")[0..4]`
 pub const DEPOSIT_ROOT_FN_SIGNATURE: &str = "0x863a311b";
 /// `keccak("get_deposit_count()")[0..4]`
@@ -30,6 +30,37 @@ pub fn get_block_number(
                     .as_str()
                     .ok_or_else(|| "Data was not string")?,
             )
+        })
+        .map_err(|e| format!("Failed to get block number: {}", e))
+}
+
+/// Gets a block hash by block number.
+///
+/// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
+pub fn get_block_hash(
+    endpoint: &str,
+    block_number: u64,
+    timeout: Duration,
+) -> impl Future<Item = Hash256, Error = String> {
+    let params = json!([
+        format!("0x{:x}", block_number),
+        false // do not return full tx objects.
+    ]);
+
+    send_rpc_request(endpoint, "eth_getBlockByNumber", params, timeout)
+        .and_then(|response_body| {
+            let bytes = hex_to_bytes(
+                response_result(&response_body)?
+                    .get("hash")
+                    .ok_or_else(|| "No hash for block")?
+                    .as_str()
+                    .ok_or_else(|| "Block hash was not string")?,
+            )?;
+            if bytes.len() == 32 {
+                Ok(Hash256::from_slice(&bytes))
+            } else {
+                Err(format!("Block has was not 32 bytes: {:?}", bytes))
+            }
         })
         .map_err(|e| format!("Failed to get block number: {}", e))
 }
@@ -301,6 +332,12 @@ mod tests {
             .expect("should get block number")
     }
 
+    fn blocking_block_hash(block_number: u64) -> Hash256 {
+        runtime()
+            .block_on(get_block_hash(ENDPOINT, block_number, timeout()))
+            .expect("should get block number")
+    }
+
     fn blocking_deposit_logs(deposit_contract: &DepositContract, range: Range<u64>) -> Vec<Log> {
         runtime()
             .block_on(get_deposit_logs_in_range(
@@ -335,16 +372,6 @@ mod tests {
     }
 
     #[test]
-    fn block_number() {
-        runtime()
-            .block_on(get_block_number(
-                "http://localhost:8545",
-                Duration::from_secs(1),
-            ))
-            .expect("should resolve future successfully");
-    }
-
-    #[test]
     fn incrementing_deposits() {
         let deposit_contract =
             DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
@@ -354,6 +381,8 @@ mod tests {
         assert_eq!(logs.len(), 0);
 
         let mut old_root = blocking_deposit_root(&deposit_contract, block_number);
+        let mut old_block_hash = blocking_block_hash(block_number);
+        let mut old_block_number = block_number;
 
         assert_eq!(
             blocking_deposit_count(&deposit_contract, block_number),
@@ -384,7 +413,22 @@ mod tests {
                 new_root, old_root,
                 "deposit root should change with each deposit"
             );
-            old_root = new_root
+            old_root = new_root;
+
+            // Check the block hash.
+            let new_block_hash = blocking_block_hash(block_number);
+            assert_ne!(
+                new_block_hash, old_block_hash,
+                "block hash should change with each deposit"
+            );
+            old_block_hash = new_block_hash;
+
+            // Check the block number.
+            assert!(
+                block_number > old_block_number,
+                "block number should increase"
+            );
+            old_block_number = block_number;
         }
     }
 }
