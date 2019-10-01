@@ -34,7 +34,7 @@ user-facing functionality.
 
 Current development overview:
 
-- Specification `v0.8.1` implemented, optimized and passing test vectors.
+- Specification `v0.8.3` implemented, optimized and passing test vectors.
 - Rust-native libp2p with Gossipsub and Discv5.
 - Metrics via Prometheus.
 - Basic gRPC API, soon to be replaced with RESTful HTTP/JSON.
