@@ -28,7 +28,7 @@ pub fn get_block_number(
         .map_err(|e| format!("Failed to get block number: {}", e))
 }
 
-pub fn get_logs_in_range(
+pub fn get_deposit_logs_in_range(
     endpoint: &str,
     address: &str,
     // TODO: add filter for topic.
@@ -105,12 +105,18 @@ fn response_result_as_u64(response: &str) -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eth1_test_rig::DepositContract;
+    use tokio::runtime::Runtime;
+
+    const ENDPOINT: &str = "http://localhost:8545";
+
+    fn runtime() -> Runtime {
+        Runtime::new().expect("should create runtime")
+    }
 
     #[test]
     fn block_number() {
-        let mut runtime = tokio::runtime::Runtime::new().expect("should start runtime");
-
-        runtime
+        runtime()
             .block_on(get_block_number(
                 "http://localhost:8545",
                 Duration::from_secs(1),
