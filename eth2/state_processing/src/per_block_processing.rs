@@ -1,6 +1,6 @@
 use crate::common::{initiate_validator_exit, slash_validator};
 use errors::{
-    BlockOperationError, BlockProcessingError, DepositInvalid, HeaderInvalid, IntoWithIndex,
+    BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex,
 };
 use rayon::prelude::*;
 use signature_sets::{block_proposal_signature_set, randao_signature_set};
@@ -430,13 +430,8 @@ pub fn process_deposit<T: EthSpec>(
     state.update_pubkey_cache()?;
 
     let pubkey: PublicKey = match (&deposit.data.pubkey).try_into() {
-        Ok(key) => key,
-        Err(_) => {
-            return Err(BlockProcessingError::DepositInvalid {
-                index: deposit_index,
-                reason: DepositInvalid::BadBlsBytes,
-            })
-        }
+        Err(_) => return Ok(()), //bad public key => return early
+        Ok(k) => k,
     };
 
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
@@ -452,8 +447,9 @@ pub fn process_deposit<T: EthSpec>(
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
-        verify_deposit_signature(state, deposit, spec)
-            .map_err(|e| e.into_with_index(deposit_index))?;
+        if verify_deposit_signature(state, deposit, spec).is_err() {
+            return Ok(());
+        }
 
         // Create a new validator.
         let validator = Validator {
