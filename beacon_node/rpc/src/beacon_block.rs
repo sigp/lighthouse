@@ -105,8 +105,8 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                             info!(
                                 self.log,
                                 "Valid block from RPC";
-                                "block_slot" => block.slot,
-                                "block_root" => format!("{}", block_root),
+                                "root" => format!("{}", block_root),
+                                "slot" => block.slot,
                             );
 
                             // create the network topic to send on
@@ -126,8 +126,7 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                                 .unwrap_or_else(|e| {
                                     error!(
                                         self.log,
-                                        "PublishBeaconBlock";
-                                        "type" => "failed to publish to gossipsub",
+                                        "Failed to gossip beacon block";
                                         "error" => format!("{:?}", e)
                                     );
                                 });
@@ -151,8 +150,7 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                         // Some failure during processing.
                         error!(
                             self.log,
-                            "PublishBeaconBlock";
-                            "type" => "failed_to_process",
+                            "Failed to process beacon block";
                             "error" => format!("{:?}", e)
                         );
 

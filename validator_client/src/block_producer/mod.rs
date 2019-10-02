@@ -6,7 +6,6 @@ pub use self::beacon_node_block::{BeaconNodeError, PublishOutcome};
 pub use self::grpc::BeaconBlockGrpcClient;
 use crate::signer::Signer;
 use core::marker::PhantomData;
-use serde_json;
 use slog::{error, info, trace, warn};
 use std::sync::Arc;
 use tree_hash::{SignedRoot, TreeHash};
@@ -99,10 +98,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
                 warn!(self.log, "Signing rejected"; "message" => format!("{:?}", message));
                 return Ok(ValidatorEvent::SignerRejection(self.slot));
             }
-            Some(signature) => {
-                info!(self.log, "Signed tree_hash_root for randao_reveal"; "message" => format!("{:?}", message), "signature" => serde_json::to_string(&signature).expect("We should always be able to serialize a signature as JSON."));
-                signature
-            }
+            Some(signature) => signature,
         };
 
         if let Some(block) = self
