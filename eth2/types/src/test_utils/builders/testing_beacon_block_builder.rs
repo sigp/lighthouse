@@ -26,6 +26,7 @@ pub enum AttestationTestTask {
     BadTargetTooHigh,
     BadParentCrosslinkDataRoot,
     BadIndexedAttestationBadSignature,
+    CustodyBitfieldNotSubset,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {

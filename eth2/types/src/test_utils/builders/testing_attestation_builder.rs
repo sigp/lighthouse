@@ -54,7 +54,7 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
         secret_keys: &[&SecretKey],
         fork: &Fork,
         spec: &ChainSpec,
-        custody_bit: bool,
+        mut custody_bit: bool,
     ) -> &mut Self {
         assert_eq!(
             signing_validators.len(),
@@ -71,6 +71,7 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
 
             match test_task {
                 AttestationTestTask::BadIndexedAttestationBadSignature => (),
+                AttestationTestTask::CustodyBitfieldNotSubset => custody_bit = true,
                 _ => {
                     self.attestation
                         .aggregation_bits
