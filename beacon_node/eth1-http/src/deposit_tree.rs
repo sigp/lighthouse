@@ -1,5 +1,5 @@
 use super::http::Log;
-use merkle_proof::MerkleTree;
+use eth2_hashing::hash;
 use ssz::Decode;
 use std::ops::Range;
 use tree_hash::TreeHash;
@@ -19,7 +19,7 @@ pub enum Error {
     DuplicateDistinctLog(u64),
     InternalError(String),
     DepositCountInvalid {
-        deposit_count: usize,
+        deposit_count: u64,
         range_end: u64,
     },
 }
@@ -38,13 +38,13 @@ const INDEX_START: usize = SIG_START + 96 + 32;
 const INDEX_LEN: usize = 8;
 
 /// A fully parsed eth1 deposit contract log.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct DepositLog {
-    deposit_data: DepositData,
+    pub deposit_data: DepositData,
     /// The block number of the log that included this `DepositData`.
-    block_number: u64,
+    pub block_number: u64,
     /// The index included with the deposit log.
-    index: u64,
+    pub index: u64,
 }
 
 impl DepositLog {
@@ -84,6 +84,45 @@ impl DepositLog {
             block_number: log.block_number,
             index: u64::from_ssz_bytes(index).map_err(|e| format!("Invalid index ssz: {:?}", e))?,
         })
+    }
+}
+
+pub struct DepositDataTree {
+    tree: merkle_proof::MerkleTree,
+    mix_in_length: usize,
+    depth: usize,
+}
+
+impl DepositDataTree {
+    /// Create a new Merkle tree from a list of leaves (`DepositData::tree_hash_root`) and a fixed depth.
+    pub fn create(leaves: &[Hash256], mix_in_length: usize, depth: usize) -> Self {
+        Self {
+            tree: merkle_proof::MerkleTree::create(leaves, depth),
+            mix_in_length,
+            depth,
+        }
+    }
+
+    fn length_bytes(&self) -> Vec<u8> {
+        int_to_bytes32(self.mix_in_length)
+    }
+
+    /// Retrieve the root hash of this Merkle tree.
+    pub fn root(&self) -> Hash256 {
+        let mut preimage = [0; 64];
+        preimage[0..32].copy_from_slice(&self.tree.hash()[..]);
+        preimage[32..64].copy_from_slice(&self.length_bytes());
+        Hash256::from_slice(&hash(&preimage))
+    }
+
+    /// Return the leaf at `index` and a Merkle proof of its inclusion.
+    ///
+    /// The Merkle proof is in "bottom-up" order, starting with a leaf node
+    /// and moving up the tree. Its length will be exactly equal to `depth`.
+    pub fn generate_proof(&self, index: usize) -> (Hash256, Vec<Hash256>) {
+        let (root, mut proof) = self.tree.generate_proof(index, self.depth);
+        proof.push(Hash256::from_slice(&self.length_bytes()));
+        (root, proof)
     }
 }
 
@@ -148,10 +187,10 @@ impl DepositTree {
     pub fn get_deposits(
         &self,
         range: Range<u64>,
-        deposit_count: usize,
+        deposit_count: u64,
         tree_depth: usize,
     ) -> Result<(Hash256, Vec<Deposit>), Error> {
-        if (deposit_count as u64) < range.end {
+        if deposit_count < range.end {
             // It's invalid to ask for more deposits than should exist.
             Err(Error::DepositCountInvalid {
                 deposit_count,
@@ -163,19 +202,20 @@ impl DepositTree {
                 requested: range.end,
                 known_deposits: self.logs.len(),
             })
-        } else if deposit_count > self.roots.len() {
+        } else if deposit_count > self.roots.len() as u64 {
             // There are not `deposit_count` known deposit roots, so we can't build the merkle tree
             // to prove into.
             Err(Error::InsufficientDeposits {
-                requested: deposit_count as u64,
+                requested: deposit_count,
                 known_deposits: self.logs.len(),
             })
         } else {
             let roots = self
                 .roots
-                .get(0..deposit_count)
+                .get(0..deposit_count as usize)
                 .ok_or_else(|| Error::InternalError("Unable to get known root".into()))?;
-            let tree = MerkleTree::create(roots, tree_depth);
+
+            let tree = DepositDataTree::create(roots, deposit_count as usize, tree_depth);
 
             let deposits = self
                 .logs
@@ -183,9 +223,7 @@ impl DepositTree {
                 .ok_or_else(|| Error::InternalError("Unable to get known log".into()))?
                 .iter()
                 .map(|deposit_log| {
-                    let (_, mut proof) =
-                        tree.generate_proof(deposit_log.index as usize, tree_depth);
-                    proof.push(Hash256::from_slice(&int_to_bytes32(deposit_count)));
+                    let (_leaf, proof) = tree.generate_proof(deposit_log.index as usize);
 
                     Deposit {
                         proof: proof.into(),
@@ -194,7 +232,7 @@ impl DepositTree {
                 })
                 .collect();
 
-            Ok((tree.hash(), deposits))
+            Ok((tree.root(), deposits))
         }
     }
 }
@@ -304,7 +342,7 @@ mod tests {
 
         // Get 0 deposits, with max deposit count.
         let (_, deposits) = tree
-            .get_deposits(0..0, n as usize, TREE_DEPTH)
+            .get_deposits(0..0, n, TREE_DEPTH)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
@@ -322,13 +360,13 @@ mod tests {
 
         // Get all deposits, with max deposit count.
         let (full_root, deposits) = tree
-            .get_deposits(0..n, n as usize, TREE_DEPTH)
+            .get_deposits(0..n, n, TREE_DEPTH)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), n as usize, "should return all deposits");
 
         // Get 4 deposits, with max deposit count.
         let (root, deposits) = tree
-            .get_deposits(0..4, n as usize, TREE_DEPTH)
+            .get_deposits(0..4, n, TREE_DEPTH)
             .expect("should get the four from the full tree");
         assert_eq!(
             deposits.len(),
@@ -342,7 +380,7 @@ mod tests {
 
         // Get half of the deposits, with half deposit count.
         let (half_root, deposits) = tree
-            .get_deposits(0..n / 2, n as usize / 2, TREE_DEPTH)
+            .get_deposits(0..n / 2, n / 2, TREE_DEPTH)
             .expect("should get the half tree");
         assert_eq!(
             deposits.len(),
@@ -352,7 +390,7 @@ mod tests {
 
         // Get 4 deposits, with half deposit count.
         let (root, deposits) = tree
-            .get_deposits(0..4, n as usize / 2, TREE_DEPTH)
+            .get_deposits(0..4, n / 2, TREE_DEPTH)
             .expect("should get the half tree");
         assert_eq!(
             deposits.len(),
@@ -383,10 +421,10 @@ mod tests {
         }
 
         // Range too high.
-        assert!(tree.get_deposits(0..n + 1, n as usize, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0..n + 1, n, TREE_DEPTH).is_err());
 
         // Count too high.
-        assert!(tree.get_deposits(0..n, n as usize + 1, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0..n, n + 1, TREE_DEPTH).is_err());
 
         // Range higher than count.
         assert!(tree.get_deposits(0..4, 2, TREE_DEPTH).is_err());
