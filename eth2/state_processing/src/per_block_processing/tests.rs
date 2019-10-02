@@ -253,7 +253,7 @@ fn invalid_attestation_no_committee_for_shard() {
 }
 
 #[test]
-fn invalid_attestation_badsource() {
+fn invalid_attestation_bad_source() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = AttestationTestTask::BadSource;
@@ -290,10 +290,10 @@ fn invalid_attestation_badsource() {
 }
 
 #[test]
-fn invalid_attestation_badtarget() {
+fn invalid_attestation_bad_target_too_low() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
-    let test_task = AttestationTestTask::BadTarget;
+    let test_task = AttestationTestTask::BadTargetTooLow;
     let (block, mut state) =
         builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
 
@@ -316,6 +316,64 @@ fn invalid_attestation_badtarget() {
                 other: Epoch::from(0 as u64),
             })
         ))
+    );
+}
+
+#[test]
+fn invalid_attestation_bad_target_too_high() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttestationTestTask::BadTargetTooHigh;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting EpochTooHigh because we manually set the
+    // target field of the AttestationData object to be invalid
+
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::BeaconStateError(
+            BeaconStateError::RelativeEpochError(RelativeEpochError::EpochTooHigh {
+                base: Epoch::from(4 as u64),
+                other: Epoch::from(10 as u64),
+            })
+        ))
+    );
+}
+
+#[test]
+fn invalid_attestation_bad_crosslink_data_root() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttestationTestTask::ShardBlockRootNotZero;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting ShardBlockRootNotZero because we manually set the
+    // data_root of the cross link to be non zero
+
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::ShardBlockRootNotZero,
+        })
     );
 }
 

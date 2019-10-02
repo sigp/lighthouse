@@ -58,6 +58,7 @@ impl TestingAttestationDataBuilder {
             parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
         );
         let mut parent_root = Hash256::from_slice(&parent_crosslink.tree_hash_root());
+        let mut data_root = Hash256::zero();
 
         match test_task {
             AttestationTestTask::BadParentCrosslinkStartEpoch => start = Epoch::from(10 as u64),
@@ -66,16 +67,23 @@ impl TestingAttestationDataBuilder {
             AttestationTestTask::NoCommiteeForShard => shard += 2,
             AttestationTestTask::BadSource => {
                 source = Checkpoint {
-                    epoch: Epoch::from(8 as u64),
+                    epoch: Epoch::from(0 as u64),
                     root: Hash256::zero(),
                 }
             }
-            AttestationTestTask::BadTarget => {
+            AttestationTestTask::BadTargetTooLow => {
                 target = Checkpoint {
-                    epoch: Epoch::from(8 as u64),
+                    epoch: Epoch::from(0 as u64),
                     root: Hash256::zero(),
                 }
             }
+            AttestationTestTask::BadTargetTooHigh => {
+                target = Checkpoint {
+                    epoch: Epoch::from(10 as u64),
+                    root: Hash256::zero(),
+                }
+            }
+            AttestationTestTask::ShardBlockRootNotZero => data_root = parent_root.clone(),
             // AttestationTestTask::BadTarget =>
             // AttestationTestTask::BadBeaconBlockRoot =>
             _ => (),
@@ -85,7 +93,7 @@ impl TestingAttestationDataBuilder {
             parent_root,
             start_epoch: start, // 0
             end_epoch: end,     // 4
-            data_root: parent_root,
+            data_root,
         };
 
         let data = AttestationData {

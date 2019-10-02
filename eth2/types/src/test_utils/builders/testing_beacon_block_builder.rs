@@ -22,7 +22,9 @@ pub enum AttestationTestTask {
     BadParentCrosslinkHash,
     NoCommiteeForShard,
     BadSource,
-    BadTarget,
+    BadTargetTooLow,
+    BadTargetTooHigh,
+    ShardBlockRootNotZero,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
