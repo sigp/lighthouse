@@ -76,7 +76,7 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
                         .aggregation_bits
                         .set(committee_index, true)
                         .unwrap();
-                    }
+                }
             }
 
             if custody_bit {

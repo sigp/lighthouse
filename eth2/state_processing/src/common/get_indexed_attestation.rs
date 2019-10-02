@@ -107,8 +107,22 @@ mod test {
             &spec,
         );
         attestation_builder
-            .sign(&AttestationTestTask::Valid, &bit_0_indices, &bit_0_keys, &state.fork, &spec, false)
-            .sign(&AttestationTestTask::Valid, &bit_1_indices, &bit_1_keys, &state.fork, &spec, true);
+            .sign(
+                &AttestationTestTask::Valid,
+                &bit_0_indices,
+                &bit_0_keys,
+                &state.fork,
+                &spec,
+                false,
+            )
+            .sign(
+                &AttestationTestTask::Valid,
+                &bit_1_indices,
+                &bit_1_keys,
+                &state.fork,
+                &spec,
+                true,
+            );
         let attestation = attestation_builder.build();
 
         let indexed_attestation = get_indexed_attestation(&state, &attestation).unwrap();

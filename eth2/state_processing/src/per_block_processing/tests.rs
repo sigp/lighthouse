@@ -399,9 +399,11 @@ fn invalid_attestation_bad_indexed_attestation_bad_signature() {
         result,
         Err(BlockProcessingError::AttestationInvalid {
             index: 0,
-            reason: AttestationInvalid::BadIndexedAttestation(IndexedAttestationInvalid::BadSignature)
-        }
-    ));
+            reason: AttestationInvalid::BadIndexedAttestation(
+                IndexedAttestationInvalid::BadSignature
+            )
+        })
+    );
 }
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
