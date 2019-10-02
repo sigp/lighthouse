@@ -4,8 +4,8 @@
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
 use eth1_http::http::{
-    get_block_hash, get_block_number, get_deposit_count, get_deposit_logs_in_range,
-    get_deposit_root, Log,
+    get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
+    Block, Log,
 };
 use eth1_http::{DepositLog, DepositTree};
 use eth1_test_rig::DepositContract;
@@ -180,9 +180,9 @@ mod deposit_tree {
 mod http {
     use super::*;
 
-    fn blocking_block_hash(block_number: u64) -> Hash256 {
+    fn blocking_block_hash(block_number: u64) -> Block {
         runtime()
-            .block_on(get_block_hash(ENDPOINT, block_number, timeout()))
+            .block_on(get_block(ENDPOINT, block_number, timeout()))
             .expect("should get block number")
     }
 
@@ -196,7 +196,7 @@ mod http {
         assert_eq!(logs.len(), 0);
 
         let mut old_root = blocking_deposit_root(&deposit_contract, block_number);
-        let mut old_block_hash = blocking_block_hash(block_number);
+        let mut old_block = blocking_block_hash(block_number);
         let mut old_block_number = block_number;
 
         assert_eq!(
@@ -231,12 +231,19 @@ mod http {
             old_root = new_root;
 
             // Check the block hash.
-            let new_block_hash = blocking_block_hash(block_number);
+            let new_block = blocking_block_hash(block_number);
             assert_ne!(
-                new_block_hash, old_block_hash,
+                new_block.hash, old_block.hash,
                 "block hash should change with each deposit"
             );
-            old_block_hash = new_block_hash;
+
+            // Check to ensure the timestamp is increasing
+            assert!(
+                old_block.timestamp < new_block.timestamp,
+                "block timestamp should increase"
+            );
+
+            old_block = new_block.clone();
 
             // Check the block number.
             assert!(
@@ -245,10 +252,11 @@ mod http {
             );
             old_block_number = block_number;
 
+            // Check to ensure the block root is changing
             assert_ne!(
-                new_root, new_block_hash,
+                new_root, new_block.hash,
                 "the deposit root should be different to the block hash"
-            )
+            );
         }
     }
 }

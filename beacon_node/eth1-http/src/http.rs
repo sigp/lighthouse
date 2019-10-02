@@ -28,6 +28,12 @@ pub const DEPOSIT_COUNT_FN_SIGNATURE: &str = "0x621fd130";
 pub const DEPOSIT_ROOT_BYTES: usize = 32;
 pub const DEPOSIT_COUNT_RESPONSE_BYTES: usize = 96;
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct Block {
+    pub hash: Hash256,
+    pub timestamp: u64,
+}
+
 /// Returns the current block number.
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
@@ -49,11 +55,11 @@ pub fn get_block_number(
 /// Gets a block hash by block number.
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
-pub fn get_block_hash(
+pub fn get_block(
     endpoint: &str,
     block_number: u64,
     timeout: Duration,
-) -> impl Future<Item = Hash256, Error = String> {
+) -> impl Future<Item = Block, Error = String> {
     let params = json!([
         format!("0x{:x}", block_number),
         false // do not return full tx objects.
@@ -61,18 +67,28 @@ pub fn get_block_hash(
 
     send_rpc_request(endpoint, "eth_getBlockByNumber", params, timeout)
         .and_then(|response_body| {
-            let bytes = hex_to_bytes(
+            let hash = hex_to_bytes(
                 response_result(&response_body)?
                     .get("hash")
                     .ok_or_else(|| "No hash for block")?
                     .as_str()
                     .ok_or_else(|| "Block hash was not string")?,
             )?;
-            if bytes.len() == 32 {
-                Ok(Hash256::from_slice(&bytes))
+            let hash = if hash.len() == 32 {
+                Ok(Hash256::from_slice(&hash))
             } else {
-                Err(format!("Block has was not 32 bytes: {:?}", bytes))
-            }
+                Err(format!("Block has was not 32 bytes: {:?}", hash))
+            }?;
+
+            let timestamp = hex_to_u64_be(
+                response_result(&response_body)?
+                    .get("timestamp")
+                    .ok_or_else(|| "No timestamp for block")?
+                    .as_str()
+                    .ok_or_else(|| "Block timestamp was not string")?,
+            )?;
+
+            Ok(Block { hash, timestamp })
         })
         .map_err(|e| format!("Failed to get block number: {}", e))
 }

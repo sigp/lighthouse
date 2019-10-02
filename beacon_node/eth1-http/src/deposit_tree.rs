@@ -87,6 +87,7 @@ impl DepositLog {
     }
 }
 
+/// Emulates the eth1 deposit contract merkle tree.
 pub struct DepositDataTree {
     tree: merkle_proof::MerkleTree,
     mix_in_length: usize,
