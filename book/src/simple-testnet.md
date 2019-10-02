@@ -1,32 +1,24 @@
 # Simple Local Testnet
 
-You can setup a local, two-node testnet in **Only Three CLI Commands™**.
-
-Follow the [Quick instructions](#tldr) version if you're confident, or see
-[Detailed instructions](#detail) for more.
-
-
-## Quick instructions
-
-Setup a development environment, build the project and navigate to the
-`target/release` directory.
+With a functional [development environment](./setup.md), starting a local multi-node
+testnet is easy:
 
 1. Start the first node: `$ ./beacon_node testnet -f recent 8`
 1. Start a validator client: `$ ./validator_client testnet -b insecure 0 8`
-1. Start another node `$ ./beacon_node -b 10 testnet -f bootstrap http://localhost:5052`
+1. Start more nodes with `$ ./beacon_node -b 10 testnet -f bootstrap
+   http://localhost:5052`
+   - Increment the `-b` value by `10` for each additional node.
 
-_Repeat #3 to add more nodes._
-
-## Detailed instructions
+## Detailed Instructions
 
 First, setup a Lighthouse development environment and navigate to the
 `target/release` directory (this is where the binaries are located).
 
-## Starting the Beacon Node
+## Starting a beacon node
 
 Start a new node (creating a fresh database and configuration in `~/.lighthouse`), using:
 
-```
+```bash
 $ ./beacon_node testnet -f recent 8
 ```
 
@@ -38,11 +30,11 @@ $ ./beacon_node testnet -f recent 8
 > - See `$ ./beacon_node testnet recent --help` for more configuration options,
 >   including `minimal`/`mainnet` specification.
 
-## Starting the Validator Client
+## Starting a validator client
 
 In a new terminal window, start the validator client with:
 
-```
+```bash
 $ ./validator_client testnet -b insecure 0 8
 ```
 
@@ -57,15 +49,15 @@ $ ./validator_client testnet -b insecure 0 8
 > - The validator client will try to connect to the beacon node at `localhost`.
 >   See `--help` to configure that address and other features.
 
-## Adding another Beacon Node
+## Adding another beacon node
 
 You may connect another (non-validating) node to your local network using the
 lighthouse `bootstrap` command.
 
-In a new terminal terminal, run:
+In a new terminal window, run:
 
 
-```
+```bash
 $ ./beacon_node -b 10 testnet -r bootstrap
 ```
 

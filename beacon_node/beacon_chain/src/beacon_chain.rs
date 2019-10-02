@@ -10,7 +10,7 @@ use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use slog::{error, info, trace, warn, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
@@ -646,8 +646,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     trace!(
                         self.log,
                         "Beacon attestation imported";
-                        "shard" => attestation.data.crosslink.shard,
                         "target_epoch" => attestation.data.target.epoch,
+                        "shard" => attestation.data.crosslink.shard,
                     );
                     let _ = self
                         .event_handler
@@ -1397,12 +1397,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 info!(
                     self.log,
                     "New head beacon block";
+                    "root" => format!("{}", beacon_block_root),
+                    "slot" => new_slot,
+                );
+                debug!(
+                    self.log,
+                    "Head beacon block";
                     "justified_root" => format!("{}", beacon_state.current_justified_checkpoint.root),
                     "justified_epoch" => beacon_state.current_justified_checkpoint.epoch,
                     "finalized_root" => format!("{}", beacon_state.finalized_checkpoint.root),
                     "finalized_epoch" => beacon_state.finalized_checkpoint.epoch,
-                    "root" => format!("{}", beacon_block_root),
-                    "slot" => new_slot,
                 );
             };
 

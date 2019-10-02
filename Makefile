@@ -1,31 +1,30 @@
-TESTS_TAG := v0.8.3
-TESTS = general minimal mainnet
+.PHONY: tests
 
-TESTS_BASE_DIR := ./tests/ef_tests
-REPO_NAME := eth2.0-spec-tests
-OUTPUT_DIR := $(TESTS_BASE_DIR)/$(REPO_NAME)
+EF_TESTS = "tests/ef_tests"
 
-BASE_URL := https://github.com/ethereum/$(REPO_NAME)/releases/download/$(SPEC_VERSION)
-
+# Builds the entire workspace in release (optimized).
+#
+# Binaries will most likely be found in `./target/release`
 release:
-	cargo build --all --release
+	cargo build --release --all
 
-clean_ef_tests:
-	rm -r $(OUTPUT_DIR)
+# Runs the full workspace tests, without downloading any additional test
+# vectors.
+test:
+	cargo test --all --all-features --release
 
-ef_tests: download_tests extract_tests
-	mkdir $(OUTPUT_DIR)
-	for test in $(TESTS); do \
-		tar -C $(OUTPUT_DIR) -xvf $(TESTS_BASE_DIR)/$$test.tar ;\
-		rm $(TESTS_BASE_DIR)/$$test.tar ;\
-	done
+# Runs the entire test suite, downloading test vectors if required.
+test-full: make-ef-tests test
 
-extract_tests:
-	for test in $(TESTS); do \
-		gzip -df $(TESTS_BASE_DIR)/$$test.tar.gz ;\
-	done
+# Runs the makefile in the `ef_tests` repo.
+#
+# May download and extract an archive of test vectors from the ethereum
+# repositories. At the time of writing, this was several hundred MB of
+# downloads which extracts into several GB of test vectors.
+make-ef-tests:
+	make -C $(EF_TESTS)
 
-download_tests:
-	for test in $(TESTS); do \
-		wget -P $(TESTS_BASE_DIR) $(BASE_URL)/$$test.tar.gz; \
-	done
+# Performs a `cargo` clean and cleans the `ef_tests` directory.
+clean:
+	cargo clean
+	make -C $(EF_TESTS) clean
