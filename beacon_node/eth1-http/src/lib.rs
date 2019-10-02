@@ -1,3 +1,15 @@
+//! Provides a very minimal set of functions for interfacing with the eth2 deposit contract via an
+//! eth1 HTTP JSON-RPC endpoint.
+//!
+//! All remote functions return a future (i.e., are async).
+//!
+//! Does not use a web3 library, instead it uses `reqwest` (`hyper`) to call the remote endpoint
+//! and `serde` to decode the response.
+//!
+//! ## Note
+//!
+//! There is no ABI parsing here, all function signatures and topics are hard-coded as constants.
+
 use futures::{Future, Stream};
 use reqwest::{r#async::ClientBuilder, StatusCode};
 use serde_json::{json, Value};
@@ -25,7 +37,7 @@ pub fn get_block_number(
 ) -> impl Future<Item = u64, Error = String> {
     send_rpc_request(endpoint, "eth_blockNumber", json!([]), timeout)
         .and_then(|response_body| {
-            hex_to_u64(
+            hex_to_u64_be(
                 response_result(&response_body)?
                     .as_str()
                     .ok_or_else(|| "Data was not string")?,
@@ -207,7 +219,7 @@ pub fn get_deposit_logs_in_range(
                         .ok_or_else(|| "Data was not string")?;
 
                     Ok(Log {
-                        block_number: hex_to_u64(&block_number)?,
+                        block_number: hex_to_u64_be(&block_number)?,
                         data: hex_to_bytes(data)?,
                     })
                 })
@@ -245,7 +257,10 @@ fn send_rpc_request(
         .map_err(|e| format!("Request failed: {:?}", e))
         .and_then(|response| {
             if response.status() != StatusCode::OK {
-                Err(format!("Received error {}.", response.status()))
+                Err(format!(
+                    "Response HTTP status was not 200 OK:  {}.",
+                    response.status()
+                ))
             } else {
                 Ok(response)
             }
@@ -269,26 +284,36 @@ fn response_result(response: &str) -> Result<Value, String> {
         .ok_or_else(|| "Rpc response did not have a `result` field".to_string())
 }
 
-fn hex_to_u64(hex: &str) -> Result<u64, String> {
-    let hex = if hex.starts_with("0x") {
-        &hex[2..]
+/// Parses a `0x`-prefixed, **big-endian** hex string as a u64.
+///
+/// Note: the JSON-RPC encodes integers as big-endian. The deposit contract uses little-endian.
+/// Therefore, this function is only useful for numbers encoded by the JSON RPC.
+///
+/// E.g., `0x01 == 1`
+fn hex_to_u64_be(hex: &str) -> Result<u64, String> {
+    if hex.starts_with("0x") {
+        u64::from_str_radix(&hex[2..], 16)
+            .map_err(|e| format!("Failed to parse hex as u64: {:?}", e))
     } else {
-        hex
-    };
-
-    u64::from_str_radix(hex, 16).map_err(|e| format!("Failed to parse hex as u64: {:?}", e))
+        Err("Hex string did not start with `0x`".to_string())
+    }
 }
 
+/// Parses a `0x`-prefixed, big-endian hex string as bytes.
+///
+/// E.g., `0x0102 == vec![1, 2]`
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
-    let hex = if hex.starts_with("0x") {
-        &hex[2..]
+    if hex.starts_with("0x") {
+        hex::decode(&hex[2..]).map_err(|e| format!("Failed to parse hex as bytes: {:?}", e))
     } else {
-        hex
-    };
-
-    hex::decode(hex).map_err(|e| format!("Failed to parse hex as u64: {:?}", e))
+        Err("Hex string did not start with `0x`".to_string())
+    }
 }
 
+/// NOTE: These tests will not pass unless ganache-cli is running on `ENDPOINT` (see below).
+///
+/// You can start a suitable instance using the `ganache_test_node.sh` script in the `scripts`
+/// dir in the root of the `lighthouse` repo.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,6 +454,11 @@ mod tests {
                 "block number should increase"
             );
             old_block_number = block_number;
+
+            assert_ne!(
+                new_root, new_block_hash,
+                "the deposit root should be different to the block hash"
+            )
         }
     }
 }

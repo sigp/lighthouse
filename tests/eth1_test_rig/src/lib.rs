@@ -1,3 +1,11 @@
+//! Provides utilities for deploying and manipulating the eth2 deposit contract on the eth1 chain.
+//!
+//! Presently used with [`ganache-cli`](https://github.com/trufflesuite/ganache-cli) to simulate
+//! the deposit contract for testing beacon node eth1 integration.
+//!
+//! Not tested to work with actual clients (e.g., geth). It should work fine, however there may be
+//! some initial issues.
+
 use futures::Future;
 use ssz::Encode;
 use std::sync::Arc;
