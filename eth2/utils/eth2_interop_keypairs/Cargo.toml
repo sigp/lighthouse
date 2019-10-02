@@ -11,7 +11,7 @@ lazy_static = "1.4"
 num-bigint = "0.2"
 eth2_hashing = "0.1"
 hex = "0.3"
-milagro_bls = { git = "https://github.com/michaelsproul/milagro_bls", branch = "little-endian-v0.10" }
+milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v0.11.0" }
 serde_yaml = "0.8"
 serde = "1.0"
 serde_derive = "1.0"
