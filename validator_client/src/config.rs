@@ -261,12 +261,16 @@ impl Config {
     /// Saves a keypair to a file inside the appropriate validator directory. Returns the saved path filename.
     #[allow(dead_code)]
     pub fn save_key(&self, key: &Keypair) -> Result<PathBuf, Error> {
+        use std::os::unix::fs::PermissionsExt;
         let validator_config_path = self.data_dir.join(key.identifier());
         let key_path = validator_config_path.join(DEFAULT_PRIVATE_KEY_FILENAME);
 
         fs::create_dir_all(&validator_config_path)?;
 
         let mut key_file = File::create(&key_path)?;
+        let mut perm = key_file.metadata()?.permissions();
+        perm.set_mode((libc::S_IWUSR | libc::S_IRUSR) as u32);
+        key_file.set_permissions(perm)?;
 
         bincode::serialize_into(&mut key_file, &key)
             .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
