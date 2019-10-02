@@ -80,7 +80,8 @@ The best place for discussion is the [Lighthouse Discord
 server](https://discord.gg/cyAszAh). Alternatively, you may use the
 [sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
 
-Encrypt sensitive messages using our [PGP key](https://keybase.io/sigp).
+Encrypt sensitive messages using our [PGP
+key](https://keybase.io/sigp/pgp_keys.asc?fingerprint=dcf37e025d6c9d42ea795b119e7c6cf9988604be).
 
 ## Donations
 

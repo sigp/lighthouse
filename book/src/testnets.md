@@ -61,6 +61,10 @@ $ ./beacon_node testnet --spec minimal -f file ssz /tmp/genesis.ssz
 >   up before re-initializing.
 > - See `$ ./beacon_node testnet file --help` for more configuration options.
 > - The `--spec` flag is required to allow SSZ parsing of fixed-length lists.
+>   Here the `minimal` eth2 specification is chosen, allowing for lower
+>   validator counts. See
+>   [eth2.0-specs/configs](https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
+>   for more info.
 
 ### Start an auto-configured validator client
 
