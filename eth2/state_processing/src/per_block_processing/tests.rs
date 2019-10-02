@@ -353,7 +353,7 @@ fn invalid_attestation_bad_target_too_high() {
 fn invalid_attestation_bad_crosslink_data_root() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
-    let test_task = AttestationTestTask::ShardBlockRootNotZero;
+    let test_task = AttestationTestTask::BadParentCrosslinkDataRoot;
     let (block, mut state) =
         builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
 

@@ -59,6 +59,7 @@ impl TestingAttestationDataBuilder {
         );
         let mut parent_root = Hash256::from_slice(&parent_crosslink.tree_hash_root());
         let mut data_root = Hash256::zero();
+        let beacon_block_root = *state.get_block_root(slot).unwrap();
 
         match test_task {
             AttestationTestTask::BadParentCrosslinkStartEpoch => start = Epoch::from(10 as u64),
@@ -83,9 +84,7 @@ impl TestingAttestationDataBuilder {
                     root: Hash256::zero(),
                 }
             }
-            AttestationTestTask::ShardBlockRootNotZero => data_root = parent_root.clone(),
-            // AttestationTestTask::BadTarget =>
-            // AttestationTestTask::BadBeaconBlockRoot =>
+            AttestationTestTask::BadParentCrosslinkDataRoot => data_root = parent_root,
             _ => (),
         }
         let crosslink = Crosslink {
@@ -98,10 +97,10 @@ impl TestingAttestationDataBuilder {
 
         let data = AttestationData {
             // LMD GHOST vote
-            beacon_block_root: *state.get_block_root(slot).unwrap(), // 0x000
+            beacon_block_root, // 0x000
 
             // FFG Vote
-            source, // Checkpoint {2, 0x000}
+            source, // Checkpoint {2, 0x000} SCOTT
             target, // Checkpoint {4, 0x000}
 
             // Crosslink vote
