@@ -25,6 +25,7 @@ pub enum AttestationTestTask {
     BadTargetTooLow,
     BadTargetTooHigh,
     BadParentCrosslinkDataRoot,
+    BadIndexedAttestationBadSignature,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
@@ -197,6 +198,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                     .map(|validator_index| secret_keys[*validator_index])
                     .collect();
                 builder.sign(
+                    test_task,
                     signing_validators,
                     &signing_secret_keys,
                     &state.fork,

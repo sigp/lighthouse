@@ -377,6 +377,33 @@ fn invalid_attestation_bad_crosslink_data_root() {
     );
 }
 
+#[test]
+fn invalid_attestation_bad_indexed_attestation_bad_signature() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttestationTestTask::BadIndexedAttestationBadSignature;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting BadIndexedAttestation(BadSignature) because we ommitted the aggregation bits in the attestation
+
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::BadIndexedAttestation(IndexedAttestationInvalid::BadSignature)
+        }
+    ));
+}
+
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
     let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);
 

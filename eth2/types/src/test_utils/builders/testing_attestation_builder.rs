@@ -49,6 +49,7 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
     /// keypair must be that of the first signing validator.
     pub fn sign(
         &mut self,
+        test_task: &AttestationTestTask,
         signing_validators: &[usize],
         secret_keys: &[&SecretKey],
         fork: &Fork,
@@ -68,10 +69,15 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
                 .position(|v| *v == *validator_index)
                 .expect("Signing validator not in attestation committee");
 
-            self.attestation
-                .aggregation_bits
-                .set(committee_index, true)
-                .unwrap();
+            match test_task {
+                AttestationTestTask::BadIndexedAttestationBadSignature => (),
+                _ => {
+                    self.attestation
+                        .aggregation_bits
+                        .set(committee_index, true)
+                        .unwrap();
+                    }
+            }
 
             if custody_bit {
                 self.attestation
