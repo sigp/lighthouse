@@ -1,17 +1,19 @@
-#![cfg(test)]
 //! NOTE: These tests will not pass unless ganache-cli is running on `ENDPOINT` (see below).
 //!
 //! You can start a suitable instance using the `ganache_test_node.sh` script in the `scripts`
 //! dir in the root of the `lighthouse` repo.
+#![cfg(test)]
 use eth1_http::http::{
     get_block_hash, get_block_number, get_deposit_count, get_deposit_logs_in_range,
     get_deposit_root, Log,
 };
 use eth1_http::{DepositLog, DepositTree};
 use eth1_test_rig::DepositContract;
+use merkle_proof::verify_merkle_proof;
 use std::ops::Range;
 use std::time::Duration;
 use tokio::runtime::Runtime;
+use tree_hash::TreeHash;
 use types::{DepositData, Epoch, EthSpec, Fork, Hash256, Keypair, MainnetEthSpec, Signature};
 
 const ENDPOINT: &str = "http://localhost:8545";
@@ -102,20 +104,20 @@ mod deposit_tree {
 
         let mut deposit_roots = vec![];
         let mut deposit_counts = vec![];
-        let mut block_numbers = vec![];
 
+        // Perform deposits to the smart contract, recording it's state along the way.
         for deposit in &deposits {
             deposit_contract
                 .deposit(deposit.clone())
                 .expect("should perform a deposit");
             let block_number = blocking_block_number();
-            block_numbers.push(block_number);
             deposit_roots.push(blocking_deposit_root(&deposit_contract, block_number));
             deposit_counts.push(blocking_deposit_count(&deposit_contract, block_number));
         }
 
         let mut tree = DepositTree::new();
 
+        // Pull all the deposit logs from the contract.
         let block_number = blocking_block_number();
         let logs: Vec<_> = blocking_deposit_logs(&deposit_contract, 0..block_number)
             .iter()
@@ -126,6 +128,7 @@ mod deposit_tree {
             })
             .collect();
 
+        // Check the logs for invariants.
         for i in 0..logs.len() {
             let log = &logs[i];
             assert_eq!(
@@ -134,27 +137,41 @@ mod deposit_tree {
                 i
             );
             assert_eq!(log.index, i as u64, "log {} should have correct index", i);
-            assert_eq!(
-                log.block_number, block_numbers[i],
-                "log {} should have correct block number",
-                i
-            );
         }
 
+        // For each deposit test some more invariants
         for i in 0..n {
+            // Ensure the deposit count from the smart contract was as expected.
             assert_eq!(
                 deposit_counts[i],
                 i as u64 + 1,
                 "deposit count should be accurate"
             );
-            let (root, _) = tree
-                .get_deposits(0..0, deposit_counts[i], DEPOSIT_CONTRACT_TREE_DEPTH)
+
+            // Ensure that the root from the deposit tree matches what the contract reported.
+            let (root, deposits) = tree
+                .get_deposits(0..i as u64, deposit_counts[i], DEPOSIT_CONTRACT_TREE_DEPTH)
                 .expect("should get deposits");
             assert_eq!(
                 root, deposit_roots[i],
                 "tree deposit root {} should match the contract",
                 i
             );
+
+            // Ensure that the deposits all prove into the root from the smart contract.
+            let deposit_root = deposit_roots[i];
+            for (j, deposit) in deposits.iter().enumerate() {
+                assert!(
+                    verify_merkle_proof(
+                        Hash256::from_slice(&deposit.data.tree_hash_root()),
+                        &deposit.proof,
+                        DEPOSIT_CONTRACT_TREE_DEPTH + 1,
+                        j,
+                        deposit_root
+                    ),
+                    "deposit merkle proof should prove into deposit contract root"
+                )
+            }
         }
     }
 }
