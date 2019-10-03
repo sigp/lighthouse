@@ -10,17 +10,11 @@ use eth2_libp2p::Service as LibP2PService;
 // use eth2_libp2p::Topic;
 // use eth2_libp2p::{Enr, Libp2pEvent, Multiaddr, PeerId, Swarm};
 // use eth2_libp2p::{PubsubMessage, RPCEvent};
-use slog_async;
-use slog_term;
-
 use slog::Drain;
+use slog_stdlog;
 
 fn setup_log() -> slog::Logger {
-    let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    let drain = slog_async::Async::new(drain).build().fuse();
-
-    slog::Logger::root(drain, o!())
+    slog::Logger::root(slog_stdlog::StdLog.fuse(), o!())
 }
 
 fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
