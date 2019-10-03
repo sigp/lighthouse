@@ -63,7 +63,6 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         }
 
         let all_secret_keys: Vec<&SecretKey> = keypairs.iter().map(|keypair| &keypair.sk).collect();
-        let num_attestations = num_attestations;
         self.block_builder
             .insert_attestations(
                 test_task,

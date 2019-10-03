@@ -79,12 +79,14 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
                         .unwrap();
                 }
             }
-
-            if custody_bit {
-                self.attestation
-                    .custody_bits
-                    .set(committee_index, true)
-                    .unwrap();
+            match (custody_bit, test_task) {
+                (true, _) | (_, AttestationTestTask::CustodyBitfieldHasSetBits) => {
+                    self.attestation
+                        .custody_bits
+                        .set(committee_index, true)
+                        .unwrap();
+                }
+                (false, _) => (),
             }
 
             let message = AttestationDataAndCustodyBit {

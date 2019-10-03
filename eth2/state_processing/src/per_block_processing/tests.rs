@@ -422,13 +422,41 @@ fn invalid_attestation_custody_bitfield_not_subset() {
         &spec,
     );
 
-    // Expecting CustodyBitfieldNotSubset because we 
+    // Expecting CustodyBitfieldNotSubset because we set custody_bit to true without setting the aggregation bits.
 
     assert_eq!(
         result,
         Err(BlockProcessingError::AttestationInvalid {
             index: 0,
             reason: AttestationInvalid::CustodyBitfieldNotSubset
+        })
+    );
+}
+
+#[test]
+fn invalid_attestation_custody_bitfield_has_set_bits() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttestationTestTask::CustodyBitfieldHasSetBits;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting CustodyBitfieldHasSetBits because we set custody bits even though the custody_bit boolean is set to false
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::BadIndexedAttestation(
+                IndexedAttestationInvalid::CustodyBitfieldHasSetBits
+            )
         })
     );
 }
