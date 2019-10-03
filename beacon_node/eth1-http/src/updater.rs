@@ -37,6 +37,54 @@ pub enum Eth1UpdateResult {
     UpdateInProgress,
 }
 
+/// The preferred method for instantiating an `Eth1Cache`.
+pub struct Eth1CacheBuilder {
+    endpoint: String,
+    deposit_contract_address: String,
+    initial_eth1_block: u64,
+    eth1_follow_distance: u64,
+}
+
+impl Eth1CacheBuilder {
+    /// Creates a new builder with defaults.
+    pub fn new(endpoint: String, deposit_contract_address: String) -> Self {
+        Self {
+            endpoint,
+            deposit_contract_address,
+            initial_eth1_block: 128,
+            eth1_follow_distance: 0,
+        }
+    }
+
+    /// Sets the earliest block that will be downloaded to satisfy the `Eth1Data` cache.
+    ///
+    /// Failing to set this away from the default of `0` may result in the entire eth1 chain being
+    /// downloaded and stored in memory.
+    pub fn initial_eth1_block(mut self, initial_eth1_block: u64) -> Self {
+        self.initial_eth1_block = initial_eth1_block;
+        self
+    }
+
+    /// Sets the follow distance for the caches.
+    ///
+    /// Setting the value higher means waiting for more confirmations before importing Eth1 data.
+    /// Setting the value to `0` means we follow the head. The default is `128`.
+    pub fn eth1_follow_distance(mut self, eth1_follow_distance: u64) -> Self {
+        self.eth1_follow_distance = eth1_follow_distance;
+        self
+    }
+
+    /// Consumers the builder and returns a new `Eth1Cache`.
+    pub fn build(self) -> Eth1Cache {
+        Eth1Cache {
+            endpoint: self.endpoint,
+            deposit_contract_address: self.deposit_contract_address,
+            eth1_data_cache: RwLock::new(Eth1DataCache::new(self.initial_eth1_block as usize)),
+            eth1_data_cache_update_lock: Mutex::new(()),
+        }
+    }
+}
+
 /// Stores all necessary information for beacon chain block production, including choosing an
 /// `Eth1Data` for block production and gathering `Deposits` for inclusion in blocks.
 ///
