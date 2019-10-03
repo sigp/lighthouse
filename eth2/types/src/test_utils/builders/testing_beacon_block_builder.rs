@@ -30,6 +30,7 @@ pub enum AttestationTestTask {
     CustodyBitfieldHasSetBits,
     BadCustodyBitfieldLen,
     BadAggregationBitfieldLen,
+    BadSignature,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
