@@ -119,7 +119,7 @@ pub fn get_deposit_count(
     address: &str,
     block_number: u64,
     timeout: Duration,
-) -> impl Future<Item = u64, Error = String> {
+) -> impl Future<Item = Option<u64>, Error = String> {
     call(
         endpoint,
         address,
@@ -128,10 +128,12 @@ pub fn get_deposit_count(
         timeout,
     )
     .and_then(|bytes| {
-        if bytes.len() == DEPOSIT_COUNT_RESPONSE_BYTES {
+        if bytes.is_empty() {
+            Ok(None)
+        } else if bytes.len() == DEPOSIT_COUNT_RESPONSE_BYTES {
             let mut array = [0; 8];
             array.copy_from_slice(&bytes[32 + 32..32 + 32 + 8]);
-            Ok(u64::from_le_bytes(array))
+            Ok(Some(u64::from_le_bytes(array)))
         } else {
             Err(format!(
                 "Deposit count response was not {} bytes: {:?}",
@@ -151,7 +153,7 @@ pub fn get_deposit_root(
     address: &str,
     block_number: u64,
     timeout: Duration,
-) -> impl Future<Item = Hash256, Error = String> {
+) -> impl Future<Item = Option<Hash256>, Error = String> {
     call(
         endpoint,
         address,
@@ -160,8 +162,10 @@ pub fn get_deposit_root(
         timeout,
     )
     .and_then(|bytes| {
-        if bytes.len() == DEPOSIT_ROOT_BYTES {
-            Ok(Hash256::from_slice(&bytes))
+        if bytes.is_empty() {
+            Ok(None)
+        } else if bytes.len() == DEPOSIT_ROOT_BYTES {
+            Ok(Some(Hash256::from_slice(&bytes)))
         } else {
             Err(format!(
                 "Deposit root response was not {} bytes: {:?}",

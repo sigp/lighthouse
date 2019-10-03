@@ -67,7 +67,7 @@ fn blocking_deposit_logs(deposit_contract: &DepositContract, range: Range<u64>) 
 }
 
 /// Blocking operation to get the deposit root from the `deposit_contract`.
-fn blocking_deposit_root(deposit_contract: &DepositContract, block_number: u64) -> Hash256 {
+fn blocking_deposit_root(deposit_contract: &DepositContract, block_number: u64) -> Option<Hash256> {
     runtime()
         .block_on(get_deposit_root(
             ENDPOINT,
@@ -79,7 +79,7 @@ fn blocking_deposit_root(deposit_contract: &DepositContract, block_number: u64) 
 }
 
 /// Blocking operation to get the deposit count from the `deposit_contract`.
-fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64) -> u64 {
+fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64) -> Option<u64> {
     runtime()
         .block_on(get_deposit_count(
             ENDPOINT,
@@ -91,7 +91,51 @@ fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64)
 }
 
 mod eth1_cache {
-    //
+    use super::*;
+    use eth1_http::{update_eth1_data_cache, Eth1CacheBuilder};
+    use std::sync::Arc;
+
+    #[test]
+    fn test() {
+        let n = 8;
+        for initial_eth1_block in 0..1 {
+            for follow_distance in 0..2 {
+                let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
+
+                let deposit_contract =
+                    DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
+
+                // Perform deposits to the smart contract, recording it's state along the way.
+                for deposit in &deposits {
+                    deposit_contract
+                        .deposit(deposit.clone())
+                        .expect("should perform a deposit");
+                }
+
+                let cache = Arc::new(
+                    Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
+                        .initial_eth1_block(initial_eth1_block)
+                        .eth1_follow_distance(follow_distance)
+                        .build(),
+                );
+
+                assert_eq!(
+                    cache.latest_block_number(),
+                    initial_eth1_block,
+                    "cache should be empty at the start"
+                );
+
+                runtime()
+                    .block_on(update_eth1_data_cache(cache.clone()))
+                    .expect("should update cache");
+
+                assert!(
+                    cache.latest_block_number() >= n,
+                    "cache should have at least as many blocks as produced"
+                );
+            }
+        }
+    }
 }
 
 mod deposit_tree {
@@ -115,8 +159,14 @@ mod deposit_tree {
                 .deposit(deposit.clone())
                 .expect("should perform a deposit");
             let block_number = blocking_block_number();
-            deposit_roots.push(blocking_deposit_root(&deposit_contract, block_number));
-            deposit_counts.push(blocking_deposit_count(&deposit_contract, block_number));
+            deposit_roots.push(
+                blocking_deposit_root(&deposit_contract, block_number)
+                    .expect("should get root if contract exists"),
+            );
+            deposit_counts.push(
+                blocking_deposit_count(&deposit_contract, block_number)
+                    .expect("should get count if contract exists"),
+            );
         }
 
         let mut tree = DepositCache::new();
@@ -205,7 +255,7 @@ mod http {
 
         assert_eq!(
             blocking_deposit_count(&deposit_contract, block_number),
-            0,
+            Some(0),
             "should have deposit count zero"
         );
 
@@ -222,7 +272,7 @@ mod http {
             // Check the deposit count.
             assert_eq!(
                 blocking_deposit_count(&deposit_contract, block_number),
-                i as u64,
+                Some(i as u64),
                 "should have a correct deposit count"
             );
 
@@ -258,7 +308,8 @@ mod http {
 
             // Check to ensure the block root is changing
             assert_ne!(
-                new_root, new_block.hash,
+                new_root,
+                Some(new_block.hash),
                 "the deposit root should be different to the block hash"
             );
         }
