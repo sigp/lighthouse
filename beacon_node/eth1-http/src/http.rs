@@ -32,6 +32,7 @@ pub const DEPOSIT_COUNT_RESPONSE_BYTES: usize = 96;
 pub struct Block {
     pub hash: Hash256,
     pub timestamp: u64,
+    pub number: u64,
 }
 
 /// Returns the current block number.
@@ -88,7 +89,19 @@ pub fn get_block(
                     .ok_or_else(|| "Block timestamp was not string")?,
             )?;
 
-            Ok(Block { hash, timestamp })
+            let number = hex_to_u64_be(
+                response_result(&response_body)?
+                    .get("number")
+                    .ok_or_else(|| "No number for block")?
+                    .as_str()
+                    .ok_or_else(|| "Block number was not string")?,
+            )?;
+
+            Ok(Block {
+                hash,
+                timestamp,
+                number,
+            })
         })
         .map_err(|e| format!("Failed to get block number: {}", e))
 }
