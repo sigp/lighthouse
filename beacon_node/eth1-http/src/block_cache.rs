@@ -49,10 +49,10 @@ pub struct Eth1DataCache {
 
 impl Eth1DataCache {
     /// Returns a new, empty cache.
-    pub fn new() -> Self {
+    pub fn new(offset: usize) -> Self {
         Self {
             items: vec![],
-            offset: 0,
+            offset: offset,
         }
     }
 
@@ -233,33 +233,35 @@ mod tests {
             .collect()
     }
 
+    fn insert(cache: &mut Eth1DataCache, s: Eth1Snapshot) -> Result<(), Error> {
+        cache.insert(s.block, s.deposit_root, s.deposit_count)
+    }
+
     #[test]
-    fn insert() {
+    fn inserts() {
         let n = 16;
         let snapshots = get_snapshots(n, 10);
 
-        let mut cache = Eth1DataCache::new();
+        let mut cache = Eth1DataCache::new(0);
 
         for snapshot in snapshots {
-            cache
-                .insert(snapshot.clone())
-                .expect("should add consecutive snapshots");
+            insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
         }
 
         // No error for re-adding a snapshot identical to one that exists.
-        assert!(cache.insert(get_snapshot(n as u64 - 1, 10)).is_ok());
+        assert!(insert(&mut cache, get_snapshot(n as u64 - 1, 10)).is_ok());
 
         // Error for re-adding a snapshot that is different to the one that exists.
-        assert!(cache.insert(get_snapshot(n as u64 - 1, 11)).is_err());
+        assert!(insert(&mut cache, get_snapshot(n as u64 - 1, 11)).is_err());
 
         // Error for adding non-consecutive snapshots.
-        assert!(cache.insert(get_snapshot(n as u64 + 1, 10)).is_err());
-        assert!(cache.insert(get_snapshot(n as u64 + 2, 10)).is_err());
+        assert!(insert(&mut cache, get_snapshot(n as u64 + 1, 10)).is_err());
+        assert!(insert(&mut cache, get_snapshot(n as u64 + 2, 10)).is_err());
 
         // Error for adding timestamp prior to previous.
-        assert!(cache.insert(get_snapshot(n as u64, 1)).is_err());
+        assert!(insert(&mut cache, get_snapshot(n as u64, 1)).is_err());
         // Double check to make sure previous test was only affected by timestamp.
-        assert!(cache.insert(get_snapshot(n as u64, 10)).is_ok());
+        assert!(insert(&mut cache, get_snapshot(n as u64, 10)).is_ok());
     }
 
     #[test]
@@ -268,12 +270,10 @@ mod tests {
         let duration = 10;
         let snapshots = get_snapshots(n, duration);
 
-        let mut cache = Eth1DataCache::new();
+        let mut cache = Eth1DataCache::new(0);
 
         for snapshot in snapshots {
-            cache
-                .insert(snapshot.clone())
-                .expect("should add consecutive snapshots");
+            insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
         }
 
         for i in 0..n as u64 {
@@ -308,14 +308,12 @@ mod tests {
         let x = 2;
         let duration = 10;
 
-        let mut cache = Eth1DataCache::new();
+        let mut cache = Eth1DataCache::new(0);
 
         // Should return none on empty cache.
         assert!(cache.eth1_data_at_time(Duration::from_secs(x)).is_none());
 
-        cache
-            .insert(get_snapshot(x, duration))
-            .expect("should add first snapshot");
+        insert(&mut cache, get_snapshot(x, duration)).expect("should add first snapshot");
 
         // Should return none for prior time.
         assert!(cache
@@ -329,12 +327,10 @@ mod tests {
         let duration = 10;
         let snapshots = get_snapshots(n, duration);
 
-        let mut cache = Eth1DataCache::new();
+        let mut cache = Eth1DataCache::new(0);
 
         for snapshot in &snapshots {
-            cache
-                .insert(snapshot.clone())
-                .expect("should add consecutive snapshots");
+            insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
         }
 
         for i in 0..n as u64 {
@@ -382,16 +378,14 @@ mod tests {
         let x = 2;
         let duration = 10;
 
-        let mut cache = Eth1DataCache::new();
+        let mut cache = Eth1DataCache::new(0);
 
         // Should return error on empty cache.
         assert!(cache
             .get_eth1_data_ancestors(Duration::from_secs(x), 1)
             .is_err());
 
-        cache
-            .insert(get_snapshot(x, duration))
-            .expect("should add first snapshot");
+        insert(&mut cache, get_snapshot(x, duration)).expect("should add first snapshot");
 
         // Should return error for prior time.
         assert!(cache
