@@ -24,10 +24,10 @@ pub enum Error {
 ///
 /// Contains all information required to add a `Eth1DataCache` entry.
 #[derive(Debug, PartialEq, Clone)]
-pub struct Eth1Snapshot {
-    block: Block,
-    deposit_root: Hash256,
-    deposit_count: u64,
+struct Eth1Snapshot {
+    pub block: Block,
+    pub deposit_root: Hash256,
+    pub deposit_count: u64,
 }
 
 impl Into<Eth1Data> for Eth1Snapshot {
@@ -142,7 +142,18 @@ impl Eth1DataCache {
     /// `Eth1Snapshot`.
     /// - If each `item.block.timestamp` is not higher than the block prior to it. The Ethereum yellow
     /// paper (4.3.47) states that the timestamp of a block must be higher than its parent.
-    pub fn insert(&mut self, item: Eth1Snapshot) -> Result<(), Error> {
+    pub fn insert(
+        &mut self,
+        block: Block,
+        deposit_root: Hash256,
+        deposit_count: u64,
+    ) -> Result<(), Error> {
+        let item = Eth1Snapshot {
+            block,
+            deposit_root,
+            deposit_count,
+        };
+
         match (
             item.block.number,
             self.next_block_number(),

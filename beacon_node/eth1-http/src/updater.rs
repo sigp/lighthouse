@@ -1,18 +1,17 @@
-use crate::block_cache::{Error as Eth1Error, Eth1DataCache, Eth1Snapshot};
+use crate::block_cache::{Error as Eth1Error, Eth1DataCache};
 use crate::http::{get_block, get_block_number, get_deposit_count, get_deposit_root, Block};
 use futures::{future, prelude::*, stream, Future};
-use parking_lot::{RwLock, RwLockUpgradableReadGuard};
-use std::ops::Deref;
-use std::ops::Range;
-use std::sync::Arc;
+use parking_lot::{Mutex, RwLock};
 use std::time::Duration;
 use types::Hash256;
 
-const MAX_BLOCKS_PER_REQUEST: usize = 100;
-
+/// Timeout when doing a eth_blockNumber call.
 const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = 1_000;
+/// Timeout when doing an eth_getBlockByNumber call.
 const GET_BLOCK_TIMEOUT_MILLIS: u64 = 1_000;
+/// Timeout when doing an eth_call to read the deposit contract root.
 const GET_DEPOSIT_ROOT_TIMEOUT_MILLIS: u64 = 1_000;
+/// Timeout when doing an eth_call to read the deposit contract deposit count.
 const GET_DEPOSIT_COUNT_TIMEOUT_MILLIS: u64 = 1_000;
 
 pub enum Error {
@@ -27,53 +26,36 @@ pub enum Error {
     FailedToInsertEth1Snapshot(Eth1Error),
 }
 
+/// The success message for an Eth1 cache update.
 pub enum Eth1UpdateResult {
+    /// The Eth1 cache was sucessfully updated.
     Success {
         blocks_imported: usize,
         head_block_number: u64,
     },
+    /// No update was performed because another one is in-process.
     UpdateInProgress,
 }
 
-/*
-struct UpdateTarget<T> {
-    update_in_progress: bool,
-    item: T,
-}
-
-impl<T> Deref for UpdateTarget<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.item
-    }
-}
-*/
-
+/// Stores all necessary information for beacon chain block production, including choosing an
+/// `Eth1Data` for block production and gathering `Deposits` for inclusion in blocks.
+///
+/// Thread-safe and async.
 pub struct Eth1Cache {
     endpoint: String,
     deposit_contract_address: String,
     eth1_data_cache: RwLock<Eth1DataCache>,
-    eth1_data_cache_updating: RwLock<bool>,
+    eth1_data_cache_update_lock: Mutex<()>,
 }
 
 impl Eth1Cache {
-    pub fn try_set_lock(&self, lock: &RwLock<bool>) -> bool {
-        let read = self.eth1_data_cache_updating.upgradable_read();
-        if *read == false {
-            let mut write = RwLockUpgradableReadGuard::upgrade(read);
-            *write = true;
-            true
-        } else {
-            false
-        }
-    }
-
+    /// Try and perform an update on the cache, doing nothing if it's already in the process of an
+    /// update.
     pub fn update_eth1_data_cache<'a>(
         &'a self,
     ) -> Box<dyn Future<Item = Eth1UpdateResult, Error = Error> + 'a> {
-        if self.try_set_lock(&self.eth1_data_cache_updating) {
-            let f = get_block_number(
+        if let Some(update_lock) = self.eth1_data_cache_update_lock.try_lock() {
+            let future = get_block_number(
                 &self.endpoint,
                 Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS),
             )
@@ -95,25 +77,25 @@ impl Eth1Cache {
                 }
             })
             .and_then(move |required_block_numbers| {
-                download_eth1_snapshots(
-                    self.endpoint.clone(),
-                    self.deposit_contract_address.clone(),
-                    required_block_numbers,
+                stream::unfold(
+                    required_block_numbers.into_iter(),
+                    move |mut block_numbers| match block_numbers.next() {
+                        Some(block_number) => Some(
+                            self.download_eth1_snapshot(block_number)
+                                .map(|v| (v, block_numbers)),
+                        ),
+                        None => None,
+                    },
                 )
-                .collect()
+                .fold(0, move |sum, (block, deposit_root, deposit_count)| {
+                    self.eth1_data_cache
+                        .write()
+                        .insert(block, deposit_root, deposit_count)
+                        .map_err(|e| Error::FailedToInsertEth1Snapshot(e))?;
+                    Ok(sum + 1)
+                })
             })
-            .and_then(move |snapshots| {
-                let blocks_imported = snapshots.len();
-                snapshots
-                    .into_iter()
-                    .map(|snapshot| {
-                        self.eth1_data_cache
-                            .write()
-                            .insert(snapshot)
-                            .map_err(|e| Error::FailedToInsertEth1Snapshot(e))
-                    })
-                    .collect::<Result<_, Error>>()?;
-
+            .and_then(move |blocks_imported| {
                 Ok(Eth1UpdateResult::Success {
                     blocks_imported,
                     head_block_number: self
@@ -124,58 +106,52 @@ impl Eth1Cache {
                 })
             })
             .then(move |result| {
-                *(self.eth1_data_cache_updating.write()) = false;
+                // This is intended to ensure that the update lock is only dropped once the futures
+                // have finished.
+                //
+                // I'm not sure it's strictly necessary. Perhaps there's a neater way?
+                drop(update_lock);
+
                 result
             });
 
-            Box::new(f)
+            Box::new(future)
         } else {
             Box::new(future::ok::<Eth1UpdateResult, Error>(
                 Eth1UpdateResult::UpdateInProgress,
             ))
         }
     }
-}
 
-fn download_eth1_snapshots(
-    endpoint: String,
-    address: String,
-    block_numbers: Range<u64>,
-) -> impl Stream<Item = Eth1Snapshot, Error = Error> {
-    stream::unfold(
-        block_numbers.into_iter(),
-        move |mut block_numbers| match block_numbers.next() {
-            Some(block_number) => Some(
-                get_block(
-                    &endpoint,
-                    block_number,
-                    Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
-                )
-                .map_err(|e| Error::BlockDownloadFailed(e))
-                .join3(
-                    get_deposit_root(
-                        &endpoint,
-                        &address,
-                        block_number,
-                        Duration::from_millis(GET_DEPOSIT_ROOT_TIMEOUT_MILLIS),
-                    )
-                    .map_err(|e| Error::GetDepositRootFailed(e)),
-                    get_deposit_count(
-                        &endpoint,
-                        &address,
-                        block_number,
-                        Duration::from_millis(GET_DEPOSIT_COUNT_TIMEOUT_MILLIS),
-                    )
-                    .map_err(|e| Error::GetDepositCountFailed(e)),
-                )
-                .map(|v| (v, block_numbers)),
-            ),
-            None => None,
-        },
-    )
-    .map(|(block, deposit_root, deposit_count)| Eth1Snapshot {
-        block,
-        deposit_root,
-        deposit_count,
-    })
+    /// Downloads the `(block, deposit_root, deposit_count)` tuple from an eth1 node for the given
+    /// `block_number`.
+    ///
+    /// Performs three async calls to an Eth1 HTTP JSON RPC endpoint.
+    fn download_eth1_snapshot<'a>(
+        &'a self,
+        block_number: u64,
+    ) -> impl Future<Item = (Block, Hash256, u64), Error = Error> + 'a {
+        get_block(
+            &self.endpoint,
+            block_number,
+            Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
+        )
+        .map_err(|e| Error::BlockDownloadFailed(e))
+        .join3(
+            get_deposit_root(
+                &self.endpoint,
+                &self.deposit_contract_address,
+                block_number,
+                Duration::from_millis(GET_DEPOSIT_ROOT_TIMEOUT_MILLIS),
+            )
+            .map_err(|e| Error::GetDepositRootFailed(e)),
+            get_deposit_count(
+                &self.endpoint,
+                &self.deposit_contract_address,
+                block_number,
+                Duration::from_millis(GET_DEPOSIT_COUNT_TIMEOUT_MILLIS),
+            )
+            .map_err(|e| Error::GetDepositCountFailed(e)),
+        )
+    }
 }

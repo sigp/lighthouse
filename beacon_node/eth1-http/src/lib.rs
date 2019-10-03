@@ -5,3 +5,4 @@ mod updater;
 
 pub use block_cache::Eth1DataCache;
 pub use deposit_cache::{DepositCache, DepositLog};
+pub use updater::{Eth1Cache, Eth1UpdateResult};
