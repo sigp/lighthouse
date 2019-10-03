@@ -90,6 +90,10 @@ fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64)
         .expect("should get deposit count")
 }
 
+mod eth1_cache {
+    //
+}
+
 mod deposit_tree {
     use super::*;
 

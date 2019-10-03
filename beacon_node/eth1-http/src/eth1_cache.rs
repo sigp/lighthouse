@@ -1,4 +1,4 @@
-use crate::block_cache::{Error as Eth1Error, Eth1DataCache};
+use crate::eth1_data_cache::{Error as Eth1Error, Eth1DataCache};
 use crate::http::{get_block, get_block_number, get_deposit_count, get_deposit_root, Block};
 use futures::{future, prelude::*, stream, Future};
 use parking_lot::{Mutex, RwLock};
