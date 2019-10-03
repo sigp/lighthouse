@@ -22,8 +22,16 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
     ) -> Self {
         let data_builder = TestingAttestationDataBuilder::new(test_task, state, shard, slot, spec);
 
-        let mut aggregation_bits = BitList::with_capacity(committee.len()).unwrap();
-        let mut custody_bits = BitList::with_capacity(committee.len()).unwrap();
+        let mut aggregation_bits_len = committee.len();
+        let mut custody_bits_len = committee.len();
+
+        match test_task {
+            AttestationTestTask::BadAggregationBitfieldLen => aggregation_bits_len += 1,
+            AttestationTestTask::BadCustodyBitfieldLen => custody_bits_len += 1,
+            _ => (),
+        }
+        let mut aggregation_bits = BitList::with_capacity(aggregation_bits_len).unwrap();
+        let mut custody_bits = BitList::with_capacity(custody_bits_len).unwrap();
 
         for i in 0..committee.len() {
             custody_bits.set(i, false).unwrap();

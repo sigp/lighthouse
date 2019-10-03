@@ -461,6 +461,56 @@ fn invalid_attestation_custody_bitfield_has_set_bits() {
     );
 }
 
+#[test]
+fn invalid_attestation_bad_custody_bitfield_len() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttestationTestTask::BadCustodyBitfieldLen;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting InvalidBitfield because the size of the custody_bitfield is bigger than the commitee size.
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::BeaconStateError(
+            BeaconStateError::InvalidBitfield
+        ))
+    );
+}
+
+#[test]
+fn invalid_attestation_bad_aggregation_bitfield_len() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttestationTestTask::BadAggregationBitfieldLen;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting InvalidBitfield because the size of the aggregation_bitfield is bigger than the commitee size.
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::BeaconStateError(
+            BeaconStateError::InvalidBitfield
+        ))
+    );
+}
+
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
     let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);
 
