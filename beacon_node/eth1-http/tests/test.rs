@@ -7,7 +7,7 @@ use eth1_http::http::{
     get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
     Block, Log,
 };
-use eth1_http::{DepositLog, DepositTree};
+use eth1_http::{DepositCache, DepositLog};
 use eth1_test_rig::DepositContract;
 use merkle_proof::verify_merkle_proof;
 use std::ops::Range;
@@ -115,7 +115,7 @@ mod deposit_tree {
             deposit_counts.push(blocking_deposit_count(&deposit_contract, block_number));
         }
 
-        let mut tree = DepositTree::new();
+        let mut tree = DepositCache::new();
 
         // Pull all the deposit logs from the contract.
         let block_number = blocking_block_number();

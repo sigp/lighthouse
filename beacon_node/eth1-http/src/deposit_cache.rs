@@ -130,12 +130,12 @@ impl DepositDataTree {
 /// Mirrors the merkle tree of deposits in the eth1 deposit contract.
 ///
 /// Provides `Deposit` objects will merkle proofs included.
-pub struct DepositTree {
+pub struct DepositCache {
     logs: Vec<DepositLog>,
     roots: Vec<Hash256>,
 }
 
-impl DepositTree {
+impl DepositCache {
     /// Instantiate a new, empty tree.
     pub fn new() -> Self {
         Self {
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn insert_log_valid() {
-        let mut tree = DepositTree::new();
+        let mut tree = DepositCache::new();
 
         for i in 0..16 {
             let mut log = example_log();
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn insert_log_invalid() {
-        let mut tree = DepositTree::new();
+        let mut tree = DepositCache::new();
 
         for i in 0..4 {
             let mut log = example_log();
@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn get_deposit_valid() {
         let n = 1_024;
-        let mut tree = DepositTree::new();
+        let mut tree = DepositCache::new();
 
         for i in 0..n {
             let mut log = example_log();
@@ -411,7 +411,7 @@ mod tests {
     #[test]
     fn get_deposit_invalid() {
         let n = 16;
-        let mut tree = DepositTree::new();
+        let mut tree = DepositCache::new();
 
         for i in 0..n {
             let mut log = example_log();
