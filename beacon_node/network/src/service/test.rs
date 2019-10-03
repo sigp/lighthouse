@@ -9,7 +9,7 @@ use crate::NetworkConfig;
 use eth2_libp2p::Service as LibP2PService;
 // use eth2_libp2p::Topic;
 // use eth2_libp2p::{Enr, Libp2pEvent, Multiaddr, PeerId, Swarm};
-// use eth2_libp2p::{PubsubMessage, RPCEvent};
+use eth2_libp2p::Libp2pEvent;
 use slog::Drain;
 use slog_stdlog;
 
@@ -35,13 +35,33 @@ fn build_libp2p_instance(port: u16, boot_nodes: Vec<Enr>, log: slog::Logger) -> 
 }
 
 #[test]
-fn test_network() {
+fn test_connection() {
     let log = setup_log();
     let bootnode = build_libp2p_instance(9000, Vec::new(), log.clone());
     let bootnode_enr = bootnode.swarm.discovery().local_enr().clone();
-    let mut node1 = build_libp2p_instance(9001, vec![bootnode_enr.clone()], log.clone());
-    let mut node2 = build_libp2p_instance(9002, vec![bootnode_enr.clone()], log.clone());
-    dbg!(node1.swarm.connected_peers());
-    dbg!(node2.swarm.connected_peers());
-    dbg!(bootnode.swarm.connected_peers());
+    let node1 = build_libp2p_instance(9001, vec![bootnode_enr.clone()], log.clone());
+    let node2 = build_libp2p_instance(9002, vec![bootnode_enr.clone()], log.clone());
+    println!("Bootnode peer id: {}", bootnode.local_peer_id);
+    println!("Node1 peer id: {}", node1.local_peer_id);
+    println!("Node2 peer id: {}", node2.local_peer_id);
+    let mut swarms = vec![bootnode, node1, node2];
+    tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
+        for swarm in swarms.iter_mut() {
+            loop {
+                match swarm.poll().unwrap() {
+                    Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))) => {
+                        println!("Node {} is dialing node {}", &swarm.local_peer_id, peer_id);
+                        println!(
+                            "Node {} is connected to {} peers",
+                            &swarm.local_peer_id,
+                            swarm.swarm.discovery().connected_peers()
+                        );
+                    }
+                    Async::Ready(_) => (),
+                    Async::NotReady => break,
+                }
+            }
+        }
+        Ok(Async::NotReady)
+    }))
 }
