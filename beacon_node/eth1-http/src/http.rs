@@ -25,8 +25,10 @@ pub const DEPOSIT_ROOT_FN_SIGNATURE: &str = "0x863a311b";
 /// `keccak("get_deposit_count()")[0..4]`
 pub const DEPOSIT_COUNT_FN_SIGNATURE: &str = "0x621fd130";
 
-pub const DEPOSIT_ROOT_BYTES: usize = 32;
+/// Number of bytes in deposit contract deposit root response.
 pub const DEPOSIT_COUNT_RESPONSE_BYTES: usize = 96;
+/// Number of bytes in deposit contract deposit root (value only).
+pub const DEPOSIT_ROOT_BYTES: usize = 32;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Block {
