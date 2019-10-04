@@ -153,6 +153,8 @@ pub fn update_block_cache<'a>(
         Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS),
     )
     .map_err(|e| Error::GetBlockNumberFailed(e))
+    // Determine the range of blocks that need to be downloaded, given the remotes best block and
+    // the locally stored best block.
     .and_then(move |remote_highest_block| {
         let local_highest_block: u64 = cache_1
             .block_cache
@@ -186,6 +188,10 @@ pub fn update_block_cache<'a>(
             }
         }
     })
+    // Inspect the range of blocks and determine if they are bigger than the current cache size.
+    //
+    // There is no need to download more than the cache size of blocks. Instead, it is more
+    // efficient to completely drop the cache and fill it up again.
     .and_then(move |range| {
         if range.start > range.end {
             Err(Error::Internal("Range was not increasing".into()))
@@ -202,6 +208,7 @@ pub fn update_block_cache<'a>(
             }
         }
     })
+    // Download the range of blocks and sequentially import them into the cache.
     .and_then(|required_block_numbers| {
         // Never download more blocks than can fit in the block cache.
         let required_block_numbers = required_block_numbers
