@@ -54,9 +54,6 @@ impl DepositContract {
         let contract = Contract::from_json(web3.eth(), deposit_contract_address, ABI)
             .map_err(|e| format!("Failed to init contract: {:?}", e))?;
 
-        // Ensure the block time increases after contract deployment.
-        runtime()?.block_on(increase_time(web3.clone(), 1))?;
-
         Ok(Self {
             event_loop: Arc::new(event_loop),
             web3,
@@ -126,6 +123,7 @@ fn deploy_deposit_contract<T: Transport>(
     web3: Web3<T>,
 ) -> impl Future<Item = Address, Error = String> {
     let bytecode = String::from_utf8_lossy(&BYTECODE);
+    let web3_1 = web3.clone();
 
     web3.eth()
         .accounts()
@@ -152,6 +150,7 @@ fn deploy_deposit_contract<T: Transport>(
                 .map(|contract| contract.address())
                 .map_err(|e| format!("Unable to resolve pending contract: {:?}", e))
         })
+        .and_then(move |address| increase_time(web3_1.clone(), 1).map(move |_| address))
 }
 
 /// Increase the timestamp on future blocks by `increase_by` seconds.

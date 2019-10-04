@@ -9,7 +9,10 @@ pub enum Error {
     /// The timestamp of each block **must** be higher than the block prior to it.
     InconsistentTimestamp { parent: u64, child: u64 },
     /// There is no block prior to the given `target_secs`, unable to complete request.
-    NoBlockForTarget { target_secs: u64 },
+    NoBlockForTarget {
+        target_secs: u64,
+        known_blocks: usize,
+    },
     /// Some `Eth1Snapshot` was provided with the same block number but different data. The source
     /// of eth1 data is inconsistent.
     Conflicting(u64),
@@ -80,13 +83,26 @@ impl BlockCache {
 
     /// Returns the index of the first `Eth1Snapshot` that is lower than the given `target` time
     /// (assumed to be duration since unix epoch), if any.
+    ///
+    /// If there are blocks with duplicate timestamps, the block with the highest number is
+    /// preferred.
     fn index_at_time(&self, target: Duration) -> Option<usize> {
         let search = self.items.as_slice().binary_search_by(|snapshot| {
             Duration::from_secs(snapshot.block.timestamp).cmp(&target)
         });
 
         let index = match search {
-            Ok(i) => i,
+            // If an exact match for this duration was found, search forward trying to find the
+            // block with the highest number that has this the same timestamp.
+            //
+            // This handles the case where blocks have matching timestamps. Whilst this _shouldn't_
+            // be possible in mainnet ethereum, it has been seen when testing with ganache.
+            Ok(mut i) => loop {
+                match self.items.get(i + 1) {
+                    Some(next) if Duration::from_secs(next.block.timestamp) == target => i += 1,
+                    None | Some(_) => break i,
+                }
+            },
             Err(i) => i.saturating_sub(1),
         };
 
@@ -122,17 +138,22 @@ impl BlockCache {
         target: Duration,
         max_count: usize,
     ) -> Result<Vec<Eth1Data>, Error> {
-        let last = self
-            .index_at_time(target)
-            .ok_or_else(|| Error::NoBlockForTarget {
-                target_secs: target.as_secs(),
-            })?;
-        let first = last.saturating_sub(max_count);
+        if max_count == 0 {
+            Ok(vec![])
+        } else {
+            let last = self
+                .index_at_time(target)
+                .ok_or_else(|| Error::NoBlockForTarget {
+                    target_secs: target.as_secs(),
+                    known_blocks: self.items.len(),
+                })?;
+            let first = last.saturating_sub(max_count.saturating_sub(1));
 
-        self.items
-            .get(first..last)
-            .ok_or_else(|| Error::Internal("Inconsistent items length".into()))
-            .map(|items| items.into_iter().cloned().map(Into::into).collect())
+            self.items
+                .get(first..=last)
+                .ok_or_else(|| Error::Internal("Inconsistent items length".into()))
+                .map(|items| items.into_iter().cloned().map(Into::into).collect())
+        }
     }
 
     /// Insert an `Eth1Snapshot` into `self`, allowing future queries.
@@ -142,8 +163,7 @@ impl BlockCache {
     /// - If `item.block.block_number - 1` is not already in `self`.
     /// - If `item.block.block_number` is in `self`, but is not identical to the supplied
     /// `Eth1Snapshot`.
-    /// - If each `item.block.timestamp` is not higher than the block prior to it. The Ethereum yellow
-    /// paper (4.3.47) states that the timestamp of a block must be higher than its parent.
+    /// - If `item.block.timestamp` is prior to the parent.
     pub fn insert(
         &mut self,
         block: Block,
@@ -177,7 +197,7 @@ impl BlockCache {
                     .items
                     .last()
                     .ok_or_else(|| Error::Internal("Previous item should exist".into()))?;
-                if previous.block.timestamp < item.block.timestamp {
+                if previous.block.timestamp <= item.block.timestamp {
                     self.items.push(item);
                     Ok(())
                 } else {
@@ -267,6 +287,42 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_timestamp() {
+        let mut snapshots = get_snapshots(7, 10);
+
+        snapshots[0].block.timestamp = 0;
+        snapshots[1].block.timestamp = 10;
+        snapshots[2].block.timestamp = 10;
+        snapshots[3].block.timestamp = 20;
+        snapshots[4].block.timestamp = 30;
+        snapshots[5].block.timestamp = 40;
+        snapshots[6].block.timestamp = 40;
+
+        let mut cache = BlockCache::new(0);
+
+        for snapshot in &snapshots {
+            insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
+        }
+
+        // Ensures that the given `target` finds the snapsnot at `snapshots[i]`.
+        let do_test = |target, i: usize| {
+            assert_eq!(
+                cache.get_eth1_data_ancestors(target, 1),
+                Ok(vec![snapshots[i].clone().into()]),
+                "should find snapshot {} for timestamp {}",
+                i,
+                target.as_secs()
+            );
+        };
+
+        do_test(Duration::from_secs(0), 0);
+        do_test(Duration::from_secs(10), 2);
+        do_test(Duration::from_secs(20), 3);
+        do_test(Duration::from_secs(30), 4);
+        do_test(Duration::from_secs(40), 6);
+    }
+
+    #[test]
     fn snapshot_at_time_valid() {
         let n = 16;
         let duration = 10;
@@ -337,8 +393,11 @@ mod tests {
 
         for i in 0..n as u64 {
             for max_count in 0..i as usize {
-                let ancestors: Vec<Eth1Data> = snapshots[(i as usize) - max_count..i as usize]
+                let ancestors: Vec<Eth1Data> = snapshots[0..=i as usize]
                     .iter()
+                    .rev()
+                    .take(max_count)
+                    .rev()
                     .cloned()
                     .map(Into::into)
                     .collect();
@@ -349,8 +408,9 @@ mod tests {
                 assert_eq!(
                     cache.get_eth1_data_ancestors(Duration::from_secs(i * duration), max_count),
                     Ok(ancestors.clone()),
-                    "should find ancestors for {} exact",
-                    i
+                    "should find ancestors for i: {}, max_count: {}, scenario: exact",
+                    i,
+                    max_count
                 );
 
                 // Time above by large margin.
