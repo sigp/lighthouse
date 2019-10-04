@@ -28,11 +28,6 @@ pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
     // Check attestation slot.
     let attestation_slot = state.get_attestation_data_slot(&data)?;
 
-    // dbg!(&attestation_slot); // 318 SCOTT // 319 for 62
-    // dbg!(spec.min_attestation_inclusion_delay); // 1
-    // dbg!(&state.slot); // 319
-    // dbg!(T::slots_per_epoch()); // 64
-    // panic!("STOP");
     verify!(
         attestation_slot + spec.min_attestation_inclusion_delay <= state.slot,
         Invalid::IncludedTooEarly {

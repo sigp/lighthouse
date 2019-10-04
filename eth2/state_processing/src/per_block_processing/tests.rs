@@ -540,31 +540,6 @@ fn invalid_attestation_bad_signature() {
 }
 
 #[test]
-fn invalid_attestation_validator_unknown() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec);
-    let test_task = AttestationTestTask::ValidatorUnknown;
-    let (block, mut state) =
-        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    unimplemented!("this test is not valid");
-
-    // Expecting ValidatorUnknown because 
-    // assert_eq!(
-    //     result,
-    //     Ok(()),
-    // );
-}
-
-#[test]
 fn invalid_attestation_included_too_early() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
@@ -593,40 +568,6 @@ fn invalid_attestation_included_too_early() {
         })
     );
 }
-
-#[test]
-fn invalid_attestation_included_too_late() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec);
-    let test_task = AttestationTestTask::IncludedTooLate;
-    let (block, mut state) =
-        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
-
-    // state.slot = Slot::from(383 as u64);
-    // state.build_all_caches(&spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting IncludedTooLate because
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::AttestationInvalid {
-            index: 0,
-            reason: AttestationInvalid::IncludedTooEarly {
-                state: Slot::from(319 as u64),
-                delay: spec.min_attestation_inclusion_delay,
-                attestation: Slot::from(319 as u64)
-            }
-        })
-    );
-}
-
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
     let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);

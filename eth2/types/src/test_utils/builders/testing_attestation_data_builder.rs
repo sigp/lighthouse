@@ -67,12 +67,6 @@ impl TestingAttestationDataBuilder {
             AttestationTestTask::BadParentCrosslinkHash => parent_root = Hash256::zero(),
             AttestationTestTask::NoCommiteeForShard => shard += 2,
             AttestationTestTask::IncludedTooEarly => shard += 1,
-            // AttestationTestTask::IncludedTooLate => {
-            //     target = Checkpoint {
-            //         epoch: Epoch::from(4 as u64),
-            //         root: Hash256::zero(),
-            //     }
-            // }
             AttestationTestTask::BadSource => {
                 source = Checkpoint {
                     epoch: Epoch::from(0 as u64),
@@ -95,20 +89,20 @@ impl TestingAttestationDataBuilder {
             _ => (),
         }
         let crosslink = Crosslink {
-            shard, // 62
+            shard,
             parent_root,
-            start_epoch: start, // 0
-            end_epoch: end,     // 4
+            start_epoch: start,
+            end_epoch: end,
             data_root,
         };
 
         let data = AttestationData {
             // LMD GHOST vote
-            beacon_block_root, // 0x000
+            beacon_block_root,
 
             // FFG Vote
-            source, // Checkpoint {2, 0x000} SCOTT
-            target, // Checkpoint {4, 0x000}
+            source,
+            target,
 
             // Crosslink vote
             crosslink,
