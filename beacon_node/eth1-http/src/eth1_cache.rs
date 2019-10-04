@@ -27,6 +27,7 @@ pub enum Error {
     GetDepositRootFailed(String),
     GetDepositCountFailed(String),
     FailedToInsertEth1Snapshot(Eth1Error),
+    Internal(String),
 }
 
 /// The success message for an Eth1 cache update.
@@ -145,6 +146,7 @@ pub fn update_block_cache<'a>(
     let cache_2 = cache.clone();
     let cache_3 = cache.clone();
     let cache_4 = cache.clone();
+    let cache_5 = cache.clone();
 
     get_block_number(
         &cache.endpoint,
@@ -181,6 +183,22 @@ pub fn update_block_cache<'a>(
             } else {
                 // An empty range is a no-op.
                 Ok(0..0)
+            }
+        }
+    })
+    .and_then(move |range| {
+        if range.start > range.end {
+            Err(Error::Internal("Range was not increasing".into()))
+        } else {
+            let range_size = range.end - range.start;
+            let max_size = cache_5.target_block_cache_len as u64;
+
+            if range_size > max_size {
+                let first_block = range.end - max_size;
+                (*cache_5.block_cache.write()) = BlockCache::new(first_block as usize);
+                Ok(first_block..range.end)
+            } else {
+                Ok(range)
             }
         }
     })

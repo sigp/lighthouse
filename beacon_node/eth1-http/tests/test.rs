@@ -156,8 +156,9 @@ mod eth1_cache {
         }
     }
 
+    /// Tests the case where we attempt to download more blocks than will fit in the cache.
     #[test]
-    fn block_pruning() {
+    fn big_skip() {
         let mut runtime = runtime();
 
         let deposit_contract =
@@ -182,6 +183,41 @@ mod eth1_cache {
         runtime
             .block_on(update_block_cache(cache.clone()))
             .expect("should update cache");
+
+        assert_eq!(
+            cache.block_cache_len(),
+            cache_len,
+            "should not grow cache beyond target"
+        );
+    }
+
+    /// Tests to ensure that the cache gets pruned when doing multiple downloads smaller than the
+    /// cache size.
+    #[test]
+    fn pruning() {
+        let mut runtime = runtime();
+
+        let deposit_contract =
+            DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
+
+        let cache_len = 4;
+
+        let cache = Arc::new(
+            Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
+                .initial_eth1_block(blocking_block_number())
+                .eth1_follow_distance(0)
+                .target_block_cache_len(cache_len)
+                .build(),
+        );
+
+        for _ in 0..4 {
+            for _ in 0..cache_len / 2 {
+                advance_block()
+            }
+            runtime
+                .block_on(update_block_cache(cache.clone()))
+                .expect("should update cache");
+        }
 
         assert_eq!(
             cache.block_cache_len(),
