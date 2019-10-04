@@ -123,10 +123,16 @@ impl Eth1Cache {
             .map(|r| *r.end())
     }
 
-    pub fn prune_blocks(&self) {
+    /// Prunes the block cache to `self.target_block_cache_len`.
+    fn prune_blocks(&self) {
         self.block_cache
             .write()
             .truncate(self.target_block_cache_len);
+    }
+
+    /// Returns the number of currently cached blocks.
+    pub fn block_cache_len(&self) -> usize {
+        self.block_cache.read().len()
     }
 }
 

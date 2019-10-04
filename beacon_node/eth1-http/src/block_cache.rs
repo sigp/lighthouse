@@ -61,6 +61,11 @@ impl BlockCache {
         }
     }
 
+    /// Returns the number of blocks stored in `self`.
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
     /// Shortens the cache, keeping the latest `len` blocks and dropping the rest.
     ///
     /// If `len` is greater than the vector's current length, this has no effect.

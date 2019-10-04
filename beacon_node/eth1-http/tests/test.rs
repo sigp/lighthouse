@@ -108,7 +108,7 @@ mod eth1_cache {
     }
 
     #[test]
-    fn test() {
+    fn simple_scenario() {
         let mut runtime = runtime();
 
         for follow_distance in 0..2 {
@@ -154,6 +154,40 @@ mod eth1_cache {
                 );
             }
         }
+    }
+
+    #[test]
+    fn block_pruning() {
+        let mut runtime = runtime();
+
+        let deposit_contract =
+            DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
+
+        let cache_len = 4;
+
+        let cache = Arc::new(
+            Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
+                .initial_eth1_block(blocking_block_number())
+                .eth1_follow_distance(0)
+                .target_block_cache_len(cache_len)
+                .build(),
+        );
+
+        let blocks = cache_len * 2;
+
+        for _ in 0..blocks {
+            advance_block()
+        }
+
+        runtime
+            .block_on(update_block_cache(cache.clone()))
+            .expect("should update cache");
+
+        assert_eq!(
+            cache.block_cache_len(),
+            cache_len,
+            "should not grow cache beyond target"
+        );
     }
 }
 
