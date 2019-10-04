@@ -1,4 +1,4 @@
-use crate::eth1_data_cache::{Error as Eth1Error, Eth1DataCache};
+use crate::block_cache::{BlockCache, Error as Eth1Error};
 use crate::http::{get_block, get_block_number, get_deposit_count, get_deposit_root, Block};
 use futures::{prelude::*, stream, Future};
 use parking_lot::RwLock;
@@ -20,6 +20,7 @@ pub enum Error {
     RemoteNotSynced {
         local_highest_block: u64,
         remote_highest_block: u64,
+        follow_distance: u64,
     },
     BlockDownloadFailed(String),
     GetBlockNumberFailed(String),
@@ -80,7 +81,8 @@ impl Eth1CacheBuilder {
         Eth1Cache {
             endpoint: self.endpoint,
             deposit_contract_address: self.deposit_contract_address,
-            eth1_data_cache: RwLock::new(Eth1DataCache::new(self.initial_eth1_block as usize)),
+            block_cache: RwLock::new(BlockCache::new(self.initial_eth1_block as usize)),
+            follow_distance: self.eth1_follow_distance,
         }
     }
 }
@@ -92,13 +94,14 @@ impl Eth1CacheBuilder {
 pub struct Eth1Cache {
     endpoint: String,
     deposit_contract_address: String,
-    eth1_data_cache: RwLock<Eth1DataCache>,
+    block_cache: RwLock<BlockCache>,
+    follow_distance: u64,
 }
 
 impl Eth1Cache {
     /// Returns the block number of the latest block in the `Eth1Data` cache.
     pub fn latest_block_number(&self) -> u64 {
-        self.eth1_data_cache
+        self.block_cache
             .read()
             .next_block_number()
             .saturating_sub(1)
@@ -107,7 +110,7 @@ impl Eth1Cache {
 
 /// Try and perform an update on the cache, doing nothing if it's already in the process of an
 /// update.
-pub fn update_eth1_data_cache<'a>(
+pub fn update_block_cache<'a>(
     cache: Arc<Eth1Cache>,
 ) -> impl Future<Item = Eth1UpdateResult, Error = Error> + 'a + Send {
     let cache_1 = cache.clone();
@@ -120,19 +123,21 @@ pub fn update_eth1_data_cache<'a>(
     )
     .map_err(|e| Error::GetBlockNumberFailed(e))
     .and_then(move |remote_highest_block| {
-        let local_highest_block = cache
-            .eth1_data_cache
+        let local_highest_block: u64 = cache
+            .block_cache
             .read()
-            .next_block_number()
-            .saturating_sub(1);
+            .available_block_numbers()
+            .map(|range| *range.end())
+            .unwrap_or_else(|| cache.block_cache.read().next_block_number());
 
         if local_highest_block > remote_highest_block {
             Err(Error::RemoteNotSynced {
                 local_highest_block,
                 remote_highest_block,
+                follow_distance: cache.follow_distance,
             })
         } else {
-            Ok(local_highest_block..remote_highest_block)
+            Ok(local_highest_block..=remote_highest_block)
         }
     })
     .and_then(|required_block_numbers| {
@@ -149,7 +154,7 @@ pub fn update_eth1_data_cache<'a>(
         .filter_map(|snapshot| snapshot)
         .fold(0, move |sum, (block, deposit_root, deposit_count)| {
             cache_2
-                .eth1_data_cache
+                .block_cache
                 .write()
                 .insert(block, deposit_root, deposit_count)
                 .map_err(|e| Error::FailedToInsertEth1Snapshot(e))?;
@@ -161,7 +166,7 @@ pub fn update_eth1_data_cache<'a>(
             blocks_imported,
             head_block_number: cache_3
                 .clone()
-                .eth1_data_cache
+                .block_cache
                 .read()
                 .next_block_number()
                 .saturating_sub(1),

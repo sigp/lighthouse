@@ -92,48 +92,48 @@ fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64)
 
 mod eth1_cache {
     use super::*;
-    use eth1_http::{update_eth1_data_cache, Eth1CacheBuilder};
+    use eth1_http::{update_block_cache, Eth1CacheBuilder};
     use std::sync::Arc;
 
     #[test]
     fn test() {
         let n = 8;
-        for initial_eth1_block in 0..1 {
-            for follow_distance in 0..2 {
-                let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
+        let initial_eth1_block = blocking_block_number();
 
-                let deposit_contract =
-                    DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
+        for follow_distance in 0..2 {
+            let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
 
-                // Perform deposits to the smart contract, recording it's state along the way.
-                for deposit in &deposits {
-                    deposit_contract
-                        .deposit(deposit.clone())
-                        .expect("should perform a deposit");
-                }
+            let deposit_contract =
+                DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
 
-                let cache = Arc::new(
-                    Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
-                        .initial_eth1_block(initial_eth1_block)
-                        .eth1_follow_distance(follow_distance)
-                        .build(),
-                );
-
-                assert_eq!(
-                    cache.latest_block_number(),
-                    initial_eth1_block,
-                    "cache should be empty at the start"
-                );
-
-                runtime()
-                    .block_on(update_eth1_data_cache(cache.clone()))
-                    .expect("should update cache");
-
-                assert!(
-                    cache.latest_block_number() >= n,
-                    "cache should have at least as many blocks as produced"
-                );
+            // Perform deposits to the smart contract, recording it's state along the way.
+            for deposit in &deposits {
+                deposit_contract
+                    .deposit(deposit.clone())
+                    .expect("should perform a deposit");
             }
+
+            let cache = Arc::new(
+                Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
+                    .initial_eth1_block(initial_eth1_block)
+                    .eth1_follow_distance(follow_distance)
+                    .build(),
+            );
+
+            assert_eq!(
+                cache.latest_block_number(),
+                initial_eth1_block,
+                "cache should be empty at the start"
+            );
+
+            runtime()
+                .block_on(update_block_cache(cache.clone()))
+                .expect("should update cache");
+
+            assert!(
+                cache.latest_block_number() >= n,
+                "cache should have at least as many blocks as produced"
+            );
         }
     }
 }

@@ -1,8 +1,8 @@
+mod block_cache;
 mod deposit_cache;
 mod eth1_cache;
-mod eth1_data_cache;
 pub mod http;
 
+pub use block_cache::BlockCache;
 pub use deposit_cache::{DepositCache, DepositLog};
-pub use eth1_cache::{update_eth1_data_cache, Eth1Cache, Eth1CacheBuilder, Eth1UpdateResult};
-pub use eth1_data_cache::Eth1DataCache;
+pub use eth1_cache::{update_block_cache, Eth1Cache, Eth1CacheBuilder, Eth1UpdateResult};

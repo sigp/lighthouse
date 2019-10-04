@@ -1,5 +1,6 @@
 use crate::http::Block;
 use std::convert::TryFrom;
+use std::ops::RangeInclusive;
 use std::time::Duration;
 use types::{Eth1Data, Hash256};
 
@@ -22,7 +23,7 @@ pub enum Error {
 
 /// A snapshot of the eth1 chain.
 ///
-/// Contains all information required to add a `Eth1DataCache` entry.
+/// Contains all information required to add a `BlockCache` entry.
 #[derive(Debug, PartialEq, Clone)]
 struct Eth1Snapshot {
     pub block: Block,
@@ -42,12 +43,12 @@ impl Into<Eth1Data> for Eth1Snapshot {
 
 /// Stores block and deposit contract information and provides queries based upon the block
 /// timestamp.
-pub struct Eth1DataCache {
+pub struct BlockCache {
     items: Vec<Eth1Snapshot>,
     offset: usize,
 }
 
-impl Eth1DataCache {
+impl BlockCache {
     /// Returns a new, empty cache.
     pub fn new(offset: usize) -> Self {
         Self {
@@ -56,9 +57,10 @@ impl Eth1DataCache {
         }
     }
 
-    /// Returns the lowest block number stored here, if any.
-    fn lowest_block_number(&self) -> Option<u64> {
-        Some(self.items.first()?.block.number)
+    /// Returns the range of block numbers stored in the block cache. All blocks in this range can
+    /// be accessed.
+    pub fn available_block_numbers(&self) -> Option<RangeInclusive<u64>> {
+        Some(self.items.first()?.block.number..=self.items.last()?.block.number)
     }
 
     /// Returns the block number one higher than the highest currently stored.
@@ -157,7 +159,7 @@ impl Eth1DataCache {
         match (
             item.block.number,
             self.next_block_number(),
-            self.lowest_block_number(),
+            self.available_block_numbers().map(|r| *r.start()),
         ) {
             // There are no other items in `self`.
             //
@@ -233,7 +235,7 @@ mod tests {
             .collect()
     }
 
-    fn insert(cache: &mut Eth1DataCache, s: Eth1Snapshot) -> Result<(), Error> {
+    fn insert(cache: &mut BlockCache, s: Eth1Snapshot) -> Result<(), Error> {
         cache.insert(s.block, s.deposit_root, s.deposit_count)
     }
 
@@ -242,7 +244,7 @@ mod tests {
         let n = 16;
         let snapshots = get_snapshots(n, 10);
 
-        let mut cache = Eth1DataCache::new(0);
+        let mut cache = BlockCache::new(0);
 
         for snapshot in snapshots {
             insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
@@ -270,7 +272,7 @@ mod tests {
         let duration = 10;
         let snapshots = get_snapshots(n, duration);
 
-        let mut cache = Eth1DataCache::new(0);
+        let mut cache = BlockCache::new(0);
 
         for snapshot in snapshots {
             insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
@@ -308,7 +310,7 @@ mod tests {
         let x = 2;
         let duration = 10;
 
-        let mut cache = Eth1DataCache::new(0);
+        let mut cache = BlockCache::new(0);
 
         // Should return none on empty cache.
         assert!(cache.eth1_data_at_time(Duration::from_secs(x)).is_none());
@@ -327,7 +329,7 @@ mod tests {
         let duration = 10;
         let snapshots = get_snapshots(n, duration);
 
-        let mut cache = Eth1DataCache::new(0);
+        let mut cache = BlockCache::new(0);
 
         for snapshot in &snapshots {
             insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
@@ -378,7 +380,7 @@ mod tests {
         let x = 2;
         let duration = 10;
 
-        let mut cache = Eth1DataCache::new(0);
+        let mut cache = BlockCache::new(0);
 
         // Should return error on empty cache.
         assert!(cache

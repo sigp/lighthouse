@@ -10,15 +10,15 @@ use web3::types::*;
 
 /// Cache for recent Eth1Data fetched from the Eth1 chain.
 #[derive(Clone, Debug)]
-pub struct Eth1DataCache<F: Eth1DataFetcher> {
+pub struct BlockCache<F: Eth1DataFetcher> {
     cache: Arc<RwLock<BTreeMap<U256, Eth1Data>>>,
     last_block: Arc<RwLock<u64>>,
     fetcher: Arc<F>,
 }
 
-impl<F: Eth1DataFetcher> Eth1DataCache<F> {
+impl<F: Eth1DataFetcher> BlockCache<F> {
     pub fn new(fetcher: Arc<F>) -> Self {
-        Eth1DataCache {
+        BlockCache {
             cache: Arc::new(RwLock::new(BTreeMap::new())),
             // Note: Should ideally start from block where Eth1 chain starts accepting deposits.
             last_block: Arc::new(RwLock::new(0)),
@@ -178,7 +178,7 @@ mod tests {
             Interval::new(Instant::now(), update_duration).map_err(|e| panic!("{:?}", e))
         };
 
-        let cache = Eth1DataCache::new(Arc::new(w3));
+        let cache = BlockCache::new(Arc::new(w3));
         let cache_inside = cache.cache.clone();
         let task = interval.take(100).for_each(move |_| {
             let _c = cache_inside.clone();

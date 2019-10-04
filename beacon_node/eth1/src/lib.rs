@@ -56,7 +56,7 @@ const ETH1_FOLLOW_DISTANCE: u64 = 1024; // Need to move this to eth2_config.toml
 #[derive(Clone, Debug)]
 pub struct Eth1<F: Eth1DataFetcher> {
     /// Cache for storing block_number to Eth1Data from the deposit contract.
-    pub eth1_data_cache: Eth1DataCache<F>,
+    pub block_cache: BlockCache<F>,
     /// Cache for storing deposit_index to Deposits received from deposit contract.
     pub deposit_cache: DepositCache<F>,
     /// Eth1 data fetcher
@@ -67,7 +67,7 @@ impl<F: Eth1DataFetcher + 'static> Eth1<F> {
     pub fn new(fetcher: F) -> Self {
         let fetcher_arc = Arc::new(fetcher);
         Eth1 {
-            eth1_data_cache: Eth1DataCache::new(fetcher_arc.clone()),
+            block_cache: BlockCache::new(fetcher_arc.clone()),
             deposit_cache: DepositCache::new(fetcher_arc.clone()),
             fetcher: fetcher_arc,
         }
@@ -91,10 +91,10 @@ impl<F: Eth1DataFetcher + 'static> Eth1<F> {
             )),
         )?);
         let new_eth1_data = self
-            .eth1_data_cache
+            .block_cache
             .get_eth1_data_in_range(ETH1_FOLLOW_DISTANCE, 2 * ETH1_FOLLOW_DISTANCE);
         let all_eth1_data = self
-            .eth1_data_cache
+            .block_cache
             .get_eth1_data_in_range(ETH1_FOLLOW_DISTANCE, previous_eth1_distance);
         let mut valid_votes: Vec<Eth1Data> = vec![];
         for (slot, vote) in state.eth1_data_votes.iter().enumerate() {
@@ -121,7 +121,7 @@ impl<F: Eth1DataFetcher + 'static> Eth1<F> {
                 }
                 result
             })
-            .unwrap_or(self.eth1_data_cache.get_eth1_data(ETH1_FOLLOW_DISTANCE)?))
+            .unwrap_or(self.block_cache.get_eth1_data(ETH1_FOLLOW_DISTANCE)?))
     }
 }
 
@@ -135,7 +135,7 @@ pub fn run<F: Eth1DataFetcher + 'static>(
     // Run a task for calling `update_cache` periodically.
     // TODO: Get values from config.
     let eth1_block_time_seconds: u64 = 5; // Approximate block time for eth1 chain.
-    let eth1_block_interval: u64 = 3; // Interval of eth1 blocks to update eth1_data_cache.
+    let eth1_block_interval: u64 = 3; // Interval of eth1 blocks to update block_cache.
     let interval_log = log.clone();
     let eth1_data_interval = {
         // Set the interval to fire every `eth1_block_interval` blocks.
@@ -148,13 +148,13 @@ pub fn run<F: Eth1DataFetcher + 'static>(
             )
         })
     };
-    let eth1_data_cache = eth1.eth1_data_cache.clone();
+    let block_cache = eth1.block_cache.clone();
     let eth1_cache_log = log.clone();
     info!(eth1_cache_log, "Cache update service started");
     executor.spawn(eth1_data_interval.for_each(move |_| {
         let log = eth1_cache_log.clone();
         let log_err = log.clone();
-        eth1_data_cache
+        block_cache
             .update_cache(eth1_block_interval + 1) // distance of block_interval + safety_interval
             .and_then(move |_| {
                 debug!(log, "Updating eth1 data cache");
