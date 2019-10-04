@@ -150,6 +150,26 @@ fn valid_attestations() {
 }
 
 #[test]
+fn valid_max_attestations_plus_one() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttestationTestTask::Valid;
+    let num_attestations = <MainnetEthSpec as EthSpec>::MaxVoluntaryExits::to_u64() + 1;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, num_attestations, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
 fn invalid_attestation_parent_crosslink_start_epoch() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
