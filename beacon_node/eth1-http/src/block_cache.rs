@@ -46,6 +46,7 @@ impl Into<Eth1Data> for Eth1Snapshot {
 
 /// Stores block and deposit contract information and provides queries based upon the block
 /// timestamp.
+#[derive(Debug, PartialEq, Clone)]
 pub struct BlockCache {
     items: Vec<Eth1Snapshot>,
     offset: usize,
@@ -57,6 +58,23 @@ impl BlockCache {
         Self {
             items: vec![],
             offset: offset,
+        }
+    }
+
+    /// Shortens the cache, keeping the latest `len` blocks and dropping the rest.
+    ///
+    /// If `len` is greater than the vector's current length, this has no effect.
+    ///
+    /// Providing `len == 0` is a no-op.
+    pub fn truncate(&mut self, len: usize) {
+        if (len != 0) && len < self.items.len() {
+            self.items = self.items.split_off(self.items.len() - len);
+            self.offset = self
+                .items
+                .last()
+                .expect("cannot shrink to empty")
+                .block
+                .number as usize;
         }
     }
 
@@ -257,6 +275,38 @@ mod tests {
 
     fn insert(cache: &mut BlockCache, s: Eth1Snapshot) -> Result<(), Error> {
         cache.insert(s.block, s.deposit_root, s.deposit_count)
+    }
+
+    #[test]
+    fn truncate() {
+        let n = 16;
+        let snapshots = get_snapshots(n, 10);
+
+        let mut cache = BlockCache::new(0);
+
+        for snapshot in snapshots {
+            insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
+        }
+
+        for len in vec![1, 2, 3, 4, 8, 15, 16] {
+            let mut cache = cache.clone();
+
+            cache.truncate(len);
+
+            assert_eq!(cache.items.len(), len, "should truncate to length: {}", len);
+        }
+
+        let mut cache_2 = cache.clone();
+        cache_2.truncate(0);
+        assert_eq!(cache_2.items.len(), n, "truncate to 0 should be a no-op");
+
+        let mut cache_2 = cache.clone();
+        cache_2.truncate(17);
+        assert_eq!(
+            cache_2.items.len(),
+            n,
+            "truncate to larger than n should be a no-op"
+        );
     }
 
     #[test]
