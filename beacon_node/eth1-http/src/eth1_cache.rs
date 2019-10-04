@@ -45,6 +45,7 @@ pub struct Eth1CacheBuilder {
     deposit_contract_address: String,
     initial_eth1_block: u64,
     eth1_follow_distance: u64,
+    target_block_cache_len: usize,
 }
 
 impl Eth1CacheBuilder {
@@ -55,6 +56,7 @@ impl Eth1CacheBuilder {
             deposit_contract_address,
             initial_eth1_block: 128,
             eth1_follow_distance: 0,
+            target_block_cache_len: 2_048,
         }
     }
 
@@ -70,9 +72,21 @@ impl Eth1CacheBuilder {
     /// Sets the follow distance for the caches.
     ///
     /// Setting the value higher means waiting for more confirmations before importing Eth1 data.
-    /// Setting the value to `0` means we follow the head. The default is `128`.
+    /// Setting the value to `0` means we follow the head.
+    ///
+    /// Default `128`.
     pub fn eth1_follow_distance(mut self, eth1_follow_distance: u64) -> Self {
         self.eth1_follow_distance = eth1_follow_distance;
+        self
+    }
+
+    /// Defines how many blocks to store in the cache, prior to the `eth1_follow_distance`.
+    ///
+    /// Sometimes the cache may grow larger than this, but it will generally be kept at this size.
+    ///
+    /// Default `2_048`.
+    pub fn target_block_cache_len(mut self, len: usize) -> Self {
+        self.target_block_cache_len = len;
         self
     }
 
@@ -83,6 +97,7 @@ impl Eth1CacheBuilder {
             deposit_contract_address: self.deposit_contract_address,
             block_cache: RwLock::new(BlockCache::new(self.initial_eth1_block as usize)),
             follow_distance: self.eth1_follow_distance,
+            target_block_cache_len: self.target_block_cache_len,
         }
     }
 }
@@ -96,6 +111,7 @@ pub struct Eth1Cache {
     deposit_contract_address: String,
     block_cache: RwLock<BlockCache>,
     follow_distance: u64,
+    target_block_cache_len: usize,
 }
 
 impl Eth1Cache {
@@ -105,6 +121,12 @@ impl Eth1Cache {
             .read()
             .available_block_numbers()
             .map(|r| *r.end())
+    }
+
+    pub fn prune_blocks(&self) {
+        self.block_cache
+            .write()
+            .truncate(self.target_block_cache_len);
     }
 }
 
@@ -157,10 +179,15 @@ pub fn update_block_cache<'a>(
         }
     })
     .and_then(|required_block_numbers| {
+        // Never download more blocks than can fit in the block cache.
+        let required_block_numbers = required_block_numbers
+            .into_iter()
+            .take(cache_3.target_block_cache_len);
+
         // Produce a stream from the list of required block numbers and return a future that
         // consumes the it.
         stream::unfold(
-            required_block_numbers.into_iter(),
+            required_block_numbers,
             move |mut block_numbers| match block_numbers.next() {
                 Some(block_number) => Some(
                     download_eth1_snapshot(cache_2.clone(), block_number)
@@ -180,6 +207,9 @@ pub fn update_block_cache<'a>(
         })
     })
     .and_then(move |blocks_imported| {
+        // Prune the block cache, preventing it from growing too large.
+        cache_4.prune_blocks();
+
         Ok(Eth1UpdateResult::Success {
             blocks_imported,
             head_block_number: cache_4
