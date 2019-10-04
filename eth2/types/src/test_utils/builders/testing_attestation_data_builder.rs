@@ -67,7 +67,7 @@ impl TestingAttestationDataBuilder {
             AttestationTestTask::BadParentCrosslinkHash => parent_root = Hash256::zero(),
             AttestationTestTask::NoCommiteeForShard => shard += 2,
             AttestationTestTask::IncludedTooEarly => shard += 1,
-            AttestationTestTask::BadSource => {
+            AttestationTestTask::WrongJustifiedCheckpoint => {
                 source = Checkpoint {
                     epoch: Epoch::from(0 as u64),
                     root: Hash256::zero(),

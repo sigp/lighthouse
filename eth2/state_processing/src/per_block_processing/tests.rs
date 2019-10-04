@@ -273,10 +273,10 @@ fn invalid_attestation_no_committee_for_shard() {
 }
 
 #[test]
-fn invalid_attestation_bad_source() {
+fn invalid_attestation_wrong_justified_checkpoint() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
-    let test_task = AttestationTestTask::BadSource;
+    let test_task = AttestationTestTask::WrongJustifiedCheckpoint;
     let (block, mut state) =
         builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
 

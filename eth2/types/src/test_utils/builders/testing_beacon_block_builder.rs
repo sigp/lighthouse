@@ -21,7 +21,7 @@ pub enum AttestationTestTask {
     BadParentCrosslinkEndEpoch,
     BadParentCrosslinkHash,
     NoCommiteeForShard,
-    BadSource,
+    WrongJustifiedCheckpoint,
     BadTargetTooLow,
     BadTargetTooHigh,
     BadParentCrosslinkDataRoot,
