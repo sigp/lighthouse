@@ -100,11 +100,11 @@ pub struct Eth1Cache {
 
 impl Eth1Cache {
     /// Returns the block number of the latest block in the `Eth1Data` cache.
-    pub fn latest_block_number(&self) -> u64 {
+    pub fn latest_block_number(&self) -> Option<u64> {
         self.block_cache
             .read()
-            .next_block_number()
-            .saturating_sub(1)
+            .available_block_numbers()
+            .map(|r| *r.start())
     }
 }
 

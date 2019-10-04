@@ -7,6 +7,7 @@
 //! some initial issues.
 
 use futures::Future;
+use serde_json::json;
 use ssz::Encode;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -53,11 +54,19 @@ impl DepositContract {
         let contract = Contract::from_json(web3.eth(), deposit_contract_address, ABI)
             .map_err(|e| format!("Failed to init contract: {:?}", e))?;
 
+        // Ensure the block time increases after contract deployment.
+        runtime()?.block_on(increase_time(web3.clone(), 1))?;
+
         Ok(Self {
             event_loop: Arc::new(event_loop),
             web3,
             contract: contract,
         })
+    }
+
+    /// Increase the timestamp on future blocks by `increase_by` seconds.
+    pub fn increase_time(&self, increase_by: u64) -> Result<(), String> {
+        runtime()?.block_on(increase_time(self.web3.clone(), increase_by))
     }
 
     /// The deposit contract's address in `0x00ab...` format.
@@ -67,6 +76,7 @@ impl DepositContract {
 
     pub fn deposit(&self, deposit_data: DepositData) -> Result<(), String> {
         let contract = self.contract.clone();
+        let web3_1 = self.web3.clone();
 
         let future = self
             .web3
@@ -94,7 +104,9 @@ impl DepositContract {
                     .call("deposit", params, from_address, options)
                     .map_err(|e| format!("Failed to call deposit fn: {:?}", e))
             })
-            .map(|_| ());
+            .map(|_| ())
+            // Ensure the next block has a higher timestamp than this.
+            .and_then(move |_| increase_time(web3_1.clone(), 1));
 
         runtime()?
             .block_on(future)
@@ -140,4 +152,15 @@ fn deploy_deposit_contract<T: Transport>(
                 .map(|contract| contract.address())
                 .map_err(|e| format!("Unable to resolve pending contract: {:?}", e))
         })
+}
+
+/// Increase the timestamp on future blocks by `increase_by` seconds.
+fn increase_time<T: Transport>(
+    web3: Web3<T>,
+    increase_by: u64,
+) -> impl Future<Item = (), Error = String> {
+    web3.transport()
+        .execute("evm_increaseTime", vec![json!(increase_by)])
+        .map(|_json_value| ())
+        .map_err(|e| format!("Failed to increase time on EVM (is this ganache?): {:?}", e))
 }

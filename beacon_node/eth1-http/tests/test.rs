@@ -122,7 +122,7 @@ mod eth1_cache {
 
             assert_eq!(
                 cache.latest_block_number(),
-                initial_eth1_block,
+                None,
                 "cache should be empty at the start"
             );
 
@@ -131,7 +131,7 @@ mod eth1_cache {
                 .expect("should update cache");
 
             assert!(
-                cache.latest_block_number() >= n,
+                cache.latest_block_number() >= Some(n),
                 "cache should have at least as many blocks as produced"
             );
         }
