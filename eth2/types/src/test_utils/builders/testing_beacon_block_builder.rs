@@ -31,6 +31,9 @@ pub enum AttestationTestTask {
     BadCustodyBitfieldLen,
     BadAggregationBitfieldLen,
     BadSignature,
+    ValidatorUnknown,
+    IncludedTooEarly,
+    IncludedTooLate,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {

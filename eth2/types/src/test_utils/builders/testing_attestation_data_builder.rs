@@ -66,6 +66,13 @@ impl TestingAttestationDataBuilder {
             AttestationTestTask::BadParentCrosslinkEndEpoch => end = Epoch::from(0 as u64),
             AttestationTestTask::BadParentCrosslinkHash => parent_root = Hash256::zero(),
             AttestationTestTask::NoCommiteeForShard => shard += 2,
+            AttestationTestTask::IncludedTooEarly => shard += 1,
+            // AttestationTestTask::IncludedTooLate => {
+            //     target = Checkpoint {
+            //         epoch: Epoch::from(4 as u64),
+            //         root: Hash256::zero(),
+            //     }
+            // }
             AttestationTestTask::BadSource => {
                 source = Checkpoint {
                     epoch: Epoch::from(0 as u64),
@@ -88,7 +95,7 @@ impl TestingAttestationDataBuilder {
             _ => (),
         }
         let crosslink = Crosslink {
-            shard,
+            shard, // 62
             parent_root,
             start_epoch: start, // 0
             end_epoch: end,     // 4
