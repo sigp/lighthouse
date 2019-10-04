@@ -104,7 +104,7 @@ impl Eth1Cache {
         self.block_cache
             .read()
             .available_block_numbers()
-            .map(|r| *r.start())
+            .map(|r| *r.end())
     }
 }
 
@@ -116,6 +116,7 @@ pub fn update_block_cache<'a>(
     let cache_1 = cache.clone();
     let cache_2 = cache.clone();
     let cache_3 = cache.clone();
+    let cache_4 = cache.clone();
 
     get_block_number(
         &cache.endpoint,
@@ -123,29 +124,46 @@ pub fn update_block_cache<'a>(
     )
     .map_err(|e| Error::GetBlockNumberFailed(e))
     .and_then(move |remote_highest_block| {
-        let local_highest_block: u64 = cache
+        let local_highest_block: u64 = cache_1
             .block_cache
             .read()
             .available_block_numbers()
             .map(|range| *range.end())
-            .unwrap_or_else(|| cache.block_cache.read().next_block_number());
+            .unwrap_or_else(|| cache_1.block_cache.read().next_block_number());
 
-        if local_highest_block > remote_highest_block {
-            Err(Error::RemoteNotSynced {
-                local_highest_block,
-                remote_highest_block,
-                follow_distance: cache.follow_distance,
-            })
+        let remote_follow_block = remote_highest_block.saturating_sub(cache.follow_distance);
+
+        if local_highest_block <= remote_follow_block {
+            let first_block: u64 = cache_1
+                .block_cache
+                .read()
+                .available_block_numbers()
+                .map(|range| *range.end() + 1)
+                .unwrap_or_else(|| cache_1.block_cache.read().next_block_number());
+
+            // Plus one to make the range inclusive.
+            Ok(first_block..remote_follow_block + 1)
         } else {
-            Ok(local_highest_block..=remote_highest_block)
+            if local_highest_block > remote_highest_block {
+                Err(Error::RemoteNotSynced {
+                    local_highest_block,
+                    remote_highest_block,
+                    follow_distance: cache_1.follow_distance,
+                })
+            } else {
+                // An empty range is a no-op.
+                Ok(0..0)
+            }
         }
     })
     .and_then(|required_block_numbers| {
+        // Produce a stream from the list of required block numbers and return a future that
+        // consumes the it.
         stream::unfold(
             required_block_numbers.into_iter(),
             move |mut block_numbers| match block_numbers.next() {
                 Some(block_number) => Some(
-                    download_eth1_snapshot(cache_1.clone(), block_number)
+                    download_eth1_snapshot(cache_2.clone(), block_number)
                         .map(|v| (v, block_numbers)),
                 ),
                 None => None,
@@ -153,7 +171,7 @@ pub fn update_block_cache<'a>(
         )
         .filter_map(|snapshot| snapshot)
         .fold(0, move |sum, (block, deposit_root, deposit_count)| {
-            cache_2
+            cache_3
                 .block_cache
                 .write()
                 .insert(block, deposit_root, deposit_count)
@@ -164,7 +182,7 @@ pub fn update_block_cache<'a>(
     .and_then(move |blocks_imported| {
         Ok(Eth1UpdateResult::Success {
             blocks_imported,
-            head_block_number: cache_3
+            head_block_number: cache_4
                 .clone()
                 .block_cache
                 .read()

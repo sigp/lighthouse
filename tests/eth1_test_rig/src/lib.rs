@@ -73,7 +73,6 @@ impl DepositContract {
 
     pub fn deposit(&self, deposit_data: DepositData) -> Result<(), String> {
         let contract = self.contract.clone();
-        let web3_1 = self.web3.clone();
 
         let future = self
             .web3
@@ -101,9 +100,7 @@ impl DepositContract {
                     .call("deposit", params, from_address, options)
                     .map_err(|e| format!("Failed to call deposit fn: {:?}", e))
             })
-            .map(|_| ())
-            // Ensure the next block has a higher timestamp than this.
-            .and_then(move |_| increase_time(web3_1.clone(), 1));
+            .map(|_| ());
 
         runtime()?
             .block_on(future)

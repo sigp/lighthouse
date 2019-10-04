@@ -266,7 +266,7 @@ pub fn get_deposit_logs_in_range(
 /// Sends an RPC request to `endpoint`, using a POST with the given `body`.
 ///
 /// Tries to receive the response and parse the body as a `String`.
-fn send_rpc_request(
+pub fn send_rpc_request(
     endpoint: &str,
     method: &str,
     params: Value,

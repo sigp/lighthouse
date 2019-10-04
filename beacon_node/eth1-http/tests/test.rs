@@ -92,48 +92,67 @@ fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64)
 
 mod eth1_cache {
     use super::*;
-    use eth1_http::{update_block_cache, Eth1CacheBuilder};
+    use eth1_http::{http::send_rpc_request, update_block_cache, Eth1CacheBuilder};
+    use serde_json::json;
     use std::sync::Arc;
+
+    pub fn advance_block() {
+        runtime()
+            .block_on(send_rpc_request(
+                &ENDPOINT,
+                "evm_mine",
+                json!([]),
+                Duration::from_secs(1),
+            ))
+            .expect("should advance ganache-cli block");
+    }
 
     #[test]
     fn test() {
-        let n = 8;
-        let initial_eth1_block = blocking_block_number();
+        let mut runtime = runtime();
 
         for follow_distance in 0..2 {
-            let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
-
             let deposit_contract =
                 DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
 
-            // Perform deposits to the smart contract, recording it's state along the way.
-            for deposit in &deposits {
-                deposit_contract
-                    .deposit(deposit.clone())
-                    .expect("should perform a deposit");
-            }
+            let initial_block_number = blocking_block_number() - follow_distance;
 
             let cache = Arc::new(
                 Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
-                    .initial_eth1_block(initial_eth1_block)
+                    .initial_eth1_block(initial_block_number)
                     .eth1_follow_distance(follow_distance)
                     .build(),
             );
 
-            assert_eq!(
-                cache.latest_block_number(),
-                None,
-                "cache should be empty at the start"
-            );
+            // Create some blocks and then consume them, performing the test `rounds` times.
+            for round in 0..2 {
+                let blocks = 4;
 
-            runtime()
-                .block_on(update_block_cache(cache.clone()))
-                .expect("should update cache");
+                let initial = if round == 0 {
+                    initial_block_number
+                } else {
+                    cache
+                        .latest_block_number()
+                        .expect("should have a latest block after the first round")
+                };
 
-            assert!(
-                cache.latest_block_number() >= Some(n),
-                "cache should have at least as many blocks as produced"
-            );
+                for _ in 0..blocks {
+                    advance_block()
+                }
+
+                runtime
+                    .block_on(update_block_cache(cache.clone()))
+                    .expect("should update cache");
+
+                assert!(
+                    cache.latest_block_number() >= Some(initial + blocks),
+                    "should update {} blocks in round {}. cache: {:?}, expected: {:?}",
+                    blocks,
+                    round,
+                    cache.latest_block_number(),
+                    Some(initial + blocks)
+                );
+            }
         }
     }
 }
