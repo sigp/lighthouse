@@ -312,7 +312,7 @@ fn invalid_attestation_bad_target_too_low() {
         result,
         Err(BlockProcessingError::BeaconStateError(
             BeaconStateError::RelativeEpochError(RelativeEpochError::EpochTooLow {
-                base: Epoch::from(4 as u64),
+                base: state.current_epoch(),
                 other: Epoch::from(0 as u64),
             })
         ))
@@ -342,7 +342,7 @@ fn invalid_attestation_bad_target_too_high() {
         result,
         Err(BlockProcessingError::BeaconStateError(
             BeaconStateError::RelativeEpochError(RelativeEpochError::EpochTooHigh {
-                base: Epoch::from(4 as u64),
+                base: state.current_epoch(),
                 other: Epoch::from(10 as u64),
             })
         ))

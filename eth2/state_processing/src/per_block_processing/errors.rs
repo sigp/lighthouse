@@ -257,8 +257,6 @@ pub enum AttestationInvalid {
     CustodyBitfieldNotSubset,
     /// There was no known committee in this `epoch` for the given shard and slot.
     NoCommitteeForShard { shard: u64, slot: Slot },
-    /// The validator index was unknown.
-    UnknownValidator(u64),
     /// The attestation signature verification failed.
     BadSignature,
     /// The shard block root was not set to zero. This is a phase 0 requirement.
