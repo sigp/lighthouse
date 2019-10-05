@@ -6,7 +6,7 @@ use crate::http::{
 };
 use futures::{prelude::*, stream, Future};
 use parking_lot::RwLock;
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::Duration;
 use types::Hash256;
@@ -27,7 +27,7 @@ const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 1_000;
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     RemoteNotSynced {
-        local_highest_block: u64,
+        next_required_block: u64,
         remote_highest_block: u64,
         follow_distance: u64,
     },
@@ -145,7 +145,7 @@ impl Eth1CacheBuilder {
             target_block_cache_len: self.target_block_cache_len,
             deposit_cache: RwLock::new(DepositUpdater {
                 cache: DepositCache::new(),
-                last_processed_block: self.deposit_log_start_block,
+                next_required_block: self.deposit_log_start_block,
             }),
         }
     }
@@ -153,7 +153,7 @@ impl Eth1CacheBuilder {
 
 struct DepositUpdater {
     cache: DepositCache,
-    last_processed_block: u64,
+    next_required_block: u64,
 }
 
 /// Stores all necessary information for beacon chain block production, including choosing an
@@ -198,200 +198,180 @@ pub fn update_deposit_cache<'a>(
     let cache_1 = cache.clone();
     let cache_2 = cache.clone();
 
-    get_block_number(
-        &cache.endpoint,
-        Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS),
-    )
-    .map_err(|e| Error::GetBlockNumberFailed(e))
-    .and_then(move |remote_head_block| {
-        let last_processed_block = cache.deposit_cache.read().last_processed_block;
+    let next_required_block = cache.deposit_cache.read().next_required_block;
 
-        if remote_head_block < last_processed_block {
-            Err(Error::NodeUnableToSyncDeposits {
-                remote_head_block,
-                last_processed_block,
-            })
-        } else {
-            Ok(last_processed_block + 1..remote_head_block + 1)
-        }
-    })
-    .map(|entire_block_range| {
-        entire_block_range
-            .into_iter()
-            .collect::<Vec<u64>>()
-            .chunks(BLOCKS_PER_LOG_QUERY)
-            .map(|vec| {
-                let first = vec.first().cloned().unwrap_or_else(|| 0);
-                let last = vec.last().cloned().map(|n| n + 1).unwrap_or_else(|| 0);
-                (first..last)
-            })
-            .collect::<Vec<Range<u64>>>()
-    })
-    .and_then(move |block_number_chunks| {
-        stream::unfold(
-            block_number_chunks.into_iter(),
-            move |mut chunks| match chunks.next() {
-                Some(chunk) => {
-                    let chunk_1 = chunk.clone();
-                    Some(
-                        get_deposit_logs_in_range(
-                            &cache_1.endpoint,
-                            &cache_1.deposit_contract_address,
-                            chunk,
-                            Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
-                        )
-                        .map_err(|e| Error::GetDepositLogsFailed(e))
-                        .map(|logs| (chunk_1, logs))
-                        .map(|logs| (logs, chunks)),
-                    )
-                }
-                None => None,
-            },
-        )
-        .fold(0, move |sum, (block_range, log_chunk)| {
-            let block_range_1 = block_range.clone();
-
-            let count = log_chunk.into_iter().try_fold(0, |count, raw_log| {
-                let block_range = block_range.clone();
-
-                let deposit_log = DepositLog::from_log(&raw_log)
-                    .map_err(|error| Error::FailedToParseDepositLog { block_range, error })?;
-
-                cache_2
-                    .deposit_cache
-                    .write()
-                    .cache
-                    .insert_log(deposit_log)
-                    .map_err(|e| Error::FailedToInsertDeposit(e))?;
-
-                Ok(count + 1)
-            })?;
-
-            cache_2.deposit_cache.write().last_processed_block =
-                block_range_1.end.saturating_sub(1);
-
-            Ok(sum + count)
+    get_new_block_numbers(&cache.endpoint, next_required_block, cache.follow_distance)
+        .map(|range| {
+            range
+                .map(|range| {
+                    range
+                        .into_iter()
+                        .collect::<Vec<u64>>()
+                        .chunks(BLOCKS_PER_LOG_QUERY)
+                        .map(|vec| {
+                            let first = vec.first().cloned().unwrap_or_else(|| 0);
+                            let last = vec.last().map(|n| n + 1).unwrap_or_else(|| 0);
+                            (first..last)
+                        })
+                        .collect::<Vec<Range<u64>>>()
+                })
+                .unwrap_or_else(|| vec![])
         })
-        .map(|logs_imported| DepositCacheUpdateResult::Success { logs_imported })
-    })
+        .and_then(move |block_number_chunks| {
+            stream::unfold(
+                block_number_chunks.into_iter(),
+                move |mut chunks| match chunks.next() {
+                    Some(chunk) => {
+                        let chunk_1 = chunk.clone();
+                        Some(
+                            get_deposit_logs_in_range(
+                                &cache_1.endpoint,
+                                &cache_1.deposit_contract_address,
+                                chunk,
+                                Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
+                            )
+                            .map_err(|e| Error::GetDepositLogsFailed(e))
+                            .map(|logs| (chunk_1, logs))
+                            .map(|logs| (logs, chunks)),
+                        )
+                    }
+                    None => None,
+                },
+            )
+            .fold(0, move |sum, (block_range, log_chunk)| {
+                let count = log_chunk.into_iter().try_fold(0, |count, raw_log| {
+                    let block_range = block_range.clone();
 
-    // TODO: update the last processed block.
+                    let deposit_log = DepositLog::from_log(&raw_log)
+                        .map_err(|error| Error::FailedToParseDepositLog { block_range, error })?;
+
+                    cache_2
+                        .deposit_cache
+                        .write()
+                        .cache
+                        .insert_log(deposit_log)
+                        .map_err(|e| Error::FailedToInsertDeposit(e))?;
+
+                    cache_2.deposit_cache.write().next_required_block += 1;
+
+                    Ok(count + 1)
+                })?;
+
+                Ok(sum + count)
+            })
+            .map(|logs_imported| DepositCacheUpdateResult::Success { logs_imported })
+        })
 }
 
-/// Try and perform an update on the cache, doing nothing if it's already in the process of an
-/// update.
 pub fn update_block_cache<'a>(
     cache: Arc<Eth1Cache>,
 ) -> impl Future<Item = Eth1UpdateResult, Error = Error> + 'a + Send {
-    let cache_1 = cache.clone();
+    // TODO: be a good boi and make these sequential.
     let cache_2 = cache.clone();
     let cache_3 = cache.clone();
     let cache_4 = cache.clone();
     let cache_5 = cache.clone();
 
-    get_block_number(
-        &cache.endpoint,
-        Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS),
-    )
-    .map_err(|e| Error::GetBlockNumberFailed(e))
-    // Determine the range of blocks that need to be downloaded, given the remotes best block and
-    // the locally stored best block.
-    .and_then(move |remote_highest_block| {
-        let local_highest_block: u64 = cache_1
-            .block_cache
-            .read()
-            .available_block_numbers()
-            .map(|range| *range.end())
-            .unwrap_or_else(|| cache_1.block_cache.read().next_block_number());
+    let next_required_block = cache.block_cache.read().next_block_number();
 
-        let remote_follow_block = remote_highest_block.saturating_sub(cache.follow_distance);
+    get_new_block_numbers(&cache.endpoint, next_required_block, cache.follow_distance)
+        // Map the range of required blocks into a Vec.
+        //
+        // If the required range is larger than the size of the cache, drop the exiting cache
+        // because it's exipred and just download enough blocks to fill the cache.
+        .and_then(move |range| {
+            range
+                .map(|range| {
+                    if range.start() > range.end() {
+                        Err(Error::Internal("Range was not increasing".into()))
+                    } else {
+                        let range_size = range.end() - range.start();
+                        let max_size = cache_5.target_block_cache_len as u64;
 
-        if local_highest_block <= remote_follow_block {
-            let first_block: u64 = cache_1
-                .block_cache
-                .read()
-                .available_block_numbers()
-                .map(|range| *range.end() + 1)
-                .unwrap_or_else(|| cache_1.block_cache.read().next_block_number());
+                        if range_size > max_size {
+                            let first_block = range.end() - max_size;
+                            (*cache_5.block_cache.write()) = BlockCache::new(first_block as usize);
+                            Ok((first_block..=*range.end())
+                                .into_iter()
+                                .collect::<Vec<u64>>())
+                        } else {
+                            Ok(range.into_iter().collect::<Vec<u64>>())
+                        }
+                    }
+                })
+                .unwrap_or_else(|| Ok(vec![]))
+        })
+        // Download the range of blocks and sequentially import them into the cache.
+        .and_then(|required_block_numbers| {
+            // Never download more blocks than can fit in the block cache.
+            let required_block_numbers = required_block_numbers
+                .into_iter()
+                .take(cache_3.target_block_cache_len);
 
-            // Plus one to make the range inclusive.
-            Ok(first_block..remote_follow_block + 1)
-        } else {
-            if local_highest_block > remote_highest_block {
+            // Produce a stream from the list of required block numbers and return a future that
+            // consumes the it.
+            stream::unfold(
+                required_block_numbers,
+                move |mut block_numbers| match block_numbers.next() {
+                    Some(block_number) => Some(
+                        download_eth1_snapshot(cache_2.clone(), block_number)
+                            .map(|v| (v, block_numbers)),
+                    ),
+                    None => None,
+                },
+            )
+            .filter_map(|snapshot| snapshot)
+            .fold(0, move |sum, (block, deposit_root, deposit_count)| {
+                cache_3
+                    .block_cache
+                    .write()
+                    .insert(block, deposit_root, deposit_count)
+                    .map_err(|e| Error::FailedToInsertEth1Snapshot(e))?;
+                Ok(sum + 1)
+            })
+        })
+        .and_then(move |blocks_imported| {
+            // Prune the block cache, preventing it from growing too large.
+            cache_4.prune_blocks();
+
+            Ok(Eth1UpdateResult::Success {
+                blocks_imported,
+                head_block_number: cache_4
+                    .clone()
+                    .block_cache
+                    .read()
+                    .next_block_number()
+                    .saturating_sub(1),
+            })
+        })
+}
+
+/// Determine the range of blocks that need to be downloaded, given the remotes best block and
+/// the locally stored best block.
+fn get_new_block_numbers<'a>(
+    endpoint: &str,
+    next_required_block: u64,
+    follow_distance: u64,
+) -> impl Future<Item = Option<RangeInclusive<u64>>, Error = Error> + 'a {
+    get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
+        .map_err(|e| Error::GetBlockNumberFailed(e))
+        .and_then(move |remote_highest_block| {
+            let remote_follow_block = remote_highest_block.saturating_sub(follow_distance);
+
+            if next_required_block <= remote_follow_block {
+                // Plus one to make the range inclusive.
+                Ok(Some(next_required_block..=remote_follow_block))
+            } else if next_required_block > remote_highest_block + 1 {
                 Err(Error::RemoteNotSynced {
-                    local_highest_block,
+                    next_required_block,
                     remote_highest_block,
-                    follow_distance: cache_1.follow_distance,
+                    follow_distance: follow_distance,
                 })
             } else {
-                // An empty range is a no-op.
-                Ok(0..0)
+                // Return an empty range.
+                Ok(None)
             }
-        }
-    })
-    // Inspect the range of blocks and determine if they are bigger than the current cache size.
-    //
-    // There is no need to download more than the cache size of blocks. Instead, it is more
-    // efficient to completely drop the cache and fill it up again.
-    .and_then(move |range| {
-        if range.start > range.end {
-            Err(Error::Internal("Range was not increasing".into()))
-        } else {
-            let range_size = range.end - range.start;
-            let max_size = cache_5.target_block_cache_len as u64;
-
-            if range_size > max_size {
-                let first_block = range.end - max_size;
-                (*cache_5.block_cache.write()) = BlockCache::new(first_block as usize);
-                Ok(first_block..range.end)
-            } else {
-                Ok(range)
-            }
-        }
-    })
-    // Download the range of blocks and sequentially import them into the cache.
-    .and_then(|required_block_numbers| {
-        // Never download more blocks than can fit in the block cache.
-        let required_block_numbers = required_block_numbers
-            .into_iter()
-            .take(cache_3.target_block_cache_len);
-
-        // Produce a stream from the list of required block numbers and return a future that
-        // consumes the it.
-        stream::unfold(
-            required_block_numbers,
-            move |mut block_numbers| match block_numbers.next() {
-                Some(block_number) => Some(
-                    download_eth1_snapshot(cache_2.clone(), block_number)
-                        .map(|v| (v, block_numbers)),
-                ),
-                None => None,
-            },
-        )
-        .filter_map(|snapshot| snapshot)
-        .fold(0, move |sum, (block, deposit_root, deposit_count)| {
-            cache_3
-                .block_cache
-                .write()
-                .insert(block, deposit_root, deposit_count)
-                .map_err(|e| Error::FailedToInsertEth1Snapshot(e))?;
-            Ok(sum + 1)
         })
-    })
-    .and_then(move |blocks_imported| {
-        // Prune the block cache, preventing it from growing too large.
-        cache_4.prune_blocks();
-
-        Ok(Eth1UpdateResult::Success {
-            blocks_imported,
-            head_block_number: cache_4
-                .clone()
-                .block_cache
-                .read()
-                .next_block_number()
-                .saturating_sub(1),
-        })
-    })
 }
 
 /// Downloads the `(block, deposit_root, deposit_count)` tuple from an eth1 node for the given

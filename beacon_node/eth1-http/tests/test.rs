@@ -230,8 +230,98 @@ mod eth1_cache {
 mod deposit_tree {
     use super::*;
 
+    /*
+        #[test]
+        fn updating() {
+            let n = 8;
+
+            let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
+
+            let deposit_contract =
+                DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
+
+            let mut deposit_roots = vec![];
+            let mut deposit_counts = vec![];
+
+            // Perform deposits to the smart contract, recording it's state along the way.
+            for deposit in &deposits {
+                deposit_contract
+                    .deposit(deposit.clone())
+                    .expect("should perform a deposit");
+                let block_number = blocking_block_number();
+                deposit_roots.push(
+                    blocking_deposit_root(&deposit_contract, block_number)
+                        .expect("should get root if contract exists"),
+                );
+                deposit_counts.push(
+                    blocking_deposit_count(&deposit_contract, block_number)
+                        .expect("should get count if contract exists"),
+                );
+            }
+
+            let mut tree = DepositCache::new();
+
+            // Pull all the deposit logs from the contract.
+            let block_number = blocking_block_number();
+            let logs: Vec<_> = blocking_deposit_logs(&deposit_contract, 0..block_number)
+                .iter()
+                .map(|raw| DepositLog::from_log(raw).expect("should parse deposit log"))
+                .inspect(|log| {
+                    tree.insert_log(log.clone())
+                        .expect("should add consecutive logs")
+                })
+                .collect();
+
+            // Check the logs for invariants.
+            for i in 0..logs.len() {
+                let log = &logs[i];
+                assert_eq!(
+                    log.deposit_data, deposits[i],
+                    "log {} should have correct deposit data",
+                    i
+                );
+                assert_eq!(log.index, i as u64, "log {} should have correct index", i);
+            }
+
+            // For each deposit test some more invariants
+            for i in 0..n {
+                // Ensure the deposit count from the smart contract was as expected.
+                assert_eq!(
+                    deposit_counts[i],
+                    i as u64 + 1,
+                    "deposit count should be accurate"
+                );
+
+                // Ensure that the root from the deposit tree matches what the contract reported.
+                let (root, deposits) = tree
+                    .get_deposits(0..i as u64, deposit_counts[i], DEPOSIT_CONTRACT_TREE_DEPTH)
+                    .expect("should get deposits");
+                assert_eq!(
+                    root, deposit_roots[i],
+                    "tree deposit root {} should match the contract",
+                    i
+                );
+
+                // Ensure that the deposits all prove into the root from the smart contract.
+                let deposit_root = deposit_roots[i];
+                for (j, deposit) in deposits.iter().enumerate() {
+                    assert!(
+                        verify_merkle_proof(
+                            Hash256::from_slice(&deposit.data.tree_hash_root()),
+                            &deposit.proof,
+                            DEPOSIT_CONTRACT_TREE_DEPTH + 1,
+                            j,
+                            deposit_root
+                        ),
+                        "deposit merkle proof should prove into deposit contract root"
+                    )
+                }
+            }
+        }
+    */
+
     #[test]
-    fn consistency() {
+    fn cache_consistency() {
         let n = 8;
 
         let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();

@@ -99,13 +99,22 @@ pub fn get_block(
                     .ok_or_else(|| "Block number was not string")?,
             )?;
 
-            Ok(Block {
-                hash,
-                timestamp,
-                number,
-            })
+            if number <= usize_max_size() {
+                Ok(Block {
+                    hash,
+                    timestamp,
+                    number,
+                })
+            } else {
+                Err(format!("Block number {} is larger than a usize", number))
+            }
         })
         .map_err(|e| format!("Failed to get block number: {}", e))
+}
+
+/// The maximum allowable size of a usize.
+fn usize_max_size() -> u64 {
+    1 << (std::mem::size_of::<usize>() * 8) - 1
 }
 
 /// Returns the value of the `get_deposit_count()` call at the given `address` for the given
