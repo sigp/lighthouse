@@ -1,5 +1,5 @@
 use tree_hash::SignedRoot;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{AttesterSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::*;
 
 pub struct BlockProcessingBuilder<T: EthSpec> {
@@ -32,6 +32,8 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
     pub fn build_with_attester_slashing(
         mut self,
+        test_task: AttesterSlashingTestTask,
+        num_attester_slashings: u64,
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
@@ -58,9 +60,15 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
         }
 
-        let validator_indices = vec![0];
-        let secret_keys = vec![&keypairs[0].sk];
+        let mut validator_indices = vec![];
+        let mut secret_keys = vec![];
+        for i in 0..num_attester_slashings {
+            validator_indices.push(i);
+            secret_keys.push(&keypairs[i as usize].sk);
+        }
+
         self.block_builder.insert_attester_slashing(
+            test_task,
             &validator_indices,
             &secret_keys,
             &state.fork,

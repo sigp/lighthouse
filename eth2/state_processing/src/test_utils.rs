@@ -1,5 +1,5 @@
 use log::info;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{AttesterSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::{EthSpec, *};
 
 pub struct BlockBuilder<T: EthSpec> {
@@ -102,7 +102,7 @@ impl<T: EthSpec> BlockBuilder<T> {
                 secret_keys.push(&keypairs[validator_index as usize].sk);
             }
 
-            builder.insert_attester_slashing(&attesters, &secret_keys, &state.fork, spec);
+            builder.insert_attester_slashing(AttesterSlashingTestTask::Valid, &attesters, &secret_keys, &state.fork, spec);
         }
         info!(
             "Inserted {} attester slashings.",

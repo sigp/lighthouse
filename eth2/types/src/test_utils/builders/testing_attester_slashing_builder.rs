@@ -1,4 +1,5 @@
 use crate::*;
+use crate::test_utils::AttesterSlashingTestTask;
 use tree_hash::TreeHash;
 
 /// Builds an `AttesterSlashing`.
@@ -17,7 +18,7 @@ impl TestingAttesterSlashingBuilder {
     /// - `domain: Domain`
     ///
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
-    pub fn double_vote<F, T: EthSpec>(validator_indices: &[u64], signer: F) -> AttesterSlashing<T>
+    pub fn double_vote<F, T: EthSpec>(test_task: AttesterSlashingTestTask, validator_indices: &[u64], signer: F) -> AttesterSlashing<T>
     where
         F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
@@ -49,9 +50,18 @@ impl TestingAttesterSlashingBuilder {
             crosslink,
         };
 
-        let data_2 = AttestationData {
-            target: checkpoint_2,
-            ..data_1.clone()
+        let data_2 = match test_task {
+            AttesterSlashingTestTask::NotSlashable => {
+                AttestationData {
+                    ..data_1.clone()
+                }
+            }
+            _ => {
+                AttestationData {
+                    target: checkpoint_2,
+                    ..data_1.clone()
+                }
+            }
         };
 
         let mut attestation_1 = IndexedAttestation {

@@ -15,6 +15,11 @@ pub struct TestingBeaconBlockBuilder<T: EthSpec> {
     pub block: BeaconBlock<T>,
 }
 
+pub enum AttesterSlashingTestTask {
+    Valid,
+    NotSlashable,
+}
+
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Create a new builder from genesis.
     pub fn new(spec: &ChainSpec) -> Self {
@@ -78,13 +83,14 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Inserts a signed, valid `AttesterSlashing` for each validator index in `validator_indices`.
     pub fn insert_attester_slashing(
         &mut self,
+        test_task: AttesterSlashingTestTask,
         validator_indices: &[u64],
         secret_keys: &[&SecretKey],
         fork: &Fork,
         spec: &ChainSpec,
     ) {
         let attester_slashing =
-            build_double_vote_attester_slashing(validator_indices, secret_keys, fork, spec);
+            build_double_vote_attester_slashing(test_task, validator_indices, secret_keys, fork, spec);
         self.block
             .body
             .attester_slashings
@@ -297,6 +303,7 @@ fn build_proposer_slashing<T: EthSpec>(
 ///
 /// Signs the message using a `BeaconChainHarness`.
 fn build_double_vote_attester_slashing<T: EthSpec>(
+    test_task: AttesterSlashingTestTask,
     validator_indices: &[u64],
     secret_keys: &[&SecretKey],
     fork: &Fork,
@@ -311,5 +318,5 @@ fn build_double_vote_attester_slashing<T: EthSpec>(
         Signature::new(message, domain, secret_keys[key_index])
     };
 
-    TestingAttesterSlashingBuilder::double_vote(validator_indices, signer)
+    TestingAttesterSlashingBuilder::double_vote(test_task, validator_indices, signer)
 }

@@ -5,6 +5,7 @@ use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
 use types::*;
+use types::test_utils::AttesterSlashingTestTask;
 
 pub const VALIDATOR_COUNT: usize = 10;
 
@@ -129,10 +130,12 @@ fn invalid_randao_reveal_signature() {
 }
 
 #[test]
-fn valid_attester_slashing() {
+fn valid_insert_attester_slashing() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
-    let (block, mut state) = builder.build_with_attester_slashing(None, None, &spec);
+    let test_task = AttesterSlashingTestTask::Valid;
+    let num_attester_slashings = 1;
+    let (block, mut state) = builder.build_with_attester_slashing(test_task, num_attester_slashings, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -143,6 +146,51 @@ fn valid_attester_slashing() {
     );
 
     assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn valid_insert_max_attester_slashings_plus_one() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttesterSlashingTestTask::Valid;
+    let num_attester_slashings = <MainnetEthSpec as EthSpec>::MaxAttesterSlashings::to_u64() + 1;
+    let (block, mut state) = builder.build_with_attester_slashing(test_task, num_attester_slashings, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    assert_eq!(result, Ok(()));
+}
+
+
+#[test]
+fn invalid_attester_slashing_not_slashable() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = AttesterSlashingTestTask::NotSlashable;
+    let num_attester_slashings = 1;
+    let (block, mut state) = builder.build_with_attester_slashing(test_task, num_attester_slashings, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttesterSlashingInvalid {
+            index: 0,
+            reason: AttesterSlashingInvalid::NotSlashable
+        })
+    );
 }
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
