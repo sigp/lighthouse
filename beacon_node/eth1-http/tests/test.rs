@@ -262,6 +262,10 @@ mod deposit_tree {
                 .block_on(update_deposit_cache(cache.clone()))
                 .expect("should perform update");
 
+            runtime
+                .block_on(update_deposit_cache(cache.clone()))
+                .expect("should perform update when nothing has changed");
+
             let first = n * round;
             let last = n * (round + 1);
 
@@ -408,6 +412,10 @@ mod http {
 
         for i in 1..=8 {
             deposit_contract
+                .increase_time(1)
+                .expect("should be able to increase time on ganache");
+
+            deposit_contract
                 .deposit(random_deposit_data())
                 .expect("should perform a deposit");
 
@@ -440,7 +448,7 @@ mod http {
 
             // Check to ensure the timestamp is increasing
             assert!(
-                old_block.timestamp < new_block.timestamp,
+                old_block.timestamp <= new_block.timestamp,
                 "block timestamp should increase"
             );
 
