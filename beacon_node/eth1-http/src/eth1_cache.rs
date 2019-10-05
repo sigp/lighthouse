@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::Duration;
-use types::Hash256;
+use types::{Deposit, Hash256};
 
 const BLOCKS_PER_LOG_QUERY: usize = 10;
 
@@ -50,6 +50,7 @@ pub enum Error {
         block_range: Range<u64>,
         error: String,
     },
+    FailedToGetDeposits(DepositCacheError),
     Internal(String),
 }
 
@@ -190,6 +191,30 @@ impl Eth1Cache {
     pub fn block_cache_len(&self) -> usize {
         self.block_cache.read().len()
     }
+
+    /// Returns a list of `Deposit` objects, within the given deposit index `range`.
+    ///
+    /// The `deposit_count` is used to generate the proofs for the `Deposits`. For example, if we
+    /// have 100 proofs, but the eth2 chain only acknowledges 50 of them, we must produce our
+    /// proofs with respect to a tree size of 50.
+    ///
+    ///
+    /// ## Errors
+    ///
+    /// - If `deposit_count` is larger than `range.end`.
+    /// - There are not sufficient deposits in the tree to generate the proof.
+    pub fn get_deposits(
+        &self,
+        range: Range<u64>,
+        deposit_count: u64,
+        tree_depth: usize,
+    ) -> Result<(Hash256, Vec<Deposit>), Error> {
+        self.deposit_cache
+            .read()
+            .cache
+            .get_deposits(range, deposit_count, tree_depth)
+            .map_err(|e| Error::FailedToGetDeposits(e))
+    }
 }
 
 pub fn update_deposit_cache<'a>(
@@ -245,14 +270,14 @@ pub fn update_deposit_cache<'a>(
                     let deposit_log = DepositLog::from_log(&raw_log)
                         .map_err(|error| Error::FailedToParseDepositLog { block_range, error })?;
 
-                    cache_2
-                        .deposit_cache
-                        .write()
+                    let mut cache = cache_2.deposit_cache.write();
+
+                    cache
                         .cache
                         .insert_log(deposit_log)
                         .map_err(|e| Error::FailedToInsertDeposit(e))?;
 
-                    cache_2.deposit_cache.write().next_required_block += 1;
+                    cache.next_required_block += 1;
 
                     Ok(count + 1)
                 })?;

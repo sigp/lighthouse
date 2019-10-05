@@ -7,10 +7,11 @@ use eth1_http::http::{
     get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
     Block, Log,
 };
-use eth1_http::{DepositCache, DepositLog};
+use eth1_http::{DepositCache, DepositLog, Eth1CacheBuilder};
 use eth1_test_rig::DepositContract;
 use merkle_proof::verify_merkle_proof;
 use std::ops::Range;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tree_hash::TreeHash;
@@ -92,9 +93,8 @@ fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64)
 
 mod eth1_cache {
     use super::*;
-    use eth1_http::{http::send_rpc_request, update_block_cache, Eth1CacheBuilder};
+    use eth1_http::{http::send_rpc_request, update_block_cache};
     use serde_json::json;
-    use std::sync::Arc;
 
     pub fn advance_block() {
         runtime()
@@ -229,96 +229,64 @@ mod eth1_cache {
 
 mod deposit_tree {
     use super::*;
+    use eth1_http::update_deposit_cache;
 
-    /*
-        #[test]
-        fn updating() {
-            let n = 8;
+    #[test]
+    fn updating() {
+        let n = 4;
+        let mut runtime = runtime();
 
+        let start_block = blocking_block_number();
+
+        let deposit_contract =
+            DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
+
+        let cache = Arc::new(
+            Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
+                .initial_eth1_block(start_block)
+                .deposit_contract_deploy_block(start_block)
+                .eth1_follow_distance(0)
+                .build(),
+        );
+
+        for round in 0..3 {
             let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
 
-            let deposit_contract =
-                DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
-
-            let mut deposit_roots = vec![];
-            let mut deposit_counts = vec![];
-
-            // Perform deposits to the smart contract, recording it's state along the way.
             for deposit in &deposits {
                 deposit_contract
                     .deposit(deposit.clone())
                     .expect("should perform a deposit");
-                let block_number = blocking_block_number();
-                deposit_roots.push(
-                    blocking_deposit_root(&deposit_contract, block_number)
-                        .expect("should get root if contract exists"),
-                );
-                deposit_counts.push(
-                    blocking_deposit_count(&deposit_contract, block_number)
-                        .expect("should get count if contract exists"),
-                );
             }
 
-            let mut tree = DepositCache::new();
+            runtime
+                .block_on(update_deposit_cache(cache.clone()))
+                .expect("should perform update");
 
-            // Pull all the deposit logs from the contract.
-            let block_number = blocking_block_number();
-            let logs: Vec<_> = blocking_deposit_logs(&deposit_contract, 0..block_number)
-                .iter()
-                .map(|raw| DepositLog::from_log(raw).expect("should parse deposit log"))
-                .inspect(|log| {
-                    tree.insert_log(log.clone())
-                        .expect("should add consecutive logs")
-                })
-                .collect();
+            let first = n * round;
+            let last = n * (round + 1);
 
-            // Check the logs for invariants.
-            for i in 0..logs.len() {
-                let log = &logs[i];
-                assert_eq!(
-                    log.deposit_data, deposits[i],
-                    "log {} should have correct deposit data",
-                    i
-                );
-                assert_eq!(log.index, i as u64, "log {} should have correct index", i);
-            }
+            let (_root, local_deposits) = cache
+                .get_deposits(first..last, last, 32)
+                .expect(&format!("should get deposits in round {}", round));
 
-            // For each deposit test some more invariants
-            for i in 0..n {
-                // Ensure the deposit count from the smart contract was as expected.
-                assert_eq!(
-                    deposit_counts[i],
-                    i as u64 + 1,
-                    "deposit count should be accurate"
-                );
+            assert_eq!(
+                local_deposits.len(),
+                n as usize,
+                "should get the right number of deposits in round {}",
+                round
+            );
 
-                // Ensure that the root from the deposit tree matches what the contract reported.
-                let (root, deposits) = tree
-                    .get_deposits(0..i as u64, deposit_counts[i], DEPOSIT_CONTRACT_TREE_DEPTH)
-                    .expect("should get deposits");
-                assert_eq!(
-                    root, deposit_roots[i],
-                    "tree deposit root {} should match the contract",
-                    i
-                );
-
-                // Ensure that the deposits all prove into the root from the smart contract.
-                let deposit_root = deposit_roots[i];
-                for (j, deposit) in deposits.iter().enumerate() {
-                    assert!(
-                        verify_merkle_proof(
-                            Hash256::from_slice(&deposit.data.tree_hash_root()),
-                            &deposit.proof,
-                            DEPOSIT_CONTRACT_TREE_DEPTH + 1,
-                            j,
-                            deposit_root
-                        ),
-                        "deposit merkle proof should prove into deposit contract root"
-                    )
-                }
-            }
+            assert_eq!(
+                local_deposits
+                    .iter()
+                    .map(|d| d.data.clone())
+                    .collect::<Vec<_>>(),
+                deposits.to_vec(),
+                "obtained deposits should match those submitted in round {}",
+                round
+            );
         }
-    */
+    }
 
     #[test]
     fn cache_consistency() {
