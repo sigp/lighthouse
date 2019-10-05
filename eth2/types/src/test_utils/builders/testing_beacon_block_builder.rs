@@ -83,7 +83,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Inserts a signed, valid `AttesterSlashing` for each validator index in `validator_indices`.
     pub fn insert_attester_slashing(
         &mut self,
-        test_task: AttesterSlashingTestTask,
+        test_task: &AttesterSlashingTestTask,
         validator_indices: &[u64],
         secret_keys: &[&SecretKey],
         fork: &Fork,
@@ -96,11 +96,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             fork,
             spec,
         );
-        self.block
-            .body
-            .attester_slashings
-            .push(attester_slashing)
-            .unwrap();
+        let _ = self.block.body.attester_slashings.push(attester_slashing);
     }
 
     /// Fills the block with `num_attestations` attestations.
@@ -308,7 +304,7 @@ fn build_proposer_slashing<T: EthSpec>(
 ///
 /// Signs the message using a `BeaconChainHarness`.
 fn build_double_vote_attester_slashing<T: EthSpec>(
-    test_task: AttesterSlashingTestTask,
+    test_task: &AttesterSlashingTestTask,
     validator_indices: &[u64],
     secret_keys: &[&SecretKey],
     fork: &Fork,

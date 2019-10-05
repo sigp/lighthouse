@@ -105,7 +105,7 @@ impl<T: EthSpec> BlockBuilder<T> {
             }
 
             builder.insert_attester_slashing(
-                AttesterSlashingTestTask::Valid,
+                &AttesterSlashingTestTask::Valid,
                 &attesters,
                 &secret_keys,
                 &state.fork,

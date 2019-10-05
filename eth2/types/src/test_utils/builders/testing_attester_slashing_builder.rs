@@ -19,7 +19,7 @@ impl TestingAttesterSlashingBuilder {
     ///
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
     pub fn double_vote<F, T: EthSpec>(
-        test_task: AttesterSlashingTestTask,
+        test_task: &AttesterSlashingTestTask,
         validator_indices: &[u64],
         signer: F,
     ) -> AttesterSlashing<T>

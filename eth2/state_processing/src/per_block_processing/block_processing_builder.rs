@@ -34,7 +34,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
     pub fn build_with_attester_slashing(
         mut self,
-        test_task: AttesterSlashingTestTask,
+        test_task: &AttesterSlashingTestTask,
         num_attester_slashings: u64,
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
@@ -69,13 +69,15 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             secret_keys.push(&keypairs[i as usize].sk);
         }
 
-        self.block_builder.insert_attester_slashing(
-            test_task,
-            &validator_indices,
-            &secret_keys,
-            &state.fork,
-            spec,
-        );
+        for _ in 0..num_attester_slashings {
+            self.block_builder.insert_attester_slashing(
+                test_task,
+                &validator_indices,
+                &secret_keys,
+                &state.fork,
+                spec,
+            );
+        }
         let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
 
         (block, state)

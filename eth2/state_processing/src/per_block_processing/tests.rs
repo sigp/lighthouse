@@ -136,7 +136,7 @@ fn valid_insert_attester_slashing() {
     let test_task = AttesterSlashingTestTask::Valid;
     let num_attester_slashings = 1;
     let (block, mut state) =
-        builder.build_with_attester_slashing(test_task, num_attester_slashings, None, None, &spec);
+        builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -156,7 +156,7 @@ fn valid_insert_max_attester_slashings_plus_one() {
     let test_task = AttesterSlashingTestTask::Valid;
     let num_attester_slashings = <MainnetEthSpec as EthSpec>::MaxAttesterSlashings::to_u64() + 1;
     let (block, mut state) =
-        builder.build_with_attester_slashing(test_task, num_attester_slashings, None, None, &spec);
+        builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
@@ -176,7 +176,7 @@ fn invalid_attester_slashing_not_slashable() {
     let test_task = AttesterSlashingTestTask::NotSlashable;
     let num_attester_slashings = 1;
     let (block, mut state) =
-        builder.build_with_attester_slashing(test_task, num_attester_slashings, None, None, &spec);
+        builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
 
     let result = per_block_processing(
         &mut state,
