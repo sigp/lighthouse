@@ -9,6 +9,7 @@ use eth1_http::http::{
 };
 use eth1_http::{DepositCache, DepositLog, Eth1CacheBuilder};
 use eth1_test_rig::DepositContract;
+use futures::Future;
 use merkle_proof::verify_merkle_proof;
 use std::ops::Range;
 use std::sync::Arc;
@@ -229,6 +230,32 @@ mod eth1_cache {
             "should not grow cache beyond target"
         );
     }
+
+    #[test]
+    fn double_update() {
+        let mut runtime = runtime();
+        let n = 16;
+
+        let deposit_contract =
+            DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
+
+        let cache = Arc::new(
+            Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
+                .initial_eth1_block(blocking_block_number())
+                .eth1_follow_distance(0)
+                .build(),
+        );
+
+        for _ in 0..n {
+            advance_block()
+        }
+
+        runtime
+            .block_on(update_block_cache(cache.clone()).join(update_block_cache(cache.clone())))
+            .expect("should perform two simultaneous updates");
+
+        assert!(cache.block_cache_len() >= n, "should grow the cache");
+    }
 }
 
 mod deposit_tree {
@@ -294,6 +321,39 @@ mod deposit_tree {
                 round
             );
         }
+    }
+
+    #[test]
+    fn double_update() {
+        let n = 8;
+        let mut runtime = runtime();
+
+        let start_block = blocking_block_number();
+
+        let deposit_contract =
+            DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
+
+        let cache = Arc::new(
+            Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
+                .initial_eth1_block(start_block)
+                .deposit_contract_deploy_block(start_block)
+                .eth1_follow_distance(0)
+                .build(),
+        );
+
+        let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
+
+        for deposit in &deposits {
+            deposit_contract
+                .deposit(deposit.clone())
+                .expect("should perform a deposit");
+        }
+
+        runtime
+            .block_on(update_deposit_cache(cache.clone()).join(update_deposit_cache(cache.clone())))
+            .expect("should perform two updates concurrently");
+
+        assert_eq!(cache.deposit_cache_len(), n);
     }
 
     #[test]

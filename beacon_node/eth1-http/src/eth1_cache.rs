@@ -192,6 +192,11 @@ impl Eth1Cache {
         self.block_cache.read().len()
     }
 
+    /// Returns the number deposits available in the deposit cache.
+    pub fn deposit_cache_len(&self) -> usize {
+        self.deposit_cache.read().cache.len()
+    }
+
     /// Returns a list of `Deposit` objects, within the given deposit index `range`.
     ///
     /// The `deposit_count` is used to generate the proofs for the `Deposits`. For example, if we

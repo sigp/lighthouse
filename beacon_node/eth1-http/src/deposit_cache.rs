@@ -144,6 +144,11 @@ impl DepositCache {
         }
     }
 
+    /// Returns the number of deposits available in the cache.
+    pub fn len(&self) -> usize {
+        self.logs.len()
+    }
+
     /// Adds `log` to self.
     ///
     /// This function enforces that `logs` are imported one-by-one with no gaps between
