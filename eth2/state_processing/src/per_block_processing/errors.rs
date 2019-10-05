@@ -190,8 +190,6 @@ pub enum ProposerSlashingInvalid {
 
 #[derive(Debug, PartialEq)]
 pub enum AttesterSlashingInvalid {
-    /// The attestation data is identical, an attestation cannot conflict with itself.
-    AttestationDataIdentical,
     /// The attestations were not in conflict.
     NotSlashable,
     /// The first `IndexedAttestation` was invalid.
