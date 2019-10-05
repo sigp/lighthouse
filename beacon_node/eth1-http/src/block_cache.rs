@@ -76,7 +76,7 @@ impl BlockCache {
             self.items = self.items.split_off(self.items.len() - len);
             self.offset = self
                 .items
-                .last()
+                .first()
                 .expect("cannot shrink to empty")
                 .block
                 .number as usize;

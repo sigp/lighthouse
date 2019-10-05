@@ -144,6 +144,10 @@ mod eth1_cache {
                     .block_on(update_block_cache(cache.clone()))
                     .expect("should update cache");
 
+                runtime
+                    .block_on(update_block_cache(cache.clone()))
+                    .expect("should update cache when nothing has changed");
+
                 assert!(
                     cache.latest_block_number() >= Some(initial + blocks),
                     "should update {} blocks in round {}. cache: {:?}, expected: {:?}",
