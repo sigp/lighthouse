@@ -89,8 +89,13 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         fork: &Fork,
         spec: &ChainSpec,
     ) {
-        let attester_slashing =
-            build_double_vote_attester_slashing(test_task, validator_indices, secret_keys, fork, spec);
+        let attester_slashing = build_double_vote_attester_slashing(
+            test_task,
+            validator_indices,
+            secret_keys,
+            fork,
+            spec,
+        );
         self.block
             .body
             .attester_slashings

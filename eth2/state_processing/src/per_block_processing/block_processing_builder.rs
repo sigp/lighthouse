@@ -1,5 +1,7 @@
 use tree_hash::SignedRoot;
-use types::test_utils::{AttesterSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{
+    AttesterSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
+};
 use types::*;
 
 pub struct BlockProcessingBuilder<T: EthSpec> {
