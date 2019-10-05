@@ -154,7 +154,7 @@ fn valid_max_attestations_plus_one() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
     let test_task = AttestationTestTask::Valid;
-    let num_attestations = <MainnetEthSpec as EthSpec>::MaxVoluntaryExits::to_u64() + 1;
+    let num_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_u64() + 1;
     let (block, mut state) =
         builder.build_with_n_attestations(&test_task, num_attestations, None, None, &spec);
 
@@ -590,7 +590,7 @@ fn invalid_attestation_included_too_early() {
 }
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
-    let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);
+    let mut builder = BlockProcessingBuilder::new(1024, &spec);
 
     // Set the state and block to be in the last slot of the 4th epoch.
     let last_slot_of_epoch =

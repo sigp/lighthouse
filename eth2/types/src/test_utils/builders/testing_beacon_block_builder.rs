@@ -219,7 +219,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             .collect();
 
         for attestation in attestations {
-            self.block.body.attestations.push(attestation).unwrap();
+            let _ = self.block.body.attestations.push(attestation);
         }
 
         Ok(())
