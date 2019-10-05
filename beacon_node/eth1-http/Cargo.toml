@@ -6,7 +6,6 @@ edition = "2018"
 
 [dev-dependencies]
 eth1_test_rig = { path = "../../tests/eth1_test_rig" }
-tokio = "0.1.17"
 
 [dependencies]
 reqwest = "0.9"
@@ -20,3 +19,5 @@ eth2_ssz = { path = "../../eth2/utils/ssz"}
 tree_hash = { path = "../../eth2/utils/tree_hash"}
 eth2_hashing = { path = "../../eth2/utils/eth2_hashing"}
 parking_lot = "0.7"
+slog = "^2.2.3"
+tokio = "0.1.17"

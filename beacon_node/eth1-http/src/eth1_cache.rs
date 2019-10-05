@@ -56,7 +56,7 @@ pub enum Error {
 
 /// The success message for an Eth1Data cache update.
 #[derive(Debug, PartialEq, Clone)]
-pub enum Eth1UpdateResult {
+pub enum BlockCacheUpdateOutcome {
     /// The cache was sucessfully updated.
     Success {
         blocks_imported: usize,
@@ -66,7 +66,7 @@ pub enum Eth1UpdateResult {
 
 /// The success message for an Eth1 deposit cache update.
 #[derive(Debug, PartialEq, Clone)]
-pub enum DepositCacheUpdateResult {
+pub enum DepositCacheUpdateOutcome {
     /// The cache was sucessfully updated.
     Success { logs_imported: usize },
 }
@@ -224,7 +224,7 @@ impl Eth1Cache {
 
 pub fn update_deposit_cache<'a>(
     cache: Arc<Eth1Cache>,
-) -> impl Future<Item = DepositCacheUpdateResult, Error = Error> + 'a + Send {
+) -> impl Future<Item = DepositCacheUpdateOutcome, Error = Error> + 'a + Send {
     let cache_1 = cache.clone();
     let cache_2 = cache.clone();
 
@@ -289,13 +289,13 @@ pub fn update_deposit_cache<'a>(
 
                 Ok(sum + count)
             })
-            .map(|logs_imported| DepositCacheUpdateResult::Success { logs_imported })
+            .map(|logs_imported| DepositCacheUpdateOutcome::Success { logs_imported })
         })
 }
 
 pub fn update_block_cache<'a>(
     cache: Arc<Eth1Cache>,
-) -> impl Future<Item = Eth1UpdateResult, Error = Error> + 'a + Send {
+) -> impl Future<Item = BlockCacheUpdateOutcome, Error = Error> + 'a + Send {
     // TODO: be a good boi and make these sequential.
     let cache_2 = cache.clone();
     let cache_3 = cache.clone();
@@ -364,7 +364,7 @@ pub fn update_block_cache<'a>(
             // Prune the block cache, preventing it from growing too large.
             cache_4.prune_blocks();
 
-            Ok(Eth1UpdateResult::Success {
+            Ok(BlockCacheUpdateOutcome::Success {
                 blocks_imported,
                 head_block_number: cache_4
                     .clone()
