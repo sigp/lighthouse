@@ -590,7 +590,7 @@ fn invalid_attestation_included_too_early() {
 }
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
-    let mut builder = BlockProcessingBuilder::new(1024, &spec);
+    let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);
 
     // Set the state and block to be in the last slot of the 4th epoch.
     let last_slot_of_epoch =
