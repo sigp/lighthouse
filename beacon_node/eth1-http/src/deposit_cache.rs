@@ -5,7 +5,7 @@ use std::ops::Range;
 use tree_hash::TreeHash;
 use types::{Deposit, DepositData, Hash256, PublicKeyBytes, SignatureBytes};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     NonConsecutive {
         log_index: u64,

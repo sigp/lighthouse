@@ -1,10 +1,17 @@
-use crate::block_cache::{BlockCache, Error as Eth1Error};
-use crate::http::{get_block, get_block_number, get_deposit_count, get_deposit_root, Block};
+use crate::block_cache::{BlockCache, Error as BlockCacheError};
+use crate::deposit_cache::{DepositCache, DepositLog, Error as DepositCacheError};
+use crate::http::{
+    get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
+    Block,
+};
 use futures::{prelude::*, stream, Future};
 use parking_lot::RwLock;
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 use types::Hash256;
+
+const BLOCKS_PER_LOG_QUERY: usize = 10;
 
 /// Timeout when doing a eth_blockNumber call.
 const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = 1_000;
@@ -14,6 +21,8 @@ const GET_BLOCK_TIMEOUT_MILLIS: u64 = 1_000;
 const GET_DEPOSIT_ROOT_TIMEOUT_MILLIS: u64 = 1_000;
 /// Timeout when doing an eth_call to read the deposit contract deposit count.
 const GET_DEPOSIT_COUNT_TIMEOUT_MILLIS: u64 = 1_000;
+/// Timeout when doing an eth_getLogs to read the deposit contract logs.
+const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 1_000;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -26,18 +35,39 @@ pub enum Error {
     GetBlockNumberFailed(String),
     GetDepositRootFailed(String),
     GetDepositCountFailed(String),
-    FailedToInsertEth1Snapshot(Eth1Error),
+    FailedToInsertEth1Snapshot(BlockCacheError),
+    NodeUnableToSyncDeposits {
+        remote_head_block: u64,
+        last_processed_block: u64,
+    },
+    FailedToInsertDeposit(DepositCacheError),
+    IncompleteLogResponse {
+        expected: usize,
+        response: usize,
+    },
+    GetDepositLogsFailed(String),
+    FailedToParseDepositLog {
+        block_range: Range<u64>,
+        error: String,
+    },
     Internal(String),
 }
 
-/// The success message for an Eth1 cache update.
+/// The success message for an Eth1Data cache update.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Eth1UpdateResult {
-    /// The Eth1 cache was sucessfully updated.
+    /// The cache was sucessfully updated.
     Success {
         blocks_imported: usize,
         head_block_number: u64,
     },
+}
+
+/// The success message for an Eth1 deposit cache update.
+#[derive(Debug, PartialEq, Clone)]
+pub enum DepositCacheUpdateResult {
+    /// The cache was sucessfully updated.
+    Success { logs_imported: usize },
 }
 
 /// The preferred method for instantiating an `Eth1Cache`.
@@ -47,6 +77,7 @@ pub struct Eth1CacheBuilder {
     initial_eth1_block: u64,
     eth1_follow_distance: u64,
     target_block_cache_len: usize,
+    deposit_log_start_block: u64,
 }
 
 impl Eth1CacheBuilder {
@@ -58,6 +89,7 @@ impl Eth1CacheBuilder {
             initial_eth1_block: 128,
             eth1_follow_distance: 0,
             target_block_cache_len: 2_048,
+            deposit_log_start_block: 0,
         }
     }
 
@@ -91,6 +123,18 @@ impl Eth1CacheBuilder {
         self
     }
 
+    /// Sets the block that the deposit contract was deployed at. The cache will not search for
+    /// deposit logs any earlier than this block.
+    ///
+    /// Setting this too low will result in unnecessarily scanning blocks that will definitely not
+    /// have any useful information. Setting it too high will result in missing deposit logs.
+    ///
+    /// Default `0`.
+    pub fn deposit_contract_deploy_block(mut self, block_number: u64) -> Self {
+        self.deposit_log_start_block = block_number;
+        self
+    }
+
     /// Consumers the builder and returns a new `Eth1Cache`.
     pub fn build(self) -> Eth1Cache {
         Eth1Cache {
@@ -99,8 +143,17 @@ impl Eth1CacheBuilder {
             block_cache: RwLock::new(BlockCache::new(self.initial_eth1_block as usize)),
             follow_distance: self.eth1_follow_distance,
             target_block_cache_len: self.target_block_cache_len,
+            deposit_cache: RwLock::new(DepositUpdater {
+                cache: DepositCache::new(),
+                last_processed_block: self.deposit_log_start_block,
+            }),
         }
     }
+}
+
+struct DepositUpdater {
+    cache: DepositCache,
+    last_processed_block: u64,
 }
 
 /// Stores all necessary information for beacon chain block production, including choosing an
@@ -113,6 +166,8 @@ pub struct Eth1Cache {
     block_cache: RwLock<BlockCache>,
     follow_distance: u64,
     target_block_cache_len: usize,
+    /// Stores the deposit cache and the block number that was the subject of the last update.
+    deposit_cache: RwLock<DepositUpdater>,
 }
 
 impl Eth1Cache {
@@ -135,6 +190,92 @@ impl Eth1Cache {
     pub fn block_cache_len(&self) -> usize {
         self.block_cache.read().len()
     }
+}
+
+pub fn update_deposit_cache<'a>(
+    cache: Arc<Eth1Cache>,
+) -> impl Future<Item = DepositCacheUpdateResult, Error = Error> + 'a + Send {
+    let cache_1 = cache.clone();
+    let cache_2 = cache.clone();
+
+    get_block_number(
+        &cache.endpoint,
+        Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS),
+    )
+    .map_err(|e| Error::GetBlockNumberFailed(e))
+    .and_then(move |remote_head_block| {
+        let last_processed_block = cache.deposit_cache.read().last_processed_block;
+
+        if remote_head_block < last_processed_block {
+            Err(Error::NodeUnableToSyncDeposits {
+                remote_head_block,
+                last_processed_block,
+            })
+        } else {
+            Ok(last_processed_block + 1..remote_head_block + 1)
+        }
+    })
+    .map(|entire_block_range| {
+        entire_block_range
+            .into_iter()
+            .collect::<Vec<u64>>()
+            .chunks(BLOCKS_PER_LOG_QUERY)
+            .map(|vec| {
+                let first = vec.first().cloned().unwrap_or_else(|| 0);
+                let last = vec.last().cloned().map(|n| n + 1).unwrap_or_else(|| 0);
+                (first..last)
+            })
+            .collect::<Vec<Range<u64>>>()
+    })
+    .and_then(move |block_number_chunks| {
+        stream::unfold(
+            block_number_chunks.into_iter(),
+            move |mut chunks| match chunks.next() {
+                Some(chunk) => {
+                    let chunk_1 = chunk.clone();
+                    Some(
+                        get_deposit_logs_in_range(
+                            &cache_1.endpoint,
+                            &cache_1.deposit_contract_address,
+                            chunk,
+                            Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
+                        )
+                        .map_err(|e| Error::GetDepositLogsFailed(e))
+                        .map(|logs| (chunk_1, logs))
+                        .map(|logs| (logs, chunks)),
+                    )
+                }
+                None => None,
+            },
+        )
+        .fold(0, move |sum, (block_range, log_chunk)| {
+            let block_range_1 = block_range.clone();
+
+            let count = log_chunk.into_iter().try_fold(0, |count, raw_log| {
+                let block_range = block_range.clone();
+
+                let deposit_log = DepositLog::from_log(&raw_log)
+                    .map_err(|error| Error::FailedToParseDepositLog { block_range, error })?;
+
+                cache_2
+                    .deposit_cache
+                    .write()
+                    .cache
+                    .insert_log(deposit_log)
+                    .map_err(|e| Error::FailedToInsertDeposit(e))?;
+
+                Ok(count + 1)
+            })?;
+
+            cache_2.deposit_cache.write().last_processed_block =
+                block_range_1.end.saturating_sub(1);
+
+            Ok(sum + count)
+        })
+        .map(|logs_imported| DepositCacheUpdateResult::Success { logs_imported })
+    })
+
+    // TODO: update the last processed block.
 }
 
 /// Try and perform an update on the cache, doing nothing if it's already in the process of an
