@@ -24,6 +24,7 @@ pub enum AttestationTestTask {
     WrongJustifiedCheckpoint,
     BadTargetTooLow,
     BadTargetTooHigh,
+    BadShard,
     BadParentCrosslinkDataRoot,
     BadIndexedAttestationBadSignature,
     CustodyBitfieldNotSubset,
