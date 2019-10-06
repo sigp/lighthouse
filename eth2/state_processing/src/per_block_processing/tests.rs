@@ -173,6 +173,31 @@ fn invalid_proposer_slashing_proposals_identical() {
     );
 }
 
+#[test]
+fn invalid_proposer_slashing_proposer_unknown() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = ProposerSlashingTestTask::ProposerUnknown;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting ProposerUnknown because validator_index is unknown
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::ProposerUnknown(3_141_592)
+        })
+    );
+}
+
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
     let mut builder = BlockProcessingBuilder::new(VALIDATOR_COUNT, &spec);
 

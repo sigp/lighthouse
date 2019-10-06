@@ -59,6 +59,10 @@ impl TestingProposerSlashingBuilder {
             signer(proposer_index, &message[..], epoch, Domain::BeaconProposer)
         };
 
+        let proposer_index = match test_task {
+            ProposerSlashingTestTask::ProposerUnknown => 3_141_592,
+            _ => proposer_index,
+        };
         ProposerSlashing {
             proposer_index,
             header_1,

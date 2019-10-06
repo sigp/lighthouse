@@ -62,15 +62,17 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
         }
 
-        let validator_indices = 0;
-        let secret_keys = &keypairs[0].sk;
-        self.block_builder.insert_proposer_slashing(
-            test_task,
-            validator_indices,
-            &secret_keys,
-            &state.fork,
-            spec,
-        );
+        for i in 0..num_proposer_slashings {
+            let validator_indices = i;
+            let secret_keys = &keypairs[i as usize].sk;
+            self.block_builder.insert_proposer_slashing(
+                test_task,
+                validator_indices,
+                &secret_keys,
+                &state.fork,
+                spec,
+            );
+        }
         let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
 
         (block, state)
