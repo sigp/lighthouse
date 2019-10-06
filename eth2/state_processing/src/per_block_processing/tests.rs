@@ -4,8 +4,8 @@ use super::block_processing_builder::BlockProcessingBuilder;
 use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
-use types::*;
 use types::test_utils::ProposerSlashingTestTask;
+use types::*;
 
 pub const VALIDATOR_COUNT: usize = 10;
 
@@ -164,10 +164,13 @@ fn invalid_proposer_slashing_proposals_identical() {
     );
 
     // Expecting ProposalsIdentical because we the two headers are identical
-    assert_eq!(result, Err(BlockProcessingError::ProposerSlashingInvalid {
-        index: 0,
-        reason: ProposerSlashingInvalid::ProposalsIdentical
-    }));
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::ProposalsIdentical
+        })
+    );
 }
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {

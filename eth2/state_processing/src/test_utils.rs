@@ -1,5 +1,7 @@
 use log::info;
-use types::test_utils::{ProposerSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{
+    ProposerSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
+};
 use types::{EthSpec, *};
 
 pub struct BlockBuilder<T: EthSpec> {
