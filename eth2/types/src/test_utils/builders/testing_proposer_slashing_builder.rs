@@ -1,4 +1,5 @@
 use crate::*;
+use crate::test_utils::ProposerSlashingTestTask;
 use tree_hash::SignedRoot;
 
 /// Builds a `ProposerSlashing`.
@@ -17,14 +18,17 @@ impl TestingProposerSlashingBuilder {
     /// - `domain: Domain`
     ///
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
-    pub fn double_vote<T, F>(proposer_index: u64, signer: F) -> ProposerSlashing
+    pub fn double_vote<T, F>(test_task: &ProposerSlashingTestTask, proposer_index: u64, signer: F) -> ProposerSlashing
     where
         T: EthSpec,
         F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
         let slot = Slot::new(0);
         let hash_1 = Hash256::from([1; 32]);
-        let hash_2 = Hash256::from([2; 32]);
+        let hash_2 = match test_task {
+            ProposerSlashingTestTask::ProposalsIdentical => Hash256::from([1; 32]),
+            _ => Hash256::from([2; 32]),
+        };
 
         let mut header_1 = BeaconBlockHeader {
             slot,

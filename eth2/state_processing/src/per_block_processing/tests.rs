@@ -5,6 +5,7 @@ use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
 use types::*;
+use types::test_utils::ProposerSlashingTestTask;
 
 pub const VALIDATOR_COUNT: usize = 10;
 
@@ -126,6 +127,47 @@ fn invalid_randao_reveal_signature() {
 
     // should get a BadRandaoSignature error
     assert_eq!(result, Err(BlockProcessingError::RandaoSignatureInvalid));
+}
+
+#[test]
+fn valid_insert_proposer_slashing() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = ProposerSlashingTestTask::Valid;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting Ok(()) because we inserted a valid proposer slashing
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn invalid_proposer_slashing_proposals_identical() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = ProposerSlashingTestTask::ProposalsIdentical;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting ProposalsIdentical because we the two headers are identical
+    assert_eq!(result, Err(BlockProcessingError::ProposerSlashingInvalid {
+        index: 0,
+        reason: ProposerSlashingInvalid::ProposalsIdentical
+    }));
 }
 
 fn get_builder(spec: &ChainSpec) -> (BlockProcessingBuilder<MainnetEthSpec>) {
