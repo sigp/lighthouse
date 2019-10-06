@@ -146,6 +146,7 @@ fn valid_insert_attester_slashing() {
         &spec,
     );
 
+    // Expecting Ok(()) because attester slashing is valid
     assert_eq!(result, Ok(()));
 }
 
@@ -158,6 +159,7 @@ fn valid_insert_max_attester_slashings_plus_one() {
     let (block, mut state) =
         builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
 
+    // Expecting Ok(()) because attester slashings are valid
     let result = per_block_processing(
         &mut state,
         &block,
@@ -186,6 +188,7 @@ fn invalid_attester_slashing_not_slashable() {
         &spec,
     );
 
+    // Expecting NotSlashable because the two attestations are the same
     assert_eq!(
         result,
         Err(BlockProcessingError::AttesterSlashingInvalid {
@@ -212,6 +215,7 @@ fn invalid_attester_slashing_1_invalid() {
         &spec,
     );
 
+    // Expecting IndexedAttestation1Invalid or IndexedAttestationInvalid because Attestation1 has CustodyBitfield bits set.
     assert!(
         result
             == Err(BlockProcessingError::IndexedAttestationInvalid {
@@ -247,6 +251,7 @@ fn invalid_attester_slashing_2_invalid() {
         &spec,
     );
 
+    // Expecting IndexedAttestation2Invalid or IndexedAttestationInvalid because Attestation2 has CustodyBitfield bits set.
     assert!(
         result
             == Err(BlockProcessingError::IndexedAttestationInvalid {
