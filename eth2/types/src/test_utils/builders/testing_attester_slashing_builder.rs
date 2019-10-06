@@ -64,14 +64,24 @@ impl TestingAttesterSlashingBuilder {
 
         let mut attestation_1 = IndexedAttestation {
             custody_bit_0_indices: validator_indices.to_vec().into(),
-            custody_bit_1_indices: VariableList::empty(),
+            custody_bit_1_indices: match test_task {
+                AttesterSlashingTestTask::IndexedAttestation1Invalid => {
+                    validator_indices.to_vec().into()
+                }
+                _ => VariableList::empty(),
+            },
             data: data_1,
             signature: AggregateSignature::new(),
         };
 
         let mut attestation_2 = IndexedAttestation {
             custody_bit_0_indices: validator_indices.to_vec().into(),
-            custody_bit_1_indices: VariableList::empty(),
+            custody_bit_1_indices: match test_task {
+                AttesterSlashingTestTask::IndexedAttestation2Invalid => {
+                    validator_indices.to_vec().into()
+                }
+                _ => VariableList::empty(),
+            },
             data: data_2,
             signature: AggregateSignature::new(),
         };

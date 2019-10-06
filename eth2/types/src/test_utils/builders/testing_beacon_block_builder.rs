@@ -18,6 +18,8 @@ pub struct TestingBeaconBlockBuilder<T: EthSpec> {
 pub enum AttesterSlashingTestTask {
     Valid,
     NotSlashable,
+    IndexedAttestation1Invalid,
+    IndexedAttestation2Invalid,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
