@@ -42,8 +42,13 @@ impl TestingProposerSlashingBuilder {
             signature: Signature::empty_signature(),
         };
 
+        let slot_2 = match test_task {
+            ProposerSlashingTestTask::ProposalEpochMismatch => Slot::new(128),
+            _ => Slot::new(0),
+        };
         let mut header_2 = BeaconBlockHeader {
             parent_root: hash_2,
+            slot: slot_2,
             ..header_1.clone()
         };
 
