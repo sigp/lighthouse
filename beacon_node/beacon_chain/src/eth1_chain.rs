@@ -1,13 +1,10 @@
 use crate::BeaconChainTypes;
-use eth1::web3_fetcher::Web3DataFetcher;
-use eth1::Eth1;
+use eth1_http::Eth1Cache;
 use eth2_hashing::hash;
 use std::marker::PhantomData;
-use types::{BeaconState, Deposit, Eth1Data, EthSpec, Hash256};
-type Result<T> = std::result::Result<T, Error>;
+use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned};
 
-// Timeout for requests to eth1 node in seconds.
-const WEB3_TIMEOUT: u64 = 10;
+type Result<T> = std::result::Result<T, Error>;
 
 /// Holds an `Eth1ChainBackend` and serves requests from the `BeaconChain`.
 pub struct Eth1Chain<T: BeaconChainTypes> {
@@ -35,12 +32,9 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
     pub fn deposits_for_block_inclusion(
         &self,
         state: &BeaconState<T::EthSpec>,
+        spec: &ChainSpec,
     ) -> Result<Vec<Deposit>> {
-        let deposits = self.backend.queued_deposits(state)?;
-
-        // TODO: truncate deposits if required.
-
-        Ok(deposits)
+        self.backend.queued_deposits(state, spec)
     }
 }
 
@@ -50,6 +44,10 @@ pub enum Error {
     EpochUnavailable,
     /// An error from the backend service (e.g., the web3 data fetcher).
     BackendError(String),
+    /// The deposit index of the state is higher than the deposit contract. This is a critical
+    /// consensus error.
+    DepositIndexTooHigh,
+    DepositRootMismatch,
 }
 
 pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
@@ -66,7 +64,11 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     ///
     /// It is possible that not all returned `Deposits` can be included in a block. E.g., there may
     /// be more than `MAX_DEPOSIT_COUNT` or the churn may be too high.
-    fn queued_deposits(&self, beacon_state: &BeaconState<T>) -> Result<Vec<Deposit>>;
+    fn queued_deposits(
+        &self,
+        beacon_state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Result<Vec<Deposit>>;
 }
 
 pub struct InteropEth1ChainBackend<T: EthSpec> {
@@ -93,7 +95,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for InteropEth1ChainBackend<T> {
         })
     }
 
-    fn queued_deposits(&self, _: &BeaconState<T>) -> Result<Vec<Deposit>> {
+    fn queued_deposits(&self, _: &BeaconState<T>, _: &ChainSpec) -> Result<Vec<Deposit>> {
         Ok(vec![])
     }
 }
@@ -106,43 +108,57 @@ impl<T: EthSpec> Default for InteropEth1ChainBackend<T> {
     }
 }
 
-pub struct Web3Backend<T: EthSpec> {
-    /// Eth1 object for interacting with different eth1 components
-    eth1: Eth1<Web3DataFetcher>,
-    _phantom: PhantomData<T>,
-}
-
-impl<T: EthSpec> Eth1ChainBackend<T> for Web3Backend<T> {
-    fn new(server: String, contract_addr: String, log: &slog::Logger) -> Result<Self> {
-        let w3 = Web3DataFetcher::new(&server, &contract_addr, WEB3_TIMEOUT, &log)
-            .map_err(|e| Error::BackendError(format!("{:?}", e)))?;
-        Ok(Web3Backend {
-            eth1: Eth1::new(w3),
-            _phantom: PhantomData,
-        })
-    }
-
-    fn eth1_data(&self, beacon_state: &BeaconState<T>) -> Result<Eth1Data> {
-        // TODO: Find a better way to get `previous_eth1_distance`
-        self.eth1
-            .get_eth1_votes(beacon_state, beacon_state.eth1_data.block_hash)
-            .map_err(|e| Error::BackendError(format!("{:?}", e)))
-    }
-
-    fn queued_deposits(&self, beacon_state: &BeaconState<T>) -> Result<Vec<Deposit>> {
-        self.eth1
-            .deposit_cache
-            .get_deposits_in_range(
-                beacon_state.eth1_deposit_index,
-                beacon_state.eth1_data.deposit_count,
-            )
-            .map_err(|e| Error::BackendError(format!("{:?}", e)))
-    }
-}
-
 /// Returns `int` as little-endian bytes with a length of 32.
 fn int_to_bytes32(int: u64) -> Vec<u8> {
     let mut vec = int.to_le_bytes().to_vec();
     vec.resize(32, 0);
     vec
+}
+
+impl<T: EthSpec> Eth1ChainBackend<T> for Eth1Cache {
+    fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self> {
+        // TODO: fix or perish.
+        panic!()
+    }
+
+    fn eth1_data(&self, state: &BeaconState<T>) -> Result<Eth1Data> {
+        // TODO: fix or perish.
+        panic!()
+    }
+
+    fn queued_deposits(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Vec<Deposit>> {
+        let deposit_count = state.eth1_data.deposit_count;
+        let deposit_index = state.eth1_deposit_index;
+
+        if deposit_index > deposit_count {
+            Err(Error::DepositIndexTooHigh)
+        } else if deposit_index == deposit_count {
+            Ok(vec![])
+        } else {
+            let count = std::cmp::min(deposit_count - deposit_index, T::MaxDeposits::to_u64());
+            let first = deposit_index + 1;
+            let (root, deposits) = self
+                .get_deposits(
+                    first..first + count,
+                    deposit_count,
+                    spec.deposit_contract_tree_depth as usize,
+                )
+                .map_err(|e| Error::BackendError(format!("{:?}", e)))?;
+
+            if root == state.eth1_data.deposit_root {
+                Ok(deposits)
+            } else {
+                Err(Error::DepositRootMismatch)
+            }
+        }
+    }
+}
+
+/// Returns the unix-epoch seconds at the start of the given `slot`.
+fn slot_start_seconds<T: EthSpec>(
+    genesis_unix_seconds: u64,
+    seconds_per_slot: u64,
+    slot: Slot,
+) -> u64 {
+    genesis_unix_seconds + slot.as_u64() * seconds_per_slot
 }
