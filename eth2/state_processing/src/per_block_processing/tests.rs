@@ -213,7 +213,7 @@ fn invalid_proposer_slashing_proposal_epoch_mismatch() {
         &spec,
     );
 
-    // Expecting ProposerUnknown because validator_index is unknown
+    // Expecting ProposalEpochMismatch because the two epochs are different
     assert_eq!(
         result,
         Err(BlockProcessingError::ProposerSlashingInvalid {
@@ -222,6 +222,56 @@ fn invalid_proposer_slashing_proposal_epoch_mismatch() {
                 Slot::from(0 as u64),
                 Slot::from(128 as u64)
             )
+        })
+    );
+}
+
+#[test]
+fn invalid_bad_proposal_1_signature() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = ProposerSlashingTestTask::BadProposal1Signature;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting BadProposal1Signature because signature of proposal 1 is invalid
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::BadProposal1Signature
+        })
+    );
+}
+
+#[test]
+fn invalid_bad_proposal_2_signature() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = ProposerSlashingTestTask::BadProposal2Signature;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting BadProposal2Signature because signature of proposal 2 is invalid
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::BadProposal2Signature
         })
     );
 }
