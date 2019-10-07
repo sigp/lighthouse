@@ -15,6 +15,7 @@ pub struct TestingBeaconBlockBuilder<T: EthSpec> {
     pub block: BeaconBlock<T>,
 }
 
+#[derive(PartialEq)]
 pub enum AttesterSlashingTestTask {
     Valid,
     NotSlashable,

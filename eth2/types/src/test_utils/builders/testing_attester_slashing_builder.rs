@@ -54,21 +54,23 @@ impl TestingAttesterSlashingBuilder {
             crosslink,
         };
 
-        let data_2 = match test_task {
-            AttesterSlashingTestTask::NotSlashable => AttestationData { ..data_1.clone() },
-            _ => AttestationData {
+        let data_2 = if *test_task == AttesterSlashingTestTask::NotSlashable {
+            AttestationData { ..data_1.clone() }
+        } else {
+            AttestationData {
                 target: checkpoint_2,
                 ..data_1.clone()
-            },
+            }
         };
 
         let mut attestation_1 = IndexedAttestation {
             custody_bit_0_indices: validator_indices.to_vec().into(),
-            custody_bit_1_indices: match test_task {
-                AttesterSlashingTestTask::IndexedAttestation1Invalid => {
-                    validator_indices.to_vec().into()
-                }
-                _ => VariableList::empty(),
+            custody_bit_1_indices: if *test_task
+                == AttesterSlashingTestTask::IndexedAttestation1Invalid
+            {
+                validator_indices.to_vec().into()
+            } else {
+                VariableList::empty()
             },
             data: data_1,
             signature: AggregateSignature::new(),
@@ -76,11 +78,12 @@ impl TestingAttesterSlashingBuilder {
 
         let mut attestation_2 = IndexedAttestation {
             custody_bit_0_indices: validator_indices.to_vec().into(),
-            custody_bit_1_indices: match test_task {
-                AttesterSlashingTestTask::IndexedAttestation2Invalid => {
-                    validator_indices.to_vec().into()
-                }
-                _ => VariableList::empty(),
+            custody_bit_1_indices: if *test_task
+                == AttesterSlashingTestTask::IndexedAttestation2Invalid
+            {
+                validator_indices.to_vec().into()
+            } else {
+                VariableList::empty()
             },
             data: data_2,
             signature: AggregateSignature::new(),
