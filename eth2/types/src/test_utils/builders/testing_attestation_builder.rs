@@ -109,9 +109,10 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
                 fork,
             );
 
-            let index = match test_task {
-                AttestationTestTask::BadSignature => 0,
-                _ => key_index,
+            let index = if *test_task == AttestationTestTask::BadSignature {
+                0
+            } else {
+                key_index
             };
             let signature = Signature::new(&message, domain, secret_keys[index]);
             self.attestation.signature.add(&signature)
