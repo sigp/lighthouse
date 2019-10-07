@@ -199,6 +199,32 @@ fn invalid_proposer_slashing_proposer_unknown() {
 }
 
 #[test]
+fn invalid_proposer_slashing_not_slashable() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec);
+    let test_task = ProposerSlashingTestTask::ProposerNotSlashable;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    state.validators[0].slashed = true;
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting ProposerNotSlashable because we've already slashed the validator
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::ProposerNotSlashable(0)
+        })
+    );
+}
+
+#[test]
 fn invalid_proposer_slashing_proposal_epoch_mismatch() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec);
