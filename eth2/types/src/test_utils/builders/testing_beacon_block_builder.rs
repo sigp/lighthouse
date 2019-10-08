@@ -3,10 +3,20 @@ use crate::{
         TestingAttestationBuilder, TestingAttesterSlashingBuilder, TestingDepositBuilder,
         TestingProposerSlashingBuilder, TestingTransferBuilder, TestingVoluntaryExitBuilder,
     },
+    typenum::U4294967296,
     *,
 };
+use int_to_bytes::int_to_bytes32;
+use merkle_proof::MerkleTree;
 use rayon::prelude::*;
 use tree_hash::{SignedRoot, TreeHash};
+
+pub enum DepositTestTask {
+    Valid,
+    BadPubKey,
+    BadSig,
+    InvalidPubKey,
+}
 
 /// Builds a beacon block to be used for testing purposes.
 ///
@@ -202,25 +212,72 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     }
 
     /// Insert a `Valid` deposit into the state.
-    pub fn insert_deposit(
+    pub fn insert_deposits(
         &mut self,
         amount: u64,
+        test_task: DepositTestTask,
         // TODO: deal with the fact deposits no longer have explicit indices
         _index: u64,
-        state: &BeaconState<T>,
+        num_deposits: u64,
+        state: &mut BeaconState<T>,
         spec: &ChainSpec,
     ) {
-        let keypair = Keypair::random();
+        // Vector containing deposits' data
+        let mut datas = vec![];
+        for _ in 0..num_deposits {
+            let keypair = Keypair::random();
 
-        let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
-        builder.sign(
-            &keypair,
-            state.slot.epoch(T::slots_per_epoch()),
-            &state.fork,
-            spec,
-        );
+            let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
+            builder.sign(
+                &test_task,
+                &keypair,
+                state.slot.epoch(T::slots_per_epoch()),
+                &state.fork,
+                spec,
+            );
+            datas.push(builder.build().data);
+        }
 
-        self.block.body.deposits.push(builder.build()).unwrap()
+        // Vector containing all leaves
+        let leaves = datas
+            .iter()
+            .map(|data| Hash256::from_slice(&data.tree_hash_root()))
+            .collect::<Vec<_>>();
+
+        // Building a VarList from leaves
+        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
+
+        // Setitng the deposit_root to be the tree_hash_root of the VarList
+        state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
+
+        // Building the merkle tree used for generating proofs
+        let tree = MerkleTree::create(&leaves[..], spec.deposit_contract_tree_depth as usize);
+
+        // Building proofs
+        let mut proofs = vec![];
+        for i in 0..leaves.len() {
+            let (_, mut proof) = tree.generate_proof(i, spec.deposit_contract_tree_depth as usize);
+            proof.push(Hash256::from_slice(&int_to_bytes32(leaves.len() as u64)));
+            proofs.push(proof);
+        }
+
+        // Building deposits
+        let deposits = datas
+            .into_par_iter()
+            .zip(proofs.into_par_iter())
+            .map(|(data, proof)| (data, proof.into()))
+            .map(|(data, proof)| Deposit { proof, data })
+            .collect::<Vec<_>>();
+
+        // Pushing deposits to block body
+        for deposit in deposits {
+            let _ = self.block.body.deposits.push(deposit);
+        }
+
+        // Manually setting the deposit_count to process deposits
+        // This is for test purposes only
+        state.eth1_data.deposit_count = num_deposits;
+        state.eth1_deposit_index = 0;
     }
 
     /// Insert a `Valid` exit into the state.

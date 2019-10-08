@@ -1,5 +1,5 @@
 use log::info;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{DepositTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
 use types::{EthSpec, *};
 
 pub struct BlockBuilder<T: EthSpec> {
@@ -125,15 +125,14 @@ impl<T: EthSpec> BlockBuilder<T> {
         );
 
         // Insert `Deposit` objects.
-        for i in 0..self.num_deposits {
-            builder.insert_deposit(
-                32_000_000_000,
-                state.eth1_data.deposit_count + (i as u64),
-                &state,
-                spec,
-            );
-        }
-        state.eth1_data.deposit_count += self.num_deposits as u64;
+        builder.insert_deposits(
+            32_000_000_000,
+            DepositTestTask::Valid,
+            state.eth1_data.deposit_count,
+            self.num_deposits as u64,
+            &mut state,
+            spec,
+        );
         info!("Inserted {} deposits.", builder.block.body.deposits.len());
 
         // Insert the maximum possible number of `Exit` objects.

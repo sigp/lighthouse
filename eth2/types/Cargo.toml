@@ -16,6 +16,7 @@ eth2_hashing = { path = "../utils/eth2_hashing" }
 hex = "0.3"
 int_to_bytes = { path = "../utils/int_to_bytes" }
 log = "0.4"
+merkle_proof = { path = "../utils/merkle_proof" }
 rayon = "1.0"
 rand = "0.5.5"
 serde = "1.0"
