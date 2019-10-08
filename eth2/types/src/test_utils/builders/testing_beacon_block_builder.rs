@@ -25,6 +25,17 @@ pub struct TestingBeaconBlockBuilder<T: EthSpec> {
     pub block: BeaconBlock<T>,
 }
 
+/// Enum used for passing test options to builder
+pub enum ExitTestTask {
+    AlreadyInitiated,
+    AlreadyExited,
+    BadSignature,
+    FutureEpoch,
+    NotActive,
+    Valid,
+    ValidatorUnknown,
+}
+
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Create a new builder from genesis.
     pub fn new(spec: &ChainSpec) -> Self {
@@ -283,23 +294,35 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Insert a `Valid` exit into the state.
     pub fn insert_exit(
         &mut self,
-        state: &BeaconState<T>,
-        validator_index: u64,
+        test_task: &ExitTestTask,
+        state: &mut BeaconState<T>,
+        mut validator_index: u64,
         secret_key: &SecretKey,
         spec: &ChainSpec,
     ) {
-        let mut builder = TestingVoluntaryExitBuilder::new(
-            state.slot.epoch(T::slots_per_epoch()),
-            validator_index,
-        );
+        let sk = &mut secret_key.clone();
+        let mut exit_epoch = state.slot.epoch(T::slots_per_epoch());
 
-        builder.sign(secret_key, &state.fork, spec);
+        match test_task {
+            ExitTestTask::BadSignature => *sk = SecretKey::random(),
+            ExitTestTask::ValidatorUnknown => validator_index = 4242,
+            ExitTestTask::AlreadyExited => {
+                state.validators[validator_index as usize].exit_epoch = Epoch::from(314159 as u64)
+            }
+            ExitTestTask::NotActive => {
+                state.validators[validator_index as usize].activation_epoch =
+                    Epoch::from(314159 as u64)
+            }
+            ExitTestTask::FutureEpoch => exit_epoch = spec.far_future_epoch,
+            _ => (),
+        }
 
-        self.block
-            .body
-            .voluntary_exits
-            .push(builder.build())
-            .unwrap()
+        let mut builder = TestingVoluntaryExitBuilder::new(exit_epoch, validator_index);
+
+        builder.sign(sk, &state.fork, spec);
+
+        // Using let _ because we don't want to call unwrap
+        let _ = self.block.body.voluntary_exits.push(builder.build());
     }
 
     /// Insert a `Valid` transfer into the state.
