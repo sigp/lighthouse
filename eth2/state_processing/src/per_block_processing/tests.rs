@@ -157,27 +157,6 @@ fn valid_4_deposits() {
 }
 
 #[test]
-fn valid_insert_max_deposits_plus_one() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = DepositTestTask::Valid;
-    let num_deposits = <MainnetEthSpec as EthSpec>::MaxDeposits::to_u64() + 1;
-
-    let (block, mut state) =
-        builder.build_with_n_deposits(num_deposits, test_task, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-    // Should return ok because actual size of deposits vector should be MaxDeposits.
-    assert_eq!(result, Ok(()));
-}
-
-#[test]
 fn invalid_deposit_deposit_count_too_big() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
@@ -352,28 +331,6 @@ fn valid_insert_3_exits() {
     );
 
     // Expecting Ok because these are valid exits.
-    assert_eq!(result, Ok(()));
-}
-
-#[test]
-fn valid_insert_max_exits_plus_one() {
-    let spec = MainnetEthSpec::default_spec();
-    let num_exits = <MainnetEthSpec as EthSpec>::MaxVoluntaryExits::to_u64() as usize + 1;
-    let num_validators = num_exits + 1;
-    let test_task = ExitTestTask::Valid;
-    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
-
-    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting Ok because these are valid deposits, and the vector
-    // containing exits shouldn't be bigger than MaxVoluntaryExits.
     assert_eq!(result, Ok(()));
 }
 
@@ -600,26 +557,6 @@ fn valid_attestations() {
     );
 
     // Expecting Ok(()) because these are valid attestations
-    assert_eq!(result, Ok(()));
-}
-
-#[test]
-fn valid_max_attestations_plus_one() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::Valid;
-    let num_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_u64() + 1;
-    let (block, mut state) =
-        builder.build_with_n_attestations(&test_task, num_attestations, None, None, &spec);
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting Ok(()) because actual size of attestation vector should be MaxAttestations
     assert_eq!(result, Ok(()));
 }
 
@@ -1084,27 +1021,6 @@ fn valid_insert_attester_slashing() {
     );
 
     // Expecting Ok(()) because attester slashing is valid
-    assert_eq!(result, Ok(()));
-}
-
-#[test]
-fn valid_insert_max_attester_slashings_plus_one() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttesterSlashingTestTask::Valid;
-    let num_attester_slashings = <MainnetEthSpec as EthSpec>::MaxAttesterSlashings::to_u64() + 1;
-    let (block, mut state) =
-        builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
-
-    // Expecting Ok(()) because attester slashings are valid
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
     assert_eq!(result, Ok(()));
 }
 
