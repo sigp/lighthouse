@@ -182,6 +182,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         (block, state)
     }
+
     pub fn build_with_attester_slashing(
         mut self,
         test_task: &AttesterSlashingTestTask,

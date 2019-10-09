@@ -974,6 +974,36 @@ fn invalid_attestation_included_too_early() {
 }
 
 #[test]
+fn invalid_attestation_included_too_late() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = AttestationTestTask::IncludedTooEarly;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting IncludedTooEarly because the shard included in the crosslink is bigger than expected
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::IncludedTooLate {
+                state: Slot::from(319 as u64),
+                delay: spec.min_attestation_inclusion_delay,
+                attestation: Slot::from(319 as u64)
+            }
+        })
+    );
+}
+
+#[test]
 fn invalid_attestation_bad_shard() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);

@@ -248,11 +248,6 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                 let mut builder = TestingAttestationBuilder::new(
                     test_task, state, committee, *slot, *shard, spec,
                 );
-                // dbg!(slot);
-                // dbg!(committee);
-                // dbg!(signing_validators);
-                // dbg!(shard);
-                // panic!("INSIDE");
 
                 let signing_secret_keys: Vec<&SecretKey> = signing_validators
                     .iter()
@@ -314,7 +309,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         // Building a VarList from leaves
         let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
 
-        // Setitng the deposit_root to be the tree_hash_root of the VarList
+        // Setting the deposit_root to be the tree_hash_root of the VarList
         state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
 
         // Building the merkle tree used for generating proofs
@@ -377,8 +372,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
 
         builder.sign(sk, &state.fork, spec);
 
-        // Using let _ because we don't want to call unwrap
-        let _ = self.block.body.voluntary_exits.push(builder.build());
+        self.block.body.voluntary_exits.push(builder.build());
     }
 
     /// Insert a `Valid` transfer into the state.
