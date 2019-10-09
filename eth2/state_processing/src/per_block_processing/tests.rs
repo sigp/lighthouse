@@ -4,7 +4,9 @@ use super::block_processing_builder::BlockProcessingBuilder;
 use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
-use types::test_utils::{AttestationTestTask, DepositTestTask, ExitTestTask};
+use types::test_utils::{
+    AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ExitTestTask,
+};
 use types::*;
 
 pub const NUM_DEPOSITS: u64 = 1;
@@ -1064,6 +1066,146 @@ fn invalid_attestation_bad_shard() {
                 == Err(BlockProcessingError::BeaconStateError(
                     BeaconStateError::NoCommitteeForShard
                 ))
+    );
+}
+
+#[test]
+fn valid_insert_attester_slashing() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = AttesterSlashingTestTask::Valid;
+    let num_attester_slashings = 1;
+    let (block, mut state) =
+        builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting Ok(()) because attester slashing is valid
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn valid_insert_max_attester_slashings_plus_one() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = AttesterSlashingTestTask::Valid;
+    let num_attester_slashings = <MainnetEthSpec as EthSpec>::MaxAttesterSlashings::to_u64() + 1;
+    let (block, mut state) =
+        builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
+
+    // Expecting Ok(()) because attester slashings are valid
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn invalid_attester_slashing_not_slashable() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = AttesterSlashingTestTask::NotSlashable;
+    let num_attester_slashings = 1;
+    let (block, mut state) =
+        builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting NotSlashable because the two attestations are the same
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttesterSlashingInvalid {
+            index: 0,
+            reason: AttesterSlashingInvalid::NotSlashable
+        })
+    );
+}
+
+fn invalid_attester_slashing_1_invalid() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = AttesterSlashingTestTask::IndexedAttestation1Invalid;
+    let num_attester_slashings = 1;
+    let (block, mut state) =
+        builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting IndexedAttestation1Invalid or IndexedAttestationInvalid because Attestation1 has CustodyBitfield bits set.
+    assert!(
+        result
+            == Err(BlockProcessingError::IndexedAttestationInvalid {
+                index: 0,
+                reason: IndexedAttestationInvalid::CustodyBitfieldHasSetBits
+            })
+            || result
+                == Err(BlockProcessingError::AttesterSlashingInvalid {
+                    index: 0,
+                    reason: AttesterSlashingInvalid::IndexedAttestation1Invalid(
+                        BlockOperationError::Invalid(
+                            IndexedAttestationInvalid::CustodyBitfieldHasSetBits
+                        )
+                    )
+                })
+    );
+}
+
+#[test]
+fn invalid_attester_slashing_2_invalid() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = AttesterSlashingTestTask::IndexedAttestation2Invalid;
+    let num_attester_slashings = 1;
+    let (block, mut state) =
+        builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting IndexedAttestation2Invalid or IndexedAttestationInvalid because Attestation2 has CustodyBitfield bits set.
+    assert!(
+        result
+            == Err(BlockProcessingError::IndexedAttestationInvalid {
+                index: 1,
+                reason: IndexedAttestationInvalid::CustodyBitfieldHasSetBits
+            })
+            || result
+                == Err(BlockProcessingError::AttesterSlashingInvalid {
+                    index: 1,
+                    reason: AttesterSlashingInvalid::IndexedAttestation2Invalid(
+                        BlockOperationError::Invalid(
+                            IndexedAttestationInvalid::CustodyBitfieldHasSetBits
+                        )
+                    )
+                })
     );
 }
 

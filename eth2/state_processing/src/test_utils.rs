@@ -1,7 +1,7 @@
 use log::info;
 use types::test_utils::{
-    AttestationTestTask, DepositTestTask, ExitTestTask, TestingBeaconBlockBuilder,
-    TestingBeaconStateBuilder,
+    AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ExitTestTask,
+    TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
 };
 use types::{EthSpec, *};
 
@@ -105,7 +105,13 @@ impl<T: EthSpec> BlockBuilder<T> {
                 secret_keys.push(&keypairs[validator_index as usize].sk);
             }
 
-            builder.insert_attester_slashing(&attesters, &secret_keys, &state.fork, spec);
+            builder.insert_attester_slashing(
+                &AttesterSlashingTestTask::Valid,
+                &attesters,
+                &secret_keys,
+                &state.fork,
+                spec,
+            );
         }
         info!(
             "Inserted {} attester slashings.",
