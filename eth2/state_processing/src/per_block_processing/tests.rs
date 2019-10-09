@@ -6,6 +6,7 @@ use crate::{per_block_processing, BlockSignatureStrategy};
 use tree_hash::SignedRoot;
 use types::test_utils::{
     AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ExitTestTask,
+    ProposerSlashingTestTask,
 };
 use types::*;
 
@@ -610,7 +611,6 @@ fn valid_max_attestations_plus_one() {
     let num_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_u64() + 1;
     let (block, mut state) =
         builder.build_with_n_attestations(&test_task, num_attestations, None, None, &spec);
-
     let result = per_block_processing(
         &mut state,
         &block,
@@ -884,7 +884,6 @@ fn invalid_attestation_custody_bitfield_not_subset() {
     let test_task = AttestationTestTask::CustodyBitfieldNotSubset;
     let (block, mut state) =
         builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
-
     let result = per_block_processing(
         &mut state,
         &block,
@@ -910,7 +909,6 @@ fn invalid_attestation_custody_bitfield_has_set_bits() {
     let test_task = AttestationTestTask::CustodyBitfieldHasSetBits;
     let (block, mut state) =
         builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
-
     let result = per_block_processing(
         &mut state,
         &block,
@@ -988,7 +986,6 @@ fn invalid_attestation_bad_signature() {
     let test_task = AttestationTestTask::BadSignature;
     let (block, mut state) =
         builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
-
     let result = per_block_processing(
         &mut state,
         &block,
@@ -1119,7 +1116,6 @@ fn invalid_attester_slashing_not_slashable() {
     let num_attester_slashings = 1;
     let (block, mut state) =
         builder.build_with_attester_slashing(&test_task, num_attester_slashings, None, None, &spec);
-
     let result = per_block_processing(
         &mut state,
         &block,
@@ -1138,6 +1134,7 @@ fn invalid_attester_slashing_not_slashable() {
     );
 }
 
+#[test]
 fn invalid_attester_slashing_1_invalid() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
@@ -1206,6 +1203,178 @@ fn invalid_attester_slashing_2_invalid() {
                         )
                     )
                 })
+    );
+}
+
+#[test]
+fn valid_insert_proposer_slashing() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = ProposerSlashingTestTask::Valid;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting Ok(()) because we inserted a valid proposer slashing
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn invalid_proposer_slashing_proposals_identical() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = ProposerSlashingTestTask::ProposalsIdentical;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+    // Expecting ProposalsIdentical because we the two headers are identical
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::ProposalsIdentical
+        })
+    );
+}
+
+#[test]
+fn invalid_proposer_slashing_proposer_unknown() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = ProposerSlashingTestTask::ProposerUnknown;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting ProposerUnknown because validator_index is unknown
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::ProposerUnknown(3_141_592)
+        })
+    );
+}
+
+#[test]
+fn invalid_proposer_slashing_not_slashable() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = ProposerSlashingTestTask::ProposerNotSlashable;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    state.validators[0].slashed = true;
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting ProposerNotSlashable because we've already slashed the validator
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::ProposerNotSlashable(0)
+        })
+    );
+}
+
+#[test]
+fn invalid_bad_proposal_1_signature() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = ProposerSlashingTestTask::BadProposal1Signature;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting BadProposal1Signature because signature of proposal 1 is invalid
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::BadProposal1Signature
+        })
+    );
+}
+
+#[test]
+fn invalid_bad_proposal_2_signature() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = ProposerSlashingTestTask::BadProposal2Signature;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting BadProposal2Signature because signature of proposal 2 is invalid
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::BadProposal2Signature
+        })
+    );
+}
+
+#[test]
+fn invalid_proposer_slashing_proposal_epoch_mismatch() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = ProposerSlashingTestTask::ProposalEpochMismatch;
+    let (block, mut state) = builder.build_with_proposer_slashing(&test_task, 1, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting ProposalEpochMismatch because the two epochs are different
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 0,
+            reason: ProposerSlashingInvalid::ProposalEpochMismatch(
+                Slot::from(0 as u64),
+                Slot::from(128 as u64)
+            )
+        })
     );
 }
 

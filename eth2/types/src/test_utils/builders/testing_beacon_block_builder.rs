@@ -69,6 +69,18 @@ pub enum AttesterSlashingTestTask {
     IndexedAttestation2Invalid,
 }
 
+/// Enum used for passing test options to builder
+#[derive(PartialEq)]
+pub enum ProposerSlashingTestTask {
+    Valid,
+    ProposerUnknown,
+    ProposalEpochMismatch,
+    ProposalsIdentical,
+    ProposerNotSlashable,
+    BadProposal1Signature,
+    BadProposal2Signature,
+}
+
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Create a new builder from genesis.
     pub fn new(spec: &ChainSpec) -> Self {
@@ -115,13 +127,14 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Inserts a signed, valid `ProposerSlashing` for the validator.
     pub fn insert_proposer_slashing(
         &mut self,
+        test_task: &ProposerSlashingTestTask,
         validator_index: u64,
         secret_key: &SecretKey,
         fork: &Fork,
         spec: &ChainSpec,
     ) {
         let proposer_slashing =
-            build_proposer_slashing::<T>(validator_index, secret_key, fork, spec);
+            build_proposer_slashing::<T>(test_task, validator_index, secret_key, fork, spec);
         self.block
             .body
             .proposer_slashings
@@ -403,6 +416,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
 ///
 /// Signs the message using a `BeaconChainHarness`.
 fn build_proposer_slashing<T: EthSpec>(
+    test_task: &ProposerSlashingTestTask,
     validator_index: u64,
     secret_key: &SecretKey,
     fork: &Fork,
@@ -413,7 +427,7 @@ fn build_proposer_slashing<T: EthSpec>(
         Signature::new(message, domain, secret_key)
     };
 
-    TestingProposerSlashingBuilder::double_vote::<T, _>(validator_index, signer)
+    TestingProposerSlashingBuilder::double_vote::<T, _>(test_task, validator_index, signer)
 }
 
 /// Builds an `AttesterSlashing` for some `validator_indices`.

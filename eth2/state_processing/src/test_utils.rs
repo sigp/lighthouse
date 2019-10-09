@@ -1,7 +1,7 @@
 use log::info;
 use types::test_utils::{
     AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ExitTestTask,
-    TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
+    ProposerSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
 };
 use types::{EthSpec, *};
 
@@ -80,6 +80,7 @@ impl<T: EthSpec> BlockBuilder<T> {
             let validator_index = validators_iter.next().expect("Insufficient validators.");
 
             builder.insert_proposer_slashing(
+                &ProposerSlashingTestTask::Valid,
                 validator_index,
                 &keypairs[validator_index as usize].sk,
                 &state.fork,

@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use tree_hash::SignedRoot;
 use types::test_utils::{
     AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ExitTestTask,
-    TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
+    ProposerSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
 };
 use types::*;
 
@@ -223,6 +223,52 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             self.block_builder.insert_attester_slashing(
                 test_task,
                 &validator_indices,
+                &secret_keys,
+                &state.fork,
+                spec,
+            );
+        }
+        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+
+        (block, state)
+    }
+
+    pub fn build_with_proposer_slashing(
+        mut self,
+        test_task: &ProposerSlashingTestTask,
+        num_proposer_slashings: u64,
+        randao_sk: Option<SecretKey>,
+        previous_block_root: Option<Hash256>,
+        spec: &ChainSpec,
+    ) -> (BeaconBlock<T>, BeaconState<T>) {
+        let (state, keypairs) = self.state_builder.build();
+        let builder = &mut self.block_builder;
+
+        builder.set_slot(state.slot);
+
+        match previous_block_root {
+            Some(root) => builder.set_parent_root(root),
+            None => builder.set_parent_root(Hash256::from_slice(
+                &state.latest_block_header.signed_root(),
+            )),
+        }
+
+        let proposer_index = state
+            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
+            .unwrap();
+        let keypair = &keypairs[proposer_index];
+
+        match randao_sk {
+            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
+            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+        }
+
+        for i in 0..num_proposer_slashings {
+            let validator_indices = i;
+            let secret_keys = &keypairs[i as usize].sk;
+            self.block_builder.insert_proposer_slashing(
+                test_task,
+                validator_indices,
                 &secret_keys,
                 &state.fork,
                 spec,
