@@ -36,6 +36,29 @@ pub enum ExitTestTask {
     ValidatorUnknown,
 }
 
+#[derive(PartialEq)]
+pub enum AttestationTestTask {
+    Valid,
+    BadParentCrosslinkStartEpoch,
+    BadParentCrosslinkEndEpoch,
+    BadParentCrosslinkHash,
+    NoCommiteeForShard,
+    WrongJustifiedCheckpoint,
+    BadTargetTooLow,
+    BadTargetTooHigh,
+    BadShard,
+    BadParentCrosslinkDataRoot,
+    BadIndexedAttestationBadSignature,
+    CustodyBitfieldNotSubset,
+    CustodyBitfieldHasSetBits,
+    BadCustodyBitfieldLen,
+    BadAggregationBitfieldLen,
+    BadSignature,
+    ValidatorUnknown,
+    IncludedTooEarly,
+    IncludedTooLate,
+}
+
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Create a new builder from genesis.
     pub fn new(spec: &ChainSpec) -> Self {
@@ -124,6 +147,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// to aggregate these split attestations.
     pub fn insert_attestations(
         &mut self,
+        test_task: &AttestationTestTask,
         state: &BeaconState<T>,
         secret_keys: &[&SecretKey],
         num_attestations: usize,
@@ -196,14 +220,21 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         let attestations: Vec<_> = committees
             .par_iter()
             .map(|(slot, committee, signing_validators, shard)| {
-                let mut builder =
-                    TestingAttestationBuilder::new(state, committee, *slot, *shard, spec);
+                let mut builder = TestingAttestationBuilder::new(
+                    test_task, state, committee, *slot, *shard, spec,
+                );
+                // dbg!(slot);
+                // dbg!(committee);
+                // dbg!(signing_validators);
+                // dbg!(shard);
+                // panic!("INSIDE");
 
                 let signing_secret_keys: Vec<&SecretKey> = signing_validators
                     .iter()
                     .map(|validator_index| secret_keys[*validator_index])
                     .collect();
                 builder.sign(
+                    test_task,
                     signing_validators,
                     &signing_secret_keys,
                     &state.fork,
@@ -216,7 +247,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             .collect();
 
         for attestation in attestations {
-            self.block.body.attestations.push(attestation).unwrap();
+            let _ = self.block.body.attestations.push(attestation);
         }
 
         Ok(())

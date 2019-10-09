@@ -95,6 +95,7 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::NoVerification => VerifySignatures::False,
     };
 
+    // in this function
     process_block_header(state, block, block_signed_root, verify_signatures, spec)?;
 
     // Ensure the current and previous epoch caches are built.
@@ -166,6 +167,7 @@ pub fn process_block_header<T: EthSpec>(
     );
 
     if verify_signatures.is_true() {
+        // in this function
         verify_block_signature(&state, &block, block_signed_root, &spec)?;
     }
 

@@ -1,7 +1,8 @@
 use std::convert::TryInto;
 use tree_hash::SignedRoot;
 use types::test_utils::{
-    DepositTestTask, ExitTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
+    AttestationTestTask, DepositTestTask, ExitTestTask, TestingBeaconBlockBuilder,
+    TestingBeaconStateBuilder,
 };
 use types::*;
 
@@ -42,6 +43,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         spec: &ChainSpec,
     ) -> (BeaconBlock<T>, BeaconState<T>) {
         let (mut state, keypairs) = self.state_builder.build();
+
         let builder = &mut self.block_builder;
 
         builder.set_slot(state.slot);
@@ -131,6 +133,52 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
                 }
             }
         }
+
+        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+
+        (block, state)
+    }
+
+    pub fn build_with_n_attestations(
+        mut self,
+        test_task: &AttestationTestTask,
+        num_attestations: u64,
+        randao_sk: Option<SecretKey>,
+        previous_block_root: Option<Hash256>,
+        spec: &ChainSpec,
+    ) -> (BeaconBlock<T>, BeaconState<T>) {
+        let (state, keypairs) = self.state_builder.build();
+        let builder = &mut self.block_builder;
+
+        builder.set_slot(state.slot);
+
+        match previous_block_root {
+            Some(root) => builder.set_parent_root(root),
+            None => builder.set_parent_root(Hash256::from_slice(
+                &state.latest_block_header.signed_root(),
+            )),
+        }
+
+        let proposer_index = state
+            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
+            .unwrap();
+        let keypair = &keypairs[proposer_index];
+
+        match randao_sk {
+            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
+            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+        }
+
+        let all_secret_keys: Vec<&SecretKey> = keypairs.iter().map(|keypair| &keypair.sk).collect();
+        self.block_builder
+            .insert_attestations(
+                test_task,
+                &state,
+                &all_secret_keys,
+                num_attestations as usize,
+                spec,
+            )
+            .unwrap();
 
         let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
 
