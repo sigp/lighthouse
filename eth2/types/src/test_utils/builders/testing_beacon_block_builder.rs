@@ -58,6 +58,7 @@ pub enum AttestationTestTask {
     ValidatorUnknown,
     IncludedTooEarly,
     IncludedTooLate,
+    BadTargetEpoch,
 }
 
 #[derive(PartialEq)]
@@ -267,7 +268,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             .collect();
 
         for attestation in attestations {
-            let _ = self.block.body.attestations.push(attestation);
+            self.block.body.attestations.push(attestation).unwrap();
         }
 
         Ok(())
@@ -358,11 +359,11 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             ExitTestTask::BadSignature => *sk = SecretKey::random(),
             ExitTestTask::ValidatorUnknown => validator_index = 4242,
             ExitTestTask::AlreadyExited => {
-                state.validators[validator_index as usize].exit_epoch = Epoch::from(314159 as u64)
+                state.validators[validator_index as usize].exit_epoch = Epoch::from(314_159 as u64)
             }
             ExitTestTask::NotActive => {
                 state.validators[validator_index as usize].activation_epoch =
-                    Epoch::from(314159 as u64)
+                    Epoch::from(314_159 as u64)
             }
             ExitTestTask::FutureEpoch => exit_epoch = spec.far_future_epoch,
             _ => (),
@@ -372,7 +373,11 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
 
         builder.sign(sk, &state.fork, spec);
 
-        self.block.body.voluntary_exits.push(builder.build());
+        self.block
+            .body
+            .voluntary_exits
+            .push(builder.build())
+            .unwrap();
     }
 
     /// Insert a `Valid` transfer into the state.

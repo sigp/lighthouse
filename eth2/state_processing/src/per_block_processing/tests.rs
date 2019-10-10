@@ -976,8 +976,9 @@ fn invalid_attestation_included_too_early() {
 #[test]
 fn invalid_attestation_included_too_late() {
     let spec = MainnetEthSpec::default_spec();
+    // note to maintainer: might need to increase validator count if we get NoCommitteeForShard
     let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::IncludedTooEarly;
+    let test_task = AttestationTestTask::IncludedTooLate;
     let (block, mut state) =
         builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
 
@@ -989,17 +990,51 @@ fn invalid_attestation_included_too_late() {
         &spec,
     );
 
-    // Expecting IncludedTooEarly because the shard included in the crosslink is bigger than expected
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::AttestationInvalid {
-            index: 0,
-            reason: AttestationInvalid::IncludedTooLate {
-                state: Slot::from(319 as u64),
-                delay: spec.min_attestation_inclusion_delay,
-                attestation: Slot::from(319 as u64)
-            }
-        })
+    // Expecting IncludedTooLate because the shard included in the crosslink is bigger than expected
+    assert!(
+        result
+            == Err(BlockProcessingError::BeaconStateError(
+                BeaconStateError::NoCommitteeForShard
+            ))
+            || result
+                == Err(BlockProcessingError::AttestationInvalid {
+                    index: 0,
+                    reason: AttestationInvalid::IncludedTooLate {
+                        state: state.slot,
+                        attestation: Slot::from(254 as u64),
+                    }
+                })
+    );
+}
+
+#[test]
+fn invalid_attestation_bad_target_epoch() {
+    let spec = MainnetEthSpec::default_spec();
+    // note to maintainer: might need to increase validator count if we get NoCommitteeForShard
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = AttestationTestTask::BadTargetEpoch;
+    let (block, mut state) =
+        builder.build_with_n_attestations(&test_task, NUM_ATTESTATIONS, None, None, &spec);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::VerifyIndividual,
+        &spec,
+    );
+
+    // Expecting BadTargetEpoch because the target epoch is bigger by one than the epoch expected
+    assert!(
+        result
+            == Err(BlockProcessingError::BeaconStateError(
+                BeaconStateError::NoCommitteeForShard
+            ))
+            || result
+                == Err(BlockProcessingError::AttestationInvalid {
+                    index: 0,
+                    reason: AttestationInvalid::BadTargetEpoch
+                })
     );
 }
 

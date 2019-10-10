@@ -68,6 +68,18 @@ impl TestingAttestationDataBuilder {
             AttestationTestTask::NoCommiteeForShard => shard += 2,
             AttestationTestTask::BadShard => shard = T::ShardCount::to_u64(),
             AttestationTestTask::IncludedTooEarly => shard += 1,
+            AttestationTestTask::IncludedTooLate => {
+                target = Checkpoint {
+                    epoch: Epoch::from(3 as u64),
+                    root: Hash256::zero(),
+                }
+            }
+            AttestationTestTask::BadTargetEpoch => {
+                target = Checkpoint {
+                    epoch: Epoch::from(5 as u64),
+                    root: Hash256::zero(),
+                }
+            }
             AttestationTestTask::WrongJustifiedCheckpoint => {
                 source = Checkpoint {
                     epoch: Epoch::from(0 as u64),
