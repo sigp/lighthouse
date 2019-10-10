@@ -619,10 +619,24 @@ mod tests {
             spec: &ChainSpec,
             extra_signer: Option<usize>,
         ) -> Attestation<E> {
-            let mut builder = TestingAttestationBuilder::new(&AttestationTestTask::Valid, state, committee, slot, shard, spec);
+            let mut builder = TestingAttestationBuilder::new(
+                &AttestationTestTask::Valid,
+                state,
+                committee,
+                slot,
+                shard,
+                spec,
+            );
             let signers = &committee[signing_range];
             let committee_keys = signers.iter().map(|&i| &keypairs[i].sk).collect::<Vec<_>>();
-            builder.sign(&AttestationTestTask::Valid, signers, &committee_keys, &state.fork, spec, false);
+            builder.sign(
+                &AttestationTestTask::Valid,
+                signers,
+                &committee_keys,
+                &state.fork,
+                spec,
+                false,
+            );
             extra_signer.map(|c_idx| {
                 let validator_index = committee[c_idx];
                 builder.sign(
