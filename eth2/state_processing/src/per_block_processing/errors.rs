@@ -307,8 +307,6 @@ pub enum IndexedAttestationInvalid {
 
 #[derive(Debug, PartialEq)]
 pub enum DepositInvalid {
-    /// The deposit index does not match the state index.
-    BadIndex { state: u64, deposit: u64 },
     /// The signature (proof-of-possession) does not match the given pubkey.
     BadSignature,
     /// The signature or pubkey does not represent a valid BLS point.
