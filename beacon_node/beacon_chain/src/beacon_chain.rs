@@ -132,6 +132,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn from_genesis(
         store: Arc<T::Store>,
         eth1_backend: T::Eth1Chain,
+        fork_choice_backend: T::LmdGhost,
         event_handler: T::EventHandler,
         mut genesis_state: BeaconState<T::EthSpec>,
         mut genesis_block: BeaconBlock<T::EthSpec>,
@@ -166,6 +167,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Duration::from_millis(spec.milliseconds_per_slot),
         );
 
+        let fork_choice = ForkChoice::new(store.clone(), fork_choice_backend, genesis_block_root);
+
         info!(log, "Beacon chain initialized from genesis";
               "validator_count" => genesis_state.validators.len(),
               "state_root" => format!("{}", genesis_state_root),
@@ -179,7 +182,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             eth1_chain: Eth1Chain::new(eth1_backend),
             canonical_head,
             genesis_block_root,
-            fork_choice: ForkChoice::new(store.clone(), &genesis_block, genesis_block_root),
+            fork_choice,
             event_handler,
             store,
             log,
@@ -190,6 +193,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn from_store(
         store: Arc<T::Store>,
         eth1_backend: T::Eth1Chain,
+        fork_choice_backend: T::LmdGhost,
         event_handler: T::EventHandler,
         spec: ChainSpec,
         log: Logger,
@@ -214,6 +218,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let op_pool = p.op_pool.into_operation_pool(state, &spec);
 
+        let fork_choice = ForkChoice::new(store.clone(), fork_choice_backend, last_finalized_root);
+
         info!(log, "Beacon chain initialized from store";
               "head_root" => format!("{}", p.canonical_head.beacon_block_root),
               "head_epoch" => format!("{}", p.canonical_head.beacon_block.slot.epoch(T::EthSpec::slots_per_epoch())),
@@ -224,7 +230,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(Some(BeaconChain {
             spec,
             slot_clock,
-            fork_choice: ForkChoice::new(store.clone(), last_finalized_block, last_finalized_root),
+            fork_choice,
             op_pool,
             event_handler,
             eth1_chain: Eth1Chain::new(eth1_backend),
@@ -1319,7 +1325,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 proposer_slashings: proposer_slashings.into(),
                 attester_slashings: attester_slashings.into(),
                 attestations: self.op_pool.get_attestations(&state, &self.spec).into(),
-                deposits: self.eth1_chain.deposits_for_block_inclusion(&state)?.into(),
+                deposits: self
+                    .eth1_chain
+                    .deposits_for_block_inclusion(&state, &self.spec)?
+                    .into(),
                 voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec).into(),
                 transfers: self.op_pool.get_transfers(&state, &self.spec).into(),
             },

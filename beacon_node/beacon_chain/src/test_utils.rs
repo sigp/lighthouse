@@ -92,6 +92,9 @@ where
 {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(keypairs: Vec<Keypair>) -> Self {
+        // TODO: fix.
+        panic!()
+        /*
         let spec = E::default_spec();
 
         let log = TerminalLoggerBuilder::new()
@@ -116,6 +119,7 @@ where
             keypairs,
             spec,
         }
+        */
     }
 
     /// Advance the slot of the `BeaconChain`.

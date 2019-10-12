@@ -1,5 +1,6 @@
 extern crate slog;
 
+mod builder;
 mod config;
 
 pub mod error;
@@ -84,6 +85,11 @@ where
         log: slog::Logger,
         executor: &TaskExecutor,
     ) -> error::Result<Self> {
+        panic!()
+
+        // TODO: fix this.
+
+        /*
         let store = Arc::new(store);
         let milliseconds_per_slot = eth2_config.spec.milliseconds_per_slot;
 
@@ -192,7 +198,6 @@ where
             } else {
                 (WebSocketSender::dummy(), None)
             };
-
         let beacon_chain: Arc<BeaconChain<RuntimeBeaconChainTypes<S, E>>> = Arc::new(
             beacon_chain_builder
                 .build(store, eth1_backend, websocket_sender)
@@ -291,6 +296,7 @@ where
             log,
             network,
         })
+        */
     }
 }
 

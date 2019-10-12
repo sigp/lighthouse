@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
+[dev-dependencies]
+sloggers = "0.3.4"
+
 [dependencies]
 beacon_chain = { path = "../beacon_chain" }
 store = { path = "../store" }
@@ -31,3 +34,4 @@ exit-future = "0.1.3"
 futures = "0.1.25"
 reqwest = "0.9"
 url = "1.2"
+lmd_ghost = { path = "../../eth2/lmd_ghost" }
