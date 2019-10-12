@@ -29,7 +29,7 @@ lazy_static! {
 ///
 /// Efficiently represents a Merkle tree of fixed depth where only the first N
 /// indices are populated by non-zero leaves (perfect for the deposit contract tree).
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum MerkleTree {
     /// Leaf node with the hash of its content.
     Leaf(H256),
@@ -39,6 +39,13 @@ pub enum MerkleTree {
     ///
     /// It represents a Merkle tree of 2^depth zero leaves.
     Zero(usize),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum MerkleTreeError {
+    DepthTooSmall,
+    LeafReached,
+    MerkleTreeFull,
 }
 
 impl MerkleTree {
@@ -71,6 +78,47 @@ impl MerkleTree {
                 Node(hash, Box::new(left_subtree), Box::new(right_subtree))
             }
         }
+    }
+
+    /// Try and insert the elem, given the depth of the merkle tree.
+    /// Maybe use push_at ? SCOTT
+    pub fn push(&mut self, elem: H256, depth: usize) -> Result<(), MerkleTreeError> {
+        use MerkleTree::*;
+
+        if (depth == 0) {
+            return Err(MerkleTreeError::LeafReached)
+        }
+        // check if depth > 0 ?
+        // shortcircuit by checking h256 zero ? SCOTT
+        match &*self {
+            Leaf(_) => return Err(MerkleTreeError::LeafReached),
+            Zero(_) => *self = MerkleTree::create(&[elem], depth), // depth-1 ?
+            Node(h, l, r) => {
+                match (&**l, &**r) {
+                    (_, Node(_, _, _)) => {
+                        let mut right = *r.clone();
+                        match right.push(elem, depth - 1) { // care
+                            Err(e) => return Err(e),
+                            Ok(_) => (),
+                        }
+                        let left = *l.clone();
+                        let hash = hash_concat(left.hash(), right.hash());
+                        *self = Node(hash, Box::new(left), Box::new(right));
+                        return Ok(())
+                    }
+                    (Leaf(_), Zero(_)) => {
+                        let left = *l.clone();
+                        let right = Leaf(elem);
+                        let hash = hash_concat(left.hash(), right.hash());
+                        *self = Node(hash, Box::new(left), Box::new(right));
+                        return Ok(())
+                    }
+                    (_, _) => (),
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Retrieve the root hash of this Merkle tree.
@@ -327,5 +375,67 @@ mod tests {
         let junk = H256::from([0xD7; 32]);
         assert!(verify_merkle_proof(leaf, &[], 0, 0, leaf));
         assert!(!verify_merkle_proof(leaf, &[], 0, 7, junk));
+    }
+
+    // Rebuild tests with only one big test with asserts SCOTT
+    #[test]
+    fn push_far_right() {
+        let depth = 2;
+        let leaf_b00 = H256::from([0xAA; 32]);
+        let leaf_b01 = H256::from([0xBB; 32]);
+        let leaf_b10 = H256::from([0xCC; 32]);
+
+        let mut tree = MerkleTree::create(&[leaf_b00, leaf_b01, leaf_b10], 2);
+
+        let leaf_b11 = H256::from([0xDD; 32]);
+        tree.push(leaf_b11, depth).unwrap();
+
+        let node_b0x = hash_concat(leaf_b00, leaf_b01);
+        let node_b1x = hash_concat(leaf_b10, leaf_b11);
+
+        let root = hash_concat(node_b0x, node_b1x);
+        assert_eq!(tree.hash(), root);
+    }
+
+    #[test]
+    fn push_create_right_node() { // naming pls SCOTT
+        let depth = 2;
+        let leaf_b00 = H256::from([0xAA; 32]);
+        let leaf_b01 = H256::from([0xBB; 32]);
+
+        let mut tree = MerkleTree::create(&[leaf_b00, leaf_b01], 2);
+
+        let leaf_b10 = H256::from([0xCC; 32]);
+        let leaf_b11 = H256::zero();
+        tree.push(leaf_b11, depth).unwrap();
+
+        let node_b0x = hash_concat(leaf_b00, leaf_b01);
+        let node_b1x = hash_concat(leaf_b10, leaf_b11);
+
+        let root = hash_concat(node_b0x, node_b1x);
+        assert_eq!(tree.hash(), root);
+    }
+
+
+    #[test]
+    fn push_in_zero_depth() {
+        let depth = 0;
+        let mut tree = MerkleTree::create(&[], depth);
+        let value = H256::from([0xD6; 32]);
+        let result = tree.push(value, depth);
+
+        assert_eq!(result, Err(MerkleTreeError::DepthTooSmall));
+    }
+
+    #[test]
+    fn push_far_left() {
+        let depth = 2;
+        let mut tree = MerkleTree::create(&[], depth);
+        let leaf_b00 = H256::from([0xAA; 32]);
+        tree.push(leaf_b00, depth).unwrap();
+
+        let node_b0x = hash_concat(leaf_b00, H256::zero());
+        let root = hash_concat(node_b0x, H256::zero());
+        assert_eq!(root, tree.hash());
     }
 }
