@@ -1,13 +1,13 @@
+use crate::beacon_chain_builder::Witness;
 use crate::{
     events::NullEventHandler, AttestationProcessingOutcome, BeaconChain, BeaconChainBuilder,
     BeaconChainStartMethod, BeaconChainTypes, BlockProcessingOutcome, InteropEth1ChainBackend,
 };
-use lmd_ghost::LmdGhost;
+use lmd_ghost::ThreadSafeReducedTree;
 use rayon::prelude::*;
 use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
@@ -49,64 +49,38 @@ pub enum AttestationStrategy {
     SomeValidators(Vec<usize>),
 }
 
-/// Used to make the `BeaconChainHarness` generic over some types.
-pub struct CommonTypes<L, E>
-where
-    L: LmdGhost<MemoryStore, E>,
-    E: EthSpec,
-{
-    _phantom_l: PhantomData<L>,
-    _phantom_e: PhantomData<E>,
-}
-
-impl<L, E> BeaconChainTypes for CommonTypes<L, E>
-where
-    L: LmdGhost<MemoryStore, E> + 'static,
-    E: EthSpec,
-{
-    type Store = MemoryStore;
-    type SlotClock = TestingSlotClock;
-    type LmdGhost = L;
-    type Eth1Chain = InteropEth1ChainBackend<E>;
-    type EthSpec = E;
-    type EventHandler = NullEventHandler<E>;
-}
-
 /// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
 /// attestations.
 ///
 /// Used for testing.
-pub struct BeaconChainHarness<L, E>
-where
-    L: LmdGhost<MemoryStore, E> + 'static,
-    E: EthSpec,
-{
-    pub chain: BeaconChain<CommonTypes<L, E>>,
+pub struct BeaconChainHarness<T: BeaconChainTypes> {
+    pub chain: BeaconChain<T>,
     pub keypairs: Vec<Keypair>,
     pub spec: ChainSpec,
 }
 
-impl<L, E> BeaconChainHarness<L, E>
-where
-    L: LmdGhost<MemoryStore, E>,
-    E: EthSpec,
+impl<E: EthSpec>
+    BeaconChainHarness<
+        Witness<
+            MemoryStore,
+            TestingSlotClock,
+            ThreadSafeReducedTree<MemoryStore, E>,
+            InteropEth1ChainBackend<E>,
+            E,
+            NullEventHandler<E>,
+        >,
+    >
 {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
-        panic!()
-        /*
-        let spec = E::default_spec();
-
         let log = TerminalLoggerBuilder::new()
             .level(Severity::Warning)
             .build()
             .expect("logger should build");
 
-        let store = Arc::new(MemoryStore::open());
-
-        let chain = BeaconChainBuilder::new(MinimalEthSpec)
+        let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
-            .store(store.clone())
+            .store(Arc::new(MemoryStore::open()))
             .empty_op_pool()
             .initialize_state(&BeaconChainStartMethod::Keypairs {
                 keypairs: keypairs.clone(),
@@ -122,24 +96,11 @@ where
             .build()
             .expect("should build");
 
-        /*
-        let chain =
-            BeaconChainBuilder::quick_start(HARNESS_GENESIS_TIME, &keypairs, spec.clone(), log)
-                .unwrap_or_else(|e| panic!("Failed to create beacon chain builder: {}", e))
-                .build(
-                    store.clone(),
-                    InteropEth1ChainBackend::default(),
-                    NullEventHandler::default(),
-                )
-                .unwrap_or_else(|e| panic!("Failed to build beacon chain: {}", e));
-                */
-
         Self {
+            spec: chain.spec.clone(),
             chain,
             keypairs,
-            spec,
         }
-        */
     }
 
     /// Advance the slot of the `BeaconChain`.

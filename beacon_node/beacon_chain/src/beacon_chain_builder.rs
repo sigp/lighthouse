@@ -577,6 +577,37 @@ where
     }
 }
 
+/// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
+/// functionality and only exists to satisfy the type system.
+pub(crate) struct Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>(
+    PhantomData<(
+        TStore,
+        TSlotClock,
+        TLmdGhost,
+        TEth1Backend,
+        TEthSpec,
+        TEventHandler,
+    )>,
+);
+
+impl<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler> BeaconChainTypes
+    for Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+where
+    TStore: Store + 'static,
+    TSlotClock: SlotClock + 'static,
+    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEthSpec: EthSpec + 'static,
+    TEventHandler: EventHandler<TEthSpec> + 'static,
+{
+    type Store = TStore;
+    type SlotClock = TSlotClock;
+    type LmdGhost = TLmdGhost;
+    type Eth1Chain = TEth1Backend;
+    type EthSpec = TEthSpec;
+    type EventHandler = TEventHandler;
+}
+
 fn genesis_block<T: EthSpec>(genesis_state: &BeaconState<T>, spec: &ChainSpec) -> BeaconBlock<T> {
     let mut genesis_block = BeaconBlock::empty(&spec);
 
@@ -689,37 +720,6 @@ fn recent_genesis_time(minutes: u64) -> u64 {
         .as_secs();
     let secs_after_last_period = now.checked_rem(minutes * 60).unwrap_or(0);
     now - secs_after_last_period
-}
-
-/// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
-/// functionality and only exists to satisfy the type system.
-struct Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>(
-    PhantomData<(
-        TStore,
-        TSlotClock,
-        TLmdGhost,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-    )>,
-);
-
-impl<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler> BeaconChainTypes
-    for Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
-where
-    TStore: Store + 'static,
-    TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
-{
-    type Store = TStore;
-    type SlotClock = TSlotClock;
-    type LmdGhost = TLmdGhost;
-    type Eth1Chain = TEth1Backend;
-    type EthSpec = TEthSpec;
-    type EventHandler = TEventHandler;
 }
 
 #[cfg(test)]

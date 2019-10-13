@@ -121,7 +121,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for Eth1Cache {
         panic!()
     }
 
-    fn eth1_data(&self, state: &BeaconState<T>) -> Result<Eth1Data> {
+    fn eth1_data(&self, _state: &BeaconState<T>) -> Result<Eth1Data> {
         // TODO: fix or perish.
         panic!()
     }
