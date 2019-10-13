@@ -85,7 +85,7 @@ impl MerkleTree {
 
     /// Push an element in the MerkleTree.
     /// MerkleTree and depth must be correct, as the algorithm expects valid data.
-    pub fn push(&mut self, elem: H256, depth: usize) -> Result<(), MerkleTreeError> {
+    pub fn push_leaf(&mut self, elem: H256, depth: usize) -> Result<(), MerkleTreeError> {
         use MerkleTree::*;
 
         if depth == 0 {
@@ -104,7 +104,7 @@ impl MerkleTree {
                     // There is a right node so insert in right node
                     (Node(_, _, _), Node(_, _, _)) => {
                         right = *r.clone();
-                        match right.push(elem, depth - 1) {
+                        match right.push_leaf(elem, depth - 1) {
                             Err(e) => return Err(e),
                             Ok(_) => (),
                         }
@@ -123,12 +123,12 @@ impl MerkleTree {
                     // Try inserting on the left node -> if it fails because it is full, insert in right side.
                     (Node(_, _, _), Zero(_)) => {
                         left = *l.clone();
-                        match left.push(elem, depth - 1) {
+                        match left.push_leaf(elem, depth - 1) {
                             Ok(_) => right = *r.clone(),
                             // Left node is full, try inserting in right node
                             Err(MerkleTreeError::MerkleTreeFull) => {
                                 right = *r.clone();
-                                match right.push(elem, depth - 1) {
+                                match right.push_leaf(elem, depth - 1) {
                                     Ok(_) => (),
                                     Err(e) => return Err(e),
                                 }
@@ -410,36 +410,36 @@ mod tests {
 
         let leaf_b00 = H256::from([0xAA; 32]);
 
-        let res = tree.push(leaf_b00, 0);
+        let res = tree.push_leaf(leaf_b00, 0);
         assert_eq!(res, Err(MerkleTreeError::MerkleTreeFull));
         let expected_tree = MerkleTree::create(&[], depth);
         assert_eq!(tree.hash(), expected_tree.hash());
 
-        tree.push(leaf_b00, depth)
+        tree.push_leaf(leaf_b00, depth)
             .expect("Pushing in empty tree failed");
         let expected_tree = MerkleTree::create(&[leaf_b00], depth);
         assert_eq!(tree.hash(), expected_tree.hash());
 
         let leaf_b01 = H256::from([0xBB; 32]);
-        tree.push(leaf_b01, depth)
+        tree.push_leaf(leaf_b01, depth)
             .expect("Pushing in left then right node failed");
         let expected_tree = MerkleTree::create(&[leaf_b00, leaf_b01], depth);
         assert_eq!(tree.hash(), expected_tree.hash());
 
         let leaf_b10 = H256::from([0xCC; 32]);
-        tree.push(leaf_b10, depth)
+        tree.push_leaf(leaf_b10, depth)
             .expect("Pushing in right then left node failed");
         let expected_tree = MerkleTree::create(&[leaf_b00, leaf_b01, leaf_b10], depth);
         assert_eq!(tree.hash(), expected_tree.hash());
 
         let leaf_b11 = H256::from([0xDD; 32]);
-        tree.push(leaf_b11, depth)
+        tree.push_leaf(leaf_b11, depth)
             .expect("Pushing in outtermost leaf failed");
         let expected_tree = MerkleTree::create(&[leaf_b00, leaf_b01, leaf_b10, leaf_b11], depth);
         assert_eq!(tree.hash(), expected_tree.hash());
 
         let leaf_b12 = H256::from([0xEE; 32]);
-        let res = tree.push(leaf_b12, depth);
+        let res = tree.push_leaf(leaf_b12, depth);
         assert_eq!(res, Err(MerkleTreeError::MerkleTreeFull));
         assert_eq!(tree.hash(), expected_tree.hash());
     }
