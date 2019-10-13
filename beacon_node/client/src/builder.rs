@@ -9,21 +9,29 @@ use beacon_chain::{
 };
 use eth2_config::Eth2Config;
 use exit_future::Signal;
+use futures::{Future, Stream};
 use lmd_ghost::LmdGhost;
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
 use rpc::Config as RpcConfig;
-use slog::Logger;
+use slog::{debug, error, info, o, warn, Logger};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::timer::Interval;
 use types::{ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
+
+/// The interval between notifier events.
+pub const NOTIFIER_INTERVAL_SECONDS: u64 = 15;
+/// Create a warning log whenever the peer count is at or below this value.
+pub const WARN_PEER_COUNT: usize = 1;
 
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     store: Option<Arc<T::Store>>,
+    executor: Option<TaskExecutor>,
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     exit_signals: Vec<Signal>,
@@ -50,6 +58,7 @@ where
         Self {
             slot_clock: None,
             store: None,
+            executor: None,
             beacon_chain_builder: None,
             beacon_chain: None,
             exit_signals: vec![],
@@ -63,6 +72,16 @@ where
         }
     }
 
+    pub fn executor(mut self, executor: TaskExecutor) -> Self {
+        self.executor = Some(executor);
+        self
+    }
+
+    pub fn logger(mut self, log: Logger) -> Self {
+        self.log = Some(log);
+        self
+    }
+
     pub fn beacon_checkpoint(mut self, method: &BeaconChainStartMethod) -> Result<Self, String> {
         let store = self
             .store
@@ -70,8 +89,9 @@ where
             .ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
         let log = self
             .log
-            .clone()
-            .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?;
+            .as_ref()
+            .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
+            .new(o!("service" => "beacon"));
 
         let builder = BeaconChainBuilder::new(self.eth_spec_instance.clone())
             .custom_spec(self.spec.clone())
@@ -85,19 +105,20 @@ where
         Ok(self)
     }
 
-    pub fn libp2p_network(
-        mut self,
-        config: &NetworkConfig,
-        executor: &TaskExecutor,
-    ) -> Result<Self, String> {
+    pub fn libp2p_network(mut self, config: &NetworkConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
             .ok_or_else(|| "libp2p_network requires a beacon chain")?;
         let log = self
             .log
-            .clone()
-            .ok_or_else(|| "libp2p_network requires a log")?;
+            .as_ref()
+            .ok_or_else(|| "libp2p_network requires a log")?
+            .new(o!("service" => "network"));
+        let executor = self
+            .executor
+            .as_ref()
+            .ok_or_else(|| "libp2p_network requires an executor")?;
 
         let (network, network_send) = NetworkService::new(beacon_chain, config, executor, log)
             .map_err(|e| format!("Failed to start libp2p network: {:?}", e))?;
@@ -108,23 +129,24 @@ where
         Ok(self)
     }
 
-    pub fn grpc_server(
-        mut self,
-        config: &RpcConfig,
-        executor: &TaskExecutor,
-    ) -> Result<Self, String> {
+    pub fn grpc_server(mut self, config: &RpcConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
             .ok_or_else(|| "grpc_server requires a beacon chain")?;
         let log = self
             .log
-            .clone()
-            .ok_or_else(|| "grpc_server requires a log")?;
+            .as_ref()
+            .ok_or_else(|| "grpc_server requires a log")?
+            .new(o!("service" => "grpc"));
         let network_send = self
             .libp2p_network_send
             .clone()
             .ok_or_else(|| "grpc_server requires a libp2p network")?;
+        let executor = self
+            .executor
+            .as_ref()
+            .ok_or_else(|| "grpc_server requires an executor")?;
 
         let exit_signal = rpc::start_server(config, executor, network_send, beacon_chain, &log);
 
@@ -137,7 +159,6 @@ where
         mut self,
         client_config: &ClientConfig,
         eth2_config: &Eth2Config,
-        executor: &TaskExecutor,
     ) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
@@ -145,8 +166,9 @@ where
             .ok_or_else(|| "grpc_server requires a beacon chain")?;
         let log = self
             .log
-            .clone()
-            .ok_or_else(|| "grpc_server requires a log")?;
+            .as_ref()
+            .ok_or_else(|| "grpc_server requires a log")?
+            .new(o!("service" => "http"));
         let network = self
             .libp2p_network
             .clone()
@@ -155,6 +177,10 @@ where
             .libp2p_network_send
             .clone()
             .ok_or_else(|| "grpc_server requires a libp2p network sender")?;
+        let executor = self
+            .executor
+            .as_ref()
+            .ok_or_else(|| "http_server requires an executor")?;
 
         let network_info = rest_api::NetworkInfo {
             network_service: network.clone(),
@@ -177,13 +203,111 @@ where
         Ok(self)
     }
 
+    pub fn peer_count_notifier(mut self) -> Result<Self, String> {
+        let log = self
+            .log
+            .as_ref()
+            .ok_or_else(|| "peer_notifier requires a logger")?
+            .new(o!("service" => "peer_notifier"));
+        let log_2 = log.clone();
+        let network = self
+            .libp2p_network
+            .clone()
+            .ok_or_else(|| "peer_notifier requires a libp2p network")?;
+        let executor = self
+            .executor
+            .clone()
+            .ok_or_else(|| "peer_notifier requires an executor")?;
+
+        let (exit_signal, exit) = exit_future::signal();
+
+        self.exit_signals.push(exit_signal);
+
+        let interval_future = Interval::new(
+            Instant::now(),
+            Duration::from_secs(NOTIFIER_INTERVAL_SECONDS),
+        )
+        .map_err(move |e| error!(log_2, "Notifier timer failed"; "error" => format!("{:?}", e)))
+        .for_each(move |_| {
+            // NOTE: Panics if libp2p is poisoned.
+            let connected_peer_count = network.libp2p_service().lock().swarm.connected_peers();
+
+            debug!(log, "Connected peer status"; "peer_count" => connected_peer_count);
+
+            if connected_peer_count <= WARN_PEER_COUNT {
+                warn!(log, "Low peer count"; "peer_count" => connected_peer_count);
+            }
+
+            Ok(())
+        });
+
+        executor.spawn(exit.until(interval_future).map(|_| ()));
+
+        Ok(self)
+    }
+
+    pub fn slot_notifier(mut self) -> Result<Self, String> {
+        let log = self
+            .log
+            .as_ref()
+            .ok_or_else(|| "slot_notifier requires a logger")?
+            .new(o!("service" => "slot_notifier"));
+        let log_2 = log.clone();
+        let beacon_chain = self
+            .beacon_chain
+            .clone()
+            .ok_or_else(|| "slot_notifier requires a libp2p network")?;
+        let executor = self
+            .executor
+            .clone()
+            .ok_or_else(|| "slot_notifier requires an executor")?;
+        let slot_duration = Duration::from_millis(self.spec.milliseconds_per_slot);
+        let duration_to_next_slot = beacon_chain
+            .slot_clock
+            .duration_to_next_slot()
+            .ok_or_else(|| "slot_notifier unable to determine time to next slot")?;
+
+        let (exit_signal, exit) = exit_future::signal();
+
+        self.exit_signals.push(exit_signal);
+
+        let interval_future = Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
+            .map_err(move |e| error!(log_2, "Slot timer failed"; "error" => format!("{:?}", e)))
+            .for_each(move |_| {
+                let best_slot = beacon_chain.head().beacon_block.slot;
+                let latest_block_root = beacon_chain.head().beacon_block_root;
+
+                if let Ok(current_slot) = beacon_chain.slot() {
+                    info!(
+                        log,
+                        "Slot start";
+                        "skip_slots" => current_slot.saturating_sub(best_slot),
+                        "best_block_root" => format!("{}", latest_block_root),
+                        "best_block_slot" => best_slot,
+                        "slot" => current_slot,
+                    )
+                } else {
+                    error!(
+                        log,
+                        "Beacon chain running whilst slot clock is unavailable."
+                    );
+                };
+
+                Ok(())
+            });
+
+        executor.spawn(exit.until(interval_future).map(|_| ()));
+
+        Ok(self)
+    }
+
     pub fn build(
         self,
     ) -> Client<Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>> {
         Client {
             beacon_chain: self.beacon_chain,
-            libp2p_network: self.libp2p_network,
-            exit_signals: self.exit_signals,
+            _libp2p_network: self.libp2p_network,
+            _exit_signals: self.exit_signals,
         }
     }
 }
@@ -219,13 +343,19 @@ where
                     .clone()
                     .ok_or_else(|| "beacon_chain requires a slot clock")?,
             )
+            .eth1_backend(
+                self.eth1_backend
+                    .ok_or_else(|| "beacon_chain requires an eth1 backend")?,
+            )
             .empty_reduced_tree_fork_choice()
             .map_err(|e| format!("Failed to init fork choice: {}", e))?
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
         self.beacon_chain = Some(Arc::new(chain));
+        self.beacon_chain_builder = None;
         self.event_handler = None;
+        self.eth1_backend = None;
 
         Ok(self)
     }
@@ -242,15 +372,16 @@ where
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
 {
-    pub fn websocket_event_handler(
-        mut self,
-        executor: &TaskExecutor,
-        config: WebSocketConfig,
-    ) -> Result<Self, String> {
+    pub fn websocket_event_handler(mut self, config: WebSocketConfig) -> Result<Self, String> {
         let log = self
             .log
-            .clone()
-            .ok_or_else(|| "websocket_event_handler requires a log".to_string())?;
+            .as_ref()
+            .ok_or_else(|| "websocket_event_handler requires a log".to_string())?
+            .new(o!("service" => "ws"));
+        let executor = self
+            .executor
+            .as_ref()
+            .ok_or_else(|| "websocket_event_handler requires an executor")?;
 
         let (sender, exit_signal): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
             let (sender, exit) = websocket_server::start_server(&config, executor, &log)?;
@@ -342,7 +473,7 @@ where
         let beacon_chain_builder = self
             .beacon_chain_builder
             .as_ref()
-            .ok_or_else(|| "system_time_slot_clock requires a beacon chain")?;
+            .ok_or_else(|| "system_time_slot_clock requires a beacon checkpoint")?;
 
         let genesis_time = beacon_chain_builder
             .finalized_checkpoint
@@ -379,23 +510,23 @@ mod test {
     }
 
     #[test]
-    fn sanity() {
-        let runtime = get_runtime();
-        let executor = &runtime.executor();
-        let log = get_logger();
-
-        let builder = ClientBuilder::new(MinimalEthSpec)
+    fn builds_client() {
+        ClientBuilder::new(MinimalEthSpec)
+            .logger(get_logger())
             .memory_store()
-            .websocket_event_handler(executor, WebSocketConfig::default())
+            .executor(get_runtime().executor())
+            .websocket_event_handler(WebSocketConfig::default())
             .expect("should start websocket server")
             .dummy_eth1_backend()
-            .system_time_slot_clock()
-            .expect("should build slot clock")
             .beacon_checkpoint(&BeaconChainStartMethod::Generated {
                 validator_count: 8,
                 genesis_time: 13371377,
             })
-            .expect("should start beacon chain");
-        //
+            .expect("should find beacon checkpoint")
+            .system_time_slot_clock()
+            .expect("should build slot clock")
+            .beacon_chain()
+            .expect("should start beacon chain")
+            .build();
     }
 }
