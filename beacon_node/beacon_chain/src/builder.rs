@@ -345,7 +345,7 @@ where
             beacon_state,
         });
 
-        Ok(self)
+        Ok(self.empty_op_pool())
     }
 
     /// Sets the `BeaconChain` fork choice back-end.
@@ -392,7 +392,7 @@ where
     }
 
     /// Creates a new, empty operation pool.
-    pub fn empty_op_pool(mut self) -> Self {
+    fn empty_op_pool(mut self) -> Self {
         self.op_pool = Some(OperationPool::new());
         self
     }
@@ -483,7 +483,7 @@ where
             .ok_or_else(|| "reduced_tree_fork_choice requires a store")?;
         let finalized_checkpoint = &self
             .finalized_checkpoint
-            .clone()
+            .as_ref()
             .expect("should have finalized checkpoint");
 
         let backend = ThreadSafeReducedTree::new(
@@ -542,7 +542,7 @@ where
     pub fn testing_slot_clock(self, slot_duration: Duration) -> Result<Self, String> {
         let genesis_time = self
             .finalized_checkpoint
-            .clone()
+            .as_ref()
             .ok_or_else(|| "testing_slot_clock requires an initialized state")?
             .beacon_state
             .genesis_time;
@@ -579,7 +579,7 @@ where
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
-pub(crate) struct Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>(
+pub struct Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>(
     PhantomData<(
         TStore,
         TSlotClock,
@@ -748,7 +748,6 @@ mod test {
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(store.clone())
-            .empty_op_pool()
             .initialize_state(&BeaconChainStartMethod::Generated {
                 validator_count,
                 genesis_time,

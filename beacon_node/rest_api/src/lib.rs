@@ -35,7 +35,7 @@ use tokio::sync::mpsc;
 use url_query::UrlQuery;
 
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
-pub use config::Config as ApiConfig;
+pub use config::Config;
 
 type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 
@@ -196,7 +196,7 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
 }
 
 pub fn start_server<T: BeaconChainTypes>(
-    config: &ApiConfig,
+    config: &Config,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,

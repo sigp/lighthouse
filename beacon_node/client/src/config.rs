@@ -1,3 +1,4 @@
+use beacon_chain::builder::BeaconChainStartMethod;
 use clap::ArgMatches;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
@@ -25,8 +26,8 @@ pub struct Config {
     pub beacon_chain_start_method: BeaconChainStartMethod,
     pub eth1_backend_method: Eth1BackendMethod,
     pub network: network::NetworkConfig,
-    pub rpc: rpc::RPCConfig,
-    pub rest_api: rest_api::ApiConfig,
+    pub rpc: rpc::Config,
+    pub rest_api: rest_api::Config,
     pub websocket_server: websocket_server::Config,
 }
 

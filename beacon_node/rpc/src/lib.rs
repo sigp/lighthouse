@@ -9,7 +9,7 @@ use self::beacon_block::BeaconBlockServiceInstance;
 use self::beacon_node::BeaconNodeServiceInstance;
 use self::validator::ValidatorServiceInstance;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-pub use config::Config as RPCConfig;
+pub use config::Config;
 use futures::Future;
 use grpcio::{Environment, ServerBuilder};
 use network::NetworkMessage;
@@ -22,8 +22,8 @@ use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 
-pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
-    config: &RPCConfig,
+pub fn start_server<T: BeaconChainTypes>(
+    config: &Config,
     executor: &TaskExecutor,
     network_chan: mpsc::UnboundedSender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,

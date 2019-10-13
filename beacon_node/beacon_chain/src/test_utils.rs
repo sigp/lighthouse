@@ -1,7 +1,8 @@
-use crate::builder::Witness;
 use crate::{
-    events::NullEventHandler, AttestationProcessingOutcome, BeaconChain, BeaconChainBuilder,
-    BeaconChainStartMethod, BeaconChainTypes, BlockProcessingOutcome, InteropEth1ChainBackend,
+    builder::{BeaconChainBuilder, BeaconChainStartMethod, Witness},
+    events::NullEventHandler,
+    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
+    InteropEth1ChainBackend,
 };
 use lmd_ghost::ThreadSafeReducedTree;
 use rayon::prelude::*;
@@ -80,7 +81,6 @@ impl<E: EthSpec>
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
             .store(Arc::new(MemoryStore::open()))
-            .empty_op_pool()
             .initialize_state(&BeaconChainStartMethod::Keypairs {
                 keypairs: keypairs.clone(),
                 genesis_time: HARNESS_GENESIS_TIME,
