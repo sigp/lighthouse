@@ -404,50 +404,6 @@ mod tests {
     }
 
     #[test]
-    fn push_fail_tree_full() {
-        let depth = 2;
-        let leaf_b00 = H256::from([0xAA; 32]);
-        let leaf_b01 = H256::from([0xBB; 32]);
-        let leaf_b10 = H256::from([0xCC; 32]);
-        let leaf_b11 = H256::from([0xDD; 32]);
-
-        let mut tree = MerkleTree::create(&[leaf_b00, leaf_b01, leaf_b10, leaf_b11], 2);
-        let expected_tree = MerkleTree::create(&[leaf_b00, leaf_b01, leaf_b10, leaf_b11], 2);
-
-        let leaf_b12 = H256::from([0xEE; 32]);
-        let res = tree.push(leaf_b12, depth);
-        assert_eq!(res, Err(MerkleTreeError::MerkleTreeFull));
-        assert_eq!(tree.hash(), expected_tree.hash());
-    }
-
-    #[test]
-    fn push_create_right_node() {
-        let depth = 2;
-        let leaf_b00 = H256::from([0xAA; 32]);
-        let leaf_b01 = H256::from([0xBB; 32]);
-
-        let mut tree = MerkleTree::create(&[leaf_b00, leaf_b01], 2);
-
-        let leaf_b10 = H256::from([0xCC; 32]);
-        tree.push(leaf_b10, depth).unwrap();
-
-        let real_tree = MerkleTree::create(&[leaf_b00, leaf_b01, leaf_b10], 2);
-        assert_eq!(tree.hash(), real_tree.hash());
-    }
-
-    #[test]
-    fn push_fail_zero_depth() {
-        let depth = 0;
-        let mut tree = MerkleTree::create(&[], depth);
-        let value = H256::from([0xD6; 32]);
-        let result = tree.push(value, depth);
-
-        let real_tree = MerkleTree::create(&[], depth);
-        assert_eq!(result, Err(MerkleTreeError::MerkleTreeFull));
-        assert_eq!(tree.hash(), real_tree.hash())
-    }
-
-    #[test]
     fn push_complete_example() {
         let depth = 2;
         let mut tree = MerkleTree::create(&[], depth);
