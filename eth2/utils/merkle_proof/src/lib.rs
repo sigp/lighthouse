@@ -104,9 +104,8 @@ impl MerkleTree {
                     // There is a right node so insert in right node
                     (Node(_, _, _), Node(_, _, _)) => {
                         right = *r.clone();
-                        match right.push_leaf(elem, depth - 1) {
-                            Err(e) => return Err(e),
-                            Ok(_) => (),
+                        if let Err(e) = right.push_leaf(elem, depth - 1) {
+                            return Err(e);
                         }
                         left = *l.clone();
                     }
@@ -128,9 +127,8 @@ impl MerkleTree {
                             // Left node is full, try inserting in right node
                             Err(MerkleTreeError::MerkleTreeFull) => {
                                 right = *r.clone();
-                                match right.push_leaf(elem, depth - 1) {
-                                    Ok(_) => (),
-                                    Err(e) => return Err(e),
+                                if let Err(e) = right.push_leaf(elem, depth - 1) {
+                                    return Err(e);
                                 }
                             }
                             Err(e) => return Err(e),
