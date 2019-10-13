@@ -1,6 +1,6 @@
 use crate::{
     events::NullEventHandler, AttestationProcessingOutcome, BeaconChain, BeaconChainBuilder,
-    BeaconChainTypes, BlockProcessingOutcome, InteropEth1ChainBackend,
+    BeaconChainStartMethod, BeaconChainTypes, BlockProcessingOutcome, InteropEth1ChainBackend,
 };
 use lmd_ghost::LmdGhost;
 use rayon::prelude::*;
@@ -9,6 +9,7 @@ use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::time::Duration;
 use store::MemoryStore;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
@@ -91,8 +92,7 @@ where
     E: EthSpec,
 {
     /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn new(keypairs: Vec<Keypair>) -> Self {
-        // TODO: fix.
+    pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
         panic!()
         /*
         let spec = E::default_spec();
@@ -104,6 +104,25 @@ where
 
         let store = Arc::new(MemoryStore::open());
 
+        let chain = BeaconChainBuilder::new(MinimalEthSpec)
+            .logger(log.clone())
+            .store(store.clone())
+            .empty_op_pool()
+            .initialize_state(&BeaconChainStartMethod::Keypairs {
+                keypairs: keypairs.clone(),
+                genesis_time: HARNESS_GENESIS_TIME,
+            })
+            .expect("should build state using recent genesis")
+            .interop_eth1_backend()
+            .null_event_handler()
+            .testing_slot_clock(Duration::from_secs(1))
+            .expect("should configure testing slot clock")
+            .empty_reduced_tree_fork_choice()
+            .expect("should add fork choice to builder")
+            .build()
+            .expect("should build");
+
+        /*
         let chain =
             BeaconChainBuilder::quick_start(HARNESS_GENESIS_TIME, &keypairs, spec.clone(), log)
                 .unwrap_or_else(|e| panic!("Failed to create beacon chain builder: {}", e))
@@ -113,6 +132,7 @@ where
                     NullEventHandler::default(),
                 )
                 .unwrap_or_else(|e| panic!("Failed to build beacon chain: {}", e));
+                */
 
         Self {
             chain,

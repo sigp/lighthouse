@@ -30,47 +30,6 @@ pub struct Config {
     pub websocket_server: websocket_server::Config,
 }
 
-/// Defines how the client should initialize a BeaconChain.
-///
-/// In general, there are two methods:
-///  - resuming a new chain, or
-///  - initializing a new one.
-#[derive(Debug, Clone)]
-pub enum BeaconChainStartMethod {
-    /// Resume from an existing BeaconChain, loaded from the existing local database.
-    Resume,
-    /// Resume from an existing BeaconChain, loaded from the existing local database.
-    Mainnet,
-    /// Create a new beacon chain that can connect to mainnet.
-    ///
-    /// Set the genesis time to be the start of the previous 30-minute window.
-    RecentGenesis {
-        validator_count: usize,
-        minutes: u64,
-    },
-    /// Create a new beacon chain with `genesis_time` and `validator_count` validators, all with well-known
-    /// secret keys.
-    Generated {
-        validator_count: usize,
-        genesis_time: u64,
-    },
-    /// Create a new beacon chain by loading a YAML-encoded genesis state from a file.
-    Yaml { file: PathBuf },
-    /// Create a new beacon chain by loading a SSZ-encoded genesis state from a file.
-    Ssz { file: PathBuf },
-    /// Create a new beacon chain by loading a JSON-encoded genesis state from a file.
-    Json { file: PathBuf },
-    /// Create a new beacon chain by using a HTTP server (running our REST-API) to load genesis and
-    /// finalized states and blocks.
-    HttpBootstrap { server: String, port: Option<u16> },
-}
-
-impl Default for BeaconChainStartMethod {
-    fn default() -> Self {
-        BeaconChainStartMethod::Resume
-    }
-}
-
 /// Defines which Eth1 backend the client should use.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]

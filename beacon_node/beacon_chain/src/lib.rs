@@ -19,7 +19,7 @@ pub use self::beacon_chain::{
 };
 pub use self::checkpoint::CheckPoint;
 pub use self::errors::{BeaconChainError, BlockProductionError};
-pub use beacon_chain_builder::BeaconChainBuilder;
+pub use beacon_chain_builder::{BeaconChainBuilder, BeaconChainStartMethod};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend, InteropEth1ChainBackend};
 pub use events::EventHandler;
 pub use fork_choice::ForkChoice;
