@@ -1,4 +1,4 @@
-use crate::beacon_chain_builder::Witness;
+use crate::builder::Witness;
 use crate::{
     events::NullEventHandler, AttestationProcessingOutcome, BeaconChain, BeaconChainBuilder,
     BeaconChainStartMethod, BeaconChainTypes, BlockProcessingOutcome, InteropEth1ChainBackend,
@@ -18,9 +18,8 @@ use types::{
     Slot,
 };
 
-pub use types::test_utils::generate_deterministic_keypairs;
-
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+pub use types::test_utils::generate_deterministic_keypairs;
 
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690; // 4th September 2019
 
