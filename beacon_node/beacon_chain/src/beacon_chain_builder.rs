@@ -210,22 +210,17 @@ fn interop_genesis_state<T: EthSpec>(
         .collect::<Vec<_>>();
 
     let mut proofs = vec![];
+    let depth = spec.deposit_contract_tree_depth as usize;
+    let mut tree = MerkleTree::create(&[], depth);
     for i in 1..=deposit_root_leaves.len() {
-        // Note: this implementation is not so efficient.
-        //
-        // If `MerkleTree` had a push method, we could just build one tree and sample it instead of
-        // rebuilding the tree for each deposit.
-        let tree = MerkleTree::create(
-            &deposit_root_leaves[0..i],
-            spec.deposit_contract_tree_depth as usize,
-        );
+        tree.push(deposit_root_laves[i], depth);
 
-        let (_, mut proof) = tree.generate_proof(i - 1, spec.deposit_contract_tree_depth as usize);
+        let (_, mut proof) = tree.generate_proof(i - 1, depth);
         proof.push(Hash256::from_slice(&int_to_bytes32(i)));
 
         assert_eq!(
             proof.len(),
-            spec.deposit_contract_tree_depth as usize + 1,
+            depth + 1,
             "Deposit proof should be correct len"
         );
 
