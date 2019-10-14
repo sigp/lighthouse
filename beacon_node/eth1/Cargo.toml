@@ -1,35 +1,23 @@
 [package]
 name = "eth1"
 version = "0.1.0"
-authors = ["pawan <pawandhananjay@gmail.com>"]
+authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
-build = "build.rs"
-
-[build-dependencies]
-reqwest = "0.9.20"
-serde_json = "1.0"
+[dev-dependencies]
+eth1_test_rig = { path = "../../tests/eth1_test_rig" }
 
 [dependencies]
-web3 = "0.8.0"
+reqwest = "0.9"
 futures = "0.1.25"
-parking_lot = "0.7"
-tokio = "0.1.17"
-tokio-core = "0.1.17"
-ethabi = "8.0.0"
-ethereum-types = "0.6"
-types = { path = "../../eth2/types" }
-bls = { path = "../../eth2/utils/bls" }
-eth2_ssz_types = { path = "../../eth2/utils/ssz_types" }
-eth2_ssz = "0.1.2"
-merkle_proof = { path = "../../eth2/utils/merkle_proof" }
-slog = "^2.2.3"
-slog-term = "^2.4.0"
-slog-async = "^2.3.0"
-tree_hash = "0.1"
-tree_hash_derive = "0.2"
+serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-
-[features]
-fake_crypto = ["bls/fake_crypto"]
-integration_tests = []
+hex = "0.4"
+types = { path = "../../eth2/types"}
+merkle_proof = { path = "../../eth2/utils/merkle_proof"}
+eth2_ssz = { path = "../../eth2/utils/ssz"}
+tree_hash = { path = "../../eth2/utils/tree_hash"}
+eth2_hashing = { path = "../../eth2/utils/eth2_hashing"}
+parking_lot = "0.7"
+slog = "^2.2.3"
+tokio = "0.1.17"

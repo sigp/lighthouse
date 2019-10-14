@@ -1,253 +1,148 @@
-//! This crate is responsible for interacting with the eth1 chain to:
-//! * Get deposits from deposit contract logs.
-//! * Get and process state of the deposit contract for coming to consensus on state of eth1 chain.
-//!
-//!
-//! Currently, for testing the functionality, we are using the ganache testnet config from the
-//! [lodestar repo](https://github.com/pawanjay176/lodestar/tree/master/packages/lodestar) with some minor modifications for testing purposes.
-//!
-//! **NOTE**: The current testing strategy needs to be revamped and also be made
-//! compatible with CI.
-//!
-//! Instructions for getting the test environment setup:
-//! * Clone the above repository.
-//! * Run `yarn install && lerna run build`
-//!
-//!
-//! Useful commands:
-//!
-//! 1. `./bin/lodestar eth1:dev -m "vast thought differ pull jewel broom cook wrist tribe word before omit" --blockTime 15`
-//!
-//! Runs a local testnet with the provided mnemonic with 10 accounts and block time of 15 seconds and deploys the deposit contract.
-//!
-//! Note: Setting a block time is useful for testing since we want to look for deposits dating back `n` blocks. By default, ganache mines a block only when it receives a transaction.
-//!
-//! 2. `./bin/lodestar deposit -m "vast thought differ pull jewel broom cook wrist tribe word before omit" -n http://127.0.0.1:8545 -c 0x8c594691C0E592FFA21F153a16aE41db5beFcaaa --delay 5`
-//!
-//! Sends a deposit from 10 addresses to the deposit contract at intervals of `delay`.
-//!
+mod block_cache;
+mod deposit_cache;
+mod eth1_cache;
+pub mod http;
 
-extern crate types as eth2_types;
+pub use block_cache::BlockCache;
+pub use deposit_cache::{DepositCache, DepositLog};
+pub use eth1_cache::{
+    update_block_cache, update_deposit_cache, BlockCacheUpdateOutcome, DepositCacheUpdateOutcome,
+    Eth1Cache, Eth1CacheBuilder,
+};
 
-mod cache;
-mod deposits;
-mod error;
-mod types;
-
-use crate::cache::*;
-use crate::deposits::*;
-use crate::error::{Error, Result};
-use crate::types::Eth1DataFetcher;
-use eth2_types::*;
-use slog::{debug, error, info, o};
-use std::cmp::Ordering;
+use futures::{Future, Stream};
+use slog::{debug, error, Logger};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
-use web3::futures::{Future, Stream};
-use web3::types::{H256, U128};
+use types::Address;
 
-pub mod config;
-pub mod web3_fetcher;
-
-const ETH1_FOLLOW_DISTANCE: u64 = 1024; // Need to move this to eth2_config.toml
-
-#[derive(Clone, Debug)]
-pub struct Eth1<F: Eth1DataFetcher> {
-    /// Cache for storing block_number to Eth1Data from the deposit contract.
-    pub block_cache: BlockCache<F>,
-    /// Cache for storing deposit_index to Deposits received from deposit contract.
-    pub deposit_cache: DepositCache<F>,
-    /// Eth1 data fetcher
-    fetcher: Arc<F>,
+pub struct Config {
+    pub http_endpoint: String,
+    pub deposit_contract_address: Address,
+    pub deposit_contract_deploy_block: u64,
+    pub follow_distance: u64,
+    pub block_cache_len: usize,
+    pub update_interval_seconds: u64,
 }
 
-impl<F: Eth1DataFetcher + 'static> Eth1<F> {
-    pub fn new(fetcher: F) -> Self {
-        let fetcher_arc = Arc::new(fetcher);
-        Eth1 {
-            block_cache: BlockCache::new(fetcher_arc.clone()),
-            deposit_cache: DepositCache::new(fetcher_arc.clone()),
-            fetcher: fetcher_arc,
-        }
-    }
-
-    /// Get Eth1Votes with highest votes in given voting period.
-    /// From https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/specs/validator/0_beacon-chain-validator.md#eth1-data
-    pub fn get_eth1_votes<T: EthSpec>(
-        &self,
-        state: &BeaconState<T>,
-        previous_eth1_distance_hash: H256,
-    ) -> Result<Eth1Data> {
-        // TODO: Need a better way to get `previous_eth1_distance`.
-        let previous_eth1_distance = tokio::runtime::current_thread::block_on_all(
-            self.fetcher
-                .get_block_height_by_hash(previous_eth1_distance_hash),
-        )?;
-        let previous_eth1_distance = U128::as_u64(&previous_eth1_distance.ok_or(
-            Error::Web3Error(web3::error::Error::InvalidResponse(
-                "Block with given hash does not exist".to_string(),
-            )),
-        )?);
-        let new_eth1_data = self
-            .block_cache
-            .get_eth1_data_in_range(ETH1_FOLLOW_DISTANCE, 2 * ETH1_FOLLOW_DISTANCE);
-        let all_eth1_data = self
-            .block_cache
-            .get_eth1_data_in_range(ETH1_FOLLOW_DISTANCE, previous_eth1_distance);
-        let mut valid_votes: Vec<Eth1Data> = vec![];
-        for (slot, vote) in state.eth1_data_votes.iter().enumerate() {
-            let period_tail: bool = (slot as u64 % T::SlotsPerEth1VotingPeriod::to_u64())
-                >= ((T::SlotsPerEth1VotingPeriod::to_u64() as f64).sqrt() as u64 + 1);
-            if new_eth1_data.contains(vote) || (period_tail && all_eth1_data.contains(vote)) {
-                valid_votes.push(vote.clone());
-            }
-        }
-        Ok(valid_votes
-            .iter()
-            .cloned()
-            .max_by(|x, y| {
-                let mut result = valid_votes
-                    .iter()
-                    .filter(|n| *n == x)
-                    .count()
-                    .cmp(&valid_votes.iter().filter(|n| *n == y).count());
-                if result == Ordering::Equal {
-                    result = all_eth1_data
-                        .iter()
-                        .position(|s| s == x)
-                        .cmp(&all_eth1_data.iter().position(|s| s == y));
-                }
-                result
-            })
-            .unwrap_or(self.block_cache.get_eth1_data(ETH1_FOLLOW_DISTANCE)?))
-    }
-}
-
-pub fn run<F: Eth1DataFetcher + 'static>(
-    eth1: Eth1<F>,
-    executor: &TaskExecutor,
-    log: &slog::Logger,
-) {
-    let log = log.new(o!("service" => "eth1_chain"));
-
-    // Run a task for calling `update_cache` periodically.
-    // TODO: Get values from config.
-    let eth1_block_time_seconds: u64 = 5; // Approximate block time for eth1 chain.
-    let eth1_block_interval: u64 = 3; // Interval of eth1 blocks to update block_cache.
-    let interval_log = log.clone();
-    let eth1_data_interval = {
-        // Set the interval to fire every `eth1_block_interval` blocks.
-        let update_duration = Duration::from_secs(eth1_block_interval * eth1_block_time_seconds);
-        Interval::new(Instant::now(), update_duration).map_err(move |e| {
-            error!(
-                interval_log,
-                "Interval timer failing";
-                "error" => format!("{:?}", e),
-            )
-        })
-    };
-    let block_cache = eth1.block_cache.clone();
-    let eth1_cache_log = log.clone();
-    info!(eth1_cache_log, "Cache update service started");
-    executor.spawn(eth1_data_interval.for_each(move |_| {
-        let log = eth1_cache_log.clone();
-        let log_err = log.clone();
-        block_cache
-            .update_cache(eth1_block_interval + 1) // distance of block_interval + safety_interval
-            .and_then(move |_| {
-                debug!(log, "Updating eth1 data cache");
-                Ok(())
-            })
-            .map_err(move |e| {
-                error!(
-                    log_err,
-                    "Updating eth1 cache failed";
-                    "error" => format!("{:?}", e),
+pub fn start_service(config: Config, executor: &TaskExecutor, log: Logger) -> Result<(), String> {
+    let current_block_number =
+        http::get_block_number(&config.http_endpoint, Duration::from_secs(1))
+            .wait()
+            .map_err(|e| {
+                format!(
+                    "Unable to get block number from eth1 node. Is it running? Error: {}",
+                    e
                 )
-            })
-    }));
+            })?;
 
-    // Run a task for calling `update_deposits` periodically.
-    // TODO: Get values from config.
-    let deposits_update_interval = 40; // Interval of eth1 blocks to update deposits.
-    let interval_log = log.clone();
-    let deposits_interval = {
-        // Set the interval to fire every `deposits_update_interval` blocks
-        let update_duration =
-            Duration::from_secs(deposits_update_interval * eth1_block_time_seconds);
-        Interval::new(Instant::now(), update_duration).map_err(move |e| {
-            error!(
-                interval_log,
-                "Interval timer failing";
-                "error" => format!("{:?}", e),
-            )
-        })
-    };
-    let eth1_deposit_cache = eth1.deposit_cache.clone();
-    let confirmations = 10;
-    let deposit_log = log.clone();
-    info!(deposit_log, "Deposits update service started");
-    executor.spawn(deposits_interval.for_each(move |_| {
-        let log = deposit_log.clone();
-        let log_err = log.clone();
-        eth1_deposit_cache
-            .update_deposits(confirmations)
-            .and_then(move |_| {
-                debug!(log, "Updating deposits cache");
-                Ok(())
-            })
-            .map_err(move |e| {
-                error!(
-                    log_err,
-                    "Updating deposits cache failed";
-                    "error" => format!("{:?}", e),
-                )
-            })
-    }));
+    let cache = Arc::new(
+        Eth1CacheBuilder::new(
+            config.http_endpoint,
+            config.deposit_contract_address.to_string(),
+        )
+        .eth1_follow_distance(config.follow_distance)
+        .initial_eth1_block(current_block_number.saturating_sub(config.follow_distance))
+        .target_block_cache_len(config.block_cache_len)
+        .deposit_contract_deploy_block(config.deposit_contract_deploy_block)
+        .build(),
+    );
+
+    executor.spawn(block_cache_updater(
+        cache.clone(),
+        Duration::from_secs(config.update_interval_seconds),
+        log.clone(),
+    ));
+
+    executor.spawn(deposit_cache_updater(
+        cache.clone(),
+        Duration::from_secs(config.update_interval_seconds),
+        log.clone(),
+    ));
+
+    Ok(())
 }
 
-#[cfg(all(test, feature = "integration_tests"))]
-mod tests {
-    use super::*;
-    use crate::config::Config;
-    use crate::web3_fetcher::Web3DataFetcher;
-    use slog;
-    use slog_async;
-    use slog_term;
-    use tokio;
+fn deposit_cache_updater(
+    cache: Arc<Eth1Cache>,
+    update_interval: Duration,
+    log: Logger,
+) -> impl Future<Item = (), Error = ()> {
+    let log_1 = log.clone();
 
-    use slog::Drain;
+    Interval::new(Instant::now(), update_interval)
+        .map_err(move |e| {
+            error!(
+                log,
+                "Failed to start eth block cache update";
+                "error" => format!("{:?}", e)
+            );
+        })
+        .for_each(move |_instant| {
+            let log = log_1.clone();
 
-    fn setup_log() -> slog::Logger {
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
+            update_deposit_cache(cache.clone())
+                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
+                .then(move |result| {
+                    match result {
+                        Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => debug!(
+                            log,
+                            "Updated eth1 deposit cache";
+                            "logs_imported" => logs_imported,
+                        ),
+                        Err(e) => error!(
+                            log,
+                            "Failed to update eth1 deposit cache";
+                            "error" => e
+                        ),
+                    };
 
-        let _log = slog::Logger::root(drain, o!());
-        _log
-    }
+                    Ok(())
+                })
+        })
+}
 
-    fn setup_w3() -> Web3DataFetcher {
-        let config = Config::default();
-        let w3 = Web3DataFetcher::new(
-            &config.endpoint,
-            &config.address,
-            config.timeout,
-            &setup_log(),
-        );
-        return w3.unwrap();
-    }
+fn block_cache_updater(
+    cache: Arc<Eth1Cache>,
+    update_interval: Duration,
+    log: Logger,
+) -> impl Future<Item = (), Error = ()> {
+    let log_1 = log.clone();
 
-    #[test]
-    fn test_integration() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let executor = runtime.executor();
-        let log = setup_log();
-        let w3 = setup_w3();
-        let eth1 = Eth1::new(w3);
-        run(eth1, &executor, &log);
-        runtime.shutdown_on_idle().wait().unwrap();
-    }
+    Interval::new(Instant::now(), update_interval)
+        .map_err(move |e| {
+            error!(
+                log,
+                "Failed to start eth block cache update";
+                "error" => format!("{:?}", e)
+            );
+        })
+        .for_each(move |_instant| {
+            let log = log_1.clone();
+
+            update_block_cache(cache.clone())
+                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
+                .then(move |result| {
+                    match result {
+                        Ok(BlockCacheUpdateOutcome::Success {
+                            blocks_imported,
+                            head_block_number,
+                        }) => debug!(
+                            log,
+                            "Updated eth1 block cache";
+                            "blocks_imported" => blocks_imported,
+                            "head_block" => head_block_number,
+                        ),
+                        Err(e) => error!(
+                            log,
+                            "Failed to update eth1 block cache";
+                            "error" => e
+                        ),
+                    };
+
+                    Ok(())
+                })
+        })
 }

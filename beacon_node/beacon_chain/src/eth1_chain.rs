@@ -1,5 +1,5 @@
 use crate::BeaconChainTypes;
-use eth1_http::Eth1Cache;
+use eth1::Eth1Cache;
 use eth2_hashing::hash;
 use std::marker::PhantomData;
 use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned};

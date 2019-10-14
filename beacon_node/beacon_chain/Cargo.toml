@@ -33,7 +33,7 @@ state_processing = { path = "../../eth2/state_processing" }
 tree_hash = "0.1"
 types = { path = "../../eth2/types" }
 lmd_ghost = { path = "../../eth2/lmd_ghost" }
-eth1-http = { path = "../eth1-http" }
+eth1 = { path = "../eth1" }
 
 [dev-dependencies]
 rand = "0.5.5"

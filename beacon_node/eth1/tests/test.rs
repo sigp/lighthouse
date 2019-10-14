@@ -3,11 +3,11 @@
 //! You can start a suitable instance using the `ganache_test_node.sh` script in the `scripts`
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
-use eth1_http::http::{
+use eth1::http::{
     get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
     Block, Log,
 };
-use eth1_http::{DepositCache, DepositLog, Eth1CacheBuilder};
+use eth1::{DepositCache, DepositLog, Eth1CacheBuilder};
 use eth1_test_rig::DepositContract;
 use futures::Future;
 use merkle_proof::verify_merkle_proof;
@@ -94,7 +94,7 @@ fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64)
 
 mod eth1_cache {
     use super::*;
-    use eth1_http::{http::send_rpc_request, update_block_cache};
+    use eth1::{http::send_rpc_request, update_block_cache};
     use serde_json::json;
 
     pub fn advance_block() {
@@ -260,7 +260,7 @@ mod eth1_cache {
 
 mod deposit_tree {
     use super::*;
-    use eth1_http::update_deposit_cache;
+    use eth1::update_deposit_cache;
 
     #[test]
     fn updating() {
