@@ -1,6 +1,5 @@
 #![cfg(test)]
 use super::*;
-use crate::rpc::RPCError;
 use crate::NetworkConfig;
 use enr::Enr;
 use futures;
@@ -8,18 +7,8 @@ use slog::{o, Drain};
 use slog_stdlog;
 use Service as LibP2PService;
 
-#[macro_use]
-use slog;
-use slog_async;
-use slog_term;
-
 fn setup_log() -> slog::Logger {
     slog::Logger::root(slog_stdlog::StdLog.fuse(), o!())
-    // let decorator = slog_term::TermDecorator::new().build();
-    // let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    // let drain = slog_async::Async::new(drain).build().fuse();
-
-    // slog::Logger::root(drain, o!())
 }
 
 // Testing
