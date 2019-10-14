@@ -49,6 +49,8 @@ pub enum MerkleTreeError {
     MerkleTreeFull,
     // MerkleTree is invalid
     Invalid,
+    // Incorrect Depth provided
+    DepthTooSmall,
 }
 
 impl MerkleTree {
@@ -89,7 +91,7 @@ impl MerkleTree {
         use MerkleTree::*;
 
         if depth == 0 {
-            return Err(MerkleTreeError::MerkleTreeFull);
+            return Err(MerkleTreeError::DepthTooSmall);
         }
 
         let mut right;
@@ -409,7 +411,7 @@ mod tests {
         let leaf_b00 = H256::from([0xAA; 32]);
 
         let res = tree.push_leaf(leaf_b00, 0);
-        assert_eq!(res, Err(MerkleTreeError::MerkleTreeFull));
+        assert_eq!(res, Err(MerkleTreeError::DepthTooSmall));
         let expected_tree = MerkleTree::create(&[], depth);
         assert_eq!(tree.hash(), expected_tree.hash());
 
