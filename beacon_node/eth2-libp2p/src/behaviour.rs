@@ -69,7 +69,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         );
 
         Ok(Behaviour {
-            eth2_rpc: RPC::new(log),
+            eth2_rpc: RPC::new(log.clone()),
             gossipsub: Gossipsub::new(local_peer_id.clone(), net_conf.gs_config.clone()),
             discovery: Discovery::new(local_key, net_conf, log)?,
             ping: Ping::new(ping_config),

@@ -26,7 +26,7 @@ use hyper::rt::Future;
 use hyper::service::Service;
 use hyper::{Body, Method, Request, Response, Server};
 use parking_lot::RwLock;
-use slog::{info, o, warn};
+use slog::{info, warn};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -202,10 +202,8 @@ pub fn start_server<T: BeaconChainTypes>(
     network_info: NetworkInfo<T>,
     db_path: PathBuf,
     eth2_config: Eth2Config,
-    log: &slog::Logger,
+    log: slog::Logger,
 ) -> Result<exit_future::Signal, hyper::Error> {
-    let log = log.new(o!("Service" => "Api"));
-
     // build a channel to kill the HTTP server
     let (exit_signal, exit) = exit_future::signal();
 

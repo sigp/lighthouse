@@ -1,12 +1,10 @@
-use client::{error, notifier, Client, ClientConfig, Eth1BackendMethod, Eth2Config};
+use client::{error, ClientBuilder, ClientConfig, Eth1BackendMethod, Eth2Config};
 use futures::sync::oneshot;
 use futures::Future;
 use slog::{error, info};
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
-use store::Store;
-use store::{DiskStore, MemoryStore};
 use tokio::runtime::Builder;
 use tokio::runtime::Runtime;
 use tokio::runtime::TaskExecutor;
@@ -22,7 +20,7 @@ use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 pub fn run_beacon_node(
     client_config: ClientConfig,
     eth2_config: Eth2Config,
-    log: &slog::Logger,
+    log: slog::Logger,
 ) -> error::Result<()> {
     let runtime = Builder::new()
         .name_prefix("main-")
@@ -35,7 +33,6 @@ pub fn run_beacon_node(
     let db_path: PathBuf = client_config
         .db_path()
         .ok_or_else::<error::Error, _>(|| "Unable to access database path".into())?;
-    let db_type = &client_config.db_type;
     let spec_constants = eth2_config.spec_constants.clone();
 
     let other_client_config = client_config.clone();
@@ -48,47 +45,63 @@ pub fn run_beacon_node(
         "spec_constants" => &spec_constants,
     );
 
-    macro_rules! run_client {
-        ($store: ty, $eth_spec: ty) => {
-            run::<$store, $eth_spec>(&db_path, client_config, eth2_config, executor, runtime, log)
-        };
-    }
-
     if let Eth1BackendMethod::Web3 { .. } = client_config.eth1_backend_method {
         return Err("Starting from web3 backend is not supported for interop.".into());
     }
 
-    match (db_type.as_str(), spec_constants.as_str()) {
-        ("disk", "minimal") => run_client!(DiskStore, MinimalEthSpec),
-        ("disk", "mainnet") => run_client!(DiskStore, MainnetEthSpec),
-        ("disk", "interop") => run_client!(DiskStore, InteropEthSpec),
-        ("memory", "minimal") => run_client!(MemoryStore, MinimalEthSpec),
-        ("memory", "mainnet") => run_client!(MemoryStore, MainnetEthSpec),
-        ("memory", "interop") => run_client!(MemoryStore, InteropEthSpec),
-        (db_type, spec) => {
-            error!(log, "Unknown runtime configuration"; "spec_constants" => spec, "db_type" => db_type);
-            Err("Unknown specification and/or db_type.".into())
+    macro_rules! run_client {
+        ($eth_spec: ident) => {
+            run(
+                $eth_spec,
+                &db_path,
+                client_config,
+                eth2_config,
+                executor,
+                runtime,
+                log,
+            )
+        };
+    }
+
+    match spec_constants.as_str() {
+        "minimal" => run_client!(MinimalEthSpec),
+        "mainnet" => run_client!(MainnetEthSpec),
+        "interop" => run_client!(InteropEthSpec),
+        spec => {
+            error!(log, "Unknown runtime configuration"; "spec_constants" => spec);
+            Err("Unknown specification.".into())
         }
     }
 }
 
 /// Performs the type-generic parts of launching a `BeaconChain`.
-fn run<S, E>(
+fn run<E: EthSpec>(
+    eth_spec_instance: E,
     db_path: &Path,
     client_config: ClientConfig,
     eth2_config: Eth2Config,
     executor: TaskExecutor,
     mut runtime: Runtime,
-    log: &slog::Logger,
+    log: slog::Logger,
 ) -> error::Result<()>
 where
-    S: Store + Clone + 'static + OpenDatabase,
     E: EthSpec,
 {
-    let store = S::open_database(&db_path)?;
-
-    let client: Client<S, E> =
-        Client::new(client_config, eth2_config, store, log.clone(), &executor)?;
+    let client = ClientBuilder::new(eth_spec_instance)
+        .logger(log.clone())
+        .disk_store(db_path)?
+        .executor(executor)
+        .beacon_checkpoint(&client_config.beacon_chain_start_method)?
+        .system_time_slot_clock()?
+        .dummy_eth1_backend()
+        .websocket_event_handler(client_config.websocket_server.clone())?
+        .beacon_chain()?
+        .libp2p_network(&client_config.network)?
+        .http_server(&client_config, &eth2_config)?
+        .grpc_server(&client_config.rpc)?
+        .peer_count_notifier()?
+        .slot_notifier()?
+        .build();
 
     // run service until ctrl-c
     let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
@@ -100,39 +113,15 @@ where
     })
     .map_err(|e| format!("Could not set ctrlc handler: {:?}", e))?;
 
-    let (exit_signal, exit) = exit_future::signal();
-
-    notifier::run(&client, executor, exit);
-
     runtime
         .block_on(ctrlc_oneshot)
         .map_err(|e| format!("Ctrlc oneshot failed: {:?}", e))?;
 
-    // perform global shutdown operations.
     info!(log, "Shutting down..");
-    exit_signal.fire();
-    // shutdown the client
-    //    client.exit_signal.fire();
+
     drop(client);
+
     runtime.shutdown_on_idle().wait().unwrap();
+
     Ok(())
-}
-
-/// A convenience trait, providing a method to open a database.
-///
-/// Panics if unable to open the database.
-pub trait OpenDatabase: Sized {
-    fn open_database(path: &Path) -> error::Result<Self>;
-}
-
-impl OpenDatabase for MemoryStore {
-    fn open_database(_path: &Path) -> error::Result<Self> {
-        Ok(MemoryStore::open())
-    }
-}
-
-impl OpenDatabase for DiskStore {
-    fn open_database(path: &Path) -> error::Result<Self> {
-        DiskStore::open(path).map_err(|e| format!("Unable to open database: {:?}", e).into())
-    }
 }

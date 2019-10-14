@@ -51,7 +51,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<HandlerMessage>> {
-        let message_handler_log = log.new(o!("Service"=> "Message Handler"));
+        let message_handler_log = log.new(o!("service"=> "msg_handler"));
         trace!(message_handler_log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();

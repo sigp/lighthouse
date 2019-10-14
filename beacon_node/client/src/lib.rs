@@ -10,7 +10,10 @@ use exit_future::Signal;
 use network::Service as NetworkService;
 use std::sync::Arc;
 
-pub use beacon_chain::{BeaconChainTypes, Eth1ChainBackend, InteropEth1ChainBackend};
+pub use beacon_chain::{
+    builder::BeaconChainStartMethod, BeaconChainTypes, Eth1ChainBackend, InteropEth1ChainBackend,
+};
+pub use builder::ClientBuilder;
 pub use config::{Config as ClientConfig, Eth1BackendMethod};
 pub use eth2_config::Eth2Config;
 

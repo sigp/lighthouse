@@ -148,7 +148,7 @@ where
             .as_ref()
             .ok_or_else(|| "grpc_server requires an executor")?;
 
-        let exit_signal = rpc::start_server(config, executor, network_send, beacon_chain, &log);
+        let exit_signal = rpc::start_server(config, executor, network_send, beacon_chain, log);
 
         self.exit_signals.push(exit_signal);
 
@@ -194,7 +194,7 @@ where
             network_info,
             client_config.db_path().expect("unable to read datadir"),
             eth2_config.clone(),
-            &log,
+            log,
         )
         .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
 

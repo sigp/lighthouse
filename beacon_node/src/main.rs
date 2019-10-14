@@ -211,18 +211,6 @@ fn main() {
                 .takes_value(true)
         )
         /*
-         * Database parameters.
-         */
-        .arg(
-            Arg::with_name("db")
-                .long("db")
-                .value_name("DB")
-                .help("Type of database to use.")
-                .takes_value(true)
-                .possible_values(&["disk", "memory"])
-                .default_value("disk"),
-        )
-        /*
          * Logging.
          */
         .arg(
@@ -354,17 +342,17 @@ fn main() {
              * Start a new node, using a genesis state loaded from a YAML file
              */
             .subcommand(SubCommand::with_name("file")
-                .about("Creates a new datadir where the genesis state is read from YAML. May fail to parse \
+                .about("Creates a new datadir where the genesis state is read from file. May fail to parse \
                        a file that was generated to a different spec than that specified by --spec.")
                 .arg(Arg::with_name("format")
                     .value_name("FORMAT")
                     .required(true)
-                    .possible_values(&["yaml", "ssz", "json"])
+                    .possible_values(&["ssz"])
                     .help("The encoding of the state in the file."))
                 .arg(Arg::with_name("file")
-                    .value_name("YAML_FILE")
+                    .value_name("FILE")
                     .required(true)
-                    .help("A YAML file from which to read the state"))
+                    .help("A file from which to read the state"))
             )
         )
         .get_matches();
@@ -414,7 +402,7 @@ fn main() {
     };
 
     // Start the node using a `tokio` executor.
-    match run::run_beacon_node(client_config, eth2_config, &log) {
+    match run::run_beacon_node(client_config, eth2_config, log.clone()) {
         Ok(_) => {}
         Err(e) => crit!(log, "Beacon node failed to start"; "reason" => format!("{:}", e)),
     }

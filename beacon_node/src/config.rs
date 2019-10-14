@@ -201,9 +201,7 @@ fn process_testnet_subcommand(
                 .ok_or_else(|| "No file format specified")?;
 
             let start_method = match format {
-                "yaml" => BeaconChainStartMethod::Yaml { file },
                 "ssz" => BeaconChainStartMethod::Ssz { file },
-                "json" => BeaconChainStartMethod::Json { file },
                 other => return Err(format!("Unknown genesis file format: {}", other)),
             };
 
