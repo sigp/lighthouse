@@ -24,6 +24,15 @@ pub use types::test_utils::generate_deterministic_keypairs;
 
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690; // 4th September 2019
 
+pub type HarnessType<E> = Witness<
+    MemoryStore,
+    TestingSlotClock,
+    ThreadSafeReducedTree<MemoryStore, E>,
+    InteropEth1ChainBackend<E>,
+    E,
+    NullEventHandler<E>,
+>;
+
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
 pub enum BlockStrategy {
@@ -59,18 +68,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub spec: ChainSpec,
 }
 
-impl<E: EthSpec>
-    BeaconChainHarness<
-        Witness<
-            MemoryStore,
-            TestingSlotClock,
-            ThreadSafeReducedTree<MemoryStore, E>,
-            InteropEth1ChainBackend<E>,
-            E,
-            NullEventHandler<E>,
-        >,
-    >
-{
+impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
         let log = TerminalLoggerBuilder::new()
