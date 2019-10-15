@@ -9,7 +9,6 @@
 //!
 //! Both of these syncing strategies are built into the `SyncManager`.
 //!
-//!
 //! Currently the long-range (batch) syncing method functions by opportunistically downloading
 //! batches blocks from all peers who know about a chain that we do not. When a new peer connects
 //! which has a later head that is greater than `SLOT_IMPORT_TOLERANCE` from our current head slot,
@@ -126,21 +125,10 @@ enum BlockRequestsState {
     /// The downloaded blocks are ready to be processed by the beacon chain. For a batch process
     /// this means we have found a common chain.
     ReadyToProcess,
+    /// The batch is complete, simply drop without downvoting the peer.
+    Complete,
     /// A failure has occurred and we will drop and downvote the peer that caused the request.
     Failed,
-}
-
-/// The state of batch requests.
-enum SyncDirection {
-    /// The batch has just been initialised and we need to check to see if a backward sync is
-    /// required on first batch response.
-    Initial,
-    /// We are syncing forwards, the next batch should contain higher slot numbers than is
-    /// predecessor.
-    Forwards,
-    /// We are syncing backwards and looking for a common ancestor chain before we can start
-    /// processing the downloaded blocks.
-    Backwards,
 }
 
 /// `BlockRequests` keep track of the long-range (batch) sync process per peer.
@@ -159,8 +147,6 @@ struct BlockRequests<T: EthSpec> {
     consecutive_empty_batches: usize,
     /// The current state of this batch request.
     state: BlockRequestsState,
-    /// Specifies the current direction of this batch request.
-    sync_direction: SyncDirection,
     /// The current `start_slot` of the batched block request.
     current_start_slot: Slot,
 }
@@ -182,24 +168,16 @@ struct ParentRequests<T: EthSpec> {
 impl<T: EthSpec> BlockRequests<T> {
     /// Gets the next start slot for a batch and transitions the state to a Queued state.
     fn update_start_slot(&mut self) {
-        match self.sync_direction {
-            SyncDirection::Initial | SyncDirection::Forwards => {
-                // the last request may not have returned all the required blocks (hit the rpc size
-                // limit). If so, start from the last returned slot
-                if !self.downloaded_blocks.is_empty()
-                    && self.downloaded_blocks[self.downloaded_blocks.len() - 1].slot
-                        > self.current_start_slot
-                {
-                    self.current_start_slot =
-                        self.downloaded_blocks[self.downloaded_blocks.len() - 1].slot
-                            + Slot::from(BLOCKS_PER_REQUEST);
-                } else {
-                    self.current_start_slot += Slot::from(BLOCKS_PER_REQUEST);
-                }
-            }
-            SyncDirection::Backwards => {
-                self.current_start_slot -= Slot::from(BLOCKS_PER_REQUEST);
-            }
+        // the last request may not have returned all the required blocks (hit the rpc size
+        // limit). If so, start from the last returned slot
+        if !self.downloaded_blocks.is_empty()
+            && self.downloaded_blocks[self.downloaded_blocks.len() - 1].slot
+                > self.current_start_slot
+        {
+            self.current_start_slot = self.downloaded_blocks[self.downloaded_blocks.len() - 1].slot
+                + Slot::from(BLOCKS_PER_REQUEST);
+        } else {
+            self.current_start_slot += Slot::from(BLOCKS_PER_REQUEST);
         }
         self.state = BlockRequestsState::Queued;
     }
@@ -297,10 +275,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ///
     /// This function handles the logic associated with the connection of a new peer. If the peer
     /// is sufficiently ahead of our current head, a long-range (batch) sync is started and
-    /// batches of blocks are queued to download from the peer. Batched blocks begin at our
-    /// current head. If the resulting downloaded blocks are part of our current chain, we
-    /// continue with a forward sync. If not, we download blocks (in batches) backwards until we
-    /// reach a common ancestor. Batches are then processed and downloaded sequentially forwards.
+    /// batches of blocks are queued to download from the peer. Batched blocks begin at our latest
+    /// finalized head.
     ///
     /// If the peer is within the `SLOT_IMPORT_TOLERANCE`, then it's head is sufficiently close to
     /// ours that we consider it fully sync'd with respect to our current chain.
@@ -329,7 +305,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // remove the peer from the queue if it exists
             self.import_queue.remove(&peer_id);
             self.add_full_peer(peer_id);
-            //
             return;
         }
 
@@ -356,14 +331,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         } else {
             // not already downloading blocks from this peer
             let block_requests = BlockRequests {
-                target_head_slot: remote.head_slot, // this should be larger than the current head. It is checked in the SyncManager before add_peer is called
+                target_head_slot: remote.head_slot, // this should be larger than the current head. It is checked before add_peer is called
                 target_head_root: remote.head_root,
                 consecutive_empty_batches: 0,
                 downloaded_blocks: Vec::new(),
                 blocks_processed: 0,
                 state: BlockRequestsState::Queued,
-                sync_direction: SyncDirection::Initial,
-                current_start_slot: chain.best_slot(),
+                current_start_slot: local
+                    .finalized_epoch
+                    .start_slot(T::EthSpec::slots_per_epoch()),
             };
             self.import_queue.insert(peer_id, block_requests);
         }
@@ -376,15 +352,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         request_id: RequestId,
         mut block: Option<BeaconBlock<T::EthSpec>>,
     ) {
-        // ensure the underlying chain still exists
-        let chain = match self.chain.upgrade() {
-            Some(chain) => chain,
-            None => {
-                trace!(self.log, "Chain dropped. Sync terminating");
-                return;
-            }
-        };
-
         // find the request associated with this response
         let block_requests = match self
             .import_queue
@@ -399,14 +366,27 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         };
 
-        // If we are syncing up to a target head block, at least the target head block should be
-        // returned. If we are syncing back to our last finalized block the request should return
-        // at least the last block we received (last known block). In diagram form:
-        //
-        //     unknown blocks       requested blocks        downloaded blocks
-        // |-------------------|------------------------|------------------------|
-        // ^finalized slot     ^ requested start slot   ^ last known block       ^ remote head
+        // add the downloaded block
+        if let Some(downloaded_block) = block {
+            // add the block to the request
+            block_requests.downloaded_blocks.push(downloaded_block);
+            return;
+        }
 
+        // the batch has finished processing
+
+        // ensure the underlying chain still exists
+        let chain = match self.chain.upgrade() {
+            Some(chain) => chain,
+            None => {
+                trace!(self.log, "Chain dropped. Sync terminating");
+                return;
+            }
+        };
+
+        // If we are syncing up to a target head block, at least the target head block should be
+        // returned.
+        let blocks = block_requests.downloaded_blocks;
         if blocks.is_empty() {
             debug!(self.log, "BlocksByRange response was empty"; "request_id" => request_id);
             block_requests.consecutive_empty_batches += 1;
@@ -419,8 +399,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             {
                 warn!(self.log, "Peer did not return blocks it claimed to possess";
                       "peer" => format!("{:?}", peer_id));
-                block_requests.state = BlockRequestsState::Failed;
+                // This could be due to a re-org causing the peer to prune their head. In this
+                // instance, we try to process what is currently downloaded, if there are blocks
+                // downloaded.
+                block_requests.state = BlockRequestsState::Complete;
             } else {
+                // this batch was empty, request the next batch
                 block_requests.update_start_slot();
             }
             return;
@@ -444,81 +428,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             return;
         }
 
-        // Determine if more blocks need to be downloaded. There are a few cases:
-        // - We are in initial sync mode - We have requested blocks and need to determine if this
-        // is part of a known chain to determine the whether to start syncing backwards or continue
-        // syncing forwards.
-        // - We are syncing backwards and need to verify if we have found a common ancestor in
-        // order to start processing the downloaded blocks.
-        // - We are syncing forwards. We mark this as complete and check if any further blocks are
-        // required to download when processing the batch.
-
-        match block_requests.sync_direction {
-            SyncDirection::Initial => {
-                block_requests.downloaded_blocks.append(&mut blocks);
-
-                // this batch is the first batch downloaded. Check if we can process or if we need
-                // to backwards search.
-
-                //TODO: Decide which is faster. Reading block from db and comparing or calculating
-                //the hash tree root and comparing.
-                let earliest_slot = block_requests.downloaded_blocks[0].slot;
-                if Some(block_requests.downloaded_blocks[0].canonical_root())
-                    == chain.root_at_slot(earliest_slot)
-                {
-                    // we have a common head, start processing and begin a forwards sync
-                    block_requests.sync_direction = SyncDirection::Forwards;
-                    block_requests.state = BlockRequestsState::ReadyToProcess;
-                    return;
-                }
-                // no common head, begin a backwards search
-                block_requests.sync_direction = SyncDirection::Backwards;
-                block_requests.current_start_slot =
-                    std::cmp::min(chain.best_slot(), block_requests.downloaded_blocks[0].slot);
-                block_requests.update_start_slot();
-            }
-            SyncDirection::Forwards => {
-                // continue processing all blocks forwards, verify the end in the processing
-                block_requests.downloaded_blocks.append(&mut blocks);
-                block_requests.state = BlockRequestsState::ReadyToProcess;
-            }
-            SyncDirection::Backwards => {
-                block_requests.downloaded_blocks.splice(..0, blocks);
-
-                // verify the request hasn't failed by having no common ancestor chain
-                // get our local finalized_slot
-                let local_finalized_slot = {
-                    let state = &chain.head().beacon_state;
-                    state
-                        .finalized_checkpoint
-                        .epoch
-                        .start_slot(T::EthSpec::slots_per_epoch())
-                };
-
-                if local_finalized_slot >= block_requests.current_start_slot {
-                    warn!(self.log, "Peer returned an unknown chain."; "request_id" => request_id);
-                    block_requests.state = BlockRequestsState::Failed;
-                    return;
-                }
-
-                // check if we have reached a common chain ancestor
-                let earliest_slot = block_requests.downloaded_blocks[0].slot;
-                if Some(block_requests.downloaded_blocks[0].canonical_root())
-                    == chain.root_at_slot(earliest_slot)
-                {
-                    // we have a common head, start processing and begin a forwards sync
-                    block_requests.sync_direction = SyncDirection::Forwards;
-                    block_requests.state = BlockRequestsState::ReadyToProcess;
-                    return;
-                }
-
-                // no common chain, haven't passed last_finalized_head, so continue backwards
-                // search
-                block_requests.update_start_slot();
-            }
-        }
+        // Process this batch
+        block_requests.state = BlockRequestsState::ReadyToProcess;
     }
 
+    /// The response to a BlocksByRoot request.
     pub fn blocks_by_root_response(
         &mut self,
         peer_id: PeerId,
@@ -540,7 +454,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         };
 
         // if an empty response is given, the peer didn't have the requested block, try again
-        if blocks.is_empty() {
+        if block.is_none() {
             parent_request.failed_attempts += 1;
             parent_request.state = BlockRequestsState::Queued;
             parent_request.last_submitted_peer = peer_id;
