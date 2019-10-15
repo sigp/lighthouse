@@ -1,6 +1,5 @@
 #![cfg(test)]
 use super::*;
-use crate::rpc::RPCError;
 use crate::NetworkConfig;
 use enr::Enr;
 use futures;
@@ -8,18 +7,8 @@ use slog::{o, Drain};
 use slog_stdlog;
 use Service as LibP2PService;
 
-#[macro_use]
-use slog;
-use slog_async;
-use slog_term;
-
 fn setup_log() -> slog::Logger {
     slog::Logger::root(slog_stdlog::StdLog.fuse(), o!())
-    // let decorator = slog_term::TermDecorator::new().build();
-    // let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    // let drain = slog_async::Async::new(drain).build().fuse();
-
-    // slog::Logger::root(drain, o!())
 }
 
 // Testing
@@ -60,30 +49,19 @@ fn get_enr(node: &LibP2PService) -> Enr {
 fn test_gossipsub() {
     let log = setup_log();
     let mut node1 = build_libp2p_instance(9000, vec![], log.clone());
-    let mut node2 = build_libp2p_instance(9001, vec![], log.clone());
-    // let node3 = build_libp2p_instance(9002, vec![], log.clone());
+    let node2 = build_libp2p_instance(9001, vec![], log.clone());
     match libp2p::Swarm::dial_addr(&mut node1.swarm, get_enr(&node2).multiaddr()[1].clone()) {
         Ok(()) => println!("Connected"),
         Err(_) => println!("Failed to connect"),
     };
-
     let mut nodes = vec![node1, node2];
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
-        for (i, node) in nodes.iter_mut().enumerate() {
+        for node in nodes.iter_mut() {
             loop {
+                // TODO: should publish only once
+                let topic = vec![Topic::new("test".into())];
+                node.swarm.publish(&topic, PubsubMessage::Block(vec![0; 4]));
                 match node.poll().unwrap() {
-                    Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))) => {
-                        println!(
-                            "Node {} {} connected to {}\nTotal nodes connected to: {}\n",
-                            i,
-                            node.local_peer_id,
-                            peer_id,
-                            node.swarm.connected_peers()
-                        );
-                        let topic = vec![Topic::new("test".into())];
-                        println!("Publishing test topic");
-                        node.swarm.publish(&topic, PubsubMessage::Block(vec![0; 4]));
-                    }
                     Async::Ready(Some(Libp2pEvent::PubsubMessage {
                         id: _id, source, ..
                     })) => {
@@ -93,7 +71,8 @@ fn test_gossipsub() {
                         );
                         return Ok(Async::Ready(()));
                     }
-                    Async::Ready(_) => (),
+                    Async::Ready(Some(_)) => (),
+                    Async::Ready(None) => break,
                     Async::NotReady => break,
                 }
             }
