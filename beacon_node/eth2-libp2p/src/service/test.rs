@@ -3,7 +3,7 @@ use super::*;
 use crate::NetworkConfig;
 use enr::Enr;
 use futures;
-use slog::{o, Drain};
+use slog::{debug, error, o, Drain};
 use slog_stdlog;
 use Service as LibP2PService;
 
@@ -25,7 +25,6 @@ fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config.discovery_port = port; // udp port
     config.boot_nodes.append(&mut boot_nodes);
     config.network_dir.push(port.to_string());
-    config.topics.append(&mut vec!["test".into()]);
     config
 }
 
@@ -51,29 +50,45 @@ fn test_gossipsub() {
     let mut node1 = build_libp2p_instance(9000, vec![], log.clone());
     let node2 = build_libp2p_instance(9001, vec![], log.clone());
     match libp2p::Swarm::dial_addr(&mut node1.swarm, get_enr(&node2).multiaddr()[1].clone()) {
-        Ok(()) => println!("Connected"),
-        Err(_) => println!("Failed to connect"),
+        Ok(()) => debug!(log, "Connected"),
+        Err(_) => error!(log, "Failed to connect"),
     };
     let mut nodes = vec![node1, node2];
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
         for node in nodes.iter_mut() {
             loop {
-                // TODO: should publish only once
-                let topic = vec![Topic::new("test".into())];
-                node.swarm.publish(&topic, PubsubMessage::Block(vec![0; 4]));
                 match node.poll().unwrap() {
                     Async::Ready(Some(Libp2pEvent::PubsubMessage {
-                        id: _id, source, ..
+                        id: _id,
+                        source,
+                        topics,
+                        ..
                     })) => {
-                        println!(
-                            "{} received pubsub message from {}",
-                            node.local_peer_id, source
+                        // Assert all topics are eth2 topics
+                        assert!(topics
+                            .clone()
+                            .iter()
+                            .all(|t| t.clone().into_string().starts_with("/eth2/")));
+                        info!(
+                            log.clone(),
+                            "Peer {} received pubsub message from peer {} for topics {:?}",
+                            node.local_peer_id,
+                            source,
+                            topics
                         );
                         return Ok(Async::Ready(()));
                     }
+                    Async::Ready(Some(Libp2pEvent::PeerSubscribed(.., topic))) => {
+                        // Received topics is one of subscribed eth2 topics
+                        assert!(topic.clone().into_string().starts_with("/eth2/"));
+                        // Publish on subscribed topic
+                        node.swarm.publish(
+                            &vec![Topic::new(topic.into_string())],
+                            PubsubMessage::Block(vec![0; 4]),
+                        );
+                    }
                     Async::Ready(Some(_)) => (),
-                    Async::Ready(None) => break,
-                    Async::NotReady => break,
+                    Async::Ready(None) | Async::NotReady => break,
                 }
             }
         }

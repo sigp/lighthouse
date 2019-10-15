@@ -103,7 +103,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
                     message: msg,
                 });
             }
-            GossipsubEvent::Subscribed { .. } => {}
+            GossipsubEvent::Subscribed { peer_id, topic } => {
+                self.events
+                    .push(BehaviourEvent::PeerSubscribed(peer_id, topic));
+            }
             GossipsubEvent::Unsubscribed { .. } => {}
         }
     }
@@ -240,6 +243,8 @@ pub enum BehaviourEvent {
         /// The message itself.
         message: PubsubMessage,
     },
+    /// Subsribed to peer for given topic
+    PeerSubscribed(PeerId, TopicHash),
 }
 
 /// Messages that are passed to and from the pubsub (Gossipsub) behaviour. These are encoded and

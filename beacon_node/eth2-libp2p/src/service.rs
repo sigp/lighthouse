@@ -192,6 +192,11 @@ impl Stream for Service {
                     BehaviourEvent::PeerDisconnected(peer_id) => {
                         return Ok(Async::Ready(Some(Libp2pEvent::PeerDisconnected(peer_id))));
                     }
+                    BehaviourEvent::PeerSubscribed(peer_id, topic) => {
+                        return Ok(Async::Ready(Some(Libp2pEvent::PeerSubscribed(
+                            peer_id, topic,
+                        ))));
+                    }
                 },
                 Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
                 Ok(Async::NotReady) => break,
@@ -250,6 +255,8 @@ pub enum Libp2pEvent {
         topics: Vec<TopicHash>,
         message: PubsubMessage,
     },
+    /// Subscribed to peer for a topic hash.
+    PeerSubscribed(PeerId, TopicHash),
 }
 
 fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
