@@ -54,38 +54,34 @@ fn test_gossipsub() {
         Err(_) => error!(log, "Failed to connect"),
     };
     let mut nodes = vec![node1, node2];
+    let pubsub_message = PubsubMessage::Block(vec![0; 4]);
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
         for node in nodes.iter_mut() {
             loop {
                 match node.poll().unwrap() {
                     Async::Ready(Some(Libp2pEvent::PubsubMessage {
-                        id: _id,
-                        source,
-                        topics,
-                        ..
+                        topics, message, ..
                     })) => {
-                        // Assert all topics are eth2 topics
+                        // Assert topics are eth2 topics
                         assert!(topics
                             .clone()
                             .iter()
-                            .all(|t| t.clone().into_string().starts_with("/eth2/")));
-                        info!(
-                            log.clone(),
-                            "Peer {} received pubsub message from peer {} for topics {:?}",
-                            node.local_peer_id,
-                            source,
-                            topics
-                        );
+                            .all(|t| t.clone().into_string() == "/eth2/beacon_block/ssz"));
+
+                        // Assert message received is the correct one
+                        assert_eq!(message, pubsub_message.clone());
                         return Ok(Async::Ready(()));
                     }
                     Async::Ready(Some(Libp2pEvent::PeerSubscribed(.., topic))) => {
                         // Received topics is one of subscribed eth2 topics
                         assert!(topic.clone().into_string().starts_with("/eth2/"));
-                        // Publish on subscribed topic
-                        node.swarm.publish(
-                            &vec![Topic::new(topic.into_string())],
-                            PubsubMessage::Block(vec![0; 4]),
-                        );
+                        // Publish on beacon block topic
+                        if topic == TopicHash::from_raw("/eth2/beacon_block/ssz") {
+                            node.swarm.publish(
+                                &vec![Topic::new(topic.into_string())],
+                                pubsub_message.clone(),
+                            );
+                        }
                     }
                     Async::Ready(Some(_)) => (),
                     Async::Ready(None) | Async::NotReady => break,
