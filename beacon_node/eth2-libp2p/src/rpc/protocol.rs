@@ -145,7 +145,7 @@ where
 // Combines all the RPC requests into a single enum to implement `UpgradeInfo` and
 // `OutboundUpgrade`
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RPCRequest {
     Hello(HelloMessage),
     Goodbye(GoodbyeReason),

@@ -10,7 +10,7 @@ use types::{Epoch, Hash256, Slot};
 pub type RequestId = usize;
 
 /// The HELLO request/response handshake message.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct HelloMessage {
     /// The fork version of the chain we are broadcasting.
     pub fork_version: [u8; 4],
@@ -33,7 +33,7 @@ pub struct HelloMessage {
 /// Note: any unknown `u64::into(n)` will resolve to `Goodbye::Unknown` for any unknown `n`,
 /// however `GoodbyeReason::Unknown.into()` will go into `0_u64`. Therefore de-serializing then
 /// re-serializing may not return the same bytes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GoodbyeReason {
     /// This node has shutdown.
     ClientShutdown = 1,
