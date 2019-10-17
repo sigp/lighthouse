@@ -8,10 +8,6 @@ edition = "2018"
 name = "beacon_node"
 path = "src/lib.rs"
 
-[[bin]]
-name = "beacon_node"
-path = "src/main.rs"
-
 [dependencies]
 eth2_config = { path = "../eth2/utils/eth2_config" }
 lighthouse_bootstrap = { path = "../eth2/utils/lighthouse_bootstrap" }

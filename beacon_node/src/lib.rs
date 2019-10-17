@@ -3,7 +3,6 @@ extern crate clap;
 
 mod cli;
 mod config;
-mod run;
 
 pub use beacon_chain;
 pub use cli::cli_app;
