@@ -53,15 +53,16 @@ pub fn start_server<T: EthSpec>(
 ) -> Result<(WebSocketSender<T>, exit_future::Signal, SocketAddr), String> {
     let server_string = format!("{}:{}", config.listen_address, config.port);
 
-    info!(
-        log,
-        "Websocket server starting";
-        "listen_address" => &server_string
-    );
-
     // Create a server that simply ignores any incoming messages.
     let server = WebSocket::new(|_| |_| Ok(()))
-        .map_err(|e| format!("Failed to initialize websocket server: {:?}", e))?;
+        .map_err(|e| format!("Failed to initialize websocket server: {:?}", e))?
+        .bind(server_string.clone())
+        .map_err(|e| {
+            format!(
+                "Failed to bind websocket server to {}: {:?}",
+                server_string, e
+            )
+        })?;
 
     let actual_listen_addr = server.local_addr().map_err(|e| {
         format!(
@@ -99,7 +100,7 @@ pub fn start_server<T: EthSpec>(
     };
 
     let log_inner = log.clone();
-    let _handle = thread::spawn(move || match server.listen(server_string) {
+    let _handle = thread::spawn(move || match server.run() {
         Ok(_) => {
             debug!(
                 log_inner,
