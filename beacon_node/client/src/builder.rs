@@ -14,6 +14,7 @@ use lmd_ghost::LmdGhost;
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
 use rpc::Config as RpcConfig;
 use slog::{debug, error, info, o, warn, Logger};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -39,6 +40,8 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth1_backend: Option<T::Eth1Chain>,
     libp2p_network: Option<Arc<NetworkService<T>>>,
     libp2p_network_send: Option<UnboundedSender<NetworkMessage>>,
+    http_listen_addr: Option<SocketAddr>,
+    websocket_listen_addr: Option<SocketAddr>,
     eth_spec_instance: T::EthSpec,
     spec: ChainSpec,
     log: Option<Logger>,
@@ -66,6 +69,8 @@ where
             eth1_backend: None,
             libp2p_network: None,
             libp2p_network_send: None,
+            http_listen_addr: None,
+            websocket_listen_addr: None,
             eth_spec_instance,
             spec: TEthSpec::default_spec(),
             log: None,
@@ -187,7 +192,7 @@ where
             network_chan: network_send.clone(),
         };
 
-        let exit_signal = rest_api::start_server(
+        let (exit_signal, listening_addr) = rest_api::start_server(
             &client_config.rest_api,
             executor,
             beacon_chain.clone(),
@@ -199,6 +204,7 @@ where
         .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
 
         self.exit_signals.push(exit_signal);
+        self.http_listen_addr = Some(listening_addr);
 
         Ok(self)
     }
@@ -306,7 +312,9 @@ where
     ) -> Client<Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>> {
         Client {
             beacon_chain: self.beacon_chain,
-            _libp2p_network: self.libp2p_network,
+            libp2p_network: self.libp2p_network,
+            http_listen_addr: self.http_listen_addr,
+            websocket_listen_addr: self.websocket_listen_addr,
             _exit_signals: self.exit_signals,
         }
     }
@@ -383,17 +391,23 @@ where
             .as_ref()
             .ok_or_else(|| "websocket_event_handler requires an executor")?;
 
-        let (sender, exit_signal): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
-            let (sender, exit) = websocket_server::start_server(&config, executor, &log)?;
-            (sender, Some(exit))
+        let (sender, exit_signal, listening_addr): (
+            WebSocketSender<TEthSpec>,
+            Option<_>,
+            Option<_>,
+        ) = if config.enabled {
+            let (sender, exit, listening_addr) =
+                websocket_server::start_server(&config, executor, &log)?;
+            (sender, Some(exit), Some(listening_addr))
         } else {
-            (WebSocketSender::dummy(), None)
+            (WebSocketSender::dummy(), None, None)
         };
 
         if let Some(signal) = exit_signal {
             self.exit_signals.push(signal);
         }
         self.event_handler = Some(sender);
+        self.websocket_listen_addr = listening_addr;
 
         Ok(self)
     }

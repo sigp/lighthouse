@@ -2,6 +2,7 @@ use beacon_chain::events::{EventHandler, EventKind};
 use futures::Future;
 use slog::{debug, error, info, warn, Logger};
 use std::marker::PhantomData;
+use std::net::SocketAddr;
 use std::thread;
 use tokio::runtime::TaskExecutor;
 use types::EthSpec;
@@ -49,7 +50,7 @@ pub fn start_server<T: EthSpec>(
     config: &Config,
     executor: &TaskExecutor,
     log: &Logger,
-) -> Result<(WebSocketSender<T>, exit_future::Signal), String> {
+) -> Result<(WebSocketSender<T>, exit_future::Signal, SocketAddr), String> {
     let server_string = format!("{}:{}", config.listen_address, config.port);
 
     info!(
@@ -61,6 +62,13 @@ pub fn start_server<T: EthSpec>(
     // Create a server that simply ignores any incoming messages.
     let server = WebSocket::new(|_| |_| Ok(()))
         .map_err(|e| format!("Failed to initialize websocket server: {:?}", e))?;
+
+    let actual_listen_addr = server.local_addr().map_err(|e| {
+        format!(
+            "Failed to read listening addr from websocket server: {:?}",
+            e
+        )
+    })?;
 
     let broadcaster = server.broadcaster();
 
@@ -107,11 +115,19 @@ pub fn start_server<T: EthSpec>(
         }
     });
 
+    info!(
+        log,
+        "WebSocket server started";
+        "address" => format!("{}", actual_listen_addr.ip()),
+        "port" => actual_listen_addr.port(),
+    );
+
     Ok((
         WebSocketSender {
             sender: Some(broadcaster),
             _phantom: PhantomData,
         },
         exit_signal,
+        actual_listen_addr,
     ))
 }

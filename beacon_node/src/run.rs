@@ -1,4 +1,5 @@
-use client::{error, ClientBuilder, ClientConfig, Eth1BackendMethod, Eth2Config};
+use beacon_chain::BeaconChainTypes;
+use client::{error, Client, ClientBuilder, ClientConfig, Eth1BackendMethod, Eth2Config};
 use futures::sync::oneshot;
 use futures::Future;
 use slog::{error, info};
@@ -30,9 +31,6 @@ pub fn run_beacon_node(
 
     let executor = runtime.executor();
 
-    let db_path: PathBuf = client_config
-        .db_path()
-        .ok_or_else::<error::Error, _>(|| "Unable to access database path".into())?;
     let spec_constants = eth2_config.spec_constants.clone();
 
     let other_client_config = client_config.clone();
@@ -50,17 +48,11 @@ pub fn run_beacon_node(
     }
 
     macro_rules! run_client {
-        ($eth_spec: ident) => {
-            run(
-                $eth_spec,
-                &db_path,
-                client_config,
-                eth2_config,
-                executor,
-                runtime,
-                log,
-            )
-        };
+        ($eth_spec: ident) => {{
+            let client =
+                start_client($eth_spec, client_config, eth2_config, executor, log.clone())?;
+            run(runtime, client, log)
+        }};
     }
 
     match spec_constants.as_str() {
@@ -74,22 +66,21 @@ pub fn run_beacon_node(
     }
 }
 
-/// Performs the type-generic parts of launching a `BeaconChain`.
-fn run<E: EthSpec>(
+/// Build the client.
+pub fn start_client<E: EthSpec>(
     eth_spec_instance: E,
-    db_path: &Path,
     client_config: ClientConfig,
     eth2_config: Eth2Config,
     executor: TaskExecutor,
-    mut runtime: Runtime,
     log: slog::Logger,
-) -> error::Result<()>
-where
-    E: EthSpec,
-{
+) -> error::Result<Client<impl BeaconChainTypes>> {
+    let db_path: PathBuf = client_config
+        .db_path()
+        .ok_or_else::<error::Error, _>(|| "Unable to access database path".into())?;
+
     let client = ClientBuilder::new(eth_spec_instance)
         .logger(log.clone())
-        .disk_store(db_path)?
+        .disk_store(&db_path)?
         .executor(executor)
         .beacon_checkpoint(&client_config.beacon_chain_start_method)?
         .system_time_slot_clock()?
@@ -103,7 +94,15 @@ where
         .slot_notifier()?
         .build();
 
-    // run service until ctrl-c
+    Ok(client)
+}
+
+/// Run until Ctrl+C is received, then shutdown the client.
+fn run<T: BeaconChainTypes>(
+    mut runtime: Runtime,
+    client: Client<T>,
+    log: slog::Logger,
+) -> error::Result<()> {
     let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
     let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
     ctrlc::set_handler(move || {

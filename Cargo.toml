@@ -41,6 +41,8 @@ members = [
 	"protos",
 	"validator_client",
 	"account_manager",
+	"lighthouse",
+	"lighthouse/environment"
 ]
 
 [patch]
