@@ -186,17 +186,17 @@ impl Config {
             .map_err(|e| format!("Unable to deserialize private key: {:?}", e))?;
 
         let ki = key.identifier();
-        if &ki
-            != &path
+        if ki
+            != path
                 .file_name()
                 .ok_or_else(|| "Invalid path".to_string())?
                 .to_string_lossy()
         {
-            return Err(format!(
+            Err(format!(
                 "The validator key ({:?}) did not match the directory filename {:?}.",
                 ki,
                 path.to_str()
-            ));
+            ))
         } else {
             Ok(key)
         }
@@ -234,10 +234,7 @@ impl Config {
         &self,
         range: std::ops::Range<usize>,
     ) -> Result<Vec<Keypair>, String> {
-        Ok(range
-            .into_iter()
-            .map(generate_deterministic_keypair)
-            .collect())
+        Ok(range.map(generate_deterministic_keypair).collect())
     }
 
     /// Loads the keypairs according to `self.key_source`. Will return one or more keypairs, or an
@@ -279,12 +276,16 @@ impl Config {
     /// Saves a keypair to a file inside the appropriate validator directory. Returns the saved path filename.
     #[allow(dead_code)]
     pub fn save_key(&self, key: &Keypair) -> Result<PathBuf, Error> {
+        use std::os::unix::fs::PermissionsExt;
         let validator_config_path = self.data_dir.join(key.identifier());
         let key_path = validator_config_path.join(DEFAULT_PRIVATE_KEY_FILENAME);
 
         fs::create_dir_all(&validator_config_path)?;
 
         let mut key_file = File::create(&key_path)?;
+        let mut perm = key_file.metadata()?.permissions();
+        perm.set_mode((libc::S_IWUSR | libc::S_IRUSR) as u32);
+        key_file.set_permissions(perm)?;
 
         bincode::serialize_into(&mut key_file, &key)
             .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;

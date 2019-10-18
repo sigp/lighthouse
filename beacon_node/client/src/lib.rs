@@ -12,7 +12,8 @@ use beacon_chain::{
 use exit_future::Signal;
 use futures::{future::Future, Stream};
 use network::Service as NetworkService;
-use slog::{crit, error, info, o};
+use rest_api::NetworkInfo;
+use slog::{crit, debug, error, info, o};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -68,10 +69,6 @@ where
     pub websocket_exit_signal: Option<Signal>,
     /// The clients logger.
     log: slog::Logger,
-    /*
-    /// Marker to pin the beacon chain generics.
-    phantom: PhantomData<BeaconChainTypes>,
-    */
 }
 
 impl<S, E> Client<S, E>
@@ -235,12 +232,15 @@ where
 
         // Start the `rest_api` service
         let api_exit_signal = if client_config.rest_api.enabled {
+            let network_info = NetworkInfo {
+                network_service: network.clone(),
+                network_chan: network_send.clone(),
+            };
             match rest_api::start_server(
                 &client_config.rest_api,
                 executor,
                 beacon_chain.clone(),
-                network.clone(),
-                network_send.clone(),
+                network_info,
                 client_config.db_path().expect("unable to read datadir"),
                 eth2_config.clone(),
                 &log,
@@ -309,11 +309,16 @@ fn log_new_slot<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>, log: &slog::Lo
         info!(
             log,
             "Slot start";
+            "best_slot" => best_slot,
+            "slot" => current_slot,
+        );
+        debug!(
+            log,
+            "Slot info";
             "skip_slots" => current_slot.saturating_sub(best_slot),
             "best_block_root" => format!("{}", latest_block_root),
-            "best_block_slot" => best_slot,
             "slot" => current_slot,
-        )
+        );
     } else {
         error!(
             log,

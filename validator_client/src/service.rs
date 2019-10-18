@@ -109,14 +109,11 @@ impl<
         let spec = Arc::new(eth2_config.spec);
 
         // build the validator slot clock
-        let slot_clock = SystemTimeSlotClock::from_eth2_genesis(
+        let slot_clock = SystemTimeSlotClock::new(
             genesis_slot,
-            genesis_time,
+            Duration::from_secs(genesis_time),
             Duration::from_millis(eth2_config.spec.milliseconds_per_slot),
-        )
-        .map_err::<error_chain::Error, _>(|e| {
-            format!("Unable to start slot clock: {}.", e).into()
-        })?;
+        );
 
         // Load generated keypairs
         let keypairs = Arc::new(validator_config.fetch_keys(&log)?);

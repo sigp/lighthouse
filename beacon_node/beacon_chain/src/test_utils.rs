@@ -21,7 +21,7 @@ pub use types::test_utils::generate_deterministic_keypairs;
 
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 
-pub const HARNESS_GENESIS_TIME: u64 = 1567552690; // 4th September 2019
+pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690; // 4th September 2019
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]

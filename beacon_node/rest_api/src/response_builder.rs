@@ -21,7 +21,7 @@ impl ResponseBuilder {
                     e
                 ))
             })
-            .map(|h| String::from(h))?;
+            .map(String::from)?;
 
         // JSON is our default encoding, unless something else is requested.
         let encoding = ApiEncodingFormat::from(accept_header.as_str());
@@ -69,7 +69,7 @@ impl ResponseBuilder {
         Response::builder()
             .status(StatusCode::OK)
             .header("content-type", content_type)
-            .body(Body::from(body))
+            .body(body)
             .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))
     }
 

@@ -10,7 +10,7 @@ use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use slog::{error, info, trace, warn, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
@@ -42,7 +42,7 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 /// files in the temp directory.
 ///
 /// Only useful for testing.
-const WRITE_BLOCK_PROCESSING_SSZ: bool = true;
+const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -125,6 +125,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     log: Logger,
 }
 
+type BeaconInfo<T> = (BeaconBlock<T>, BeaconState<T>);
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn from_genesis(
@@ -158,12 +160,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ));
 
         // Slot clock
-        let slot_clock = T::SlotClock::from_eth2_genesis(
+        let slot_clock = T::SlotClock::new(
             spec.genesis_slot,
-            genesis_state.genesis_time,
+            Duration::from_secs(genesis_state.genesis_time),
             Duration::from_millis(spec.milliseconds_per_slot),
-        )
-        .map_err(|_| Error::SlotClockDidNotStart)?;
+        );
 
         info!(log, "Beacon chain initialized from genesis";
               "validator_count" => genesis_state.validators.len(),
@@ -202,12 +203,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let state = &p.canonical_head.beacon_state;
 
-        let slot_clock = T::SlotClock::from_eth2_genesis(
+        let slot_clock = T::SlotClock::new(
             spec.genesis_slot,
-            state.genesis_time,
+            Duration::from_secs(state.genesis_time),
             Duration::from_millis(spec.milliseconds_per_slot),
-        )
-        .map_err(|_| Error::SlotClockDidNotStart)?;
+        );
 
         let last_finalized_root = p.canonical_head.beacon_state.finalized_checkpoint.root;
         let last_finalized_block = &p.canonical_head.beacon_block;
@@ -375,8 +375,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(head_state)
         } else if slot > head_state.slot {
             let head_state_slot = head_state.slot;
-            let mut state = head_state.clone();
-            drop(head_state);
+            let mut state = head_state;
             while state.slot < slot {
                 match per_slot_processing(&mut state, &self.spec) {
                     Ok(()) => (),
@@ -396,7 +395,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             let state_root = self
                 .rev_iter_state_roots()
-                .find(|(_root, s)| *s == slot)
+                .take_while(|(_root, current_slot)| *current_slot >= slot)
+                .find(|(_root, current_slot)| *current_slot == slot)
                 .map(|(root, _slot)| root)
                 .ok_or_else(|| Error::NoStateForSlot(slot))?;
 
@@ -646,8 +646,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     trace!(
                         self.log,
                         "Beacon attestation imported";
-                        "shard" => attestation.data.crosslink.shard,
                         "target_epoch" => attestation.data.target.epoch,
+                        "shard" => attestation.data.crosslink.shard,
                     );
                     let _ = self
                         .event_handler
@@ -1062,7 +1062,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if block.slot <= finalized_slot {
             return Ok(BlockProcessingOutcome::WouldRevertFinalizedSlot {
                 block_slot: block.slot,
-                finalized_slot: finalized_slot,
+                finalized_slot,
             });
         }
 
@@ -1260,7 +1260,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         randao_reveal: Signature,
         slot: Slot,
-    ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
+    ) -> Result<BeaconInfo<T::EthSpec>, BlockProductionError> {
         let state = self
             .state_at_slot(slot - 1)
             .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
@@ -1281,7 +1281,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
-    ) -> Result<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError> {
+    ) -> Result<BeaconInfo<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
@@ -1397,12 +1397,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 info!(
                     self.log,
                     "New head beacon block";
+                    "root" => format!("{}", beacon_block_root),
+                    "slot" => new_slot,
+                );
+                debug!(
+                    self.log,
+                    "Head beacon block";
                     "justified_root" => format!("{}", beacon_state.current_justified_checkpoint.root),
                     "justified_epoch" => beacon_state.current_justified_checkpoint.epoch,
                     "finalized_root" => format!("{}", beacon_state.finalized_checkpoint.root),
                     "finalized_epoch" => beacon_state.finalized_checkpoint.epoch,
-                    "root" => format!("{}", beacon_block_root),
-                    "slot" => new_slot,
                 );
             };
 
@@ -1459,7 +1463,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // End fork choice metrics timer.
         metrics::stop_timer(timer);
 
-        if let Err(_) = result {
+        if result.is_err() {
             metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
         }
 

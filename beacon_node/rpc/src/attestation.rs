@@ -103,8 +103,9 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 // Attestation was successfully processed.
                 info!(
                     self.log,
-                    "PublishAttestation";
-                    "type" => "valid_attestation",
+                    "Valid attestation from RPC";
+                    "target_epoch" => attestation.data.target.epoch,
+                    "shard" => attestation.data.crosslink.shard,
                 );
 
                 // valid attestation, propagate to the network
@@ -118,13 +119,12 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 self.network_chan
                     .try_send(NetworkMessage::Publish {
                         topics: vec![topic],
-                        message: message,
+                        message,
                     })
                     .unwrap_or_else(|e| {
                         error!(
                             self.log,
-                            "PublishAttestation";
-                            "type" => "failed to publish attestation to gossipsub",
+                            "Failed to gossip attestation";
                             "error" => format!("{:?}", e)
                         );
                     });
@@ -135,8 +135,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 // Attestation was invalid
                 warn!(
                     self.log,
-                    "PublishAttestation";
-                    "type" => "invalid_attestation",
+                    "Invalid attestation from RPC";
                     "error" => format!("{:?}", e),
                 );
                 resp.set_success(false);
@@ -146,8 +145,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 // Some other error
                 warn!(
                     self.log,
-                    "PublishAttestation";
-                    "type" => "beacon_chain_error",
+                    "Failed to process attestation from RPC";
                     "error" => format!("{:?}", e),
                 );
                 resp.set_success(false);

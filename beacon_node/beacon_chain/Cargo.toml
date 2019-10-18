@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
+[features]
+
+write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
+
 [dependencies]
 eth2_config = { path = "../../eth2/utils/eth2_config" }
 merkle_proof = { path = "../../eth2/utils/merkle_proof" }

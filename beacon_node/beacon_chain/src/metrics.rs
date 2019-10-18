@@ -228,10 +228,7 @@ fn scrape_head_state<T: BeaconChainTypes>(state: &BeaconState<T::EthSpec>, state
     );
     set_gauge_by_usize(&HEAD_STATE_SHARDS, state.previous_crosslinks.len());
     set_gauge_by_usize(&HEAD_STATE_TOTAL_VALIDATORS, state.validators.len());
-    set_gauge_by_u64(
-        &HEAD_STATE_VALIDATOR_BALANCES,
-        state.balances.iter().fold(0_u64, |acc, i| acc + i),
-    );
+    set_gauge_by_u64(&HEAD_STATE_VALIDATOR_BALANCES, state.balances.iter().sum());
     set_gauge_by_usize(
         &HEAD_STATE_ACTIVE_VALIDATORS,
         state

@@ -130,7 +130,6 @@ fn main() {
                 log,
                 "The account manager must be run with a subcommand. See help for more information."
             );
-            return;
         }
     }
 }
