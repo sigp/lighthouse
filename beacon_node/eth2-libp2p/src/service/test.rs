@@ -2,8 +2,11 @@
 use super::*;
 use crate::rpc::{HelloMessage, RPCRequest};
 use crate::NetworkConfig;
-use enr::Enr;
+use enr::{Enr, EnrBuilder, NodeId};
 use futures;
+use libp2p::core::identity::secp256k1::SecretKey;
+use libp2p::core::identity::Keypair;
+use libp2p::discv5::Key;
 use slog::{debug, error, o, Drain};
 use slog_stdlog;
 use types::{Epoch, Hash256, Slot};
@@ -21,17 +24,23 @@ fn setup_log() -> slog::Logger {
 // 1.4) Subscribe to a new topic
 // 2) RPC communication between 2 nodes for every type of RPC message
 
-fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
+fn build_config(port: u16, mut boot_nodes: Vec<Enr>, secret_key: Option<String>) -> NetworkConfig {
     let mut config = NetworkConfig::default();
     config.libp2p_port = port; // tcp port
     config.discovery_port = port; // udp port
     config.boot_nodes.append(&mut boot_nodes);
+    config.secret_key_hex = secret_key;
     config.network_dir.push(port.to_string());
     config
 }
 
-fn build_libp2p_instance(port: u16, boot_nodes: Vec<Enr>, log: slog::Logger) -> LibP2PService {
-    let config = build_config(port, boot_nodes);
+fn build_libp2p_instance(
+    port: u16,
+    boot_nodes: Vec<Enr>,
+    secret_key: Option<String>,
+    log: slog::Logger,
+) -> LibP2PService {
+    let config = build_config(port, boot_nodes, secret_key);
     let network_log = log.new(o!("Service" => "Libp2p"));
     // launch libp2p service
     let libp2p_service = LibP2PService::new(config.clone(), network_log.clone()).unwrap();
@@ -42,16 +51,98 @@ fn get_enr(node: &LibP2PService) -> Enr {
     node.swarm.discovery().local_enr().clone()
 }
 
+// Returns kademlia log distance between two nodes
+fn get_distance(node1: &NodeId, node2: &NodeId) -> Option<u64> {
+    let node1: Key<NodeId> = node1.clone().into();
+    node1.log2_distance(&node2.clone().into())
+}
+
+// Generate secret keys for given node + an additional bootstrap node
+// Bootstrap node is close (kbucket index > 253) to all other nodes
+fn generate_secret_keys(n: usize) -> Vec<Option<String>> {
+    let mut keypairs: Vec<Keypair> = Vec::new();
+    let bootstrap_keypair: Keypair = Keypair::generate_secp256k1();
+    let bootstrap_node_id = EnrBuilder::new()
+        .build(&bootstrap_keypair)
+        .unwrap()
+        .node_id()
+        .clone();
+    for _ in 0..n {
+        loop {
+            let keypair = Keypair::generate_secp256k1();
+            let enr = EnrBuilder::new().build(&keypair).unwrap();
+            let key = enr.node_id();
+            let distance = get_distance(&bootstrap_node_id, key).unwrap();
+            // Any distance greater than 253 is good enough for discovering nodes in one
+            // complete query. TODO: need to verify
+            if distance > 253 {
+                keypairs.push(keypair);
+                break;
+            }
+        }
+    }
+    keypairs.push(bootstrap_keypair);
+    keypairs
+        .into_iter()
+        .map(|x| match x {
+            Keypair::Secp256k1(kp) => Some(hex::encode(kp.secret().to_bytes())),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+}
+
 // Constructs, connects and returns 2 libp2p peers without discovery
 fn build_nodes() -> Vec<LibP2PService> {
     let log = setup_log();
-    let mut node1 = build_libp2p_instance(9000, vec![], log.clone());
-    let node2 = build_libp2p_instance(9001, vec![], log.clone());
+    let mut node1 = build_libp2p_instance(9000, vec![], None, log.clone());
+    let node2 = build_libp2p_instance(9001, vec![], None, log.clone());
     match libp2p::Swarm::dial_addr(&mut node1.swarm, get_enr(&node2).multiaddr()[1].clone()) {
         Ok(()) => debug!(log, "Connected"),
         Err(_) => error!(log, "Failed to connect"),
     };
     vec![node1, node2]
+}
+
+#[test]
+fn test_discovery() {
+    let log = setup_log();
+    let num_nodes = 8;
+    let mut secret_keys = generate_secret_keys(num_nodes);
+    let bootstrap_sk = secret_keys.pop().unwrap();
+    let bootstrap_node = build_libp2p_instance(9000, vec![], bootstrap_sk, log.clone());
+    let base_port = 9001;
+    let mut nodes: Vec<LibP2PService> = secret_keys
+        .into_iter()
+        .enumerate()
+        .map(|(i, sk)| {
+            build_libp2p_instance(
+                base_port + i as u16,
+                vec![get_enr(&bootstrap_node)],
+                sk,
+                log.clone(),
+            )
+        })
+        .collect();
+    nodes.push(bootstrap_node);
+    tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
+        for node in nodes.iter_mut() {
+            loop {
+                match node.poll().unwrap() {
+                    Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))) => {
+                        println!(
+                            "Node {} is connected to {} peers.",
+                            node.swarm.discovery().local_enr().node_id(),
+                            node.swarm.discovery().connected_peers(),
+                        );
+                        // return Ok(Async::Ready(()));
+                    }
+                    Async::Ready(Some(_)) => (),
+                    Async::Ready(None) | Async::NotReady => break,
+                }
+            }
+        }
+        Ok(Async::NotReady)
+    }))
 }
 
 #[test]
