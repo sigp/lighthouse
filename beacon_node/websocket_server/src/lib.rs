@@ -1,4 +1,3 @@
-use beacon_chain::events::{EventHandler, EventKind};
 use futures::Future;
 use slog::{debug, error, info, warn, Logger};
 use std::marker::PhantomData;
@@ -34,15 +33,6 @@ impl<T: EthSpec> WebSocketSender<T> {
         } else {
             Ok(())
         }
-    }
-}
-
-impl<T: EthSpec> EventHandler<T> for WebSocketSender<T> {
-    fn register(&self, kind: EventKind<T>) -> Result<(), String> {
-        self.send_string(
-            serde_json::to_string(&kind)
-                .map_err(|e| format!("Unable to serialize event: {:?}", e))?,
-        )
     }
 }
 

@@ -9,7 +9,6 @@ beacon_node = { "path" = "../beacon_node" }
 tokio = "0.1.15"
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
 sloggers = "0.3.4"
-tempdir = "0.3"
 types = { "path" = "../eth2/types" }
 clap = "2.32.0"
 env_logger = "0.6.1"

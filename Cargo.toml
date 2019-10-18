@@ -37,6 +37,7 @@ members = [
 	"beacon_node/websocket_server",
 	"tests/ef_tests",
 	"tests/eth1_test_rig",
+	"tests/node_test_rig",
 	"lcli",
 	"protos",
 	"validator_client",

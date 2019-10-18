@@ -34,6 +34,7 @@ tree_hash = "0.1"
 types = { path = "../../eth2/types" }
 lmd_ghost = { path = "../../eth2/lmd_ghost" }
 eth1 = { path = "../eth1" }
+websocket_server = { path = "../websocket_server" }
 
 [dev-dependencies]
 rand = "0.5.5"

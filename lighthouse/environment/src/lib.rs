@@ -1,25 +1,52 @@
+use eth2_config::Eth2Config;
 use futures::{sync::oneshot, Future};
 use slog::{o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::cell::RefCell;
 use tokio::runtime::{Runtime, TaskExecutor};
-use types::EthSpec;
+use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 
 pub struct EnvironmentBuilder<E: EthSpec> {
     runtime: Option<Runtime>,
     log: Option<Logger>,
     eth_spec_instance: E,
+    eth2_config: Eth2Config,
 }
 
-impl<E: EthSpec> EnvironmentBuilder<E> {
-    pub fn new(eth_spec_instance: E) -> Self {
+impl EnvironmentBuilder<MinimalEthSpec> {
+    pub fn minimal() -> Self {
         Self {
             runtime: None,
             log: None,
-            eth_spec_instance,
+            eth_spec_instance: MinimalEthSpec,
+            eth2_config: Eth2Config::minimal(),
         }
     }
+}
 
+impl EnvironmentBuilder<MainnetEthSpec> {
+    pub fn mainnet() -> Self {
+        Self {
+            runtime: None,
+            log: None,
+            eth_spec_instance: MainnetEthSpec,
+            eth2_config: Eth2Config::mainnet(),
+        }
+    }
+}
+
+impl EnvironmentBuilder<InteropEthSpec> {
+    pub fn interop() -> Self {
+        Self {
+            runtime: None,
+            log: None,
+            eth_spec_instance: InteropEthSpec,
+            eth2_config: Eth2Config::interop(),
+        }
+    }
+}
+
+impl<E: EthSpec> EnvironmentBuilder<E> {
     pub fn tokio_runtime(mut self) -> Result<Self, String> {
         self.runtime =
             Some(Runtime::new().map_err(|e| format!("Failed to start runtime: {:?}", e))?);
@@ -66,39 +93,16 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 .log
                 .ok_or_else(|| "Cannot build environment without log".to_string())?,
             eth_spec_instance: self.eth_spec_instance,
+            eth2_config: self.eth2_config,
         })
     }
 }
-
-/*
- * TODO: Fix
-pub struct BeaconNodeConfig(ClientConfig);
-
-impl BeaconNodeConfig {
-    pub fn testing_beacon_node() -> Self {
-        let mut client_config = ClientConfig::default();
-
-        client_config.beacon_chain_start_method = BeaconChainStartMethod::Generated {
-            validator_count: 8,
-            genesis_time: 13371377,
-        };
-
-        // Setting ports to `0` means that the OS will choose some available port.
-        client_config.network.libp2p_port = 0;
-        client_config.network.discovery_port = 0;
-        client_config.rpc.port = 0;
-        client_config.rest_api.port = 0;
-        client_config.websocket_server.port = 0;
-
-        Self(client_config)
-    }
-}
-*/
 
 pub struct Environment<E: EthSpec> {
     runtime: Runtime,
     log: Logger,
     eth_spec_instance: E,
+    eth2_config: Eth2Config,
 }
 
 impl<E: EthSpec> Environment<E> {
@@ -135,6 +139,10 @@ impl<E: EthSpec> Environment<E> {
 
     pub fn eth_spec_instance(&self) -> &E {
         &self.eth_spec_instance
+    }
+
+    pub fn eth2_config(&self) -> &Eth2Config {
+        &self.eth2_config
     }
 
     pub fn core_log(&self) -> Logger {

@@ -6,7 +6,7 @@ mod beacon_chain;
 pub mod builder;
 mod checkpoint;
 mod errors;
-mod eth1_chain;
+pub mod eth1_chain;
 pub mod events;
 mod fork_choice;
 mod iter;

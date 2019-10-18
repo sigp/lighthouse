@@ -1,13 +1,13 @@
 #[macro_use]
 extern crate clap;
 
-use beacon_node;
+use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use slog::{crit, info, warn};
 use std::process::exit;
-use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::EthSpec;
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
@@ -55,8 +55,8 @@ fn main() {
         .get_matches();
 
     macro_rules! run_with_spec {
-        ($eth_spec: ident) => {
-            match run($eth_spec, &matches) {
+        ($env_builder: expr) => {
+            match run($env_builder, &matches) {
                 Ok(()) => exit(0),
                 Err(e) => {
                     println!("Failed to start Lighthouse: {}", e);
@@ -67,9 +67,9 @@ fn main() {
     }
 
     match matches.value_of("spec") {
-        Some("minimal") => run_with_spec!(MinimalEthSpec),
-        Some("mainnet") => run_with_spec!(MainnetEthSpec),
-        Some("interop") => run_with_spec!(InteropEthSpec),
+        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
+        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
+        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
         spec => {
             // This path should be unreachable due to slog having a `default_value`
             unreachable!("Unknown spec configuration: {:?}", spec);
@@ -77,8 +77,11 @@ fn main() {
     }
 }
 
-fn run<E: EthSpec>(eth_spec_instance: E, matches: &ArgMatches) -> Result<(), String> {
-    let mut environment = EnvironmentBuilder::new(eth_spec_instance)
+fn run<E: EthSpec>(
+    environment_builder: EnvironmentBuilder<E>,
+    matches: &ArgMatches,
+) -> Result<(), String> {
+    let mut environment = environment_builder
         .async_logger(
             matches
                 .value_of("debug-level")
@@ -104,7 +107,11 @@ fn run<E: EthSpec>(eth_spec_instance: E, matches: &ArgMatches) -> Result<(), Str
     );
 
     let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("Beacon Node") {
-        Some(beacon_node::start_from_cli(sub_matches, &environment)?)
+        println!("beacon");
+        Some(ProductionBeaconNode::new_from_cli(
+            sub_matches,
+            &environment,
+        )?)
     } else {
         None
     };
