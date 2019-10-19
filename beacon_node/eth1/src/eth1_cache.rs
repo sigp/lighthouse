@@ -6,10 +6,11 @@ use crate::http::{
 };
 use futures::{prelude::*, stream, Future};
 use parking_lot::RwLock;
+use std::collections::HashSet;
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::Duration;
-use types::{Deposit, Hash256};
+use types::{Deposit, DepositData, Hash256};
 
 const BLOCKS_PER_LOG_QUERY: usize = 10;
 
@@ -51,6 +52,7 @@ pub enum Error {
         error: String,
     },
     FailedToGetDeposits(DepositCacheError),
+    Eth1RpcError(String),
     Internal(String),
 }
 
@@ -180,6 +182,33 @@ impl Eth1Cache {
             .map(|r| *r.end())
     }
 
+    /// Returns `(timestamp, block_number)` of the block that contained the most recent deposit in
+    /// the deposit cache.
+    pub fn latest_deposit_metadata(
+        &self,
+        timeout: Duration,
+    ) -> Box<dyn Future<Item = Option<(Duration, u64)>, Error = Error>> {
+        if let Some(block_number) = self.deposit_cache.read().cache.latest_block_number() {
+            Box::new(
+                get_block(&self.endpoint, block_number, timeout)
+                    .map(|block| Duration::from_secs(block.timestamp))
+                    .map(move |duration| Some((duration, block_number)))
+                    .map_err(|e| Error::Eth1RpcError(e)),
+            )
+        } else {
+            Box::new(futures::future::ok(None))
+        }
+    }
+
+    /// Returns all blocks that are known to have a deposit.
+    pub fn known_deposit_blocks(&self) -> HashSet<u64> {
+        self.deposit_cache
+            .read()
+            .cache
+            .known_deposit_block_numbers()
+            .clone()
+    }
+
     /// Prunes the block cache to `self.target_block_cache_len`.
     fn prune_blocks(&self) {
         self.block_cache
@@ -195,6 +224,17 @@ impl Eth1Cache {
     /// Returns the number deposits available in the deposit cache.
     pub fn deposit_cache_len(&self) -> usize {
         self.deposit_cache.read().cache.len()
+    }
+
+    pub fn deposit_data_at_block(&self, block_number: u64) -> Vec<DepositData> {
+        self.deposit_cache
+            .read()
+            .cache
+            .iter()
+            .cloned()
+            .take_while(|log| log.block_number <= block_number)
+            .map(|log| log.deposit_data)
+            .collect()
     }
 
     /// Returns a list of `Deposit` objects, within the given deposit index `range`.
@@ -268,14 +308,24 @@ pub fn update_deposit_cache<'a>(
                     None => None,
                 },
             )
-            .fold(0, move |sum, (block_range, log_chunk)| {
-                let count = log_chunk.into_iter().try_fold(0, |count, raw_log| {
-                    let block_range = block_range.clone();
+            .fold(0, move |mut sum, (block_range, log_chunk)| {
+                // It's important that blocks are log are imported atomically per-block, unless an
+                // error occurs. There is no guarantee for consistency if an error is returned.
+                //
+                // That is, if there are any logs from block `n`, then there are _all_ logs
+                // from block `n` and all prior blocks.
+                //
+                // This is achieved by taking an exclusive write-lock on the cache whilst adding
+                // logs one-by-one.
+                let mut cache = cache_2.deposit_cache.write();
 
-                    let deposit_log = DepositLog::from_log(&raw_log)
-                        .map_err(|error| Error::FailedToParseDepositLog { block_range, error })?;
-
-                    let mut cache = cache_2.deposit_cache.write();
+                for raw_log in log_chunk {
+                    let deposit_log = DepositLog::from_log(&raw_log).map_err(|error| {
+                        Error::FailedToParseDepositLog {
+                            block_range: block_range.clone(),
+                            error,
+                        }
+                    })?;
 
                     cache
                         .cache
@@ -284,10 +334,10 @@ pub fn update_deposit_cache<'a>(
 
                     cache.next_required_block += 1;
 
-                    Ok(count + 1)
-                })?;
+                    sum += 1;
+                }
 
-                Ok(sum + count)
+                Ok(sum)
             })
             .map(|logs_imported| DepositCacheUpdateOutcome::Success { logs_imported })
         })

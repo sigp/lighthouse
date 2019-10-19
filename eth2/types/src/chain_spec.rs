@@ -118,6 +118,22 @@ impl ChainSpec {
         u64::from_le_bytes(fork_and_domain)
     }
 
+    /// Get the domain for a deposit signature.
+    ///
+    /// Deposits are valid across forks, thus the deposit domain is computed
+    /// with the fork zeroed.
+    ///
+    /// Spec v0.8.1
+    pub fn get_deposit_domain(&self) -> u64 {
+        let mut bytes: Vec<u8> = int_to_bytes4(self.domain_deposit);
+        bytes.append(&mut Fork::default().get_fork_version(Epoch::new(0)).to_vec());
+
+        let mut fork_and_domain = [0; 8];
+        fork_and_domain.copy_from_slice(&bytes);
+
+        u64::from_le_bytes(fork_and_domain)
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
     /// Spec v0.8.1

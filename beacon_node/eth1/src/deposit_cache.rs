@@ -1,6 +1,7 @@
 use super::http::Log;
 use eth2_hashing::hash;
 use ssz::Decode;
+use std::collections::HashSet;
 use std::ops::Range;
 use tree_hash::TreeHash;
 use types::{Deposit, DepositData, Hash256, PublicKeyBytes, SignatureBytes};
@@ -127,12 +128,53 @@ impl DepositDataTree {
     }
 }
 
+/*
+/// Represents an eth1 deposit contract merkle tree.
+///
+/// Each `deposit` is included with a proof into the `deposit_root`. The index for a deposit in the
+/// merkle tree is equal to it's index in `deposits`.
+pub struct DepositSet {
+    pub deposit_root: Hash256,
+    pub deposits: Vec<Deposit>,
+}
+
+impl DepositSet {
+    pub fn from_logs(tree_depth: usize, logs: Vec<DepositLog>) -> Self {
+        let roots = logs
+            .iter()
+            .map(|log| Hash256::from_slice(&log.deposit_data.tree_hash_root()))
+            .collect::<Vec<_>>();
+
+        let tree = DepositDataTree::create(&roots, roots.len(), tree_depth);
+
+        let deposits = logs
+            .into_iter()
+            .enumerate()
+            .map(|(i, deposit_log)| {
+                let (_leaf, proof) = tree.generate_proof(i);
+
+                Deposit {
+                    proof: proof.into(),
+                    data: deposit_log.deposit_data,
+                }
+            })
+            .collect();
+
+        DepositSet {
+            deposit_root: tree.root(),
+            deposits,
+        }
+    }
+}
+*/
+
 /// Mirrors the merkle tree of deposits in the eth1 deposit contract.
 ///
 /// Provides `Deposit` objects will merkle proofs included.
 pub struct DepositCache {
     logs: Vec<DepositLog>,
     roots: Vec<Hash256>,
+    known_block_numbers: HashSet<u64>,
 }
 
 impl DepositCache {
@@ -141,12 +183,28 @@ impl DepositCache {
         Self {
             logs: vec![],
             roots: vec![],
+            known_block_numbers: HashSet::new(),
         }
     }
 
     /// Returns the number of deposits available in the cache.
     pub fn len(&self) -> usize {
         self.logs.len()
+    }
+
+    /// Returns the block number for the most recent deposit in the cache.
+    pub fn latest_block_number(&self) -> Option<u64> {
+        self.logs.last().map(|log| log.block_number)
+    }
+
+    /// Returns an iterator over all the logs in `self`.
+    pub fn iter(&self) -> impl Iterator<Item = &DepositLog> {
+        self.logs.iter()
+    }
+
+    /// A set of the block numbers from each deposit log in self.
+    pub fn known_deposit_block_numbers(&self) -> &HashSet<u64> {
+        &self.known_block_numbers
     }
 
     /// Adds `log` to self.
@@ -162,6 +220,7 @@ impl DepositCache {
         if log.index == self.logs.len() as u64 {
             self.roots
                 .push(Hash256::from_slice(&log.deposit_data.tree_hash_root()));
+            self.known_block_numbers.insert(log.block_number);
             self.logs.push(log);
 
             Ok(())

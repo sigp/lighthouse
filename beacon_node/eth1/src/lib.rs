@@ -1,4 +1,5 @@
 mod block_cache;
+pub mod cache_2;
 mod deposit_cache;
 mod eth1_cache;
 pub mod http;

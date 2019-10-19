@@ -7,7 +7,7 @@ use std::convert::TryInto;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
     AggregateSignature, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
-    BeaconBlockHeader, BeaconState, BeaconStateError, ChainSpec, Deposit, Domain, EthSpec, Fork,
+    BeaconBlockHeader, BeaconState, BeaconStateError, ChainSpec, DepositData, Domain, EthSpec,
     Hash256, IndexedAttestation, ProposerSlashing, PublicKey, RelativeEpoch, Signature, Transfer,
     VoluntaryExit,
 };
@@ -194,18 +194,17 @@ pub fn attester_slashing_signature_sets<'a, T: EthSpec>(
 ///
 /// This method is separate to `deposit_signature_set` to satisfy lifetime requirements.
 pub fn deposit_pubkey_signature_message(
-    deposit: &Deposit,
+    deposit_data: &DepositData,
 ) -> Option<(PublicKey, Signature, Vec<u8>)> {
-    let pubkey = (&deposit.data.pubkey).try_into().ok()?;
-    let signature = (&deposit.data.signature).try_into().ok()?;
-    let message = deposit.data.signed_root();
+    let pubkey = (&deposit_data.pubkey).try_into().ok()?;
+    let signature = (&deposit_data.signature).try_into().ok()?;
+    let message = deposit_data.signed_root();
     Some((pubkey, signature, message))
 }
 
 /// Returns the signature set for some set of deposit signatures, made with
 /// `deposit_pubkey_signature_message`.
-pub fn deposit_signature_set<'a, T: EthSpec>(
-    state: &'a BeaconState<T>,
+pub fn deposit_signature_set<'a>(
     pubkey_signature_message: &'a (PublicKey, Signature, Vec<u8>),
     spec: &'a ChainSpec,
 ) -> SignatureSet<'a> {
@@ -213,9 +212,12 @@ pub fn deposit_signature_set<'a, T: EthSpec>(
 
     // Note: Deposits are valid across forks, thus the deposit domain is computed
     // with the fork zeroed.
-    let domain = spec.get_domain(state.current_epoch(), Domain::Deposit, &Fork::default());
-
-    SignatureSet::single(signature, pubkey, message.clone(), domain)
+    SignatureSet::single(
+        signature,
+        pubkey,
+        message.clone(),
+        spec.get_deposit_domain(),
+    )
 }
 
 /// Returns a signature set that is valid if the `VoluntaryExit` was signed by the indicated
