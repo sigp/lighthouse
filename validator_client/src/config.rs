@@ -13,7 +13,7 @@ use types::{
     EthSpec, MainnetEthSpec,
 };
 
-pub use rest_api::config::ApiEncodingFormat;
+use rest_api::config::ApiEncodingFormat;
 
 pub const DEFAULT_SERVER: &str = "localhost";
 pub const DEFAULT_SERVER_GRPC_PORT: &str = "5051";
@@ -42,11 +42,6 @@ pub enum ServerType {
     REST,
 }
 
-impl From<BeaconNodeError> for ValidatorError {
-    fn from(e: BeaconNodeError) -> ValidatorError {
-        ValidatorError::BeaconNodeError(e)
-    }
-}
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Config {

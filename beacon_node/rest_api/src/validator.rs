@@ -104,7 +104,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
     // Look up duties for each validator
     for val_pk in validators {
         let mut duty = ValidatorDuty::new();
-        duty.validator_pubkey = val_pk;
+        duty.validator_pubkey = val_pk.clone();
 
         // Get the validator index
         // If it does not exist in the index, just add a null duty and move on.
@@ -211,16 +211,9 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
     Box::new(body
         .concat2()
         .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}",e)))
-        .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
         .and_then(|chunks| {
-
-            serde_json::from_slice(&chunks.as_slice())
-        }).map_err(|e| {
-ApiError::BadRequest(format!(
-"Unable to deserialize JSON into a BeaconBlock: {:?}",
-e
-))
-    })
+            serde_json::from_slice(&chunks).map_err(|e| ApiError::BadRequest(format!("Unable to parse JSON into BeaconBlock: {:?}",e)))
+        })
         .and_then(move |block: BeaconBlock<T::EthSpec>| {
             let slot = block.slot;
             match beacon_chain.process_block(block.clone()) {

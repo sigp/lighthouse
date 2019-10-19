@@ -5,7 +5,7 @@ extern crate lazy_static;
 extern crate network as client_network;
 
 mod beacon;
-mod config;
+pub mod config;
 mod error;
 mod helpers;
 mod metrics;

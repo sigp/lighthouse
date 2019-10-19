@@ -11,6 +11,7 @@ use hyper::StatusCode;
 use itertools::Itertools;
 use rest_api::helpers::parse_pubkey;
 use rest_api::ValidatorDuty;
+use ssz::Decode;
 use std::collections::HashMap;
 use types::{AttestationDuty, BeaconBlock, Epoch, EthSpec, PublicKey, Signature, Slot};
 
@@ -49,7 +50,8 @@ impl<T: Connect> BeaconNodeDuties for ValidatorServiceRestClient<T> {
                         let duties: Vec<ValidatorDuty> = match self.client.config.api_encoding {
                             ApiEncodingFormat::JSON => serde_json::from_slice(&chunks.as_slice()),
                             ApiEncodingFormat::YAML => serde_yaml::from_slice(&chunks.as_slice()),
-                            ApiEncodingFormat::SSZ => ssz::from(&chunks.as_slice()),
+                            //TODO: Pretty sure the below doesn't work, cause it doesn't handle the vector.
+                            ApiEncodingFormat::SSZ => ValidatorDuty::from_ssz_bytes(&chunks.as_slice()),
                         };
                         duties.into_iter()
                     })
