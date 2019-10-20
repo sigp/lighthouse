@@ -3,11 +3,13 @@
 //! You can start a suitable instance using the `ganache_test_node.sh` script in the `scripts`
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
+use environment::{Environment, EnvironmentBuilder};
 use eth1::http::{
     get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
     Block, Log,
 };
-use eth1::{DepositCache, DepositLog, Eth1CacheBuilder};
+use eth1::{http::send_rpc_request, Config, Service};
+use eth1::{DepositCache, DepositLog};
 use eth1_test_rig::DepositContract;
 use futures::Future;
 use merkle_proof::verify_merkle_proof;
@@ -16,14 +18,38 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tree_hash::TreeHash;
-use types::{DepositData, Epoch, EthSpec, Fork, Hash256, Keypair, MainnetEthSpec, Signature};
+use types::{
+    DepositData, Epoch, EthSpec, Fork, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, Signature,
+};
 
 const ENDPOINT: &str = "http://localhost:8545";
 const DEPOSIT_CONTRACT_TREE_DEPTH: usize = 32;
 
+pub fn new_env() -> Environment<MinimalEthSpec> {
+    EnvironmentBuilder::minimal()
+        .tokio_runtime()
+        .expect("should start tokio runtime")
+        .null_logger()
+        .expect("should start null logger")
+        .build()
+        .expect("should build env")
+}
+
+/*
 fn runtime() -> Runtime {
     Runtime::new().expect("should create runtime")
 }
+
+pub fn logger() -> Logger {
+    let log_builder = NullLoggerBuilder;
+    self.log = Some(
+        log_builder
+            .build()
+            .map_err(|e| format!("Failed to start null logger: {:?}", e))?,
+    );
+    Ok(self)
+}
+*/
 
 fn timeout() -> Duration {
     Duration::from_secs(1)
@@ -51,14 +77,16 @@ fn random_deposit_data() -> DepositData {
 
 /// Blocking operation to get the block number from `ENDPOINT`.
 fn blocking_block_number() -> u64 {
-    runtime()
+    new_env()
+        .runtime()
         .block_on(get_block_number(ENDPOINT, timeout()))
         .expect("should get block number")
 }
 
 /// Blocking operation to get the deposit logs from the `deposit_contract`.
 fn blocking_deposit_logs(deposit_contract: &DepositContract, range: Range<u64>) -> Vec<Log> {
-    runtime()
+    new_env()
+        .runtime()
         .block_on(get_deposit_logs_in_range(
             ENDPOINT,
             &deposit_contract.address(),
@@ -70,7 +98,8 @@ fn blocking_deposit_logs(deposit_contract: &DepositContract, range: Range<u64>) 
 
 /// Blocking operation to get the deposit root from the `deposit_contract`.
 fn blocking_deposit_root(deposit_contract: &DepositContract, block_number: u64) -> Option<Hash256> {
-    runtime()
+    new_env()
+        .runtime()
         .block_on(get_deposit_root(
             ENDPOINT,
             &deposit_contract.address(),
@@ -82,7 +111,8 @@ fn blocking_deposit_root(deposit_contract: &DepositContract, block_number: u64) 
 
 /// Blocking operation to get the deposit count from the `deposit_contract`.
 fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64) -> Option<u64> {
-    runtime()
+    new_env()
+        .runtime()
         .block_on(get_deposit_count(
             ENDPOINT,
             &deposit_contract.address(),
@@ -94,11 +124,11 @@ fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64)
 
 mod eth1_cache {
     use super::*;
-    use eth1::{http::send_rpc_request, update_block_cache};
     use serde_json::json;
 
     pub fn advance_block() {
-        runtime()
+        new_env()
+            .runtime()
             .block_on(send_rpc_request(
                 &ENDPOINT,
                 "evm_mine",
@@ -110,7 +140,9 @@ mod eth1_cache {
 
     #[test]
     fn simple_scenario() {
-        let mut runtime = runtime();
+        let mut env = new_env();
+        let log = env.core_log();
+        let runtime = env.runtime();
 
         for follow_distance in 0..2 {
             let deposit_contract =
@@ -118,12 +150,25 @@ mod eth1_cache {
 
             let initial_block_number = blocking_block_number() - follow_distance;
 
+            let service = Service::new(
+                Config {
+                    endpoint: ENDPOINT.to_string(),
+                    deposit_contract_address: deposit_contract.address(),
+                    lowest_cached_block_number: initial_block_number,
+                    follow_distance,
+                    ..Config::default()
+                },
+                log.clone(),
+            );
+
+            /*
             let cache = Arc::new(
                 Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
                     .initial_eth1_block(initial_block_number)
                     .eth1_follow_distance(follow_distance)
                     .build(),
             );
+            */
 
             // Create some blocks and then consume them, performing the test `rounds` times.
             for round in 0..2 {
@@ -132,8 +177,10 @@ mod eth1_cache {
                 let initial = if round == 0 {
                     initial_block_number
                 } else {
-                    cache
-                        .latest_block_number()
+                    service
+                        .blocks()
+                        .read()
+                        .highest_block_number()
                         .expect("should have a latest block after the first round")
                 };
 
@@ -142,19 +189,19 @@ mod eth1_cache {
                 }
 
                 runtime
-                    .block_on(update_block_cache(cache.clone()))
+                    .block_on(service.update_block_cache())
                     .expect("should update cache");
 
                 runtime
-                    .block_on(update_block_cache(cache.clone()))
+                    .block_on(service.update_block_cache())
                     .expect("should update cache when nothing has changed");
 
                 assert!(
-                    cache.latest_block_number() >= Some(initial + blocks),
+                    service.blocks().read().highest_block_number() >= Some(initial + blocks),
                     "should update {} blocks in round {}. cache: {:?}, expected: {:?}",
                     blocks,
                     round,
-                    cache.latest_block_number(),
+                    service.blocks().read().highest_block_number(),
                     Some(initial + blocks)
                 );
             }
@@ -164,13 +211,28 @@ mod eth1_cache {
     /// Tests the case where we attempt to download more blocks than will fit in the cache.
     #[test]
     fn big_skip() {
-        let mut runtime = runtime();
+        let mut env = new_env();
+        let log = env.core_log();
+        let runtime = env.runtime();
 
         let deposit_contract =
             DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
 
         let cache_len = 4;
 
+        let service = Service::new(
+            Config {
+                endpoint: ENDPOINT.to_string(),
+                deposit_contract_address: deposit_contract.address(),
+                lowest_cached_block_number: blocking_block_number(),
+                follow_distance: 0,
+                block_cache_truncation: Some(cache_len),
+                ..Config::default()
+            },
+            log,
+        );
+
+        /*
         let cache = Arc::new(
             Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
                 .initial_eth1_block(blocking_block_number())
@@ -178,6 +240,7 @@ mod eth1_cache {
                 .target_block_cache_len(cache_len)
                 .build(),
         );
+        */
 
         let blocks = cache_len * 2;
 
@@ -186,11 +249,11 @@ mod eth1_cache {
         }
 
         runtime
-            .block_on(update_block_cache(cache.clone()))
+            .block_on(service.update_block_cache())
             .expect("should update cache");
 
         assert_eq!(
-            cache.block_cache_len(),
+            service.block_cache_len(),
             cache_len,
             "should not grow cache beyond target"
         );
@@ -200,13 +263,28 @@ mod eth1_cache {
     /// cache size.
     #[test]
     fn pruning() {
-        let mut runtime = runtime();
+        let mut env = new_env();
+        let log = env.core_log();
+        let runtime = env.runtime();
 
         let deposit_contract =
             DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
 
         let cache_len = 4;
 
+        let service = Service::new(
+            Config {
+                endpoint: ENDPOINT.to_string(),
+                deposit_contract_address: deposit_contract.address(),
+                lowest_cached_block_number: blocking_block_number(),
+                follow_distance: 0,
+                block_cache_truncation: Some(cache_len),
+                ..Config::default()
+            },
+            log,
+        );
+
+        /*
         let cache = Arc::new(
             Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
                 .initial_eth1_block(blocking_block_number())
@@ -214,18 +292,19 @@ mod eth1_cache {
                 .target_block_cache_len(cache_len)
                 .build(),
         );
+        */
 
         for _ in 0..4 {
             for _ in 0..cache_len / 2 {
                 advance_block()
             }
             runtime
-                .block_on(update_block_cache(cache.clone()))
+                .block_on(service.update_block_cache())
                 .expect("should update cache");
         }
 
         assert_eq!(
-            cache.block_cache_len(),
+            service.block_cache_len(),
             cache_len,
             "should not grow cache beyond target"
         );
@@ -233,45 +312,80 @@ mod eth1_cache {
 
     #[test]
     fn double_update() {
-        let mut runtime = runtime();
+        let mut env = new_env();
+        let log = env.core_log();
+        let runtime = env.runtime();
+
         let n = 16;
 
         let deposit_contract =
             DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
 
+        let service = Service::new(
+            Config {
+                endpoint: ENDPOINT.to_string(),
+                deposit_contract_address: deposit_contract.address(),
+                lowest_cached_block_number: blocking_block_number(),
+                follow_distance: 0,
+                ..Config::default()
+            },
+            log,
+        );
+
+        /*
         let cache = Arc::new(
             Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
                 .initial_eth1_block(blocking_block_number())
                 .eth1_follow_distance(0)
                 .build(),
         );
+        */
 
         for _ in 0..n {
             advance_block()
         }
 
         runtime
-            .block_on(update_block_cache(cache.clone()).join(update_block_cache(cache.clone())))
+            .block_on(
+                service
+                    .update_block_cache()
+                    .join(service.update_block_cache()),
+            )
             .expect("should perform two simultaneous updates");
 
-        assert!(cache.block_cache_len() >= n, "should grow the cache");
+        assert!(service.block_cache_len() >= n, "should grow the cache");
     }
 }
 
+/*
 mod deposit_tree {
     use super::*;
-    use eth1::update_deposit_cache;
 
     #[test]
     fn updating() {
+        let env = new_env();
+        let mut runtime = env.runtime();
+        let log = env.core_log();
+
         let n = 4;
-        let mut runtime = runtime();
 
         let start_block = blocking_block_number();
 
         let deposit_contract =
             DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
 
+        let service = Service::new(
+            Config {
+                endpoint: ENDPOINT.to_string(),
+                deposit_contract_address: deposit_contract.address(),
+                deposit_contract_deploy_block: start_block,
+                follow_distance: 0,
+                ..Config::default()
+            },
+            log,
+        );
+
+        /*
         let cache = Arc::new(
             Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
                 .initial_eth1_block(start_block)
@@ -279,6 +393,7 @@ mod deposit_tree {
                 .eth1_follow_distance(0)
                 .build(),
         );
+        */
 
         for round in 0..3 {
             let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
@@ -290,11 +405,11 @@ mod deposit_tree {
             }
 
             runtime
-                .block_on(update_deposit_cache(cache.clone()))
+                .block_on(service.update_deposit_cache())
                 .expect("should perform update");
 
             runtime
-                .block_on(update_deposit_cache(cache.clone()))
+                .block_on(service.update_deposit_cache())
                 .expect("should perform update when nothing has changed");
 
             let first = n * round;
@@ -445,12 +560,15 @@ mod deposit_tree {
     }
 }
 
+*/
+
 /// Tests for the base HTTP requests and response handlers.
 mod http {
     use super::*;
 
     fn blocking_block_hash(block_number: u64) -> Block {
-        runtime()
+        new_env()
+            .runtime()
             .block_on(get_block(ENDPOINT, block_number, timeout()))
             .expect("should get block number")
     }

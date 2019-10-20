@@ -1,7 +1,4 @@
-use crate::http::Block;
-use std::convert::TryFrom;
 use std::ops::RangeInclusive;
-use std::time::Duration;
 use types::{Eth1Data, Hash256};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -13,10 +10,10 @@ pub enum Error {
         target_secs: u64,
         known_blocks: usize,
     },
-    /// Some `Eth1Snapshot` was provided with the same block number but different data. The source
+    /// Some `Eth1Block` was provided with the same block number but different data. The source
     /// of eth1 data is inconsistent.
     Conflicting(u64),
-    /// The given snapshot was not one block number higher than the higest known block number.
+    /// The given block was not one block number higher than the higest known block number.
     NonConsecutive { given: u64, expected: u64 },
     /// The given block number is too large to fit in a usize.
     BlockNumberTooLarge(u64),
@@ -24,46 +21,54 @@ pub enum Error {
     Internal(String),
 }
 
-/// A snapshot of the eth1 chain.
+/// A block of the eth1 chain.
 ///
 /// Contains all information required to add a `BlockCache` entry.
 #[derive(Debug, PartialEq, Clone)]
-struct Eth1Snapshot {
-    pub block: Block,
-    pub deposit_root: Hash256,
-    pub deposit_count: u64,
+pub struct Eth1Block {
+    pub hash: Hash256,
+    pub timestamp: u64,
+    pub number: u64,
+    pub deposit_root: Option<Hash256>,
+    pub deposit_count: Option<u64>,
 }
 
-impl Into<Eth1Data> for Eth1Snapshot {
-    fn into(self) -> Eth1Data {
-        Eth1Data {
-            deposit_root: self.deposit_root,
-            deposit_count: self.deposit_count,
-            block_hash: self.block.hash,
-        }
+impl Eth1Block {
+    pub fn eth1_data(self) -> Option<Eth1Data> {
+        Some(Eth1Data {
+            deposit_root: self.deposit_root?,
+            deposit_count: self.deposit_count?,
+            block_hash: self.hash,
+        })
     }
 }
 
 /// Stores block and deposit contract information and provides queries based upon the block
 /// timestamp.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub struct BlockCache {
-    items: Vec<Eth1Snapshot>,
-    offset: usize,
+    blocks: Vec<Eth1Block>,
 }
 
 impl BlockCache {
-    /// Returns a new, empty cache.
-    pub fn new(offset: usize) -> Self {
-        Self {
-            items: vec![],
-            offset: offset,
-        }
-    }
-
     /// Returns the number of blocks stored in `self`.
     pub fn len(&self) -> usize {
-        self.items.len()
+        self.blocks.len()
+    }
+
+    /// Returns the highest block number stored.
+    pub fn highest_block_number(&self) -> Option<u64> {
+        self.blocks.last().map(|block| block.number)
+    }
+
+    /// Returns an iterator over all blocks.
+    ///
+    /// Blocks will be returned with:
+    ///
+    /// - Monotically increase block numbers.
+    /// - Non-uniformly increasing block timestamps.
+    pub fn iter(&self) -> impl Iterator<Item = &Eth1Block> {
+        self.blocks.iter()
     }
 
     /// Shortens the cache, keeping the latest `len` blocks and dropping the rest.
@@ -72,46 +77,126 @@ impl BlockCache {
     ///
     /// Providing `len == 0` is a no-op.
     pub fn truncate(&mut self, len: usize) {
-        if (len != 0) && len < self.items.len() {
-            self.items = self.items.split_off(self.items.len() - len);
-            self.offset = self
-                .items
-                .first()
-                .expect("cannot shrink to empty")
-                .block
-                .number as usize;
+        if (len != 0) && len < self.blocks.len() {
+            self.blocks = self.blocks.split_off(self.blocks.len() - len);
         }
     }
 
     /// Returns the range of block numbers stored in the block cache. All blocks in this range can
     /// be accessed.
+    fn available_block_numbers(&self) -> Option<RangeInclusive<u64>> {
+        Some(self.blocks.first()?.number..=self.blocks.last()?.number)
+    }
+
+    /// Returns a block with the corresponding number, if any.
+    pub fn block_by_number(&self, target: u64) -> Option<&Eth1Block> {
+        self.blocks.get(self.block_index_by_block_number(target)?)
+    }
+
+    /// Returns a block with the corresponding number, if any.
+    fn block_index_by_block_number(&self, target: u64) -> Option<usize> {
+        self.blocks
+            .as_slice()
+            .binary_search_by(|block| block.number.cmp(&target))
+            .ok()
+    }
+
+    /// Insert an `Eth1Snapshot` into `self`, allowing future queries.
+    ///
+    /// Allows inserting either:
+    ///
+    /// - The root block (i.e., any block if there are no existing blocks), or,
+    /// - An immediate child of the most recent (highest block number) block.
+    ///
+    /// ## Errors
+    ///
+    /// - If the cache is not empty and `item.block.block_number - 1` is not already in `self`.
+    /// - If `item.block.block_number` is in `self`, but is not identical to the supplied
+    /// `Eth1Snapshot`.
+    /// - If `item.block.timestamp` is prior to the parent.
+    pub fn insert_root_or_child(&mut self, block: Eth1Block) -> Result<(), Error> {
+        let expected_block_number = self
+            .highest_block_number()
+            .map(|n| n + 1)
+            .unwrap_or_else(|| block.number);
+
+        // If there are already some cached blocks, check to see if the new block number is one of
+        // them.
+        //
+        // If the block is already known, check to see the given block is identical to it. If not,
+        // raise an inconsistency error. This is mostly likely caused by some fork on the eth1
+        // chain.
+        if let Some(local) = self.available_block_numbers() {
+            if local.contains(&block.number) {
+                let known_block = self.block_by_number(block.number).ok_or_else(|| {
+                    Error::Internal("An expected block was not present".to_string())
+                })?;
+
+                if known_block == &block {
+                    return Ok(());
+                } else {
+                    return Err(Error::Conflicting(block.number));
+                };
+            }
+        }
+
+        // Only permit blocks when it's either:
+        //
+        // - The first block inserted.
+        // - Exactly only block number higher than the highest known block number.
+        if block.number != expected_block_number {
+            return Err(Error::NonConsecutive {
+                given: block.number,
+                expected: expected_block_number,
+            });
+        }
+
+        // If the block is not the first block inserted, ensure that it's timestamp is not higher
+        // than it's parents.
+        if let Some(previous_block) = self.blocks.last() {
+            if previous_block.timestamp > block.timestamp {
+                return Err(Error::InconsistentTimestamp {
+                    parent: previous_block.timestamp,
+                    child: block.timestamp,
+                });
+            }
+        }
+
+        self.blocks.push(block);
+
+        Ok(())
+    }
+
+    /*
+    /// Returns the range of block numbers stored in the block cache. All blocks in this range can
+    /// be accessed.
     pub fn available_block_numbers(&self) -> Option<RangeInclusive<u64>> {
-        Some(self.items.first()?.block.number..=self.items.last()?.block.number)
+        Some(self.blocks.first()?.block_number..=self.blocks.last()?.block.number)
     }
 
     /// Returns the block number one higher than the highest currently stored.
     ///
     /// Returns `0` if there are no blocks stored.
     pub fn next_block_number(&self) -> u64 {
-        (self.offset + self.items.len()) as u64
+        (self.offset + self.blocks.len()) as u64
     }
 
-    /// Fetches an `Eth1Snapshot` by block number.
-    fn get(&self, block_number: u64) -> Option<&Eth1Snapshot> {
+    /// Fetches an `Eth1Block` by block number.
+    fn get(&self, block_number: u64) -> Option<&Eth1Block> {
         let i = usize::try_from(block_number)
             .ok()?
             .checked_sub(self.offset)?;
-        self.items.get(i)
+        self.blocks.get(i)
     }
 
-    /// Returns the index of the first `Eth1Snapshot` that is lower than the given `target` time
+    /// Returns the index of the first `Eth1Block` that is lower than the given `target` time
     /// (assumed to be duration since unix epoch), if any.
     ///
     /// If there are blocks with duplicate timestamps, the block with the highest number is
     /// preferred.
     fn index_at_time(&self, target: Duration) -> Option<usize> {
-        let search = self.items.as_slice().binary_search_by(|snapshot| {
-            Duration::from_secs(snapshot.block.timestamp).cmp(&target)
+        let search = self.blocks.as_slice().binary_search_by(|block| {
+            Duration::from_secs(block.block.timestamp).cmp(&target)
         });
 
         let index = match search {
@@ -121,7 +206,7 @@ impl BlockCache {
             // This handles the case where blocks have matching timestamps. Whilst this _shouldn't_
             // be possible in mainnet ethereum, it has been seen when testing with ganache.
             Ok(mut i) => loop {
-                match self.items.get(i + 1) {
+                match self.blocks.get(i + 1) {
                     Some(next) if Duration::from_secs(next.block.timestamp) == target => i += 1,
                     None | Some(_) => break i,
                 }
@@ -129,9 +214,9 @@ impl BlockCache {
             Err(i) => i.saturating_sub(1),
         };
 
-        let snapshot = self.items.get(index)?;
+        let block = self.blocks.get(index)?;
 
-        if Duration::from_secs(snapshot.block.timestamp) <= target {
+        if Duration::from_secs(block.block.timestamp) <= target {
             Some(index)
         } else {
             None
@@ -144,7 +229,7 @@ impl BlockCache {
     ///
     /// Assumes `target` is a duration since unix epoch.
     pub fn eth1_data_at_time(&self, target: Duration) -> Option<Eth1Data> {
-        self.items
+        self.blocks
             .get(self.index_at_time(target)?)
             .cloned()
             .map(Into::into)
@@ -168,24 +253,24 @@ impl BlockCache {
                 .index_at_time(target)
                 .ok_or_else(|| Error::NoBlockForTarget {
                     target_secs: target.as_secs(),
-                    known_blocks: self.items.len(),
+                    known_blocks: self.blocks.len(),
                 })?;
             let first = last.saturating_sub(max_count.saturating_sub(1));
 
-            self.items
+            self.blocks
                 .get(first..=last)
                 .ok_or_else(|| Error::Internal("Inconsistent items length".into()))
                 .map(|items| items.into_iter().cloned().map(Into::into).collect())
         }
     }
 
-    /// Insert an `Eth1Snapshot` into `self`, allowing future queries.
+    /// Insert an `Eth1Block` into `self`, allowing future queries.
     ///
     /// ## Errors
     ///
     /// - If `item.block.block_number - 1` is not already in `self`.
     /// - If `item.block.block_number` is in `self`, but is not identical to the supplied
-    /// `Eth1Snapshot`.
+    /// `Eth1Block`.
     /// - If `item.block.timestamp` is prior to the parent.
     pub fn insert(
         &mut self,
@@ -193,7 +278,7 @@ impl BlockCache {
         deposit_root: Hash256,
         deposit_count: u64,
     ) -> Result<(), Error> {
-        let item = Eth1Snapshot {
+        let item = Eth1Block {
             block,
             deposit_root,
             deposit_count,
@@ -209,7 +294,7 @@ impl BlockCache {
             // Add the item, set the offset.
             (n, _, None) => {
                 self.offset = usize::try_from(n).map_err(|_| Error::BlockNumberTooLarge(n))?;
-                self.items.push(item);
+                self.blocks.push(item);
                 Ok(())
             }
             // There are items in `self` and the item is the next item.
@@ -221,7 +306,7 @@ impl BlockCache {
                     .last()
                     .ok_or_else(|| Error::Internal("Previous item should exist".into()))?;
                 if previous.block.timestamp <= item.block.timestamp {
-                    self.items.push(item);
+                    self.blocks.push(item);
                     Ok(())
                 } else {
                     Err(Error::InconsistentTimestamp {
@@ -253,44 +338,43 @@ impl BlockCache {
             }),
         }
     }
+    */
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn get_snapshot(i: u64, interval_secs: u64) -> Eth1Snapshot {
-        Eth1Snapshot {
-            block: Block {
-                hash: Hash256::from_low_u64_be(i),
-                timestamp: i * interval_secs,
-                number: i,
-            },
-            deposit_root: Hash256::from_low_u64_be(i << 32),
-            deposit_count: i,
+    fn get_block(i: u64, interval_secs: u64) -> Eth1Block {
+        Eth1Block {
+            hash: Hash256::from_low_u64_be(i),
+            timestamp: i * interval_secs,
+            number: i,
+            deposit_root: Some(Hash256::from_low_u64_be(i << 32)),
+            deposit_count: Some(i),
         }
     }
 
-    fn get_snapshots(n: usize, interval_secs: u64) -> Vec<Eth1Snapshot> {
+    fn get_blocks(n: usize, interval_secs: u64) -> Vec<Eth1Block> {
         (0..n as u64)
             .into_iter()
-            .map(|i| get_snapshot(i, interval_secs))
+            .map(|i| get_block(i, interval_secs))
             .collect()
     }
 
-    fn insert(cache: &mut BlockCache, s: Eth1Snapshot) -> Result<(), Error> {
-        cache.insert(s.block, s.deposit_root, s.deposit_count)
+    fn insert(cache: &mut BlockCache, s: Eth1Block) -> Result<(), Error> {
+        cache.insert_root_or_child(s)
     }
 
     #[test]
     fn truncate() {
         let n = 16;
-        let snapshots = get_snapshots(n, 10);
+        let blocks = get_blocks(n, 10);
 
-        let mut cache = BlockCache::new(0);
+        let mut cache = BlockCache::default();
 
-        for snapshot in snapshots {
-            insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
+        for block in blocks {
+            insert(&mut cache, block.clone()).expect("should add consecutive blocks");
         }
 
         for len in vec![1, 2, 3, 4, 8, 15, 16] {
@@ -298,17 +382,22 @@ mod tests {
 
             cache.truncate(len);
 
-            assert_eq!(cache.items.len(), len, "should truncate to length: {}", len);
+            assert_eq!(
+                cache.blocks.len(),
+                len,
+                "should truncate to length: {}",
+                len
+            );
         }
 
         let mut cache_2 = cache.clone();
         cache_2.truncate(0);
-        assert_eq!(cache_2.items.len(), n, "truncate to 0 should be a no-op");
+        assert_eq!(cache_2.blocks.len(), n, "truncate to 0 should be a no-op");
 
         let mut cache_2 = cache.clone();
         cache_2.truncate(17);
         assert_eq!(
-            cache_2.items.len(),
+            cache_2.blocks.len(),
             n,
             "truncate to larger than n should be a no-op"
         );
@@ -317,54 +406,76 @@ mod tests {
     #[test]
     fn inserts() {
         let n = 16;
-        let snapshots = get_snapshots(n, 10);
+        let blocks = get_blocks(n, 10);
 
-        let mut cache = BlockCache::new(0);
+        let mut cache = BlockCache::default();
 
-        for snapshot in snapshots {
-            insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
+        for block in blocks {
+            insert(&mut cache, block.clone()).expect("should add consecutive blocks");
         }
 
-        // No error for re-adding a snapshot identical to one that exists.
-        assert!(insert(&mut cache, get_snapshot(n as u64 - 1, 10)).is_ok());
+        // No error for re-adding a block identical to one that exists.
+        dbg!(insert(&mut cache, get_block(n as u64 - 1, 10)));
+        assert!(insert(&mut cache, get_block(n as u64 - 1, 10)).is_ok());
 
-        // Error for re-adding a snapshot that is different to the one that exists.
-        assert!(insert(&mut cache, get_snapshot(n as u64 - 1, 11)).is_err());
+        // Error for re-adding a block that is different to the one that exists.
+        assert!(insert(&mut cache, get_block(n as u64 - 1, 11)).is_err());
 
-        // Error for adding non-consecutive snapshots.
-        assert!(insert(&mut cache, get_snapshot(n as u64 + 1, 10)).is_err());
-        assert!(insert(&mut cache, get_snapshot(n as u64 + 2, 10)).is_err());
+        // Error for adding non-consecutive blocks.
+        assert!(insert(&mut cache, get_block(n as u64 + 1, 10)).is_err());
+        assert!(insert(&mut cache, get_block(n as u64 + 2, 10)).is_err());
 
         // Error for adding timestamp prior to previous.
-        assert!(insert(&mut cache, get_snapshot(n as u64, 1)).is_err());
+        assert!(insert(&mut cache, get_block(n as u64, 1)).is_err());
         // Double check to make sure previous test was only affected by timestamp.
-        assert!(insert(&mut cache, get_snapshot(n as u64, 10)).is_ok());
+        assert!(insert(&mut cache, get_block(n as u64, 10)).is_ok());
     }
 
     #[test]
     fn duplicate_timestamp() {
-        let mut snapshots = get_snapshots(7, 10);
+        let mut blocks = get_blocks(7, 10);
 
-        snapshots[0].block.timestamp = 0;
-        snapshots[1].block.timestamp = 10;
-        snapshots[2].block.timestamp = 10;
-        snapshots[3].block.timestamp = 20;
-        snapshots[4].block.timestamp = 30;
-        snapshots[5].block.timestamp = 40;
-        snapshots[6].block.timestamp = 40;
+        blocks[0].timestamp = 0;
+        blocks[1].timestamp = 10;
+        blocks[2].timestamp = 10;
+        blocks[3].timestamp = 20;
+        blocks[4].timestamp = 30;
+        blocks[5].timestamp = 40;
+        blocks[6].timestamp = 40;
 
-        let mut cache = BlockCache::new(0);
+        let mut cache = BlockCache::default();
 
-        for snapshot in &snapshots {
-            insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
+        for block in &blocks {
+            insert(&mut cache, block.clone())
+                .expect("should add consecutive blocks with duplicate timestamps");
+        }
+    }
+
+    /*
+    #[test]
+    fn duplicate_timestamp() {
+        let mut blocks = get_blocks(7, 10);
+
+        blocks[0].timestamp = 0;
+        blocks[1].timestamp = 10;
+        blocks[2].timestamp = 10;
+        blocks[3].timestamp = 20;
+        blocks[4].timestamp = 30;
+        blocks[5].timestamp = 40;
+        blocks[6].timestamp = 40;
+
+        let mut cache = BlockCache::default();
+
+        for block in &blocks {
+            insert(&mut cache, block.clone()).expect("should add consecutive blocks");
         }
 
-        // Ensures that the given `target` finds the snapsnot at `snapshots[i]`.
+        // Ensures that the given `target` finds the snapsnot at `blocks[i]`.
         let do_test = |target, i: usize| {
             assert_eq!(
                 cache.get_eth1_data_ancestors(target, 1),
-                Ok(vec![snapshots[i].clone().into()]),
-                "should find snapshot {} for timestamp {}",
+                Ok(vec![blocks[i].clone().into()]),
+                "should find block {} for timestamp {}",
                 i,
                 target.as_secs()
             );
@@ -376,24 +487,26 @@ mod tests {
         do_test(Duration::from_secs(30), 4);
         do_test(Duration::from_secs(40), 6);
     }
+    */
 
+    /*
     #[test]
-    fn snapshot_at_time_valid() {
+    fn block_at_time_valid() {
         let n = 16;
         let duration = 10;
-        let snapshots = get_snapshots(n, duration);
+        let blocks = get_blocks(n, duration);
 
-        let mut cache = BlockCache::new(0);
+        let mut cache = BlockCache::default();
 
-        for snapshot in snapshots {
-            insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
+        for block in blocks {
+            insert(&mut cache, block.clone()).expect("should add consecutive blocks");
         }
 
         for i in 0..n as u64 {
             // Should find exact match when times match.
             assert_eq!(
                 cache.eth1_data_at_time(Duration::from_secs(i * duration)),
-                Some(get_snapshot(i, 10).into()),
+                Some(get_block(i, 10).into()),
                 "should find eth1 data with exact time for {}",
                 i
             );
@@ -401,7 +514,7 @@ mod tests {
             // Should find prior when searching between times (low duration).
             assert_eq!(
                 cache.eth1_data_at_time(Duration::from_secs(i * duration + 1)),
-                Some(get_snapshot(i, 10).into()),
+                Some(get_block(i, 10).into()),
                 "should find prior low eth1 data when searching between durations for  {}",
                 i
             );
@@ -409,7 +522,7 @@ mod tests {
             // Should find prior when searching between times (high duration).
             assert_eq!(
                 cache.eth1_data_at_time(Duration::from_secs((i + 1) * duration - 1)),
-                Some(get_snapshot(i, 10).into()),
+                Some(get_block(i, 10).into()),
                 "should find prior high eth1 data when searching between durations for  {}",
                 i
             );
@@ -417,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_at_time_invalid() {
+    fn block_at_time_invalid() {
         let x = 2;
         let duration = 10;
 
@@ -426,7 +539,7 @@ mod tests {
         // Should return none on empty cache.
         assert!(cache.eth1_data_at_time(Duration::from_secs(x)).is_none());
 
-        insert(&mut cache, get_snapshot(x, duration)).expect("should add first snapshot");
+        insert(&mut cache, get_block(x, duration)).expect("should add first block");
 
         // Should return none for prior time.
         assert!(cache
@@ -435,20 +548,20 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_ancestors_valid() {
+    fn block_ancestors_valid() {
         let n = 16;
         let duration = 10;
-        let snapshots = get_snapshots(n, duration);
+        let blocks = get_blocks(n, duration);
 
         let mut cache = BlockCache::new(0);
 
-        for snapshot in &snapshots {
-            insert(&mut cache, snapshot.clone()).expect("should add consecutive snapshots");
+        for block in &blocks {
+            insert(&mut cache, block.clone()).expect("should add consecutive blocks");
         }
 
         for i in 0..n as u64 {
             for max_count in 0..i as usize {
-                let ancestors: Vec<Eth1Data> = snapshots[0..=i as usize]
+                let ancestors: Vec<Eth1Data> = blocks[0..=i as usize]
                     .iter()
                     .rev()
                     .take(max_count)
@@ -491,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_ancestors_invalid() {
+    fn block_ancestors_invalid() {
         let x = 2;
         let duration = 10;
 
@@ -502,11 +615,12 @@ mod tests {
             .get_eth1_data_ancestors(Duration::from_secs(x), 1)
             .is_err());
 
-        insert(&mut cache, get_snapshot(x, duration)).expect("should add first snapshot");
+        insert(&mut cache, get_block(x, duration)).expect("should add first block");
 
         // Should return error for prior time.
         assert!(cache
             .get_eth1_data_ancestors(Duration::from_secs((x - 1) * duration), 1)
             .is_err());
     }
+    */
 }

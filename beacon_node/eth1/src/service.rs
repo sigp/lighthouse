@@ -1,15 +1,24 @@
-use crate::block_cache::{BlockCache, Error as BlockCacheError};
-use crate::deposit_cache::{DepositCache, DepositLog, Error as DepositCacheError};
-use crate::http::{
-    get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
-    Block,
+use crate::{
+    block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
+    deposit_cache::{DepositCache, Error as DepositCacheError},
+    http::{
+        get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range,
+        get_deposit_root, Block as HttpBlock,
+    },
+    inner::{DepositUpdater, Inner},
+    DepositLog,
 };
-use futures::{prelude::*, stream, Future};
+use futures::{stream, Future, Stream};
+use slog::{debug, error, Logger};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::runtime::TaskExecutor;
+use tokio::timer::Interval;
+use types::Address;
+// use futures::{prelude::*, stream, Future};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::ops::{Range, RangeInclusive};
-use std::sync::Arc;
-use std::time::Duration;
 use types::{Deposit, DepositData, Hash256};
 
 const BLOCKS_PER_LOG_QUERY: usize = 10;
@@ -62,7 +71,7 @@ pub enum BlockCacheUpdateOutcome {
     /// The cache was sucessfully updated.
     Success {
         blocks_imported: usize,
-        head_block_number: u64,
+        head_block_number: Option<u64>,
     },
 }
 
@@ -72,205 +81,161 @@ pub enum DepositCacheUpdateOutcome {
     /// The cache was sucessfully updated.
     Success { logs_imported: usize },
 }
-
-/// The preferred method for instantiating an `Eth1Cache`.
-pub struct Eth1CacheBuilder {
-    endpoint: String,
-    deposit_contract_address: String,
-    initial_eth1_block: u64,
-    eth1_follow_distance: u64,
-    target_block_cache_len: usize,
-    deposit_log_start_block: u64,
+pub struct Config {
+    /// An Eth1 node (e.g., Geth) running a HTTP JSON-RPC endpoint.
+    pub endpoint: String,
+    /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
+    pub deposit_contract_address: String,
+    /// Defines the first block that the `DepositCache` will start searching for deposit logs.
+    ///
+    /// Setting too high can result in missed logs. Setting too low will result in unnecessary
+    /// calls to the Eth1 node's HTTP JSON RPC.
+    pub deposit_contract_deploy_block: u64,
+    /// Defines the lowest block number that should be downloaded and added to the `BlockCache`.
+    pub lowest_cached_block_number: u64,
+    /// Defines how far behind the Eth1 node's head we should follow.
+    pub follow_distance: u64,
+    /// Defines the number of blocks that should be retained each time the `BlockCache` calls truncate on
+    /// itself.
+    pub block_cache_truncation: Option<usize>,
 }
 
-impl Eth1CacheBuilder {
-    /// Creates a new builder with defaults.
-    pub fn new(endpoint: String, deposit_contract_address: String) -> Self {
+impl Default for Config {
+    fn default() -> Self {
         Self {
-            endpoint,
-            deposit_contract_address,
-            initial_eth1_block: 128,
-            eth1_follow_distance: 0,
-            target_block_cache_len: 2_048,
-            deposit_log_start_block: 0,
+            endpoint: "http://localhost:8545".into(),
+            deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
+            deposit_contract_deploy_block: 0,
+            lowest_cached_block_number: 0,
+            follow_distance: 128,
+            block_cache_truncation: Some(4_096),
         }
     }
+}
 
-    /// Sets the earliest block that will be downloaded to satisfy the `Eth1Data` cache.
-    ///
-    /// Failing to set this away from the default of `0` may result in the entire eth1 chain being
-    /// downloaded and stored in memory.
-    pub fn initial_eth1_block(mut self, initial_eth1_block: u64) -> Self {
-        self.initial_eth1_block = initial_eth1_block;
-        self
-    }
+#[derive(Clone)]
+pub struct Service {
+    inner: Arc<Inner>,
+    log: Logger,
+}
 
-    /// Sets the follow distance for the caches.
-    ///
-    /// Setting the value higher means waiting for more confirmations before importing Eth1 data.
-    /// Setting the value to `0` means we follow the head.
-    ///
-    /// Default `128`.
-    pub fn eth1_follow_distance(mut self, eth1_follow_distance: u64) -> Self {
-        self.eth1_follow_distance = eth1_follow_distance;
-        self
-    }
-
-    /// Defines how many blocks to store in the cache, prior to the `eth1_follow_distance`.
-    ///
-    /// Sometimes the cache may grow larger than this, but it will generally be kept at this size.
-    ///
-    /// Default `2_048`.
-    pub fn target_block_cache_len(mut self, len: usize) -> Self {
-        self.target_block_cache_len = len;
-        self
-    }
-
-    /// Sets the block that the deposit contract was deployed at. The cache will not search for
-    /// deposit logs any earlier than this block.
-    ///
-    /// Setting this too low will result in unnecessarily scanning blocks that will definitely not
-    /// have any useful information. Setting it too high will result in missing deposit logs.
-    ///
-    /// Default `0`.
-    pub fn deposit_contract_deploy_block(mut self, block_number: u64) -> Self {
-        self.deposit_log_start_block = block_number;
-        self
-    }
-
-    /// Consumers the builder and returns a new `Eth1Cache`.
-    pub fn build(self) -> Eth1Cache {
-        Eth1Cache {
-            endpoint: self.endpoint,
-            deposit_contract_address: self.deposit_contract_address,
-            block_cache: RwLock::new(BlockCache::new(self.initial_eth1_block as usize)),
-            follow_distance: self.eth1_follow_distance,
-            target_block_cache_len: self.target_block_cache_len,
-            deposit_cache: RwLock::new(DepositUpdater {
-                cache: DepositCache::new(),
-                next_required_block: self.deposit_log_start_block,
+impl Service {
+    pub fn new(config: Config, log: Logger) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                config: config,
+                ..Inner::default()
             }),
-        }
-    }
-}
-
-struct DepositUpdater {
-    cache: DepositCache,
-    next_required_block: u64,
-}
-
-/// Stores all necessary information for beacon chain block production, including choosing an
-/// `Eth1Data` for block production and gathering `Deposits` for inclusion in blocks.
-///
-/// Thread-safe and async.
-pub struct Eth1Cache {
-    endpoint: String,
-    deposit_contract_address: String,
-    block_cache: RwLock<BlockCache>,
-    follow_distance: u64,
-    target_block_cache_len: usize,
-    /// Stores the deposit cache and the block number that was the subject of the last update.
-    deposit_cache: RwLock<DepositUpdater>,
-}
-
-impl Eth1Cache {
-    /// Returns the block number of the latest block in the `Eth1Data` cache.
-    pub fn latest_block_number(&self) -> Option<u64> {
-        self.block_cache
-            .read()
-            .available_block_numbers()
-            .map(|r| *r.end())
-    }
-
-    /// Returns `(timestamp, block_number)` of the block that contained the most recent deposit in
-    /// the deposit cache.
-    pub fn latest_deposit_metadata(
-        &self,
-        timeout: Duration,
-    ) -> Box<dyn Future<Item = Option<(Duration, u64)>, Error = Error>> {
-        if let Some(block_number) = self.deposit_cache.read().cache.latest_block_number() {
-            Box::new(
-                get_block(&self.endpoint, block_number, timeout)
-                    .map(|block| Duration::from_secs(block.timestamp))
-                    .map(move |duration| Some((duration, block_number)))
-                    .map_err(|e| Error::Eth1RpcError(e)),
-            )
-        } else {
-            Box::new(futures::future::ok(None))
+            log,
         }
     }
 
-    /// Returns all blocks that are known to have a deposit.
-    pub fn known_deposit_blocks(&self) -> HashSet<u64> {
-        self.deposit_cache
-            .read()
-            .cache
-            .known_deposit_block_numbers()
-            .clone()
+    pub fn blocks(&self) -> &RwLock<BlockCache> {
+        &self.inner.block_cache
     }
 
-    /// Prunes the block cache to `self.target_block_cache_len`.
-    fn prune_blocks(&self) {
-        self.block_cache
-            .write()
-            .truncate(self.target_block_cache_len);
+    pub fn deposits(&self) -> &RwLock<DepositUpdater> {
+        &self.inner.deposit_cache
     }
 
     /// Returns the number of currently cached blocks.
     pub fn block_cache_len(&self) -> usize {
-        self.block_cache.read().len()
+        self.blocks().read().len()
     }
 
     /// Returns the number deposits available in the deposit cache.
     pub fn deposit_cache_len(&self) -> usize {
-        self.deposit_cache.read().cache.len()
+        self.deposits().read().cache.len()
     }
 
-    pub fn deposit_data_at_block(&self, block_number: u64) -> Vec<DepositData> {
-        self.deposit_cache
-            .read()
-            .cache
-            .iter()
-            .cloned()
-            .take_while(|log| log.block_number <= block_number)
-            .map(|log| log.deposit_data)
-            .collect()
-    }
-
-    /// Returns a list of `Deposit` objects, within the given deposit index `range`.
-    ///
-    /// The `deposit_count` is used to generate the proofs for the `Deposits`. For example, if we
-    /// have 100 proofs, but the eth2 chain only acknowledges 50 of them, we must produce our
-    /// proofs with respect to a tree size of 50.
-    ///
-    ///
-    /// ## Errors
-    ///
-    /// - If `deposit_count` is larger than `range.end`.
-    /// - There are not sufficient deposits in the tree to generate the proof.
-    pub fn get_deposits(
+    fn update_all_each_interval(
         &self,
-        range: Range<u64>,
-        deposit_count: u64,
-        tree_depth: usize,
-    ) -> Result<(Hash256, Vec<Deposit>), Error> {
-        self.deposit_cache
-            .read()
-            .cache
-            .get_deposits(range, deposit_count, tree_depth)
-            .map_err(|e| Error::FailedToGetDeposits(e))
+        update_interval: Duration,
+    ) -> impl Future<Item = (), Error = ()> {
+        let service = self.clone();
+
+        let log = service.log.clone();
+        let log_1 = service.log.clone();
+
+        Interval::new(Instant::now(), update_interval)
+            .map_err(move |e| {
+                error!(
+                    log,
+                    "Failed to start eth block cache update";
+                    "error" => format!("{:?}", e)
+                );
+            })
+            .for_each(move |_instant| {
+                let log_a = log_1.clone();
+                let log_b = log_1.clone();
+
+                let deposit_future = service
+                    .update_deposit_cache()
+                    .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
+                    .then(move |result| {
+                        match result {
+                            Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => debug!(
+                                log_a,
+                                "Updated eth1 deposit cache";
+                                "logs_imported" => logs_imported,
+                            ),
+                            Err(e) => error!(
+                                log_a,
+                                "Failed to update eth1 deposit cache";
+                                "error" => e
+                            ),
+                        };
+
+                        Ok(())
+                    });
+
+                let block_future = service
+                    .update_block_cache()
+                    .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
+                    .then(move |result| {
+                        match result {
+                            Ok(BlockCacheUpdateOutcome::Success {
+                                blocks_imported,
+                                head_block_number,
+                            }) => debug!(
+                                log_b,
+                                "Updated eth1 block cache";
+                                "blocks_imported" => blocks_imported,
+                                "head_block" => head_block_number,
+                            ),
+                            Err(e) => error!(
+                                log_b,
+                                "Failed to update eth1 block cache";
+                                "error" => e
+                            ),
+                        };
+
+                        Ok(())
+                    });
+
+                deposit_future.join(block_future).map(|_| ())
+            })
     }
-}
 
-pub fn update_deposit_cache<'a>(
-    cache: Arc<Eth1Cache>,
-) -> impl Future<Item = DepositCacheUpdateOutcome, Error = Error> + 'a + Send {
-    let cache_1 = cache.clone();
-    let cache_2 = cache.clone();
+    pub fn update_deposit_cache(
+        &self,
+    ) -> impl Future<Item = DepositCacheUpdateOutcome, Error = Error> {
+        let config = &self.inner.config;
+        let cache_1 = self.inner.clone();
+        let cache_2 = self.inner.clone();
 
-    let next_required_block = cache.deposit_cache.read().next_required_block;
+        let next_required_block = cache_1
+            .deposit_cache
+            .read()
+            .last_processed_block
+            .map(|n| n + 1)
+            .unwrap_or_else(|| config.deposit_contract_deploy_block);
 
-    get_new_block_numbers(&cache.endpoint, next_required_block, cache.follow_distance)
+        get_new_block_numbers(
+            &config.endpoint,
+            next_required_block,
+            config.follow_distance,
+        )
         .map(|range| {
             range
                 .map(|range| {
@@ -295,8 +260,8 @@ pub fn update_deposit_cache<'a>(
                         let chunk_1 = chunk.clone();
                         Some(
                             get_deposit_logs_in_range(
-                                &cache_1.endpoint,
-                                &cache_1.deposit_contract_address,
+                                &cache_1.config.endpoint,
+                                &cache_1.config.deposit_contract_address,
                                 chunk,
                                 Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
                             )
@@ -326,13 +291,14 @@ pub fn update_deposit_cache<'a>(
                             error,
                         }
                     })?;
+                    let block_number = deposit_log.block_number;
 
                     cache
                         .cache
                         .insert_log(deposit_log)
                         .map_err(|e| Error::FailedToInsertDeposit(e))?;
 
-                    cache.next_required_block += 1;
+                    cache.last_processed_block = Some(block_number);
 
                     sum += 1;
                 }
@@ -341,20 +307,28 @@ pub fn update_deposit_cache<'a>(
             })
             .map(|logs_imported| DepositCacheUpdateOutcome::Success { logs_imported })
         })
-}
+    }
 
-pub fn update_block_cache<'a>(
-    cache: Arc<Eth1Cache>,
-) -> impl Future<Item = BlockCacheUpdateOutcome, Error = Error> + 'a + Send {
-    // TODO: be a good boi and make these sequential.
-    let cache_2 = cache.clone();
-    let cache_3 = cache.clone();
-    let cache_4 = cache.clone();
-    let cache_5 = cache.clone();
+    pub fn update_block_cache(&self) -> impl Future<Item = BlockCacheUpdateOutcome, Error = Error> {
+        let config = &self.inner.config;
+        let cache_1 = self.inner.clone();
+        let cache_2 = self.inner.clone();
+        let cache_3 = self.inner.clone();
+        let cache_4 = self.inner.clone();
+        let cache_5 = self.inner.clone();
 
-    let next_required_block = cache.block_cache.read().next_block_number();
+        let next_required_block = cache_1
+            .block_cache
+            .read()
+            .highest_block_number()
+            .map(|n| n + 1)
+            .unwrap_or_else(|| config.lowest_cached_block_number);
 
-    get_new_block_numbers(&cache.endpoint, next_required_block, cache.follow_distance)
+        get_new_block_numbers(
+            &config.endpoint,
+            next_required_block,
+            config.follow_distance,
+        )
         // Map the range of required blocks into a Vec.
         //
         // If the required range is larger than the size of the cache, drop the exiting cache
@@ -366,11 +340,15 @@ pub fn update_block_cache<'a>(
                         Err(Error::Internal("Range was not increasing".into()))
                     } else {
                         let range_size = range.end() - range.start();
-                        let max_size = cache_5.target_block_cache_len as u64;
+                        let max_size = cache_5
+                            .config
+                            .block_cache_truncation
+                            .map(|n| n as u64)
+                            .unwrap_or_else(|| u64::max_value());
 
                         if range_size > max_size {
                             let first_block = range.end() - max_size;
-                            (*cache_5.block_cache.write()) = BlockCache::new(first_block as usize);
+                            (*cache_5.block_cache.write()) = BlockCache::default();
                             Ok((first_block..=*range.end())
                                 .into_iter()
                                 .collect::<Vec<u64>>())
@@ -384,9 +362,12 @@ pub fn update_block_cache<'a>(
         // Download the range of blocks and sequentially import them into the cache.
         .and_then(|required_block_numbers| {
             // Never download more blocks than can fit in the block cache.
-            let required_block_numbers = required_block_numbers
-                .into_iter()
-                .take(cache_3.target_block_cache_len);
+            let required_block_numbers = required_block_numbers.into_iter().take(
+                cache_3
+                    .config
+                    .block_cache_truncation
+                    .unwrap_or_else(|| usize::max_value()),
+            );
 
             // Produce a stream from the list of required block numbers and return a future that
             // consumes the it.
@@ -394,19 +375,19 @@ pub fn update_block_cache<'a>(
                 required_block_numbers,
                 move |mut block_numbers| match block_numbers.next() {
                     Some(block_number) => Some(
-                        download_eth1_snapshot(cache_2.clone(), block_number)
+                        download_eth1_block(cache_2.clone(), block_number)
                             .map(|v| (v, block_numbers)),
                     ),
                     None => None,
                 },
             )
-            .filter_map(|snapshot| snapshot)
-            .fold(0, move |sum, (block, deposit_root, deposit_count)| {
+            .fold(0, move |sum, eth1_block| {
                 cache_3
                     .block_cache
                     .write()
-                    .insert(block, deposit_root, deposit_count)
+                    .insert_root_or_child(eth1_block)
                     .map_err(|e| Error::FailedToInsertEth1Snapshot(e))?;
+
                 Ok(sum + 1)
             })
         })
@@ -416,14 +397,10 @@ pub fn update_block_cache<'a>(
 
             Ok(BlockCacheUpdateOutcome::Success {
                 blocks_imported,
-                head_block_number: cache_4
-                    .clone()
-                    .block_cache
-                    .read()
-                    .next_block_number()
-                    .saturating_sub(1),
+                head_block_number: cache_4.clone().block_cache.read().highest_block_number(),
             })
         })
+    }
 }
 
 /// Determine the range of blocks that need to be downloaded, given the remotes best block and
@@ -458,13 +435,13 @@ fn get_new_block_numbers<'a>(
 /// `block_number`.
 ///
 /// Performs three async calls to an Eth1 HTTP JSON RPC endpoint.
-fn download_eth1_snapshot<'a>(
-    cache: Arc<Eth1Cache>,
+fn download_eth1_block<'a>(
+    cache: Arc<Inner>,
     block_number: u64,
-) -> impl Future<Item = Option<(Block, Hash256, u64)>, Error = Error> + 'a {
+) -> impl Future<Item = Eth1Block, Error = Error> + 'a {
     // Performs a `get_blockByNumber` call to an eth1 node.
     get_block(
-        &cache.endpoint,
+        &cache.config.endpoint,
         block_number,
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
@@ -472,27 +449,25 @@ fn download_eth1_snapshot<'a>(
     .join3(
         // Perform 2x `eth_call` via an eth1 node to read the deposit contract root and count.
         get_deposit_root(
-            &cache.endpoint,
-            &cache.deposit_contract_address,
+            &cache.config.endpoint,
+            &cache.config.deposit_contract_address,
             block_number,
             Duration::from_millis(GET_DEPOSIT_ROOT_TIMEOUT_MILLIS),
         )
         .map_err(|e| Error::GetDepositRootFailed(e)),
         get_deposit_count(
-            &cache.endpoint,
-            &cache.deposit_contract_address,
+            &cache.config.endpoint,
+            &cache.config.deposit_contract_address,
             block_number,
             Duration::from_millis(GET_DEPOSIT_COUNT_TIMEOUT_MILLIS),
         )
         .map_err(|e| Error::GetDepositCountFailed(e)),
     )
-    .map(|snapshot| {
-        // Assume that a missing deposit root or count indicates that this block is prior to the
-        // deployment of the Eth1 contract and is therefore invalid.
-        if let (block, Some(deposit_root), Some(deposit_count)) = snapshot {
-            Some((block, deposit_root, deposit_count))
-        } else {
-            None
-        }
+    .map(|(http_block, deposit_root, deposit_count)| Eth1Block {
+        hash: http_block.hash,
+        number: http_block.number,
+        timestamp: http_block.timestamp,
+        deposit_root,
+        deposit_count,
     })
 }
