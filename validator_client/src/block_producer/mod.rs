@@ -1,9 +1,7 @@
 mod beacon_node_block;
-mod grpc;
 mod rest;
 
 pub use self::beacon_node_block::BeaconNodeBlock;
-pub use self::grpc::BeaconBlockGrpcClient;
 pub use self::rest::BeaconBlockRestClient;
 pub use crate::error::{BeaconNodeError, PublishOutcome};
 use crate::signer::Signer;

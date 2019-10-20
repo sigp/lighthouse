@@ -35,13 +35,6 @@ impl Default for KeySource {
     }
 }
 
-/// Presently, the validator client supports both gRPC and Restful HTTP
-#[derive(Clone, Serialize, Deserialize)]
-pub enum ServerType {
-    GRPC,
-    REST,
-}
-
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -56,8 +49,6 @@ pub struct Config {
     pub server: String,
     /// The HTTP or gRPC port on the server
     pub server_port: u16,
-    /// What type of server we are connecting to
-    pub server_type: ServerType,
     /// Which format the REST API sends/received data in.
     pub api_encoding: ApiEncodingFormat,
     /// The number of slots per epoch.
@@ -77,7 +68,6 @@ impl Default for Config {
             server_port: DEFAULT_SERVER_HTTP_PORT
                 .parse::<u16>()
                 .expect("HTTP port constant should be valid"),
-            server_type: ServerType::REST,
             api_encoding: ApiEncodingFormat::JSON,
             slots_per_epoch: MainnetEthSpec::slots_per_epoch(),
         }

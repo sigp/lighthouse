@@ -1,6 +1,5 @@
 mod beacon_node_duties;
 mod epoch_duties;
-mod grpc;
 mod rest;
 // TODO: reintroduce tests
 //#[cfg(test)]

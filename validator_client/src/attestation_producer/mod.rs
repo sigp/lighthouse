@@ -1,5 +1,4 @@
 mod beacon_node_attestation;
-mod grpc;
 mod rest;
 
 use std::sync::Arc;
