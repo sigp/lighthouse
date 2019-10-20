@@ -89,8 +89,9 @@ impl BlockCache {
     }
 
     /// Returns a block with the corresponding number, if any.
-    pub fn block_by_number(&self, target: u64) -> Option<&Eth1Block> {
-        self.blocks.get(self.block_index_by_block_number(target)?)
+    pub fn block_by_number(&self, block_number: u64) -> Option<&Eth1Block> {
+        self.blocks
+            .get(self.block_index_by_block_number(block_number)?)
     }
 
     /// Returns a block with the corresponding number, if any.
@@ -263,81 +264,6 @@ impl BlockCache {
                 .map(|items| items.into_iter().cloned().map(Into::into).collect())
         }
     }
-
-    /// Insert an `Eth1Block` into `self`, allowing future queries.
-    ///
-    /// ## Errors
-    ///
-    /// - If `item.block.block_number - 1` is not already in `self`.
-    /// - If `item.block.block_number` is in `self`, but is not identical to the supplied
-    /// `Eth1Block`.
-    /// - If `item.block.timestamp` is prior to the parent.
-    pub fn insert(
-        &mut self,
-        block: Block,
-        deposit_root: Hash256,
-        deposit_count: u64,
-    ) -> Result<(), Error> {
-        let item = Eth1Block {
-            block,
-            deposit_root,
-            deposit_count,
-        };
-
-        match (
-            item.block.number,
-            self.next_block_number(),
-            self.available_block_numbers().map(|r| *r.start()),
-        ) {
-            // There are no other items in `self`.
-            //
-            // Add the item, set the offset.
-            (n, _, None) => {
-                self.offset = usize::try_from(n).map_err(|_| Error::BlockNumberTooLarge(n))?;
-                self.blocks.push(item);
-                Ok(())
-            }
-            // There are items in `self` and the item is the next item.
-            //
-            // Add the item, if its timestamp is greater than the entry prior to it.
-            (n, next, Some(_)) if n == next => {
-                let previous = self
-                    .items
-                    .last()
-                    .ok_or_else(|| Error::Internal("Previous item should exist".into()))?;
-                if previous.block.timestamp <= item.block.timestamp {
-                    self.blocks.push(item);
-                    Ok(())
-                } else {
-                    Err(Error::InconsistentTimestamp {
-                        parent: previous.block.timestamp,
-                        child: item.block.timestamp,
-                    })
-                }
-            }
-            // There are items in self and the given item has a known block number.
-            //
-            // Compare the given item with the stored one.
-            (n, next, Some(first)) if (first..next).contains(&n) => {
-                let existing = self
-                    .get(n)
-                    .ok_or_else(|| Error::Internal(format!("Missing block: {:?}", n)))?;
-
-                if *existing == item {
-                    Ok(())
-                } else {
-                    Err(Error::Conflicting(n))
-                }
-            }
-            // There are items in `self` but the item is not the next item.
-            //
-            // Do not add the item.
-            (n, next, _) => Err(Error::NonConsecutive {
-                given: n,
-                expected: next,
-            }),
-        }
-    }
     */
 }
 
@@ -415,7 +341,6 @@ mod tests {
         }
 
         // No error for re-adding a block identical to one that exists.
-        dbg!(insert(&mut cache, get_block(n as u64 - 1, 10)));
         assert!(insert(&mut cache, get_block(n as u64 - 1, 10)).is_ok());
 
         // Error for re-adding a block that is different to the one that exists.

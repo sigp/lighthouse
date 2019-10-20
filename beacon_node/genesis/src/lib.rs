@@ -1,11 +1,10 @@
 pub mod interop;
 
-use eth1::cache_2::{Block as Eth1Block, BlockCache, DepositSet};
+use eth1::{DepositSet, Eth1Block, GenesisService};
 use futures::{
     future::{loop_fn, Loop},
-    Future, IntoFuture, Stream,
+    Future,
 };
-use interop::interop_genesis_state;
 use parking_lot::Mutex;
 use ssz::Decode;
 use state_processing::{
@@ -15,18 +14,15 @@ use state_processing::{
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Delay;
-use types::{
-    BeaconState, ChainSpec, Deposit, Domain, Eth1Data, EthSpec, Hash256, Keypair, Signature,
-};
+use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
 
 /// Load a `BeaconState` from the given `path`. The file should contain raw SSZ bytes (i.e., no
 /// ASCII encoding or schema).
 pub fn wait_for_eth1_genesis_state<E: EthSpec>(
-    block_cache: Arc<BlockCache>,
+    service: GenesisService,
     update_interval: Duration,
     spec: ChainSpec,
 ) -> impl Future<Item = BeaconState<E>, Error = String> {
@@ -34,7 +30,7 @@ pub fn wait_for_eth1_genesis_state<E: EthSpec>(
 
     // TODO: allow for exit on Ctrl+C.
     loop_fn((spec, 0_u64), move |(spec, state)| {
-        let block_cache = block_cache.clone();
+        let service = service.clone();
         let next_block = next_block.clone();
 
         let min_genesis_time = Duration::from_secs(spec.min_genesis_time);
@@ -42,8 +38,11 @@ pub fn wait_for_eth1_genesis_state<E: EthSpec>(
         Delay::new(Instant::now() + update_interval)
             .map_err(|e| format!("Delay between genesis deposit checks failed: {:?}", e))
             .and_then(move |()| {
-                let genesis_eth1_block = block_cache
-                    .iter_blocks()
+                let genesis_eth1_block = service
+                    .core
+                    .blocks()
+                    .read()
+                    .iter()
                     .filter(move |block| Duration::from_secs(block.timestamp) >= min_genesis_time)
                     .filter(|block| {
                         next_block
@@ -54,19 +53,23 @@ pub fn wait_for_eth1_genesis_state<E: EthSpec>(
                     .find(|block| {
                         (*next_block.lock()) = Some(block.number + 1);
 
-                        is_valid_genesis_eth1_block::<E>(block, block_cache.clone(), &spec)
+                        is_valid_genesis_eth1_block::<E>(service.clone(), block, &spec)
                             // TODO: log an error
                             .unwrap_or_else(|_| false)
-                    });
+                    })
+                    .cloned();
 
                 match genesis_eth1_block {
                     None => Ok(Loop::Continue((spec, state))),
                     Some(genesis_eth1_block) => {
-                        let deposit_logs = block_cache
-                            .iter_blocks()
-                            .filter(|block| block.number <= genesis_eth1_block.number)
-                            .map(|block| block.deposit_logs.clone())
-                            .flatten()
+                        let deposit_logs = service
+                            .core
+                            .deposits()
+                            .read()
+                            .cache
+                            .iter()
+                            .take_while(|log| log.block_number <= genesis_eth1_block.number)
+                            .cloned()
                             .collect();
 
                         let (generated_deposit_root, deposits) = DepositSet::from_logs(
@@ -75,7 +78,7 @@ pub fn wait_for_eth1_genesis_state<E: EthSpec>(
                         )
                         .into_components();
 
-                        if generated_deposit_root != genesis_eth1_block.deposit_root {
+                        if Some(generated_deposit_root) != genesis_eth1_block.deposit_root {
                             return Err(
                                 "The block deposit root does not match the locally generated one"
                                     .to_string(),
@@ -105,8 +108,8 @@ pub fn wait_for_eth1_genesis_state<E: EthSpec>(
 /// A cheap (compared to using `initialize_beacon_state_from_eth1) method for determining if some
 /// `target_block` will trigger genesis.
 fn is_valid_genesis_eth1_block<E: EthSpec>(
+    service: GenesisService,
     target_block: &Eth1Block,
-    block_cache: Arc<BlockCache>,
     spec: &ChainSpec,
 ) -> Result<bool, String> {
     if target_block.timestamp < spec.min_genesis_time {
@@ -122,15 +125,14 @@ fn is_valid_genesis_eth1_block<E: EthSpec>(
             &spec,
         );
 
-        block_cache
-            .iter_blocks()
-            .filter(|block| block.number <= target_block.number)
-            .map(|block| block.deposit_logs.clone())
-            .flatten()
-            .filter(|deposit_log| deposit_log.signature_is_valid)
+        service
+            .deposit_logs_at_block(target_block.number)
+            .iter()
+            // TODO: add the signature field back.
+            //.filter(|deposit_log| deposit_log.signature_is_valid)
             .map(|deposit_log| Deposit {
                 proof: vec![Hash256::zero(); spec.deposit_contract_tree_depth as usize].into(),
-                data: deposit_log.deposit_data,
+                data: deposit_log.deposit_data.clone(),
             })
             .try_for_each(|deposit| {
                 // No need to verify proofs in order to test if some block will trigger genesis.

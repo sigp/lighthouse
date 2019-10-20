@@ -1,4 +1,7 @@
-/*
+use crate::{deposit_cache::DepositDataTree, deposit_log::DepositLog};
+use tree_hash::TreeHash;
+use types::{Deposit, Hash256};
+
 /// Represents an eth1 deposit contract merkle tree.
 ///
 /// Each `deposit` is included with a proof into the `deposit_root`. The index for a deposit in the
@@ -35,5 +38,8 @@ impl DepositSet {
             deposits,
         }
     }
+
+    pub fn into_components(self) -> (Hash256, Vec<Deposit>) {
+        (self.deposit_root, self.deposits)
+    }
 }
-*/

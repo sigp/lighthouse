@@ -1,9 +1,8 @@
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
-    deposit_cache::{DepositCache, Error as DepositCacheError},
+    deposit_cache::Error as DepositCacheError,
     http::{
-        get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range,
-        get_deposit_root, Block as HttpBlock,
+        get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
     },
     inner::{DepositUpdater, Inner},
     DepositLog,
@@ -12,14 +11,10 @@ use futures::{stream, Future, Stream};
 use slog::{debug, error, Logger};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
-use types::Address;
 // use futures::{prelude::*, stream, Future};
 use parking_lot::RwLock;
-use std::collections::HashSet;
 use std::ops::{Range, RangeInclusive};
-use types::{Deposit, DepositData, Hash256};
 
 const BLOCKS_PER_LOG_QUERY: usize = 10;
 
@@ -148,7 +143,7 @@ impl Service {
         self.deposits().read().cache.len()
     }
 
-    fn update_all_each_interval(
+    pub fn update_on_interval(
         &self,
         update_interval: Duration,
     ) -> impl Future<Item = (), Error = ()> {
