@@ -374,6 +374,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if slot == head_state.slot {
             Ok(head_state)
         } else if slot > head_state.slot {
+            if slot > head_state.slot + 3 {
+                warn!(
+                    self.log,
+                    "Skipping more than 3 blocks";
+                    "head_slot" => head_state.slot,
+                    "request_slot" => slot
+                )
+            }
             let head_state_slot = head_state.slot;
             let mut state = head_state;
             while state.slot < slot {
