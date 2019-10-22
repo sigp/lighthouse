@@ -1,7 +1,3 @@
-use crate::http::{
-    get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
-    Block as HttpBlock,
-};
 use crate::Config;
 use crate::{block_cache::BlockCache, deposit_cache::DepositCache};
 use parking_lot::RwLock;
@@ -28,16 +24,4 @@ impl Inner {
             self.block_cache.write().truncate(block_cache_truncation);
         }
     }
-
-    /*
-    /// Returns the number of currently cached blocks.
-    pub fn block_cache_len(&self) -> usize {
-        self.block_cache.read().len()
-    }
-
-    /// Returns the number deposits available in the deposit cache.
-    pub fn deposit_cache_len(&self) -> usize {
-        self.deposit_cache.read().cache.len()
-    }
-    */
 }

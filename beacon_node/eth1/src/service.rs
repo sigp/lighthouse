@@ -7,11 +7,15 @@ use crate::{
     inner::{DepositUpdater, Inner},
     DepositLog,
 };
-use futures::{stream, Future, Stream};
+use exit_future::Exit;
+use futures::{
+    future::{loop_fn, Loop},
+    stream, Future, Stream,
+};
 use slog::{debug, error, Logger};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use tokio::timer::Delay;
 // use futures::{prelude::*, stream, Future};
 use parking_lot::RwLock;
 use std::ops::{Range, RangeInclusive};
@@ -111,7 +115,7 @@ impl Default for Config {
 #[derive(Clone)]
 pub struct Service {
     inner: Arc<Inner>,
-    log: Logger,
+    pub log: Logger,
 }
 
 impl Service {
@@ -143,73 +147,77 @@ impl Service {
         self.deposits().read().cache.len()
     }
 
-    pub fn update_on_interval(
+    pub fn auto_update(
         &self,
         update_interval: Duration,
+        exit_signal: Exit,
     ) -> impl Future<Item = (), Error = ()> {
         let service = self.clone();
 
         let log = service.log.clone();
-        let log_1 = service.log.clone();
 
-        Interval::new(Instant::now(), update_interval)
-            .map_err(move |e| {
-                error!(
-                    log,
-                    "Failed to start eth block cache update";
-                    "error" => format!("{:?}", e)
-                );
-            })
-            .for_each(move |_instant| {
-                let log_a = log_1.clone();
-                let log_b = log_1.clone();
+        // TODO: allow for exit on Ctrl+C.
+        loop_fn((), move |()| {
+            let log_a = log.clone();
+            let log_b = log.clone();
+            let exit_signal = exit_signal.clone();
 
-                let deposit_future = service
-                    .update_deposit_cache()
-                    .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
-                    .then(move |result| {
-                        match result {
-                            Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => debug!(
-                                log_a,
-                                "Updated eth1 deposit cache";
-                                "logs_imported" => logs_imported,
-                            ),
-                            Err(e) => error!(
-                                log_a,
-                                "Failed to update eth1 deposit cache";
-                                "error" => e
-                            ),
-                        };
+            let deposit_future = service
+                .update_deposit_cache()
+                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
+                .then(move |result| {
+                    match result {
+                        Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => debug!(
+                            log_a,
+                            "Updated eth1 deposit cache";
+                            "logs_imported" => logs_imported,
+                        ),
+                        Err(e) => error!(
+                            log_a,
+                            "Failed to update eth1 deposit cache";
+                            "error" => e
+                        ),
+                    };
 
-                        Ok(())
-                    });
+                    Ok(())
+                });
 
-                let block_future = service
-                    .update_block_cache()
-                    .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
-                    .then(move |result| {
-                        match result {
-                            Ok(BlockCacheUpdateOutcome::Success {
-                                blocks_imported,
-                                head_block_number,
-                            }) => debug!(
-                                log_b,
-                                "Updated eth1 block cache";
-                                "blocks_imported" => blocks_imported,
-                                "head_block" => head_block_number,
-                            ),
-                            Err(e) => error!(
-                                log_b,
-                                "Failed to update eth1 block cache";
-                                "error" => e
-                            ),
-                        };
+            let block_future = service
+                .update_block_cache()
+                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
+                .then(move |result| {
+                    match result {
+                        Ok(BlockCacheUpdateOutcome::Success {
+                            blocks_imported,
+                            head_block_number,
+                        }) => debug!(
+                            log_b,
+                            "Updated eth1 block cache";
+                            "blocks_imported" => blocks_imported,
+                            "head_block" => head_block_number,
+                        ),
+                        Err(e) => error!(
+                            log_b,
+                            "Failed to update eth1 block cache";
+                            "error" => e
+                        ),
+                    };
 
-                        Ok(())
-                    });
+                    Ok(())
+                });
 
-                deposit_future.join(block_future).map(|_| ())
-            })
+            deposit_future
+                .join(block_future)
+                .and_then(move |_| Delay::new(Instant::now() + update_interval))
+                .map(move |_| {
+                    if exit_signal.is_live() {
+                        Loop::Continue(())
+                    } else {
+                        Loop::Break(())
+                    }
+                })
+        })
+        .map_err(|_| ())
     }
 
     pub fn update_deposit_cache(

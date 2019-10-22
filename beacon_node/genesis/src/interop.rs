@@ -1,13 +1,13 @@
+use crate::genesis_deposits;
 use eth2_hashing::hash;
-use merkle_proof::MerkleTree;
 use rayon::prelude::*;
 use ssz::Encode;
 use state_processing::initialize_beacon_state_from_eth1;
 use std::time::SystemTime;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::SignedRoot;
 use types::{
-    BeaconState, ChainSpec, Deposit, DepositData, Domain, EthSpec, Fork, Hash256, Keypair,
-    PublicKey, Signature,
+    BeaconState, ChainSpec, DepositData, Domain, EthSpec, Fork, Hash256, Keypair, PublicKey,
+    Signature,
 };
 
 /// Builds a genesis state as defined by the Eth2 interop procedure (see below).
@@ -50,44 +50,13 @@ pub fn interop_genesis_state<T: EthSpec>(
         })
         .collect::<Vec<_>>();
 
-    let deposit_root_leaves = datas
-        .par_iter()
-        .map(|data| Hash256::from_slice(&data.tree_hash_root()))
-        .collect::<Vec<_>>();
-
-    let mut proofs = vec![];
-    for i in 1..=deposit_root_leaves.len() {
-        // Note: this implementation is not so efficient.
-        //
-        // If `MerkleTree` had a push method, we could just build one tree and sample it instead of
-        // rebuilding the tree for each deposit.
-        let tree = MerkleTree::create(
-            &deposit_root_leaves[0..i],
-            spec.deposit_contract_tree_depth as usize,
-        );
-
-        let (_, mut proof) = tree.generate_proof(i - 1, spec.deposit_contract_tree_depth as usize);
-        proof.push(Hash256::from_slice(&int_to_bytes32(i)));
-
-        assert_eq!(
-            proof.len(),
-            spec.deposit_contract_tree_depth as usize + 1,
-            "Deposit proof should be correct len"
-        );
-
-        proofs.push(proof);
-    }
-
-    let deposits = datas
-        .into_par_iter()
-        .zip(proofs.into_par_iter())
-        .map(|(data, proof)| (data, proof.into()))
-        .map(|(data, proof)| Deposit { proof, data })
-        .collect::<Vec<_>>();
-
-    let mut state =
-        initialize_beacon_state_from_eth1(eth1_block_hash, eth1_timestamp, deposits, spec)
-            .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
+    let mut state = initialize_beacon_state_from_eth1(
+        eth1_block_hash,
+        eth1_timestamp,
+        genesis_deposits(datas, spec),
+        spec,
+    )
+    .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
 
     state.genesis_time = genesis_time;
 
@@ -95,13 +64,6 @@ pub fn interop_genesis_state<T: EthSpec>(
     state.drop_all_caches();
 
     Ok(state)
-}
-
-/// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: usize) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
 }
 
 /// Returns the system time, mod 30 minutes.

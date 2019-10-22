@@ -104,6 +104,87 @@ fn blocking_deposit_count(deposit_contract: &DepositContract, block_number: u64)
         .expect("should get deposit count")
 }
 
+mod auto_update {
+    use super::*;
+
+    #[test]
+    fn can_auto_update() {
+        let mut env = new_env();
+        let log = env.core_log();
+        let runtime = env.runtime();
+
+        let deposit_contract =
+            DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
+        let mut utils = deposit_contract.unsafe_blocking_utils();
+
+        let now = utils.block_number();
+
+        let service = Service::new(
+            Config {
+                endpoint: ENDPOINT.to_string(),
+                deposit_contract_address: deposit_contract.address(),
+                deposit_contract_deploy_block: now,
+                lowest_cached_block_number: now,
+                follow_distance: 0,
+                block_cache_truncation: None,
+                ..Config::default()
+            },
+            log,
+        );
+
+        // NOTE: this test is sensitive to the response speed of the external web3 server. If
+        // you're experiencing failures, try increasing the update_interval.
+        let update_interval = Duration::from_millis(500);
+
+        assert_eq!(
+            service.block_cache_len(),
+            0,
+            "should have imported no blocks"
+        );
+        assert_eq!(
+            service.deposit_cache_len(),
+            0,
+            "should have imported no deposits"
+        );
+
+        runtime
+            .executor()
+            .spawn(service.auto_update(Duration::from_millis(500)));
+
+        let n = 4;
+
+        for _ in 0..n {
+            deposit_contract
+                .deposit(random_deposit_data())
+                .expect("should do first deposits");
+        }
+
+        std::thread::sleep(update_interval * 2);
+
+        assert!(
+            service.deposit_cache_len() >= n,
+            "should have imported n deposits"
+        );
+
+        for _ in 0..n {
+            deposit_contract
+                .deposit(random_deposit_data())
+                .expect("should do second deposits");
+        }
+
+        std::thread::sleep(update_interval * 4);
+
+        assert!(
+            service.block_cache_len() >= n * 2,
+            "should have imported all blocks"
+        );
+        assert!(
+            service.deposit_cache_len() >= n * 2,
+            "should have imported all deposits"
+        );
+    }
+}
+
 mod eth1_cache {
     use super::*;
     use serde_json::json;
@@ -327,16 +408,6 @@ mod deposit_tree {
             },
             log,
         );
-
-        /*
-        let cache = Arc::new(
-            Eth1CacheBuilder::new(ENDPOINT.to_string(), deposit_contract.address())
-                .initial_eth1_block(start_block)
-                .deposit_contract_deploy_block(start_block)
-                .eth1_follow_distance(0)
-                .build(),
-        );
-        */
 
         for round in 0..3 {
             let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();

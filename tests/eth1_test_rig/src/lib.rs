@@ -6,16 +6,18 @@
 //! Not tested to work with actual clients (e.g., geth). It should work fine, however there may be
 //! some initial issues.
 
-use futures::Future;
+use futures::{stream, Future, Stream};
 use serde_json::json;
 use ssz::Encode;
 use std::sync::Arc;
-use tokio::runtime::Runtime;
+use std::time::{Duration, Instant};
+use tokio::{runtime::Runtime, timer::Delay};
 use types::DepositData;
+use types::{Epoch, EthSpec, Fork, Hash256, Keypair, Signature};
 use web3::contract::{Contract, Options};
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, U256};
-use web3::{Transport, Web3};
+use web3::{api::Eth, Transport, Web3};
 
 const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
 const DEPOSIT_ACCOUNTS_INDEX: usize = 1;
@@ -29,19 +31,57 @@ pub const ABI: &'static [u8] = include_bytes!("../contract/v0.8.3_validator_regi
 pub const BYTECODE: &'static [u8] =
     include_bytes!("../contract/v0.8.3_validator_registration.bytecode");
 
-/// Wrapper around web3 api.
-/// Transport hardcoded to ws since its needed for subscribing to logs.
+pub struct UnsafeBlockingUtils<T> {
+    core: T,
+    runtime: Runtime,
+}
+
+impl UnsafeBlockingUtils<DepositContract> {
+    pub fn new(core: DepositContract, runtime: Runtime) -> Self {
+        Self { core, runtime }
+    }
+
+    fn eth(&self) -> Eth<Http> {
+        self.core.web3.eth()
+    }
+
+    pub fn block_number(&mut self) -> u64 {
+        self.runtime
+            .block_on(self.eth().block_number().map(|v| v.as_u64()))
+            .expect("utils should get block number")
+    }
+
+    /// Increase the timestamp on future blocks by `increase_by` seconds.
+    pub fn increase_time(&mut self, increase_by: u64) {
+        self.runtime
+            .block_on(
+                self.core
+                    .web3
+                    .transport()
+                    .execute("evm_increaseTime", vec![json!(increase_by)])
+                    .map(|_json_value| ())
+                    .map_err(|e| {
+                        format!("Failed to increase time on EVM (is this ganache?): {:?}", e)
+                    }),
+            )
+            .expect("utils should increase time")
+    }
+
+    pub fn evm_mine(&mut self) {
+        self.runtime
+            .block_on(self.core.web3.transport().execute("evm_mine", vec![]))
+            .expect("utils should mine new block with evm_mine (only works with ganache-cli!)");
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DepositContract {
     event_loop: Arc<EventLoopHandle>,
-    /// Websocket transport object. Needed for logs subscription.
     web3: Web3<Http>,
-    /// Deposit Contract
     contract: Contract<Http>,
 }
 
 impl DepositContract {
-    /// Create a new Web3 object.
     pub fn deploy(endpoint: &str) -> Result<Self, String> {
         let (event_loop, transport) = Http::new(endpoint)
             .map_err(|e| format!("Failed to start websocket transport: {:?}", e))?;
@@ -49,7 +89,12 @@ impl DepositContract {
 
         let deposit_contract_address = runtime()?
             .block_on(deploy_deposit_contract(web3.clone()))
-            .map_err(|e| format!("Failed to deploy contract: {}", e))?;
+            .map_err(|e| {
+            format!(
+                "Failed to deploy contract: {}. Is scripts/ganache_tests_node.sh running?.",
+                e
+            )
+        })?;
 
         let contract = Contract::from_json(web3.eth(), deposit_contract_address, ABI)
             .map_err(|e| format!("Failed to init contract: {:?}", e))?;
@@ -71,11 +116,69 @@ impl DepositContract {
         format!("0x{:x}", self.contract.address())
     }
 
+    pub fn unsafe_blocking_utils(&self) -> UnsafeBlockingUtils<Self> {
+        UnsafeBlockingUtils {
+            core: self.clone(),
+            runtime: Runtime::new().expect("Should build UnsafeBlockingUtils runtime"),
+        }
+    }
+
+    pub fn deposit_helper<E: EthSpec>(
+        &self,
+        keypair: Keypair,
+        withdrawal_credentials: Hash256,
+        amount: u64,
+    ) -> DepositData {
+        let mut deposit = DepositData {
+            pubkey: keypair.pk.into(),
+            withdrawal_credentials,
+            amount,
+            signature: Signature::empty_signature().into(),
+        };
+
+        deposit.signature = deposit.create_signature(
+            &keypair.sk,
+            Epoch::new(0),
+            &Fork::default(),
+            &E::default_spec(),
+        );
+
+        deposit
+    }
+
+    pub fn deposit_random<E: EthSpec>(&self) -> Result<(), String> {
+        let keypair = Keypair::random();
+
+        let mut deposit = DepositData {
+            pubkey: keypair.pk.into(),
+            withdrawal_credentials: Hash256::zero(),
+            amount: 32_000_000_000,
+            signature: Signature::empty_signature().into(),
+        };
+
+        deposit.signature = deposit.create_signature(
+            &keypair.sk,
+            Epoch::new(0),
+            &Fork::default(),
+            &E::default_spec(),
+        );
+
+        self.deposit(deposit)
+    }
+
     pub fn deposit(&self, deposit_data: DepositData) -> Result<(), String> {
+        runtime()?
+            .block_on(self.deposit_async(deposit_data))
+            .map_err(|e| format!("Deposit failed: {:?}", e))
+    }
+
+    pub fn deposit_async(
+        &self,
+        deposit_data: DepositData,
+    ) -> impl Future<Item = (), Error = String> {
         let contract = self.contract.clone();
 
-        let future = self
-            .web3
+        self.web3
             .eth()
             .accounts()
             .map_err(|e| format!("Failed to get accounts: {:?}", e))
@@ -100,12 +203,37 @@ impl DepositContract {
                     .call("deposit", params, from_address, options)
                     .map_err(|e| format!("Failed to call deposit fn: {:?}", e))
             })
-            .map(|_| ());
-
-        runtime()?
-            .block_on(future)
-            .map_err(|e| format!("Deposit failed: {:?}", e))
+            .map(|_| ())
     }
+
+    pub fn deposit_multiple(
+        &self,
+        deposits: Vec<DelayThenDeposit>,
+    ) -> impl Future<Item = (), Error = String> {
+        let s = self.clone();
+        stream::unfold(deposits.into_iter(), move |mut deposit_iter| {
+            let s = s.clone();
+            match deposit_iter.next() {
+                Some(deposit) => Some(
+                    Delay::new(Instant::now() + deposit.delay)
+                        .map_err(|e| format!("Failed to execute delay: {:?}", e))
+                        .and_then(move |_| s.deposit_async(deposit.deposit))
+                        .map(move |yielded| (yielded, deposit_iter)),
+                ),
+                None => None,
+            }
+        })
+        .collect()
+        .map(|_| ())
+    }
+}
+
+#[derive(Clone)]
+pub struct DelayThenDeposit {
+    /// Wait this duration ...
+    pub delay: Duration,
+    /// ... then submit this deposit.
+    pub deposit: DepositData,
 }
 
 fn from_gwei(gwei: u64) -> U256 {
