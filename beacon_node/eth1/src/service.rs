@@ -80,6 +80,7 @@ pub enum DepositCacheUpdateOutcome {
     /// The cache was sucessfully updated.
     Success { logs_imported: usize },
 }
+
 pub struct Config {
     /// An Eth1 node (e.g., Geth) running a HTTP JSON-RPC endpoint.
     pub endpoint: String,
@@ -119,6 +120,7 @@ pub struct Service {
 }
 
 impl Service {
+    /// Creates a new service. Does not attempt to connect to the eth1 node.
     pub fn new(config: Config, log: Logger) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -129,10 +131,12 @@ impl Service {
         }
     }
 
+    /// Provides access to the block cache.
     pub fn blocks(&self) -> &RwLock<BlockCache> {
         &self.inner.block_cache
     }
 
+    /// Provides access to the deposit cache.
     pub fn deposits(&self) -> &RwLock<DepositUpdater> {
         &self.inner.deposit_cache
     }
@@ -147,68 +151,125 @@ impl Service {
         self.deposits().read().cache.len()
     }
 
+    /// Update the deposit and block cache, returning an error if either fail.
+    ///
+    /// ## Returns
+    ///
+    /// - Ok(_) if the update was successful (the cache may or may not have been modified).
+    /// - Err(_) if there is an error.
+    ///
+    /// Emits logs for debugging and errors.
+    pub fn update(
+        &self,
+    ) -> impl Future<Item = (DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), Error = String>
+    {
+        let log_a = self.log.clone();
+        let log_b = self.log.clone();
+
+        let deposit_future = self
+            .update_deposit_cache()
+            .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
+            .then(move |result| {
+                match &result {
+                    Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => debug!(
+                        log_a,
+                        "Updated eth1 deposit cache";
+                        "logs_imported" => logs_imported,
+                    ),
+                    Err(e) => error!(
+                        log_a,
+                        "Failed to update eth1 deposit cache";
+                        "error" => e
+                    ),
+                };
+
+                result
+            });
+
+        let block_future = self
+            .update_block_cache()
+            .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
+            .then(move |result| {
+                match &result {
+                    Ok(BlockCacheUpdateOutcome::Success {
+                        blocks_imported,
+                        head_block_number,
+                    }) => debug!(
+                        log_b,
+                        "Updated eth1 block cache";
+                        "blocks_imported" => blocks_imported,
+                        "head_block" => head_block_number,
+                    ),
+                    Err(e) => error!(
+                        log_b,
+                        "Failed to update eth1 block cache";
+                        "error" => e
+                    ),
+                };
+
+                result
+            });
+
+        deposit_future.join(block_future)
+    }
+
+    /// A looping future that updates the cache, then waits `update_interval` before updating it
+    /// again.
+    ///
+    /// ## Returns
+    ///
+    /// - Ok(_) if the update was successful (the cache may or may not have been modified).
+    /// - Err(_) if there is an error.
+    ///
+    /// Emits logs for debugging and errors.
     pub fn auto_update(
         &self,
         update_interval: Duration,
         exit_signal: Exit,
     ) -> impl Future<Item = (), Error = ()> {
         let service = self.clone();
+        let log = self.log.clone();
 
-        let log = service.log.clone();
-
-        // TODO: allow for exit on Ctrl+C.
         loop_fn((), move |()| {
+            let exit_signal = exit_signal.clone();
+            let service = service.clone();
             let log_a = log.clone();
             let log_b = log.clone();
-            let exit_signal = exit_signal.clone();
 
-            let deposit_future = service
-                .update_deposit_cache()
-                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
-                .then(move |result| {
-                    match result {
-                        Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => debug!(
+            service
+                .update()
+                .then(move |update_result| {
+                    if let Err(e) = update_result {
+                        error!(
                             log_a,
-                            "Updated eth1 deposit cache";
-                            "logs_imported" => logs_imported,
-                        ),
-                        Err(e) => error!(
+                            "Failed to update Eth1 genesis cache";
+                            "retry_millis" => update_interval.as_millis(),
+                            "error" => e,
+                        );
+                    } else {
+                        debug!(
                             log_a,
-                            "Failed to update eth1 deposit cache";
-                            "error" => e
-                        ),
-                    };
+                            "Updated Eth1 genesis cache";
+                            "retry_millis" => update_interval.as_millis(),
+                            "result" => format!("{:?}", update_result),
+                        );
+                    }
 
+                    // Do not break the loop if there is an update failure.
                     Ok(())
-                });
-
-            let block_future = service
-                .update_block_cache()
-                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
-                .then(move |result| {
-                    match result {
-                        Ok(BlockCacheUpdateOutcome::Success {
-                            blocks_imported,
-                            head_block_number,
-                        }) => debug!(
-                            log_b,
-                            "Updated eth1 block cache";
-                            "blocks_imported" => blocks_imported,
-                            "head_block" => head_block_number,
-                        ),
-                        Err(e) => error!(
-                            log_b,
-                            "Failed to update eth1 block cache";
-                            "error" => e
-                        ),
-                    };
-
-                    Ok(())
-                });
-
-            deposit_future
-                .join(block_future)
+                })
                 .and_then(move |_| Delay::new(Instant::now() + update_interval))
+                .then(move |timer_result| {
+                    if let Err(e) = timer_result {
+                        error!(
+                            log_b,
+                            "Failed to trigger eth1 cache update delay";
+                            "error" => format!("{:?}", e),
+                        );
+                    }
+                    // Do not break the loop if there is an timer failure.
+                    Ok(())
+                })
                 .map(move |_| {
                     if exit_signal.is_live() {
                         Loop::Continue(())
@@ -217,9 +278,17 @@ impl Service {
                     }
                 })
         })
-        .map_err(|_| ())
     }
 
+    /// Contacts the remote eth1 node and attempts to bring the deposit contract fully up-to-date
+    /// with it.
+    ///
+    /// ## Resolves with
+    ///
+    /// - Ok(_) if the update was successful (the cache may or may not have been modified).
+    /// - Err(_) if there is an error.
+    ///
+    /// Emits logs for debugging and errors.
     pub fn update_deposit_cache(
         &self,
     ) -> impl Future<Item = DepositCacheUpdateOutcome, Error = Error> {

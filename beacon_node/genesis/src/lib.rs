@@ -26,115 +26,66 @@ use tokio::timer::Delay;
 use tree_hash::TreeHash;
 use types::{BeaconState, ChainSpec, Deposit, DepositData, Eth1Data, EthSpec, Hash256};
 
+/// Provides a service that connects to some Eth1 HTTP JSON-RPC endpoint and maintains a cache of eth1
+/// blocks and deposits, listening for the eth1 block that triggers eth2 genesis.
+///
+/// Is a wrapper around the `Service` struct of the `eth1` crate.
 #[derive(Clone)]
 pub struct Eth1GenesisService {
+    /// The underlying service. Access to this object is only required for testing and diagnosis.
     pub core: Service,
+    highest_processed_block: Arc<Mutex<Option<u64>>>,
 }
 
 impl Eth1GenesisService {
+    /// Creates a new service. Does not attempt to connect to the Eth1 node.
     pub fn new(config: Eth1Config, log: Logger) -> Self {
         Self {
             core: Service::new(config, log),
+            highest_processed_block: Arc::new(Mutex::new(None)),
         }
     }
 
+    /// Returns a future that will keep updating the cache and resolve once it has discovered the
+    /// first Eth1 block that triggers an Eth2 genesis.
+    ///
+    /// ## Returns
+    ///
+    /// - `Ok(state)` once the canonical eth2 genesis state has been discovered.
+    /// - `Err(e)` if there is some internal error during updates.
     pub fn wait_for_genesis_state<E: EthSpec>(
         &self,
         update_interval: Duration,
         spec: ChainSpec,
     ) -> impl Future<Item = BeaconState<E>, Error = String> {
         let service = self.clone();
-        let next_block: Arc<Mutex<Option<u64>>> = Arc::new(Mutex::new(None));
         let (exit_tx, exit_rx) = exit_future::signal();
 
-        // TODO: allow for exit on Ctrl+C.
-        let loop_future = loop_fn((spec, 0_u64), move |(spec, state)| {
-            let service = service.clone();
-            let next_block = next_block.clone();
+        let loop_future = loop_fn::<(ChainSpec, Option<BeaconState<E>>), _, _, _>(
+            (spec, None),
+            move |(spec, state)| {
+                let service = service.clone();
 
-            let min_genesis_time = Duration::from_secs(spec.min_genesis_time);
+                Delay::new(Instant::now() + update_interval)
+                    .map_err(|e| format!("Delay between genesis deposit checks failed: {:?}", e))
+                    .and_then(move |()| {
+                        if let Some(genesis_eth1_block) = service
+                            .scan_new_blocks::<E>(&spec)
+                            .map_err(|e| format!("Failed to scan for new blocks: {}", e))?
+                        {
+                            let genesis_state = service
+                                .genesis_from_eth1_block(genesis_eth1_block, &spec)
+                                .map_err(|e| {
+                                    format!("Failed to generate valid genesis state : {}", e)
+                                })?;
 
-            Delay::new(Instant::now() + update_interval)
-                .map_err(|e| format!("Delay between genesis deposit checks failed: {:?}", e))
-                .and_then(move |()| {
-                    let highest_known_block = service.highest_known_block();
-                    let genesis_eth1_block = service
-                        .core
-                        .blocks()
-                        .read()
-                        .iter()
-                        .filter(move |block| {
-                            Duration::from_secs(block.timestamp) >= min_genesis_time
-                        })
-                        // Filter out blocks that are not yet known by the deposit updater.
-                        .filter(|block| {
-                            highest_known_block
-                                .map(|n| n >= block.number)
-                                .unwrap_or_else(|| false)
-                        })
-                        .filter(|block| {
-                            next_block
-                                .lock()
-                                .map(|next| block.number >= next)
-                                .unwrap_or_else(|| true)
-                        })
-                        .find(|block| {
-                            let mut next_block = next_block.lock();
-
-                            let new = next_block
-                                .map(|next| block.number >= next)
-                                .unwrap_or_else(|| true);
-
-                            if new {
-                                *next_block = Some(block.number + 1);
-
-                                service
-                                    .is_valid_genesis_eth1_block::<E>(block.clone(), &spec)
-                                    .unwrap_or_else(|_| {
-                                        error!(
-                                            service.core.log,
-                                            "Failed to detect if eth1 block triggers genesis";
-                                            "eth1_block_number" => block.number,
-                                            "eth1_block_hash" => format!("{}", block.hash),
-                                        );
-                                        false
-                                    })
-                            } else {
-                                false
-                            }
-                        })
-                        .cloned();
-
-                    match genesis_eth1_block {
-                        None => Ok(Loop::Continue((spec, state))),
-                        Some(genesis_eth1_block) => {
-                            let deposit_logs = service
-                                .core
-                                .deposits()
-                                .read()
-                                .cache
-                                .iter()
-                                .take_while(|log| log.block_number <= genesis_eth1_block.number)
-                                .map(|log| log.deposit_data.clone())
-                                .collect::<Vec<_>>();
-
-                            let genesis_state = initialize_beacon_state_from_eth1(
-                                genesis_eth1_block.hash,
-                                genesis_eth1_block.timestamp,
-                                genesis_deposits(deposit_logs, &spec),
-                                &spec,
-                            )
-                            .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
-
-                            if !is_valid_genesis_state(&genesis_state, &spec) {
-                                return Err("Failed to generate a valid genesis state".to_string());
-                            }
-
-                            Ok(Loop::Break((spec, genesis_state)))
+                            return Ok(Loop::Break((spec, genesis_state)));
                         }
-                    }
-                })
-        })
+
+                        Ok(Loop::Continue((spec, state)))
+                    })
+            },
+        )
         .map(|(_spec, state)| state)
         .then(|v| {
             exit_tx.fire();
@@ -147,6 +98,98 @@ impl Eth1GenesisService {
             .map_err(|_| "Auto update failed".to_string());
 
         update_future.join(loop_future).map(|(_, state)| state)
+    }
+
+    /// Processes any new blocks that have appeared since this function was last run.
+    ///
+    /// A `highest_processed_block` value is stored in `self`. This function will find any blocks
+    /// in it's caches that have a higher block number than `highest_processed_block` and check to
+    /// see if they would trigger an Eth2 genesis.
+    ///
+    /// Blocks are always tested in increasing order, starting with the lowest unknown block
+    /// number in the cache.
+    ///
+    /// ## Returns
+    ///
+    /// - `Ok(Some(eth1_block))` if a previously-unprocessed block would trigger Eth2 genesis.
+    /// - `Ok(None)` if none of the new blocks would trigger genesis, or there were no new blocks.
+    /// - `Err(_)` if there was some internal error.
+    fn scan_new_blocks<E: EthSpec>(&self, spec: &ChainSpec) -> Result<Option<Eth1Block>, String> {
+        Ok(self
+            .core
+            .blocks()
+            .read()
+            .iter()
+            // It's only worth scanning blocks that have timestamps _after_ genesis time. It's
+            // impossible for any other block to trigger genesis.
+            .filter(|block| block.timestamp >= spec.min_genesis_time)
+            // The block cache might be more recently updated than deposit cache. Restrict any
+            // block numbers that are not known by all caches.
+            .filter(|block| block.number <= self.highest_known_block().unwrap_or_else(|| 0))
+            // Try to find
+            .find(|block| {
+                let mut highest_processed_block = self.highest_processed_block.lock();
+
+                let next_new_block_number =
+                    highest_processed_block.map(|n| n + 1).unwrap_or_else(|| 0);
+
+                if block.number < next_new_block_number {
+                    return false;
+                }
+
+                self.is_valid_genesis_eth1_block::<E>(block.clone(), &spec)
+                    .and_then(|val| {
+                        *highest_processed_block = Some(block.number);
+                        Ok(val)
+                    })
+                    .unwrap_or_else(|_| {
+                        error!(
+                            self.core.log,
+                            "Failed to detect if eth1 block triggers genesis";
+                            "eth1_block_number" => block.number,
+                            "eth1_block_hash" => format!("{}", block.hash),
+                        );
+                        false
+                    })
+            })
+            .cloned())
+    }
+
+    /// Produces an eth2 genesis `BeaconState` from the given `eth1_block`.
+    ///
+    /// ## Returns
+    ///
+    /// - Ok(genesis_state) if all went well.
+    /// - Err(e) if the given `eth1_block` was not a viable block to trigger genesis or there was
+    /// an internal error.
+    fn genesis_from_eth1_block<E: EthSpec>(
+        &self,
+        eth1_block: Eth1Block,
+        spec: &ChainSpec,
+    ) -> Result<BeaconState<E>, String> {
+        let deposit_logs = self
+            .core
+            .deposits()
+            .read()
+            .cache
+            .iter()
+            .take_while(|log| log.block_number <= eth1_block.number)
+            .map(|log| log.deposit_data.clone())
+            .collect::<Vec<_>>();
+
+        let genesis_state = initialize_beacon_state_from_eth1(
+            eth1_block.hash,
+            eth1_block.timestamp,
+            genesis_deposits(deposit_logs, &spec),
+            &spec,
+        )
+        .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
+
+        if is_valid_genesis_state(&genesis_state, &spec) {
+            Ok(genesis_state)
+        } else {
+            Err("Generated state was not valid.".to_string())
+        }
     }
 
     /// A cheap (compared to using `initialize_beacon_state_from_eth1) method for determining if some
