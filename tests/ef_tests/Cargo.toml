@@ -5,6 +5,8 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [features]
+# `ef_tests` feature must be enabled to actually run the tests
+ef_tests = []
 fake_crypto = ["bls/fake_crypto"]
 
 [dependencies]

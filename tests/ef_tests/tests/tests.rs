@@ -1,3 +1,5 @@
+#![cfg(feature = "ef_tests")]
+
 use ef_tests::*;
 use types::*;
 
