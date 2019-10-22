@@ -82,6 +82,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn discovery(&self) -> &Discovery<TSubstream> {
         &self.discovery
     }
+
+    pub fn gs(&self) -> &Gossipsub<TSubstream> {
+        &self.gossipsub
+    }
 }
 
 // Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour
@@ -194,6 +198,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     /// Subscribes to a gossipsub topic.
     pub fn subscribe(&mut self, topic: Topic) -> bool {
         self.gossipsub.subscribe(topic)
+    }
+
+    /// Unsubscribe from a gossipsub topic.
+    pub fn unsubscribe(&mut self, topic: Topic) -> bool {
+        self.gossipsub.unsubscribe(topic)
     }
 
     /// Publishes a message on the pubsub (gossipsub) behaviour.
