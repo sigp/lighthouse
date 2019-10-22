@@ -91,16 +91,29 @@ fn generate_secret_keys(n: usize) -> Vec<Option<String>> {
         .collect::<Vec<_>>()
 }
 
-// Constructs, connects and returns 2 libp2p peers without discovery
-fn build_nodes() -> Vec<LibP2PService> {
+// Constructs, connects and returns n libp2p peers without discovery
+fn build_nodes(n: usize) -> Vec<LibP2PService> {
     let log = setup_log();
-    let mut node1 = build_libp2p_instance(9000, vec![], None, log.clone());
-    let node2 = build_libp2p_instance(9001, vec![], None, log.clone());
-    match libp2p::Swarm::dial_addr(&mut node1.swarm, get_enr(&node2).multiaddr()[1].clone()) {
-        Ok(()) => debug!(log, "Connected"),
-        Err(_) => error!(log, "Failed to connect"),
-    };
-    vec![node1, node2]
+    let base_port = 9000;
+    let mut nodes: Vec<LibP2PService> = (base_port..base_port + n as u16)
+        .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))
+        .collect();
+    let multiaddrs: Vec<Multiaddr> = nodes
+        .iter()
+        .map(|x| get_enr(&x).multiaddr()[1].clone())
+        .collect();
+
+    for i in 0..n {
+        for j in i..n {
+            if i != j {
+                match libp2p::Swarm::dial_addr(&mut nodes[i].swarm, multiaddrs[j].clone()) {
+                    Ok(()) => debug!(log, "Connected"),
+                    Err(_) => error!(log, "Failed to connect"),
+                };
+            }
+        }
+    }
+    nodes
 }
 
 #[test]
@@ -147,8 +160,12 @@ fn test_discovery() {
 
 #[test]
 fn test_gossipsub() {
-    let mut nodes = build_nodes();
+    let num_nodes = 20;
+    let mut nodes = build_nodes(num_nodes);
+    let mut publishing_node = nodes.pop().unwrap();
     let pubsub_message = PubsubMessage::Block(vec![0; 4]);
+    let mut subscribed_count = 0;
+    let mut received_count = 0;
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
         for node in nodes.iter_mut() {
             loop {
@@ -164,22 +181,34 @@ fn test_gossipsub() {
 
                         // Assert message received is the correct one
                         assert_eq!(message, pubsub_message.clone());
-                        return Ok(Async::Ready(()));
-                    }
-                    Async::Ready(Some(Libp2pEvent::PeerSubscribed(.., topic))) => {
-                        // Received topics is one of subscribed eth2 topics
-                        assert!(topic.clone().into_string().starts_with("/eth2/"));
-                        // Publish on beacon block topic
-                        if topic == TopicHash::from_raw("/eth2/beacon_block/ssz") {
-                            node.swarm.publish(
-                                &vec![Topic::new(topic.into_string())],
-                                pubsub_message.clone(),
-                            );
+                        received_count += 1;
+                        if received_count == num_nodes - 1 {
+                            return Ok(Async::Ready(()));
                         }
                     }
                     Async::Ready(Some(_)) => (),
                     Async::Ready(None) | Async::NotReady => break,
                 }
+            }
+        }
+        loop {
+            match publishing_node.poll().unwrap() {
+                Async::Ready(Some(Libp2pEvent::PeerSubscribed(_, topic))) => {
+                    // Received topics is one of subscribed eth2 topics
+                    assert!(topic.clone().into_string().starts_with("/eth2/"));
+                    // Publish on beacon block topic
+                    if topic == TopicHash::from_raw("/eth2/beacon_block/ssz") {
+                        subscribed_count += 1;
+                        if subscribed_count == num_nodes - 1 {
+                            publishing_node.swarm.publish(
+                                &vec![Topic::new(topic.into_string())],
+                                pubsub_message.clone(),
+                            );
+                        }
+                    }
+                }
+                Async::Ready(Some(_)) => (),
+                Async::Ready(None) | Async::NotReady => break,
             }
         }
         Ok(Async::NotReady)
@@ -188,7 +217,7 @@ fn test_gossipsub() {
 
 #[test]
 fn test_rpc() {
-    let mut nodes = build_nodes();
+    let mut nodes = build_nodes(2);
     // Random rpc message
     let rpc_request = RPCRequest::Hello(HelloMessage {
         fork_version: [0; 4],
