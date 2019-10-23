@@ -12,14 +12,14 @@ use futures::{
     future::{loop_fn, Loop},
     stream, Future, Stream,
 };
+use parking_lot::RwLock;
 use slog::{debug, error, Logger};
+use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Delay;
-// use futures::{prelude::*, stream, Future};
-use parking_lot::RwLock;
-use std::ops::{Range, RangeInclusive};
 
+/// The span of blocks we should query for logs, per request.
 const BLOCKS_PER_LOG_QUERY: usize = 10;
 
 /// Timeout when doing a eth_blockNumber call.
@@ -35,32 +35,36 @@ const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 1_000;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
+    /// The remote node is less synced that we expect.
     RemoteNotSynced {
         next_required_block: u64,
         remote_highest_block: u64,
         follow_distance: u64,
     },
+    /// Failed to download a block from the eth1 node.
     BlockDownloadFailed(String),
+    /// Failed to get the current block number from the eth1 node.
     GetBlockNumberFailed(String),
+    /// Failed to read the deposit contract root from the eth1 node.
     GetDepositRootFailed(String),
+    /// Failed to read the deposit contract deposit count from the eth1 node.
     GetDepositCountFailed(String),
-    FailedToInsertEth1Snapshot(BlockCacheError),
-    NodeUnableToSyncDeposits {
-        remote_head_block: u64,
-        last_processed_block: u64,
-    },
-    FailedToInsertDeposit(DepositCacheError),
-    IncompleteLogResponse {
-        expected: usize,
-        response: usize,
-    },
+    /// Failed to read the deposit contract root from the eth1 node.
     GetDepositLogsFailed(String),
+    /// There was an inconsistency when adding a block to the cache.
+    FailedToInsertEth1Block(BlockCacheError),
+    /// There was an inconsistency when adding a deposit to the cache.
+    FailedToInsertDeposit(DepositCacheError),
+    /// A log downloaded from the eth1 contract was not well formed.
+    IncompleteLogResponse { expected: usize, response: usize },
+    /// A log downloaded from the eth1 contract was not well formed.
     FailedToParseDepositLog {
         block_range: Range<u64>,
         error: String,
     },
-    FailedToGetDeposits(DepositCacheError),
+    /// The eth1 http json-rpc node returned an error.
     Eth1RpcError(String),
+    /// There was an unexpected internal error.
     Internal(String),
 }
 
@@ -113,6 +117,12 @@ impl Default for Config {
     }
 }
 
+/// Provides a set of Eth1 caches and async functions to update them.
+///
+/// Stores the following caches:
+///
+/// - Deposit cache: stores all deposit logs from the deposit contract.
+/// - Block cache: stores some number of eth1 blocks.
 #[derive(Clone)]
 pub struct Service {
     inner: Arc<Inner>,
@@ -280,8 +290,8 @@ impl Service {
         })
     }
 
-    /// Contacts the remote eth1 node and attempts to bring the deposit contract fully up-to-date
-    /// with it.
+    /// Contacts the remote eth1 node and attempts to import all deposit logs up to the configured
+    /// follow-distance block.
     ///
     /// ## Resolves with
     ///
@@ -381,6 +391,17 @@ impl Service {
         })
     }
 
+    /// Contacts the remote eth1 node and attempts to import all blocks up to the configured
+    /// follow-distance block.
+    ///
+    /// If configured, prunes the block cache after importing new blocks.
+    ///
+    /// ## Resolves with
+    ///
+    /// - Ok(_) if the update was successful (the cache may or may not have been modified).
+    /// - Err(_) if there is an error.
+    ///
+    /// Emits logs for debugging and errors.
     pub fn update_block_cache(&self) -> impl Future<Item = BlockCacheUpdateOutcome, Error = Error> {
         let config = &self.inner.config;
         let cache_1 = self.inner.clone();
@@ -458,7 +479,7 @@ impl Service {
                     .block_cache
                     .write()
                     .insert_root_or_child(eth1_block)
-                    .map_err(|e| Error::FailedToInsertEth1Snapshot(e))?;
+                    .map_err(|e| Error::FailedToInsertEth1Block(e))?;
 
                 Ok(sum + 1)
             })
