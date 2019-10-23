@@ -213,9 +213,8 @@ fn interop_genesis_state<T: EthSpec>(
     let depth = spec.deposit_contract_tree_depth as usize;
     let mut tree = MerkleTree::create(&[], depth);
     for (i, deposit_leave) in deposit_root_leaves.iter().enumerate() {
-        match tree.push_leaf(deposit_leave, depth) {
-            Ok(_) => (),
-            Err(e) => return Err(e),
+        if let Err(_) = tree.push_leaf(*deposit_leave, depth) {
+            return Err(String::from("Failed to push leaf"))
         }
 
         let (_, mut proof) = tree.generate_proof(i, depth);
