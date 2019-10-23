@@ -29,7 +29,7 @@ lazy_static! {
 ///
 /// Efficiently represents a Merkle tree of fixed depth where only the first N
 /// indices are populated by non-zero leaves (perfect for the deposit contract tree).
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum MerkleTree {
     /// Leaf node with the hash of its content.
     Leaf(H256),
@@ -88,59 +88,53 @@ impl MerkleTree {
     /// Push an element in the MerkleTree.
     /// MerkleTree and depth must be correct, as the algorithm expects valid data.
     pub fn push_leaf(&mut self, elem: H256, depth: usize) -> Result<(), MerkleTreeError> {
+        use std::mem;
         use MerkleTree::*;
 
         if depth == 0 {
             return Err(MerkleTreeError::DepthTooSmall);
         }
 
-        let mut right;
-        let mut left;
-        match &*self {
+        match self {
             Leaf(_) => return Err(MerkleTreeError::LeafReached),
-            Zero(_) => *self = MerkleTree::create(&[elem], depth),
-            Node(_, l, r) => {
-                match (&**l, &**r) {
+            Zero(_) => {
+                mem::replace(self, MerkleTree::create(&[elem], depth));
+            }
+            Node(ref mut hash, ref mut left, ref mut right) => {
+                let left: &mut MerkleTree = &mut *left;
+                let right: &mut MerkleTree = &mut *right;
+                match (&*left, &*right) {
                     // Tree is full
                     (Leaf(_), Leaf(_)) => return Err(MerkleTreeError::MerkleTreeFull),
                     // There is a right node so insert in right node
                     (Node(_, _, _), Node(_, _, _)) => {
-                        right = *r.clone();
                         if let Err(e) = right.push_leaf(elem, depth - 1) {
                             return Err(e);
                         }
-                        left = *l.clone();
                     }
                     // Both branches are zero, insert in left one
                     (Zero(_), Zero(_)) => {
-                        left = MerkleTree::create(&[elem], depth - 1);
-                        right = *r.clone();
+                        mem::replace(left, MerkleTree::create(&[elem], depth - 1));
                     }
                     // Leaf on left branch and zero on right branch, insert on right side
                     (Leaf(_), Zero(_)) => {
-                        left = *l.clone();
-                        right = MerkleTree::create(&[elem], depth - 1);
+                        mem::replace(right, MerkleTree::create(&[elem], depth - 1));
                     }
                     // Try inserting on the left node -> if it fails because it is full, insert in right side.
                     (Node(_, _, _), Zero(_)) => {
-                        left = *l.clone();
                         match left.push_leaf(elem, depth - 1) {
-                            Ok(_) => right = *r.clone(),
-                            // Left node is full, try inserting in right node
+                            Ok(_) => (),
+                            // Left node is full, insert in right node
                             Err(MerkleTreeError::MerkleTreeFull) => {
-                                right = *r.clone();
-                                if let Err(e) = right.push_leaf(elem, depth - 1) {
-                                    return Err(e);
-                                }
+                                mem::replace(right, MerkleTree::create(&[elem], depth - 1));
                             }
                             Err(e) => return Err(e),
-                        }
+                        };
                     }
                     // All other possibilities are invalid MerkleTrees
                     (_, _) => return Err(MerkleTreeError::Invalid),
-                }
-                let hash = hash_concat(left.hash(), right.hash());
-                *self = Node(hash, Box::new(left), Box::new(right));
+                };
+                *hash = hash_concat(left.hash(), right.hash());
             }
         }
 
