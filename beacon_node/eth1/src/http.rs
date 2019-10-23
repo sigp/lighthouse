@@ -212,17 +212,17 @@ fn call(
     ]);
 
     send_rpc_request(endpoint, "eth_call", params, timeout).and_then(|response_body| {
-        Ok(response_result(&response_body)?
-            .ok_or_else(|| "".to_string())
-            .and_then(|result| {
-                result
+        match response_result(&response_body)? {
+            None => Ok(None),
+            Some(result) => {
+                let hex = result
                     .as_str()
                     .map(|s| s.to_string())
-                    .ok_or_else(|| "'result' value was not a string".to_string())
-            })
-            .and_then(|hex| hex_to_bytes(&hex))
-            .map(|v| Some(v))
-            .unwrap_or_else(|_| None))
+                    .ok_or_else(|| "'result' value was not a string".to_string())?;
+
+                Ok(Some(hex_to_bytes(&hex)?))
+            }
+        }
     })
 }
 
@@ -250,7 +250,7 @@ pub fn get_deposit_logs_in_range(
         "topics": [DEPOSIT_EVENT_TOPIC],
         "fromBlock": format!("0x{:x}", block_height_range.start),
         "toBlock": format!("0x{:x}", block_height_range.end),
-    }]);;
+    }]);
 
     send_rpc_request(endpoint, "eth_getLogs", params, timeout)
         .and_then(|response_body| {

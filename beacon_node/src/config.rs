@@ -300,7 +300,7 @@ impl ConfigBuilder {
     }
 
     pub fn set_deposit_contract(&mut self, deposit_contract: Address) {
-        self.client_config.eth1.deposit_contract_address = format!("0x{}", deposit_contract);
+        self.client_config.eth1.deposit_contract_address = format!("{:?}", deposit_contract);
     }
 
     pub fn set_eth1_follow(&mut self, distance: u64) {
@@ -550,6 +550,11 @@ impl ConfigBuilder {
     pub fn build(mut self, cli_args: &ArgMatches) -> Result<Config> {
         self.eth2_config.apply_cli_args(cli_args)?;
         self.client_config.apply_cli_args(cli_args, &mut self.log)?;
+
+        if self.eth2_config.spec_constants == "minimal" {
+            // NOTE: this is a variation on the spec that makes testnets quicker to start.
+            self.eth2_config.spec.min_genesis_time = 0;
+        }
 
         if let Some(bump) = cli_args.value_of("port-bump") {
             let bump = bump

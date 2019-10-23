@@ -375,17 +375,16 @@ impl Service {
                             error,
                         }
                     })?;
-                    let block_number = deposit_log.block_number;
 
                     cache
                         .cache
                         .insert_log(deposit_log)
                         .map_err(|e| Error::FailedToInsertDeposit(e))?;
 
-                    cache.last_processed_block = Some(block_number);
-
                     sum += 1;
                 }
+
+                cache.last_processed_block = Some(block_range.end.saturating_sub(1));
 
                 Ok(sum)
             })
