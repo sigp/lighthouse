@@ -213,7 +213,10 @@ fn interop_genesis_state<T: EthSpec>(
     let depth = spec.deposit_contract_tree_depth as usize;
     let mut tree = MerkleTree::create(&[], depth);
     for i in 1..=deposit_root_leaves.len() {
-        tree.push_leaf(deposit_root_leaves[i], depth).unwrap();
+        match tree.push_leaf(deposit_root_leaves[i], depth) {
+            Ok(_) => (),
+            Err(e) => return Err(e),
+        }
 
         let (_, mut proof) = tree.generate_proof(i - 1, depth);
         proof.push(Hash256::from_slice(&int_to_bytes32(i)));
