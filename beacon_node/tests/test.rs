@@ -1,6 +1,5 @@
 #![cfg(test)]
 
-use futures::Future;
 use node_test_rig::{environment::EnvironmentBuilder, LocalBeaconNode};
 use types::{EthSpec, Slot};
 
@@ -20,7 +19,7 @@ fn test_http_server<E: EthSpec>(env_builder: EnvironmentBuilder<E>) {
         .build()
         .expect("environment should build");
 
-    let node = LocalBeaconNode::production(&env);
+    let node = LocalBeaconNode::production(env.core_context());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let (api_state, _root) = env

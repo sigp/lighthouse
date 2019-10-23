@@ -48,6 +48,7 @@ pub fn get_block_number(
         .and_then(|response_body| {
             hex_to_u64_be(
                 response_result(&response_body)?
+                    .ok_or_else(|| "No result field was returned for block number".to_string())?
                     .as_str()
                     .ok_or_else(|| "Data was not string")?,
             )
@@ -72,6 +73,7 @@ pub fn get_block(
         .and_then(|response_body| {
             let hash = hex_to_bytes(
                 response_result(&response_body)?
+                    .ok_or_else(|| "No result field was returned for block".to_string())?
                     .get("hash")
                     .ok_or_else(|| "No hash for block")?
                     .as_str()
@@ -85,6 +87,7 @@ pub fn get_block(
 
             let timestamp = hex_to_u64_be(
                 response_result(&response_body)?
+                    .ok_or_else(|| "No result field was returned for timestamp".to_string())?
                     .get("timestamp")
                     .ok_or_else(|| "No timestamp for block")?
                     .as_str()
@@ -93,6 +96,7 @@ pub fn get_block(
 
             let number = hex_to_u64_be(
                 response_result(&response_body)?
+                    .ok_or_else(|| "No result field was returned for number".to_string())?
                     .get("number")
                     .ok_or_else(|| "No number for block")?
                     .as_str()
@@ -136,6 +140,7 @@ pub fn get_deposit_count(
         block_number,
         timeout,
     )
+    .and_then(|result| result.ok_or_else(|| "No response to deposit count".to_string()))
     .and_then(|bytes| {
         if bytes.is_empty() {
             Ok(None)
@@ -170,6 +175,7 @@ pub fn get_deposit_root(
         block_number,
         timeout,
     )
+    .and_then(|result| result.ok_or_else(|| "No response to deposit root".to_string()))
     .and_then(|bytes| {
         if bytes.is_empty() {
             Ok(None)
@@ -196,7 +202,7 @@ fn call(
     hex_data: &str,
     block_number: u64,
     timeout: Duration,
-) -> impl Future<Item = Vec<u8>, Error = String> {
+) -> impl Future<Item = Option<Vec<u8>>, Error = String> {
     let params = json! ([
         {
             "to": address,
@@ -205,15 +211,19 @@ fn call(
         format!("0x{:x}", block_number)
     ]);
 
-    send_rpc_request(endpoint, "eth_call", params, timeout)
-        .and_then(|response_body| {
-            hex_to_bytes(
-                response_result(&response_body)?
+    send_rpc_request(endpoint, "eth_call", params, timeout).and_then(|response_body| {
+        Ok(response_result(&response_body)?
+            .ok_or_else(|| "".to_string())
+            .and_then(|result| {
+                result
                     .as_str()
-                    .ok_or_else(|| "'result' value was not a string".to_string())?,
-            )
-        })
-        .map_err(|e| format!("Failed to get logs in range: {}", e))
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| "'result' value was not a string".to_string())
+            })
+            .and_then(|hex| hex_to_bytes(&hex))
+            .map(|v| Some(v))
+            .unwrap_or_else(|_| None))
+    })
 }
 
 /// A reduced set of fields from an Eth1 contract log.
@@ -245,6 +255,7 @@ pub fn get_deposit_logs_in_range(
     send_rpc_request(endpoint, "eth_getLogs", params, timeout)
         .and_then(|response_body| {
             response_result(&response_body)?
+                .ok_or_else(|| "No result field was returned for deposit logs".to_string())?
                 .as_array()
                 .cloned()
                 .ok_or_else(|| "'result' value was not an array".to_string())?
@@ -320,12 +331,13 @@ pub fn send_rpc_request(
 }
 
 /// Accepts an entire HTTP body (as a string) and returns the `result` field, as a serde `Value`.
-fn response_result(response: &str) -> Result<Value, String> {
-    serde_json::from_str::<Value>(&response)
+fn response_result(response: &str) -> Result<Option<Value>, String> {
+    Ok(serde_json::from_str::<Value>(&response)
         .map_err(|e| format!("Failed to parse response: {:?}", e))?
         .get("result")
         .cloned()
-        .ok_or_else(|| "Rpc response did not have a `result` field".to_string())
+        .map(|v| Some(v))
+        .unwrap_or_else(|| None))
 }
 
 /// Parses a `0x`-prefixed, **big-endian** hex string as a u64.

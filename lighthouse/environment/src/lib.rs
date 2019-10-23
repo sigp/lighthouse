@@ -98,6 +98,29 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     }
 }
 
+#[derive(Clone)]
+pub struct RuntimeContext<E: EthSpec> {
+    pub executor: TaskExecutor,
+    pub log: Logger,
+    pub eth_spec_instance: E,
+    eth2_config: Eth2Config,
+}
+
+impl<E: EthSpec> RuntimeContext<E> {
+    pub fn service_context(&self, service_name: &'static str) -> Self {
+        Self {
+            executor: self.executor.clone(),
+            log: self.log.new(o!("service" => service_name)),
+            eth_spec_instance: self.eth_spec_instance.clone(),
+            eth2_config: self.eth2_config.clone(),
+        }
+    }
+
+    pub fn eth2_config(&self) -> &Eth2Config {
+        &self.eth2_config
+    }
+}
+
 pub struct Environment<E: EthSpec> {
     runtime: Runtime,
     log: Logger,
@@ -112,6 +135,24 @@ impl<E: EthSpec> Environment<E> {
 
     pub fn runtime(&mut self) -> &mut Runtime {
         &mut self.runtime
+    }
+
+    pub fn core_context(&mut self) -> RuntimeContext<E> {
+        RuntimeContext {
+            executor: self.executor(),
+            log: self.log.clone(),
+            eth_spec_instance: self.eth_spec_instance.clone(),
+            eth2_config: self.eth2_config.clone(),
+        }
+    }
+
+    pub fn service_context(&mut self, service_name: &'static str) -> RuntimeContext<E> {
+        RuntimeContext {
+            executor: self.executor(),
+            log: self.log.new(o!("service" => service_name)),
+            eth_spec_instance: self.eth_spec_instance.clone(),
+            eth2_config: self.eth2_config.clone(),
+        }
     }
 
     pub fn block_until_ctrl_c(&mut self) -> Result<(), String> {
@@ -145,12 +186,12 @@ impl<E: EthSpec> Environment<E> {
         &self.eth2_config
     }
 
-    pub fn core_log(&self) -> Logger {
-        self.log.clone()
+    pub fn service_log(&self, name: &'static str) -> Logger {
+        self.log.new(o!("service" => name))
     }
 
-    pub fn beacon_node_log(&self) -> Logger {
-        self.log.new(o!("client" => "beacon"))
+    pub fn core_log(&self) -> Logger {
+        self.log.clone()
     }
 
     pub fn validator_client_log(&self) -> Logger {

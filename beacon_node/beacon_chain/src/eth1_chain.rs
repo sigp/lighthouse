@@ -1,5 +1,4 @@
 use crate::BeaconChainTypes;
-use eth1::Eth1Cache;
 use eth2_hashing::hash;
 use std::marker::PhantomData;
 use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned};
@@ -115,6 +114,7 @@ fn int_to_bytes32(int: u64) -> Vec<u8> {
     vec
 }
 
+/*
 impl<T: EthSpec> Eth1ChainBackend<T> for Eth1Cache {
     fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self> {
         // TODO: fix or perish.
@@ -153,6 +153,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for Eth1Cache {
         }
     }
 }
+*/
 
 /// Returns the unix-epoch seconds at the start of the given `slot`.
 fn slot_start_seconds<T: EthSpec>(

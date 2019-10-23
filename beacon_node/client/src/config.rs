@@ -29,6 +29,7 @@ pub struct Config {
     pub rpc: rpc::Config,
     pub rest_api: rest_api::Config,
     pub websocket_server: websocket_server::Config,
+    pub eth1: eth1::Config,
 }
 
 /// Defines which Eth1 backend the client should use.
@@ -65,6 +66,7 @@ impl Default for Config {
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
             beacon_chain_start_method: <_>::default(),
             eth1_backend_method: <_>::default(),
+            eth1: <_>::default(),
         }
     }
 }

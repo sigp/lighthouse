@@ -13,7 +13,8 @@ use futures::{
     stream, Future, Stream,
 };
 use parking_lot::RwLock;
-use slog::{debug, error, Logger};
+use serde::{Deserialize, Serialize};
+use slog::{debug, error, trace, Logger};
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -85,6 +86,7 @@ pub enum DepositCacheUpdateOutcome {
     Success { logs_imported: usize },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// An Eth1 node (e.g., Geth) running a HTTP JSON-RPC endpoint.
     pub endpoint: String,
@@ -181,7 +183,7 @@ impl Service {
             .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
             .then(move |result| {
                 match &result {
-                    Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => debug!(
+                    Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => trace!(
                         log_a,
                         "Updated eth1 deposit cache";
                         "logs_imported" => logs_imported,
@@ -204,7 +206,7 @@ impl Service {
                     Ok(BlockCacheUpdateOutcome::Success {
                         blocks_imported,
                         head_block_number,
-                    }) => debug!(
+                    }) => trace!(
                         log_b,
                         "Updated eth1 block cache";
                         "blocks_imported" => blocks_imported,
@@ -249,21 +251,21 @@ impl Service {
             service
                 .update()
                 .then(move |update_result| {
-                    if let Err(e) = update_result {
-                        error!(
+                    match update_result {
+                        Err(e) => error!(
                             log_a,
-                            "Failed to update Eth1 genesis cache";
+                            "Failed to update eth1 genesis cache";
                             "retry_millis" => update_interval.as_millis(),
                             "error" => e,
-                        );
-                    } else {
-                        debug!(
+                        ),
+                        Ok((deposit, block)) => debug!(
                             log_a,
-                            "Updated Eth1 genesis cache";
+                            "Updated eth1 genesis cache";
                             "retry_millis" => update_interval.as_millis(),
-                            "result" => format!("{:?}", update_result),
-                        );
-                    }
+                            "blocks" => format!("{:?}", block),
+                            "deposits" => format!("{:?}", deposit),
+                        ),
+                    };
 
                     // Do not break the loop if there is an update failure.
                     Ok(())

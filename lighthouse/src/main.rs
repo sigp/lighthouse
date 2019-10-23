@@ -107,14 +107,22 @@ fn run<E: EthSpec>(
     );
 
     let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("Beacon Node") {
-        println!("beacon");
-        Some(ProductionBeaconNode::new_from_cli(
-            sub_matches,
-            &environment,
-        )?)
+        let runtime_context = environment.core_context();
+
+        let beacon = environment
+            .runtime()
+            .block_on(ProductionBeaconNode::new_from_cli(
+                runtime_context,
+                sub_matches,
+            ))
+            .map_err(|e| format!("Failed to start beacon node: {}", e))?;
+
+        Some(beacon)
     } else {
         None
     };
+
+    dbg!("it has started");
 
     if beacon_node.is_none() {
         crit!(log, "No subcommand supplied. See --help .");

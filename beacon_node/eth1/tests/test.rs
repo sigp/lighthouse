@@ -11,6 +11,7 @@ use eth1::http::{
 use eth1::{http::send_rpc_request, BlockProposalService, Config, Service};
 use eth1::{DepositCache, DepositLog};
 use eth1_test_rig::DepositContract;
+use exit_future;
 use futures::Future;
 use merkle_proof::verify_merkle_proof;
 use std::ops::Range;
@@ -134,7 +135,7 @@ mod auto_update {
 
         // NOTE: this test is sensitive to the response speed of the external web3 server. If
         // you're experiencing failures, try increasing the update_interval.
-        let update_interval = Duration::from_millis(500);
+        let update_interval = Duration::from_millis(1_000);
 
         assert_eq!(
             service.block_cache_len(),
@@ -147,9 +148,11 @@ mod auto_update {
             "should have imported no deposits"
         );
 
+        let (_exit, signal) = exit_future::signal();
+
         runtime
             .executor()
-            .spawn(service.auto_update(Duration::from_millis(500)));
+            .spawn(service.auto_update(Duration::from_millis(500), signal));
 
         let n = 4;
 
@@ -159,7 +162,9 @@ mod auto_update {
                 .expect("should do first deposits");
         }
 
-        std::thread::sleep(update_interval * 2);
+        std::thread::sleep(update_interval * 5);
+
+        dbg!(service.deposit_cache_len());
 
         assert!(
             service.deposit_cache_len() >= n,

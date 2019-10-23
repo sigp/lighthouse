@@ -4,9 +4,10 @@ use beacon_node::{
     beacon_chain::{builder::BeaconChainStartMethod, BeaconChainTypes},
     Client, ClientConfig, ProductionBeaconNode, ProductionClient,
 };
-use environment::Environment;
+use environment::RuntimeContext;
+use genesis::interop_genesis_state;
 use tempdir::TempDir;
-use types::EthSpec;
+use types::{test_utils::generate_deterministic_keypairs, EthSpec};
 
 pub use environment;
 pub use remote_node::RemoteBeaconNode;
@@ -17,10 +18,18 @@ pub struct LocalBeaconNode<T> {
 }
 
 impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
-    pub fn production(env: &Environment<E>) -> Self {
+    pub fn production(context: RuntimeContext<E>) -> Self {
         let (client_config, datadir) = testing_client_config();
+        let eth2_config = context.eth2_config().clone();
 
-        let client = ProductionBeaconNode::new(env, client_config, env.eth2_config().clone())
+        let state = interop_genesis_state(
+            &generate_deterministic_keypairs(8),
+            0,
+            &context.eth2_config().spec,
+        )
+        .expect("should build interop state");
+
+        let client = ProductionBeaconNode::from_genesis(context, state, client_config, eth2_config)
             .expect("should build production client")
             .into_inner();
 

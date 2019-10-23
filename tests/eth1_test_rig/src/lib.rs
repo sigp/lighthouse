@@ -72,6 +72,29 @@ impl UnsafeBlockingUtils<DepositContract> {
             .block_on(self.core.web3.transport().execute("evm_mine", vec![]))
             .expect("utils should mine new block with evm_mine (only works with ganache-cli!)");
     }
+
+    pub fn get_deposit<E: EthSpec>(
+        &self,
+        keypair: Keypair,
+        withdrawal_credentials: Hash256,
+        amount: u64,
+    ) -> DepositData {
+        let mut deposit = DepositData {
+            pubkey: keypair.pk.into(),
+            withdrawal_credentials,
+            amount,
+            signature: Signature::empty_signature().into(),
+        };
+
+        deposit.signature = deposit.create_signature(
+            &keypair.sk,
+            Epoch::new(0),
+            &Fork::default(),
+            &E::default_spec(),
+        );
+
+        deposit
+    }
 }
 
 #[derive(Clone, Debug)]

@@ -224,9 +224,8 @@ where
                 let keypairs = generate_deterministic_keypairs(*validator_count);
                 let genesis_time = recent_genesis_time(*minutes);
                 let genesis_state = interop_genesis_state(&keypairs, genesis_time, &self.spec)?;
-                let genesis_block = genesis_block(&genesis_state, &self.spec);
 
-                self.start_from_genesis(&store, genesis_state, genesis_block)
+                self.genesis_state(genesis_state)
             }
             BeaconChainStartMethod::Generated {
                 validator_count,
@@ -242,9 +241,8 @@ where
 
                 let keypairs = generate_deterministic_keypairs(*validator_count);
                 let genesis_state = interop_genesis_state(&keypairs, *genesis_time, &self.spec)?;
-                let genesis_block = genesis_block(&genesis_state, &self.spec);
 
-                self.start_from_genesis(&store, genesis_state, genesis_block)
+                self.genesis_state(genesis_state)
             }
             BeaconChainStartMethod::Keypairs {
                 keypairs,
@@ -259,9 +257,8 @@ where
                 );
 
                 let genesis_state = interop_genesis_state(&keypairs, *genesis_time, &self.spec)?;
-                let genesis_block = genesis_block(&genesis_state, &self.spec);
 
-                self.start_from_genesis(&store, genesis_state, genesis_block)
+                self.genesis_state(genesis_state)
             }
             BeaconChainStartMethod::Ssz { file } => {
                 info!(
@@ -281,9 +278,8 @@ where
 
                 let genesis_state = BeaconState::from_ssz_bytes(&bytes)
                     .map_err(|e| format!("Unable to parse SSZ genesis state file: {:?}", e))?;
-                let genesis_block = genesis_block(&genesis_state, &self.spec);
 
-                self.start_from_genesis(&store, genesis_state, genesis_block)
+                self.genesis_state(genesis_state)
             }
             BeaconChainStartMethod::HttpBootstrap { server, port } => {
                 info!(
@@ -304,6 +300,18 @@ where
                 self.start_from_genesis(&store, genesis_state, genesis_block)
             }
         }
+    }
+
+    /// Starts a new chain from genesis a genesis state.
+    pub fn genesis_state(self, beacon_state: BeaconState<TEthSpec>) -> Result<Self, String> {
+        let store = self
+            .store
+            .clone()
+            .ok_or_else(|| "genesis_state requires a store")?;
+
+        let beacon_block = genesis_block(&beacon_state, &self.spec);
+
+        self.start_from_genesis(&store, beacon_state, beacon_block)
     }
 
     /// Starts a new chain from genesis.

@@ -14,3 +14,4 @@ reqwest = "0.9"
 url = "1.2"
 serde = "1.0"
 futures = "0.1.25"
+genesis = { path = "../../beacon_node/genesis" }

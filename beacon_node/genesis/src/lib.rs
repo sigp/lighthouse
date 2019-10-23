@@ -1,6 +1,7 @@
-pub mod interop;
+mod interop;
 
 pub use eth1::Config as Eth1Config;
+pub use interop::interop_genesis_state;
 
 use eth1::{DepositLog, Eth1Block, Service};
 use exit_future;
@@ -11,7 +12,7 @@ use futures::{
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use rayon::prelude::*;
-use slog::{error, Logger};
+use slog::{debug, error, Logger};
 use ssz::Decode;
 use state_processing::{
     initialize_beacon_state_from_eth1, is_valid_genesis_state,
@@ -27,7 +28,8 @@ use tree_hash::TreeHash;
 use types::{BeaconState, ChainSpec, Deposit, DepositData, Eth1Data, EthSpec, Hash256};
 
 /// Provides a service that connects to some Eth1 HTTP JSON-RPC endpoint and maintains a cache of eth1
-/// blocks and deposits, listening for the eth1 block that triggers eth2 genesis.
+/// blocks and deposits, listening for the eth1 block that triggers eth2 genesis and returning the
+/// genesis `BeaconState`.
 ///
 /// Is a wrapper around the `Service` struct of the `eth1` crate.
 #[derive(Clone)]
@@ -81,6 +83,14 @@ impl Eth1GenesisService {
 
                             return Ok(Loop::Break((spec, genesis_state)));
                         }
+
+                        debug!(
+                            service.core.log,
+                            "No eth1 genesis block found";
+                            "cached_blocks" => service.core.block_cache_len(),
+                            "cached_deposits" => service.core.deposit_cache_len(),
+                            "cache_head" => service.highest_known_block(),
+                        );
 
                         Ok(Loop::Continue((spec, state)))
                     })

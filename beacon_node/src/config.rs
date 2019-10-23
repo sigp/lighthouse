@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use client::{BeaconChainStartMethod, ClientConfig, Eth1BackendMethod, Eth2Config};
+use client::{BeaconChainStartMethod, ClientConfig, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use lighthouse_bootstrap::Bootstrapper;
 use rand::{distributions::Alphanumeric, Rng};
@@ -7,6 +7,7 @@ use slog::{crit, info, warn, Logger};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
+use types::Address;
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
@@ -27,18 +28,18 @@ pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
 
     let mut builder = ConfigBuilder::new(cli_args, core_log)?;
 
-    if let Some(server) = cli_args.value_of("eth1-server") {
-        if let Some(deposit_contract) = cli_args.value_of("eth1-deposit-contract") {
-            if let Some(abi) = cli_args.value_of("eth1-abi") {
-                builder.set_eth1_backend_method(Eth1BackendMethod::Web3 {
-                    server: server.into(),
-                    contract_addr: deposit_contract.into(),
-                    abi_path: abi.into(),
-                })
-            } else {
-                builder.set_eth1_backend_method(Eth1BackendMethod::Interop)
-            }
-        }
+    if let Some(val) = cli_args.value_of("deposit-contract") {
+        builder.set_deposit_contract(
+            val.parse::<Address>()
+                .map_err(|e| format!("Unable to parse deposit-contract address: {:?}", e))?,
+        )
+    }
+
+    if let Some(val) = cli_args.value_of("eth1-follow") {
+        builder.set_eth1_follow(
+            val.parse::<u64>()
+                .map_err(|e| format!("Unable to parse follow distance: {:?}", e))?,
+        )
     }
 
     match cli_args.subcommand() {
@@ -298,14 +299,17 @@ impl ConfigBuilder {
         Ok(())
     }
 
-    /// Sets the method for starting the beacon chain.
-    pub fn set_beacon_chain_start_method(&mut self, method: BeaconChainStartMethod) {
-        self.client_config.beacon_chain_start_method = method;
+    pub fn set_deposit_contract(&mut self, deposit_contract: Address) {
+        self.client_config.eth1.deposit_contract_address = format!("0x{}", deposit_contract);
+    }
+
+    pub fn set_eth1_follow(&mut self, distance: u64) {
+        self.client_config.eth1.follow_distance = distance;
     }
 
     /// Sets the method for starting the beacon chain.
-    pub fn set_eth1_backend_method(&mut self, method: Eth1BackendMethod) {
-        self.client_config.eth1_backend_method = method;
+    pub fn set_beacon_chain_start_method(&mut self, method: BeaconChainStartMethod) {
+        self.client_config.beacon_chain_start_method = method;
     }
 
     /// Import the libp2p address for `server` into the list of libp2p nodes to connect with.

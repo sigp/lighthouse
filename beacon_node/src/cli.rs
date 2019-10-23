@@ -184,8 +184,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("eth1-deposit-contract")
-                .long("eth1-deposit-contract")
+            Arg::with_name("eth1-follow")
+                .long("eth1-follow")
+                .value_name("BLOCK_COUNT")
+                .help("Specifies how many blocks we should cache behind the eth1 head. A larger number means a smaller cache.")
+                .takes_value(true)
+                // TODO: set this higher once we're not using testnets all the time.
+                .default_value("0")
+        )
+        .arg(
+            Arg::with_name("deposit-contract")
+                .long("deposit-contract")
+                .short("e")
                 .value_name("DEPOSIT-CONTRACT")
                 .help("Specifies the deposit contract address on the Eth1 chain.")
                 .takes_value(true)
