@@ -281,6 +281,25 @@ mod tests {
         TestResult::from_bool(proofs_ok)
     }
 
+    #[quickcheck]
+    fn quickcheck_push_leaf_and_verify(int_leaves: Vec<u64>, depth: usize) -> TestResult {
+        if depth == 0 || depth > MAX_TREE_DEPTH || int_leaves.len() > 2usize.pow(depth as u32) {
+            return TestResult::discard();
+        }
+
+        let leaves: Vec<_> = int_leaves.into_iter().map(H256::from_low_u64_be).collect();
+
+        let mut merkle_tree = MerkleTree::create(&[], depth);
+
+        let proofs_ok = leaves.into_iter().enumerate().all(|(i, leaf)| {
+            assert_eq!(merkle_tree.push_leaf(leaf, depth), Ok(()));
+            let (stored_leaf, branch) = merkle_tree.generate_proof(i, depth);
+            stored_leaf == leaf && verify_merkle_proof(leaf, &branch, depth, i, merkle_tree.hash())
+        });
+
+        TestResult::from_bool(proofs_ok)
+    }
+
     #[test]
     fn sparse_zero_correct() {
         let depth = 2;
