@@ -21,18 +21,25 @@ use std::time::{Duration, Instant};
 use tokio::timer::Delay;
 
 /// The span of blocks we should query for logs, per request.
-const BLOCKS_PER_LOG_QUERY: usize = 10;
+const BLOCKS_PER_LOG_QUERY: usize = 1_000;
+/// The maximum number of log requests per update.
+const MAX_LOG_REQUESTS_PER_UPDATE: usize = 10;
+
+/// The maximum number of log requests per update.
+const MAX_BLOCKS_PER_UPDATE: usize = 10;
+
+const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
 /// Timeout when doing a eth_blockNumber call.
-const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = 2_000;
+const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getBlockByNumber call.
-const GET_BLOCK_TIMEOUT_MILLIS: u64 = 2_000;
+const GET_BLOCK_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_call to read the deposit contract root.
-const GET_DEPOSIT_ROOT_TIMEOUT_MILLIS: u64 = 2_000;
+const GET_DEPOSIT_ROOT_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_call to read the deposit contract deposit count.
-const GET_DEPOSIT_COUNT_TIMEOUT_MILLIS: u64 = 2_000;
+const GET_DEPOSIT_COUNT_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getLogs to read the deposit contract logs.
-const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 2_000;
+const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 15_000;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -163,10 +170,14 @@ impl Service {
         self.deposits().read().cache.len()
     }
 
+    /// Read the service's configuration.
     pub fn config(&self) -> RwLockReadGuard<Config> {
         self.inner.config.read()
     }
 
+    /// Set the lowest block that the block cache will store.
+    ///
+    /// Note: this block may not always be present if truncating is enabled.
     pub fn set_lowest_cached_block(&self, block_number: u64) {
         self.inner.config.write().lowest_cached_block_number = block_number;
     }
@@ -300,8 +311,11 @@ impl Service {
         })
     }
 
-    /// Contacts the remote eth1 node and attempts to import all deposit logs up to the configured
+    /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured
     /// follow-distance block.
+    ///
+    /// Will process no more than `BLOCKS_PER_LOG_QUERY * MAX_LOG_REQUESTS_PER_UPDATE` blocks in a
+    /// single update.
     ///
     /// ## Resolves with
     ///
@@ -334,6 +348,7 @@ impl Service {
                         .into_iter()
                         .collect::<Vec<u64>>()
                         .chunks(BLOCKS_PER_LOG_QUERY)
+                        .take(MAX_LOG_REQUESTS_PER_UPDATE)
                         .map(|vec| {
                             let first = vec.first().cloned().unwrap_or_else(|| 0);
                             let last = vec.last().map(|n| n + 1).unwrap_or_else(|| 0);
@@ -461,10 +476,9 @@ impl Service {
         })
         // Download the range of blocks and sequentially import them into the cache.
         .and_then(move |required_block_numbers| {
-            // Never download more blocks than can fit in the block cache.
             let required_block_numbers = required_block_numbers
                 .into_iter()
-                .take(block_cache_truncation.unwrap_or_else(|| usize::max_value()));
+                .take(MAX_BLOCKS_PER_UPDATE);
 
             // Produce a stream from the list of required block numbers and return a future that
             // consumes the it.

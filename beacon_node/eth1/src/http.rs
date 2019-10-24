@@ -11,8 +11,14 @@
 //! There is no ABI parsing here, all function signatures and topics are hard-coded as constants.
 
 use futures::{Future, Stream};
-use reqwest::{r#async::ClientBuilder, StatusCode};
+use libflate::gzip::Decoder;
+use reqwest::{
+    header::{ACCEPT_ENCODING, CONTENT_TYPE},
+    r#async::ClientBuilder,
+    StatusCode,
+};
 use serde_json::{json, Value};
+use std::io::prelude::*;
 use std::ops::Range;
 use std::time::Duration;
 use types::Hash256;
@@ -305,8 +311,8 @@ pub fn send_rpc_request(
         .build()
         .expect("The builder should always build a client")
         .post(endpoint)
-        .header("Content-Type", "application/json")
-        .header("Accept", "application/json")
+        .header(CONTENT_TYPE, "application/json")
+        .header(ACCEPT_ENCODING, "gzip")
         .body(body)
         .send()
         .map_err(|e| format!("Request failed: {:?}", e))
@@ -322,9 +328,38 @@ pub fn send_rpc_request(
         })
         .and_then(|response| {
             response
+                .headers()
+                .get(CONTENT_TYPE)
+                .ok_or_else(|| "No content-type header in response".to_string())
+                .and_then(|encoding| {
+                    encoding
+                        .to_str()
+                        .map(|s| s.to_string())
+                        .map_err(|e| format!("Failed to parse content-type header: {}", e))
+                })
+                .map(|encoding| (response, encoding))
+        })
+        .and_then(|(response, encoding)| {
+            response
                 .into_body()
                 .concat2()
                 .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
+                .map_err(|e| format!("Failed to receive body: {:?}", e))
+                .and_then(move |bytes| match encoding.as_str() {
+                    "application/json" => Ok(bytes),
+                    "application/json; charset=utf-8" => Ok(bytes),
+                    "application/x-gzip" => {
+                        let mut decoder = Decoder::new(&bytes[..])
+                            .map_err(|e| format!("Failed to create gzip decoder: {}", e))?;
+                        let mut decompressed = vec![];
+                        decoder
+                            .read_to_end(&mut decompressed)
+                            .map_err(|e| format!("Failed to decompress gzip data: {}", e))?;
+
+                        Ok(decompressed)
+                    }
+                    other => Err(format!("Unsupported encoding: {}", other)),
+                })
                 .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
                 .map_err(|e| format!("Failed to receive body: {:?}", e))
         })
