@@ -7,7 +7,7 @@ use slog::{crit, info, warn, Logger};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
-use types::Address;
+use types::{Address, Epoch, Fork};
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
@@ -27,10 +27,6 @@ pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
     let log = core_log.clone();
 
     let mut builder = ConfigBuilder::new(cli_args, core_log)?;
-
-    if cli_args.is_present("goerli") {
-        builder.set_goerli_params()
-    }
 
     if let Some(val) = cli_args.value_of("eth1-endpoint") {
         builder.set_eth1_endpoint(val)
@@ -88,6 +84,10 @@ pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
             builder.load_from_datadir()?;
         }
     };
+
+    if cli_args.is_present("goerli") {
+        builder.set_goerli_params()
+    }
 
     builder.build(cli_args)
 }
@@ -343,6 +343,11 @@ impl ConfigBuilder {
         spec.ejection_balance = 1_600_000_000;
         spec.effective_balance_increment = 100_000_000;
         spec.min_genesis_time = 0;
+        spec.genesis_fork = Fork {
+            previous_version: [0; 4],
+            current_version: [0, 0, 0, 2],
+            epoch: Epoch::new(0),
+        };
         // TODO: GENESIS_FORK_VERSION
 
         self.client_config.eth1.follow_distance = 16;

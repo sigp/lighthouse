@@ -91,6 +91,9 @@ pub struct ChainSpec {
     domain_voluntary_exit: u32,
     domain_transfer: u32,
 
+    #[serde(skip)]
+    pub genesis_fork: Fork,
+
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
 }
@@ -203,6 +206,15 @@ impl ChainSpec {
             domain_transfer: 5,
 
             /*
+             * Fork
+             */
+            genesis_fork: Fork {
+                previous_version: [0; 4],
+                current_version: [0; 4],
+                epoch: Epoch::new(0),
+            },
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -264,7 +276,7 @@ mod tests {
     }
 
     fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
-        let fork = Fork::genesis(Epoch::new(0));
+        let fork = &spec.genesis_fork;
         let epoch = Epoch::new(0);
 
         let domain = spec.get_domain(epoch, domain_type, &fork);

@@ -58,6 +58,8 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
         Epoch::new(Self::GenesisEpoch::to_u64())
     }
 
+    fn genesis_fork(genesis_epoch: Epoch) -> Fork;
+
     /// Return the number of committees in one epoch.
     ///
     /// Spec v0.8.1
@@ -166,6 +168,14 @@ impl EthSpec for MainnetEthSpec {
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
     }
+
+    fn genesis_fork(genesis_epoch: Epoch) -> Fork {
+        Fork {
+            previous_version: [0; 4],
+            current_version: [0; 4],
+            epoch: genesis_epoch,
+        }
+    }
 }
 
 pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
@@ -204,6 +214,14 @@ impl EthSpec for MinimalEthSpec {
     fn default_spec() -> ChainSpec {
         ChainSpec::minimal()
     }
+
+    fn genesis_fork(genesis_epoch: Epoch) -> Fork {
+        Fork {
+            previous_version: [0; 4],
+            current_version: [0; 4],
+            epoch: genesis_epoch,
+        }
+    }
 }
 
 pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
@@ -237,6 +255,14 @@ impl EthSpec for InteropEthSpec {
 
     fn default_spec() -> ChainSpec {
         ChainSpec::interop()
+    }
+
+    fn genesis_fork(genesis_epoch: Epoch) -> Fork {
+        Fork {
+            previous_version: [0; 4],
+            current_version: [0; 4],
+            epoch: genesis_epoch,
+        }
     }
 }
 

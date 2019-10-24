@@ -23,10 +23,10 @@ use tokio::timer::Delay;
 /// The span of blocks we should query for logs, per request.
 const BLOCKS_PER_LOG_QUERY: usize = 1_000;
 /// The maximum number of log requests per update.
-const MAX_LOG_REQUESTS_PER_UPDATE: usize = 10;
+const MAX_LOG_REQUESTS_PER_UPDATE: usize = 1;
 
 /// The maximum number of log requests per update.
-const MAX_BLOCKS_PER_UPDATE: usize = 10;
+const MAX_BLOCKS_PER_UPDATE: usize = 1;
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 

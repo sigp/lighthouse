@@ -1,7 +1,7 @@
 use crate::config::Config as ClientConfig;
 use crate::Client;
 use beacon_chain::{
-    builder::{BeaconChainBuilder, BeaconChainStartMethod, Witness},
+    builder::{BeaconChainBuilder, Witness},
     lmd_ghost::ThreadSafeReducedTree,
     slot_clock::{SlotClock, SystemTimeSlotClock},
     store::{DiskStore, MemoryStore, Store},
@@ -33,6 +33,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     store: Option<Arc<T::Store>>,
     executor: Option<TaskExecutor>,
+    chain_spec: Option<ChainSpec>,
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     exit_signals: Vec<Signal>,
@@ -43,7 +44,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_listen_addr: Option<SocketAddr>,
     websocket_listen_addr: Option<SocketAddr>,
     eth_spec_instance: T::EthSpec,
-    spec: ChainSpec,
     log: Option<Logger>,
 }
 
@@ -62,6 +62,7 @@ where
             slot_clock: None,
             store: None,
             executor: None,
+            chain_spec: None,
             beacon_chain_builder: None,
             beacon_chain: None,
             exit_signals: vec![],
@@ -72,7 +73,6 @@ where
             http_listen_addr: None,
             websocket_listen_addr: None,
             eth_spec_instance,
-            spec: TEthSpec::default_spec(),
             log: None,
         }
     }
@@ -87,6 +87,11 @@ where
         self
     }
 
+    pub fn chain_spec(mut self, spec: ChainSpec) -> Self {
+        self.chain_spec = Some(spec);
+        self
+    }
+
     pub fn beacon_genesis(mut self, genesis_state: BeaconState<TEthSpec>) -> Result<Self, String> {
         let store = self
             .store
@@ -97,11 +102,15 @@ where
             .as_ref()
             .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
             .new(o!("service" => "beacon"));
+        let spec = self
+            .chain_spec
+            .clone()
+            .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
 
         let builder = BeaconChainBuilder::new(self.eth_spec_instance.clone())
-            .custom_spec(self.spec.clone())
             .logger(log.clone())
             .store(store.clone())
+            .custom_spec(spec)
             .genesis_state(genesis_state)
             .map_err(|e| format!("Failed to initialize beacon chain state: {}", e))?;
 
@@ -267,7 +276,11 @@ where
             .executor
             .clone()
             .ok_or_else(|| "slot_notifier requires an executor")?;
-        let slot_duration = Duration::from_millis(self.spec.milliseconds_per_slot);
+        let spec = self
+            .chain_spec
+            .clone()
+            .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?;
+        let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
         let duration_to_next_slot = beacon_chain
             .slot_clock
             .duration_to_next_slot()
@@ -496,10 +509,15 @@ where
             .beacon_state
             .genesis_time;
 
+        let spec = self
+            .chain_spec
+            .clone()
+            .ok_or_else(|| "system_time_slot_clock requires a chain spec".to_string())?;
+
         let slot_clock = SystemTimeSlotClock::new(
-            self.spec.genesis_slot,
+            spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_millis(self.spec.milliseconds_per_slot),
+            Duration::from_millis(spec.milliseconds_per_slot),
         );
 
         self.slot_clock = Some(slot_clock);

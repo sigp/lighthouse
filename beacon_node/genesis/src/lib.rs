@@ -211,9 +211,11 @@ impl Eth1GenesisService {
             .filter(|block| block.timestamp >= spec.min_genesis_time)
             // The block cache might be more recently updated than deposit cache. Restrict any
             // block numbers that are not known by all caches.
-            //
-            // Note: we never scan the genesis block.
-            .filter(|block| block.number <= self.highest_known_block().unwrap_or_else(|| 0))
+            .filter(|block| {
+                self.highest_known_block()
+                    .map(|n| block.number <= n)
+                    .unwrap_or_else(|| true)
+            })
             .find(|block| {
                 let mut highest_processed_block = self.highest_processed_block.lock();
 
@@ -347,6 +349,8 @@ impl Eth1GenesisService {
                 })?;
 
             process_activations(&mut local_state, spec);
+
+            dbg!(local_state.validators.len());
 
             Ok(is_valid_genesis_state(&local_state, spec))
         }

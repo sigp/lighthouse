@@ -24,7 +24,7 @@ use std::time::Duration;
 use store::DiskStore;
 use types::{BeaconState, EthSpec};
 
-const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 3_000;
+const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 500;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> = Client<
@@ -111,6 +111,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .logger(context.log)
             .disk_store(&db_path)?
             .executor(context.executor)
+            .chain_spec(eth2_config.spec.clone())
             .beacon_genesis(genesis_state)?
             .system_time_slot_clock()?
             .dummy_eth1_backend()
