@@ -24,3 +24,4 @@ slog = "^2.2.3"
 tokio = "0.1.17"
 state_processing = { path = "../../eth2/state_processing" }
 exit-future = "0.1.4"
+rayon = "1.0"

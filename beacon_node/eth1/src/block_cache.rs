@@ -1,3 +1,4 @@
+use rayon::{iter::ParallelIterator, prelude::*};
 use std::ops::RangeInclusive;
 use types::{Eth1Data, Hash256};
 
@@ -69,6 +70,16 @@ impl BlockCache {
     /// - Non-uniformly increasing block timestamps.
     pub fn iter(&self) -> impl Iterator<Item = &Eth1Block> {
         self.blocks.iter()
+    }
+
+    /// Returns an rayon parallel iterator over all blocks.
+    ///
+    /// Blocks will be returned with:
+    ///
+    /// - Monotically increase block numbers.
+    /// - Non-uniformly increasing block timestamps.
+    pub fn par_iter(&self) -> impl ParallelIterator<Item = &Eth1Block> {
+        self.blocks.par_iter()
     }
 
     /// Shortens the cache, keeping the latest `len` blocks and dropping the rest.

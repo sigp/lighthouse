@@ -4,15 +4,15 @@ pub use eth1::Config as Eth1Config;
 pub use interop::interop_genesis_state;
 
 use eth1::{DepositLog, Eth1Block, Service};
-use exit_future;
 use futures::{
+    future,
     future::{loop_fn, Loop},
     Future,
 };
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use rayon::prelude::*;
-use slog::{debug, error, Logger};
+use slog::{debug, error, info, Logger};
 use ssz::Decode;
 use state_processing::{
     initialize_beacon_state_from_eth1, is_valid_genesis_state,
@@ -36,7 +36,12 @@ use types::{BeaconState, ChainSpec, Deposit, DepositData, Eth1Data, EthSpec, Has
 pub struct Eth1GenesisService {
     /// The underlying service. Access to this object is only required for testing and diagnosis.
     pub core: Service,
+    /// The highest block number we've processed and determined it does not trigger genesis.
     highest_processed_block: Arc<Mutex<Option<u64>>>,
+    /// Enabled when the genesis service should start downloading blocks.
+    ///
+    /// It is disabled until there are enough deposit logs to start syncing.
+    sync_blocks: Arc<Mutex<bool>>,
 }
 
 impl Eth1GenesisService {
@@ -45,6 +50,20 @@ impl Eth1GenesisService {
         Self {
             core: Service::new(config, log),
             highest_processed_block: Arc::new(Mutex::new(None)),
+            sync_blocks: Arc::new(Mutex::new(false)),
+        }
+    }
+
+    fn first_viable_eth1_block(&self, min_genesis_active_validator_count: usize) -> Option<u64> {
+        if self.core.deposit_cache_len() < min_genesis_active_validator_count {
+            None
+        } else {
+            self.core
+                .deposits()
+                .read()
+                .cache
+                .get(min_genesis_active_validator_count.saturating_sub(1))
+                .map(|log| log.block_number)
         }
     }
 
@@ -61,35 +80,113 @@ impl Eth1GenesisService {
         spec: ChainSpec,
     ) -> impl Future<Item = BeaconState<E>, Error = String> {
         let service = self.clone();
-        let (exit_tx, exit_rx) = exit_future::signal();
 
-        let loop_future = loop_fn::<(ChainSpec, Option<BeaconState<E>>), _, _, _>(
+        loop_fn::<(ChainSpec, Option<BeaconState<E>>), _, _, _>(
             (spec, None),
             move |(spec, state)| {
-                let service = service.clone();
+                let service_1 = service.clone();
+                let service_2 = service.clone();
+                let service_3 = service.clone();
+                let service_4 = service.clone();
+                let log = service.core.log.clone();
+                let min_genesis_active_validator_count = spec.min_genesis_active_validator_count;
 
                 Delay::new(Instant::now() + update_interval)
                     .map_err(|e| format!("Delay between genesis deposit checks failed: {:?}", e))
                     .and_then(move |()| {
-                        if let Some(genesis_eth1_block) = service
+                        service_1
+                            .core
+                            .update_deposit_cache()
+                            .map_err(|e| format!("{:?}", e))
+                    })
+                    .then(move |update_result| {
+                        if let Err(e) = update_result {
+                            error!(
+                                log,
+                                "Failed to update eth1 deposit cache";
+                                "error" => e
+                            )
+                        }
+
+                        // Do not exit the loop if there is an error whilst updating.
+                        Ok(())
+                    })
+                    .and_then(move |()| {
+                        let mut sync_blocks = service_2.sync_blocks.lock();
+
+                        if *sync_blocks == false {
+                            if let Some(viable_eth1_block) = service_2.first_viable_eth1_block(
+                                min_genesis_active_validator_count as usize,
+                            ) {
+                                info!(
+                                    service_2.core.log,
+                                    "Minimum genesis deposit count met";
+                                    "deposit_count" => min_genesis_active_validator_count,
+                                    "block_number" => viable_eth1_block,
+                                );
+                                service_2.core.set_lowest_cached_block(viable_eth1_block);
+                                *sync_blocks = true
+                            }
+                        }
+
+                        Ok(*sync_blocks)
+                    })
+                    .and_then(move |should_update_block_cache| {
+                        let maybe_update_future: Box<dyn Future<Item = _, Error = _> + Send> =
+                            if should_update_block_cache {
+                                Box::new(service_3.core.update_block_cache().then(
+                                    move |update_result| {
+                                        if let Err(e) = update_result {
+                                            error!(
+                                                service_3.core.log,
+                                                "Failed to update eth1 block cache";
+                                                "error" => format!("{:?}", e)
+                                            );
+                                        }
+
+                                        // Do not exit the loop if there is an error whilst updating.
+                                        Ok(())
+                                    },
+                                ))
+                            } else {
+                                Box::new(future::ok(()))
+                            };
+
+                        maybe_update_future
+                    })
+                    .and_then(move |()| {
+                        if let Some(genesis_eth1_block) = service_4
                             .scan_new_blocks::<E>(&spec)
                             .map_err(|e| format!("Failed to scan for new blocks: {}", e))?
                         {
-                            let genesis_state = service
-                                .genesis_from_eth1_block(genesis_eth1_block, &spec)
+                            debug!(
+                                service_4.core.log,
+                                "All genesis conditions met";
+                                "eth1_block_height" => genesis_eth1_block.number,
+                            );
+
+                            let genesis_state = service_4
+                                .genesis_from_eth1_block(genesis_eth1_block.clone(), &spec)
                                 .map_err(|e| {
                                     format!("Failed to generate valid genesis state : {}", e)
                                 })?;
+
+                            info!(
+                                service_4.core.log,
+                                "Deposit contract genesis complete";
+                                "eth1_block_height" => genesis_eth1_block.number,
+                                "validator_count" => genesis_state.validators.len(),
+                            );
 
                             return Ok(Loop::Break((spec, genesis_state)));
                         }
 
                         debug!(
-                            service.core.log,
+                            service_4.core.log,
                             "No eth1 genesis block found";
-                            "cached_blocks" => service.core.block_cache_len(),
-                            "cached_deposits" => service.core.deposit_cache_len(),
-                            "cache_head" => service.highest_known_block(),
+                            "cached_blocks" => service_4.core.block_cache_len(),
+                            "cached_deposits" => service_4.core.deposit_cache_len(),
+                            "cache_head" => service_4.highest_known_block(),
                         );
 
                         Ok(Loop::Continue((spec, state)))
@@ -97,17 +194,6 @@ impl Eth1GenesisService {
             },
         )
         .map(|(_spec, state)| state)
-        .then(|v| {
-            exit_tx.fire();
-            v
-        });
-
-        let update_future = self
-            .core
-            .auto_update(update_interval, exit_rx)
-            .map_err(|_| "Auto update failed".to_string());
-
-        update_future.join(loop_future).map(|(_, state)| state)
     }
 
     /// Processes any new blocks that have appeared since this function was last run.
@@ -135,8 +221,9 @@ impl Eth1GenesisService {
             .filter(|block| block.timestamp >= spec.min_genesis_time)
             // The block cache might be more recently updated than deposit cache. Restrict any
             // block numbers that are not known by all caches.
+            //
+            // Note: we never scan the genesis block (zero'th eth1 block).
             .filter(|block| block.number <= self.highest_known_block().unwrap_or_else(|| 0))
-            // Try to find
             .find(|block| {
                 let mut highest_processed_block = self.highest_processed_block.lock();
 

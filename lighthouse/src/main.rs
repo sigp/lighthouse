@@ -122,8 +122,6 @@ fn run<E: EthSpec>(
         None
     };
 
-    dbg!("it has started");
-
     if beacon_node.is_none() {
         crit!(log, "No subcommand supplied. See --help .");
         return Err("No subcommand supplied.".into());

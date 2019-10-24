@@ -24,7 +24,7 @@ use std::time::Duration;
 use store::DiskStore;
 use types::{BeaconState, EthSpec};
 
-const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 1_000;
+const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 3_000;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> = Client<

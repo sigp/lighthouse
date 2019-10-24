@@ -12,7 +12,7 @@ use futures::{
     future::{loop_fn, Loop},
     stream, Future, Stream,
 };
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, trace, Logger};
 use std::ops::{Range, RangeInclusive};
@@ -24,15 +24,15 @@ use tokio::timer::Delay;
 const BLOCKS_PER_LOG_QUERY: usize = 10;
 
 /// Timeout when doing a eth_blockNumber call.
-const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = 1_000;
+const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = 2_000;
 /// Timeout when doing an eth_getBlockByNumber call.
-const GET_BLOCK_TIMEOUT_MILLIS: u64 = 1_000;
+const GET_BLOCK_TIMEOUT_MILLIS: u64 = 2_000;
 /// Timeout when doing an eth_call to read the deposit contract root.
-const GET_DEPOSIT_ROOT_TIMEOUT_MILLIS: u64 = 1_000;
+const GET_DEPOSIT_ROOT_TIMEOUT_MILLIS: u64 = 2_000;
 /// Timeout when doing an eth_call to read the deposit contract deposit count.
-const GET_DEPOSIT_COUNT_TIMEOUT_MILLIS: u64 = 1_000;
+const GET_DEPOSIT_COUNT_TIMEOUT_MILLIS: u64 = 2_000;
 /// Timeout when doing an eth_getLogs to read the deposit contract logs.
-const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 1_000;
+const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 2_000;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -136,7 +136,7 @@ impl Service {
     pub fn new(config: Config, log: Logger) -> Self {
         Self {
             inner: Arc::new(Inner {
-                config: config,
+                config: RwLock::new(config),
                 ..Inner::default()
             }),
             log,
@@ -161,6 +161,14 @@ impl Service {
     /// Returns the number deposits available in the deposit cache.
     pub fn deposit_cache_len(&self) -> usize {
         self.deposits().read().cache.len()
+    }
+
+    pub fn config(&self) -> RwLockReadGuard<Config> {
+        self.inner.config.read()
+    }
+
+    pub fn set_lowest_cached_block(&self, block_number: u64) {
+        self.inner.config.write().lowest_cached_block_number = block_number;
     }
 
     /// Update the deposit and block cache, returning an error if either fail.
@@ -304,21 +312,20 @@ impl Service {
     pub fn update_deposit_cache(
         &self,
     ) -> impl Future<Item = DepositCacheUpdateOutcome, Error = Error> {
-        let config = &self.inner.config;
-        let cache_1 = self.inner.clone();
-        let cache_2 = self.inner.clone();
+        let service_1 = self.clone();
+        let service_2 = self.clone();
 
-        let next_required_block = cache_1
-            .deposit_cache
+        let next_required_block = self
+            .deposits()
             .read()
             .last_processed_block
             .map(|n| n + 1)
-            .unwrap_or_else(|| config.deposit_contract_deploy_block);
+            .unwrap_or_else(|| self.config().deposit_contract_deploy_block);
 
         get_new_block_numbers(
-            &config.endpoint,
+            &self.config().endpoint,
             next_required_block,
-            config.follow_distance,
+            self.config().follow_distance,
         )
         .map(|range| {
             range
@@ -344,8 +351,8 @@ impl Service {
                         let chunk_1 = chunk.clone();
                         Some(
                             get_deposit_logs_in_range(
-                                &cache_1.config.endpoint,
-                                &cache_1.config.deposit_contract_address,
+                                &service_1.config().endpoint,
+                                &service_1.config().deposit_contract_address,
                                 chunk,
                                 Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
                             )
@@ -366,7 +373,7 @@ impl Service {
                 //
                 // This is achieved by taking an exclusive write-lock on the cache whilst adding
                 // logs one-by-one.
-                let mut cache = cache_2.deposit_cache.write();
+                let mut cache = service_2.deposits().write();
 
                 for raw_log in log_chunk {
                     let deposit_log = DepositLog::from_log(&raw_log).map_err(|error| {
@@ -404,24 +411,25 @@ impl Service {
     ///
     /// Emits logs for debugging and errors.
     pub fn update_block_cache(&self) -> impl Future<Item = BlockCacheUpdateOutcome, Error = Error> {
-        let config = &self.inner.config;
         let cache_1 = self.inner.clone();
         let cache_2 = self.inner.clone();
         let cache_3 = self.inner.clone();
         let cache_4 = self.inner.clone();
         let cache_5 = self.inner.clone();
 
+        let block_cache_truncation = self.inner.config.read().block_cache_truncation;
+
         let next_required_block = cache_1
             .block_cache
             .read()
             .highest_block_number()
             .map(|n| n + 1)
-            .unwrap_or_else(|| config.lowest_cached_block_number);
+            .unwrap_or_else(|| self.config().lowest_cached_block_number);
 
         get_new_block_numbers(
-            &config.endpoint,
+            &self.config().endpoint,
             next_required_block,
-            config.follow_distance,
+            self.config().follow_distance,
         )
         // Map the range of required blocks into a Vec.
         //
@@ -434,9 +442,7 @@ impl Service {
                         Err(Error::Internal("Range was not increasing".into()))
                     } else {
                         let range_size = range.end() - range.start();
-                        let max_size = cache_5
-                            .config
-                            .block_cache_truncation
+                        let max_size = block_cache_truncation
                             .map(|n| n as u64)
                             .unwrap_or_else(|| u64::max_value());
 
@@ -454,14 +460,11 @@ impl Service {
                 .unwrap_or_else(|| Ok(vec![]))
         })
         // Download the range of blocks and sequentially import them into the cache.
-        .and_then(|required_block_numbers| {
+        .and_then(move |required_block_numbers| {
             // Never download more blocks than can fit in the block cache.
-            let required_block_numbers = required_block_numbers.into_iter().take(
-                cache_3
-                    .config
-                    .block_cache_truncation
-                    .unwrap_or_else(|| usize::max_value()),
-            );
+            let required_block_numbers = required_block_numbers
+                .into_iter()
+                .take(block_cache_truncation.unwrap_or_else(|| usize::max_value()));
 
             // Produce a stream from the list of required block numbers and return a future that
             // consumes the it.
@@ -535,7 +538,7 @@ fn download_eth1_block<'a>(
 ) -> impl Future<Item = Eth1Block, Error = Error> + 'a {
     // Performs a `get_blockByNumber` call to an eth1 node.
     get_block(
-        &cache.config.endpoint,
+        &cache.config.read().endpoint,
         block_number,
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
@@ -543,15 +546,15 @@ fn download_eth1_block<'a>(
     .join3(
         // Perform 2x `eth_call` via an eth1 node to read the deposit contract root and count.
         get_deposit_root(
-            &cache.config.endpoint,
-            &cache.config.deposit_contract_address,
+            &cache.config.read().endpoint,
+            &cache.config.read().deposit_contract_address,
             block_number,
             Duration::from_millis(GET_DEPOSIT_ROOT_TIMEOUT_MILLIS),
         )
         .map_err(|e| Error::GetDepositRootFailed(e)),
         get_deposit_count(
-            &cache.config.endpoint,
-            &cache.config.deposit_contract_address,
+            &cache.config.read().endpoint,
+            &cache.config.read().deposit_contract_address,
             block_number,
             Duration::from_millis(GET_DEPOSIT_COUNT_TIMEOUT_MILLIS),
         )

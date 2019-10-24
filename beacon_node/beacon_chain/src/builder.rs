@@ -424,11 +424,15 @@ where
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
 
+        let log = self
+            .log
+            .ok_or_else(|| "Cannot build without a logger".to_string())?;
+
         if canonical_head.beacon_block.state_root != canonical_head.beacon_state_root {
             return Err("beacon_block.state_root != beacon_state".to_string());
         }
 
-        Ok(BeaconChain {
+        let beacon_chain = BeaconChain {
             spec: self.spec,
             store: self
                 .store
@@ -452,10 +456,18 @@ where
             event_handler: self
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
-            log: self
-                .log
-                .ok_or_else(|| "Cannot build without a logger".to_string())?,
-        })
+            log: log.clone(),
+        };
+
+        info!(
+            log,
+            "Beacon chain initialized";
+            "head_state" => format!("{}", beacon_chain.head().beacon_state_root),
+            "head_block" => format!("{}", beacon_chain.head().beacon_block_root),
+            "head_slot" => format!("{}", beacon_chain.head().beacon_block.slot),
+        );
+
+        Ok(beacon_chain)
     }
 }
 

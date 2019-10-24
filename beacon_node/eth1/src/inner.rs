@@ -12,7 +12,7 @@ pub struct DepositUpdater {
 pub struct Inner {
     pub block_cache: RwLock<BlockCache>,
     pub deposit_cache: RwLock<DepositUpdater>,
-    pub config: Config,
+    pub config: RwLock<Config>,
 }
 
 impl Inner {
@@ -20,7 +20,7 @@ impl Inner {
     ///
     /// Is a no-op if `self.target_block_cache_len` is `None`.
     pub fn prune_blocks(&self) {
-        if let Some(block_cache_truncation) = self.config.block_cache_truncation {
+        if let Some(block_cache_truncation) = self.config.read().block_cache_truncation {
             self.block_cache.write().truncate(block_cache_truncation);
         }
     }

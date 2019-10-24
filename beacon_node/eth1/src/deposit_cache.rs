@@ -88,6 +88,11 @@ impl DepositCache {
         self.logs.iter()
     }
 
+    /// Returns the i'th deposit log.
+    pub fn get(&self, i: usize) -> Option<&DepositLog> {
+        self.logs.get(i)
+    }
+
     /// Adds `log` to self.
     ///
     /// This function enforces that `logs` are imported one-by-one with no gaps between
