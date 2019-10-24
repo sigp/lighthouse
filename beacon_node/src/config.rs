@@ -28,10 +28,25 @@ pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
 
     let mut builder = ConfigBuilder::new(cli_args, core_log)?;
 
+    if cli_args.is_present("goerli") {
+        builder.set_goerli_params()
+    }
+
+    if let Some(val) = cli_args.value_of("eth1-endpoint") {
+        builder.set_eth1_endpoint(val)
+    }
+
     if let Some(val) = cli_args.value_of("deposit-contract") {
         builder.set_deposit_contract(
             val.parse::<Address>()
                 .map_err(|e| format!("Unable to parse deposit-contract address: {:?}", e))?,
+        )
+    }
+
+    if let Some(val) = cli_args.value_of("deposit-contract-deploy") {
+        builder.set_deposit_contract_deploy_block(
+            val.parse::<u64>()
+                .map_err(|e| format!("Unable to parse deposit-contract-deploy: {:?}", e))?,
         )
     }
 
@@ -299,8 +314,16 @@ impl ConfigBuilder {
         Ok(())
     }
 
+    pub fn set_eth1_endpoint(&mut self, endpoint: &str) {
+        self.client_config.eth1.endpoint = endpoint.to_string();
+    }
+
     pub fn set_deposit_contract(&mut self, deposit_contract: Address) {
         self.client_config.eth1.deposit_contract_address = format!("{:?}", deposit_contract);
+    }
+
+    pub fn set_deposit_contract_deploy_block(&mut self, eth1_block_number: u64) {
+        self.client_config.eth1.deposit_contract_deploy_block = eth1_block_number;
     }
 
     pub fn set_eth1_follow(&mut self, distance: u64) {
@@ -310,6 +333,19 @@ impl ConfigBuilder {
     /// Sets the method for starting the beacon chain.
     pub fn set_beacon_chain_start_method(&mut self, method: BeaconChainStartMethod) {
         self.client_config.beacon_chain_start_method = method;
+    }
+
+    pub fn set_goerli_params(&mut self) {
+        let mut spec = &mut self.eth2_config.spec;
+
+        spec.min_deposit_amount = 100;
+        spec.max_effective_balance = 3_200_000_000;
+        spec.ejection_balance = 1_600_000_000;
+        spec.effective_balance_increment = 100_000_000;
+        spec.min_genesis_time = 0;
+        // TODO: GENESIS_FORK_VERSION
+
+        self.client_config.eth1.follow_distance = 16;
     }
 
     /// Import the libp2p address for `server` into the list of libp2p nodes to connect with.
@@ -550,11 +586,6 @@ impl ConfigBuilder {
     pub fn build(mut self, cli_args: &ArgMatches) -> Result<Config> {
         self.eth2_config.apply_cli_args(cli_args)?;
         self.client_config.apply_cli_args(cli_args, &mut self.log)?;
-
-        if self.eth2_config.spec_constants == "minimal" {
-            // NOTE: this is a variation on the spec that makes testnets quicker to start.
-            self.eth2_config.spec.min_genesis_time = 0;
-        }
 
         if let Some(bump) = cli_args.value_of("port-bump") {
             let bump = bump

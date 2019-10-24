@@ -172,16 +172,22 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with_all(&["no-ws", "port-bump"])
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("goerli")
+                .long("goerli")
+                .help("When set, uses the parameters for the Goerli testnet.")
+        )
 
         /*
          * Eth1 Integration
          */
         .arg(
-            Arg::with_name("eth1-server")
-                .long("eth1-server")
-                .value_name("SERVER")
+            Arg::with_name("eth1-endpoint")
+                .long("eth1-endpoint")
+                .value_name("HTTP-ENDPOINT")
                 .help("Specifies the server for a web3 connection to the Eth1 chain.")
                 .takes_value(true)
+                .default_value("http://localhost:8545")
         )
         .arg(
             Arg::with_name("eth1-follow")
@@ -199,6 +205,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("DEPOSIT-CONTRACT")
                 .help("Specifies the deposit contract address on the Eth1 chain.")
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("deposit-contract-deploy")
+                .long("deposit-contract-deploy")
+                .value_name("BLOCK_NUMBER")
+                .help("Specifies the block number that the deposit contract was deployed at.")
+                .takes_value(true)
+                // TODO: set this higher once we're not using testnets all the time.
+                .default_value("0")
         )
         /*
          * The "testnet" sub-command.
