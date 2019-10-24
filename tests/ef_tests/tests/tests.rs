@@ -99,7 +99,11 @@ macro_rules! ssz_static_test {
     ($test_name:ident, $typ:ident$(<$generics:tt>)?, SR) => {
         ssz_static_test!($test_name, SszStaticSRHandler, $typ$(<$generics>)?);
     };
-    // Non-signed root
+    // Tree hash caching
+    ($test_name:ident, $typ:ident$(<$generics:tt>)?, THC) => {
+        ssz_static_test!($test_name, SszStaticTHCHandler, $typ$(<$generics>)?);
+    };
+    // Non-signed root, non-tree hash caching
     ($test_name:ident, $typ:ident$(<$generics:tt>)?) => {
         ssz_static_test!($test_name, SszStaticHandler, $typ$(<$generics>)?);
     };
@@ -134,7 +138,7 @@ macro_rules! ssz_static_test {
 
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
-    use ef_tests::{Handler, SszStaticHandler, SszStaticSRHandler};
+    use ef_tests::{Handler, SszStaticHandler, SszStaticSRHandler, SszStaticTHCHandler};
     use types::*;
 
     ssz_static_test!(attestation, Attestation<_>, SR);
@@ -147,7 +151,7 @@ mod ssz_static {
     ssz_static_test!(beacon_block, BeaconBlock<_>, SR);
     ssz_static_test!(beacon_block_body, BeaconBlockBody<_>);
     ssz_static_test!(beacon_block_header, BeaconBlockHeader, SR);
-    ssz_static_test!(beacon_state, BeaconState<_>);
+    ssz_static_test!(beacon_state, BeaconState<_>, THC);
     ssz_static_test!(checkpoint, Checkpoint);
     ssz_static_test!(compact_committee, CompactCommittee<_>);
     ssz_static_test!(crosslink, Crosslink);
