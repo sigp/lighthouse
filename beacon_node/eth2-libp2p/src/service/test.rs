@@ -140,7 +140,7 @@ fn test_discovery() {
         for node in nodes.iter_mut() {
             loop {
                 match node.poll().unwrap() {
-                    Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))) => {
+                    Async::Ready(Some(Libp2pEvent::PeerDialed(_))) => {
                         println!(
                             "Node {} is connected to {} peers.",
                             node.swarm.discovery().local_enr().node_id(),
@@ -230,10 +230,10 @@ fn test_gossipsub_forward() {
     let mesh2_n = 6;
     let mut mesh1 = build_nodes(mesh1_n, Some(9000));
     let mut mesh2 = build_nodes(mesh2_n, Some(9006));
-    let border1 = mesh1.pop().unwrap();
-    let mut border2 = mesh2.pop().unwrap();
+    let mut border1 = mesh1.pop().unwrap();
+    let border2 = mesh2.pop().unwrap();
     // Connect one node from each mesh
-    match libp2p::Swarm::dial_addr(&mut border2.swarm, get_enr(&border1).multiaddr()[1].clone()) {
+    match libp2p::Swarm::dial_addr(&mut border1.swarm, get_enr(&border2).multiaddr()[1].clone()) {
         Ok(()) => debug!(log, "Connected"),
         Err(_) => error!(log, "Failed to connect"),
     }
@@ -242,7 +242,7 @@ fn test_gossipsub_forward() {
     let publishing_topic: String = "/eth2/beacon_block/ssz".into();
     let mut subscribed_count = 0;
     let mut received_count = 0;
-
+    let mut entered = false; // to ensure only one of the nodes publishes
     let mut border_nodes = vec![border1, border2];
     mesh1.append(&mut mesh2);
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
@@ -252,19 +252,15 @@ fn test_gossipsub_forward() {
                     Async::Ready(Some(Libp2pEvent::PubsubMessage {
                         topics, message, ..
                     })) => {
-                        // Assert topics are eth2 topics
-                        assert!(topics
-                            .clone()
-                            .iter()
-                            .all(|t| t.clone().into_string() == publishing_topic.clone()));
-
+                        assert_eq!(topics.len(), 1);
+                        // Assert topic is the published topic
+                        assert_eq!(topics.first().unwrap(), &TopicHash::from_raw(publishing_topic.clone()));
                         // Assert message received is the correct one
                         assert_eq!(message, pubsub_message.clone());
                         received_count += 1;
-                        println!("Received count: {}", received_count);
-                        // Test should succeed if received count is equal to
-                        // total_nodes - 1 (publisher)
+                        // Test should succeed if all nodes except the publisher receive the message
                         if received_count == (mesh1_n + mesh2_n - 1) {
+                            debug!(log.clone(), "Received message at {} nodes", mesh1_n + mesh2_n - 1);
                             return Ok(Async::Ready(()));
                         }
                     }
@@ -280,8 +276,8 @@ fn test_gossipsub_forward() {
                         assert!(topic.clone().into_string().starts_with("/eth2/"));
                         if topic == TopicHash::from_raw(publishing_topic.clone()) {
                             subscribed_count += 1;
-                            if subscribed_count >= mesh1_n + mesh2_n - 1 {
-                                // println!("Publishing from pnode");
+                            if !entered && subscribed_count >= mesh1_n + mesh2_n {
+                                entered = true;
                                 node.swarm.publish(
                                     &vec![Topic::new(topic.into_string())],
                                     pubsub_message.clone(),
@@ -289,8 +285,10 @@ fn test_gossipsub_forward() {
                             }
                         }
                     }
-                    Async::Ready(Some(Libp2pEvent::PubsubMessage { .. })) => {
+                    Async::Ready(Some(Libp2pEvent::PubsubMessage { id, source, .. })) => {
                         received_count += 1;
+                        // Propagate received message to all peers in mesh.
+                        node.swarm.propagate_message(&source, id);
                         if received_count == (mesh1_n + mesh2_n - 1) {
                             return Ok(Async::Ready(()));
                         }
