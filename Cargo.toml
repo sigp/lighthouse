@@ -38,6 +38,7 @@ members = [
 	"lcli",
 	"protos",
 	"validator_client",
+	"validator_client/slashing_protection",
 	"account_manager",
 ]
 
