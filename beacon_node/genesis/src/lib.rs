@@ -155,41 +155,22 @@ impl Eth1GenesisService {
                         maybe_update_future
                     })
                     .and_then(move |()| {
-                        if let Some(genesis_eth1_block) = service_4
+                        if let Some(genesis_state) = service_4
                             .scan_new_blocks::<E>(&spec)
                             .map_err(|e| format!("Failed to scan for new blocks: {}", e))?
                         {
+                            Ok(Loop::Break((spec, genesis_state)))
+                        } else {
                             debug!(
                                 service_4.core.log,
-                                "All genesis conditions met";
-                                "eth1_block_height" => genesis_eth1_block.number,
+                                "No eth1 genesis block found";
+                                "cached_blocks" => service_4.core.block_cache_len(),
+                                "cached_deposits" => service_4.core.deposit_cache_len(),
+                                "cache_head" => service_4.highest_known_block(),
                             );
 
-                            let genesis_state = service_4
-                                .genesis_from_eth1_block(genesis_eth1_block.clone(), &spec)
-                                .map_err(|e| {
-                                    format!("Failed to generate valid genesis state : {}", e)
-                                })?;
-
-                            info!(
-                                service_4.core.log,
-                                "Deposit contract genesis complete";
-                                "eth1_block_height" => genesis_eth1_block.number,
-                                "validator_count" => genesis_state.validators.len(),
-                            );
-
-                            return Ok(Loop::Break((spec, genesis_state)));
+                            Ok(Loop::Continue((spec, state)))
                         }
-
-                        debug!(
-                            service_4.core.log,
-                            "No eth1 genesis block found";
-                            "cached_blocks" => service_4.core.block_cache_len(),
-                            "cached_deposits" => service_4.core.deposit_cache_len(),
-                            "cache_head" => service_4.highest_known_block(),
-                        );
-
-                        Ok(Loop::Continue((spec, state)))
                     })
             },
         )
@@ -210,8 +191,11 @@ impl Eth1GenesisService {
     /// - `Ok(Some(eth1_block))` if a previously-unprocessed block would trigger Eth2 genesis.
     /// - `Ok(None)` if none of the new blocks would trigger genesis, or there were no new blocks.
     /// - `Err(_)` if there was some internal error.
-    fn scan_new_blocks<E: EthSpec>(&self, spec: &ChainSpec) -> Result<Option<Eth1Block>, String> {
-        Ok(self
+    fn scan_new_blocks<E: EthSpec>(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<Option<BeaconState<E>>, String> {
+        let genesis_trigger_eth1_block = self
             .core
             .blocks()
             .read()
@@ -222,7 +206,7 @@ impl Eth1GenesisService {
             // The block cache might be more recently updated than deposit cache. Restrict any
             // block numbers that are not known by all caches.
             //
-            // Note: we never scan the genesis block (zero'th eth1 block).
+            // Note: we never scan the genesis block.
             .filter(|block| block.number <= self.highest_known_block().unwrap_or_else(|| 0))
             .find(|block| {
                 let mut highest_processed_block = self.highest_processed_block.lock();
@@ -249,7 +233,30 @@ impl Eth1GenesisService {
                         false
                     })
             })
-            .cloned())
+            .cloned();
+
+        if let Some(eth1_block) = genesis_trigger_eth1_block {
+            debug!(
+                self.core.log,
+                "All genesis conditions met";
+                "eth1_block_height" => eth1_block.number,
+            );
+
+            let genesis_state = self
+                .genesis_from_eth1_block(eth1_block.clone(), &spec)
+                .map_err(|e| format!("Failed to generate valid genesis state : {}", e))?;
+
+            info!(
+                self.core.log,
+                "Deposit contract genesis complete";
+                "eth1_block_height" => eth1_block.number,
+                "validator_count" => genesis_state.validators.len(),
+            );
+
+            return Ok(Some(genesis_state));
+        } else {
+            Ok(None)
+        }
     }
 
     /// Produces an eth2 genesis `BeaconState` from the given `eth1_block`.
