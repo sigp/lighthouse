@@ -111,6 +111,12 @@ impl Eth1GenesisService {
                         // Do not exit the loop if there is an error whilst updating.
                         Ok(())
                     })
+                    // Only enable the `sync_blocks` flag if there are enough deposits to feasibly
+                    // trigger genesis.
+                    //
+                    // Note: genesis is triggered by the _active_ validator count, not just the
+                    // deposit count, so it's possible that block downloads are started too early.
+                    // This is just wasteful, not erroneous.
                     .and_then(move |()| {
                         let mut sync_blocks = service_2.sync_blocks.lock();
 
