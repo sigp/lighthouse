@@ -1,7 +1,9 @@
-extern crate slog;
+use common::tokio;
+use common::exit_future;
+use common::slog;
+use common::futures;
 
 mod config;
-
 pub mod error;
 pub mod notifier;
 

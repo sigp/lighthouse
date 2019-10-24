@@ -1,3 +1,6 @@
+use common::parking_lot;
+use common::slog;
+
 use crate::checkpoint::CheckPoint;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};

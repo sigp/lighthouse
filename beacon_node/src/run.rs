@@ -1,3 +1,10 @@
+use common::tokio;
+use common::tokio_timer;
+use common::futures;
+use common::slog;
+use common::exit_future;
+use common::ctrlc;
+
 use client::{error, notifier, Client, ClientConfig, Eth1BackendMethod, Eth2Config};
 use futures::sync::oneshot;
 use futures::Future;
@@ -7,9 +14,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use store::Store;
 use store::{DiskStore, MemoryStore};
-use tokio::runtime::Builder;
-use tokio::runtime::Runtime;
-use tokio::runtime::TaskExecutor;
+use tokio::runtime::{Builder, Runtime, TaskExecutor};
 use tokio_timer::clock::Clock;
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 

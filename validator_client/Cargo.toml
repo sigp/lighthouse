@@ -24,6 +24,8 @@ grpcio = { version = "0.4", default-features = false, features = ["protobuf-code
 protos = { path = "../protos" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
 types = { path = "../eth2/types" }
+tokio = "0.1.22"
+tokio-timer = "0.2.10"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "^1.0"
@@ -31,11 +33,8 @@ slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_
 slog-async = "^2.3.0"
 slog-json = "^2.3"
 slog-term = "^2.4.0"
-tokio = "0.1.18"
-tokio-timer = "0.2.10"
 error-chain = "0.12.0"
 bincode = "^1.1.2"
-futures = "0.1.25"
 dirs = "2.0.1"
 logging = { path = "../eth2/utils/logging" }
 libc = "0.2"

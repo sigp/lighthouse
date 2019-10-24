@@ -23,7 +23,6 @@ pub use beacon_chain_builder::BeaconChainBuilder;
 pub use eth1_chain::{Eth1ChainBackend, InteropEth1ChainBackend};
 pub use lmd_ghost;
 pub use metrics::scrape_for_metrics;
-pub use parking_lot;
 pub use slot_clock;
 pub use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,

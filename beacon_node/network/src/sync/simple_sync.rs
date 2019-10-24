@@ -1,3 +1,7 @@
+use common::tokio;
+use common::slog;
+use common::hex;
+
 use super::manager::SyncMessage;
 use crate::service::NetworkMessage;
 use beacon_chain::{

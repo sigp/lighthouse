@@ -1,3 +1,8 @@
+use common::exit_future;
+use common::slog;
+use common::tokio;
+use common::futures;
+
 use crate::Client;
 use exit_future::Exit;
 use futures::{Future, Stream};

@@ -1,3 +1,5 @@
+use common::serde_derive;
+
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256};

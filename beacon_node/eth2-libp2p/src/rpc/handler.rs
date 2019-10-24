@@ -3,15 +3,16 @@ use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
 use core::marker::PhantomData;
-use fnv::FnvHashMap;
-use futures::prelude::*;
+use common::fnv::FnvHashMap;
+use common::tokio::prelude::*;
+use common::futures::sink::Send;
 use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use smallvec::SmallVec;
+use common::smallvec::SmallVec;
 use std::time::{Duration, Instant};
-use tokio_io::{AsyncRead, AsyncWrite};
+use common::tokio_io::{AsyncRead, AsyncWrite};
 
 /// The time (in seconds) before a substream that is awaiting a response from the user times out.
 pub const RESPONSE_TIMEOUT: u64 = 10;
@@ -73,7 +74,7 @@ where
 {
     /// A response has been sent, pending writing and flush.
     ResponsePendingSend {
-        substream: futures::sink::Send<InboundFramed<TSubstream>>,
+        substream: Send<InboundFramed<TSubstream>>,
     },
     /// A request has been sent, and we are awaiting a response. This future is driven in the
     /// handler because GOODBYE requests can be handled and responses dropped instantly.

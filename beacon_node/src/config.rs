@@ -1,3 +1,9 @@
+use common::clap;
+use common::rand;
+use common::slog;
+use common::dirs;
+
+
 use clap::ArgMatches;
 use client::{BeaconChainStartMethod, ClientConfig, Eth1BackendMethod, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};

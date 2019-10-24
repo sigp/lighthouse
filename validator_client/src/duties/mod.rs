@@ -9,7 +9,7 @@ pub use self::beacon_node_duties::{BeaconNodeDuties, BeaconNodeDutiesError};
 use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
 pub use self::epoch_duties::{EpochDutiesMap, WorkInfo};
 use super::signer::Signer;
-use futures::Async;
+use tokio::prelude::Async;
 use slog::{debug, error, info};
 use std::fmt::Display;
 use std::sync::Arc;

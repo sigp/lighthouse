@@ -1,3 +1,8 @@
+use common::futures;
+use common::tokio;
+use common::slog;
+use common::hex;
+
 use crate::behaviour::{Behaviour, BehaviourEvent, PubsubMessage};
 use crate::config::*;
 use crate::error;
@@ -5,7 +10,7 @@ use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
 use crate::NetworkConfig;
 use crate::{Topic, TopicHash};
-use futures::prelude::*;
+use tokio::prelude::*;
 use futures::Stream;
 use libp2p::core::{
     identity::Keypair,
@@ -18,7 +23,6 @@ use libp2p::core::{
 use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{crit, debug, info, trace, warn};
 use std::fs::File;
-use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
 

@@ -1,10 +1,14 @@
+use common::tokio;
+use common::slog;
+use common::tokio_timer;
+
 use crate::metrics;
 use crate::{error, NetworkConfig};
 /// This manages the discovery and management of peers.
 ///
 /// Currently using discv5 for peer discovery.
 ///
-use futures::prelude::*;
+use tokio::prelude::*;
 use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::enr::{Enr, EnrBuilder, NodeId};
@@ -13,7 +17,6 @@ use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, Pr
 use slog::{debug, info, warn};
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::prelude::*;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::{Duration, Instant};

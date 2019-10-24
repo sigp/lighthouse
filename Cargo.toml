@@ -25,6 +25,7 @@ members = [
 	"eth2/utils/tree_hash_derive",
     "eth2/utils/test_random_derive",
 	"beacon_node",
+	"beacon_node/common",
 	"beacon_node/store",
 	"beacon_node/client",
 	"beacon_node/rest_api",

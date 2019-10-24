@@ -4,9 +4,9 @@ use crate::rpc::{
     protocol::{ProtocolId, RPCError},
 };
 use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
-use bytes::{BufMut, Bytes, BytesMut};
+use libp2p::bytes::{BufMut, Bytes, BytesMut};
 use ssz::{Decode, Encode};
-use tokio::codec::{Decoder, Encoder};
+use common::tokio::codec::{Decoder, Encoder};
 use unsigned_varint::codec::UviBytes;
 
 /* Inbound Codec */
@@ -141,7 +141,7 @@ impl Encoder for SSZOutboundCodec {
         };
         // length-prefix
         self.inner
-            .encode(bytes::Bytes::from(bytes), dst)
+            .encode(Bytes::from(bytes), dst)
             .map_err(RPCError::from)
     }
 }

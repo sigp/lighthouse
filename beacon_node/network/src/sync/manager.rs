@@ -52,13 +52,16 @@
 //! queued for lookup. A round-robin approach is used to request the parent from the known list of
 //! fully sync'd peers. If `PARENT_FAIL_TOLERANCE` attempts at requesting the block fails, we
 //! drop the propagated block and downvote the peer that sent it to us.
+use common::tokio;
+use common::smallvec;
+use common::slog;
 
 use super::simple_sync::{hello_message, NetworkContext, PeerSyncInfo, FUTURE_SLOT_TOLERANCE};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RequestId};
 use eth2_libp2p::PeerId;
-use futures::prelude::*;
+use tokio::prelude::*;
 use slog::{debug, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};

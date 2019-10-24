@@ -1,3 +1,5 @@
+use common::sloggers;
+
 use crate::{
     events::NullEventHandler, AttestationProcessingOutcome, BeaconChain, BeaconChainBuilder,
     BeaconChainTypes, BlockProcessingOutcome, InteropEth1ChainBackend,

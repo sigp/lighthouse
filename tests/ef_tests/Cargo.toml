@@ -26,4 +26,3 @@ tree_hash_derive = "0.2"
 state_processing = { path = "../../eth2/state_processing" }
 swap_or_not_shuffle = { path = "../../eth2/utils/swap_or_not_shuffle" }
 types = { path = "../../eth2/types" }
-walkdir = "2"

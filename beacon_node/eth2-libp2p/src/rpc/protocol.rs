@@ -1,3 +1,6 @@
+use common::tokio;
+use common::futures;
+
 use super::methods::*;
 use crate::rpc::codec::{
     base::{BaseInboundCodec, BaseOutboundCodec},
@@ -16,7 +19,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::prelude::*;
 use tokio::timer::timeout;
 use tokio::util::FutureExt;
-use tokio_io_timeout::TimeoutStream;
+use common::tokio_io_timeout::TimeoutStream;
 
 /// The maximum bytes that can be sent across the RPC.
 const MAX_RPC_SIZE: usize = 4_194_304; // 4M

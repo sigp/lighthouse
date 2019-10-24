@@ -1,3 +1,8 @@
+use common::clap;
+use common::slog;
+use common::slog_term;
+use common::slog_async;
+
 mod config;
 mod run;
 

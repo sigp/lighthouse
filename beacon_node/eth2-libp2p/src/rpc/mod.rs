@@ -4,7 +4,7 @@
 //! direct peer-to-peer communication primarily for sending/receiving chain information for
 //! syncing.
 
-use futures::prelude::*;
+use common::tokio::prelude::*;
 use handler::RPCHandler;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::{
@@ -13,9 +13,10 @@ use libp2p::swarm::{
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{ErrorMessage, HelloMessage, RPCErrorResponse, RPCResponse, RequestId};
 pub use protocol::{RPCError, RPCProtocol, RPCRequest};
-use slog::o;
+use common::slog::o;
+use common::slog;
 use std::marker::PhantomData;
-use tokio::io::{AsyncRead, AsyncWrite};
+use common::tokio::io::{AsyncRead, AsyncWrite};
 
 pub(crate) mod codec;
 mod handler;

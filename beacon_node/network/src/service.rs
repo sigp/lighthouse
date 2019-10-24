@@ -1,3 +1,7 @@
+use common::futures;
+use common::tokio;
+use common::parking_lot;
+
 use crate::error;
 use crate::message_handler::{HandlerMessage, MessageHandler};
 use crate::NetworkConfig;
@@ -7,7 +11,7 @@ use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::Topic;
 use eth2_libp2p::{Enr, Libp2pEvent, Multiaddr, PeerId, Swarm};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
-use futures::prelude::*;
+use tokio::prelude::*;
 use futures::Stream;
 use parking_lot::Mutex;
 use slog::{debug, info, o, trace};

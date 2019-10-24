@@ -1,3 +1,5 @@
+use common::serde_derive;
+
 use serde_derive::Serialize;
 use ssz_derive::{Decode, Encode};
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256};

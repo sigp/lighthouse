@@ -1,3 +1,6 @@
+use common::futures;
+use common::slog;
+
 use crate::config::*;
 use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};

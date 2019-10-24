@@ -5,8 +5,8 @@ use self::base::{BaseInboundCodec, BaseOutboundCodec};
 use self::ssz::{SSZInboundCodec, SSZOutboundCodec};
 use crate::rpc::protocol::RPCError;
 use crate::rpc::{RPCErrorResponse, RPCRequest};
-use bytes::BytesMut;
-use tokio::codec::{Decoder, Encoder};
+use libp2p::bytes::BytesMut;
+use common::tokio::codec::{Decoder, Encoder};
 
 // Known types of codecs
 pub enum InboundCodec {
