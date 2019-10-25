@@ -129,7 +129,7 @@ impl ChainSpec {
     /// Spec v0.8.1
     pub fn get_deposit_domain(&self) -> u64 {
         let mut bytes: Vec<u8> = int_to_bytes4(self.domain_deposit);
-        bytes.append(&mut Fork::default().get_fork_version(Epoch::new(0)).to_vec());
+        bytes.append(&mut vec![0; 4]);
 
         let mut fork_and_domain = [0; 8];
         fork_and_domain.copy_from_slice(&bytes);
