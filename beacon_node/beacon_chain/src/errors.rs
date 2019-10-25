@@ -55,6 +55,7 @@ pub enum BlockProductionError {
     BlockProcessingError(BlockProcessingError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
+    NoEth1ChainConnection,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

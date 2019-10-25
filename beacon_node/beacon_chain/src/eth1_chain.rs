@@ -1,9 +1,9 @@
 use crate::BeaconChainTypes;
+use eth1::{Config as Eth1Config, Service as HttpService};
 use eth2_hashing::hash;
+use slog::Logger;
 use std::marker::PhantomData;
-use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned};
-
-type Result<T> = std::result::Result<T, Error>;
+use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
 
 /// Holds an `Eth1ChainBackend` and serves requests from the `BeaconChain`.
 pub struct Eth1Chain<T: BeaconChainTypes> {
@@ -20,7 +20,7 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
     pub fn eth1_data_for_block_production(
         &self,
         state: &BeaconState<T::EthSpec>,
-    ) -> Result<Eth1Data> {
+    ) -> Result<Eth1Data, Error> {
         self.backend.eth1_data(state)
     }
 
@@ -32,7 +32,7 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
         &self,
         state: &BeaconState<T::EthSpec>,
         spec: &ChainSpec,
-    ) -> Result<Vec<Deposit>> {
+    ) -> Result<Vec<Deposit>, Error> {
         self.backend.queued_deposits(state, spec)
     }
 }
@@ -50,11 +50,11 @@ pub enum Error {
 }
 
 pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
-    fn new(server: String, contract_addr: String, log: &slog::Logger) -> Result<Self>;
+    fn new(server: String, contract_addr: String, log: &slog::Logger) -> Result<Self, Error>;
 
     /// Returns the `Eth1Data` that should be included in a block being produced for the given
     /// `state`.
-    fn eth1_data(&self, beacon_state: &BeaconState<T>) -> Result<Eth1Data>;
+    fn eth1_data(&self, beacon_state: &BeaconState<T>) -> Result<Eth1Data, Error>;
 
     /// Returns all `Deposits` between `state.eth1_deposit_index` and
     /// `state.eth1_data.deposit_count`.
@@ -67,7 +67,7 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
         &self,
         beacon_state: &BeaconState<T>,
         spec: &ChainSpec,
-    ) -> Result<Vec<Deposit>>;
+    ) -> Result<Vec<Deposit>, Error>;
 }
 
 pub struct InteropEth1ChainBackend<T: EthSpec> {
@@ -75,11 +75,11 @@ pub struct InteropEth1ChainBackend<T: EthSpec> {
 }
 
 impl<T: EthSpec> Eth1ChainBackend<T> for InteropEth1ChainBackend<T> {
-    fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self> {
+    fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self, Error> {
         Ok(Self::default())
     }
 
-    fn eth1_data(&self, state: &BeaconState<T>) -> Result<Eth1Data> {
+    fn eth1_data(&self, state: &BeaconState<T>) -> Result<Eth1Data, Error> {
         let current_epoch = state.current_epoch();
         let slots_per_voting_period = T::slots_per_eth1_voting_period() as u64;
         let current_voting_period: u64 = current_epoch.as_u64() / slots_per_voting_period;
@@ -94,7 +94,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for InteropEth1ChainBackend<T> {
         })
     }
 
-    fn queued_deposits(&self, _: &BeaconState<T>, _: &ChainSpec) -> Result<Vec<Deposit>> {
+    fn queued_deposits(&self, _: &BeaconState<T>, _: &ChainSpec) -> Result<Vec<Deposit>, Error> {
         Ok(vec![])
     }
 }
@@ -107,6 +107,101 @@ impl<T: EthSpec> Default for InteropEth1ChainBackend<T> {
     }
 }
 
+#[derive(Clone)]
+pub struct HttpBackend<T: EthSpec> {
+    pub core: HttpService,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: EthSpec> HttpBackend<T> {
+    pub fn new(config: Eth1Config, log: Logger) -> Self {
+        Self {
+            core: HttpService::new(config, log),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Instantiates `self` from an existing service.
+    pub fn from_service(service: HttpService) -> Self {
+        Self {
+            core: service,
+            _phantom: PhantomData,
+        }
+    }
+
+    /*
+    /// Returns all the `Eth1Data` starting at the block with the `from` hash, up until the last
+    /// cached block with a timestamp that is less than or equal to `to`.
+    ///
+    /// Blocks are returned in ascending order of block number.
+    ///
+    /// ## Errors
+    ///
+    /// - If a block with `from` hash is not found in the cache.
+    /// - If any block within the `from` and `to` range was prior to the deployment of the deposit
+    /// contract (specified in `Config`).
+    pub fn get_eth1_data(&self, from: Hash256, to: Duration) -> Result<Vec<Eth1Data>, String> {
+        let cache = self.core.blocks().read();
+
+        let from = cache
+            .iter()
+            .position(|block| block.hash == from)
+            .ok_or_else(|| format!("Block with hash {:?} is not in eth1 block cache", from))?;
+
+        cache
+            .iter()
+            .skip(from)
+            .take_while(|block| Duration::from_secs(block.timestamp) <= to)
+            .map(|block| {
+                block.clone().eth1_data().ok_or_else(|| {
+                    "Attempted to get eth1 from blocks prior to deposit contract deployment"
+                        .to_string()
+                })
+            })
+            .collect()
+    }
+
+    /// Returns a list of `Deposit` objects, within the given deposit index `range`.
+    ///
+    /// The `deposit_count` is used to generate the proofs for the `Deposits`. For example, if we
+    /// have 100 proofs, but the eth2 chain only acknowledges 50 of them, we must produce our
+    /// proofs with respect to a tree size of 50.
+    ///
+    ///
+    /// ## Errors
+    ///
+    /// - If `deposit_count` is larger than `range.end`.
+    /// - There are not sufficient deposits in the tree to generate the proof.
+    pub fn get_deposits(
+        &self,
+        range: Range<u64>,
+        deposit_count: u64,
+        tree_depth: usize,
+    ) -> Result<(Hash256, Vec<Deposit>), String> {
+        self.core
+            .deposits()
+            .read()
+            .cache
+            .get_deposits(range, deposit_count, tree_depth)
+            .map_err(|e| format!("Failed to get deposits: {:?}", e))
+    }
+    */
+}
+
+impl<T: EthSpec> Eth1ChainBackend<T> for HttpBackend<T> {
+    fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self, Error> {
+        panic!()
+    }
+
+    fn eth1_data(&self, _state: &BeaconState<T>) -> Result<Eth1Data, Error> {
+        panic!()
+    }
+
+    fn queued_deposits(&self, _: &BeaconState<T>, _: &ChainSpec) -> Result<Vec<Deposit>, Error> {
+        panic!()
+    }
+}
+
 /// Returns `int` as little-endian bytes with a length of 32.
 fn int_to_bytes32(int: u64) -> Vec<u8> {
     let mut vec = int.to_le_bytes().to_vec();
@@ -115,46 +210,6 @@ fn int_to_bytes32(int: u64) -> Vec<u8> {
 }
 
 /*
-impl<T: EthSpec> Eth1ChainBackend<T> for Eth1Cache {
-    fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self> {
-        // TODO: fix or perish.
-        panic!()
-    }
-
-    fn eth1_data(&self, _state: &BeaconState<T>) -> Result<Eth1Data> {
-        // TODO: fix or perish.
-        panic!()
-    }
-
-    fn queued_deposits(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Vec<Deposit>> {
-        let deposit_count = state.eth1_data.deposit_count;
-        let deposit_index = state.eth1_deposit_index;
-
-        if deposit_index > deposit_count {
-            Err(Error::DepositIndexTooHigh)
-        } else if deposit_index == deposit_count {
-            Ok(vec![])
-        } else {
-            let count = std::cmp::min(deposit_count - deposit_index, T::MaxDeposits::to_u64());
-            let first = deposit_index + 1;
-            let (root, deposits) = self
-                .get_deposits(
-                    first..first + count,
-                    deposit_count,
-                    spec.deposit_contract_tree_depth as usize,
-                )
-                .map_err(|e| Error::BackendError(format!("{:?}", e)))?;
-
-            if root == state.eth1_data.deposit_root {
-                Ok(deposits)
-            } else {
-                Err(Error::DepositRootMismatch)
-            }
-        }
-    }
-}
-*/
-
 /// Returns the unix-epoch seconds at the start of the given `slot`.
 fn slot_start_seconds<T: EthSpec>(
     genesis_unix_seconds: u64,
@@ -163,3 +218,4 @@ fn slot_start_seconds<T: EthSpec>(
 ) -> u64 {
     genesis_unix_seconds + slot.as_u64() * seconds_per_slot
 }
+*/

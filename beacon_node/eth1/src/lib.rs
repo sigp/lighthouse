@@ -29,6 +29,11 @@ impl BlockProposalService {
         }
     }
 
+    /// Instantiates `self` from an existing service.
+    pub fn from_service(service: Service) -> Self {
+        Self { core: service }
+    }
+
     /// Returns all the `Eth1Data` starting at the block with the `from` hash, up until the last
     /// cached block with a timestamp that is less than or equal to `to`.
     ///

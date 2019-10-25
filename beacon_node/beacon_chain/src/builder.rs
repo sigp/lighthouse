@@ -1,3 +1,4 @@
+use crate::eth1_chain::HttpBackend;
 use crate::events::NullEventHandler;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::InteropEth1ChainBackend;
@@ -443,9 +444,7 @@ where
             op_pool: self
                 .op_pool
                 .ok_or_else(|| "Cannot build without op pool".to_string())?,
-            eth1_chain: self
-                .eth1_chain
-                .ok_or_else(|| "Cannot build without eth1 chain".to_string())?,
+            eth1_chain: self.eth1_chain,
             canonical_head: RwLock::new(canonical_head),
             genesis_block_root: self
                 .genesis_block_root
@@ -513,6 +512,31 @@ where
         );
 
         self.fork_choice_backend(backend)
+    }
+}
+
+impl<TStore, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
+    BeaconChainBuilder<
+        Witness<TStore, TSlotClock, TLmdGhost, HttpBackend<TEthSpec>, TEthSpec, TEventHandler>,
+    >
+where
+    TStore: Store + 'static,
+    TSlotClock: SlotClock + 'static,
+    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
+    TEthSpec: EthSpec + 'static,
+    TEventHandler: EventHandler<TEthSpec> + 'static,
+{
+    /// Sets the `BeaconChain` eth1 back-end to `HttpBackend`.
+    ///
+    /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
+    pub fn http_eth1_backend(self, backend: HttpBackend<TEthSpec>) -> Self {
+        self.eth1_backend(backend)
+    }
+
+    /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
+    pub fn no_eth1_backend(self) -> Self {
+        // Do nothing. This function only exists to make concrete the `TEth1ChainBackendTrait`.
+        self
     }
 }
 

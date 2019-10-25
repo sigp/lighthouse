@@ -111,7 +111,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// inclusion in a block.
     pub op_pool: OperationPool<T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
-    pub eth1_chain: Eth1Chain<T>,
+    pub eth1_chain: Option<Eth1Chain<T>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
     pub(crate) canonical_head: RwLock<CheckPoint<T::EthSpec>>,
     /// The root of the genesis block.
@@ -131,7 +131,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Instantiate a new Beacon Chain, from genesis.
     pub fn from_genesis(
         store: Arc<T::Store>,
-        eth1_backend: T::Eth1Chain,
+        eth1_backend: Option<T::Eth1Chain>,
         fork_choice_backend: T::LmdGhost,
         event_handler: T::EventHandler,
         mut genesis_state: BeaconState<T::EthSpec>,
@@ -179,7 +179,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec,
             slot_clock,
             op_pool: OperationPool::new(),
-            eth1_chain: Eth1Chain::new(eth1_backend),
+            eth1_chain: eth1_backend.map(|e| Eth1Chain::new(e)),
             canonical_head,
             genesis_block_root,
             fork_choice,
@@ -192,7 +192,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Attempt to load an existing instance from the given `store`.
     pub fn from_store(
         store: Arc<T::Store>,
-        eth1_backend: T::Eth1Chain,
+        eth1_backend: Option<T::Eth1Chain>,
         fork_choice_backend: T::LmdGhost,
         event_handler: T::EventHandler,
         spec: ChainSpec,
@@ -233,7 +233,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             fork_choice,
             op_pool,
             event_handler,
-            eth1_chain: Eth1Chain::new(eth1_backend),
+            eth1_chain: eth1_backend.map(|e| Eth1Chain::new(e)),
             canonical_head: RwLock::new(p.canonical_head),
             genesis_block_root: p.genesis_block_root,
             store,
@@ -1291,6 +1291,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
+        let eth1_chain = self
+            .eth1_chain
+            .as_ref()
+            .ok_or_else(|| BlockProductionError::NoEth1ChainConnection)?;
+
         // If required, transition the new state to the present slot.
         while state.slot < produce_at_slot {
             per_slot_processing(&mut state, &self.spec)?;
@@ -1315,18 +1320,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut block = BeaconBlock {
             slot: state.slot,
             parent_root,
-            state_root: Hash256::zero(), // Updated after the state is calculated.
-            signature: Signature::empty_signature(), // To be completed by a validator.
+            state_root: Hash256::zero(),
+            // The block is not signed here, that is the task of a validator client.
+            signature: Signature::empty_signature(),
             body: BeaconBlockBody {
                 randao_reveal,
-                // TODO: replace with real data.
-                eth1_data: self.eth1_chain.eth1_data_for_block_production(&state)?,
+                eth1_data: eth1_chain.eth1_data_for_block_production(&state)?,
                 graffiti,
                 proposer_slashings: proposer_slashings.into(),
                 attester_slashings: attester_slashings.into(),
                 attestations: self.op_pool.get_attestations(&state, &self.spec).into(),
-                deposits: self
-                    .eth1_chain
+                deposits: eth1_chain
                     .deposits_for_block_inclusion(&state, &self.spec)?
                     .into(),
                 voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec).into(),

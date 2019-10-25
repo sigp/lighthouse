@@ -377,6 +377,11 @@ impl Eth1GenesisService {
             .cloned()
             .collect()
     }
+
+    /// Returns the `Service` contained in `self`.
+    pub fn into_core_service(self) -> Service {
+        self.core
+    }
 }
 
 /// Load a `BeaconState` from the given `path`. The file should contain raw SSZ bytes (i.e., no
