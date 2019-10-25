@@ -90,8 +90,8 @@ fn generate_secret_keys(n: usize) -> Vec<Option<String>> {
         .collect::<Vec<_>>()
 }
 
-// Constructs, connects and returns n libp2p peers without discovery.
-fn build_nodes(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
+// Returns `n` libp2p peers in fully connected topology.
+fn build_full_mesh(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
     let log = setup_log();
     let base_port = start_port.unwrap_or(9000);
     let mut nodes: Vec<LibP2PService> = (base_port..base_port + n as u16)
@@ -115,41 +115,83 @@ fn build_nodes(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
     nodes
 }
 
+fn build_linear(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
+    let log = setup_log();
+    let base_port = start_port.unwrap_or(9000);
+    let mut nodes: Vec<LibP2PService> = (base_port..base_port + n as u16)
+        .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))
+        .collect();
+    let multiaddrs: Vec<Multiaddr> = nodes
+        .iter()
+        .map(|x| get_enr(&x).multiaddr()[1].clone())
+        .collect();
+    for i in 0..n - 1 {
+        match libp2p::Swarm::dial_addr(&mut nodes[i].swarm, multiaddrs[i + 1].clone()) {
+            Ok(()) => debug!(log, "Connected"),
+            Err(_) => error!(log, "Failed to connect"),
+        };
+    }
+    nodes
+}
+
+// Test if gossipsub message are forwarded by nodes with a simple linear topology.
+//
+//                Topology used in test
+//
+// node1 <-> node2 <-> node3 ..... <-> node(n-1) <-> node(n)
+
 #[test]
-fn test_discovery() {
+fn test_gossipsub_forward() {
     let log = setup_log();
     let num_nodes = 8;
-    let mut secret_keys = generate_secret_keys(num_nodes);
-    let bootstrap_sk = secret_keys.pop().unwrap();
-    let bootstrap_node = build_libp2p_instance(9000, vec![], bootstrap_sk, log.clone());
-    let base_port = 9001;
-    let mut nodes: Vec<LibP2PService> = secret_keys
-        .into_iter()
-        .enumerate()
-        .map(|(i, sk)| {
-            build_libp2p_instance(
-                base_port + i as u16,
-                vec![get_enr(&bootstrap_node)],
-                sk,
-                log.clone(),
-            )
-        })
-        .collect();
-    nodes.push(bootstrap_node);
+    let mut nodes = build_linear(8, Some(9000));
+    let mut received_count = 0;
+    let pubsub_message = PubsubMessage::Block(vec![0; 4]);
+    let publishing_topic: String = "/eth2/beacon_block/ssz".into();
+    let mut subscribed_count = 0;
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
         for node in nodes.iter_mut() {
             loop {
                 match node.poll().unwrap() {
-                    Async::Ready(Some(Libp2pEvent::PeerDialed(_))) => {
-                        println!(
-                            "Node {} is connected to {} peers.",
-                            node.swarm.discovery().local_enr().node_id(),
-                            node.swarm.discovery().connected_peers(),
+                    Async::Ready(Some(Libp2pEvent::PubsubMessage {
+                        topics,
+                        message,
+                        source,
+                        id,
+                    })) => {
+                        assert_eq!(topics.len(), 1);
+                        // Assert topic is the published topic
+                        assert_eq!(
+                            topics.first().unwrap(),
+                            &TopicHash::from_raw(publishing_topic.clone())
                         );
-                        // return Ok(Async::Ready(()));
+                        // Assert message received is the correct one
+                        assert_eq!(message, pubsub_message.clone());
+                        received_count += 1;
+                        // Since `propagate_message` is false, need to propagate manually
+                        node.swarm.propagate_message(&source, id);
+                        // Test should succeed if all nodes except the publisher receive the message
+                        if received_count == num_nodes - 1 {
+                            debug!(log.clone(), "Received message at {} nodes", num_nodes - 1);
+                            return Ok(Async::Ready(()));
+                        }
                     }
-                    Async::Ready(Some(_)) => (),
-                    Async::Ready(None) | Async::NotReady => break,
+                    Async::Ready(Some(Libp2pEvent::PeerSubscribed(_, topic))) => {
+                        // Received topics is one of subscribed eth2 topics
+                        assert!(topic.clone().into_string().starts_with("/eth2/"));
+                        // Publish on beacon block topic
+                        if topic == TopicHash::from_raw("/eth2/beacon_block/ssz") {
+                            subscribed_count += 1;
+                            // Every node except the corner nodes are connected to 2 nodes.
+                            if subscribed_count == (num_nodes * 2) - 2 {
+                                node.swarm.publish(
+                                    &vec![Topic::new(topic.into_string())],
+                                    pubsub_message.clone(),
+                                );
+                            }
+                        }
+                    }
+                    _ => break,
                 }
             }
         }
@@ -158,12 +200,14 @@ fn test_discovery() {
 }
 
 // Test publishing of a message with a full mesh for the topic
+// Not very useful but this is the bare minimum functionality.
 #[test]
 fn test_gossipsub_full_mesh_publish() {
     let num_nodes = 13; // mesh_n_high + 1
-    let mut nodes = build_nodes(num_nodes, None);
+    let mut nodes = build_full_mesh(num_nodes, None);
     let mut publishing_node = nodes.pop().unwrap();
     let pubsub_message = PubsubMessage::Block(vec![0; 4]);
+    let publishing_topic: String = "/eth2/beacon_block/ssz".into();
     let mut subscribed_count = 0;
     let mut received_count = 0;
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
@@ -173,12 +217,12 @@ fn test_gossipsub_full_mesh_publish() {
                     Async::Ready(Some(Libp2pEvent::PubsubMessage {
                         topics, message, ..
                     })) => {
-                        // Assert topics are eth2 topics
-                        assert!(topics
-                            .clone()
-                            .iter()
-                            .all(|t| t.clone().into_string() == "/eth2/beacon_block/ssz"));
-
+                        assert_eq!(topics.len(), 1);
+                        // Assert topic is the published topic
+                        assert_eq!(
+                            topics.first().unwrap(),
+                            &TopicHash::from_raw(publishing_topic.clone())
+                        );
                         // Assert message received is the correct one
                         assert_eq!(message, pubsub_message.clone());
                         received_count += 1;
@@ -213,97 +257,9 @@ fn test_gossipsub_full_mesh_publish() {
     }))
 }
 
-// Test if gossipsub message are forwarded by nodes.
-// Each mesh may contains multiple nodes. All nodes in a mesh are connected to all other nodes
-// in the same mesh.
-//                                Topology used in test
-//            |------------------------------|    |-----------------------------|
-//            | mesh1 nodes --- border node  |----| border node --- mesh2 nodes |
-//            |------------------------------|    |-----------------------------|
-//
-// Publisher is part of mesh1 and connecter is part of mesh2.
-// All nodes in mesh 2 should also receive published message.
-#[test]
-fn test_gossipsub_forward() {
-    let log = setup_log();
-    let mesh1_n = 6;
-    let mesh2_n = 6;
-    let mut mesh1 = build_nodes(mesh1_n, Some(9000));
-    let mut mesh2 = build_nodes(mesh2_n, Some(9006));
-    let mut border1 = mesh1.pop().unwrap();
-    let border2 = mesh2.pop().unwrap();
-    // Connect one node from each mesh
-    match libp2p::Swarm::dial_addr(&mut border1.swarm, get_enr(&border2).multiaddr()[1].clone()) {
-        Ok(()) => debug!(log, "Connected"),
-        Err(_) => error!(log, "Failed to connect"),
-    }
-
-    let pubsub_message = PubsubMessage::Block(vec![0; 4]);
-    let publishing_topic: String = "/eth2/beacon_block/ssz".into();
-    let mut subscribed_count = 0;
-    let mut received_count = 0;
-    let mut entered = false; // to ensure only one of the nodes publishes
-    let mut border_nodes = vec![border1, border2];
-    mesh1.append(&mut mesh2);
-    tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
-        for node in mesh1.iter_mut() {
-            loop {
-                match node.poll().unwrap() {
-                    Async::Ready(Some(Libp2pEvent::PubsubMessage {
-                        topics, message, ..
-                    })) => {
-                        assert_eq!(topics.len(), 1);
-                        // Assert topic is the published topic
-                        assert_eq!(topics.first().unwrap(), &TopicHash::from_raw(publishing_topic.clone()));
-                        // Assert message received is the correct one
-                        assert_eq!(message, pubsub_message.clone());
-                        received_count += 1;
-                        // Test should succeed if all nodes except the publisher receive the message
-                        if received_count == (mesh1_n + mesh2_n - 1) {
-                            debug!(log.clone(), "Received message at {} nodes", mesh1_n + mesh2_n - 1);
-                            return Ok(Async::Ready(()));
-                        }
-                    }
-                    _ => break,
-                }
-            }
-        }
-        for node in border_nodes.iter_mut() {
-            loop {
-                match node.poll().unwrap() {
-                    Async::Ready(Some(Libp2pEvent::PeerSubscribed(_, topic))) => {
-                        // Received topics is one of subscribed eth2 topics
-                        assert!(topic.clone().into_string().starts_with("/eth2/"));
-                        if topic == TopicHash::from_raw(publishing_topic.clone()) {
-                            subscribed_count += 1;
-                            if !entered && subscribed_count >= mesh1_n + mesh2_n {
-                                entered = true;
-                                node.swarm.publish(
-                                    &vec![Topic::new(topic.into_string())],
-                                    pubsub_message.clone(),
-                                );
-                            }
-                        }
-                    }
-                    Async::Ready(Some(Libp2pEvent::PubsubMessage { id, source, .. })) => {
-                        received_count += 1;
-                        // Propagate received message to all peers in mesh.
-                        node.swarm.propagate_message(&source, id);
-                        if received_count == (mesh1_n + mesh2_n - 1) {
-                            return Ok(Async::Ready(()));
-                        }
-                    }
-                    _ => break,
-                }
-            }
-        }
-        Ok(Async::NotReady)
-    }))
-}
-
 #[test]
 fn test_rpc() {
-    let mut nodes = build_nodes(2, None);
+    let mut nodes = build_full_mesh(2, None);
     // Random rpc message
     let rpc_request = RPCRequest::Hello(HelloMessage {
         fork_version: [0; 4],
