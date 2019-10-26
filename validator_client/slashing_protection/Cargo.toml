@@ -9,5 +9,7 @@ edition = "2018"
 [dependencies]
 fs2 = "0.4.3"
 eth2_ssz = { path = "../../eth2/utils/ssz" }
+eth2_ssz_derive = { path = "../../eth2/utils/ssz_derive" }
 types = { path = "../../eth2/types" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
+serde_derive = "1.0"

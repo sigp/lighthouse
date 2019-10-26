@@ -1,6 +1,6 @@
 use super::validator_historical_attestation::ValidatorHistoricalAttestation;
-use types::*;
 use tree_hash::TreeHash;
+use types::*;
 
 #[derive(PartialEq, Debug)]
 pub enum PruningError {
@@ -91,7 +91,9 @@ pub fn should_sign_attestation(
 
     check_surrounded(attestation_data, &attestation_history[target_index + 1..])?;
     if attestation_history[target_index].target_epoch == attestation_data.target.epoch {
-        if attestation_history[target_index].signing_root == Hash256::from_slice(&attestation_data.tree_hash_root()) {
+        if attestation_history[target_index].signing_root
+            == Hash256::from_slice(&attestation_data.tree_hash_root())
+        {
             return Ok(ValidAttestation::SameVote);
         } else {
             return Err(AttestationError::DoubleVote);
