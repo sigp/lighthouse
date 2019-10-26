@@ -1,16 +1,16 @@
-use types::Epoch;
+use types::{Slot, BeaconBlockHeader, Hash256};
 
 #[derive(Debug, Clone)]
 pub struct ValidatorHistoricalBlock {
-	epoch: Epoch,
-	signing_root: Vec<u8>, // tree_hash_root
+	pub slot: Slot,
+	pub signing_root: Hash256,
 }
 
 impl ValidatorHistoricalBlock {
-	pub fn new(epoch: Epoch, signing_root: &[u8]) -> Self {
+	pub fn from(header: &BeaconBlockHeader) -> Self {
 		Self {
-			epoch,
-			signing_root: signing_root.to_vec(),
+			slot: header.slot,
+			signing_root: header.canonical_root(),
 		}
 	}
 }

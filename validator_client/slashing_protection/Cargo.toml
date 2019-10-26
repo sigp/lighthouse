@@ -10,3 +10,4 @@ edition = "2018"
 fs2 = "0.4.3"
 eth2_ssz = { path = "../../eth2/utils/ssz" }
 types = { path = "../../eth2/types" }
+tree_hash = { path = "../../eth2/utils/tree_hash" }
