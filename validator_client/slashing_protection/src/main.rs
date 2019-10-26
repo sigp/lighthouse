@@ -54,14 +54,6 @@ impl AttestationHistoryInfo {
             history: history.to_vec(),
         }
     }
-
-    fn write_to_file(&self) -> IOResult<()> {
-        let mut file = File::create(&self.filename)?;
-        file.lock_exclusive()?;
-        file.write_all(&self.history.as_ssz_bytes())?;
-        file.unlock()?;
-        Ok(())
-    }
 }
 
 // #[derive(Clone, Debug)]
@@ -80,8 +72,8 @@ impl AttestationHistoryInfo {
 // }
 
 #[derive(Debug)]
-pub struct HistoryInfo<T: Encode + Decode + Clone> {
-    filelock: File,
+struct HistoryInfo<T: Encode + Decode> {
+    filename: String,
     mutex: Arc<Mutex<Vec<T>>>,
 }
 
@@ -100,10 +92,23 @@ impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {
         let arc_data = Arc::new(data_mutex);
 
         Ok(Self {
-            filelock: file,
+            filename: filename.to_string(),
             mutex: arc_data,
         })
     }
+}
+
+impl<T: Encode + Decode> HistoryInfo<T> {
+	pub fn update_and_write(&mut self) -> IOResult<()> {
+		let data = self.mutex.lock().unwrap();
+		// insert
+		let mut file = File::create(self.filename.as_str()).unwrap();
+        file.lock_exclusive()?;
+        file.write_all(&data.as_ssz_bytes()).expect("HEY");
+        file.unlock()?;
+
+		Ok(())
+	}
 }
 
 fn main() {
@@ -111,10 +116,12 @@ fn main() {
 }
 
 fn run() {
-	let attestation_info: HistoryInfo<ValidatorHistoricalAttestation> = HistoryInfo::try_from(ATTESTATION_HISTORY_FILE).unwrap();
-	let block_info: HistoryInfo<ValidatorHistoricalBlock> = HistoryInfo::try_from(BLOCK_HISTORY_FILE).unwrap();
+	let mut attestation_info: HistoryInfo<ValidatorHistoricalAttestation> = HistoryInfo::try_from(ATTESTATION_HISTORY_FILE).unwrap();
+	let mut block_info: HistoryInfo<ValidatorHistoricalBlock> = HistoryInfo::try_from(BLOCK_HISTORY_FILE).unwrap();
 	println!("attestation: {:?}", attestation_info);
 	println!("block: {:?}", block_info);
+	attestation_info.update_and_write().unwrap();
+	block_info.update_and_write().unwrap();
 }
     // let info = on_boot().unwrap();
     // check_attestation().unwrap();
