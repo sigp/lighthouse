@@ -182,15 +182,12 @@ mod tests {
         let attestation_data = attestation_builder(0, 1);
 
         history.push(ValidatorHistoricalAttestation::new(0, 1, Hash256::from_slice(&attestation_data.tree_hash_root())));
-        history.push(ValidatorHistoricalAttestation::new(1, 2, Hash256::from_slice(b"e21a")));
+        history.push(ValidatorHistoricalAttestation::new(1, 2, Hash256::random()));
 
-        // dbg!(should_sign_attestation(&attestation_data, &history[..]));
-        // dbg!(ValidAttestation::SameVote);
-        // panic!("STOP");
-        // assert_eq!(
-            // should_sign_attestation(&attestation_data, &history[..]),
-            // Ok(ValidAttestation::SameVote)
-        // );
+        assert_eq!(
+            should_sign_attestation(&attestation_data, &history[..]),
+            Ok(ValidAttestation::SameVote)
+        );
     }
 
     #[test]

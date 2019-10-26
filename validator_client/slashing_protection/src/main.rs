@@ -130,7 +130,6 @@ fn on_boot() -> Result<(HistoryInfo)>{
 	let historical_attestation = ValidatorHistoricalAttestation::from(&old_attestation);
 	let historical_block = ValidatorHistoricalBlock::from(&old_block);
 
-
 	block_history.push(historical_block);
 	attestation_history.push(historical_attestation);
 
