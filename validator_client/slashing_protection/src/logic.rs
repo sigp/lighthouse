@@ -1,4 +1,5 @@
 use super::validator_historical_attestation::ValidatorHistoricalAttestation;
+use super::validator_historical_block::ValidatorHistoricalBlock;
 use tree_hash::TreeHash;
 use types::*;
 
@@ -18,13 +19,6 @@ pub enum AttestationError {
     PruningError(PruningError),
     Surrounded,
     Surrounding,
-}
-
-#[derive(PartialEq, Debug)]
-pub enum ValidAttestation {
-    EmptyHistory,
-    SameVote,
-    ValidAttestation,
 }
 
 fn check_attestation_validity(attestation_data: &AttestationData) -> Result<(), AttestationError> {
@@ -69,10 +63,10 @@ fn check_surrounding(
 pub fn should_sign_attestation(
     attestation_data: &AttestationData,
     attestation_history: &[ValidatorHistoricalAttestation],
-) -> Result<(ValidAttestation), AttestationError> {
+) -> Result<usize, AttestationError> {
     check_attestation_validity(attestation_data)?;
     if attestation_history.is_empty() {
-        return Ok(ValidAttestation::EmptyHistory);
+        return Ok(0);
     }
 
     let target_index = match attestation_history
@@ -94,7 +88,7 @@ pub fn should_sign_attestation(
         if attestation_history[target_index].signing_root
             == Hash256::from_slice(&attestation_data.tree_hash_root())
         {
-            return Ok(ValidAttestation::SameVote);
+            return Ok(target_index);
         } else {
             return Err(AttestationError::DoubleVote);
         }
@@ -125,5 +119,30 @@ pub fn should_sign_attestation(
         &attestation_history[source_index..=target_index],
     )?;
 
-    Ok(ValidAttestation::ValidAttestation)
+    Ok(target_index)
+}
+
+pub fn should_sign_block(
+    block_header: &BeaconBlockHeader,
+    block_history: &[ValidatorHistoricalBlock],
+) -> Result<usize, &'static str> {
+    let index = block_history
+        .iter()
+        .rev()
+        .position(|historical_block| historical_block.slot >= block_header.slot); // no unwrap pls
+    let index = match index {
+        None => return Err("no pos found"), // check for pruning error?
+        Some(num) => block_history.len() - 1 - num,
+    };
+    if block_history[index].slot == block_header.slot {
+        if block_history[index].signing_root == block_header.canonical_root() {
+            Ok(index)
+        }
+        else {
+            Err("Double vote")
+        }
+    }
+    else {
+        Err("small than some historical block")
+    }
 }
