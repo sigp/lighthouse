@@ -20,13 +20,15 @@ use types::*;
 const BLOCK_HISTORY_FILE: &str = "block.file";
 const ATTESTATION_HISTORY_FILE: &str = "attestation.file";
 
-trait MyTrait<U, T> {
-    fn signing_func(&self, challenger: &U, history: &[T]) -> Result<usize, &'static str>;
+trait MyTrait<T> {
+    type U;
+
+    fn signing_func(&self, challenger: &Self::U, history: &[T]) -> Result<usize, &'static str>;
 }
 
-impl MyTrait<AttestationData, ValidatorHistoricalAttestation>
-    for HistoryInfo<ValidatorHistoricalAttestation>
-{
+impl MyTrait<ValidatorHistoricalAttestation> for HistoryInfo<ValidatorHistoricalAttestation> {
+    type U = AttestationData;
+
     fn signing_func(
         &self,
         challenger: &AttestationData,
@@ -36,9 +38,9 @@ impl MyTrait<AttestationData, ValidatorHistoricalAttestation>
     }
 }
 
-impl MyTrait<BeaconBlockHeader, ValidatorHistoricalBlock>
-    for HistoryInfo<ValidatorHistoricalBlock>
-{
+impl MyTrait<ValidatorHistoricalBlock> for HistoryInfo<ValidatorHistoricalBlock> {
+    type U = BeaconBlockHeader;
+
     fn signing_func(
         &self,
         challenger: &BeaconBlockHeader,
@@ -60,16 +62,19 @@ impl<T: Encode + Decode + Clone> HistoryInfo<T> {
         // insert
         let mut file = File::create(self.filename.as_str()).unwrap();
         file.lock_exclusive()?;
-        go_to_sleep(100);
-        file.write_all(&history.as_ssz_bytes()).expect("HEY");
+        go_to_sleep(100); // nope
+        file.write_all(&history.as_ssz_bytes()).expect("HEY"); // nope
         file.unlock()?;
 
         Ok(())
     }
 
-    fn should_sign<U>(&self, challenger: &U) -> Result<usize, &'static str>
+    fn should_sign(
+        &self,
+        challenger: &<HistoryInfo<T> as MyTrait<T>>::U,
+    ) -> Result<usize, &'static str>
     where
-        Self: MyTrait<U, T>,
+        Self: MyTrait<T>,
     {
         let guard = self.mutex.lock();
         let history = &guard[..];
@@ -166,20 +171,3 @@ fn build_checkpoint(epoch_num: u64) -> Checkpoint {
         root: Hash256::zero(),
     }
 }
-
-// fn should_sign(
-// incoming_attestation: &AttestationData,
-// historical_attestations: &[ValidatorHistoricalAttestation],
-// i: usize,
-// ) -> bool {
-// println!("{}: Received for signing", i);
-// let ten_millis = time::Duration::from_millis(100);
-// if let Err(e) = should_sign_attestation(incoming_attestation, historical_attestations) {
-// println!("{:?}", e);
-// return false;
-// }
-// thread::sleep(ten_millis);
-//
-// println!("{}: Signed", i);
-// true
-// }
