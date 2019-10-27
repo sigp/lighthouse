@@ -1,6 +1,14 @@
+
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod test {
+    use crate::logic::should_sign_attestation;
+    use crate::logic::AttestationError;
+    use crate::logic::PruningError;
+    use crate::validator_historical_attestation::ValidatorHistoricalAttestation;
+    // use crate::logic::should_sign_block;
+    // use crate::validator_historical_block::ValidatorHistoricalBlock;
+    use types::*;
+    use tree_hash::TreeHash;
 
     fn build_checkpoint(epoch_num: u64) -> Checkpoint {
 	    Checkpoint {
@@ -32,7 +40,7 @@ mod tests {
 
         assert_eq!(
             should_sign_attestation(&attestation_data, &history[..]),
-            Ok(ValidAttestation::ValidAttestation)
+            Ok(2)
         );
     }
 
@@ -43,7 +51,7 @@ mod tests {
         let attestation_data = attestation_builder(2, 3);
         assert_eq!(
             should_sign_attestation(&attestation_data, &history[..]),
-            Ok(ValidAttestation::EmptyHistory)
+            Ok(0)
         );
     }
 
@@ -58,7 +66,7 @@ mod tests {
 
         assert_eq!(
             should_sign_attestation(&attestation_data, &history[..]),
-            Ok(ValidAttestation::SameVote)
+            Ok(1) // SCOTT: fix pls
         );
     }
 

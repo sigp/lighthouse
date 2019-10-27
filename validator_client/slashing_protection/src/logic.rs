@@ -88,7 +88,7 @@ pub fn should_sign_attestation(
         if attestation_history[target_index].signing_root
             == Hash256::from_slice(&attestation_data.tree_hash_root())
         {
-            return Ok(target_index);
+            return Ok(target_index + 1);
         } else {
             return Err(AttestationError::DoubleVote);
         }
@@ -119,7 +119,7 @@ pub fn should_sign_attestation(
         &attestation_history[source_index..=target_index],
     )?;
 
-    Ok(target_index)
+    Ok(target_index + 1)
 }
 
 pub fn should_sign_block(
@@ -136,7 +136,7 @@ pub fn should_sign_block(
     };
     if block_history[index].slot == block_header.slot {
         if block_history[index].signing_root == block_header.canonical_root() {
-            Ok(index)
+            Ok(index + 1)
         } else {
             Err("Double vote")
         }
