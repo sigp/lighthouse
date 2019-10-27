@@ -20,22 +20,18 @@ use types::*;
 const BLOCK_HISTORY_FILE: &str = "block.file";
 const ATTESTATION_HISTORY_FILE: &str = "attestation.file";
 
-trait ShouldSign<U> {
-    fn should_sign(&self, challenger: &U) -> Result<usize, &'static str>;
+trait MyTrait<U, T> {
+	fn signing_func(&self, challenger: &U, history: &[T]) -> Result<usize, &'static str>;
 }
 
-impl ShouldSign<AttestationData> for HistoryInfo<ValidatorHistoricalAttestation> {
-	fn should_sign (&self, challenger: &AttestationData) -> Result<usize, &'static str> {
-		let guard = self.mutex.lock();
-		let history = &guard[..];
+impl MyTrait<AttestationData, ValidatorHistoricalAttestation> for HistoryInfo<ValidatorHistoricalAttestation> {
+	fn signing_func(&self, challenger: &AttestationData, history: &[ValidatorHistoricalAttestation]) -> Result<usize, &'static str> {
 		should_sign_attestation(challenger, history).map_err(|_| "invalid attestation")
 	}
 }
 
-impl ShouldSign<BeaconBlockHeader> for HistoryInfo<ValidatorHistoricalBlock> {
-	fn should_sign (&self, challenger: &BeaconBlockHeader) -> Result<usize, &'static str> {
-		let guard = self.mutex.lock();
-		let history = &guard[..];
+impl MyTrait<BeaconBlockHeader, ValidatorHistoricalBlock> for HistoryInfo<ValidatorHistoricalBlock> {
+	fn signing_func(&self, challenger: &BeaconBlockHeader, history: &[ValidatorHistoricalBlock]) -> Result<usize, &'static str> {
 		should_sign_block(challenger, history)
 	}
 }
@@ -44,6 +40,26 @@ impl ShouldSign<BeaconBlockHeader> for HistoryInfo<ValidatorHistoricalBlock> {
 struct HistoryInfo<T: Encode + Decode + Clone> {
     filename: String,
     mutex: Arc<Mutex<Vec<T>>>,
+}
+
+impl<T: Encode + Decode + Clone> HistoryInfo<T> {
+    pub fn update_and_write(&mut self) -> IOResult<()> {
+        let history = self.mutex.lock();
+        // insert
+        let mut file = File::create(self.filename.as_str()).unwrap();
+        file.lock_exclusive()?;
+        go_to_sleep(100);
+        file.write_all(&history.as_ssz_bytes()).expect("HEY");
+        file.unlock()?;
+
+        Ok(())
+    }
+
+	fn should_sign<U> (&self, challenger: &U) -> Result<usize, &'static str> {
+		let guard = self.mutex.lock();
+		let history = &guard[..];
+		self.signing_func(challenger, history)
+	}
 }
 
 impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {
@@ -68,22 +84,6 @@ impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {
         })
     }
 }
-
-impl<T: Encode + Decode + Clone> HistoryInfo<T> {
-    pub fn update_and_write(&mut self) -> IOResult<()> {
-        let history = self.mutex.lock();
-        // insert
-        let mut file = File::create(self.filename.as_str()).unwrap();
-        file.lock_exclusive()?;
-        go_to_sleep(100);
-        file.write_all(&history.as_ssz_bytes()).expect("HEY");
-        file.unlock()?;
-
-        Ok(())
-    }
-}
-
-
 
 fn main() {
     run();
@@ -120,8 +120,6 @@ fn run() {
     for handle in handles {
         handle.join().unwrap();
     }
-
-    println!("DONE");
 }
 
 fn attestation_builder(source: u64, target: u64) -> AttestationData {
