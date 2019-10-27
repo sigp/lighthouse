@@ -1,7 +1,32 @@
-use super::validator_historical_attestation::ValidatorHistoricalAttestation;
-use super::validator_historical_block::ValidatorHistoricalBlock;
+use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use types::*;
+use types::{AttestationDataAndCustodyBit, Epoch, Hash256};
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct ValidatorHistoricalAttestation {
+    pub source_epoch: Epoch,
+    pub target_epoch: Epoch,
+    pub signing_root: Hash256,
+}
+
+impl ValidatorHistoricalAttestation {
+    pub fn new(source_epoch: u64, target_epoch: u64, signing_root: Hash256) -> Self {
+        Self {
+            source_epoch: Epoch::from(source_epoch),
+            target_epoch: Epoch::from(target_epoch),
+            signing_root,
+        }
+    }
+
+    pub fn from(attestation: &AttestationDataAndCustodyBit) -> Self {
+        Self {
+            source_epoch: attestation.data.source.epoch,
+            target_epoch: attestation.data.target.epoch,
+            signing_root: Hash256::from_slice(&attestation.tree_hash_root()),
+        }
+    }
+}
 
 #[derive(PartialEq, Debug)]
 pub enum PruningError {
@@ -122,25 +147,3 @@ pub fn should_sign_attestation(
     Ok(target_index + 1)
 }
 
-pub fn should_sign_block(
-    block_header: &BeaconBlockHeader,
-    block_history: &[ValidatorHistoricalBlock],
-) -> Result<usize, &'static str> {
-    let index = block_history
-        .iter()
-        .rev()
-        .position(|historical_block| historical_block.slot >= block_header.slot);
-    let index = match index {
-        None => return Err("no pos found"), // check for pruning error?
-        Some(num) => block_history.len() - 1 - num,
-    };
-    if block_history[index].slot == block_header.slot {
-        if block_history[index].signing_root == block_header.canonical_root() {
-            Ok(index + 1)
-        } else {
-            Err("Double vote")
-        }
-    } else {
-        Err("small than some historical block")
-    }
-}

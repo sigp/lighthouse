@@ -2,10 +2,8 @@ extern crate fs2;
 
 use fs2::FileExt;
 use parking_lot::Mutex;
-use slashing_protection::logic::should_sign_attestation;
-use slashing_protection::logic::should_sign_block;
-use slashing_protection::validator_historical_attestation::ValidatorHistoricalAttestation;
-use slashing_protection::validator_historical_block::ValidatorHistoricalBlock;
+use slashing_protection::attester_slashings::{should_sign_attestation, ValidatorHistoricalAttestation};
+use slashing_protection::proposer_slashings::{should_sign_block, ValidatorHistoricalBlock};
 use ssz::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fs::File;

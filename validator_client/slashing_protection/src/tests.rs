@@ -1,13 +1,8 @@
 
 #[cfg(test)]
 mod test {
-    use crate::logic::should_sign_attestation;
-    use crate::logic::AttestationError;
-    use crate::logic::PruningError;
-    use crate::validator_historical_attestation::ValidatorHistoricalAttestation;
-    // use crate::logic::should_sign_block;
-    // use crate::validator_historical_block::ValidatorHistoricalBlock;
-    use types::*;
+    use crate::attester_slashings::*;
+    use types::{Checkpoint, Epoch, AttestationData, Hash256, Crosslink};
     use tree_hash::TreeHash;
 
     fn build_checkpoint(epoch_num: u64) -> Checkpoint {
