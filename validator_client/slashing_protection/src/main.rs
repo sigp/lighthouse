@@ -1,6 +1,7 @@
 extern crate fs2;
 
 use fs2::FileExt;
+use parking_lot::Mutex;
 use slashing_protection::logic::should_sign_attestation;
 use slashing_protection::logic::should_sign_block;
 use slashing_protection::validator_historical_attestation::ValidatorHistoricalAttestation;
@@ -12,7 +13,6 @@ use std::io::Read;
 use std::io::Result as IOResult;
 use std::io::Write;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use std::thread;
 use std::time;
 use types::*;
@@ -21,19 +21,31 @@ const BLOCK_HISTORY_FILE: &str = "block.file";
 const ATTESTATION_HISTORY_FILE: &str = "attestation.file";
 
 trait MyTrait<U, T> {
-	fn signing_func(&self, challenger: &U, history: &[T]) -> Result<usize, &'static str>;
+    fn signing_func(&self, challenger: &U, history: &[T]) -> Result<usize, &'static str>;
 }
 
-impl MyTrait<AttestationData, ValidatorHistoricalAttestation> for HistoryInfo<ValidatorHistoricalAttestation> {
-	fn signing_func(&self, challenger: &AttestationData, history: &[ValidatorHistoricalAttestation]) -> Result<usize, &'static str> {
-		should_sign_attestation(challenger, history).map_err(|_| "invalid attestation")
-	}
+impl MyTrait<AttestationData, ValidatorHistoricalAttestation>
+    for HistoryInfo<ValidatorHistoricalAttestation>
+{
+    fn signing_func(
+        &self,
+        challenger: &AttestationData,
+        history: &[ValidatorHistoricalAttestation],
+    ) -> Result<usize, &'static str> {
+        should_sign_attestation(challenger, history).map_err(|_| "invalid attestation")
+    }
 }
 
-impl MyTrait<BeaconBlockHeader, ValidatorHistoricalBlock> for HistoryInfo<ValidatorHistoricalBlock> {
-	fn signing_func(&self, challenger: &BeaconBlockHeader, history: &[ValidatorHistoricalBlock]) -> Result<usize, &'static str> {
-		should_sign_block(challenger, history)
-	}
+impl MyTrait<BeaconBlockHeader, ValidatorHistoricalBlock>
+    for HistoryInfo<ValidatorHistoricalBlock>
+{
+    fn signing_func(
+        &self,
+        challenger: &BeaconBlockHeader,
+        history: &[ValidatorHistoricalBlock],
+    ) -> Result<usize, &'static str> {
+        should_sign_block(challenger, history)
+    }
 }
 
 #[derive(Debug)]
@@ -55,11 +67,11 @@ impl<T: Encode + Decode + Clone> HistoryInfo<T> {
         Ok(())
     }
 
-	fn should_sign<U> (&self, challenger: &U) -> Result<usize, &'static str> {
-		let guard = self.mutex.lock();
-		let history = &guard[..];
-		self.signing_func(challenger, history)
-	}
+    fn should_sign<U>(&self, challenger: &U) -> Result<usize, &'static str> {
+        let guard = self.mutex.lock();
+        let history = &guard[..];
+        self.signing_func(challenger, history)
+    }
 }
 
 impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {

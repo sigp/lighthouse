@@ -129,7 +129,7 @@ pub fn should_sign_block(
     let index = block_history
         .iter()
         .rev()
-        .position(|historical_block| historical_block.slot >= block_header.slot); // no unwrap pls
+        .position(|historical_block| historical_block.slot >= block_header.slot);
     let index = match index {
         None => return Err("no pos found"), // check for pruning error?
         Some(num) => block_history.len() - 1 - num,
@@ -137,12 +137,10 @@ pub fn should_sign_block(
     if block_history[index].slot == block_header.slot {
         if block_history[index].signing_root == block_header.canonical_root() {
             Ok(index)
-        }
-        else {
+        } else {
             Err("Double vote")
         }
-    }
-    else {
+    } else {
         Err("small than some historical block")
     }
 }
