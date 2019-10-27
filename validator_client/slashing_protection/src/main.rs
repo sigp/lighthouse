@@ -11,7 +11,8 @@ use std::fs::File;
 use std::io::Read;
 use std::io::Result as IOResult;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::thread;
 use std::time;
 use types::*;
@@ -25,7 +26,7 @@ trait ShouldSign<U> {
 
 impl ShouldSign<AttestationData> for HistoryInfo<ValidatorHistoricalAttestation> {
 	fn should_sign (&self, challenger: &AttestationData) -> Result<usize, &'static str> {
-		let guard = self.mutex.lock().unwrap();
+		let guard = self.mutex.lock();
 		let history = &guard[..];
 		should_sign_attestation(challenger, history).map_err(|_| "invalid attestation")
 	}
@@ -33,7 +34,7 @@ impl ShouldSign<AttestationData> for HistoryInfo<ValidatorHistoricalAttestation>
 
 impl ShouldSign<BeaconBlockHeader> for HistoryInfo<ValidatorHistoricalBlock> {
 	fn should_sign (&self, challenger: &BeaconBlockHeader) -> Result<usize, &'static str> {
-		let guard = self.mutex.lock().unwrap();
+		let guard = self.mutex.lock();
 		let history = &guard[..];
 		should_sign_block(challenger, history)
 	}
@@ -70,7 +71,7 @@ impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {
 
 impl<T: Encode + Decode + Clone> HistoryInfo<T> {
     pub fn update_and_write(&mut self) -> IOResult<()> {
-        let history = self.mutex.lock().unwrap();
+        let history = self.mutex.lock();
         // insert
         let mut file = File::create(self.filename.as_str()).unwrap();
         file.lock_exclusive()?;
