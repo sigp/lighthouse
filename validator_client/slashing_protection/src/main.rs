@@ -66,7 +66,11 @@ impl<T: Encode + Decode + Clone> HistoryInfo<T> {
 
         Ok(())
     }
-	fn should_sign<U>(&self, challenger: &U) -> Result<usize, &'static str> where Self: MyTrait<U, T> {
+
+    fn should_sign<U>(&self, challenger: &U) -> Result<usize, &'static str>
+    where
+        Self: MyTrait<U, T>,
+    {
         let guard = self.mutex.lock();
         let history = &guard[..];
         self.signing_func(challenger, history)
