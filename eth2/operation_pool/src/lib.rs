@@ -598,7 +598,7 @@ mod tests {
 
         let mut state = BeaconState::random_for_test(rng);
 
-        state.fork = Fork::genesis(MainnetEthSpec::genesis_epoch());
+        state.fork = Fork::default();
 
         (spec, state)
     }

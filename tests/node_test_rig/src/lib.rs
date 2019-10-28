@@ -2,9 +2,10 @@ mod remote_node;
 
 use beacon_node::{
     beacon_chain::{builder::BeaconChainStartMethod, BeaconChainTypes},
-    Client, ClientConfig, ProductionBeaconNode, ProductionClient,
+    Client, ClientConfig, ClientGenesis, ProductionBeaconNode, ProductionClient,
 };
 use environment::RuntimeContext;
+use futures::Future;
 use genesis::interop_genesis_state;
 use tempdir::TempDir;
 use types::{test_utils::generate_deterministic_keypairs, EthSpec};
@@ -22,14 +23,8 @@ impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
         let (client_config, datadir) = testing_client_config();
         let eth2_config = context.eth2_config().clone();
 
-        let state = interop_genesis_state(
-            &generate_deterministic_keypairs(8),
-            0,
-            &context.eth2_config().spec,
-        )
-        .expect("should build interop state");
-
-        let client = ProductionBeaconNode::from_genesis(context, state, client_config, eth2_config)
+        let client = ProductionBeaconNode::new(context, client_config, eth2_config)
+            .wait()
             .expect("should build production client")
             .into_inner();
 
@@ -56,17 +51,17 @@ fn testing_client_config() -> (ClientConfig, TempDir) {
 
     client_config.data_dir = tempdir.path().into();
 
-    client_config.beacon_chain_start_method = BeaconChainStartMethod::Generated {
-        validator_count: 8,
-        genesis_time: 13371377,
-    };
-
     // Setting ports to `0` means that the OS will choose some available port.
     client_config.network.libp2p_port = 0;
     client_config.network.discovery_port = 0;
     client_config.rpc.port = 0;
     client_config.rest_api.port = 0;
     client_config.websocket_server.port = 0;
+
+    client_config.genesis = ClientGenesis::Interop {
+        validator_count: 8,
+        genesis_time: 13371337,
+    };
 
     (client_config, tempdir)
 }

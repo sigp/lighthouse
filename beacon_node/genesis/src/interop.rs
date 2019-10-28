@@ -1,4 +1,4 @@
-use crate::genesis_deposits;
+use crate::common::genesis_deposits;
 use eth2_hashing::hash;
 use rayon::prelude::*;
 use ssz::Encode;

@@ -37,3 +37,5 @@ reqwest = "0.9"
 url = "1.2"
 lmd_ghost = { path = "../../eth2/lmd_ghost" }
 eth1 = { path = "../eth1" }
+genesis = { path = "../genesis" }
+environment = { path = "../../lighthouse/environment" }

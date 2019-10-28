@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 pub use beacon_chain::{builder::BeaconChainStartMethod, BeaconChainTypes, Eth1ChainBackend};
 pub use builder::ClientBuilder;
-pub use config::Config as ClientConfig;
+pub use config::{ClientGenesis, Config as ClientConfig};
 pub use eth2_config::Eth2Config;
 
 /// The core "beacon node" client.

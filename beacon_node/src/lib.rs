@@ -6,7 +6,7 @@ mod config;
 
 pub use beacon_chain;
 pub use cli::cli_app;
-pub use client::{Client, ClientBuilder, ClientConfig};
+pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::{
@@ -17,14 +17,9 @@ use clap::ArgMatches;
 use config::get_configs;
 use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
-use genesis::{Eth1Config, Eth1GenesisService};
 use std::ops::{Deref, DerefMut};
-use std::path::PathBuf;
-use std::time::Duration;
 use store::DiskStore;
-use types::{BeaconState, EthSpec};
-
-const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 500;
+use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> = Client<
@@ -63,79 +58,59 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         // FIXME: the eth2 config in the env is being completely ignored.
         get_configs(&matches, log).into_future().and_then(
             move |(client_config, eth2_config, _log)| {
-                Self::with_eth1_connection(context, client_config, eth2_config)
+                Self::new(context, client_config, eth2_config)
             },
         )
-    }
-
-    pub fn with_eth1_connection<'a>(
-        context: RuntimeContext<E>,
-        client_config: ClientConfig,
-        eth2_config: Eth2Config,
-    ) -> impl Future<Item = Self, Error = String> + 'a {
-        let genesis_context = context.service_context("eth1_genesis");
-
-        let genesis_service = Eth1GenesisService::new(
-            Eth1Config {
-                block_cache_truncation: None,
-                ..client_config.eth1.clone()
-            },
-            genesis_context.log,
-        );
-
-        genesis_service
-            .wait_for_genesis_state(
-                Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
-                eth2_config.spec.clone(),
-            )
-            .map_err(|e| format!("Unable to start beacon chain from eth1 node: {}", e))
-            .and_then(move |genesis_state| {
-                Self::from_genesis(context, genesis_state, client_config, eth2_config)
-            })
     }
 
     /// Starts a new beacon node `Client` in the given `environment`.
     ///
     /// Client behaviour is defined by the given `client_config`.
-    pub fn from_genesis(
+    pub fn new(
         context: RuntimeContext<E>,
-        genesis_state: BeaconState<E>,
         client_config: ClientConfig,
         eth2_config: Eth2Config,
-    ) -> Result<Self, String> {
-        let db_path: PathBuf = client_config
+    ) -> impl Future<Item = Self, Error = String> {
+        let http_eth2_config = eth2_config.clone();
+        let genesis_eth1_config = client_config.eth1.clone();
+        let client_genesis = client_config.genesis.clone();
+
+        client_config
             .db_path()
-            .ok_or_else(|| "Unable to access database path".to_string())?;
+            .ok_or_else(|| "Unable to access database path".to_string())
+            .into_future()
+            .and_then(move |db_path| {
+                Ok(ClientBuilder::new(context.eth_spec_instance.clone())
+                    .runtime_context(context)
+                    .disk_store(&db_path)?
+                    .chain_spec(eth2_config.spec.clone()))
+            })
+            .and_then(move |builder| builder.beacon_genesis(client_genesis, genesis_eth1_config))
+            .and_then(move |builder| {
+                let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend
+                {
+                    builder.json_rpc_eth1_backend(
+                        client_config.eth1.clone(),
+                        client_config.dummy_eth1_backend,
+                    )?
+                } else if client_config.dummy_eth1_backend {
+                    builder.dummy_eth1_backend()?
+                } else {
+                    builder.no_eth1_backend()?
+                };
 
-        let builder = ClientBuilder::new(context.eth_spec_instance)
-            .logger(context.log)
-            .disk_store(&db_path)?
-            .executor(context.executor)
-            .chain_spec(eth2_config.spec.clone())
-            .beacon_genesis(genesis_state)?
-            .system_time_slot_clock()?;
+                let builder = builder
+                    .system_time_slot_clock()?
+                    .websocket_event_handler(client_config.websocket_server.clone())?
+                    .beacon_chain()?
+                    .libp2p_network(&client_config.network)?
+                    .http_server(&client_config, &http_eth2_config)?
+                    .grpc_server(&client_config.rpc)?
+                    .peer_count_notifier()?
+                    .slot_notifier()?;
 
-        let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend {
-            builder.json_rpc_eth1_backend(
-                client_config.eth1.clone(),
-                client_config.dummy_eth1_backend,
-            )?
-        } else if client_config.dummy_eth1_backend {
-            builder.dummy_eth1_backend()?
-        } else {
-            builder.no_eth1_backend()?
-        };
-
-        let builder = builder
-            .websocket_event_handler(client_config.websocket_server.clone())?
-            .beacon_chain()?
-            .libp2p_network(&client_config.network)?
-            .http_server(&client_config, &eth2_config)?
-            .grpc_server(&client_config.rpc)?
-            .peer_count_notifier()?
-            .slot_notifier()?;
-
-        Ok(Self(builder.build()))
+                Ok(Self(builder.build()))
+            })
     }
 
     pub fn into_inner(self) -> ProductionClient<E> {

@@ -10,6 +10,29 @@ use std::sync::Mutex;
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 
+/// Defines how the client should find the genesis `BeaconState`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ClientGenesis {
+    Interop {
+        validator_count: usize,
+        genesis_time: u64,
+    },
+    DepositContract,
+    SszFile {
+        path: PathBuf,
+    },
+    RemoteNode {
+        server: String,
+        port: Option<u16>,
+    },
+}
+
+impl Default for ClientGenesis {
+    fn default() -> Self {
+        Self::DepositContract
+    }
+}
+
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -18,8 +41,13 @@ pub struct Config {
     db_name: String,
     pub log_file: PathBuf,
     pub spec_constants: String,
+    /// If true, the node will use co-ordinated junk for eth1 values.
+    ///
+    /// This is the method used for the 2019 client interop in Canada.
     pub dummy_eth1_backend: bool,
     pub sync_eth1_chain: bool,
+    #[serde(skip)]
+    pub genesis: ClientGenesis,
     /// Defines how we should initialize a BeaconChain instances.
     ///
     /// This field is not serialized, there for it will not be written to (or loaded from) config
@@ -40,6 +68,7 @@ impl Default for Config {
             log_file: PathBuf::from(""),
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
+            genesis: <_>::default(),
             network: NetworkConfig::new(),
             rpc: <_>::default(),
             rest_api: <_>::default(),
