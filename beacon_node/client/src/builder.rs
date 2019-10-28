@@ -12,7 +12,7 @@ use environment::RuntimeContext;
 use eth1::Config as Eth1Config;
 use eth2_config::Eth2Config;
 use exit_future::Signal;
-use futures::{Future, IntoFuture, Stream};
+use futures::{future, Future, IntoFuture, Stream};
 use genesis::{
     generate_deterministic_keypairs, interop_genesis_state, state_from_ssz_file, Eth1GenesisService,
 };
@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::timer::Interval;
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
 /// The interval between notifier events.
@@ -92,121 +92,93 @@ where
         self
     }
 
-    pub fn beacon_genesis(
+    pub fn beacon_chain_builder(
         mut self,
         client_genesis: ClientGenesis,
         config: Eth1Config,
     ) -> impl Future<Item = Self, Error = String> {
+        let store = self.store.clone();
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
+        let eth_spec_instance = self.eth_spec_instance.clone();
 
-        chain_spec
-            .ok_or_else(|| "genesis requires a chain spec".to_string())
-            .and_then(|spec| {
-                runtime_context
-                    .ok_or_else(|| "genesis requires a runtime context".to_string())
-                    .map(|runtime_context| (runtime_context, spec))
+        future::ok(())
+            .and_then(move |()| {
+                let store = store
+                    .ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
+                let context = runtime_context
+                    .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
+                    .service_context("beacon");
+                let spec = chain_spec
+                    .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
+
+                let builder = BeaconChainBuilder::new(eth_spec_instance)
+                    .logger(context.log.clone())
+                    .store(store.clone())
+                    .custom_spec(spec.clone());
+
+                Ok((builder, spec, context))
             })
-            .into_future()
-            .and_then(|(runtime_context, spec)| {
-                let genesis_state_future: Box<
-                    dyn Future<Item = BeaconState<TEthSpec>, Error = String> + Send,
-                > = match client_genesis {
-                    ClientGenesis::Interop {
-                        validator_count,
-                        genesis_time,
-                    } => {
-                        let keypairs = generate_deterministic_keypairs(validator_count);
-                        let result = interop_genesis_state(&keypairs, genesis_time, &spec);
+            .and_then(|(builder, spec, context)| {
+                let genesis_state_future: Box<dyn Future<Item = _, Error = _> + Send> =
+                    match client_genesis {
+                        ClientGenesis::Interop {
+                            validator_count,
+                            genesis_time,
+                        } => {
+                            let keypairs = generate_deterministic_keypairs(validator_count);
+                            let result = interop_genesis_state(&keypairs, genesis_time, &spec);
 
-                        Box::new(result.into_future())
-                    }
-                    ClientGenesis::SszFile { path } => {
-                        let result = state_from_ssz_file(path);
+                            let future = result
+                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
+                                .into_future();
 
-                        Box::new(result.into_future())
-                    }
-                    ClientGenesis::DepositContract => {
-                        let genesis_service = Eth1GenesisService::new(
-                            Eth1Config {
-                                block_cache_truncation: None,
-                                ..config
-                            },
-                            runtime_context.log.clone(),
-                        );
+                            Box::new(future)
+                        }
+                        ClientGenesis::SszFile { path } => {
+                            let result = state_from_ssz_file(path);
 
-                        let future = genesis_service.wait_for_genesis_state(
-                            Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
-                            runtime_context.eth2_config().spec.clone(),
-                        );
+                            let future = result
+                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
+                                .into_future();
 
-                        Box::new(future)
-                    }
-                    ClientGenesis::RemoteNode { server, port } => {
-                        // FIXME
-                        unimplemented!()
-                    }
-                };
+                            Box::new(future)
+                        }
+                        ClientGenesis::DepositContract => {
+                            let genesis_service = Eth1GenesisService::new(
+                                Eth1Config {
+                                    block_cache_truncation: None,
+                                    ..config
+                                },
+                                context.log.clone(),
+                            );
+
+                            let future = genesis_service
+                                .wait_for_genesis_state(
+                                    Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
+                                    context.eth2_config().spec.clone(),
+                                )
+                                .and_then(move |genesis_state| {
+                                    builder.genesis_state(genesis_state)
+                                });
+
+                            Box::new(future)
+                        }
+                        ClientGenesis::RemoteNode { server, port } => unimplemented!(),
+                        ClientGenesis::Resume => {
+                            let future = builder.resume_from_db().into_future();
+
+                            Box::new(future)
+                        }
+                    };
 
                 genesis_state_future
             })
-            .and_then(move |genesis_state| {
-                let store = self
-                    .store
-                    .clone()
-                    .ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
-                let log = self
-                    .runtime_context
-                    .as_ref()
-                    .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
-                    .service_context("beacon")
-                    .log;
-                let spec = self
-                    .chain_spec
-                    .clone()
-                    .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
-
-                let builder = BeaconChainBuilder::new(self.eth_spec_instance.clone())
-                    .logger(log.clone())
-                    .store(store.clone())
-                    .custom_spec(spec)
-                    .genesis_state(genesis_state)
-                    .map_err(|e| format!("Failed to initialize beacon chain state: {}", e))?;
-
-                self.beacon_chain_builder = Some(builder);
-
-                Ok(self)
+            .map(move |beacon_chain_builder| {
+                self.beacon_chain_builder = Some(beacon_chain_builder);
+                self
             })
     }
-
-    /*
-    pub fn beacon_genesis(mut self, genesis_state: BeaconState<TEthSpec>) -> Result<Self, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
-        let log = self
-            .log
-            .as_ref()
-            .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
-            .new(o!("service" => "beacon"));
-        let spec = self
-            .chain_spec
-            .clone()
-            .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
-
-        let builder = BeaconChainBuilder::new(self.eth_spec_instance.clone())
-            .logger(log.clone())
-            .store(store.clone())
-            .custom_spec(spec)
-            .genesis_state(genesis_state)
-            .map_err(|e| format!("Failed to initialize beacon chain state: {}", e))?;
-
-        self.beacon_chain_builder = Some(builder);
-
-        Ok(self)
-    }
-    */
 
     pub fn libp2p_network(mut self, config: &NetworkConfig) -> Result<Self, String> {
         let beacon_chain = self
@@ -433,10 +405,10 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
-    pub fn beacon_chain(mut self) -> Result<Self, String> {
+    pub fn build_beacon_chain(mut self) -> Result<Self, String> {
         let chain = self
             .beacon_chain_builder
-            .ok_or_else(|| "beacon_chain requires a beacon checkpoint")?
+            .ok_or_else(|| "beacon_chain requires a beacon_chain_builder")?
             .event_handler(
                 self.event_handler
                     .ok_or_else(|| "beacon_chain requires an event handler")?,
@@ -446,10 +418,7 @@ where
                     .clone()
                     .ok_or_else(|| "beacon_chain requires a slot clock")?,
             )
-            .eth1_backend(
-                self.eth1_backend
-                    .ok_or_else(|| "beacon_chain requires an eth1 backend")?,
-            )
+            .eth1_backend(self.eth1_backend)
             .empty_reduced_tree_fork_choice()
             .map_err(|e| format!("Failed to init fork choice: {}", e))?
             .build()
@@ -572,7 +541,7 @@ where
             .service_context("eth1_rpc");
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "json_rpc_eth1_backend requires a beacon checkpoint")?;
+            .ok_or_else(|| "json_rpc_eth1_backend requires a beacon_chain_builder")?;
 
         let mut backend = JsonRpcEth1Backend::new(config, context.log);
 
@@ -600,7 +569,7 @@ where
     pub fn no_eth1_backend(mut self) -> Result<Self, String> {
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "json_rpc_eth1_backend requires a beacon checkpoint")?;
+            .ok_or_else(|| "json_rpc_eth1_backend requires a beacon_chain_builder")?;
 
         let beacon_chain_builder = beacon_chain_builder.no_eth1_backend();
 
@@ -638,7 +607,7 @@ where
         let beacon_chain_builder = self
             .beacon_chain_builder
             .as_ref()
-            .ok_or_else(|| "system_time_slot_clock requires a beacon checkpoint")?;
+            .ok_or_else(|| "system_time_slot_clock requires a beacon_chain_builder")?;
 
         let genesis_time = beacon_chain_builder
             .finalized_checkpoint

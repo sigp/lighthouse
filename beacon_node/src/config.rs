@@ -1,6 +1,7 @@
 use clap::ArgMatches;
-use client::{BeaconChainStartMethod, ClientConfig, Eth2Config};
+use client::{ClientConfig, ClientGenesis, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
+use genesis::recent_genesis_time;
 use lighthouse_bootstrap::Bootstrapper;
 use rand::{distributions::Alphanumeric, Rng};
 use slog::{crit, info, warn, Logger};
@@ -67,7 +68,7 @@ pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
 
             // If no primary subcommand was given, start the beacon chain from an existing
             // database.
-            builder.set_beacon_chain_start_method(BeaconChainStartMethod::Resume);
+            builder.set_genesis(ClientGenesis::Resume);
 
             // Whilst there is no large testnet or mainnet force the user to specify how they want
             // to start a new chain (e.g., from a genesis YAML file, another node, etc).
@@ -164,7 +165,7 @@ fn process_testnet_subcommand(
             builder.import_bootstrap_enr_address(server)?;
             builder.import_bootstrap_eth2_config(server)?;
 
-            builder.set_beacon_chain_start_method(BeaconChainStartMethod::HttpBootstrap {
+            builder.set_genesis(ClientGenesis::RemoteNode {
                 server: server.to_string(),
                 port,
             })
@@ -182,9 +183,9 @@ fn process_testnet_subcommand(
                 .parse::<u64>()
                 .map_err(|e| format!("Unable to parse minutes: {:?}", e))?;
 
-            builder.set_beacon_chain_start_method(BeaconChainStartMethod::RecentGenesis {
+            builder.set_genesis(ClientGenesis::Interop {
                 validator_count,
-                minutes,
+                genesis_time: recent_genesis_time(minutes),
             })
         }
         ("quick", Some(cli_args)) => {
@@ -200,13 +201,13 @@ fn process_testnet_subcommand(
                 .parse::<u64>()
                 .map_err(|e| format!("Unable to parse genesis time: {:?}", e))?;
 
-            builder.set_beacon_chain_start_method(BeaconChainStartMethod::Generated {
+            builder.set_genesis(ClientGenesis::Interop {
                 validator_count,
                 genesis_time,
             })
         }
         ("file", Some(cli_args)) => {
-            let file = cli_args
+            let path = cli_args
                 .value_of("file")
                 .ok_or_else(|| "No filename specified")?
                 .parse::<PathBuf>()
@@ -217,11 +218,11 @@ fn process_testnet_subcommand(
                 .ok_or_else(|| "No file format specified")?;
 
             let start_method = match format {
-                "ssz" => BeaconChainStartMethod::Ssz { file },
+                "ssz" => ClientGenesis::SszFile { path },
                 other => return Err(format!("Unknown genesis file format: {}", other)),
             };
 
-            builder.set_beacon_chain_start_method(start_method)
+            builder.set_genesis(start_method)
         }
         (cmd, Some(_)) => {
             return Err(format!(
@@ -330,9 +331,8 @@ impl ConfigBuilder {
         self.client_config.eth1.follow_distance = distance;
     }
 
-    /// Sets the method for starting the beacon chain.
-    pub fn set_beacon_chain_start_method(&mut self, method: BeaconChainStartMethod) {
-        self.client_config.beacon_chain_start_method = method;
+    pub fn set_genesis(&mut self, method: ClientGenesis) {
+        self.client_config.genesis = method;
     }
 
     pub fn set_goerli_params(&mut self) {

@@ -1,9 +1,10 @@
 use crate::{
-    builder::{BeaconChainBuilder, BeaconChainStartMethod, Witness},
+    builder::{BeaconChainBuilder, Witness},
     eth1_chain::JsonRpcEth1Backend,
     events::NullEventHandler,
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
+use genesis::interop_genesis_state;
 use lmd_ghost::ThreadSafeReducedTree;
 use rayon::prelude::*;
 use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
@@ -71,6 +72,8 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
+        let spec = E::default_spec();
+
         let log = TerminalLoggerBuilder::new()
             .level(Severity::Warning)
             .build()
@@ -78,11 +81,12 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
+            .custom_spec(spec.clone())
             .store(Arc::new(MemoryStore::open()))
-            .initialize_state(&BeaconChainStartMethod::Keypairs {
-                keypairs: keypairs.clone(),
-                genesis_time: HARNESS_GENESIS_TIME,
-            })
+            .genesis_state(
+                interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec)
+                    .expect("should generate interop state"),
+            )
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
             .expect("should build dummy backend")

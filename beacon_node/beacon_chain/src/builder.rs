@@ -6,72 +6,16 @@ use crate::{
     ForkChoice,
 };
 use eth1::Config as Eth1Config;
-use eth2_hashing::hash;
-use lighthouse_bootstrap::Bootstrapper;
 use lmd_ghost::{LmdGhost, ThreadSafeReducedTree};
-use merkle_proof::MerkleTree;
 use operation_pool::OperationPool;
 use parking_lot::RwLock;
-use rayon::prelude::*;
-use slog::{crit, info, Logger};
+use slog::{info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
-use ssz::{Decode, Encode};
-use state_processing::initialize_beacon_state_from_eth1;
-use std::fs::File;
-use std::io::prelude::*;
 use std::marker::PhantomData;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use store::Store;
-use tree_hash::{SignedRoot, TreeHash};
-use types::{
-    test_utils::generate_deterministic_keypairs, BeaconBlock, BeaconState, ChainSpec, Deposit,
-    DepositData, Domain, EthSpec, Fork, Hash256, Keypair, PublicKey, Signature, Slot,
-};
-
-/// Defines how the client should initialize a BeaconChain.
-///
-/// In general, there are two methods:
-///  - resuming a new chain, or
-///  - initializing a new one.
-#[derive(Debug, Clone)]
-pub enum BeaconChainStartMethod {
-    /// Resume from an existing BeaconChain, loaded from the existing local database.
-    Resume,
-    /// Resume from an existing BeaconChain, loaded from the existing local database.
-    Mainnet,
-    /// Create a new beacon chain that can connect to mainnet.
-    ///
-    /// Set the genesis time to be the start of the previous 30-minute window.
-    RecentGenesis {
-        validator_count: usize,
-        minutes: u64,
-    },
-    /// Create a new beacon chain with `genesis_time` and `validator_count` validators, all with well-known
-    /// secret keys.
-    Generated {
-        validator_count: usize,
-        genesis_time: u64,
-    },
-    /// Create a new beacon chain with `genesis_time` and initial deposits generated from `keypairs`.
-    Keypairs {
-        keypairs: Vec<Keypair>,
-        genesis_time: u64,
-    },
-    /// Create a new beacon chain by loading a SSZ-encoded genesis state from a file.
-    Ssz { file: PathBuf },
-    /// Create a new beacon chain by using a HTTP server (running our REST-API) to load genesis and
-    /// finalized states and blocks.
-    HttpBootstrap { server: String, port: Option<u16> },
-}
-
-impl Default for BeaconChainStartMethod {
-    /// Equivalent to `BeaconChainStartMethod::Resume`.
-    fn default() -> Self {
-        BeaconChainStartMethod::Resume
-    }
-}
+use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 /// Builds a `BeaconChain`, either creating anew from genesis or resuming from an existing chain
 /// persisted to `store`.
@@ -152,176 +96,60 @@ where
         self
     }
 
-    /// Initializes the `BeaconState` and `BeaconBlock` at either genesis, some finalized
-    /// checkpoint or from a previous `BeaconChain` persisted to the `Store`.
-    ///
-    /// Requires the store and logger to have been specified earlier in the build chain.
-    pub fn initialize_state(
-        mut self,
-        start_method: &BeaconChainStartMethod,
-    ) -> Result<Self, String> {
+    pub fn resume_from_db(mut self) -> Result<Self, String> {
         let log = self
             .log
-            .clone()
-            .ok_or_else(|| "initialize_state requires a logger".to_string())?;
+            .as_ref()
+            .ok_or_else(|| "resume_from_db requires a log".to_string())?;
+
+        info!(
+            log,
+            "Starting beacon chain";
+            "method" => "resume"
+        );
+
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "initialize_state requires a store".to_string())?;
+            .ok_or_else(|| "load_from_store requires a store.".to_string())?;
 
-        match start_method {
-            BeaconChainStartMethod::Resume => {
-                info!(
-                    log,
-                    "Starting beacon chain";
-                    "method" => "resume"
-                );
-
-                let store = self
-                    .store
-                    .clone()
-                    .ok_or_else(|| "load_from_store requires a store.".to_string())?;
-
-                let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
-                let p: PersistedBeaconChain<
-                    Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>,
-                > = match store.get(&key) {
-                    Err(e) => {
-                        return Err(format!(
-                            "DB error when reading persisted beacon chain: {:?}",
-                            e
-                        ))
-                    }
-                    Ok(None) => return Err("No persisted beacon chain found in store".into()),
-                    Ok(Some(p)) => p,
-                };
-
-                self.op_pool = Some(
-                    p.op_pool
-                        .into_operation_pool(&p.canonical_head.beacon_state, &self.spec),
-                );
-
-                self.finalized_checkpoint = Some(p.canonical_head);
-                self.genesis_block_root = Some(p.genesis_block_root);
-
-                Ok(self)
+        let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
+        let p: PersistedBeaconChain<
+            Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>,
+        > = match store.get(&key) {
+            Err(e) => {
+                return Err(format!(
+                    "DB error when reading persisted beacon chain: {:?}",
+                    e
+                ))
             }
-            BeaconChainStartMethod::Mainnet => {
-                crit!(log, "No mainnet beacon chain startup specification.");
-                return Err("Mainnet launch is not yet announced.".into());
-            }
-            BeaconChainStartMethod::RecentGenesis {
-                validator_count,
-                minutes,
-            } => {
-                info!(
-                    log,
-                    "Starting beacon chain";
-                    "validator_count" => validator_count,
-                    "minutes" => minutes,
-                    "method" => "recent"
-                );
+            Ok(None) => return Err("No persisted beacon chain found in store".into()),
+            Ok(Some(p)) => p,
+        };
 
-                let keypairs = generate_deterministic_keypairs(*validator_count);
-                let genesis_time = recent_genesis_time(*minutes);
-                let genesis_state = interop_genesis_state(&keypairs, genesis_time, &self.spec)?;
+        self.op_pool = Some(
+            p.op_pool
+                .into_operation_pool(&p.canonical_head.beacon_state, &self.spec),
+        );
 
-                self.genesis_state(genesis_state)
-            }
-            BeaconChainStartMethod::Generated {
-                validator_count,
-                genesis_time,
-            } => {
-                info!(
-                    log,
-                    "Starting beacon chain";
-                    "validator_count" => validator_count,
-                    "genesis_time" => genesis_time,
-                    "method" => "quick"
-                );
+        self.finalized_checkpoint = Some(p.canonical_head);
+        self.genesis_block_root = Some(p.genesis_block_root);
 
-                let keypairs = generate_deterministic_keypairs(*validator_count);
-                let genesis_state = interop_genesis_state(&keypairs, *genesis_time, &self.spec)?;
-
-                self.genesis_state(genesis_state)
-            }
-            BeaconChainStartMethod::Keypairs {
-                keypairs,
-                genesis_time,
-            } => {
-                info!(
-                    log,
-                    "Starting beacon chain";
-                    "validator_count" => keypairs.len(),
-                    "genesis_time" => genesis_time,
-                    "method" => "keypairs"
-                );
-
-                let genesis_state = interop_genesis_state(&keypairs, *genesis_time, &self.spec)?;
-
-                self.genesis_state(genesis_state)
-            }
-            BeaconChainStartMethod::Ssz { file } => {
-                info!(
-                    log,
-                    "Starting beacon chain";
-                    "file" => format!("{:?}", file),
-                    "method" => "ssz"
-                );
-
-                let mut file = File::open(file.clone()).map_err(|e| {
-                    format!("Unable to open SSZ genesis state file {:?}: {:?}", file, e)
-                })?;
-
-                let mut bytes = vec![];
-                file.read_to_end(&mut bytes)
-                    .map_err(|e| format!("Failed to read SSZ file: {:?}", e))?;
-
-                let genesis_state = BeaconState::from_ssz_bytes(&bytes)
-                    .map_err(|e| format!("Unable to parse SSZ genesis state file: {:?}", e))?;
-
-                self.genesis_state(genesis_state)
-            }
-            BeaconChainStartMethod::HttpBootstrap { server, port } => {
-                info!(
-                    log,
-                    "Starting beacon chain";
-                    "port" => port,
-                    "server" => server,
-                    "method" => "bootstrap"
-                );
-
-                let bootstrapper = Bootstrapper::connect(server.to_string(), &log)
-                    .map_err(|e| format!("Failed to initialize bootstrap client: {}", e))?;
-
-                let (genesis_state, genesis_block) = bootstrapper
-                    .genesis()
-                    .map_err(|e| format!("Failed to bootstrap genesis state: {}", e))?;
-
-                self.start_from_genesis(&store, genesis_state, genesis_block)
-            }
-        }
+        Ok(self)
     }
 
     /// Starts a new chain from genesis a genesis state.
-    pub fn genesis_state(self, beacon_state: BeaconState<TEthSpec>) -> Result<Self, String> {
+    pub fn genesis_state(
+        mut self,
+        mut beacon_state: BeaconState<TEthSpec>,
+    ) -> Result<Self, String> {
         let store = self
             .store
             .clone()
             .ok_or_else(|| "genesis_state requires a store")?;
 
-        let beacon_block = genesis_block(&beacon_state, &self.spec);
+        let mut beacon_block = genesis_block(&beacon_state, &self.spec);
 
-        self.start_from_genesis(&store, beacon_state, beacon_block)
-    }
-
-    /// Starts a new chain from genesis.
-    fn start_from_genesis(
-        mut self,
-        store: &TStore,
-        mut beacon_state: BeaconState<TEthSpec>,
-        mut beacon_block: BeaconBlock<TEthSpec>,
-    ) -> Result<Self, String> {
         beacon_state
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build genesis state caches: {:?}", e))?;
@@ -379,8 +207,8 @@ where
     /// Sets the `BeaconChain` eth1 back-end.
     ///
     /// For example, provide `InteropEth1ChainBackend` as a `backend`.
-    pub fn eth1_backend(mut self, backend: TEth1Backend) -> Self {
-        self.eth1_chain = Some(Eth1Chain::new(backend));
+    pub fn eth1_backend(mut self, backend: Option<TEth1Backend>) -> Self {
+        self.eth1_chain = backend.map(|b| Eth1Chain::new(b));
         self
     }
 
@@ -537,13 +365,12 @@ where
     ///
     /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
     pub fn json_rpc_eth1_backend(self, backend: JsonRpcEth1Backend<TEthSpec>) -> Self {
-        self.eth1_backend(backend)
+        self.eth1_backend(Some(backend))
     }
 
     /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
     pub fn no_eth1_backend(self) -> Self {
-        // Do nothing. This function only exists to make concrete the `TEth1ChainBackendTrait`.
-        self
+        self.eth1_backend(None)
     }
 
     /// Sets the `BeaconChain` eth1 back-end to produce predictably junk data when producing blocks.
@@ -556,7 +383,7 @@ where
         let mut backend = JsonRpcEth1Backend::new(Eth1Config::default(), log.clone());
         backend.use_dummy_backend = true;
 
-        Ok(self.eth1_backend(backend))
+        Ok(self.eth1_backend(Some(backend)))
     }
 }
 
@@ -653,119 +480,16 @@ fn genesis_block<T: EthSpec>(genesis_state: &BeaconState<T>, spec: &ChainSpec) -
     genesis_block
 }
 
-/// Builds a genesis state as defined by the Eth2 interop procedure (see below).
-///
-/// Reference:
-/// https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start
-fn interop_genesis_state<T: EthSpec>(
-    keypairs: &[Keypair],
-    genesis_time: u64,
-    spec: &ChainSpec,
-) -> Result<BeaconState<T>, String> {
-    let eth1_block_hash = Hash256::from_slice(&[0x42; 32]);
-    let eth1_timestamp = 2_u64.pow(40);
-    let amount = spec.max_effective_balance;
-
-    let withdrawal_credentials = |pubkey: &PublicKey| {
-        let mut credentials = hash(&pubkey.as_ssz_bytes());
-        credentials[0] = spec.bls_withdrawal_prefix_byte;
-        Hash256::from_slice(&credentials)
-    };
-
-    let datas = keypairs
-        .into_par_iter()
-        .map(|keypair| {
-            let mut data = DepositData {
-                withdrawal_credentials: withdrawal_credentials(&keypair.pk),
-                pubkey: keypair.pk.clone().into(),
-                amount,
-                signature: Signature::empty_signature().into(),
-            };
-
-            let domain = spec.get_domain(
-                spec.genesis_slot.epoch(T::slots_per_epoch()),
-                Domain::Deposit,
-                &Fork::default(),
-            );
-            data.signature = Signature::new(&data.signed_root()[..], domain, &keypair.sk).into();
-
-            data
-        })
-        .collect::<Vec<_>>();
-
-    let deposit_root_leaves = datas
-        .par_iter()
-        .map(|data| Hash256::from_slice(&data.tree_hash_root()))
-        .collect::<Vec<_>>();
-
-    let mut proofs = vec![];
-    for i in 1..=deposit_root_leaves.len() {
-        // Note: this implementation is not so efficient.
-        //
-        // If `MerkleTree` had a push method, we could just build one tree and sample it instead of
-        // rebuilding the tree for each deposit.
-        let tree = MerkleTree::create(
-            &deposit_root_leaves[0..i],
-            spec.deposit_contract_tree_depth as usize,
-        );
-
-        let (_, mut proof) = tree.generate_proof(i - 1, spec.deposit_contract_tree_depth as usize);
-        proof.push(Hash256::from_slice(&int_to_bytes32(i)));
-
-        assert_eq!(
-            proof.len(),
-            spec.deposit_contract_tree_depth as usize + 1,
-            "Deposit proof should be correct len"
-        );
-
-        proofs.push(proof);
-    }
-
-    let deposits = datas
-        .into_par_iter()
-        .zip(proofs.into_par_iter())
-        .map(|(data, proof)| (data, proof.into()))
-        .map(|(data, proof)| Deposit { proof, data })
-        .collect::<Vec<_>>();
-
-    let mut state =
-        initialize_beacon_state_from_eth1(eth1_block_hash, eth1_timestamp, deposits, spec)
-            .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
-
-    state.genesis_time = genesis_time;
-
-    // Invalid all the caches after all the manual state surgery.
-    state.drop_all_caches();
-
-    Ok(state)
-}
-
-/// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: usize) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
-}
-
-/// Returns the system time, mod 30 minutes.
-///
-/// Used for easily creating testnets.
-fn recent_genesis_time(minutes: u64) -> u64 {
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let secs_after_last_period = now.checked_rem(minutes * 60).unwrap_or(0);
-    now - secs_after_last_period
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
+    use eth2_hashing::hash;
+    use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use sloggers::{null::NullLoggerBuilder, Build};
+    use ssz::Encode;
     use std::time::Duration;
     use store::MemoryStore;
-    use types::{test_utils::generate_deterministic_keypairs, EthSpec, MinimalEthSpec, Slot};
+    use types::{EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
 
@@ -781,14 +505,19 @@ mod test {
 
         let log = get_logger();
         let store = Arc::new(MemoryStore::open());
+        let spec = MinimalEthSpec::default_spec();
+
+        let genesis_state = interop_genesis_state(
+            &generate_deterministic_keypairs(validator_count),
+            genesis_time,
+            &spec,
+        )
+        .expect("should create interop genesis state");
 
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(store.clone())
-            .initialize_state(&BeaconChainStartMethod::Generated {
-                validator_count,
-                genesis_time,
-            })
+            .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
             .expect("should build the dummy eth1 backend")

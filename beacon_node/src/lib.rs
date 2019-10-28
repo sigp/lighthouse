@@ -85,7 +85,9 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                     .disk_store(&db_path)?
                     .chain_spec(eth2_config.spec.clone()))
             })
-            .and_then(move |builder| builder.beacon_genesis(client_genesis, genesis_eth1_config))
+            .and_then(move |builder| {
+                builder.beacon_chain_builder(client_genesis, genesis_eth1_config)
+            })
             .and_then(move |builder| {
                 let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend
                 {
@@ -102,7 +104,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 let builder = builder
                     .system_time_slot_clock()?
                     .websocket_event_handler(client_config.websocket_server.clone())?
-                    .beacon_chain()?
+                    .build_beacon_chain()?
                     .libp2p_network(&client_config.network)?
                     .http_server(&client_config, &http_eth2_config)?
                     .grpc_server(&client_config.rpc)?

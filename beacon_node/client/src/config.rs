@@ -1,4 +1,3 @@
-use beacon_chain::builder::BeaconChainStartMethod;
 use clap::ArgMatches;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
@@ -13,6 +12,7 @@ const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 /// Defines how the client should find the genesis `BeaconState`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientGenesis {
+    Resume,
     Interop {
         validator_count: usize,
         genesis_time: u64,
@@ -48,12 +48,6 @@ pub struct Config {
     pub sync_eth1_chain: bool,
     #[serde(skip)]
     pub genesis: ClientGenesis,
-    /// Defines how we should initialize a BeaconChain instances.
-    ///
-    /// This field is not serialized, there for it will not be written to (or loaded from) config
-    /// files. It can only be configured via the CLI.
-    #[serde(skip)]
-    pub beacon_chain_start_method: BeaconChainStartMethod,
     pub network: network::NetworkConfig,
     pub rpc: rpc::Config,
     pub rest_api: rest_api::Config,
@@ -74,7 +68,6 @@ impl Default for Config {
             rest_api: <_>::default(),
             websocket_server: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
-            beacon_chain_start_method: <_>::default(),
             dummy_eth1_backend: false,
             sync_eth1_chain: false,
             eth1: <_>::default(),
