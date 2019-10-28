@@ -16,6 +16,7 @@ use futures::{future, Future, IntoFuture, Stream};
 use genesis::{
     generate_deterministic_keypairs, interop_genesis_state, state_from_ssz_file, Eth1GenesisService,
 };
+use lighthouse_bootstrap::Bootstrapper;
 use lmd_ghost::LmdGhost;
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
 use rpc::Config as RpcConfig;
@@ -164,7 +165,23 @@ where
 
                             Box::new(future)
                         }
-                        ClientGenesis::RemoteNode { server, port } => unimplemented!(),
+                        ClientGenesis::RemoteNode { server, port: _ } => {
+                            let future = Bootstrapper::connect(server.to_string(), &context.log)
+                                .map_err(|e| {
+                                    format!("Failed to initialize bootstrap client: {}", e)
+                                })
+                                .into_future()
+                                .and_then(|bootstrapper| {
+                                    let (genesis_state, _genesis_block) =
+                                        bootstrapper.genesis().map_err(|e| {
+                                            format!("Failed to bootstrap genesis state: {}", e)
+                                        })?;
+
+                                    builder.genesis_state(genesis_state)
+                                });
+
+                            Box::new(future)
+                        }
                         ClientGenesis::Resume => {
                             let future = builder.resume_from_db().into_future();
 
