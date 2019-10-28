@@ -382,4 +382,16 @@ mod test {
             Err(NotSafe::PruningError)
         );
     }
+
+    #[test]
+    fn invalid_prunning_error_target_surrounded() {
+        let mut history = vec![];
+        history.push(SignedAttestation::new(221, 224, Hash256::random()));
+
+        let attestation_data = attestation_builder(222, 223);
+        assert_eq!(
+            check_for_attester_slashing(&attestation_data, &history[..]),
+            Err(NotSafe::PruningError)
+        );
+    }
 }
