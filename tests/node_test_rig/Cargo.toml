@@ -15,3 +15,4 @@ url = "1.2"
 serde = "1.0"
 futures = "0.1.25"
 genesis = { path = "../../beacon_node/genesis" }
+remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }

@@ -3,7 +3,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
-use std::time::SystemTime;
 use types::ChainSpec;
 
 /// The core configuration of a Lighthouse beacon node.
@@ -59,19 +58,6 @@ impl Eth2Config {
 
         Ok(())
     }
-}
-
-/// Returns the system time, mod 30 minutes.
-///
-/// Used for easily creating testnets.
-fn recent_genesis_time() -> u64 {
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let secs_after_last_period = now.checked_rem(30 * 60).unwrap_or(0);
-    // genesis is now the last 30 minute block.
-    now - secs_after_last_period
 }
 
 /// Write a configuration to file.

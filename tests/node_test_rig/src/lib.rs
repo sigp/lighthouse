@@ -1,17 +1,14 @@
-mod remote_node;
-
 use beacon_node::{
-    beacon_chain::{builder::BeaconChainStartMethod, BeaconChainTypes},
-    Client, ClientConfig, ClientGenesis, ProductionBeaconNode, ProductionClient,
+    beacon_chain::BeaconChainTypes, Client, ClientConfig, ClientGenesis, ProductionBeaconNode,
+    ProductionClient,
 };
 use environment::RuntimeContext;
 use futures::Future;
-use genesis::interop_genesis_state;
+use remote_beacon_node::RemoteBeaconNode;
 use tempdir::TempDir;
-use types::{test_utils::generate_deterministic_keypairs, EthSpec};
+use types::EthSpec;
 
 pub use environment;
-pub use remote_node::RemoteBeaconNode;
 
 pub struct LocalBeaconNode<T> {
     pub client: T,
