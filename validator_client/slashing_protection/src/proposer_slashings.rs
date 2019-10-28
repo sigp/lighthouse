@@ -15,8 +15,11 @@ pub struct SignedBlock {
 }
 
 impl SignedBlock {
-    pub fn new(slot: Slot, signing_root: Hash256) -> Self {
-        Self { slot, signing_root }
+    pub fn new(slot: u64, signing_root: Hash256) -> Self {
+        Self {
+            slot: Slot::from(slot),
+            signing_root,
+        }
     }
 
     pub fn from(header: &BeaconBlockHeader) -> Self {
@@ -37,10 +40,18 @@ pub fn check_for_proposer_slashing(
             reason: ValidData::EmptyHistory,
         });
     }
+
+    let last_block = &block_history[block_history.len() - 1];
+    if block_header.slot > last_block.slot {
+        return Ok(Safe {
+            insert_index: block_history.len(),
+            reason: ValidData::Valid,
+        })
+    }
     let index = block_history
         .iter()
         .rev()
-        .position(|historical_block| historical_block.slot >= block_header.slot);
+        .position(|historical_block| historical_block.slot <= block_header.slot);
     let index = match index {
         None => return Err(NotSafe::PruningError),
         Some(num) => block_history.len() - 1 - num,
@@ -48,7 +59,7 @@ pub fn check_for_proposer_slashing(
     if block_history[index].slot == block_header.slot {
         if block_history[index].signing_root == block_header.canonical_root() {
             Ok(Safe {
-                insert_index: index + 1,
+                insert_index: index,
                 reason: ValidData::SameVote,
             })
         } else {

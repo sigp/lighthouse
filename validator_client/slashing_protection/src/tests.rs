@@ -1,7 +1,7 @@
 #[cfg(test)]
-mod test {
-    use crate::attester_slashings::*;
-    use crate::enums::*;
+mod attestation_tests {
+    use crate::attester_slashings::*; // SCOTT
+    use crate::enums::*; // SCOTT
     use tree_hash::TreeHash;
     use types::{AttestationData, Checkpoint, Crosslink, Epoch, Hash256};
 
@@ -140,7 +140,6 @@ mod test {
         let mut history = vec![];
 
         let attestation_data = attestation_builder(2, 3);
-
 
         history.push(SignedAttestation::new(0, 1, Hash256::random()));
         history.push(SignedAttestation::new(1, 2, Hash256::random()));
@@ -392,6 +391,106 @@ mod test {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::PruningError)
+        );
+    }
+}
+
+#[cfg(test)]
+mod block_tests {
+    use crate::enums::*; // SCOTT
+    use crate::proposer_slashings::*; // SCOTT
+    use types::{BeaconBlockHeader, Hash256, Signature, Slot};
+
+    fn block_builder(slot: u64) -> BeaconBlockHeader {
+        BeaconBlockHeader {
+            slot: Slot::from(slot),
+            parent_root: Hash256::random(),
+            state_root: Hash256::random(),
+            body_root: Hash256::random(),
+            signature: Signature::empty_signature(),
+        }
+    }
+
+    #[test]
+    fn valid_empty_history() {
+        let history = vec![];
+
+        let new_block = block_builder(3);
+
+        assert_eq!(
+            check_for_proposer_slashing(&new_block, &history),
+            Ok(Safe {
+                insert_index: 0,
+                reason: ValidData::EmptyHistory
+            })
+        );
+    }
+
+    #[test]
+    fn valid_block() {
+        let mut history = vec![];
+
+        history.push(SignedBlock::new(1, Hash256::random()));
+        history.push(SignedBlock::new(2, Hash256::random()));
+        let new_block = block_builder(3);
+
+        assert_eq!(
+            check_for_proposer_slashing(&new_block, &history),
+            Ok(Safe {
+                insert_index: 2,
+                reason: ValidData::Valid
+            })
+        );
+    }
+
+    #[test]
+    fn valid_same_block() {
+        let mut history = vec![];
+
+        let new_block = block_builder(3);
+
+        history.push(SignedBlock::new(1, Hash256::random()));
+        history.push(SignedBlock::new(2, Hash256::random()));
+        history.push(SignedBlock::new(3, new_block.canonical_root()));
+
+        assert_eq!(
+            check_for_proposer_slashing(&new_block, &history),
+            Ok(Safe {
+                insert_index: 2,
+                reason: ValidData::SameVote
+            })
+        );
+    }
+
+    #[test]
+    fn invalid_pruning_error() {
+        let mut history = vec![];
+
+        let new_block = block_builder(0);
+
+        history.push(SignedBlock::new(2, Hash256::random()));
+        history.push(SignedBlock::new(3, Hash256::random()));
+
+        assert_eq!(
+            check_for_proposer_slashing(&new_block, &history),
+            Err(NotSafe::PruningError)
+        );
+    }
+
+    #[test]
+    fn invalid_double_block_proposal() {
+        let mut history = vec![];
+
+
+        history.push(SignedBlock::new(1, Hash256::random()));
+        history.push(SignedBlock::new(2, Hash256::random()));
+        history.push(SignedBlock::new(3, Hash256::random()));
+
+        let new_block = block_builder(2);
+
+        assert_eq!(
+            check_for_proposer_slashing(&new_block, &history),
+            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal))
         );
     }
 }
