@@ -1,3 +1,4 @@
+use crate::enums::{NotSafe, Safe, ValidData};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use types::*;
@@ -29,43 +30,23 @@ impl SignedAttestation {
 }
 
 #[derive(PartialEq, Debug)]
-pub enum PruningError {
-    TargetEpochTooSmall(Epoch),
-    SourceEpochTooSmall(Epoch),
-}
-
-#[derive(PartialEq, Debug)]
-pub enum AttestationError {
+pub enum InvalidAttestation {
     DoubleVote,
-    InvalidAttestationData {
-        source: Checkpoint,
-        target: Checkpoint,
-    },
-    PruningError(PruningError),
-    Surrounded,
-    Surrounding,
-}
-
-fn check_attestation_validity(attestation_data: &AttestationData) -> Result<(), AttestationError> {
-    if attestation_data.target.epoch <= attestation_data.source.epoch {
-        Err(AttestationError::InvalidAttestationData {
-            source: attestation_data.source.clone(),
-            target: attestation_data.target.clone(),
-        })
-    } else {
-        Ok(())
-    }
+    SurroundingVote,
+    SurroundedVote,
 }
 
 fn check_surrounded(
     attestation_data: &AttestationData,
     attestation_history: &[SignedAttestation],
-) -> Result<(), AttestationError> {
+) -> Result<(), NotSafe> {
     let surrounded = attestation_history.iter().any(|historical_attestation| {
         historical_attestation.source_epoch < attestation_data.source.epoch
     });
     if surrounded {
-        Err(AttestationError::Surrounded)
+        Err(NotSafe::InvalidAttestation(
+            InvalidAttestation::SurroundedVote,
+        ))
     } else {
         Ok(())
     }
@@ -74,12 +55,14 @@ fn check_surrounded(
 fn check_surrounding(
     attestation_data: &AttestationData,
     attestation_history: &[SignedAttestation],
-) -> Result<(), AttestationError> {
+) -> Result<(), NotSafe> {
     let surrounding = attestation_history.iter().any(|historical_attestation| {
         historical_attestation.source_epoch > attestation_data.source.epoch
     });
     if surrounding {
-        Err(AttestationError::Surrounding)
+        Err(NotSafe::InvalidAttestation(
+            InvalidAttestation::SurroundingVote,
+        ))
     } else {
         Ok(())
     }
@@ -88,10 +71,12 @@ fn check_surrounding(
 pub fn check_for_attester_slashing(
     attestation_data: &AttestationData,
     attestation_history: &[SignedAttestation],
-) -> Result<usize, AttestationError> {
-    check_attestation_validity(attestation_data)?; // no need
+) -> Result<Safe, NotSafe> {
     if attestation_history.is_empty() {
-        return Ok(0);
+        return Ok(Safe {
+            insert_index: 0,
+            reason: ValidData::EmptyHistory,
+        });
     }
 
     let target_index = match attestation_history
@@ -100,11 +85,7 @@ pub fn check_for_attester_slashing(
         .position(|historical_attestation| {
             historical_attestation.target_epoch <= attestation_data.target.epoch
         }) {
-        None => {
-            return Err(AttestationError::PruningError(
-                PruningError::TargetEpochTooSmall(attestation_data.target.epoch),
-            ))
-        }
+        None => return Err(NotSafe::PruningError),
         Some(index) => attestation_history.len() - index - 1,
     };
 
@@ -113,9 +94,12 @@ pub fn check_for_attester_slashing(
         if attestation_history[target_index].signing_root
             == Hash256::from_slice(&attestation_data.tree_hash_root())
         {
-            return Ok(target_index + 1);
+            return Ok(Safe {
+                insert_index: target_index + 1,
+                reason: ValidData::SameVote,
+            });
         } else {
-            return Err(AttestationError::DoubleVote);
+            return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote));
         }
     }
 
@@ -127,14 +111,12 @@ pub fn check_for_attester_slashing(
                 historical_attestation.target_epoch <= attestation_data.source.epoch
             }) {
             None => {
-                if attestation_data.source.epoch == 0 {
+                // if attestation_data.source.epoch == 0 {
                     // Special case for genesis
+                    // 0
+                // } else {
                     0
-                } else {
-                    return Err(AttestationError::PruningError(
-                        PruningError::SourceEpochTooSmall(attestation_data.source.epoch),
-                    ));
-                }
+                // }
             }
             Some(index) => target_index - index + 1,
         };
@@ -144,5 +126,8 @@ pub fn check_for_attester_slashing(
         &attestation_history[source_index..=target_index],
     )?;
 
-    Ok(target_index + 1)
+    Ok(Safe {
+        insert_index: target_index + 1,
+        reason: ValidData::Valid,
+    })
 }

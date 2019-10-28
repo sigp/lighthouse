@@ -1,5 +1,12 @@
+use crate::enums::{NotSafe, Safe, ValidData};
 use ssz_derive::{Decode, Encode};
 use types::{BeaconBlockHeader, Hash256, Slot};
+
+#[derive(PartialEq, Debug)]
+pub enum InvalidBlock {
+    BlockSlotTooEarly,
+    DoubleBlockProposal,
+}
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SignedBlock {
@@ -23,22 +30,31 @@ impl SignedBlock {
 pub fn check_for_proposer_slashing(
     block_header: &BeaconBlockHeader,
     block_history: &[SignedBlock],
-) -> Result<usize, &'static str> {
+) -> Result<Safe, NotSafe> {
+    if block_history.is_empty() {
+        return Ok(Safe {
+            insert_index: 0,
+            reason: ValidData::EmptyHistory,
+        });
+    }
     let index = block_history
         .iter()
         .rev()
         .position(|historical_block| historical_block.slot >= block_header.slot);
     let index = match index {
-        None => return Err("no pos found"), // check for pruning error?
+        None => return Err(NotSafe::PruningError),
         Some(num) => block_history.len() - 1 - num,
     };
     if block_history[index].slot == block_header.slot {
         if block_history[index].signing_root == block_header.canonical_root() {
-            Ok(index + 1)
+            Ok(Safe {
+                insert_index: index + 1,
+                reason: ValidData::SameVote,
+            })
         } else {
-            Err("Double vote")
+            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal))
         }
     } else {
-        Err("small than some historical block")
+        Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly))
     }
 }

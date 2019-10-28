@@ -2,12 +2,9 @@ extern crate fs2;
 
 use fs2::FileExt;
 use parking_lot::Mutex;
-use slashing_protection::attester_slashings::{
-    check_for_attester_slashing, SignedAttestation,
-};
-use slashing_protection::proposer_slashings::{
-    check_for_proposer_slashing, SignedBlock,
-};
+use slashing_protection::attester_slashings::{check_for_attester_slashing, SignedAttestation};
+use slashing_protection::enums::{NotSafe, Safe};
+use slashing_protection::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
 use ssz::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fs::File;
@@ -20,42 +17,40 @@ use types::*;
 const BLOCK_HISTORY_FILE: &str = "block.file";
 const ATTESTATION_HISTORY_FILE: &str = "attestation.file";
 
-// enum Safety {
-	// Safe {index: usize, reason: Reason}, // look for error types
-	// NotSafe(Reason)
-// }
-
-trait SlashingSafety<T> {
+/// Trait used to know if type T can be checked for slashing safety
+trait SafeFromSlashing<T> {
     type U;
 
-    fn get_insert_index(
+    /// Verifies that the incoming_data is not slashable and returns
+    /// the index at which it should get inserted in the history.
+    fn verify_and_get_index(
         &self,
-        challenger: &Self::U,
-        history: &[T],
-    ) -> Result<usize, &'static str>;
+        incoming_data: &Self::U,
+        data_history: &[T],
+    ) -> Result<Safe, NotSafe>;
 }
 
-impl SlashingSafety<SignedAttestation> for HistoryInfo<SignedAttestation> {
+impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
 
-    fn get_insert_index(
+    fn verify_and_get_index(
         &self,
-        challenger: &AttestationData,
-        history: &[SignedAttestation],
-    ) -> Result<usize, &'static str> {
-        check_for_attester_slashing(challenger, history).map_err(|_| "invalid attestation")
+        incoming_data: &AttestationData,
+        data_history: &[SignedAttestation],
+    ) -> Result<Safe, NotSafe> {
+        check_for_attester_slashing(incoming_data, data_history)
     }
 }
 
-impl SlashingSafety<SignedBlock> for HistoryInfo<SignedBlock> {
+impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
     type U = BeaconBlockHeader;
 
-    fn get_insert_index(
+    fn verify_and_get_index(
         &self,
-        challenger: &BeaconBlockHeader,
-        history: &[SignedBlock],
-    ) -> Result<usize, &'static str> {
-        check_for_proposer_slashing(challenger, history)
+        incoming_data: &BeaconBlockHeader,
+        data_history: &[SignedBlock],
+    ) -> Result<Safe, NotSafe> {
+        check_for_proposer_slashing(incoming_data, data_history)
     }
 }
 
@@ -67,32 +62,32 @@ struct HistoryInfo<T: Encode + Decode + Clone> {
 
 impl<T: Encode + Decode + Clone> HistoryInfo<T> {
     pub fn update_and_write(&mut self) -> IOResult<()> {
-		println!("{}: waiting for mutex", self.filename);
-        let history = self.mutex.lock(); // SCOTT: check here please
-		println!("{}: mutex acquired", self.filename);
+        println!("{}: waiting for mutex", self.filename);
+        let data_history = self.mutex.lock(); // SCOTT: check here please
+        println!("{}: mutex acquired", self.filename);
         // insert
         let mut file = File::create(self.filename.as_str()).unwrap();
-		println!("{}: waiting for file", self.filename);
+        println!("{}: waiting for file", self.filename);
         file.lock_exclusive()?;
-		println!("{}: file acquired", self.filename);
+        println!("{}: file acquired", self.filename);
         // go_to_sleep(100); // nope
-        file.write_all(&history.as_ssz_bytes()).expect("HEY"); // nope
+        file.write_all(&data_history.as_ssz_bytes()).expect("HEY"); // nope
         file.unlock()?;
-		println!("{}: file unlocked", self.filename);
+        println!("{}: file unlocked", self.filename);
 
         Ok(())
     }
 
     fn check_for_slashing(
         &self,
-        challenger: &<HistoryInfo<T> as SlashingSafety<T>>::U,
-    ) -> Result<usize, &'static str>
+        incoming_data: &<HistoryInfo<T> as SafeFromSlashing<T>>::U,
+    ) -> Result<Safe, NotSafe>
     where
-        Self: SlashingSafety<T>,
+        Self: SafeFromSlashing<T>,
     {
         let guard = self.mutex.lock();
-        let history = &guard[..];
-        self.get_insert_index(challenger, history)
+        let data_history = &guard[..];
+        self.verify_and_get_index(incoming_data, data_history)
     }
 }
 
@@ -106,10 +101,10 @@ impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {
         file.read_to_end(&mut bytes).unwrap();
         file.unlock().unwrap();
 
-        let history = Vec::from_ssz_bytes(&bytes).unwrap();
-        let attestation_history = history.to_vec();
+        let data_history = Vec::from_ssz_bytes(&bytes).unwrap();
+        let attestation_data_history = data_history.to_vec();
 
-        let data_mutex = Mutex::new(attestation_history);
+        let data_mutex = Mutex::new(attestation_data_history);
         let arc_data = Arc::new(data_mutex);
 
         Ok(Self {

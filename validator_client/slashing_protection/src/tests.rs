@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod test {
     use crate::attester_slashings::*;
+    use crate::enums::*;
     use tree_hash::TreeHash;
     use types::{AttestationData, Checkpoint, Crosslink, Epoch, Hash256};
 
@@ -34,7 +35,10 @@ mod test {
 
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Ok(2)
+            Ok(Safe {
+                insert_index: 2,
+                reason: ValidData::Valid,
+            })
         );
     }
 
@@ -45,7 +49,10 @@ mod test {
         let attestation_data = attestation_builder(2, 3);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Ok(0)
+            Ok(Safe {
+                insert_index: 0,
+                reason: ValidData::EmptyHistory,
+            })
         );
     }
 
@@ -64,7 +71,10 @@ mod test {
 
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Ok(1) // SCOTT: fix pls
+            Ok(Safe {
+                insert_index: 1,
+                reason: ValidData::SameVote,
+            })
         );
     }
 
@@ -77,7 +87,7 @@ mod test {
         let attestation_data = attestation_builder(0, 1);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::DoubleVote)
+            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote))
         );
     }
 
@@ -91,7 +101,9 @@ mod test {
         let attestation_data = attestation_builder(1, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::Surrounding)
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SurroundingVote
+            ))
         );
     }
 
@@ -104,7 +116,24 @@ mod test {
         let attestation_data = attestation_builder(0, 3);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::Surrounding)
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SurroundingVote
+            ))
+        );
+    }
+
+    #[test]
+    fn invalid_surround_one_vote_from_history_first_entry() {
+        let mut history = vec![];
+        history.push(SignedAttestation::new(2, 3, Hash256::random()));
+        history.push(SignedAttestation::new(3, 4, Hash256::random()));
+
+        let attestation_data = attestation_builder(2, 5);
+        assert_eq!(
+            check_for_attester_slashing(&attestation_data, &history[..]),
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SurroundingVote
+            ))
         );
     }
 
@@ -119,7 +148,9 @@ mod test {
         let attestation_data = attestation_builder(1, 5);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::Surrounding)
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SurroundingVote
+            ))
         );
     }
 
@@ -132,7 +163,9 @@ mod test {
         let attestation_data = attestation_builder(2, 3);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::Surrounded)
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SurroundedVote
+            ))
         );
     }
 
@@ -146,7 +179,9 @@ mod test {
         let attestation_data = attestation_builder(3, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::Surrounded)
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SurroundedVote
+            ))
         );
     }
 
@@ -159,7 +194,9 @@ mod test {
         let attestation_data = attestation_builder(1, 2);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::Surrounded)
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SurroundedVote
+            ))
         );
     }
 
@@ -170,57 +207,39 @@ mod test {
         history.push(SignedAttestation::new(0, 2, Hash256::random()));
         history.push(SignedAttestation::new(2, 3, Hash256::random()));
         history.push(SignedAttestation::new(4, 9, Hash256::random()));
-        history.push(SignedAttestation::new(
-            5,
-            10,
-            Hash256::random(),
-        ));
-        history.push(SignedAttestation::new(
-            6,
-            11,
-            Hash256::random(),
-        ));
+        history.push(SignedAttestation::new(5, 10, Hash256::random()));
+        history.push(SignedAttestation::new(6, 11, Hash256::random()));
 
         let attestation_data = attestation_builder(1, 8);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::Surrounding)
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SurroundingVote
+            ))
         );
     }
 
     #[test]
     fn invalid_prunning_error_target_too_small() {
         let mut history = vec![];
-        history.push(SignedAttestation::new(
-            221,
-            224,
-            Hash256::random(),
-        ));
+        history.push(SignedAttestation::new(221, 224, Hash256::random()));
 
         let attestation_data = attestation_builder(4, 5);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::PruningError(
-                PruningError::TargetEpochTooSmall(Epoch::from(5u64))
-            ))
+            Err(NotSafe::PruningError)
         );
     }
 
     #[test]
     fn invalid_prunning_error_source_too_small() {
         let mut history = vec![];
-        history.push(SignedAttestation::new(
-            221,
-            224,
-            Hash256::random(),
-        ));
+        history.push(SignedAttestation::new(221, 224, Hash256::random()));
 
         let attestation_data = attestation_builder(4, 227);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::PruningError(
-                PruningError::SourceEpochTooSmall(Epoch::from(4u64))
-            ))
+            Err(NotSafe::InvalidAttestation(InvalidAttestation::SurroundingVote))
         );
     }
 
@@ -234,7 +253,9 @@ mod test {
         let attestation_data = attestation_builder(1, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(AttestationError::Surrounding)
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SurroundingVote
+            ))
         );
     }
 }
