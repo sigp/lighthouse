@@ -2,12 +2,11 @@
 use super::*;
 use crate::rpc::{HelloMessage, RPCRequest};
 use crate::NetworkConfig;
-use enr::{Enr, EnrBuilder, NodeId};
+use enr::Enr;
 use futures;
-use libp2p::core::identity::Keypair;
-use libp2p::discv5::Key;
 use slog::{debug, error, o, Drain};
 use slog_stdlog;
+use std::time::Duration;
 use types::{Epoch, Hash256, Slot};
 use Service as LibP2PService;
 
@@ -30,6 +29,9 @@ fn build_config(port: u16, mut boot_nodes: Vec<Enr>, secret_key: Option<String>)
     config.boot_nodes.append(&mut boot_nodes);
     config.secret_key_hex = secret_key;
     config.network_dir.push(port.to_string());
+    // Reduce gossipsub heartbeat parameters
+    config.gs_config.heartbeat_initial_delay = Duration::from_millis(500);
+    config.gs_config.heartbeat_interval = Duration::from_millis(500);
     config
 }
 
@@ -48,46 +50,6 @@ fn build_libp2p_instance(
 
 fn get_enr(node: &LibP2PService) -> Enr {
     node.swarm.discovery().local_enr().clone()
-}
-
-// Returns kademlia log distance between two nodes
-fn get_distance(node1: &NodeId, node2: &NodeId) -> Option<u64> {
-    let node1: Key<NodeId> = node1.clone().into();
-    node1.log2_distance(&node2.clone().into())
-}
-
-// Generate secret keys for given node + an additional bootstrap node for testing discovery.
-// Bootstrap node is close (kbucket index > 253) to all other nodes.
-fn generate_secret_keys(n: usize) -> Vec<Option<String>> {
-    let mut keypairs: Vec<Keypair> = Vec::new();
-    let bootstrap_keypair: Keypair = Keypair::generate_secp256k1();
-    let bootstrap_node_id = EnrBuilder::new()
-        .build(&bootstrap_keypair)
-        .unwrap()
-        .node_id()
-        .clone();
-    for _ in 0..n {
-        loop {
-            let keypair = Keypair::generate_secp256k1();
-            let enr = EnrBuilder::new().build(&keypair).unwrap();
-            let key = enr.node_id();
-            let distance = get_distance(&bootstrap_node_id, key).unwrap();
-            // Any distance greater than 253 is good enough for discovering nodes in one
-            // complete query. TODO: need to verify
-            if distance > 253 {
-                keypairs.push(keypair);
-                break;
-            }
-        }
-    }
-    keypairs.push(bootstrap_keypair);
-    keypairs
-        .into_iter()
-        .map(|x| match x {
-            Keypair::Secp256k1(kp) => Some(hex::encode(kp.secret().to_bytes())),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
 }
 
 // Returns `n` libp2p peers in fully connected topology.
@@ -115,6 +77,7 @@ fn build_full_mesh(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
     nodes
 }
 
+// Returns `n` peers in a linear topology
 fn build_linear(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
     let log = setup_log();
     let base_port = start_port.unwrap_or(9000);
@@ -134,6 +97,10 @@ fn build_linear(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
     nodes
 }
 
+/* Gossipsub tests */
+// Note: The aim of these tests is not to test the robustness of the gossip network
+// but to check if the gossipsub implementation is behaving according to the specifications.
+
 // Test if gossipsub message are forwarded by nodes with a simple linear topology.
 //
 //                Topology used in test
@@ -143,8 +110,8 @@ fn build_linear(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
 #[test]
 fn test_gossipsub_forward() {
     let log = setup_log();
-    let num_nodes = 8;
-    let mut nodes = build_linear(8, Some(9000));
+    let num_nodes = 200;
+    let mut nodes = build_linear(num_nodes, Some(9000));
     let mut received_count = 0;
     let pubsub_message = PubsubMessage::Block(vec![0; 4]);
     let publishing_topic: String = "/eth2/beacon_block/ssz".into();
@@ -203,7 +170,7 @@ fn test_gossipsub_forward() {
 // Not very useful but this is the bare minimum functionality.
 #[test]
 fn test_gossipsub_full_mesh_publish() {
-    let num_nodes = 13; // mesh_n_high + 1
+    let num_nodes = 20;
     let mut nodes = build_full_mesh(num_nodes, None);
     let mut publishing_node = nodes.pop().unwrap();
     let pubsub_message = PubsubMessage::Block(vec![0; 4]);
