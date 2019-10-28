@@ -4,13 +4,13 @@ use types::*;
 use types::{AttestationDataAndCustodyBit, Epoch, Hash256};
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct ValidatorHistoricalAttestation {
+pub struct SignedAttestation {
     pub source_epoch: Epoch,
     pub target_epoch: Epoch,
     pub signing_root: Hash256,
 }
 
-impl ValidatorHistoricalAttestation {
+impl SignedAttestation {
     pub fn new(source_epoch: u64, target_epoch: u64, signing_root: Hash256) -> Self {
         Self {
             source_epoch: Epoch::from(source_epoch),
@@ -59,7 +59,7 @@ fn check_attestation_validity(attestation_data: &AttestationData) -> Result<(), 
 
 fn check_surrounded(
     attestation_data: &AttestationData,
-    attestation_history: &[ValidatorHistoricalAttestation],
+    attestation_history: &[SignedAttestation],
 ) -> Result<(), AttestationError> {
     let surrounded = attestation_history.iter().any(|historical_attestation| {
         historical_attestation.source_epoch < attestation_data.source.epoch
@@ -73,7 +73,7 @@ fn check_surrounded(
 
 fn check_surrounding(
     attestation_data: &AttestationData,
-    attestation_history: &[ValidatorHistoricalAttestation],
+    attestation_history: &[SignedAttestation],
 ) -> Result<(), AttestationError> {
     let surrounding = attestation_history.iter().any(|historical_attestation| {
         historical_attestation.source_epoch > attestation_data.source.epoch
@@ -87,7 +87,7 @@ fn check_surrounding(
 
 pub fn check_for_attester_slashing(
     attestation_data: &AttestationData,
-    attestation_history: &[ValidatorHistoricalAttestation],
+    attestation_history: &[SignedAttestation],
 ) -> Result<usize, AttestationError> {
     check_attestation_validity(attestation_data)?; // no need
     if attestation_history.is_empty() {

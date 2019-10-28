@@ -2,12 +2,12 @@ use ssz_derive::{Decode, Encode};
 use types::{BeaconBlockHeader, Hash256, Slot};
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct ValidatorHistoricalBlock {
+pub struct SignedBlock {
     pub slot: Slot,
     pub signing_root: Hash256,
 }
 
-impl ValidatorHistoricalBlock {
+impl SignedBlock {
     pub fn new(slot: Slot, signing_root: Hash256) -> Self {
         Self { slot, signing_root }
     }
@@ -22,7 +22,7 @@ impl ValidatorHistoricalBlock {
 
 pub fn check_for_proposer_slashing(
     block_header: &BeaconBlockHeader,
-    block_history: &[ValidatorHistoricalBlock],
+    block_history: &[SignedBlock],
 ) -> Result<usize, &'static str> {
     let index = block_history
         .iter()
