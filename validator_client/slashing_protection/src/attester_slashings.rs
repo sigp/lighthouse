@@ -85,11 +85,11 @@ fn check_surrounding(
     }
 }
 
-pub fn should_sign_attestation(
+pub fn check_for_attester_slashing(
     attestation_data: &AttestationData,
     attestation_history: &[ValidatorHistoricalAttestation],
 ) -> Result<usize, AttestationError> {
-    check_attestation_validity(attestation_data)?;
+    check_attestation_validity(attestation_data)?; // no need
     if attestation_history.is_empty() {
         return Ok(0);
     }
@@ -146,4 +146,3 @@ pub fn should_sign_attestation(
 
     Ok(target_index + 1)
 }
-

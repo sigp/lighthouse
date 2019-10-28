@@ -2,14 +2,16 @@ extern crate fs2;
 
 use fs2::FileExt;
 use parking_lot::Mutex;
-use slashing_protection::attester_slashings::{should_sign_attestation, ValidatorHistoricalAttestation};
-use slashing_protection::proposer_slashings::{should_sign_block, ValidatorHistoricalBlock};
+use slashing_protection::attester_slashings::{
+    check_for_attester_slashing, ValidatorHistoricalAttestation,
+};
+use slashing_protection::proposer_slashings::{
+    check_for_proposer_slashing, ValidatorHistoricalBlock,
+};
 use ssz::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fs::File;
-use std::io::Read;
-use std::io::Result as IOResult;
-use std::io::Write;
+use std::io::{Read, Result as IOResult, Write};
 use std::sync::Arc;
 use std::thread;
 use std::time;
@@ -18,33 +20,44 @@ use types::*;
 const BLOCK_HISTORY_FILE: &str = "block.file";
 const ATTESTATION_HISTORY_FILE: &str = "attestation.file";
 
-trait MyTrait<T> {
+// enum Safety {
+// 	Safe {index: usize, reason: Reason}, // look for error types
+// 	NotSafe(Reason)
+// }
+
+trait SlashingSafety<T> {
     type U;
 
-    fn signing_func(&self, challenger: &Self::U, history: &[T]) -> Result<usize, &'static str>;
+    fn is_safe_from_slashings(
+        &self,
+        challenger: &Self::U,
+        history: &[T],
+    ) -> Result<usize, &'static str>;
 }
 
-impl MyTrait<ValidatorHistoricalAttestation> for HistoryInfo<ValidatorHistoricalAttestation> {
+impl SlashingSafety<ValidatorHistoricalAttestation>
+    for HistoryInfo<ValidatorHistoricalAttestation>
+{
     type U = AttestationData;
 
-    fn signing_func(
+    fn is_safe_from_slashings(
         &self,
         challenger: &AttestationData,
         history: &[ValidatorHistoricalAttestation],
     ) -> Result<usize, &'static str> {
-        should_sign_attestation(challenger, history).map_err(|_| "invalid attestation")
+        check_for_attester_slashing(challenger, history).map_err(|_| "invalid attestation")
     }
 }
 
-impl MyTrait<ValidatorHistoricalBlock> for HistoryInfo<ValidatorHistoricalBlock> {
+impl SlashingSafety<ValidatorHistoricalBlock> for HistoryInfo<ValidatorHistoricalBlock> {
     type U = BeaconBlockHeader;
 
-    fn signing_func(
+    fn is_safe_from_slashings(
         &self,
         challenger: &BeaconBlockHeader,
         history: &[ValidatorHistoricalBlock],
     ) -> Result<usize, &'static str> {
-        should_sign_block(challenger, history)
+        check_for_proposer_slashing(challenger, history)
     }
 }
 
@@ -56,27 +69,32 @@ struct HistoryInfo<T: Encode + Decode + Clone> {
 
 impl<T: Encode + Decode + Clone> HistoryInfo<T> {
     pub fn update_and_write(&mut self) -> IOResult<()> {
-        let history = self.mutex.lock();
+        println!("{}: waiting for mutex", self.filename);
+        let history = self.mutex.lock(); // SCOTT: check here please
+        println!("{}: mutex acquired", self.filename);
         // insert
         let mut file = File::create(self.filename.as_str()).unwrap();
+        println!("{}: waiting for file", self.filename);
         file.lock_exclusive()?;
-        go_to_sleep(100); // nope
+        println!("{}: file acquired", self.filename);
+        // go_to_sleep(100); // nope
         file.write_all(&history.as_ssz_bytes()).expect("HEY"); // nope
         file.unlock()?;
+        println!("{}: file unlocked", self.filename);
 
         Ok(())
     }
 
-    fn should_sign(
+    fn check_for_slashing(
         &self,
-        challenger: &<HistoryInfo<T> as MyTrait<T>>::U,
+        challenger: &<HistoryInfo<T> as SlashingSafety<T>>::U,
     ) -> Result<usize, &'static str>
     where
-        Self: MyTrait<T>,
+        Self: SlashingSafety<T>,
     {
         let guard = self.mutex.lock();
         let history = &guard[..];
-        self.signing_func(challenger, history)
+        self.is_safe_from_slashings(challenger, history)
     }
 }
 
@@ -115,20 +133,17 @@ fn go_to_sleep(time: u64) {
 fn run() {
     let mut handles = vec![];
 
-    for _ in 0..1 {
+    for _ in 0..4 {
         let handle = thread::spawn(move || {
             let mut attestation_info: HistoryInfo<ValidatorHistoricalAttestation> =
                 HistoryInfo::try_from(ATTESTATION_HISTORY_FILE).unwrap();
             let mut block_info: HistoryInfo<ValidatorHistoricalBlock> =
                 HistoryInfo::try_from(BLOCK_HISTORY_FILE).unwrap();
-            println!("{:?}", block_info);
             let attestation = attestation_builder(1, 2);
             let block = block_builder(1);
-            let res = attestation_info.should_sign(&attestation);
-            println!("res: {:?}", res);
-            let res = block_info.should_sign(&block);
-            println!("res: {:?}", res);
-            go_to_sleep(100);
+            let res = attestation_info.check_for_slashing(&attestation);
+            let res = block_info.check_for_slashing(&block);
+            go_to_sleep(1000);
             attestation_info.update_and_write().unwrap();
             block_info.update_and_write().unwrap();
         });

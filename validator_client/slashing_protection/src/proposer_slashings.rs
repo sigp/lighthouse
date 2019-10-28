@@ -20,7 +20,7 @@ impl ValidatorHistoricalBlock {
     }
 }
 
-pub fn should_sign_block(
+pub fn check_for_proposer_slashing(
     block_header: &BeaconBlockHeader,
     block_history: &[ValidatorHistoricalBlock],
 ) -> Result<usize, &'static str> {
