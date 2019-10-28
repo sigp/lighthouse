@@ -29,10 +29,10 @@ impl SlotClock for SystemTimeSlotClock {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
         let genesis = self.genesis_duration;
 
-        if now > genesis {
+        if now >= genesis {
             let since_genesis = now
                 .checked_sub(genesis)
-                .expect("Control flow ensures now is greater than genesis");
+                .expect("Control flow ensures now is greater than or equal to genesis");
             let slot =
                 Slot::from((since_genesis.as_millis() / self.slot_duration.as_millis()) as u64);
             Some(slot + self.genesis_slot)
@@ -50,7 +50,7 @@ impl SlotClock for SystemTimeSlotClock {
             genesis + slot * self.slot_duration
         };
 
-        if now > genesis {
+        if now >= genesis {
             Some(
                 slot_start(self.now()? + 1)
                     .checked_sub(now)
