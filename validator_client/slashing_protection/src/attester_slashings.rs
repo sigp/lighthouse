@@ -95,7 +95,7 @@ pub fn check_for_attester_slashing(
             == Hash256::from_slice(&attestation_data.tree_hash_root())
         {
             return Ok(Safe {
-                insert_index: target_index + 1,
+                insert_index: target_index,
                 reason: ValidData::SameVote,
             });
         } else {
@@ -110,14 +110,7 @@ pub fn check_for_attester_slashing(
             .position(|historical_attestation| {
                 historical_attestation.target_epoch <= attestation_data.source.epoch
             }) {
-            None => {
-                // if attestation_data.source.epoch == 0 {
-                    // Special case for genesis
-                    // 0
-                // } else {
-                    0
-                // }
-            }
+            None => 0,
             Some(index) => target_index - index + 1,
         };
 
