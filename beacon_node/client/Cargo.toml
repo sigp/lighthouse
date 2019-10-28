@@ -6,6 +6,7 @@ edition = "2018"
 
 [dev-dependencies]
 sloggers = "0.3.4"
+toml = "^0.5"
 
 [dependencies]
 beacon_chain = { path = "../beacon_chain" }

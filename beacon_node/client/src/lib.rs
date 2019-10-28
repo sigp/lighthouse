@@ -11,11 +11,9 @@ use network::Service as NetworkService;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-pub use beacon_chain::{
-    builder::BeaconChainStartMethod, BeaconChainTypes, Eth1ChainBackend, InteropEth1ChainBackend,
-};
+pub use beacon_chain::{builder::BeaconChainStartMethod, BeaconChainTypes, Eth1ChainBackend};
 pub use builder::ClientBuilder;
-pub use config::{Config as ClientConfig, Eth1BackendMethod};
+pub use config::Config as ClientConfig;
 pub use eth2_config::Eth2Config;
 
 /// The core "beacon node" client.

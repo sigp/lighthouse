@@ -10,7 +10,7 @@ pub use client::{Client, ClientBuilder, ClientConfig};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::{
-    builder::Witness, eth1_chain::InteropEth1ChainBackend, events::WebSocketSender,
+    builder::Witness, eth1_chain::JsonRpcEth1Backend, events::WebSocketSender,
     lmd_ghost::ThreadSafeReducedTree, slot_clock::SystemTimeSlotClock,
 };
 use clap::ArgMatches;
@@ -32,7 +32,7 @@ pub type ProductionClient<E> = Client<
         DiskStore,
         SystemTimeSlotClock,
         ThreadSafeReducedTree<DiskStore, E>,
-        InteropEth1ChainBackend<E>,
+        JsonRpcEth1Backend<E>,
         E,
         WebSocketSender<E>,
     >,
@@ -107,24 +107,35 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .db_path()
             .ok_or_else(|| "Unable to access database path".to_string())?;
 
-        let client = ClientBuilder::new(context.eth_spec_instance)
+        let builder = ClientBuilder::new(context.eth_spec_instance)
             .logger(context.log)
             .disk_store(&db_path)?
             .executor(context.executor)
             .chain_spec(eth2_config.spec.clone())
             .beacon_genesis(genesis_state)?
-            .system_time_slot_clock()?
-            .dummy_eth1_backend()
+            .system_time_slot_clock()?;
+
+        let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend {
+            builder.json_rpc_eth1_backend(
+                client_config.eth1.clone(),
+                client_config.dummy_eth1_backend,
+            )?
+        } else if client_config.dummy_eth1_backend {
+            builder.dummy_eth1_backend()?
+        } else {
+            builder.no_eth1_backend()?
+        };
+
+        let builder = builder
             .websocket_event_handler(client_config.websocket_server.clone())?
             .beacon_chain()?
             .libp2p_network(&client_config.network)?
             .http_server(&client_config, &eth2_config)?
             .grpc_server(&client_config.rpc)?
             .peer_count_notifier()?
-            .slot_notifier()?
-            .build();
+            .slot_notifier()?;
 
-        Ok(Self(client))
+        Ok(Self(builder.build()))
     }
 
     pub fn into_inner(self) -> ProductionClient<E> {

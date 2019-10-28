@@ -7,6 +7,7 @@ edition = "2018"
 [dev-dependencies]
 eth1_test_rig = { path = "../../tests/eth1_test_rig" }
 environment = { path = "../../lighthouse/environment" }
+toml = "^0.5"
 
 [dependencies]
 reqwest = "0.9"

@@ -2,11 +2,13 @@ use crate::config::Config as ClientConfig;
 use crate::Client;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
+    eth1_chain::JsonRpcEth1Backend,
     lmd_ghost::ThreadSafeReducedTree,
     slot_clock::{SlotClock, SystemTimeSlotClock},
     store::{DiskStore, MemoryStore, Store},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler, InteropEth1ChainBackend,
+    BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
+use eth1::Config as Eth1Config;
 use eth2_config::Eth2Config;
 use exit_future::Signal;
 use futures::{Future, Stream};
@@ -467,7 +469,7 @@ impl<TStore, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
             TStore,
             TSlotClock,
             TLmdGhost,
-            InteropEth1ChainBackend<TEthSpec>,
+            JsonRpcEth1Backend<TEthSpec>,
             TEthSpec,
             TEventHandler,
         >,
@@ -479,9 +481,72 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
-    pub fn dummy_eth1_backend(mut self) -> Self {
-        self.eth1_backend = Some(InteropEth1ChainBackend::default());
-        self
+    /// Sets the `BeaconChain` eth1 back-end to `JsonRpcEth1Backend`.
+    ///
+    /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
+    pub fn json_rpc_eth1_backend(
+        mut self,
+        config: Eth1Config,
+        use_dummy_backend: bool,
+    ) -> Result<Self, String> {
+        let log = self
+            .log
+            .as_ref()
+            .ok_or_else(|| "json_rpc_eth1_backend requires a log".to_string())?;
+        let executor = self
+            .executor
+            .as_ref()
+            .ok_or_else(|| "json_rpc_eth1_backend requires an executor")?;
+        let beacon_chain_builder = self
+            .beacon_chain_builder
+            .ok_or_else(|| "json_rpc_eth1_backend requires a beacon checkpoint")?;
+
+        let mut backend = JsonRpcEth1Backend::new(config, log.new(o!("service" => "eth1_http")));
+
+        backend.use_dummy_backend = use_dummy_backend;
+
+        if !use_dummy_backend {
+            let exit = {
+                let (tx, rx) = exit_future::signal();
+                self.exit_signals.push(tx);
+                rx
+            };
+
+            // Starts the service that connects to an eth1 node and periodically updates caches.
+            executor.spawn(backend.start(exit));
+        }
+
+        let beacon_chain_builder = beacon_chain_builder.json_rpc_eth1_backend(backend);
+
+        self.beacon_chain_builder = Some(beacon_chain_builder);
+
+        Ok(self)
+    }
+
+    /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
+    pub fn no_eth1_backend(mut self) -> Result<Self, String> {
+        let beacon_chain_builder = self
+            .beacon_chain_builder
+            .ok_or_else(|| "json_rpc_eth1_backend requires a beacon checkpoint")?;
+
+        let beacon_chain_builder = beacon_chain_builder.no_eth1_backend();
+
+        self.beacon_chain_builder = Some(beacon_chain_builder);
+
+        Ok(self)
+    }
+
+    /// Use an eth1 backend that can produce blocks but is not connected to the an Eth1 node.
+    ///
+    /// This backend will never produce deposits, so it's impossible to add validators after
+    /// genesis. The `Eth1Data` votes will all be for some deterministic junk data.
+    ///
+    /// ## Notes
+    ///
+    /// The client is given the `JsonRpcEth1Backend` type, but the http backend is never started and the
+    /// caches are never used.
+    pub fn dummy_eth1_backend(self) -> Result<Self, String> {
+        self.json_rpc_eth1_backend(Eth1Config::default(), true)
     }
 }
 

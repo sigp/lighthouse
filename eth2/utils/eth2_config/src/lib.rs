@@ -112,3 +112,15 @@ where
         Ok(None)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use toml;
+
+    #[test]
+    fn serde_serialize() {
+        let _ =
+            toml::to_string(&Eth2Config::default()).expect("Should serde encode default config");
+    }
+}

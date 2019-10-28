@@ -18,38 +18,19 @@ pub struct Config {
     db_name: String,
     pub log_file: PathBuf,
     pub spec_constants: String,
+    pub dummy_eth1_backend: bool,
+    pub sync_eth1_chain: bool,
     /// Defines how we should initialize a BeaconChain instances.
     ///
     /// This field is not serialized, there for it will not be written to (or loaded from) config
     /// files. It can only be configured via the CLI.
     #[serde(skip)]
     pub beacon_chain_start_method: BeaconChainStartMethod,
-    pub eth1_backend_method: Eth1BackendMethod,
     pub network: network::NetworkConfig,
     pub rpc: rpc::Config,
     pub rest_api: rest_api::Config,
     pub websocket_server: websocket_server::Config,
     pub eth1: eth1::Config,
-}
-
-/// Defines which Eth1 backend the client should use.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum Eth1BackendMethod {
-    /// Use the mocked eth1 backend used in interop testing
-    Interop,
-    /// Use a web3 connection to a running Eth1 node.
-    Web3 {
-        server: String,
-        contract_addr: String,
-        abi_path: PathBuf,
-    },
-}
-
-impl Default for Eth1BackendMethod {
-    fn default() -> Self {
-        Eth1BackendMethod::Interop
-    }
 }
 
 impl Default for Config {
@@ -65,7 +46,8 @@ impl Default for Config {
             websocket_server: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
             beacon_chain_start_method: <_>::default(),
-            eth1_backend_method: <_>::default(),
+            dummy_eth1_backend: false,
+            sync_eth1_chain: false,
             eth1: <_>::default(),
         }
     }
@@ -147,5 +129,16 @@ impl Config {
         };
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use toml;
+
+    #[test]
+    fn serde_serialize() {
+        let _ = toml::to_string(&Config::default()).expect("Should serde encode default config");
     }
 }

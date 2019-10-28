@@ -1,8 +1,8 @@
 use crate::{
     builder::{BeaconChainBuilder, BeaconChainStartMethod, Witness},
+    eth1_chain::JsonRpcEth1Backend,
     events::NullEventHandler,
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
-    InteropEth1ChainBackend,
 };
 use lmd_ghost::ThreadSafeReducedTree;
 use rayon::prelude::*;
@@ -28,7 +28,7 @@ pub type HarnessType<E> = Witness<
     MemoryStore,
     TestingSlotClock,
     ThreadSafeReducedTree<MemoryStore, E>,
-    InteropEth1ChainBackend<E>,
+    JsonRpcEth1Backend<E>,
     E,
     NullEventHandler<E>,
 >;
@@ -84,7 +84,8 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
                 genesis_time: HARNESS_GENESIS_TIME,
             })
             .expect("should build state using recent genesis")
-            .interop_eth1_backend()
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")

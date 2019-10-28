@@ -1,11 +1,11 @@
-use crate::eth1_chain::HttpBackend;
+use crate::eth1_chain::JsonRpcEth1Backend;
 use crate::events::NullEventHandler;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
-use crate::InteropEth1ChainBackend;
 use crate::{
     BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
     ForkChoice,
 };
+use eth1::Config as Eth1Config;
 use eth2_hashing::hash;
 use lighthouse_bootstrap::Bootstrapper;
 use lmd_ghost::{LmdGhost, ThreadSafeReducedTree};
@@ -517,36 +517,11 @@ where
 
 impl<TStore, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
     BeaconChainBuilder<
-        Witness<TStore, TSlotClock, TLmdGhost, HttpBackend<TEthSpec>, TEthSpec, TEventHandler>,
-    >
-where
-    TStore: Store + 'static,
-    TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
-{
-    /// Sets the `BeaconChain` eth1 back-end to `HttpBackend`.
-    ///
-    /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
-    pub fn http_eth1_backend(self, backend: HttpBackend<TEthSpec>) -> Self {
-        self.eth1_backend(backend)
-    }
-
-    /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
-    pub fn no_eth1_backend(self) -> Self {
-        // Do nothing. This function only exists to make concrete the `TEth1ChainBackendTrait`.
-        self
-    }
-}
-
-impl<TStore, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
-    BeaconChainBuilder<
         Witness<
             TStore,
             TSlotClock,
             TLmdGhost,
-            InteropEth1ChainBackend<TEthSpec>,
+            JsonRpcEth1Backend<TEthSpec>,
             TEthSpec,
             TEventHandler,
         >,
@@ -558,12 +533,30 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
-    /// Sets the `BeaconChain` eth1 back-end to `InteropEth1ChainBackend`.
+    /// Sets the `BeaconChain` eth1 back-end to `JsonRpcEth1Backend`.
     ///
     /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
-    pub fn interop_eth1_backend(self) -> Self {
-        let backend = InteropEth1ChainBackend::default();
+    pub fn json_rpc_eth1_backend(self, backend: JsonRpcEth1Backend<TEthSpec>) -> Self {
         self.eth1_backend(backend)
+    }
+
+    /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
+    pub fn no_eth1_backend(self) -> Self {
+        // Do nothing. This function only exists to make concrete the `TEth1ChainBackendTrait`.
+        self
+    }
+
+    /// Sets the `BeaconChain` eth1 back-end to produce predictably junk data when producing blocks.
+    pub fn dummy_eth1_backend(self) -> Result<Self, String> {
+        let log = self
+            .log
+            .as_ref()
+            .ok_or_else(|| "dummy_eth1_backend requires a log".to_string())?;
+
+        let mut backend = JsonRpcEth1Backend::new(Eth1Config::default(), log.clone());
+        backend.use_dummy_backend = true;
+
+        Ok(self.eth1_backend(backend))
     }
 }
 
@@ -797,7 +790,8 @@ mod test {
                 genesis_time,
             })
             .expect("should build state using recent genesis")
-            .interop_eth1_backend()
+            .dummy_eth1_backend()
+            .expect("should build the dummy eth1 backend")
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")

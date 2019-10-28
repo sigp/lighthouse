@@ -111,6 +111,8 @@ pub struct Config {
     /// Defines the number of blocks that should be retained each time the `BlockCache` calls truncate on
     /// itself.
     pub block_cache_truncation: Option<usize>,
+    /// The interval between updates when using the `auto_update` function.
+    pub auto_update_interval_millis: u64,
 }
 
 impl Default for Config {
@@ -122,6 +124,7 @@ impl Default for Config {
             lowest_cached_block_number: 0,
             follow_distance: 128,
             block_cache_truncation: Some(4_096),
+            auto_update_interval_millis: 500,
         }
     }
 }
@@ -244,8 +247,8 @@ impl Service {
         deposit_future.join(block_future)
     }
 
-    /// A looping future that updates the cache, then waits `update_interval` before updating it
-    /// again.
+    /// A looping future that updates the cache, then waits `config.auto_update_interval` before
+    /// updating it again.
     ///
     /// ## Returns
     ///
@@ -253,16 +256,13 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub fn auto_update(
-        &self,
-        update_interval: Duration,
-        exit_signal: Exit,
-    ) -> impl Future<Item = (), Error = ()> {
+    pub fn auto_update(&self, exit: Exit) -> impl Future<Item = (), Error = ()> {
         let service = self.clone();
         let log = self.log.clone();
+        let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
 
         loop_fn((), move |()| {
-            let exit_signal = exit_signal.clone();
+            let exit = exit.clone();
             let service = service.clone();
             let log_a = log.clone();
             let log_b = log.clone();
@@ -302,7 +302,7 @@ impl Service {
                     Ok(())
                 })
                 .map(move |_| {
-                    if exit_signal.is_live() {
+                    if exit.is_live() {
                         Loop::Continue(())
                     } else {
                         Loop::Break(())
@@ -581,4 +581,15 @@ fn download_eth1_block<'a>(
         deposit_root,
         deposit_count,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use toml;
+
+    #[test]
+    fn serde_serialize() {
+        let _ = toml::to_string(&Config::default()).expect("Should serde encode default config");
+    }
 }

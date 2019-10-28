@@ -150,9 +150,7 @@ mod auto_update {
 
         let (_exit, signal) = exit_future::signal();
 
-        runtime
-            .executor()
-            .spawn(service.auto_update(Duration::from_millis(500), signal));
+        runtime.executor().spawn(service.auto_update(signal));
 
         let n = 4;
 

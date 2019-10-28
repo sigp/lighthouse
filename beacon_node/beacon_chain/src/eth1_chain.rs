@@ -1,6 +1,8 @@
 use crate::BeaconChainTypes;
 use eth1::{Config as Eth1Config, Service as HttpService};
 use eth2_hashing::hash;
+use exit_future::Exit;
+use futures::Future;
 use slog::Logger;
 use std::marker::PhantomData;
 use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
@@ -70,11 +72,11 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     ) -> Result<Vec<Deposit>, Error>;
 }
 
-pub struct InteropEth1ChainBackend<T: EthSpec> {
+pub struct DummyEth1ChainBackend<T: EthSpec> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: EthSpec> Eth1ChainBackend<T> for InteropEth1ChainBackend<T> {
+impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
     fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self, Error> {
         Ok(Self::default())
     }
@@ -99,7 +101,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for InteropEth1ChainBackend<T> {
     }
 }
 
-impl<T: EthSpec> Default for InteropEth1ChainBackend<T> {
+impl<T: EthSpec> Default for DummyEth1ChainBackend<T> {
     fn default() -> Self {
         Self {
             _phantom: PhantomData,
@@ -108,23 +110,32 @@ impl<T: EthSpec> Default for InteropEth1ChainBackend<T> {
 }
 
 #[derive(Clone)]
-pub struct HttpBackend<T: EthSpec> {
+pub struct JsonRpcEth1Backend<T: EthSpec> {
     pub core: HttpService,
+    /// When `true`, the caches in `core` will be ignored and dummy data from the 2019 Canada
+    /// interop method will be used instead.
+    pub use_dummy_backend: bool,
     _phantom: PhantomData<T>,
 }
 
-impl<T: EthSpec> HttpBackend<T> {
+impl<T: EthSpec> JsonRpcEth1Backend<T> {
     pub fn new(config: Eth1Config, log: Logger) -> Self {
         Self {
             core: HttpService::new(config, log),
+            use_dummy_backend: false,
             _phantom: PhantomData,
         }
+    }
+
+    pub fn start(&self, exit: Exit) -> impl Future<Item = (), Error = ()> {
+        self.core.auto_update(exit)
     }
 
     /// Instantiates `self` from an existing service.
     pub fn from_service(service: HttpService) -> Self {
         Self {
             core: service,
+            use_dummy_backend: false,
             _phantom: PhantomData,
         }
     }
@@ -188,16 +199,19 @@ impl<T: EthSpec> HttpBackend<T> {
     */
 }
 
-impl<T: EthSpec> Eth1ChainBackend<T> for HttpBackend<T> {
+impl<T: EthSpec> Eth1ChainBackend<T> for JsonRpcEth1Backend<T> {
     fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self, Error> {
+        // TODO: ensure dummy values are used.
         panic!()
     }
 
     fn eth1_data(&self, _state: &BeaconState<T>) -> Result<Eth1Data, Error> {
+        // TODO: ensure dummy values are used.
         panic!()
     }
 
     fn queued_deposits(&self, _: &BeaconState<T>, _: &ChainSpec) -> Result<Vec<Deposit>, Error> {
+        // TODO: ensure dummy values are used.
         panic!()
     }
 }

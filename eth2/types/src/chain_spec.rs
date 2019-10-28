@@ -91,11 +91,10 @@ pub struct ChainSpec {
     domain_voluntary_exit: u32,
     domain_transfer: u32,
 
-    #[serde(skip)]
-    pub genesis_fork: Fork,
-
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
+
+    pub genesis_fork: Fork,
 }
 
 impl ChainSpec {
