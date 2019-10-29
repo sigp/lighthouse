@@ -92,7 +92,7 @@ pub fn check_for_attester_slashing(
     check_surrounded(attestation_data, &attestation_history[target_index + 1..])?;
     if attestation_history[target_index].target_epoch == attestation_data.target.epoch {
         if attestation_history[target_index].signing_root
-            == Hash256::from_slice(&attestation_data.tree_hash_root())
+            == Hash256::from_slice(&attestation_data_and_custody.tree_hash_root())
         {
             return Ok(Safe {
                 insert_index: target_index,
