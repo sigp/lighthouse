@@ -387,7 +387,16 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ///
     /// Attempts to apply to block to the beacon chain. May queue the block for later processing.
     ///
-    /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers.
+    /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers. 524
+    /// Old blocks or blocks on a different fork. Will need to recalc proposer shuffle.
+    /// May need heuristics...
+    /// Cases:
+    /// Do we know the block's parent?
+    /// 1.) It's a recent block on the same chain. We can use the current cache in the BeaconChain. (cheap)
+    /// 2.) Old block on a different fork. (may have to recalc shuffling)
+    /// If we don't know the block's parent, we don't who is supposed to sign it, therefore we can
+    /// not validate the signature.
+    /// 1.) We can try to look up the block's parent using the syncing thread. (it's expensive not sure how to reprop from sync thread)
     pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) -> bool {
         match self.chain.process_block(block.clone()) {
             Ok(outcome) => match outcome {

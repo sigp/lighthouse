@@ -204,7 +204,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                     let should_forward_on = self
                         .message_processor
                         .on_block_gossip(peer_id.clone(), block);
-                    // TODO: Apply more sophisticated validation and decoding logic
+                    // TODO: Apply more sophisticated validation and decoding logic - 524 verify block
                     if should_forward_on {
                         self.propagate_message(id, peer_id.clone());
                     }
@@ -215,7 +215,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             },
             PubsubMessage::Attestation(message) => match self.decode_gossip_attestation(message) {
                 Ok(attestation) => {
-                    // TODO: Apply more sophisticated validation and decoding logic
+                    // TODO: Apply more sophisticated validation and decoding logic - 524 verify attestation
                     self.propagate_message(id, peer_id.clone());
                     self.message_processor
                         .on_attestation_gossip(peer_id, attestation);
@@ -297,7 +297,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         &self,
         beacon_block: Vec<u8>,
     ) -> Result<BeaconBlock<T::EthSpec>, DecodeError> {
-        //TODO: Apply verification before decoding.
+        //TODO: Apply verification before decoding. - 524
         BeaconBlock::from_ssz_bytes(&beacon_block)
     }
 
@@ -305,7 +305,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         &self,
         beacon_block: Vec<u8>,
     ) -> Result<Attestation<T::EthSpec>, DecodeError> {
-        //TODO: Apply verification before decoding.
+        //TODO: Apply verification before decoding. - 524
         Attestation::from_ssz_bytes(&beacon_block)
     }
 
