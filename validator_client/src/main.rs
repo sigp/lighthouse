@@ -8,15 +8,15 @@ mod rest_client;
 mod service;
 mod signer;
 
-use crate::config::{
-    Config as ClientConfig, KeySource, DEFAULT_SERVER, DEFAULT_SERVER_GRPC_PORT,
-    DEFAULT_SERVER_HTTP_PORT,
-};
+use crate::attestation_producer::AttestationRestClient;
+use crate::block_producer::BeaconBlockRestClient;
+use crate::config::{Config as ClientConfig, KeySource, DEFAULT_SERVER, DEFAULT_SERVER_HTTP_PORT};
+use crate::duties::ValidatorServiceRestClient;
 use crate::service::Service as ValidatorService;
 use clap::{App, Arg, ArgMatches, SubCommand};
 use eth2_config::Eth2Config;
+use hyper::client::HttpConnector;
 use lighthouse_bootstrap::Bootstrapper;
-use protos::services_grpc::ValidatorServiceClient;
 use slog::{crit, error, info, o, Drain, Level, Logger};
 use std::path::PathBuf;
 use types::{InteropEthSpec, Keypair, MainnetEthSpec, MinimalEthSpec};
@@ -82,17 +82,8 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("server-grpc-port")
-                .long("server-grpc-port")
-                .short("g")
-                .value_name("PORT")
-                .help("Port to use for gRPC API connection to the server.")
-                .default_value(DEFAULT_SERVER_GRPC_PORT)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("server-http-port")
-                .long("server-http-port")
+            Arg::with_name("server-port")
+                .long("server-port")
                 .short("h")
                 .value_name("PORT")
                 .help("Port to use for HTTP API connection to the server.")
@@ -194,21 +185,27 @@ fn main() {
     );
 
     let result = match eth2_config.spec_constants.as_str() {
-        "mainnet" => ValidatorService::<ValidatorServiceClient, Keypair, MainnetEthSpec>::start(
-            client_config,
-            eth2_config,
-            log.clone(),
-        ),
-        "minimal" => ValidatorService::<ValidatorServiceClient, Keypair, MinimalEthSpec>::start(
-            client_config,
-            eth2_config,
-            log.clone(),
-        ),
-        "interop" => ValidatorService::<ValidatorServiceClient, Keypair, InteropEthSpec>::start(
-            client_config,
-            eth2_config,
-            log.clone(),
-        ),
+        "mainnet" => ValidatorService::<
+            ValidatorServiceRestClient<HttpConnector>,
+            Keypair,
+            MainnetEthSpec,
+            BeaconBlockRestClient<HttpConnector>,
+            AttestationRestClient<HttpConnector>,
+        >::start(client_config, eth2_config, log.clone()),
+        "minimal" => ValidatorService::<
+            ValidatorServiceRestClient<HttpConnector>,
+            Keypair,
+            MinimalEthSpec,
+            BeaconBlockRestClient<HttpConnector>,
+            AttestationRestClient<HttpConnector>,
+        >::start(client_config, eth2_config, log.clone()),
+        "interop" => ValidatorService::<
+            ValidatorServiceRestClient<HttpConnector>,
+            Keypair,
+            InteropEthSpec,
+            BeaconBlockRestClient<HttpConnector>,
+            AttestationRestClient<HttpConnector>,
+        >::start(client_config, eth2_config, log.clone()),
         other => {
             crit!(log, "Unknown spec constants"; "title" => other);
             return;
@@ -238,23 +235,16 @@ pub fn get_configs(
         client_config.server = server.to_string();
     }
 
-    if let Some(port) = cli_args.value_of("server-http-port") {
-        client_config.server_http_port = port
+    if let Some(port) = cli_args.value_of("server-port") {
+        client_config.server_port = port
             .parse::<u16>()
             .map_err(|e| format!("Unable to parse HTTP port: {:?}", e))?;
-    }
-
-    if let Some(port) = cli_args.value_of("server-grpc-port") {
-        client_config.server_grpc_port = port
-            .parse::<u16>()
-            .map_err(|e| format!("Unable to parse gRPC port: {:?}", e))?;
     }
 
     info!(
         *log,
         "Beacon node connection info";
-        "grpc_port" => client_config.server_grpc_port,
-        "http_port" => client_config.server_http_port,
+        "server_port" => client_config.server_port,
         "server" => &client_config.server,
     );
 
@@ -288,7 +278,7 @@ fn process_testnet_subcommand(
         let bootstrapper = Bootstrapper::connect(
             format!(
                 "http://{}:{}",
-                client_config.server, client_config.server_http_port
+                client_config.server, client_config.server_port
             ),
             &log,
         )?;

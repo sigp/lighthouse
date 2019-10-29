@@ -7,19 +7,19 @@ use futures::future::Future;
 use futures::stream::Stream;
 use hyper::client::connect::Connect;
 use hyper::StatusCode;
-use types::{Attestation, AttestationData, BeaconBlock, EthSpec, Signature, Slot};
+use types::{Attestation, EthSpec, Slot};
 
-pub struct BeaconBlockRestClient<T: Connect> {
+pub struct AttestationRestClient<T: Connect> {
     endpoint: String,
     client: RestClient<T>,
 }
 
-impl<T: Connect> BeaconNodeAttestation for BeaconBlockRestClient<T> {
+impl<T: Connect> BeaconNodeAttestation for AttestationRestClient<T> {
     fn produce_attestation_data<U: EthSpec>(
         &self,
         slot: Slot,
         shard: u64,
-    ) -> BoxFut<AttestationData, BeaconNodeError> {
+    ) -> BoxFut<Attestation<U>, BeaconNodeError> {
         let slot_str: &str = slot.into();
         let shard_str: &str = shard.into();
         self.client
@@ -28,7 +28,7 @@ impl<T: Connect> BeaconNodeAttestation for BeaconBlockRestClient<T> {
                 vec![("slot", slot_str), ("shard", shard_str)],
             )
             .and_then(|response| {
-                if (response.status() != StatusCode::OK) {
+                if response.status() != StatusCode::OK {
                     return futures::future::err(BeaconNodeError::RemoteFailure(format!(
                         "Received error {} from Beacon Node.",
                         response.status()

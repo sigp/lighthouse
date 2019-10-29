@@ -13,10 +13,9 @@ use types::{
     EthSpec, MainnetEthSpec,
 };
 
-use rest_api::config::ApiEncodingFormat;
+pub use rest_api::config::ApiEncodingFormat;
 
 pub const DEFAULT_SERVER: &str = "localhost";
-pub const DEFAULT_SERVER_GRPC_PORT: &str = "5051";
 pub const DEFAULT_SERVER_HTTP_PORT: &str = "5052";
 
 #[derive(Clone)]

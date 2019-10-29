@@ -8,7 +8,7 @@ use hyper::http::{Method, StatusCode};
 use hyper::rt::{Future, Stream};
 use hyper::{Body, Client, Request, Response};
 use serde::Serialize;
-use types::{Attestation, BeaconBlock, EthSpec, Signature, Slot};
+use tokio::prelude::*;
 use url::Url;
 
 pub struct RestClient<T: Connect> {
@@ -47,6 +47,21 @@ impl<T: Connect> RestClient<T> {
             .header(header::ACCEPT, self.config.api_encoding.get_content_type())
             .body(Body::empty());
         self.client.request(request)
+    }
+
+    pub fn make_get_request_with_timeout(
+        &self,
+        path: &str,
+        params: Vec<(&str, &str)>,
+    ) -> BoxFut<Response<Body>, BeaconNodeError> {
+        let mut request = self
+            .get_builder(Method::GET, path, params)
+            .header(header::ACCEPT, self.config.api_encoding.get_content_type())
+            .body(Body::empty());
+        self.client
+            .request(request)
+            .and_then(|mut response| response.body_mut().concat2())
+            .timeout(std::time::Duration::from_secs(30))
     }
 
     pub fn make_post_request<S: Serialize>(
@@ -89,7 +104,7 @@ impl<T: Connect> RestClient<T> {
         &self,
         endpoint: &str,
         item: S,
-    ) -> BoxFut<PublishOutcome, BeaconNodeError> {
+    ) -> BoxFut<PublishOutcome, ValidatorError> {
         self.make_post_request(self.endpoint.as_str(), item)
             .and_then(|response| {
                 let body_future = response
@@ -99,14 +114,16 @@ impl<T: Connect> RestClient<T> {
                         Ok(acc)
                     })
                     .map_err(|e| {
-                        BeaconNodeError::DecodeFailure("Unable to read response body.".into())
+                        ValidatorError::BeaconNodeError(BeaconNodeError::DecodeFailure(
+                            "Unable to read response body.".into(),
+                        ))
                     })
                     .and_then(|chunks| String::from_utf8(chunks))
                     .map_err(|e| {
-                        BeaconNodeError::DecodeFailure(format!(
+                        ValidatorError::BeaconNodeError(BeaconNodeError::DecodeFailure(format!(
                             "Response body not valid UTF8: {:?}",
                             e
-                        ))
+                        )))
                     });
                 match response.status {
                     // If it's OK, it's all good.
@@ -120,10 +137,10 @@ impl<T: Connect> RestClient<T> {
                         body_future.and_then(|body| PublishOutcome::Rejected(body))
                     }
                     _ => body_future.and_then(|body| {
-                        BeaconNodeError::RemoteFailure(format!(
+                        ValidatorError::BeaconNodeError(BeaconNodeError::RemoteFailure(format!(
                             "Error from beacon node: {:?}",
                             body
-                        ))
+                        )))
                     }),
                 }
             })

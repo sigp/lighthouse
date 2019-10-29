@@ -4,11 +4,12 @@ mod rest;
 use std::sync::Arc;
 use types::{ChainSpec, Domain, EthSpec, Fork};
 //TODO: Move these higher up in the crate
-pub use self::rest::BeaconBlockRestClient;
+pub use self::rest::AttestationRestClient;
 use super::block_producer::{BeaconNodeError, PublishOutcome, ValidatorEvent};
 use crate::signer::Signer;
 pub use beacon_node_attestation::BeaconNodeAttestation;
 use core::marker::PhantomData;
+use futures::future::Future;
 use slog::{error, info, warn};
 use tree_hash::TreeHash;
 use types::{
@@ -58,11 +59,21 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
                 "slot" => slot,
             ),
             Err(e) => error!(log, "Attestation production error"; "Error" => format!("{:?}", e)),
-            Ok(ValidatorEvent::SignerRejection(_slot)) => error!(log, "Attestation production error"; "Error" => "Signer could not sign the attestation".to_string()),
-            Ok(ValidatorEvent::IndexedAttestationNotProduced(_slot)) => error!(log, "Attestation production error"; "Error" => "Rejected the attestation as it could have been slashed".to_string()),
-            Ok(ValidatorEvent::PublishAttestationFailed) => error!(log, "Attestation production error"; "Error" => "Beacon node was unable to publish an attestation".to_string()),
-            Ok(ValidatorEvent::InvalidAttestation) => error!(log, "Attestation production error"; "Error" => "The signed attestation was invalid".to_string()),
-            Ok(v) => warn!(log, "Unknown result for attestation production"; "Error" => format!("{:?}",v)),
+            Ok(ValidatorEvent::SignerRejection(_slot)) => {
+                error!(log, "Attestation production error"; "Error" => "Signer could not sign the attestation".to_string())
+            }
+            Ok(ValidatorEvent::IndexedAttestationNotProduced(_slot)) => {
+                error!(log, "Attestation production error"; "Error" => "Rejected the attestation as it could have been slashed".to_string())
+            }
+            Ok(ValidatorEvent::PublishAttestationFailed) => {
+                error!(log, "Attestation production error"; "Error" => "Beacon node was unable to publish an attestation".to_string())
+            }
+            Ok(ValidatorEvent::InvalidAttestation) => {
+                error!(log, "Attestation production error"; "Error" => "The signed attestation was invalid".to_string())
+            }
+            Ok(v) => {
+                warn!(log, "Unknown result for attestation production"; "Error" => format!("{:?}",v))
+            }
         }
     }
 
@@ -81,25 +92,30 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
 
         let attestation = self
             .beacon_node
-            .produce_attestation_data(self.duty.slot, self.duty.shard)?;
-        if self.safe_to_produce(&attestation) {
-            let domain = self.spec.get_domain(epoch, Domain::Attestation, &self.fork);
-            if let Some(attestation) = self.sign_attestation(attestation, self.duty, domain) {
-                match self.beacon_node.publish_attestation(attestation) {
-                    Ok(PublishOutcome::Invalid(_string)) => Ok(ValidatorEvent::InvalidAttestation),
-                    Ok(PublishOutcome::Valid) => {
-                        Ok(ValidatorEvent::AttestationProduced(self.duty.slot))
+            .produce_attestation_data(self.duty.slot, self.duty.shard)
+            .and_then(|attestation| {
+                if self.safe_to_produce(&attestation) {
+                    let domain = self.spec.get_domain(epoch, Domain::Attestation, &self.fork);
+                    if let Some(attestation) = self.sign_attestation(attestation, self.duty, domain)
+                    {
+                        match self.beacon_node.publish_attestation(attestation) {
+                            Ok(PublishOutcome::Invalid(_string)) => {
+                                Ok(ValidatorEvent::InvalidAttestation)
+                            }
+                            Ok(PublishOutcome::Valid) => {
+                                Ok(ValidatorEvent::AttestationProduced(self.duty.slot))
+                            }
+                            Err(_) | Ok(_) => Ok(ValidatorEvent::PublishAttestationFailed),
+                        }
+                    } else {
+                        Ok(ValidatorEvent::SignerRejection(self.duty.slot))
                     }
-                    Err(_) | Ok(_) => Ok(ValidatorEvent::PublishAttestationFailed),
+                } else {
+                    Ok(ValidatorEvent::IndexedAttestationNotProduced(
+                        self.duty.slot,
+                    ))
                 }
-            } else {
-                Ok(ValidatorEvent::SignerRejection(self.duty.slot))
-            }
-        } else {
-            Ok(ValidatorEvent::IndexedAttestationNotProduced(
-                self.duty.slot,
-            ))
-        }
+            });
     }
 
     /// Consumes an attestation, returning the attestation signed by the validators private key.
@@ -108,7 +124,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
     /// done upstream.
     fn sign_attestation(
         &mut self,
-        attestation: AttestationData,
+        attestation: Attestation<E>,
         duties: AttestationDuty,
         domain: u64,
     ) -> Option<Attestation<E>> {
@@ -117,7 +133,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
         // build the aggregate signature
         let aggregate_signature = {
             let message = AttestationDataAndCustodyBit {
-                data: attestation.clone(),
+                data: attestation.data.clone(),
                 custody_bit: false,
             }
             .tree_hash_root();
@@ -146,7 +162,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
     /// !!! UNSAFE !!!
     ///
     /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn safe_to_produce(&self, _attestation: &AttestationData) -> bool {
+    fn safe_to_produce(&self, _attestation: &Attestation<E>) -> bool {
         //TODO: Implement slash protection
         true
     }

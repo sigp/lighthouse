@@ -1,7 +1,7 @@
 use super::beacon_node_duties::BeaconNodeDuties;
 use crate::config::ApiEncodingFormat;
 use crate::duties::epoch_duties::{EpochDuties, EpochDuty};
-use crate::error::{BeaconNodeError, PublishOutcome};
+use crate::error::BeaconNodeError;
 use crate::rest_client::RestClient;
 use crate::service::BoxFut;
 use futures::future::Future;
@@ -13,7 +13,7 @@ use rest_api::helpers::parse_pubkey;
 use rest_api::ValidatorDuty;
 use ssz::Decode;
 use std::collections::HashMap;
-use types::{AttestationDuty, BeaconBlock, Epoch, EthSpec, PublicKey, Signature, Slot};
+use types::{AttestationDuty, Epoch, PublicKey};
 
 pub struct ValidatorServiceRestClient<T: Connect> {
     endpoint: String,
@@ -35,7 +35,7 @@ impl<T: Connect> BeaconNodeDuties for ValidatorServiceRestClient<T> {
         self.client
             .make_get_request(self.endpoint.as_str(), parameters_vec)
             .and_then(|response| {
-                if (response.status() != StatusCode::OK) {
+                if response.status() != StatusCode::OK {
                     return futures::future::err(BeaconNodeError::RemoteFailure(format!(
                         "Received error {} from Beacon Node.",
                         response.status()

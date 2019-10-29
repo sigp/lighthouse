@@ -1,6 +1,6 @@
 use super::beacon_node_block::BeaconNodeBlock;
 use crate::config::ApiEncodingFormat;
-use crate::error::{BeaconNodeError, PublishOutcome};
+use crate::error::{BeaconNodeError, PublishOutcome, ValidatorError};
 use crate::rest_client::RestClient;
 use crate::service::BoxFut;
 use futures::future::Future;
@@ -19,7 +19,7 @@ impl<T: Connect> BeaconNodeBlock for BeaconBlockRestClient<T> {
         &self,
         slot: Slot,
         randao_reveal: &Signature,
-    ) -> BoxFut<BeaconBlock<U>, BeaconNodeError> {
+    ) -> BoxFut<BeaconBlock<U>, ValidatorError> {
         let slot_str: &str = slot.into();
         let randao_reveal_str: &str = serde_json::to_string(randao_reveal)
             .expect("We should always be able to serialize our signature into a string.")
@@ -30,11 +30,13 @@ impl<T: Connect> BeaconNodeBlock for BeaconBlockRestClient<T> {
                 vec![("slot", slot_str), ("randao_reveal", randao_reveal_str)],
             )
             .and_then(|response| {
-                if (response.status() != StatusCode::OK) {
-                    return futures::future::err(BeaconNodeError::RemoteFailure(format!(
-                        "Received error {} from Beacon Node.",
-                        response.status()
-                    )));
+                if response.status() != StatusCode::OK {
+                    return futures::future::err(ValidatorError::BeaconNodeError(
+                        BeaconNodeError::RemoteFailure(format!(
+                            "Received error {} from Beacon Node.",
+                            response.status()
+                        )),
+                    ));
                 }
                 response
                     .into_body()
@@ -56,7 +58,7 @@ impl<T: Connect> BeaconNodeBlock for BeaconBlockRestClient<T> {
     fn publish_beacon_block<U: EthSpec>(
         &self,
         block: BeaconBlock<U>,
-    ) -> BoxFut<PublishOutcome, BeaconNodeError> {
+    ) -> BoxFut<PublishOutcome, ValidatorError> {
         self.client
             .handle_publication(self.endpoint.as_str(), block)
     }

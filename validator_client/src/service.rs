@@ -8,24 +8,19 @@
 /// When a validator needs to either produce a block or sign an attestation, it requests the
 /// data from the beacon node and performs the signing before publishing the block to the beacon
 /// node.
-use crate::attestation_producer::AttestationProducer;
-use crate::attestation_producer::BeaconNodeAttestation;
+use crate::attestation_producer::{
+    AttestationProducer, AttestationRestClient, BeaconNodeAttestation,
+};
 use crate::block_producer::{BeaconBlockRestClient, BeaconNodeBlock, BlockProducer};
 use crate::config::Config as ValidatorConfig;
-use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
+use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap, ValidatorServiceRestClient};
 use crate::error as error_chain;
-use crate::error::ValidatorError;
 use crate::rest_client::RestClient;
 use crate::signer::Signer;
 use bls::Keypair;
 use eth2_config::Eth2Config;
-use grpcio::{ChannelBuilder, EnvBuilder};
-use protos::services::Empty;
-use protos::services_grpc::{
-    AttestationServiceClient, BeaconBlockService, BeaconBlockServiceClient,
-    BeaconNodeServiceClient, ValidatorServiceClient,
-};
-use slog::{crit, error, info, trace, warn};
+use futures::future::{loop_fn, Loop};
+use slog::{crit, info, trace, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -98,16 +93,28 @@ impl<
             validator_config.server, validator_config.server_port
         );
 
-        let env = Arc::new(EnvBuilder::new().build());
+        let rest_client = RestClient::new(validator_config.clone())?;
 
-        Service::<>::check_node_connection
+        let try_info_continuously = loop_fn((log, rest_client), |(log, r_client)| {
+            r_client
+                .make_get_request_with_timeout("/node/info", Vec::new())
+                .then(|result| match result {
+                    Ok(r) => {
+                        info!(log, "Connected to Beacon Node");
+                        Ok(Loop::Break(r))
+                    }
+                    Err(e) => {
+                        warn!(log, "Unable to connect to Beacon Node, trying again.");
+                        Ok(Loop::Continue(r_client))
+                    }
+                })
+        });
 
-        warn!(
-            log,
-            "Could not connect to beacon node";
-            "error" => format!("{:?}", e),
+        let info_response = try_info_continuously.wait()?;
+        info!(log,
+            "Connected to Beacon Node";
+            "version" => info_response,
         );
-
         /*
 
         {
@@ -165,6 +172,20 @@ impl<
             let ch = ChannelBuilder::new(env.clone()).connect(&server_url);
             Arc::new(AttestationServiceClient::new(ch))
         };
+        */
+
+        // Load generated keypairs
+        let keypairs = Arc::new(validator_config.fetch_keys(&log)?);
+
+        // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
+        // where EpochDuty contains slot numbers and attestation data that each validator needs to
+        // produce work on.
+        let duties_map = RwLock::new(EpochDutiesMap::new(E::slots_per_epoch()));
+
+        let duties_client = Arc::new(ValidatorServiceRestClient {
+            endpoint: "/beacon/validator/duties".into(),
+            client: RestClient::new(validator_config.clone()),
+        });
 
         // builds a manager which maintains the list of current duties for all known validators
         // and can check when a validator needs to perform a task.
@@ -172,79 +193,57 @@ impl<
             duties_map,
             // these are abstract objects capable of signing
             signers: keypairs,
-            beacon_node: validator_client,
+            beacon_node: duties_client,
         });
 
+        /*
         // build requisite objects to form Self
         let genesis_time = node_info.get_genesis_time();
         let genesis_slot = Slot::from(node_info.get_genesis_slot());
         let spec = Arc::new(eth2_config.spec);
-
-        // build the validator slot clock
-        let slot_clock = SystemTimeSlotClock::new(
-            genesis_slot,
-            Duration::from_secs(genesis_time),
-            Duration::from_millis(eth2_config.spec.milliseconds_per_slot),
-        );
-
-        // Load generated keypairs
-        let keypairs = Arc::new(validator_config.fetch_keys(&log)?);
-
-        let slots_per_epoch = E::slots_per_epoch();
+        */
 
         // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
         // https://github.com/sigp/lighthouse/issues/160
         //let keypairs = Arc::new(generate_deterministic_keypairs(8));
 
-        // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
-        // where EpochDuty contains slot numbers and attestation data that each validator needs to
-        // produce work on.
-        let duties_map = RwLock::new(EpochDutiesMap::new(slots_per_epoch));
-
+        /*
         let proto_fork = node_info.get_fork();
-        let mut previous_version: [u8; 4] = [0; 4];
-        let mut current_version: [u8; 4] = [0; 4];
         previous_version.copy_from_slice(&proto_fork.get_previous_version()[..4]);
         current_version.copy_from_slice(&proto_fork.get_current_version()[..4]);
         */
+        let mut previous_version: [u8; 4] = [0; 4];
+        let mut current_version: [u8; 4] = [0; 4];
         let fork = Fork {
             previous_version,
             current_version,
-            epoch: Epoch::from(proto_fork.get_epoch()),
+            epoch: Epoch::new(0),
         };
 
         let beacon_block_client = Arc::new(BeaconBlockRestClient {
             endpoint: "/beacon/validator/block".into(),
-            client: RestClient::new(validator_config),
+            client: RestClient::new(validator_config.clone()),
+        });
+        let attestation_client = Arc::new(AttestationRestClient {
+            endpoint: "/beacon/validator/attestation".into(),
+            client: RestClient::new(validator_config.clone()),
         });
 
         Ok(Service {
             fork,
-            slot_clock,
+            slot_clock: SystemTimeSlotClock::new(
+                Slot::Duration::from_secs(0),
+                Duration::from_millis(eth2_config.spec.milliseconds_per_slot),
+            ),
             current_slot: None,
-            slots_per_epoch,
-            spec,
+            slots_per_epoch: E::slots_per_epoch(),
+            spec: Arc::new(eth2_config.spec),
             duties_manager,
             beacon_block_client,
             attestation_client,
             log,
             _phantom: PhantomData,
         })
-    }
-
-    /// Checks to see if a node can be connected to via the REST API.
-    ///
-    /// Sends a GET request to the /node/version REST API endpoint, including a timeout, to
-    /// determine if the BeaconNode is online and contactable.
-    fn check_node_connection(validator_config: ValidatorConfig) -> Result<(), ValidatorError> {
-        let rest_client = RestClient::new(validator_config)?;
-
-        let node_version_fut = rest_client
-            .make_get_request("/node/info", Vec::new())
-            .and_then(|mut response| response.body_mut().concat2())
-            .timeout(std::time::Duration::from_secs(30));
-
-        let version = node_version_fut.wait();
     }
 
     /// Initialise the service then run the core thread.
@@ -255,11 +254,8 @@ impl<
         log: slog::Logger,
     ) -> error_chain::Result<()> {
         // connect to the node and retrieve its properties and initialize the clients
-        let mut service = Service::<ValidatorServiceClient, Keypair, E>::initialize_service(
-            client_config,
-            eth2_config,
-            log.clone(),
-        )?;
+        let mut service =
+            Service::<D, S, E, B, A>::initialize_service(client_config, eth2_config, log.clone())?;
 
         // we have connected to a node and established its parameters. Spin up the core service
 
