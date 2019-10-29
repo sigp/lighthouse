@@ -1,4 +1,4 @@
-use crate::enums::{NotSafe, Safe, ValidData};
+use crate::enums::{NotSafe, Safe, ValidityReason};
 use ssz_derive::{Decode, Encode};
 use types::{BeaconBlockHeader, Hash256, Slot};
 
@@ -37,7 +37,7 @@ pub fn check_for_proposer_slashing(
     if block_history.is_empty() {
         return Ok(Safe {
             insert_index: 0,
-            reason: ValidData::EmptyHistory,
+            reason: ValidityReason::EmptyHistory,
         });
     }
 
@@ -45,7 +45,7 @@ pub fn check_for_proposer_slashing(
     if block_header.slot > last_block.slot {
         return Ok(Safe {
             insert_index: block_history.len(),
-            reason: ValidData::Valid,
+            reason: ValidityReason::Valid,
         });
     }
     let index = block_history
@@ -60,7 +60,7 @@ pub fn check_for_proposer_slashing(
         if block_history[index].signing_root == block_header.canonical_root() {
             Ok(Safe {
                 insert_index: index,
-                reason: ValidData::SameVote,
+                reason: ValidityReason::SameVote,
             })
         } else {
             Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal))

@@ -9,7 +9,7 @@ pub enum NotSafe {
 }
 
 #[derive(PartialEq, Debug)]
-pub enum ValidData {
+pub enum ValidityReason {
     EmptyHistory,
     SameVote,
     Valid,
@@ -18,5 +18,5 @@ pub enum ValidData {
 #[derive(PartialEq, Debug)]
 pub struct Safe {
     pub insert_index: usize,
-    pub reason: ValidData,
+    pub reason: ValidityReason,
 }

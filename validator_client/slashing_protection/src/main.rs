@@ -3,7 +3,7 @@ extern crate fs2;
 use fs2::FileExt;
 use parking_lot::Mutex;
 use slashing_protection::attester_slashings::{check_for_attester_slashing, SignedAttestation};
-use slashing_protection::enums::{NotSafe, Safe, ValidData};
+use slashing_protection::enums::{NotSafe, Safe, ValidityReason};
 use slashing_protection::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
 use ssz::{Decode, Encode};
 use std::convert::TryFrom;
@@ -16,8 +16,8 @@ use types::{
     AttestationData, AttestationDataAndCustodyBit, BeaconBlockHeader, Checkpoint, Crosslink, Epoch, Hash256, Signature, Slot,
 };
 
-const BLOCK_HISTORY_FILE: &str = "block.file";
-const ATTESTATION_HISTORY_FILE: &str = "attestation.file";
+const BLOCK_HISTORY_FILE: &str = "block.file"; // names ought to change
+const ATTESTATION_HISTORY_FILE: &str = "attestation.file"; // names ought to change
 
 /// Trait used to know if type T can be checked for slashing safety
 trait SafeFromSlashing<T> {
@@ -58,7 +58,7 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
 
 #[derive(Debug)]
 struct HistoryInfo<T: Encode + Decode + Clone> {
-    filename: String,
+    filepath: String,
     mutex: Arc<Mutex<Vec<T>>>,
 }
 
@@ -69,18 +69,18 @@ impl<T: Encode + Decode + Clone> HistoryInfo<T> {
         index: usize,
     ) -> IOResult<()>
     {
-        println!("{}: waiting for mutex", self.filename);
+        println!("{}: waiting for mutex", self.filepath);
         let mut data_history = self.mutex.lock(); // SCOTT: check here please
-        println!("{}: mutex acquired", self.filename);
+        println!("{}: mutex acquired", self.filepath);
         data_history.insert(index, data); // assert(index < data_history.len()) ?
-        let mut file = File::create(self.filename.as_str()).unwrap();
-        println!("{}: waiting for file", self.filename);
+        let mut file = File::create(self.filepath.as_str()).unwrap();
+        println!("{}: waiting for file", self.filepath);
         file.lock_exclusive()?;
-        println!("{}: file acquired", self.filename);
+        println!("{}: file acquired", self.filepath);
         // go_to_sleep(100); // nope
         file.write_all(&data_history.as_ssz_bytes()).expect("HEY"); // nope
         file.unlock()?;
-        println!("{}: file unlocked", self.filename);
+        println!("{}: file unlocked", self.filepath);
 
         Ok(())
     }
@@ -101,13 +101,13 @@ impl<T: Encode + Decode + Clone> HistoryInfo<T> {
 impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {
     type Error = IOError;
 
-    fn try_from(filename: &str) -> Result<Self, Self::Error> {
-        let mut file = match File::open(filename) {
+    fn try_from(filepath: &str) -> Result<Self, Self::Error> {
+        let mut file = match File::open(filepath) {
             Ok(file) => file,
             Err(e) => match e.kind() {
                 ErrorKind::NotFound => {
                     return Ok(Self {
-                        filename: filename.to_string(),
+                        filepath: filepath.to_string(),
                         mutex: Arc::new(Mutex::new(vec![])),
                     })
                 }
@@ -126,7 +126,7 @@ impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {
         let arc_data = Arc::new(data_mutex);
 
         Ok(Self {
-            filename: filename.to_string(),
+            filepath: filepath.to_string(),
             mutex: arc_data,
         })
     }
@@ -157,7 +157,7 @@ fn run() {
             let check = attestation_info.check_for_slashing(&attestation);
             match check {
                 Ok(safe) => match safe.reason {
-                    ValidData::SameVote => (),
+                    ValidityReason::SameVote => (),
                     _ => attestation_info
                         .update_and_write(SignedAttestation::from(&attestation), safe.insert_index)
                         .unwrap(), //
@@ -167,7 +167,7 @@ fn run() {
             let check = block_info.check_for_slashing(&block);
             match check {
                 Ok(safe) => match safe.reason {
-                    ValidData::SameVote => (),
+                    ValidityReason::SameVote => (),
                     _ => block_info.update_and_write(SignedBlock::from(&block), safe.insert_index).unwrap(), //
                 },
                 Err(_notsafe) => panic!("error block"),
@@ -216,4 +216,13 @@ fn build_checkpoint(epoch_num: u64) -> Checkpoint {
         epoch: Epoch::from(epoch_num),
         root: Hash256::zero(),
     }
+}
+
+
+#[cfg(test)]
+mod single_thread_tests {
+}
+
+#[cfg(test)]
+mod multi_thread_tests {
 }

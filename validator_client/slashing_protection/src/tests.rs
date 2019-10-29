@@ -39,7 +39,7 @@ mod attestation_tests {
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
                 insert_index: 0,
-                reason: ValidData::EmptyHistory,
+                reason: ValidityReason::EmptyHistory,
             })
         );
     }
@@ -56,7 +56,7 @@ mod attestation_tests {
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
                 insert_index: 1,
-                reason: ValidData::Valid,
+                reason: ValidityReason::Valid,
             })
         );
     }
@@ -73,7 +73,7 @@ mod attestation_tests {
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
                 insert_index: 2,
-                reason: ValidData::Valid,
+                reason: ValidityReason::Valid,
             })
         );
     }
@@ -89,7 +89,7 @@ mod attestation_tests {
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
                 insert_index: 1,
-                reason: ValidData::Valid,
+                reason: ValidityReason::Valid,
             })
         );
     }
@@ -112,7 +112,7 @@ mod attestation_tests {
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
                 insert_index: 0,
-                reason: ValidData::SameVote,
+                reason: ValidityReason::SameVote,
             })
         );
     }
@@ -135,7 +135,7 @@ mod attestation_tests {
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
                 insert_index: 1,
-                reason: ValidData::SameVote,
+                reason: ValidityReason::SameVote,
             })
         );
     }
@@ -158,7 +158,7 @@ mod attestation_tests {
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
                 insert_index: 2,
-                reason: ValidData::SameVote,
+                reason: ValidityReason::SameVote,
             })
         );
     }
@@ -426,7 +426,7 @@ mod block_tests {
             check_for_proposer_slashing(&new_block, &history),
             Ok(Safe {
                 insert_index: 0,
-                reason: ValidData::EmptyHistory
+                reason: ValidityReason::EmptyHistory
             })
         );
     }
@@ -443,7 +443,7 @@ mod block_tests {
             check_for_proposer_slashing(&new_block, &history),
             Ok(Safe {
                 insert_index: 2,
-                reason: ValidData::Valid
+                reason: ValidityReason::Valid
             })
         );
     }
@@ -462,7 +462,7 @@ mod block_tests {
             check_for_proposer_slashing(&new_block, &history),
             Ok(Safe {
                 insert_index: 2,
-                reason: ValidData::SameVote
+                reason: ValidityReason::SameVote
             })
         );
     }

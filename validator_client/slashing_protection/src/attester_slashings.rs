@@ -1,4 +1,4 @@
-use crate::enums::{NotSafe, Safe, ValidData};
+use crate::enums::{NotSafe, Safe, ValidityReason};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use types::{AttestationData, AttestationDataAndCustodyBit, Epoch, Hash256};
@@ -74,7 +74,7 @@ pub fn check_for_attester_slashing(
     if attestation_history.is_empty() {
         return Ok(Safe {
             insert_index: 0,
-            reason: ValidData::EmptyHistory,
+            reason: ValidityReason::EmptyHistory,
         });
     }
 
@@ -96,7 +96,7 @@ pub fn check_for_attester_slashing(
         {
             return Ok(Safe {
                 insert_index: target_index,
-                reason: ValidData::SameVote,
+                reason: ValidityReason::SameVote,
             });
         } else {
             return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote));
@@ -121,6 +121,6 @@ pub fn check_for_attester_slashing(
 
     Ok(Safe {
         insert_index: target_index + 1,
-        reason: ValidData::Valid,
+        reason: ValidityReason::Valid,
     })
 }
