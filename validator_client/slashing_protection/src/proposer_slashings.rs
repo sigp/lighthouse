@@ -46,7 +46,7 @@ pub fn check_for_proposer_slashing(
         return Ok(Safe {
             insert_index: block_history.len(),
             reason: ValidData::Valid,
-        })
+        });
     }
     let index = block_history
         .iter()

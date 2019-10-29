@@ -3,16 +3,18 @@ extern crate fs2;
 use fs2::FileExt;
 use parking_lot::Mutex;
 use slashing_protection::attester_slashings::{check_for_attester_slashing, SignedAttestation};
-use slashing_protection::enums::{NotSafe, Safe};
+use slashing_protection::enums::{NotSafe, Safe, ValidData};
 use slashing_protection::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
 use ssz::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fs::File;
-use std::io::{Read, Result as IOResult, Write};
+use std::io::{Error as IOError, ErrorKind, Read, Result as IOResult, Write};
 use std::sync::Arc;
 use std::thread;
 use std::time;
-use types::*;
+use types::{
+    AttestationData, AttestationDataAndCustodyBit, BeaconBlockHeader, Checkpoint, Crosslink, Epoch, Hash256, Signature, Slot,
+};
 
 const BLOCK_HISTORY_FILE: &str = "block.file";
 const ATTESTATION_HISTORY_FILE: &str = "attestation.file";
@@ -31,11 +33,11 @@ trait SafeFromSlashing<T> {
 }
 
 impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
-    type U = AttestationData;
+    type U = AttestationDataAndCustodyBit;
 
     fn verify_and_get_index(
         &self,
-        incoming_data: &AttestationData,
+        incoming_data: &AttestationDataAndCustodyBit,
         data_history: &[SignedAttestation],
     ) -> Result<Safe, NotSafe> {
         check_for_attester_slashing(incoming_data, data_history)
@@ -61,11 +63,16 @@ struct HistoryInfo<T: Encode + Decode + Clone> {
 }
 
 impl<T: Encode + Decode + Clone> HistoryInfo<T> {
-    pub fn update_and_write(&mut self) -> IOResult<()> {
+    pub fn update_and_write(
+        &mut self,
+        data: T,
+        index: usize,
+    ) -> IOResult<()>
+    {
         println!("{}: waiting for mutex", self.filename);
-        let data_history = self.mutex.lock(); // SCOTT: check here please
+        let mut data_history = self.mutex.lock(); // SCOTT: check here please
         println!("{}: mutex acquired", self.filename);
-        // insert
+        data_history.insert(index, data); // assert(index < data_history.len()) ?
         let mut file = File::create(self.filename.as_str()).unwrap();
         println!("{}: waiting for file", self.filename);
         file.lock_exclusive()?;
@@ -92,10 +99,21 @@ impl<T: Encode + Decode + Clone> HistoryInfo<T> {
 }
 
 impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {
-    type Error = &'static str;
+    type Error = IOError;
 
     fn try_from(filename: &str) -> Result<Self, Self::Error> {
-        let mut file = File::open(filename).unwrap();
+        let mut file = match File::open(filename) {
+            Ok(file) => file,
+            Err(e) => match e.kind() {
+                ErrorKind::NotFound => {
+                    return Ok(Self {
+                        filename: filename.to_string(),
+                        mutex: Arc::new(Mutex::new(vec![])),
+                    })
+                }
+                _ => return Err(e),
+            },
+        };
         file.lock_exclusive().unwrap();
         let mut bytes = vec![];
         file.read_to_end(&mut bytes).unwrap();
@@ -129,16 +147,33 @@ fn run() {
     for _ in 0..4 {
         let handle = thread::spawn(move || {
             let mut attestation_info: HistoryInfo<SignedAttestation> =
-                HistoryInfo::try_from(ATTESTATION_HISTORY_FILE).unwrap();
+                HistoryInfo::try_from(ATTESTATION_HISTORY_FILE).expect("IO error with file"); // critical error
             let mut block_info: HistoryInfo<SignedBlock> =
-                HistoryInfo::try_from(BLOCK_HISTORY_FILE).unwrap();
-            let attestation = attestation_builder(1, 2);
+                HistoryInfo::try_from(BLOCK_HISTORY_FILE).expect("IO errro with file"); // critical error
+
+            let attestation = attestation_and_custody_bit_builder(1, 2);
             let block = block_builder(1);
-            let res = attestation_info.check_for_slashing(&attestation);
-            let res = block_info.check_for_slashing(&block);
+
+            let check = attestation_info.check_for_slashing(&attestation);
+            match check {
+                Ok(safe) => match safe.reason {
+                    ValidData::SameVote => (),
+                    _ => attestation_info
+                        .update_and_write(SignedAttestation::from(&attestation), safe.insert_index)
+                        .unwrap(), //
+                },
+                Err(_notsafe) => panic!("error"), // return error
+            }
+            let check = block_info.check_for_slashing(&block);
+            match check {
+                Ok(safe) => match safe.reason {
+                    ValidData::SameVote => (),
+                    _ => block_info.update_and_write(SignedBlock::from(&block), safe.insert_index).unwrap(), //
+                },
+                Err(_notsafe) => panic!("error block"),
+            }
+
             go_to_sleep(1000);
-            attestation_info.update_and_write().unwrap();
-            block_info.update_and_write().unwrap();
         });
         handles.push(handle);
     }
@@ -148,16 +183,21 @@ fn run() {
     }
 }
 
-fn attestation_builder(source: u64, target: u64) -> AttestationData {
+fn attestation_and_custody_bit_builder(source: u64, target: u64) -> AttestationDataAndCustodyBit {
     let source = build_checkpoint(source);
     let target = build_checkpoint(target);
     let crosslink = Crosslink::default();
 
-    AttestationData {
+    let data = AttestationData {
         beacon_block_root: Hash256::zero(),
         source,
         target,
         crosslink,
+    };
+
+    AttestationDataAndCustodyBit {
+        data,
+        custody_bit: false,
     }
 }
 

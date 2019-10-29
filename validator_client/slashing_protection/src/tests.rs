@@ -481,7 +481,6 @@ mod block_tests {
     fn invalid_double_block_proposal() {
         let mut history = vec![];
 
-
         history.push(SignedBlock::new(1, Hash256::random()));
         history.push(SignedBlock::new(2, Hash256::random()));
         history.push(SignedBlock::new(3, Hash256::random()));

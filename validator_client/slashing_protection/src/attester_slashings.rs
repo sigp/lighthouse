@@ -1,8 +1,7 @@
 use crate::enums::{NotSafe, Safe, ValidData};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
-use types::*;
-use types::{AttestationDataAndCustodyBit, Epoch, Hash256};
+use types::{AttestationData, AttestationDataAndCustodyBit, Epoch, Hash256};
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SignedAttestation {
@@ -69,7 +68,7 @@ fn check_surrounding(
 }
 
 pub fn check_for_attester_slashing(
-    attestation_data: &AttestationData,
+    attestation_data_and_custody: &AttestationDataAndCustodyBit,
     attestation_history: &[SignedAttestation],
 ) -> Result<Safe, NotSafe> {
     if attestation_history.is_empty() {
@@ -79,6 +78,7 @@ pub fn check_for_attester_slashing(
         });
     }
 
+    let attestation_data = &attestation_data_and_custody.data;
     let target_index = match attestation_history
         .iter()
         .rev()
