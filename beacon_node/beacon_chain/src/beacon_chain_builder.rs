@@ -214,7 +214,7 @@ fn interop_genesis_state<T: EthSpec>(
     let mut tree = MerkleTree::create(&[], depth);
     for (i, deposit_leaf) in deposit_root_leaves.iter().enumerate() {
         if let Err(_) = tree.push_leaf(*deposit_leaf, depth) {
-            return Err(String::from("Failed to push leaf"))
+            return Err(String::from("Failed to push leaf"));
         }
 
         let (_, mut proof) = tree.generate_proof(i, depth);
