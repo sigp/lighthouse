@@ -9,7 +9,7 @@ use std::cmp::max;
 /// See the 'generalized domain' algorithm on page 3.
 ///
 /// Note: this function is significantly slower than the `shuffle_list` function in this crate.
-/// Using `get_permutated_list` to shuffle an entire list, index by index, has been observed to be
+/// Using `compute_shuffled_index` to shuffle an entire list, index by index, has been observed to be
 /// 250x slower than `shuffle_list`. Therefore, this function is only useful when shuffling a small
 /// portion of a much larger list.
 ///
@@ -18,7 +18,7 @@ use std::cmp::max;
 ///  - `index >= list_size`
 ///  - `list_size > 2**24`
 ///  - `list_size > usize::max_value() / 2`
-pub fn get_permutated_index(
+pub fn compute_shuffled_index(
     index: usize,
     list_size: usize,
     seed: &[u8],
@@ -54,7 +54,7 @@ fn hash_with_round_and_position(seed: &[u8], round: u8, position: usize) -> Opti
     seed.append(&mut int_to_bytes1(round));
     /*
      * Note: the specification has an implicit assertion in `int_to_bytes4` that `position / 256 <
-     * 2**24`. For efficiency, we do not check for that here as it is checked in `get_permutated_index`.
+     * 2**24`. For efficiency, we do not check for that here as it is checked in `compute_shuffled_index`.
      */
     seed.append(&mut int_to_bytes4((position / 256) as u32));
     Some(hash(&seed[..]))
@@ -90,7 +90,7 @@ mod tests {
             let seed = Hash256::random();
             let shuffle_rounds = 90;
 
-            assert!(get_permutated_index(index, list_size, &seed[..], shuffle_rounds).is_some());
+            assert!(compute_shuffled_index(index, list_size, &seed[..], shuffle_rounds).is_some());
         }
 
         // Test at max list_size low indices.
@@ -100,7 +100,7 @@ mod tests {
             let seed = Hash256::random();
             let shuffle_rounds = 90;
 
-            assert!(get_permutated_index(index, list_size, &seed[..], shuffle_rounds).is_some());
+            assert!(compute_shuffled_index(index, list_size, &seed[..], shuffle_rounds).is_some());
         }
 
         // Test at max list_size high indices.
@@ -110,25 +110,25 @@ mod tests {
             let seed = Hash256::random();
             let shuffle_rounds = 90;
 
-            assert!(get_permutated_index(index, list_size, &seed[..], shuffle_rounds).is_some());
+            assert!(compute_shuffled_index(index, list_size, &seed[..], shuffle_rounds).is_some());
         }
     }
 
     #[test]
     fn returns_none_for_zero_length_list() {
-        assert_eq!(None, get_permutated_index(100, 0, &[42, 42], 90));
+        assert_eq!(None, compute_shuffled_index(100, 0, &[42, 42], 90));
     }
 
     #[test]
     fn returns_none_for_out_of_bounds_index() {
-        assert_eq!(None, get_permutated_index(100, 100, &[42, 42], 90));
+        assert_eq!(None, compute_shuffled_index(100, 100, &[42, 42], 90));
     }
 
     #[test]
     fn returns_none_for_too_large_list() {
         assert_eq!(
             None,
-            get_permutated_index(100, usize::max_value() / 2, &[42, 42], 90)
+            compute_shuffled_index(100, usize::max_value() / 2, &[42, 42], 90)
         );
     }
 }
