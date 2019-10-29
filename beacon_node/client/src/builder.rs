@@ -149,6 +149,9 @@ where
                             let genesis_service = Eth1GenesisService::new(
                                 Eth1Config {
                                     block_cache_truncation: None,
+                                    blocks_per_log_query: 1_000,
+                                    max_log_requests_per_update: Some(1),
+                                    max_blocks_per_update: Some(1),
                                     ..config
                                 },
                                 context.log.clone(),

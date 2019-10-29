@@ -52,8 +52,6 @@ pub enum Error {
 }
 
 pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
-    fn new(server: String, contract_addr: String, log: &slog::Logger) -> Result<Self, Error>;
-
     /// Returns the `Eth1Data` that should be included in a block being produced for the given
     /// `state`.
     fn eth1_data(&self, beacon_state: &BeaconState<T>) -> Result<Eth1Data, Error>;
@@ -72,15 +70,9 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     ) -> Result<Vec<Deposit>, Error>;
 }
 
-pub struct DummyEth1ChainBackend<T: EthSpec> {
-    _phantom: PhantomData<T>,
-}
+pub struct DummyEth1ChainBackend<T: EthSpec>(PhantomData<T>);
 
 impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
-    fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self, Error> {
-        Ok(Self::default())
-    }
-
     fn eth1_data(&self, state: &BeaconState<T>) -> Result<Eth1Data, Error> {
         let current_epoch = state.current_epoch();
         let slots_per_voting_period = T::slots_per_eth1_voting_period() as u64;
@@ -103,9 +95,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
 
 impl<T: EthSpec> Default for DummyEth1ChainBackend<T> {
     fn default() -> Self {
-        Self {
-            _phantom: PhantomData,
-        }
+        Self(PhantomData)
     }
 }
 
@@ -200,17 +190,24 @@ impl<T: EthSpec> JsonRpcEth1Backend<T> {
 }
 
 impl<T: EthSpec> Eth1ChainBackend<T> for JsonRpcEth1Backend<T> {
-    fn new(_server: String, _contract_addr: String, _log: &slog::Logger) -> Result<Self, Error> {
+    fn eth1_data(&self, state: &BeaconState<T>) -> Result<Eth1Data, Error> {
+        if self.use_dummy_backend {
+            return DummyEth1ChainBackend::default().eth1_data(state);
+        }
+
         // TODO: ensure dummy values are used.
         panic!()
     }
 
-    fn eth1_data(&self, _state: &BeaconState<T>) -> Result<Eth1Data, Error> {
-        // TODO: ensure dummy values are used.
-        panic!()
-    }
+    fn queued_deposits(
+        &self,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Result<Vec<Deposit>, Error> {
+        if self.use_dummy_backend {
+            return DummyEth1ChainBackend::default().queued_deposits(state, spec);
+        }
 
-    fn queued_deposits(&self, _: &BeaconState<T>, _: &ChainSpec) -> Result<Vec<Deposit>, Error> {
         // TODO: ensure dummy values are used.
         panic!()
     }

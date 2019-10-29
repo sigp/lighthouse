@@ -20,14 +20,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Delay;
 
-/// The span of blocks we should query for logs, per request.
-const BLOCKS_PER_LOG_QUERY: usize = 1_000;
-/// The maximum number of log requests per update.
-const MAX_LOG_REQUESTS_PER_UPDATE: usize = 1;
-
-/// The maximum number of log requests per update.
-const MAX_BLOCKS_PER_UPDATE: usize = 1;
-
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
 /// Timeout when doing a eth_blockNumber call.
@@ -113,6 +105,12 @@ pub struct Config {
     pub block_cache_truncation: Option<usize>,
     /// The interval between updates when using the `auto_update` function.
     pub auto_update_interval_millis: u64,
+    /// The span of blocks we should query for logs, per request.
+    pub blocks_per_log_query: usize,
+    /// The maximum number of log requests per update.
+    pub max_log_requests_per_update: Option<usize>,
+    /// The maximum number of log requests per update.
+    pub max_blocks_per_update: Option<usize>,
 }
 
 impl Default for Config {
@@ -125,6 +123,9 @@ impl Default for Config {
             follow_distance: 128,
             block_cache_truncation: Some(4_096),
             auto_update_interval_millis: 500,
+            blocks_per_log_query: 1_000,
+            max_log_requests_per_update: None,
+            max_blocks_per_update: None,
         }
     }
 }
@@ -328,6 +329,11 @@ impl Service {
     ) -> impl Future<Item = DepositCacheUpdateOutcome, Error = Error> {
         let service_1 = self.clone();
         let service_2 = self.clone();
+        let blocks_per_log_query = self.config().blocks_per_log_query;
+        let max_log_requests_per_update = self
+            .config()
+            .max_log_requests_per_update
+            .unwrap_or_else(|| usize::max_value());
 
         let next_required_block = self
             .deposits()
@@ -341,14 +347,14 @@ impl Service {
             next_required_block,
             self.config().follow_distance,
         )
-        .map(|range| {
+        .map(move |range| {
             range
                 .map(|range| {
                     range
                         .into_iter()
                         .collect::<Vec<u64>>()
-                        .chunks(BLOCKS_PER_LOG_QUERY)
-                        .take(MAX_LOG_REQUESTS_PER_UPDATE)
+                        .chunks(blocks_per_log_query)
+                        .take(max_log_requests_per_update)
                         .map(|vec| {
                             let first = vec.first().cloned().unwrap_or_else(|| 0);
                             let last = vec.last().map(|n| n + 1).unwrap_or_else(|| 0);
@@ -432,7 +438,11 @@ impl Service {
         let cache_4 = self.inner.clone();
         let cache_5 = self.inner.clone();
 
-        let block_cache_truncation = self.inner.config.read().block_cache_truncation;
+        let block_cache_truncation = self.config().block_cache_truncation;
+        let max_blocks_per_update = self
+            .config()
+            .max_blocks_per_update
+            .unwrap_or_else(|| usize::max_value());
 
         let next_required_block = cache_1
             .block_cache
@@ -478,7 +488,7 @@ impl Service {
         .and_then(move |required_block_numbers| {
             let required_block_numbers = required_block_numbers
                 .into_iter()
-                .take(MAX_BLOCKS_PER_UPDATE);
+                .take(max_blocks_per_update);
 
             // Produce a stream from the list of required block numbers and return a future that
             // consumes the it.
