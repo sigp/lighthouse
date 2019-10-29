@@ -44,7 +44,6 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 /// Only useful for testing.
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
-
 const BLOCK_SKIPPING_LOGGING_THRESHOLD: u64 = 3;
 
 #[derive(Debug, PartialEq)]
