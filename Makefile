@@ -11,10 +11,20 @@ release:
 # Runs the full workspace tests, without downloading any additional test
 # vectors.
 test:
-	cargo test --all --all-features --release
+	cargo test --all --all-features --release --exclude ef_tests
+
+
+# only run the ef-test vectors
+--run-ef-tests: 
+	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
+
+test-ef: make-ef-tests --run-ef-tests
 
 # Runs the entire test suite, downloading test vectors if required.
-test-full: make-ef-tests test
+test-full: 
+	test
+	test-ef
+
 
 # Runs the makefile in the `ef_tests` repo.
 #
