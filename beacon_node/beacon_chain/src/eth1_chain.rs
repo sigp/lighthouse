@@ -10,11 +10,17 @@ use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
 /// Holds an `Eth1ChainBackend` and serves requests from the `BeaconChain`.
 pub struct Eth1Chain<T: BeaconChainTypes> {
     backend: T::Eth1Chain,
+    /// When `true`, the backend will be ignored and dummy data from the 2019 Canada interop method
+    /// will be used instead.
+    pub use_dummy_backend: bool,
 }
 
 impl<T: BeaconChainTypes> Eth1Chain<T> {
     pub fn new(backend: T::Eth1Chain) -> Self {
-        Self { backend }
+        Self {
+            backend,
+            use_dummy_backend: false,
+        }
     }
 
     /// Returns the `Eth1Data` that should be included in a block being produced for the given
@@ -23,7 +29,11 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
         &self,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<Eth1Data, Error> {
-        self.backend.eth1_data(state)
+        if self.use_dummy_backend {
+            return DummyEth1ChainBackend::default().eth1_data(state);
+        } else {
+            self.backend.eth1_data(state)
+        }
     }
 
     /// Returns a list of `Deposits` that may be included in a block.
@@ -35,7 +45,11 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
         state: &BeaconState<T::EthSpec>,
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
-        self.backend.queued_deposits(state, spec)
+        if self.use_dummy_backend {
+            return DummyEth1ChainBackend::default().queued_deposits(state, spec);
+        } else {
+            self.backend.queued_deposits(state, spec)
+        }
     }
 }
 
@@ -102,9 +116,6 @@ impl<T: EthSpec> Default for DummyEth1ChainBackend<T> {
 #[derive(Clone)]
 pub struct JsonRpcEth1Backend<T: EthSpec> {
     pub core: HttpService,
-    /// When `true`, the caches in `core` will be ignored and dummy data from the 2019 Canada
-    /// interop method will be used instead.
-    pub use_dummy_backend: bool,
     _phantom: PhantomData<T>,
 }
 
@@ -112,7 +123,6 @@ impl<T: EthSpec> JsonRpcEth1Backend<T> {
     pub fn new(config: Eth1Config, log: Logger) -> Self {
         Self {
             core: HttpService::new(config, log),
-            use_dummy_backend: false,
             _phantom: PhantomData,
         }
     }
@@ -125,7 +135,6 @@ impl<T: EthSpec> JsonRpcEth1Backend<T> {
     pub fn from_service(service: HttpService) -> Self {
         Self {
             core: service,
-            use_dummy_backend: false,
             _phantom: PhantomData,
         }
     }
@@ -191,11 +200,6 @@ impl<T: EthSpec> JsonRpcEth1Backend<T> {
 
 impl<T: EthSpec> Eth1ChainBackend<T> for JsonRpcEth1Backend<T> {
     fn eth1_data(&self, state: &BeaconState<T>) -> Result<Eth1Data, Error> {
-        if self.use_dummy_backend {
-            return DummyEth1ChainBackend::default().eth1_data(state);
-        }
-
-        // TODO: ensure dummy values are used.
         panic!()
     }
 
@@ -204,11 +208,6 @@ impl<T: EthSpec> Eth1ChainBackend<T> for JsonRpcEth1Backend<T> {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
-        if self.use_dummy_backend {
-            return DummyEth1ChainBackend::default().queued_deposits(state, spec);
-        }
-
-        // TODO: ensure dummy values are used.
         panic!()
     }
 }

@@ -549,11 +549,7 @@ where
     /// Sets the `BeaconChain` eth1 back-end to `JsonRpcEth1Backend`.
     ///
     /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
-    pub fn json_rpc_eth1_backend(
-        mut self,
-        config: Eth1Config,
-        use_dummy_backend: bool,
-    ) -> Result<Self, String> {
+    pub fn json_rpc_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -563,24 +559,18 @@ where
             .beacon_chain_builder
             .ok_or_else(|| "json_rpc_eth1_backend requires a beacon_chain_builder")?;
 
-        let mut backend = JsonRpcEth1Backend::new(config, context.log);
+        let backend = JsonRpcEth1Backend::new(config, context.log);
 
-        backend.use_dummy_backend = use_dummy_backend;
+        let exit = {
+            let (tx, rx) = exit_future::signal();
+            self.exit_signals.push(tx);
+            rx
+        };
 
-        if !use_dummy_backend {
-            let exit = {
-                let (tx, rx) = exit_future::signal();
-                self.exit_signals.push(tx);
-                rx
-            };
+        // Starts the service that connects to an eth1 node and periodically updates caches.
+        context.executor.spawn(backend.start(exit));
 
-            // Starts the service that connects to an eth1 node and periodically updates caches.
-            context.executor.spawn(backend.start(exit));
-        }
-
-        let beacon_chain_builder = beacon_chain_builder.json_rpc_eth1_backend(backend);
-
-        self.beacon_chain_builder = Some(beacon_chain_builder);
+        self.beacon_chain_builder = Some(beacon_chain_builder.eth1_backend(Some(backend)));
 
         Ok(self)
     }
@@ -591,9 +581,7 @@ where
             .beacon_chain_builder
             .ok_or_else(|| "json_rpc_eth1_backend requires a beacon_chain_builder")?;
 
-        let beacon_chain_builder = beacon_chain_builder.no_eth1_backend();
-
-        self.beacon_chain_builder = Some(beacon_chain_builder);
+        self.beacon_chain_builder = Some(beacon_chain_builder.no_eth1_backend());
 
         Ok(self)
     }
@@ -607,8 +595,14 @@ where
     ///
     /// The client is given the `JsonRpcEth1Backend` type, but the http backend is never started and the
     /// caches are never used.
-    pub fn dummy_eth1_backend(self) -> Result<Self, String> {
-        self.json_rpc_eth1_backend(Eth1Config::default(), true)
+    pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
+        let beacon_chain_builder = self
+            .beacon_chain_builder
+            .ok_or_else(|| "json_rpc_eth1_backend requires a beacon_chain_builder")?;
+
+        self.beacon_chain_builder = Some(beacon_chain_builder.dummy_eth1_backend()?);
+
+        Ok(self)
     }
 }
 

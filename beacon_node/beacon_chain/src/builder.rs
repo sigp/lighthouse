@@ -374,16 +374,20 @@ where
     }
 
     /// Sets the `BeaconChain` eth1 back-end to produce predictably junk data when producing blocks.
-    pub fn dummy_eth1_backend(self) -> Result<Self, String> {
+    pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
         let log = self
             .log
             .as_ref()
             .ok_or_else(|| "dummy_eth1_backend requires a log".to_string())?;
 
-        let mut backend = JsonRpcEth1Backend::new(Eth1Config::default(), log.clone());
-        backend.use_dummy_backend = true;
+        let backend = JsonRpcEth1Backend::new(Eth1Config::default(), log.clone());
 
-        Ok(self.eth1_backend(Some(backend)))
+        let mut eth1_chain = Eth1Chain::new(backend);
+        eth1_chain.use_dummy_backend = true;
+
+        self.eth1_chain = Some(eth1_chain);
+
+        Ok(self)
     }
 }
 
