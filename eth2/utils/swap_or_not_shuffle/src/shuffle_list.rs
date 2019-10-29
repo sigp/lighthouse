@@ -9,9 +9,9 @@ const TOTAL_SIZE: usize = SEED_SIZE + ROUND_SIZE + POSITION_WINDOW_SIZE;
 
 /// Shuffles an entire list in-place.
 ///
-/// Note: this is equivalent to the `get_permutated_index` function, except it shuffles an entire
+/// Note: this is equivalent to the `compute_shuffled_index` function, except it shuffles an entire
 /// list not just a single index. With large lists this function has been observed to be 250x
-/// faster than running `get_permutated_index` across an entire list.
+/// faster than running `compute_shuffled_index` across an entire list.
 ///
 /// Credits to [@protolambda](https://github.com/protolambda) for defining this algorithm.
 ///
@@ -19,6 +19,7 @@ const TOTAL_SIZE: usize = SEED_SIZE + ROUND_SIZE + POSITION_WINDOW_SIZE;
 /// It holds that: shuffle_list(shuffle_list(l, r, s, true), r, s, false) == l
 ///           and: shuffle_list(shuffle_list(l, r, s, false), r, s, true) == l
 ///
+/// TODO forwards is around the wrong way - denote?
 /// Returns `None` under any of the following conditions:
 ///  - `list_size == 0`
 ///  - `list_size > 2**24`
