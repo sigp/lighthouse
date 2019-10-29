@@ -45,8 +45,8 @@ impl UnsafeBlockingUtils<DepositContract> {
         self.core.web3.eth()
     }
 
-    pub fn block_number(&mut self) -> u64 {
-        self.runtime
+    pub fn block_number(&mut self, runtime: &mut Runtime) -> u64 {
+        runtime
             .block_on(self.eth().block_number().map(|v| v.as_u64()))
             .expect("utils should get block number")
     }
@@ -105,19 +105,19 @@ pub struct DepositContract {
 }
 
 impl DepositContract {
-    pub fn deploy(endpoint: &str) -> Result<Self, String> {
+    pub fn deploy(runtime: &mut Runtime, endpoint: &str) -> Result<Self, String> {
         let (event_loop, transport) = Http::new(endpoint)
             .map_err(|e| format!("Failed to start websocket transport: {:?}", e))?;
         let web3 = Web3::new(transport);
 
-        let deposit_contract_address = runtime()?
+        let deposit_contract_address = runtime
             .block_on(deploy_deposit_contract(web3.clone()))
             .map_err(|e| {
-            format!(
-                "Failed to deploy contract: {}. Is scripts/ganache_tests_node.sh running?.",
-                e
-            )
-        })?;
+                format!(
+                    "Failed to deploy contract: {}. Is scripts/ganache_tests_node.sh running?.",
+                    e
+                )
+            })?;
 
         let contract = Contract::from_json(web3.eth(), deposit_contract_address, ABI)
             .map_err(|e| format!("Failed to init contract: {:?}", e))?;
@@ -130,8 +130,8 @@ impl DepositContract {
     }
 
     /// Increase the timestamp on future blocks by `increase_by` seconds.
-    pub fn increase_time(&self, increase_by: u64) -> Result<(), String> {
-        runtime()?.block_on(increase_time(self.web3.clone(), increase_by))
+    pub fn increase_time(&self, runtime: &mut Runtime, increase_by: u64) -> Result<(), String> {
+        runtime.block_on(increase_time(self.web3.clone(), increase_by))
     }
 
     /// The deposit contract's address in `0x00ab...` format.
@@ -169,7 +169,7 @@ impl DepositContract {
         deposit
     }
 
-    pub fn deposit_random<E: EthSpec>(&self) -> Result<(), String> {
+    pub fn deposit_random<E: EthSpec>(&self, runtime: &mut Runtime) -> Result<(), String> {
         let keypair = Keypair::random();
 
         let mut deposit = DepositData {
@@ -186,11 +186,11 @@ impl DepositContract {
             &E::default_spec(),
         );
 
-        self.deposit(deposit)
+        self.deposit(runtime, deposit)
     }
 
-    pub fn deposit(&self, deposit_data: DepositData) -> Result<(), String> {
-        runtime()?
+    pub fn deposit(&self, runtime: &mut Runtime, deposit_data: DepositData) -> Result<(), String> {
+        runtime
             .block_on(self.deposit_async(deposit_data))
             .map_err(|e| format!("Deposit failed: {:?}", e))
     }
@@ -261,10 +261,6 @@ pub struct DelayThenDeposit {
 
 fn from_gwei(gwei: u64) -> U256 {
     U256::from(gwei) * U256::exp10(9)
-}
-
-fn runtime() -> Result<Runtime, String> {
-    Runtime::new().map_err(|e| format!("Failed to start tokio runtime: {}", e))
 }
 
 fn deploy_deposit_contract<T: Transport>(
