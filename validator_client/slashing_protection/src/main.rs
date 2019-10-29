@@ -13,7 +13,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time;
 use types::{
-    AttestationData, AttestationDataAndCustodyBit, BeaconBlockHeader, Checkpoint, Crosslink, Epoch, Hash256, Signature, Slot,
+    AttestationData, AttestationDataAndCustodyBit, BeaconBlockHeader, Checkpoint, Crosslink, Epoch,
+    Hash256, Signature, Slot,
 };
 
 const BLOCK_HISTORY_FILE: &str = "block.file"; // names ought to change
@@ -63,12 +64,7 @@ struct HistoryInfo<T: Encode + Decode + Clone> {
 }
 
 impl<T: Encode + Decode + Clone> HistoryInfo<T> {
-    pub fn update_and_write(
-        &mut self,
-        data: T,
-        index: usize,
-    ) -> IOResult<()>
-    {
+    pub fn update_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
         println!("{}: waiting for mutex", self.filepath);
         let mut data_history = self.mutex.lock(); // SCOTT: check here please
         println!("{}: mutex acquired", self.filepath);
@@ -168,7 +164,9 @@ fn run() {
             match check {
                 Ok(safe) => match safe.reason {
                     ValidityReason::SameVote => (),
-                    _ => block_info.update_and_write(SignedBlock::from(&block), safe.insert_index).unwrap(), //
+                    _ => block_info
+                        .update_and_write(SignedBlock::from(&block), safe.insert_index)
+                        .unwrap(), //
                 },
                 Err(_notsafe) => panic!("error block"),
             }
@@ -218,11 +216,8 @@ fn build_checkpoint(epoch_num: u64) -> Checkpoint {
     }
 }
 
+#[cfg(test)]
+mod single_thread_tests {}
 
 #[cfg(test)]
-mod single_thread_tests {
-}
-
-#[cfg(test)]
-mod multi_thread_tests {
-}
+mod multi_thread_tests {}

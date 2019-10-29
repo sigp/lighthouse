@@ -3,7 +3,9 @@ mod attestation_tests {
     use crate::attester_slashings::*; // SCOTT
     use crate::enums::*; // SCOTT
     use tree_hash::TreeHash;
-    use types::{AttestationData, AttestationDataAndCustodyBit, Checkpoint, Crosslink, Epoch, Hash256};
+    use types::{
+        AttestationData, AttestationDataAndCustodyBit, Checkpoint, Crosslink, Epoch, Hash256,
+    };
 
     fn build_checkpoint(epoch_num: u64) -> Checkpoint {
         Checkpoint {
@@ -12,7 +14,10 @@ mod attestation_tests {
         }
     }
 
-    fn attestation_data_and_custody_bit_builder(source: u64, target: u64) -> AttestationDataAndCustodyBit {
+    fn attestation_data_and_custody_bit_builder(
+        source: u64,
+        target: u64,
+    ) -> AttestationDataAndCustodyBit {
         let source = build_checkpoint(source);
         let target = build_checkpoint(target);
         let crosslink = Crosslink::default();
