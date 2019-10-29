@@ -3,7 +3,7 @@ use futures::{sync::oneshot, Future};
 use slog::{o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::cell::RefCell;
-use tokio::runtime::{Runtime, TaskExecutor};
+use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 
 pub struct EnvironmentBuilder<E: EthSpec> {
@@ -50,6 +50,16 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     pub fn tokio_runtime(mut self) -> Result<Self, String> {
         self.runtime =
             Some(Runtime::new().map_err(|e| format!("Failed to start runtime: {:?}", e))?);
+        Ok(self)
+    }
+
+    pub fn single_thread_tokio_runtime(mut self) -> Result<Self, String> {
+        self.runtime = Some(
+            RuntimeBuilder::new()
+                .core_threads(1)
+                .build()
+                .map_err(|e| format!("Failed to start runtime: {:?}", e))?,
+        );
         Ok(self)
     }
 

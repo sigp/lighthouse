@@ -26,7 +26,7 @@ pub fn run_deposit_contract<T: EthSpec>(
         .value_of("endpoint")
         .ok_or_else(|| "Endpoint not specified")?;
 
-    let deposit_contract = DepositContract::deploy(endpoint)
+    let deposit_contract = DepositContract::deploy(env.runtime(), endpoint)
         .map_err(|e| format!("Failed to deploy contract: {}", e))?;
 
     info!("Deposit contract address: {}", deposit_contract.address());

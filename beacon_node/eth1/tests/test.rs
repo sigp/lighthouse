@@ -26,7 +26,9 @@ const DEPOSIT_CONTRACT_TREE_DEPTH: usize = 32;
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
-        .tokio_runtime()
+        // Use a single thread, so that when all tests are run in parallel they don't have so many
+        // threads.
+        .single_thread_tokio_runtime()
         .expect("should start tokio runtime")
         .null_logger()
         .expect("should start null logger")
@@ -136,7 +138,7 @@ mod auto_update {
 
         // NOTE: this test is sensitive to the response speed of the external web3 server. If
         // you're experiencing failures, try increasing the update_interval.
-        let update_interval = Duration::from_millis(1_000);
+        let update_interval = Duration::from_millis(2_000);
 
         assert_eq!(
             service.block_cache_len(),
@@ -184,7 +186,8 @@ mod auto_update {
         );
         assert!(
             service.deposit_cache_len() >= n * 2,
-            "should have imported all deposits"
+            "should have imported all deposits, not {}",
+            service.deposit_cache_len()
         );
     }
 }

@@ -31,10 +31,10 @@ fn basic() {
     let runtime = env.runtime();
 
     let deposit_contract =
-        DepositContract::deploy(ENDPOINT).expect("should deploy deposit contract");
+        DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
     let mut utils = deposit_contract.unsafe_blocking_utils();
 
-    let now = utils.block_number();
+    let now = utils.block_number(runtime);
 
     let service = Eth1GenesisService::new(
         Eth1Config {
