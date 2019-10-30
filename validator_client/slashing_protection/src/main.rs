@@ -50,7 +50,7 @@ impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
                 ValidityReason::SameVote => Ok(()),
                 _ => self
                     .update_and_write(SignedAttestation::from(incoming_data), safe.insert_index)
-                    .map_err(|e| NotSafe::IOError(e.kind()))
+                    .map_err(|e| NotSafe::IOError(e.kind())),
             },
             Err(notsafe) => Err(notsafe),
         }
@@ -76,7 +76,7 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
                 ValidityReason::SameVote => Ok(()),
                 _ => self
                     .update_and_write(SignedBlock::from(incoming_data), safe.insert_index)
-                    .map_err(|e| NotSafe::IOError(e.kind()))
+                    .map_err(|e| NotSafe::IOError(e.kind())),
             },
             Err(notsafe) => Err(notsafe),
         }
@@ -127,11 +127,12 @@ impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
         let mut file = match File::open(filepath) {
             Ok(file) => file,
             Err(e) => match e.kind() {
-                ErrorKind::NotFound => { // SCOTT: should we keep this? or return err if not found?
+                ErrorKind::NotFound => {
+                    // SCOTT: should we keep this? or return err if not found?
                     return Ok(Self {
                         filepath: filepath.to_owned(),
                         data: vec![],
-                    })
+                    });
                 }
                 _ => return Err(e),
             },
@@ -260,7 +261,7 @@ mod single_threaded_tests {
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file"); 
+            HistoryInfo::try_from(filename).expect("IO error with file");
         assert_eq!(attestation_history, file_written_version);
 
         attestation_file.close().unwrap(); // Making sure it's correctly closed
@@ -272,7 +273,7 @@ mod single_threaded_tests {
         let filename = attestation_file.path();
 
         let mut attestation_history: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file"); 
+            HistoryInfo::try_from(filename).expect("IO error with file");
 
         let attestation1 = attestation_and_custody_bit_builder(1, 2);
         let attestation2 = attestation_and_custody_bit_builder(1, 2); // should not get added
@@ -296,7 +297,7 @@ mod single_threaded_tests {
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file"); 
+            HistoryInfo::try_from(filename).expect("IO error with file");
         assert_eq!(attestation_history, file_written_version);
 
         attestation_file.close().unwrap(); // Making sure it's correctly closed
@@ -308,7 +309,7 @@ mod single_threaded_tests {
         let filename = block_file.path();
 
         let mut block_history: HistoryInfo<SignedBlock> =
-            HistoryInfo::try_from(filename).expect("IO error with file"); 
+            HistoryInfo::try_from(filename).expect("IO error with file");
 
         let block1 = block_builder(1);
         let block2 = block_builder(2);
@@ -328,7 +329,7 @@ mod single_threaded_tests {
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedBlock> =
-            HistoryInfo::try_from(filename).expect("IO error with file"); 
+            HistoryInfo::try_from(filename).expect("IO error with file");
         assert_eq!(block_history, file_written_version);
 
         block_file.close().unwrap(); // Making sure it's correctly closed
@@ -340,7 +341,7 @@ mod single_threaded_tests {
         let filename = block_file.path();
 
         let mut block_history: HistoryInfo<SignedBlock> =
-            HistoryInfo::try_from(filename).expect("IO error with file"); 
+            HistoryInfo::try_from(filename).expect("IO error with file");
 
         let block1 = block_builder(1);
         let block2 = block_builder(1); // fails
@@ -364,7 +365,7 @@ mod single_threaded_tests {
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedBlock> =
-            HistoryInfo::try_from(filename).expect("IO error with file"); 
+            HistoryInfo::try_from(filename).expect("IO error with file");
         assert_eq!(block_history, file_written_version);
 
         block_file.close().unwrap(); // Making sure it's correctly closed
@@ -372,7 +373,8 @@ mod single_threaded_tests {
 }
 
 #[cfg(test)]
-mod multi_threaded_tests { // necessary?
+mod multi_threaded_tests {
+    // necessary?
     use super::*;
     use parking_lot::Mutex;
     use std::sync::mpsc::channel;
@@ -386,7 +388,7 @@ mod multi_threaded_tests { // necessary?
 
         let attestation_history: Arc<Mutex<HistoryInfo<SignedAttestation>>> = Arc::new(Mutex::new(
             HistoryInfo::try_from(filename).expect("IO error with file"),
-        )); 
+        ));
 
         let (tx, rx) = channel();
 
@@ -431,7 +433,7 @@ mod multi_threaded_tests { // necessary?
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file"); 
+            HistoryInfo::try_from(filename).expect("IO error with file");
         assert_eq!(*mutex, file_written_version);
 
         attestation_file.close().unwrap(); // Making sure it's correctly closed

@@ -1,6 +1,6 @@
 use crate::attester_slashings::InvalidAttestation;
 use crate::proposer_slashings::InvalidBlock;
-use std::io::{ErrorKind};
+use std::io::ErrorKind;
 
 #[derive(PartialEq, Debug)]
 pub enum NotSafe {
