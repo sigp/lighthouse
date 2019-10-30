@@ -1,13 +1,13 @@
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
-use swap_or_not_shuffle::{get_permutated_index, shuffle_list as fast_shuffle};
+use swap_or_not_shuffle::{compute_shuffled_index, shuffle_list as fast_shuffle};
 
 const SHUFFLE_ROUND_COUNT: u8 = 90;
 
 fn shuffle_list(seed: &[u8], list_size: usize) -> Vec<usize> {
     let mut output = Vec::with_capacity(list_size);
     for i in 0..list_size {
-        output.push(get_permutated_index(i, list_size, seed, SHUFFLE_ROUND_COUNT).unwrap());
+        output.push(compute_shuffled_index(i, list_size, seed, SHUFFLE_ROUND_COUNT).unwrap());
     }
     output
 }
@@ -15,7 +15,7 @@ fn shuffle_list(seed: &[u8], list_size: usize) -> Vec<usize> {
 fn shuffles(c: &mut Criterion) {
     c.bench_function("single swap", move |b| {
         let seed = vec![42; 32];
-        b.iter(|| black_box(get_permutated_index(0, 10, &seed, SHUFFLE_ROUND_COUNT)))
+        b.iter(|| black_box(compute_shuffled_index(0, 10, &seed, SHUFFLE_ROUND_COUNT)))
     });
 
     c.bench_function("whole list of size 8", move |b| {
