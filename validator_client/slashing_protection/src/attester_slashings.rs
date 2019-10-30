@@ -1,8 +1,8 @@
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use ssz_derive::{Decode, Encode};
+use std::convert::From;
 use tree_hash::TreeHash;
 use types::{AttestationData, AttestationDataAndCustodyBit, Epoch, Hash256};
-use std::convert::From;
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq)]
 pub struct SignedAttestation {
@@ -19,7 +19,6 @@ impl SignedAttestation {
             signing_root,
         }
     }
-
 }
 
 impl From<&AttestationDataAndCustodyBit> for SignedAttestation {

@@ -22,8 +22,6 @@ impl SignedBlock {
             signing_root,
         }
     }
-
-
 }
 
 impl From<&BeaconBlockHeader> for SignedBlock {

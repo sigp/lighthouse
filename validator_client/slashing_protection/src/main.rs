@@ -244,7 +244,7 @@ fn block_builder(slot: u64) -> BeaconBlockHeader {
         parent_root: Hash256::random(),
         state_root: Hash256::random(),
         body_root: Hash256::random(),
-        signature: Signature::empty_signature()
+        signature: Signature::empty_signature(),
     }
 }
 
@@ -337,7 +337,6 @@ mod single_threaded_tests {
 
         attestation_file.close().unwrap(); // make sure it's correctly closed
     }
-
 
     #[test]
     fn attestation_with_failures() {
