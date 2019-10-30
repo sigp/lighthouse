@@ -1,6 +1,6 @@
 #Adapted from https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
 
-image: 'sigp/lighthouse:latest'
+image: 'sigp/lighthouse:eth1'
 
 stages:
   - test
