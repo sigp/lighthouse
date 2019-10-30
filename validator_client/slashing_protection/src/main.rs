@@ -244,7 +244,7 @@ fn block_builder(slot: u64) -> BeaconBlockHeader {
         parent_root: Hash256::random(),
         state_root: Hash256::random(),
         body_root: Hash256::random(),
-        signature: Signature::empty_signature(),
+        signature: Signature::empty_signature()
     }
 }
 
@@ -256,7 +256,208 @@ fn build_checkpoint(epoch_num: u64) -> Checkpoint {
 }
 
 #[cfg(test)]
-mod single_thread_tests {
+mod single_threaded_tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn simple_attestation_insertion() {
+        let attestation_file = NamedTempFile::new().unwrap();
+        let filename = attestation_file.path().to_str().unwrap();
+
+        let mut attestation_info: HistoryInfo<SignedAttestation> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+
+        let attestation1 = attestation_and_custody_bit_builder(1, 2);
+        let attestation2 = attestation_and_custody_bit_builder(2, 3);
+        let attestation3 = attestation_and_custody_bit_builder(3, 4);
+
+        let _ = attestation_info.update_if_valid(&attestation1);
+        let _ = attestation_info.update_if_valid(&attestation2);
+        let _ = attestation_info.update_if_valid(&attestation3);
+
+        let mut expected_vector = vec![];
+        expected_vector.push(SignedAttestation::from(&attestation1));
+        expected_vector.push(SignedAttestation::from(&attestation2));
+        expected_vector.push(SignedAttestation::from(&attestation3));
+
+        {
+            // Making sure that data in memory is correct
+            // different scope for mutex lock
+            let attestation_history = attestation_info.mutex.lock();
+            assert_eq!(expected_vector, *attestation_history);
+        }
+
+        // Making sure that data in the file is correct
+        let file_written_version: HistoryInfo<SignedAttestation> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+        assert_eq!(attestation_info, file_written_version);
+
+        attestation_file.close().unwrap(); // make sure it's correctly closed
+    }
+
+    #[test]
+    fn interlaced_attestation_insertion() {
+        let attestation_file = NamedTempFile::new().unwrap();
+        let filename = attestation_file.path().to_str().unwrap();
+
+        let mut attestation_info: HistoryInfo<SignedAttestation> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+
+        let attestation1 = attestation_and_custody_bit_builder(5, 9);
+        let attestation2 = attestation_and_custody_bit_builder(7, 12);
+        let attestation3 = attestation_and_custody_bit_builder(5, 10);
+        let attestation4 = attestation_and_custody_bit_builder(6, 11);
+        let attestation5 = attestation_and_custody_bit_builder(8, 13);
+
+        let _ = attestation_info.update_if_valid(&attestation1);
+        let _ = attestation_info.update_if_valid(&attestation2);
+        let _ = attestation_info.update_if_valid(&attestation3);
+        let _ = attestation_info.update_if_valid(&attestation4);
+        let _ = attestation_info.update_if_valid(&attestation5);
+
+        let mut expected_vector = vec![];
+        expected_vector.push(SignedAttestation::from(&attestation1));
+        expected_vector.push(SignedAttestation::from(&attestation3));
+        expected_vector.push(SignedAttestation::from(&attestation4));
+        expected_vector.push(SignedAttestation::from(&attestation2));
+        expected_vector.push(SignedAttestation::from(&attestation5));
+
+        {
+            // Making sure that data in memory is correct
+            // different scope for mutex lock
+            let attestation_history = attestation_info.mutex.lock();
+            assert_eq!(expected_vector, *attestation_history);
+        }
+
+        // Making sure that data in the file is correct
+        let file_written_version: HistoryInfo<SignedAttestation> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+        assert_eq!(attestation_info, file_written_version);
+
+        attestation_file.close().unwrap(); // make sure it's correctly closed
+    }
+
+
+    #[test]
+    fn attestation_with_failures() {
+        let attestation_file = NamedTempFile::new().unwrap();
+        let filename = attestation_file.path().to_str().unwrap();
+
+        let mut attestation_info: HistoryInfo<SignedAttestation> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+
+        let attestation1 = attestation_and_custody_bit_builder(1, 2);
+        let attestation2 = attestation_and_custody_bit_builder(1, 2); // fails
+        let attestation3 = attestation_and_custody_bit_builder(2, 3);
+        let attestation4 = attestation_and_custody_bit_builder(1, 3); // fails
+        let attestation5 = attestation_and_custody_bit_builder(3, 4);
+
+        let _ = attestation_info.update_if_valid(&attestation1);
+        let _ = attestation_info.update_if_valid(&attestation2);
+        let _ = attestation_info.update_if_valid(&attestation3);
+        let _ = attestation_info.update_if_valid(&attestation4);
+        let _ = attestation_info.update_if_valid(&attestation5);
+
+        let mut expected_vector = vec![];
+        expected_vector.push(SignedAttestation::from(&attestation1));
+        expected_vector.push(SignedAttestation::from(&attestation3));
+        expected_vector.push(SignedAttestation::from(&attestation5));
+
+        {
+            // Making sure that data in memory is correct
+            // different scope for mutex lock
+            let attestation_history = attestation_info.mutex.lock();
+            assert_eq!(expected_vector, *attestation_history);
+        }
+
+        // Making sure that data in the file is correct
+        let file_written_version: HistoryInfo<SignedAttestation> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+        assert_eq!(attestation_info, file_written_version);
+
+        attestation_file.close().unwrap(); // make sure it's correctly closed
+    }
+
+    #[test]
+    fn simple_block_test() {
+        let block_file = NamedTempFile::new().unwrap();
+        let filename = block_file.path().to_str().unwrap();
+
+        let mut block_info: HistoryInfo<SignedBlock> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+
+        let block1 = block_builder(1);
+        let block2 = block_builder(2);
+        let block3 = block_builder(3);
+
+        let _ = block_info.update_if_valid(&block1);
+        let _ = block_info.update_if_valid(&block2);
+        let _ = block_info.update_if_valid(&block3);
+
+        let mut expected_vector = vec![];
+        expected_vector.push(SignedBlock::from(&block1));
+        expected_vector.push(SignedBlock::from(&block2));
+        expected_vector.push(SignedBlock::from(&block3));
+
+        {
+            // Making sure that data in memory is correct
+            // different scope for mutex lock
+            let block_history = block_info.mutex.lock();
+            assert_eq!(expected_vector, *block_history);
+        }
+
+        // Making sure that data in the file is correct
+        let file_written_version: HistoryInfo<SignedBlock> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+        assert_eq!(block_info, file_written_version);
+
+        block_file.close().unwrap(); // make sure it's correctly closed
+    }
+
+    #[test]
+    fn block_with_failures() {
+        let block_file = NamedTempFile::new().unwrap();
+        let filename = block_file.path().to_str().unwrap();
+
+        let mut block_info: HistoryInfo<SignedBlock> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+
+        let block1 = block_builder(1);
+        let block2 = block_builder(1); // fails
+        let block3 = block_builder(2);
+        let block4 = block_builder(10);
+        let block5 = block_builder(0); // fails
+
+        let _ = block_info.update_if_valid(&block1);
+        let _ = block_info.update_if_valid(&block2);
+        let _ = block_info.update_if_valid(&block3);
+        let _ = block_info.update_if_valid(&block4);
+        let _ = block_info.update_if_valid(&block5);
+
+        let mut expected_vector = vec![];
+        expected_vector.push(SignedBlock::from(&block1));
+        expected_vector.push(SignedBlock::from(&block3));
+        expected_vector.push(SignedBlock::from(&block4));
+
+        {
+            // Making sure that data in memory is correct
+            // different scope for mutex lock
+            let block_history = block_info.mutex.lock();
+            assert_eq!(expected_vector, *block_history);
+        }
+
+        // Making sure that data in the file is correct
+        let file_written_version: HistoryInfo<SignedBlock> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+        assert_eq!(block_info, file_written_version);
+
+        block_file.close().unwrap(); // make sure it's correctly closed
+    }
+}
+
+#[cfg(test)]
+mod multi_threaded_tests {
     use super::*;
     use tempfile::NamedTempFile;
 
@@ -272,20 +473,23 @@ mod single_thread_tests {
         let attestation2 = attestation_and_custody_bit_builder(2, 3);
         let attestation3 = attestation_and_custody_bit_builder(3, 4);
 
-        let _check = attestation_info.update_if_valid(&attestation1);
-        let _check = attestation_info.update_if_valid(&attestation2);
-        let _check = attestation_info.update_if_valid(&attestation3);
+        let _ = attestation_info.update_if_valid(&attestation1);
+        let _ = attestation_info.update_if_valid(&attestation2);
+        let _ = attestation_info.update_if_valid(&attestation3);
 
-        let mut check_info = vec![];
-        check_info.push(SignedAttestation::from(&attestation1));
-        check_info.push(SignedAttestation::from(&attestation2));
-        check_info.push(SignedAttestation::from(&attestation3));
+        let mut expected_vector = vec![];
+        expected_vector.push(SignedAttestation::from(&attestation1));
+        expected_vector.push(SignedAttestation::from(&attestation2));
+        expected_vector.push(SignedAttestation::from(&attestation3));
 
         {
+            // Making sure that data in memory is correct
+            // different scope for mutex lock
             let attestation_history = attestation_info.mutex.lock();
-            assert_eq!(check_info, *attestation_history);
+            assert_eq!(expected_vector, *attestation_history);
         }
 
+        // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
         assert_eq!(attestation_info, file_written_version);
@@ -302,27 +506,30 @@ mod single_thread_tests {
             HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
 
         let attestation1 = attestation_and_custody_bit_builder(1, 2);
-        let attestation2 = attestation_and_custody_bit_builder(1, 2);
+        let attestation2 = attestation_and_custody_bit_builder(1, 2); // fails
         let attestation3 = attestation_and_custody_bit_builder(2, 3);
-        let attestation4 = attestation_and_custody_bit_builder(1, 3);
+        let attestation4 = attestation_and_custody_bit_builder(1, 3); // fails
         let attestation5 = attestation_and_custody_bit_builder(3, 4);
 
-        let _check = attestation_info.update_if_valid(&attestation1);
-        let _check = attestation_info.update_if_valid(&attestation2);
-        let _check = attestation_info.update_if_valid(&attestation3);
-        let _check = attestation_info.update_if_valid(&attestation4);
-        let _check = attestation_info.update_if_valid(&attestation5);
+        let _ = attestation_info.update_if_valid(&attestation1);
+        let _ = attestation_info.update_if_valid(&attestation2);
+        let _ = attestation_info.update_if_valid(&attestation3);
+        let _ = attestation_info.update_if_valid(&attestation4);
+        let _ = attestation_info.update_if_valid(&attestation5);
 
-        let mut check_info = vec![];
-        check_info.push(SignedAttestation::from(&attestation1));
-        check_info.push(SignedAttestation::from(&attestation3));
-        check_info.push(SignedAttestation::from(&attestation5));
+        let mut expected_vector = vec![];
+        expected_vector.push(SignedAttestation::from(&attestation1));
+        expected_vector.push(SignedAttestation::from(&attestation3));
+        expected_vector.push(SignedAttestation::from(&attestation5));
 
         {
+            // Making sure that data in memory is correct
+            // different scope for mutex lock
             let attestation_history = attestation_info.mutex.lock();
-            assert_eq!(check_info, *attestation_history);
+            assert_eq!(expected_vector, *attestation_history);
         }
 
+        // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
         assert_eq!(attestation_info, file_written_version);
@@ -330,7 +537,79 @@ mod single_thread_tests {
         attestation_file.close().unwrap(); // make sure it's correctly closed
     }
 
-}
+    #[test]
+    fn simple_block_test() {
+        let block_file = NamedTempFile::new().unwrap();
+        let filename = block_file.path().to_str().unwrap();
 
-#[cfg(test)]
-mod multi_thread_tests {}
+        let mut block_info: HistoryInfo<SignedBlock> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+
+        let block1 = block_builder(1);
+        let block2 = block_builder(2);
+        let block3 = block_builder(3);
+
+        let _ = block_info.update_if_valid(&block1);
+        let _ = block_info.update_if_valid(&block2);
+        let _ = block_info.update_if_valid(&block3);
+
+        let mut expected_vector = vec![];
+        expected_vector.push(SignedBlock::from(&block1));
+        expected_vector.push(SignedBlock::from(&block2));
+        expected_vector.push(SignedBlock::from(&block3));
+
+        {
+            // Making sure that data in memory is correct
+            // different scope for mutex lock
+            let block_history = block_info.mutex.lock();
+            assert_eq!(expected_vector, *block_history);
+        }
+
+        // Making sure that data in the file is correct
+        let file_written_version: HistoryInfo<SignedBlock> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+        assert_eq!(block_info, file_written_version);
+
+        block_file.close().unwrap(); // make sure it's correctly closed
+    }
+
+    #[test]
+    fn block_with_failures() {
+        let block_file = NamedTempFile::new().unwrap();
+        let filename = block_file.path().to_str().unwrap();
+
+        let mut block_info: HistoryInfo<SignedBlock> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+
+        let block1 = block_builder(1);
+        let block2 = block_builder(1); // fails
+        let block3 = block_builder(2);
+        let block4 = block_builder(10);
+        let block5 = block_builder(0); // fails
+
+        let _ = block_info.update_if_valid(&block1);
+        let _ = block_info.update_if_valid(&block2);
+        let _ = block_info.update_if_valid(&block3);
+        let _ = block_info.update_if_valid(&block4);
+        let _ = block_info.update_if_valid(&block5);
+
+        let mut expected_vector = vec![];
+        expected_vector.push(SignedBlock::from(&block1));
+        expected_vector.push(SignedBlock::from(&block3));
+        expected_vector.push(SignedBlock::from(&block4));
+
+        {
+            // Making sure that data in memory is correct
+            // different scope for mutex lock
+            let block_history = block_info.mutex.lock();
+            assert_eq!(expected_vector, *block_history);
+        }
+
+        // Making sure that data in the file is correct
+        let file_written_version: HistoryInfo<SignedBlock> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+        assert_eq!(block_info, file_written_version);
+
+        block_file.close().unwrap(); // make sure it's correctly closed
+    }
+}

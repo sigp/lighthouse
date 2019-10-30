@@ -100,6 +100,19 @@ mod attestation_tests {
     }
 
     #[test]
+    fn invalid_source_before_history() {
+        let mut history = vec![];
+        history.push(SignedAttestation::new(6, 8, Hash256::random()));
+
+        let attestation_data = attestation_data_and_custody_bit_builder(6, 7);
+
+        assert_eq!(
+            check_for_attester_slashing(&attestation_data, &history[..]),
+            Err(NotSafe::PruningError)
+        );
+    }
+
+    #[test]
     fn valid_same_vote_first() {
         let mut history = vec![];
 
