@@ -1,7 +1,8 @@
-pub mod attester_slashings;
-pub mod proposer_slashings;
+mod attester_slashings;
+mod proposer_slashings;
+mod history_info;
 
-pub mod enums {
+mod enums {
     use crate::attester_slashings::InvalidAttestation;
     use crate::proposer_slashings::InvalidBlock;
     use std::io::ErrorKind;
