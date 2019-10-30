@@ -11,16 +11,6 @@ pub struct SignedAttestation {
     pub signing_root: Hash256,
 }
 
-impl SignedAttestation {
-    pub fn new(source_epoch: u64, target_epoch: u64, signing_root: Hash256) -> Self {
-        Self {
-            source_epoch: Epoch::from(source_epoch),
-            target_epoch: Epoch::from(target_epoch),
-            signing_root,
-        }
-    }
-}
-
 impl From<&AttestationDataAndCustodyBit> for SignedAttestation {
     fn from(attestation: &AttestationDataAndCustodyBit) -> Self {
         Self {

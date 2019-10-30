@@ -1,6 +1,6 @@
 mod attester_slashings;
-mod proposer_slashings;
 mod history_info;
+mod proposer_slashings;
 
 mod enums {
     use crate::attester_slashings::InvalidAttestation;

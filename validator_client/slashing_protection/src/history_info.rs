@@ -1,7 +1,7 @@
-use fs2::FileExt;
 use crate::attester_slashings::{check_for_attester_slashing, SignedAttestation};
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
+use fs2::FileExt;
 use ssz::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fs::File;

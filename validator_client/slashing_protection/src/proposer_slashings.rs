@@ -15,15 +15,6 @@ pub struct SignedBlock {
     pub signing_root: Hash256,
 }
 
-impl SignedBlock {
-    pub fn new(slot: u64, signing_root: Hash256) -> Self {
-        Self {
-            slot: Slot::from(slot),
-            signing_root,
-        }
-    }
-}
-
 impl From<&BeaconBlockHeader> for SignedBlock {
     fn from(header: &BeaconBlockHeader) -> Self {
         Self {
