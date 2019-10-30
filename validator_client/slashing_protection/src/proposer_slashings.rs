@@ -55,6 +55,7 @@ pub fn check_for_proposer_slashing(
         .iter()
         .rev()
         .position(|historical_block| historical_block.slot <= block_header.slot);
+
     let index = match index {
         None => return Err(NotSafe::PruningError),
         Some(num) => block_history.len() - 1 - num,
@@ -75,9 +76,8 @@ pub fn check_for_proposer_slashing(
 
 #[cfg(test)]
 mod block_tests {
-    use crate::enums::*; // SCOTT
-    use crate::proposer_slashings::*; // SCOTT
-    use types::{BeaconBlockHeader, Hash256, Signature, Slot};
+    use super::*;
+    use types::{BeaconBlockHeader, Signature};
 
     fn block_builder(slot: u64) -> BeaconBlockHeader {
         BeaconBlockHeader {

@@ -130,12 +130,8 @@ pub fn check_for_attester_slashing(
 
 #[cfg(test)]
 mod attestation_tests {
-    use crate::attester_slashings::*; // SCOTT
-    use crate::enums::*; // SCOTT
-    use tree_hash::TreeHash;
-    use types::{
-        AttestationData, AttestationDataAndCustodyBit, Checkpoint, Crosslink, Epoch, Hash256,
-    };
+    use super::*;
+    use types::{Checkpoint, Crosslink};
 
     fn build_checkpoint(epoch_num: u64) -> Checkpoint {
         Checkpoint {
