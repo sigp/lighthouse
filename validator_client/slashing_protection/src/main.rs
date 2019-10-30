@@ -28,6 +28,7 @@ trait SafeFromSlashing<T> {
         data_history: &[T],
     ) -> Result<Safe, NotSafe>;
 
+    ///
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
@@ -46,14 +47,13 @@ impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
         let check = self.check_for_slashing(&incoming_data);
         match check {
             Ok(safe) => match safe.reason {
-                ValidityReason::SameVote => (),
+                ValidityReason::SameVote => Ok(()),
                 _ => self
                     .update_and_write(SignedAttestation::from(incoming_data), safe.insert_index)
-                    .unwrap(), //
+                    .map_err(|e| NotSafe::IOError(e.kind()))
             },
-            Err(notsafe) => return Err(notsafe),
+            Err(notsafe) => Err(notsafe),
         }
-        Ok(())
     }
 }
 
@@ -73,14 +73,13 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
         let check = self.check_for_slashing(&incoming_data);
         match check {
             Ok(safe) => match safe.reason {
-                ValidityReason::SameVote => (),
+                ValidityReason::SameVote => Ok(()),
                 _ => self
                     .update_and_write(SignedBlock::from(incoming_data), safe.insert_index)
-                    .unwrap(), //
+                    .map_err(|e| NotSafe::IOError(e.kind()))
             },
-            Err(notsafe) => return Err(notsafe),
+            Err(notsafe) => Err(notsafe),
         }
-        Ok(())
     }
 }
 
@@ -100,12 +99,10 @@ impl<T: Encode + Decode + Clone + PartialEq> PartialEq for HistoryInfo<T> {
 
 impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
     pub fn update_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
-        // let mut data_history = self.data; // SCOTT: check here please
         self.data.insert(index, data); // assert(index < data_history.len()) ?
         let mut file = File::create(self.filepath.as_path()).unwrap();
         file.lock_exclusive()?;
-        go_to_sleep(100); // nope
-        file.write_all(&self.data.as_ssz_bytes()).expect("HEY"); // nope
+        file.write_all(&self.data.as_ssz_bytes())?;
         file.unlock()?;
 
         Ok(())
@@ -118,8 +115,6 @@ impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
     where
         Self: SafeFromSlashing<T>,
     {
-        // let guard = self.mutex.lock();
-        // let data_history = &guard[..];
         let data_history = &self.data[..];
         self.verify_and_get_index(incoming_data, data_history)
     }
@@ -132,7 +127,7 @@ impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
         let mut file = match File::open(filepath) {
             Ok(file) => file,
             Err(e) => match e.kind() {
-                ErrorKind::NotFound => {
+                ErrorKind::NotFound => { // SCOTT: should we keep this? or return err if not found?
                     return Ok(Self {
                         filepath: filepath.to_owned(),
                         data: vec![],
@@ -142,19 +137,16 @@ impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
             },
         };
         file.lock_exclusive().unwrap();
+
         let mut bytes = vec![];
         file.read_to_end(&mut bytes).unwrap();
         file.unlock().unwrap();
 
         let data_history = Vec::from_ssz_bytes(&bytes).unwrap();
-        let attestation_data_history = data_history.to_vec(); // rename
-
-        // let data_mutex = Mutex::new(attestation_data_history);
-        // let arc_data = data_mutex;
 
         Ok(Self {
             filepath: filepath.to_owned(),
-            data: attestation_data_history,
+            data: data_history.to_vec(),
         })
     }
 }
@@ -291,9 +283,9 @@ mod single_threaded_tests {
             HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
 
         let attestation1 = attestation_and_custody_bit_builder(1, 2);
-        let attestation2 = attestation_and_custody_bit_builder(1, 2); // fails
+        let attestation2 = attestation_and_custody_bit_builder(1, 2); // should not get added
         let attestation3 = attestation_and_custody_bit_builder(2, 3);
-        let attestation4 = attestation_and_custody_bit_builder(1, 3); // fails
+        let attestation4 = attestation_and_custody_bit_builder(1, 3); // should not get added
         let attestation5 = attestation_and_custody_bit_builder(3, 4);
 
         let _ = attestation_info.update_if_valid(&attestation1);
