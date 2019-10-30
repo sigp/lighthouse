@@ -5,8 +5,8 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-clap = "2.32.0"
-serde = "1.0"
-serde_derive = "1.0"
-toml = "^0.5"
+clap = "2.33.0"
+serde = "1.0.102"
+serde_derive = "1.0.102"
+toml = "0.5.4"
 types = { path = "../../types" }

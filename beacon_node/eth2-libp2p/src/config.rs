@@ -82,7 +82,7 @@ impl Default for Config {
             gs_config: GossipsubConfigBuilder::new()
                 .max_transmit_size(1_048_576)
                 .heartbeat_interval(Duration::from_secs(20)) // TODO: Reduce for mainnet
-                .propagate_messages(false) // require validation before propagation
+                .manual_propagation(true) // require validation before propagation
                 .build(),
             boot_nodes: vec![],
             libp2p_nodes: vec![],

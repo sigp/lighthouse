@@ -12,18 +12,18 @@ fake_crypto = ["bls/fake_crypto"]
 [dependencies]
 bls = { path = "../../eth2/utils/bls" }
 compare_fields = { path = "../../eth2/utils/compare_fields" }
-ethereum-types = "0.6"
+ethereum-types = "0.8.0"
 hex = "0.3"
-rayon = "1.0"
-serde = "1.0"
-serde_derive = "1.0"
-serde_repr = "0.1"
-serde_yaml = "0.8"
-eth2_ssz = "0.1"
-eth2_ssz_derive = "0.1"
-tree_hash = "0.1"
+rayon = "1.2.0"
+serde = "1.0.102"
+serde_derive = "1.0.102"
+serde_repr = "0.1.5"
+serde_yaml = "0.8.11"
+eth2_ssz = "0.1.2"
+eth2_ssz_derive = "0.1.0"
+tree_hash = "0.1.0"
 tree_hash_derive = "0.2"
 state_processing = { path = "../../eth2/state_processing" }
 swap_or_not_shuffle = { path = "../../eth2/utils/swap_or_not_shuffle" }
 types = { path = "../../eth2/types" }
-walkdir = "2"
+walkdir = "2.2.9"
