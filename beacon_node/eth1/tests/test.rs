@@ -4,12 +4,10 @@
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
-use eth1::http::{
-    get_block, get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Block, Log,
-};
-use eth1::{http::send_rpc_request, BlockProposalService, Config, Service};
+use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Block, Log};
+use eth1::{BlockProposalService, Config, Service};
 use eth1::{DepositCache, DepositLog};
-use eth1_test_rig::DepositContract;
+use eth1_test_rig::GanacheEth1Instance;
 use exit_future;
 use futures::Future;
 use merkle_proof::verify_merkle_proof;
@@ -17,11 +15,9 @@ use std::ops::Range;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tree_hash::TreeHash;
-use types::{
-    DepositData, Epoch, EthSpec, Fork, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, Signature,
-};
+use types::{DepositData, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, Signature};
+use web3::{transports::Http, Web3};
 
-const ENDPOINT: &str = "http://localhost:8545";
 const DEPOSIT_CONTRACT_TREE_DEPTH: usize = 32;
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
@@ -50,12 +46,7 @@ fn random_deposit_data() -> DepositData {
         signature: Signature::empty_signature().into(),
     };
 
-    deposit.signature = deposit.create_signature(
-        &keypair.sk,
-        Epoch::new(0),
-        &Fork::default(),
-        &MainnetEthSpec::default_spec(),
-    );
+    deposit.signature = deposit.create_signature(&keypair.sk, &MainnetEthSpec::default_spec());
 
     deposit
 }
@@ -63,13 +54,13 @@ fn random_deposit_data() -> DepositData {
 /// Blocking operation to get the deposit logs from the `deposit_contract`.
 fn blocking_deposit_logs(
     runtime: &mut Runtime,
-    deposit_contract: &DepositContract,
+    eth1: &GanacheEth1Instance,
     range: Range<u64>,
 ) -> Vec<Log> {
     runtime
         .block_on(get_deposit_logs_in_range(
-            ENDPOINT,
-            &deposit_contract.address(),
+            &eth1.endpoint(),
+            &eth1.deposit_contract.address(),
             range,
             timeout(),
         ))
@@ -79,13 +70,13 @@ fn blocking_deposit_logs(
 /// Blocking operation to get the deposit root from the `deposit_contract`.
 fn blocking_deposit_root(
     runtime: &mut Runtime,
-    deposit_contract: &DepositContract,
+    eth1: &GanacheEth1Instance,
     block_number: u64,
 ) -> Option<Hash256> {
     runtime
         .block_on(get_deposit_root(
-            ENDPOINT,
-            &deposit_contract.address(),
+            &eth1.endpoint(),
+            &eth1.deposit_contract.address(),
             block_number,
             timeout(),
         ))
@@ -95,17 +86,23 @@ fn blocking_deposit_root(
 /// Blocking operation to get the deposit count from the `deposit_contract`.
 fn blocking_deposit_count(
     runtime: &mut Runtime,
-    deposit_contract: &DepositContract,
+    eth1: &GanacheEth1Instance,
     block_number: u64,
 ) -> Option<u64> {
     runtime
         .block_on(get_deposit_count(
-            ENDPOINT,
-            &deposit_contract.address(),
+            &eth1.endpoint(),
+            &eth1.deposit_contract.address(),
             block_number,
             timeout(),
         ))
         .expect("should get deposit count")
+}
+
+fn get_block_number(runtime: &mut Runtime, web3: &Web3<Http>) -> u64 {
+    runtime
+        .block_on(web3.eth().block_number().map(|v| v.as_u64()))
+        .expect("should get block number")
 }
 
 mod auto_update {
@@ -117,15 +114,17 @@ mod auto_update {
         let log = env.core_log();
         let runtime = env.runtime();
 
-        let deposit_contract =
-            DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
-        let mut utils = deposit_contract.unsafe_blocking_utils();
+        let eth1 = runtime
+            .block_on(GanacheEth1Instance::new())
+            .expect("should start eth1 environment");
+        let deposit_contract = &eth1.deposit_contract;
+        let web3 = eth1.web3();
 
-        let now = utils.block_number(runtime);
+        let now = get_block_number(runtime, &web3);
 
         let service = Service::new(
             Config {
-                endpoint: ENDPOINT.to_string(),
+                endpoint: eth1.endpoint(),
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: now,
                 lowest_cached_block_number: now,
@@ -165,8 +164,6 @@ mod auto_update {
 
         std::thread::sleep(update_interval * 5);
 
-        dbg!(service.deposit_cache_len());
-
         assert!(
             service.deposit_cache_len() >= n,
             "should have imported n deposits"
@@ -194,19 +191,6 @@ mod auto_update {
 
 mod eth1_cache {
     use super::*;
-    use serde_json::json;
-
-    pub fn advance_block() {
-        new_env()
-            .runtime()
-            .block_on(send_rpc_request(
-                &ENDPOINT,
-                "evm_mine",
-                json!([]),
-                Duration::from_secs(1),
-            ))
-            .expect("should advance ganache-cli block");
-    }
 
     #[test]
     fn simple_scenario() {
@@ -215,15 +199,17 @@ mod eth1_cache {
         let runtime = env.runtime();
 
         for follow_distance in 0..2 {
-            let deposit_contract =
-                DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
-            let mut utils = deposit_contract.unsafe_blocking_utils();
+            let eth1 = runtime
+                .block_on(GanacheEth1Instance::new())
+                .expect("should start eth1 environment");
+            let deposit_contract = &eth1.deposit_contract;
+            let web3 = eth1.web3();
 
-            let initial_block_number = utils.block_number(runtime) - follow_distance;
+            let initial_block_number = get_block_number(runtime, &web3);
 
             let service = Service::new(
                 Config {
-                    endpoint: ENDPOINT.to_string(),
+                    endpoint: eth1.endpoint(),
                     deposit_contract_address: deposit_contract.address(),
                     lowest_cached_block_number: initial_block_number,
                     follow_distance,
@@ -243,11 +229,14 @@ mod eth1_cache {
                         .blocks()
                         .read()
                         .highest_block_number()
+                        .map(|n| n + follow_distance)
                         .expect("should have a latest block after the first round")
                 };
 
                 for _ in 0..blocks {
-                    advance_block()
+                    runtime
+                        .block_on(eth1.ganache.evm_mine())
+                        .expect("should mine block");
                 }
 
                 runtime
@@ -258,13 +247,17 @@ mod eth1_cache {
                     .block_on(service.update_block_cache())
                     .expect("should update cache when nothing has changed");
 
-                assert!(
-                    service.blocks().read().highest_block_number() >= Some(initial + blocks),
-                    "should update {} blocks in round {}. cache: {:?}, expected: {:?}",
+                assert_eq!(
+                    service
+                        .blocks()
+                        .read()
+                        .highest_block_number()
+                        .map(|n| n + follow_distance),
+                    Some(initial + blocks),
+                    "should update {} blocks in round {} (follow {})",
                     blocks,
                     round,
-                    service.blocks().read().highest_block_number(),
-                    Some(initial + blocks)
+                    follow_distance,
                 );
             }
         }
@@ -277,17 +270,19 @@ mod eth1_cache {
         let log = env.core_log();
         let runtime = env.runtime();
 
-        let deposit_contract =
-            DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
-        let mut utils = deposit_contract.unsafe_blocking_utils();
+        let eth1 = runtime
+            .block_on(GanacheEth1Instance::new())
+            .expect("should start eth1 environment");
+        let deposit_contract = &eth1.deposit_contract;
+        let web3 = eth1.web3();
 
         let cache_len = 4;
 
         let service = Service::new(
             Config {
-                endpoint: ENDPOINT.to_string(),
+                endpoint: eth1.endpoint(),
                 deposit_contract_address: deposit_contract.address(),
-                lowest_cached_block_number: utils.block_number(runtime),
+                lowest_cached_block_number: get_block_number(runtime, &web3),
                 follow_distance: 0,
                 block_cache_truncation: Some(cache_len),
                 ..Config::default()
@@ -298,7 +293,9 @@ mod eth1_cache {
         let blocks = cache_len * 2;
 
         for _ in 0..blocks {
-            advance_block()
+            runtime
+                .block_on(eth1.ganache.evm_mine())
+                .expect("should mine block")
         }
 
         runtime
@@ -320,17 +317,19 @@ mod eth1_cache {
         let log = env.core_log();
         let runtime = env.runtime();
 
-        let deposit_contract =
-            DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
-        let mut utils = deposit_contract.unsafe_blocking_utils();
+        let eth1 = runtime
+            .block_on(GanacheEth1Instance::new())
+            .expect("should start eth1 environment");
+        let deposit_contract = &eth1.deposit_contract;
+        let web3 = eth1.web3();
 
         let cache_len = 4;
 
         let service = Service::new(
             Config {
-                endpoint: ENDPOINT.to_string(),
+                endpoint: eth1.endpoint(),
                 deposit_contract_address: deposit_contract.address(),
-                lowest_cached_block_number: utils.block_number(runtime),
+                lowest_cached_block_number: get_block_number(runtime, &web3),
                 follow_distance: 0,
                 block_cache_truncation: Some(cache_len),
                 ..Config::default()
@@ -340,7 +339,9 @@ mod eth1_cache {
 
         for _ in 0..4 {
             for _ in 0..cache_len / 2 {
-                advance_block()
+                runtime
+                    .block_on(eth1.ganache.evm_mine())
+                    .expect("should mine block")
             }
             runtime
                 .block_on(service.update_block_cache())
@@ -362,15 +363,17 @@ mod eth1_cache {
 
         let n = 16;
 
-        let deposit_contract =
-            DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
-        let mut utils = deposit_contract.unsafe_blocking_utils();
+        let eth1 = runtime
+            .block_on(GanacheEth1Instance::new())
+            .expect("should start eth1 environment");
+        let deposit_contract = &eth1.deposit_contract;
+        let web3 = eth1.web3();
 
         let service = Service::new(
             Config {
-                endpoint: ENDPOINT.to_string(),
+                endpoint: eth1.endpoint(),
                 deposit_contract_address: deposit_contract.address(),
-                lowest_cached_block_number: utils.block_number(runtime),
+                lowest_cached_block_number: get_block_number(runtime, &web3),
                 follow_distance: 0,
                 ..Config::default()
             },
@@ -378,7 +381,9 @@ mod eth1_cache {
         );
 
         for _ in 0..n {
-            advance_block()
+            runtime
+                .block_on(eth1.ganache.evm_mine())
+                .expect("should mine block")
         }
 
         runtime
@@ -404,15 +409,17 @@ mod deposit_tree {
 
         let n = 4;
 
-        let deposit_contract =
-            DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
-        let mut utils = deposit_contract.unsafe_blocking_utils();
+        let eth1 = runtime
+            .block_on(GanacheEth1Instance::new())
+            .expect("should start eth1 environment");
+        let deposit_contract = &eth1.deposit_contract;
+        let web3 = eth1.web3();
 
-        let start_block = utils.block_number(runtime);
+        let start_block = get_block_number(runtime, &web3);
 
         let service = BlockProposalService::new(
             Config {
-                endpoint: ENDPOINT.to_string(),
+                endpoint: eth1.endpoint(),
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: start_block,
                 follow_distance: 0,
@@ -472,15 +479,17 @@ mod deposit_tree {
 
         let n = 8;
 
-        let deposit_contract =
-            DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
-        let mut utils = deposit_contract.unsafe_blocking_utils();
+        let eth1 = runtime
+            .block_on(GanacheEth1Instance::new())
+            .expect("should start eth1 environment");
+        let deposit_contract = &eth1.deposit_contract;
+        let web3 = eth1.web3();
 
-        let start_block = utils.block_number(runtime);
+        let start_block = get_block_number(runtime, &web3);
 
         let service = Service::new(
             Config {
-                endpoint: ENDPOINT.to_string(),
+                endpoint: eth1.endpoint(),
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: start_block,
                 lowest_cached_block_number: start_block,
@@ -518,9 +527,11 @@ mod deposit_tree {
 
         let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
 
-        let deposit_contract =
-            DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
-        let mut utils = deposit_contract.unsafe_blocking_utils();
+        let eth1 = runtime
+            .block_on(GanacheEth1Instance::new())
+            .expect("should start eth1 environment");
+        let deposit_contract = &eth1.deposit_contract;
+        let web3 = eth1.web3();
 
         let mut deposit_roots = vec![];
         let mut deposit_counts = vec![];
@@ -530,13 +541,13 @@ mod deposit_tree {
             deposit_contract
                 .deposit(runtime, deposit.clone())
                 .expect("should perform a deposit");
-            let block_number = utils.block_number(runtime);
+            let block_number = get_block_number(runtime, &web3);
             deposit_roots.push(
-                blocking_deposit_root(runtime, &deposit_contract, block_number)
+                blocking_deposit_root(runtime, &eth1, block_number)
                     .expect("should get root if contract exists"),
             );
             deposit_counts.push(
-                blocking_deposit_count(runtime, &deposit_contract, block_number)
+                blocking_deposit_count(runtime, &eth1, block_number)
                     .expect("should get count if contract exists"),
             );
         }
@@ -544,8 +555,8 @@ mod deposit_tree {
         let mut tree = DepositCache::default();
 
         // Pull all the deposit logs from the contract.
-        let block_number = utils.block_number(runtime);
-        let logs: Vec<_> = blocking_deposit_logs(runtime, &deposit_contract, 0..block_number)
+        let block_number = get_block_number(runtime, &web3);
+        let logs: Vec<_> = blocking_deposit_logs(runtime, &eth1, 0..block_number)
             .iter()
             .map(|raw| DepositLog::from_log(raw).expect("should parse deposit log"))
             .inspect(|log| {
@@ -606,10 +617,13 @@ mod deposit_tree {
 mod http {
     use super::*;
 
-    fn blocking_block_hash(block_number: u64) -> Block {
-        new_env()
-            .runtime()
-            .block_on(get_block(ENDPOINT, block_number, timeout()))
+    fn get_block(runtime: &mut Runtime, eth1: &GanacheEth1Instance, block_number: u64) -> Block {
+        runtime
+            .block_on(eth1::http::get_block(
+                &eth1.endpoint(),
+                block_number,
+                timeout(),
+            ))
             .expect("should get block number")
     }
 
@@ -618,27 +632,29 @@ mod http {
         let mut env = new_env();
         let runtime = env.runtime();
 
-        let deposit_contract =
-            DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
-        let mut utils = deposit_contract.unsafe_blocking_utils();
+        let eth1 = runtime
+            .block_on(GanacheEth1Instance::new())
+            .expect("should start eth1 environment");
+        let deposit_contract = &eth1.deposit_contract;
+        let web3 = eth1.web3();
 
-        let block_number = utils.block_number(runtime);
-        let logs = blocking_deposit_logs(runtime, &deposit_contract, 0..block_number);
+        let block_number = get_block_number(runtime, &web3);
+        let logs = blocking_deposit_logs(runtime, &eth1, 0..block_number);
         assert_eq!(logs.len(), 0);
 
-        let mut old_root = blocking_deposit_root(runtime, &deposit_contract, block_number);
-        let mut old_block = blocking_block_hash(block_number);
+        let mut old_root = blocking_deposit_root(runtime, &eth1, block_number);
+        let mut old_block = get_block(runtime, &eth1, block_number);
         let mut old_block_number = block_number;
 
         assert_eq!(
-            blocking_deposit_count(runtime, &deposit_contract, block_number),
+            blocking_deposit_count(runtime, &eth1, block_number),
             Some(0),
             "should have deposit count zero"
         );
 
         for i in 1..=8 {
-            deposit_contract
-                .increase_time(runtime, 1)
+            runtime
+                .block_on(eth1.ganache.increase_time(1))
                 .expect("should be able to increase time on ganache");
 
             deposit_contract
@@ -646,19 +662,19 @@ mod http {
                 .expect("should perform a deposit");
 
             // Check the logs.
-            let block_number = utils.block_number(runtime);
-            let logs = blocking_deposit_logs(runtime, &deposit_contract, 0..block_number);
+            let block_number = get_block_number(runtime, &web3);
+            let logs = blocking_deposit_logs(runtime, &eth1, 0..block_number);
             assert_eq!(logs.len(), i, "the number of logs should be as expected");
 
             // Check the deposit count.
             assert_eq!(
-                blocking_deposit_count(runtime, &deposit_contract, block_number),
+                blocking_deposit_count(runtime, &eth1, block_number),
                 Some(i as u64),
                 "should have a correct deposit count"
             );
 
             // Check the deposit root.
-            let new_root = blocking_deposit_root(runtime, &deposit_contract, block_number);
+            let new_root = blocking_deposit_root(runtime, &eth1, block_number);
             assert_ne!(
                 new_root, old_root,
                 "deposit root should change with each deposit"
@@ -666,7 +682,7 @@ mod http {
             old_root = new_root;
 
             // Check the block hash.
-            let new_block = blocking_block_hash(block_number);
+            let new_block = get_block(runtime, &eth1, block_number);
             assert_ne!(
                 new_block.hash, old_block.hash,
                 "block hash should change with each deposit"

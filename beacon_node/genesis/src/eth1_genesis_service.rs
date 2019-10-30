@@ -341,8 +341,6 @@ impl Eth1GenesisService {
 
             process_activations(&mut local_state, spec);
 
-            dbg!(local_state.validators.len());
-
             Ok(is_valid_genesis_state(&local_state, spec))
         }
     }

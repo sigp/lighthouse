@@ -5,19 +5,20 @@
 //!
 //! Not tested to work with actual clients (e.g., geth). It should work fine, however there may be
 //! some initial issues.
+mod ganache;
 
-use futures::{stream, Future, Stream};
+use futures::{stream, Future, IntoFuture, Stream};
+use ganache::GanacheInstance;
 use serde_json::json;
 use ssz::Encode;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::{runtime::Runtime, timer::Delay};
 use types::DepositData;
-use types::{Epoch, EthSpec, Fork, Hash256, Keypair, Signature};
+use types::{EthSpec, Hash256, Keypair, Signature};
 use web3::contract::{Contract, Options};
-use web3::transports::{EventLoopHandle, Http};
+use web3::transports::Http;
 use web3::types::{Address, U256};
-use web3::{api::Eth, Transport, Web3};
+use web3::{Transport, Web3};
 
 const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
 const DEPOSIT_ACCOUNTS_INDEX: usize = 1;
@@ -31,119 +32,57 @@ pub const ABI: &'static [u8] = include_bytes!("../contract/v0.8.3_validator_regi
 pub const BYTECODE: &'static [u8] =
     include_bytes!("../contract/v0.8.3_validator_registration.bytecode");
 
-pub struct UnsafeBlockingUtils<T> {
-    core: T,
-    runtime: Runtime,
+pub struct GanacheEth1Instance {
+    pub ganache: GanacheInstance,
+    pub deposit_contract: DepositContract,
 }
 
-impl UnsafeBlockingUtils<DepositContract> {
-    pub fn new(core: DepositContract, runtime: Runtime) -> Self {
-        Self { core, runtime }
+impl GanacheEth1Instance {
+    pub fn new() -> impl Future<Item = Self, Error = String> {
+        GanacheInstance::new().into_future().and_then(|ganache| {
+            DepositContract::deploy(ganache.web3.clone()).map(|deposit_contract| Self {
+                ganache,
+                deposit_contract,
+            })
+        })
     }
 
-    fn eth(&self) -> Eth<Http> {
-        self.core.web3.eth()
+    pub fn endpoint(&self) -> String {
+        self.ganache.endpoint()
     }
 
-    pub fn block_number(&mut self, runtime: &mut Runtime) -> u64 {
-        runtime
-            .block_on(self.eth().block_number().map(|v| v.as_u64()))
-            .expect("utils should get block number")
-    }
-
-    /// Increase the timestamp on future blocks by `increase_by` seconds.
-    pub fn increase_time(&mut self, increase_by: u64) {
-        self.runtime
-            .block_on(
-                self.core
-                    .web3
-                    .transport()
-                    .execute("evm_increaseTime", vec![json!(increase_by)])
-                    .map(|_json_value| ())
-                    .map_err(|e| {
-                        format!("Failed to increase time on EVM (is this ganache?): {:?}", e)
-                    }),
-            )
-            .expect("utils should increase time")
-    }
-
-    pub fn evm_mine(&mut self) {
-        self.runtime
-            .block_on(self.core.web3.transport().execute("evm_mine", vec![]))
-            .expect("utils should mine new block with evm_mine (only works with ganache-cli!)");
-    }
-
-    pub fn get_deposit<E: EthSpec>(
-        &self,
-        keypair: Keypair,
-        withdrawal_credentials: Hash256,
-        amount: u64,
-    ) -> DepositData {
-        let mut deposit = DepositData {
-            pubkey: keypair.pk.into(),
-            withdrawal_credentials,
-            amount,
-            signature: Signature::empty_signature().into(),
-        };
-
-        deposit.signature = deposit.create_signature(
-            &keypair.sk,
-            Epoch::new(0),
-            &Fork::default(),
-            &E::default_spec(),
-        );
-
-        deposit
+    pub fn web3(&self) -> Web3<Http> {
+        self.ganache.web3.clone()
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct DepositContract {
-    event_loop: Arc<EventLoopHandle>,
     web3: Web3<Http>,
     contract: Contract<Http>,
 }
 
 impl DepositContract {
-    pub fn deploy(runtime: &mut Runtime, endpoint: &str) -> Result<Self, String> {
-        let (event_loop, transport) = Http::new(endpoint)
-            .map_err(|e| format!("Failed to start websocket transport: {:?}", e))?;
-        let web3 = Web3::new(transport);
+    pub fn deploy(web3: Web3<Http>) -> impl Future<Item = Self, Error = String> {
+        let web3_1 = web3.clone();
 
-        let deposit_contract_address = runtime
-            .block_on(deploy_deposit_contract(web3.clone()))
+        deploy_deposit_contract(web3.clone())
             .map_err(|e| {
                 format!(
                     "Failed to deploy contract: {}. Is scripts/ganache_tests_node.sh running?.",
                     e
                 )
-            })?;
-
-        let contract = Contract::from_json(web3.eth(), deposit_contract_address, ABI)
-            .map_err(|e| format!("Failed to init contract: {:?}", e))?;
-
-        Ok(Self {
-            event_loop: Arc::new(event_loop),
-            web3,
-            contract: contract,
-        })
-    }
-
-    /// Increase the timestamp on future blocks by `increase_by` seconds.
-    pub fn increase_time(&self, runtime: &mut Runtime, increase_by: u64) -> Result<(), String> {
-        runtime.block_on(increase_time(self.web3.clone(), increase_by))
+            })
+            .and_then(move |address| {
+                Contract::from_json(web3_1.eth(), address, ABI)
+                    .map_err(|e| format!("Failed to init contract: {:?}", e))
+            })
+            .map(|contract| Self { contract, web3 })
     }
 
     /// The deposit contract's address in `0x00ab...` format.
     pub fn address(&self) -> String {
         format!("0x{:x}", self.contract.address())
-    }
-
-    pub fn unsafe_blocking_utils(&self) -> UnsafeBlockingUtils<Self> {
-        UnsafeBlockingUtils {
-            core: self.clone(),
-            runtime: Runtime::new().expect("Should build UnsafeBlockingUtils runtime"),
-        }
     }
 
     pub fn deposit_helper<E: EthSpec>(
@@ -159,12 +98,7 @@ impl DepositContract {
             signature: Signature::empty_signature().into(),
         };
 
-        deposit.signature = deposit.create_signature(
-            &keypair.sk,
-            Epoch::new(0),
-            &Fork::default(),
-            &E::default_spec(),
-        );
+        deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());
 
         deposit
     }
@@ -179,12 +113,7 @@ impl DepositContract {
             signature: Signature::empty_signature().into(),
         };
 
-        deposit.signature = deposit.create_signature(
-            &keypair.sk,
-            Epoch::new(0),
-            &Fork::default(),
-            &E::default_spec(),
-        );
+        deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());
 
         self.deposit(runtime, deposit)
     }

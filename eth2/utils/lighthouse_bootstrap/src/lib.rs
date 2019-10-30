@@ -49,8 +49,7 @@ impl Bootstrapper {
         loop {
             match bootstrapper.enr() {
                 Ok(_) => break,
-                Err(e) => {
-                    dbg!(e);
+                Err(_) => {
                     if retry_count % RETRY_WARN_INTERVAL == 0 {
                         error!(
                             log,

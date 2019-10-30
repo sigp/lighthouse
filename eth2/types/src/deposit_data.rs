@@ -36,15 +36,9 @@ impl DepositData {
     /// Generate the signature for a given DepositData details.
     ///
     /// Spec v0.8.1
-    pub fn create_signature(
-        &self,
-        secret_key: &SecretKey,
-        epoch: Epoch,
-        fork: &Fork,
-        spec: &ChainSpec,
-    ) -> SignatureBytes {
+    pub fn create_signature(&self, secret_key: &SecretKey, spec: &ChainSpec) -> SignatureBytes {
         let msg = self.signed_root();
-        let domain = spec.get_domain(epoch, Domain::Deposit, fork);
+        let domain = spec.get_deposit_domain();
 
         SignatureBytes::from(Signature::new(msg.as_slice(), domain, secret_key))
     }

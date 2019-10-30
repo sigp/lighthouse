@@ -207,18 +207,12 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         amount: u64,
         // TODO: deal with the fact deposits no longer have explicit indices
         _index: u64,
-        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) {
         let keypair = Keypair::random();
 
         let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
-        builder.sign(
-            &keypair,
-            state.slot.epoch(T::slots_per_epoch()),
-            &state.fork,
-            spec,
-        );
+        builder.sign(&keypair, spec);
 
         self.block.body.deposits.push(builder.build()).unwrap()
     }

@@ -6,6 +6,7 @@ edition = "2018"
 
 [dev-dependencies]
 eth1_test_rig = { path = "../../tests/eth1_test_rig" }
+futures = "0.1.25"
 
 [dependencies]
 futures = "0.1.25"

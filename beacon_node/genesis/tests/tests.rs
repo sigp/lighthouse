@@ -4,14 +4,12 @@
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
-use eth1_test_rig::{DelayThenDeposit, DepositContract};
+use eth1_test_rig::{DelayThenDeposit, GanacheEth1Instance};
 use futures::Future;
 use genesis::{Eth1Config, Eth1GenesisService};
 use state_processing::is_valid_genesis_state;
 use std::time::Duration;
 use types::{test_utils::generate_deterministic_keypair, Hash256, MinimalEthSpec};
-
-const ENDPOINT: &str = "http://localhost:8545";
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
@@ -30,15 +28,19 @@ fn basic() {
     let mut spec = env.eth2_config().spec.clone();
     let runtime = env.runtime();
 
-    let deposit_contract =
-        DepositContract::deploy(runtime, ENDPOINT).expect("should deploy deposit contract");
-    let mut utils = deposit_contract.unsafe_blocking_utils();
+    let eth1 = runtime
+        .block_on(GanacheEth1Instance::new())
+        .expect("should start eth1 environment");
+    let deposit_contract = &eth1.deposit_contract;
+    let web3 = eth1.web3();
 
-    let now = utils.block_number(runtime);
+    let now = runtime
+        .block_on(web3.eth().block_number().map(|v| v.as_u64()))
+        .expect("should get block number");
 
     let service = Eth1GenesisService::new(
         Eth1Config {
-            endpoint: ENDPOINT.to_string(),
+            endpoint: eth1.endpoint(),
             deposit_contract_address: deposit_contract.address(),
             deposit_contract_deploy_block: now,
             lowest_cached_block_number: now,
