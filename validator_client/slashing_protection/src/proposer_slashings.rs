@@ -70,6 +70,15 @@ mod block_tests {
     use super::*;
     use types::{BeaconBlockHeader, Signature};
 
+    impl SignedBlock {
+        pub fn new(slot: u64, signing_root: Hash256) -> Self {
+            Self {
+                slot: Slot::from(slot),
+                signing_root,
+            }
+        }
+    }
+
     fn block_builder(slot: u64) -> BeaconBlockHeader {
         BeaconBlockHeader {
             slot: Slot::from(slot),
