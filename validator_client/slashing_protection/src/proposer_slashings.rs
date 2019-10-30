@@ -1,5 +1,6 @@
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use ssz_derive::{Decode, Encode};
+use std::convert::From;
 use types::{BeaconBlockHeader, Hash256, Slot};
 
 #[derive(PartialEq, Debug)]
@@ -8,7 +9,7 @@ pub enum InvalidBlock {
     DoubleBlockProposal,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, PartialEq)]
 pub struct SignedBlock {
     pub slot: Slot,
     pub signing_root: Hash256,
@@ -22,7 +23,11 @@ impl SignedBlock {
         }
     }
 
-    pub fn from(header: &BeaconBlockHeader) -> Self {
+
+}
+
+impl From<&BeaconBlockHeader> for SignedBlock {
+    fn from(header: &BeaconBlockHeader) -> Self {
         Self {
             slot: header.slot,
             signing_root: header.canonical_root(),

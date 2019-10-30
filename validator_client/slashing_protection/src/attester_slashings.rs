@@ -2,8 +2,9 @@ use crate::enums::{NotSafe, Safe, ValidityReason};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use types::{AttestationData, AttestationDataAndCustodyBit, Epoch, Hash256};
+use std::convert::From;
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, PartialEq)]
 pub struct SignedAttestation {
     pub source_epoch: Epoch,
     pub target_epoch: Epoch,
@@ -19,7 +20,10 @@ impl SignedAttestation {
         }
     }
 
-    pub fn from(attestation: &AttestationDataAndCustodyBit) -> Self {
+}
+
+impl From<&AttestationDataAndCustodyBit> for SignedAttestation {
+    fn from(attestation: &AttestationDataAndCustodyBit) -> Self {
         Self {
             source_epoch: attestation.data.source.epoch,
             target_epoch: attestation.data.target.epoch,

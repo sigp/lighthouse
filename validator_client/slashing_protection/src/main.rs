@@ -31,6 +31,8 @@ trait SafeFromSlashing<T> {
         incoming_data: &Self::U,
         data_history: &[T],
     ) -> Result<Safe, NotSafe>;
+
+    fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
 impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
@@ -42,6 +44,20 @@ impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
         data_history: &[SignedAttestation],
     ) -> Result<Safe, NotSafe> {
         check_for_attester_slashing(incoming_data, data_history)
+    }
+
+    fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
+        let check = self.check_for_slashing(&incoming_data);
+        match check {
+            Ok(safe) => match safe.reason {
+                ValidityReason::SameVote => (),
+                _ => self
+                    .update_and_write(SignedAttestation::from(incoming_data), safe.insert_index)
+                    .unwrap(), //
+            },
+            Err(notsafe) => return Err(notsafe),
+        }
+        Ok(())
     }
 }
 
@@ -55,15 +71,38 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
     ) -> Result<Safe, NotSafe> {
         check_for_proposer_slashing(incoming_data, data_history)
     }
+
+    // should be generic
+    fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
+        let check = self.check_for_slashing(&incoming_data);
+        match check {
+            Ok(safe) => match safe.reason {
+                ValidityReason::SameVote => (),
+                _ => self
+                    .update_and_write(SignedBlock::from(incoming_data), safe.insert_index)
+                    .unwrap(), //
+            },
+            Err(notsafe) => return Err(notsafe),
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
-struct HistoryInfo<T: Encode + Decode + Clone> {
-    filepath: String,
+struct HistoryInfo<T: Encode + Decode + Clone + PartialEq> {
+    filepath: String, // maybe &'static str?
     mutex: Arc<Mutex<Vec<T>>>,
 }
 
-impl<T: Encode + Decode + Clone> HistoryInfo<T> {
+impl<T: Encode + Decode + Clone + PartialEq> PartialEq for HistoryInfo<T> {
+    fn eq(&self, other: &Self) -> bool {
+        let my_data = self.mutex.lock();
+        let other_data = other.mutex.lock();
+        self.filepath == other.filepath && *my_data == *other_data
+    }
+}
+
+impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
     pub fn update_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
         println!("{}: waiting for mutex", self.filepath);
         let mut data_history = self.mutex.lock(); // SCOTT: check here please
@@ -73,7 +112,7 @@ impl<T: Encode + Decode + Clone> HistoryInfo<T> {
         println!("{}: waiting for file", self.filepath);
         file.lock_exclusive()?;
         println!("{}: file acquired", self.filepath);
-        // go_to_sleep(100); // nope
+        go_to_sleep(100); // nope
         file.write_all(&data_history.as_ssz_bytes()).expect("HEY"); // nope
         file.unlock()?;
         println!("{}: file unlocked", self.filepath);
@@ -94,7 +133,7 @@ impl<T: Encode + Decode + Clone> HistoryInfo<T> {
     }
 }
 
-impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {
+impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&str> for HistoryInfo<T> {
     type Error = IOError;
 
     fn try_from(filepath: &str) -> Result<Self, Self::Error> {
@@ -116,7 +155,7 @@ impl<T: Encode + Decode + Clone> TryFrom<&str> for HistoryInfo<T> {
         file.unlock().unwrap();
 
         let data_history = Vec::from_ssz_bytes(&bytes).unwrap();
-        let attestation_data_history = data_history.to_vec();
+        let attestation_data_history = data_history.to_vec(); // rename
 
         let data_mutex = Mutex::new(attestation_data_history);
         let arc_data = Arc::new(data_mutex);
@@ -217,7 +256,81 @@ fn build_checkpoint(epoch_num: u64) -> Checkpoint {
 }
 
 #[cfg(test)]
-mod single_thread_tests {}
+mod single_thread_tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn simple_attestation_test() {
+        let attestation_file = NamedTempFile::new().unwrap();
+        let filename = attestation_file.path().to_str().unwrap();
+
+        let mut attestation_info: HistoryInfo<SignedAttestation> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+
+        let attestation1 = attestation_and_custody_bit_builder(1, 2);
+        let attestation2 = attestation_and_custody_bit_builder(2, 3);
+        let attestation3 = attestation_and_custody_bit_builder(3, 4);
+
+        let _check = attestation_info.update_if_valid(&attestation1);
+        let _check = attestation_info.update_if_valid(&attestation2);
+        let _check = attestation_info.update_if_valid(&attestation3);
+
+        let mut check_info = vec![];
+        check_info.push(SignedAttestation::from(&attestation1));
+        check_info.push(SignedAttestation::from(&attestation2));
+        check_info.push(SignedAttestation::from(&attestation3));
+
+        {
+            let attestation_history = attestation_info.mutex.lock();
+            assert_eq!(check_info, *attestation_history);
+        }
+
+        let file_written_version: HistoryInfo<SignedAttestation> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+        assert_eq!(attestation_info, file_written_version);
+
+        attestation_file.close().unwrap(); // make sure it's correctly closed
+    }
+
+    #[test]
+    fn attestation_with_failures() {
+        let attestation_file = NamedTempFile::new().unwrap();
+        let filename = attestation_file.path().to_str().unwrap();
+
+        let mut attestation_info: HistoryInfo<SignedAttestation> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+
+        let attestation1 = attestation_and_custody_bit_builder(1, 2);
+        let attestation2 = attestation_and_custody_bit_builder(1, 2);
+        let attestation3 = attestation_and_custody_bit_builder(2, 3);
+        let attestation4 = attestation_and_custody_bit_builder(1, 3);
+        let attestation5 = attestation_and_custody_bit_builder(3, 4);
+
+        let _check = attestation_info.update_if_valid(&attestation1);
+        let _check = attestation_info.update_if_valid(&attestation2);
+        let _check = attestation_info.update_if_valid(&attestation3);
+        let _check = attestation_info.update_if_valid(&attestation4);
+        let _check = attestation_info.update_if_valid(&attestation5);
+
+        let mut check_info = vec![];
+        check_info.push(SignedAttestation::from(&attestation1));
+        check_info.push(SignedAttestation::from(&attestation3));
+        check_info.push(SignedAttestation::from(&attestation5));
+
+        {
+            let attestation_history = attestation_info.mutex.lock();
+            assert_eq!(check_info, *attestation_history);
+        }
+
+        let file_written_version: HistoryInfo<SignedAttestation> =
+            HistoryInfo::try_from(filename).expect("IO error with file"); // critical error
+        assert_eq!(attestation_info, file_written_version);
+
+        attestation_file.close().unwrap(); // make sure it's correctly closed
+    }
+
+}
 
 #[cfg(test)]
 mod multi_thread_tests {}
