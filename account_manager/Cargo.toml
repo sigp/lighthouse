@@ -14,3 +14,6 @@ validator_client = { path = "../validator_client" }
 types = { path = "../eth2/types" }
 dirs = "2.0.1"
 eth2_ssz = "0.1"
+
+[dev-dependencies]
+tree_hash = "0.1"
