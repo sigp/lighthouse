@@ -1,6 +1,5 @@
 pub mod attester_slashings;
 pub mod proposer_slashings;
-mod tests;
 
 pub mod enums {
     use crate::attester_slashings::InvalidAttestation;
