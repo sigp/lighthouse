@@ -15,15 +15,13 @@ test:
 
 
 # only run the ef-test vectors
---run-ef-tests: 
+run-ef-tests: 
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
 
-test-ef: make-ef-tests --run-ef-tests
+test-ef: make-ef-tests run-ef-tests
 
 # Runs the entire test suite, downloading test vectors if required.
-test-full: 
-	test
-	test-ef
+test-full: test test-ef
 
 
 # Runs the makefile in the `ef_tests` repo.
