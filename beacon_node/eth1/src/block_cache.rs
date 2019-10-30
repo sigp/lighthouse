@@ -57,6 +57,11 @@ impl BlockCache {
         self.blocks.len()
     }
 
+    /// True if the cache does not store any blocks.
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+
     /// Returns the highest block number stored.
     pub fn highest_block_number(&self) -> Option<u64> {
         self.blocks.last().map(|block| block.number)
@@ -178,104 +183,6 @@ impl BlockCache {
 
         Ok(())
     }
-
-    /*
-    /// Returns the range of block numbers stored in the block cache. All blocks in this range can
-    /// be accessed.
-    pub fn available_block_numbers(&self) -> Option<RangeInclusive<u64>> {
-        Some(self.blocks.first()?.block_number..=self.blocks.last()?.block.number)
-    }
-
-    /// Returns the block number one higher than the highest currently stored.
-    ///
-    /// Returns `0` if there are no blocks stored.
-    pub fn next_block_number(&self) -> u64 {
-        (self.offset + self.blocks.len()) as u64
-    }
-
-    /// Fetches an `Eth1Block` by block number.
-    fn get(&self, block_number: u64) -> Option<&Eth1Block> {
-        let i = usize::try_from(block_number)
-            .ok()?
-            .checked_sub(self.offset)?;
-        self.blocks.get(i)
-    }
-
-    /// Returns the index of the first `Eth1Block` that is lower than the given `target` time
-    /// (assumed to be duration since unix epoch), if any.
-    ///
-    /// If there are blocks with duplicate timestamps, the block with the highest number is
-    /// preferred.
-    fn index_at_time(&self, target: Duration) -> Option<usize> {
-        let search = self.blocks.as_slice().binary_search_by(|block| {
-            Duration::from_secs(block.block.timestamp).cmp(&target)
-        });
-
-        let index = match search {
-            // If an exact match for this duration was found, search forward trying to find the
-            // block with the highest number that has this the same timestamp.
-            //
-            // This handles the case where blocks have matching timestamps. Whilst this _shouldn't_
-            // be possible in mainnet ethereum, it has been seen when testing with ganache.
-            Ok(mut i) => loop {
-                match self.blocks.get(i + 1) {
-                    Some(next) if Duration::from_secs(next.block.timestamp) == target => i += 1,
-                    None | Some(_) => break i,
-                }
-            },
-            Err(i) => i.saturating_sub(1),
-        };
-
-        let block = self.blocks.get(index)?;
-
-        if Duration::from_secs(block.block.timestamp) <= target {
-            Some(index)
-        } else {
-            None
-        }
-    }
-
-    /// Returns the first `Eth1Data` from a block with a timestamp that is lower than `target`.
-    ///
-    /// In other words, returns the `Eth1Data` that was canonical at the given `target`.
-    ///
-    /// Assumes `target` is a duration since unix epoch.
-    pub fn eth1_data_at_time(&self, target: Duration) -> Option<Eth1Data> {
-        self.blocks
-            .get(self.index_at_time(target)?)
-            .cloned()
-            .map(Into::into)
-    }
-
-    /// Like `Self::eth1_data_at_time(..)`, except also returns **at most** `max_count` number of
-    /// ancestor `Eth1Data` values.
-    ///
-    /// In other words, returns a consecutive range of `Eth1Data`, all prior to `target`.
-    ///
-    /// Assumes `target` is a duration since unix epoch.
-    pub fn get_eth1_data_ancestors(
-        &self,
-        target: Duration,
-        max_count: usize,
-    ) -> Result<Vec<Eth1Data>, Error> {
-        if max_count == 0 {
-            Ok(vec![])
-        } else {
-            let last = self
-                .index_at_time(target)
-                .ok_or_else(|| Error::NoBlockForTarget {
-                    target_secs: target.as_secs(),
-                    known_blocks: self.blocks.len(),
-                })?;
-            let first = last.saturating_sub(max_count.saturating_sub(1));
-
-            self.blocks
-                .get(first..=last)
-                .ok_or_else(|| Error::Internal("Inconsistent items length".into()))
-                .map(|items| items.into_iter().cloned().map(Into::into).collect())
-        }
-    }
-    */
 }
 
 #[cfg(test)]

@@ -78,6 +78,11 @@ impl DepositCache {
         self.logs.len()
     }
 
+    /// True if the cache does not store any blocks.
+    pub fn is_empty(&self) -> bool {
+        self.logs.is_empty()
+    }
+
     /// Returns the block number for the most recent deposit in the cache.
     pub fn latest_block_number(&self) -> Option<u64> {
         self.logs.last().map(|log| log.block_number)

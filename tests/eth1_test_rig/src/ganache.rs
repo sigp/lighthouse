@@ -67,12 +67,10 @@ impl GanacheInstance {
             let mut line = String::new();
             if let Err(e) = reader.read_line(&mut line) {
                 break Err(format!("Failed to read line from ganache process: {:?}", e));
+            } else if line.starts_with("Listening on") {
+                break Ok(());
             } else {
-                if line.starts_with("Listening on") {
-                    break Ok(());
-                } else {
-                    continue;
-                }
+                continue;
             }
         }?;
 

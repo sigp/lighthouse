@@ -111,7 +111,7 @@ impl Eth1GenesisService {
                     .and_then(move |()| {
                         let mut sync_blocks = service_2.sync_blocks.lock();
 
-                        if *sync_blocks == false {
+                        if !(*sync_blocks) {
                             if let Some(viable_eth1_block) = service_2.first_viable_eth1_block(
                                 min_genesis_active_validator_count as usize,
                             ) {
@@ -217,7 +217,7 @@ impl Eth1GenesisService {
                     return false;
                 }
 
-                self.is_valid_genesis_eth1_block::<E>(block.clone(), &spec)
+                self.is_valid_genesis_eth1_block::<E>(block, &spec)
                     .and_then(|val| {
                         *highest_processed_block = Some(block.number);
                         Ok(val)
@@ -252,7 +252,7 @@ impl Eth1GenesisService {
                 "validator_count" => genesis_state.validators.len(),
             );
 
-            return Ok(Some(genesis_state));
+            Ok(Some(genesis_state))
         } else {
             Ok(None)
         }

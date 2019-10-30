@@ -333,7 +333,7 @@ impl Service {
         let max_log_requests_per_update = self
             .config()
             .max_log_requests_per_update
-            .unwrap_or_else(|| usize::max_value());
+            .unwrap_or_else(usize::max_value);
 
         let next_required_block = self
             .deposits()
@@ -351,7 +351,6 @@ impl Service {
             range
                 .map(|range| {
                     range
-                        .into_iter()
                         .collect::<Vec<u64>>()
                         .chunks(blocks_per_log_query)
                         .take(max_log_requests_per_update)
@@ -377,7 +376,7 @@ impl Service {
                                 chunk,
                                 Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
                             )
-                            .map_err(|e| Error::GetDepositLogsFailed(e))
+                            .map_err(Error::GetDepositLogsFailed)
                             .map(|logs| (chunk_1, logs))
                             .map(|logs| (logs, chunks)),
                         )
@@ -407,7 +406,7 @@ impl Service {
                     cache
                         .cache
                         .insert_log(deposit_log)
-                        .map_err(|e| Error::FailedToInsertDeposit(e))?;
+                        .map_err(Error::FailedToInsertDeposit)?;
 
                     sum += 1;
                 }
@@ -442,7 +441,7 @@ impl Service {
         let max_blocks_per_update = self
             .config()
             .max_blocks_per_update
-            .unwrap_or_else(|| usize::max_value());
+            .unwrap_or_else(usize::max_value);
 
         let next_required_block = cache_1
             .block_cache
@@ -469,16 +468,14 @@ impl Service {
                         let range_size = range.end() - range.start();
                         let max_size = block_cache_truncation
                             .map(|n| n as u64)
-                            .unwrap_or_else(|| u64::max_value());
+                            .unwrap_or_else(u64::max_value);
 
                         if range_size > max_size {
                             let first_block = range.end() - max_size;
                             (*cache_5.block_cache.write()) = BlockCache::default();
-                            Ok((first_block..=*range.end())
-                                .into_iter()
-                                .collect::<Vec<u64>>())
+                            Ok((first_block..=*range.end()).collect::<Vec<u64>>())
                         } else {
-                            Ok(range.into_iter().collect::<Vec<u64>>())
+                            Ok(range.collect::<Vec<u64>>())
                         }
                     }
                 })
@@ -507,7 +504,7 @@ impl Service {
                     .block_cache
                     .write()
                     .insert_root_or_child(eth1_block)
-                    .map_err(|e| Error::FailedToInsertEth1Block(e))?;
+                    .map_err(Error::FailedToInsertEth1Block)?;
 
                 Ok(sum + 1)
             })
@@ -532,7 +529,7 @@ fn get_new_block_numbers<'a>(
     follow_distance: u64,
 ) -> impl Future<Item = Option<RangeInclusive<u64>>, Error = Error> + 'a {
     get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
-        .map_err(|e| Error::GetBlockNumberFailed(e))
+        .map_err(Error::GetBlockNumberFailed)
         .and_then(move |remote_highest_block| {
             let remote_follow_block = remote_highest_block.saturating_sub(follow_distance);
 
@@ -543,7 +540,7 @@ fn get_new_block_numbers<'a>(
                 Err(Error::RemoteNotSynced {
                     next_required_block,
                     remote_highest_block,
-                    follow_distance: follow_distance,
+                    follow_distance,
                 })
             } else {
                 // Return an empty range.
@@ -566,7 +563,7 @@ fn download_eth1_block<'a>(
         block_number,
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
-    .map_err(|e| Error::BlockDownloadFailed(e))
+    .map_err(Error::BlockDownloadFailed)
     .join3(
         // Perform 2x `eth_call` via an eth1 node to read the deposit contract root and count.
         get_deposit_root(
@@ -575,14 +572,14 @@ fn download_eth1_block<'a>(
             block_number,
             Duration::from_millis(GET_DEPOSIT_ROOT_TIMEOUT_MILLIS),
         )
-        .map_err(|e| Error::GetDepositRootFailed(e)),
+        .map_err(Error::GetDepositRootFailed),
         get_deposit_count(
             &cache.config.read().endpoint,
             &cache.config.read().deposit_contract_address,
             block_number,
             Duration::from_millis(GET_DEPOSIT_COUNT_TIMEOUT_MILLIS),
         )
-        .map_err(|e| Error::GetDepositCountFailed(e)),
+        .map_err(Error::GetDepositCountFailed),
     )
     .map(|(http_block, deposit_root, deposit_count)| Eth1Block {
         hash: http_block.hash,

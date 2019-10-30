@@ -63,7 +63,7 @@ impl<E: EthSpec> Beacon<E> {
     fn url(&self, path: &str) -> Result<Url, Error> {
         self.0
             .url("beacon/")
-            .and_then(move |url| url.join(path).map_err(|e| Error::from(e)))
+            .and_then(move |url| url.join(path).map_err(Error::from))
             .map_err(Into::into)
     }
 
@@ -79,13 +79,9 @@ impl<E: EthSpec> Beacon<E> {
                     .append_pair("slot", &format!("{}", slot.as_u64()));
                 client.get(&url.to_string())
             })
-            .and_then(|builder| builder.send().map_err(|e| Error::from(e)))
-            .and_then(|response| response.error_for_status().map_err(|e| Error::from(e)))
-            .and_then(|mut success| {
-                success
-                    .json::<BlockResponse<E>>()
-                    .map_err(|e| Error::from(e))
-            })
+            .and_then(|builder| builder.send().map_err(Error::from))
+            .and_then(|response| response.error_for_status().map_err(Error::from))
+            .and_then(|mut success| success.json::<BlockResponse<E>>().map_err(Error::from))
             .map(|response| (response.beacon_block, response.root))
     }
 
@@ -101,13 +97,9 @@ impl<E: EthSpec> Beacon<E> {
                     .append_pair("slot", &format!("{}", slot.as_u64()));
                 client.get(&url.to_string())
             })
-            .and_then(|builder| builder.send().map_err(|e| Error::from(e)))
-            .and_then(|response| response.error_for_status().map_err(|e| Error::from(e)))
-            .and_then(|mut success| {
-                success
-                    .json::<StateResponse<E>>()
-                    .map_err(|e| Error::from(e))
-            })
+            .and_then(|builder| builder.send().map_err(Error::from))
+            .and_then(|response| response.error_for_status().map_err(Error::from))
+            .and_then(|mut success| success.json::<StateResponse<E>>().map_err(Error::from))
             .map(|response| (response.beacon_state, response.root))
     }
 }

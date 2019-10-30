@@ -57,7 +57,7 @@ fn testing_client_config() -> (ClientConfig, TempDir) {
 
     client_config.genesis = ClientGenesis::Interop {
         validator_count: 8,
-        genesis_time: 13371337,
+        genesis_time: 13_371_337,
     };
 
     (client_config, tempdir)

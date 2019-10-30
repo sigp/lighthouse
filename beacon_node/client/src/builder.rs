@@ -168,7 +168,7 @@ where
 
                             Box::new(future)
                         }
-                        ClientGenesis::RemoteNode { server, port: _ } => {
+                        ClientGenesis::RemoteNode { server, .. } => {
                             let future = Bootstrapper::connect(server.to_string(), &context.log)
                                 .map_err(|e| {
                                     format!("Failed to initialize bootstrap client: {}", e)

@@ -30,7 +30,7 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<Eth1Data, Error> {
         if self.use_dummy_backend {
-            return DummyEth1ChainBackend::default().eth1_data(state);
+            DummyEth1ChainBackend::default().eth1_data(state)
         } else {
             self.backend.eth1_data(state)
         }
@@ -46,7 +46,7 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
         if self.use_dummy_backend {
-            return DummyEth1ChainBackend::default().queued_deposits(state, spec);
+            DummyEth1ChainBackend::default().queued_deposits(state, spec)
         } else {
             self.backend.queued_deposits(state, spec)
         }

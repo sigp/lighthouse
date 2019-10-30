@@ -124,7 +124,7 @@ pub fn get_block(
 
 /// The maximum allowable size of a usize.
 fn usize_max_size() -> u64 {
-    1 << (std::mem::size_of::<usize>() * 8) - 1
+    1 << ((std::mem::size_of::<usize>() * 8) - 1)
 }
 
 /// Returns the value of the `get_deposit_count()` call at the given `address` for the given
@@ -371,7 +371,7 @@ fn response_result(response: &str) -> Result<Option<Value>, String> {
         .map_err(|e| format!("Failed to parse response: {:?}", e))?
         .get("result")
         .cloned()
-        .map(|v| Some(v))
+        .map(Some)
         .unwrap_or_else(|| None))
 }
 

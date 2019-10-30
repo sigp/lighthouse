@@ -28,9 +28,8 @@ const CONTRACT_DEPLOY_GAS: usize = 1_000_000_000;
 const DEPOSIT_GAS: usize = 1_000_000_000;
 
 // Deposit contract
-pub const ABI: &'static [u8] = include_bytes!("../contract/v0.8.3_validator_registration.json");
-pub const BYTECODE: &'static [u8] =
-    include_bytes!("../contract/v0.8.3_validator_registration.bytecode");
+pub const ABI: &[u8] = include_bytes!("../contract/v0.8.3_validator_registration.json");
+pub const BYTECODE: &[u8] = include_bytes!("../contract/v0.8.3_validator_registration.bytecode");
 
 pub struct GanacheEth1Instance {
     pub ganache: GanacheInstance,
@@ -138,7 +137,7 @@ impl DepositContract {
                 accounts
                     .get(DEPOSIT_ACCOUNTS_INDEX)
                     .cloned()
-                    .ok_or_else(|| format!("Insufficient accounts for deposit"))
+                    .ok_or_else(|| "Insufficient accounts for deposit".to_string())
             })
             .and_then(move |from_address| {
                 let params = (
@@ -205,7 +204,7 @@ fn deploy_deposit_contract<T: Transport>(
             accounts
                 .get(DEPLOYER_ACCOUNTS_INDEX)
                 .cloned()
-                .ok_or_else(|| format!("Insufficient accounts for deployer"))
+                .ok_or_else(|| "Insufficient accounts for deployer".to_string())
         })
         .and_then(move |deploy_address| {
             Contract::deploy(web3.eth(), &ABI)

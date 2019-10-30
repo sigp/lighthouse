@@ -208,7 +208,7 @@ where
     ///
     /// For example, provide `InteropEth1ChainBackend` as a `backend`.
     pub fn eth1_backend(mut self, backend: Option<TEth1Backend>) -> Self {
-        self.eth1_chain = backend.map(|b| Eth1Chain::new(b));
+        self.eth1_chain = backend.map(Eth1Chain::new);
         self
     }
 
@@ -238,6 +238,7 @@ where
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
     /// Will also raise ambiguous type errors if some parameters have not been configured.
+    #[allow(clippy::type_complexity)] // I think there's nothing to be gained here from a type alias.
     pub fn build(
         self,
     ) -> Result<
