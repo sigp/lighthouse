@@ -17,6 +17,7 @@ use clap::ArgMatches;
 use config::get_configs;
 use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
+use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use store::DiskStore;
 use types::EthSpec;
@@ -74,6 +75,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let http_eth2_config = eth2_config.clone();
         let genesis_eth1_config = client_config.eth1.clone();
         let client_genesis = client_config.genesis.clone();
+        let log = context.log.clone();
 
         client_config
             .db_path()
@@ -93,8 +95,14 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 {
                     builder.json_rpc_eth1_backend(client_config.eth1.clone())?
                 } else if client_config.dummy_eth1_backend {
+                    warn!(log, "Using the \"interop\" eth1 backend");
                     builder.dummy_eth1_backend()?
                 } else {
+                    info!(
+                        log,
+                        "Block production disabled";
+                        "reason" => "no eth1 backend configured"
+                    );
                     builder.no_eth1_backend()?
                 };
 
