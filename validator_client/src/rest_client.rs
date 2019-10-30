@@ -104,7 +104,7 @@ impl<T: Connect> RestClient<T> {
         &self,
         endpoint: &str,
         item: S,
-    ) -> BoxFut<PublishOutcome, ValidatorError> {
+    ) -> BoxFut<PublishOutcome, BeaconNodeError> {
         self.make_post_request(self.endpoint.as_str(), item)
             .and_then(|response| {
                 let body_future = response
@@ -114,16 +114,14 @@ impl<T: Connect> RestClient<T> {
                         Ok(acc)
                     })
                     .map_err(|e| {
-                        ValidatorError::BeaconNodeError(BeaconNodeError::DecodeFailure(
-                            "Unable to read response body.".into(),
-                        ))
+                        BeaconNodeError::DecodeFailure("Unable to read response body.".into())
                     })
                     .and_then(|chunks| String::from_utf8(chunks))
                     .map_err(|e| {
-                        ValidatorError::BeaconNodeError(BeaconNodeError::DecodeFailure(format!(
+                        BeaconNodeError::DecodeFailure(format!(
                             "Response body not valid UTF8: {:?}",
                             e
-                        )))
+                        ))
                     });
                 match response.status {
                     // If it's OK, it's all good.
@@ -137,10 +135,10 @@ impl<T: Connect> RestClient<T> {
                         body_future.and_then(|body| PublishOutcome::Rejected(body))
                     }
                     _ => body_future.and_then(|body| {
-                        ValidatorError::BeaconNodeError(BeaconNodeError::RemoteFailure(format!(
+                        BeaconNodeError::RemoteFailure(format!(
                             "Error from beacon node: {:?}",
                             body
-                        )))
+                        ))
                     }),
                 }
             })

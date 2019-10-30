@@ -1,4 +1,4 @@
-use crate::error::{PublishOutcome, ValidatorError};
+use crate::error::{BeaconNodeError, PublishOutcome};
 use crate::service::BoxFut;
 use types::{BeaconBlock, EthSpec, Signature, Slot};
 
@@ -12,7 +12,7 @@ pub trait BeaconNodeBlock: Send + Sync {
         &self,
         slot: Slot,
         randao_reveal: &Signature,
-    ) -> BoxFut<BeaconBlock<T>, ValidatorError>;
+    ) -> BoxFut<BeaconBlock<T>, BeaconNodeError>;
 
     /// Request that the node publishes a block.
     ///
@@ -20,5 +20,5 @@ pub trait BeaconNodeBlock: Send + Sync {
     fn publish_beacon_block<T: EthSpec>(
         &self,
         block: BeaconBlock<T>,
-    ) -> BoxFut<PublishOutcome, ValidatorError>;
+    ) -> BoxFut<PublishOutcome, BeaconNodeError>;
 }

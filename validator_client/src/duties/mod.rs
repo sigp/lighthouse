@@ -11,6 +11,7 @@ pub use self::epoch_duties::{EpochDutiesMap, WorkInfo};
 pub use self::rest::ValidatorServiceRestClient;
 use super::signer::Signer;
 use crate::error::BeaconNodeError;
+use futures::future::Future;
 use futures::Async;
 use slog::{debug, error, info};
 use std::fmt::Display;
@@ -54,24 +55,34 @@ impl<U: BeaconNodeDuties, S: Signer + Display> DutiesManager<U, S> {
     /// be a wall-clock (e.g., system time, remote server time, etc.).
     fn update(&self, epoch: Epoch) -> Result<UpdateOutcome, Error> {
         let public_keys: Vec<PublicKey> = self.signers.iter().map(Signer::to_public).collect();
-        let duties = self.beacon_node.request_duties(epoch, &public_keys)?;
-        {
-            // If these duties were known, check to see if they're updates or identical.
-            if let Some(known_duties) = self.duties_map.read()?.get(&epoch) {
-                if *known_duties == duties {
-                    return Ok(UpdateOutcome::NoChange(epoch));
+        let known_duties = self.duties_map.read()?.get(&epoch);
+        let update_outcome = self
+            .beacon_node
+            .request_duties(epoch, &public_keys)
+            .and_then(|epoch_duties| {
+                // If these duties were known, check to see if they're updates or identical.
+                match known_duties {
+                    Some(duties) => {
+                        if *duties == epoch_duties {
+                            futures::future::Either::B(UpdateOutcome::NoChange(epoch))
+                        } else {
+                            futures::future::Either::A(epoch_duties)
+                        }
+                    }
+                    None => futures::future::Either::A(epoch_duties),
                 }
-            }
-        }
-        if !self.duties_map.read()?.contains_key(&epoch) {
-            //TODO: Remove clone by removing duties from outcome
-            self.duties_map.write()?.insert(epoch, duties.clone());
-            return Ok(UpdateOutcome::NewDuties(epoch, duties));
-        }
-        // duties have changed
-        //TODO: Duties could be large here. Remove from display and avoid the clone.
-        self.duties_map.write()?.insert(epoch, duties.clone());
-        Ok(UpdateOutcome::DutiesChanged(epoch, duties))
+            })
+            .left_and_then(|epoch_duties| {
+                self.duties_map
+                    .write()
+                    .map(|duties_map| (duties_map, epoch_duties))
+            })
+            .and_then(|(duties_map, epoch_duties)| {
+                //TODO: Remove clone by removing duties from outcome
+                duties_map.insert(epoch, epoch_duties.clone());
+                futures::future::ok(UpdateOutcome::NewDuties(epoch, epoch_duties))
+            });
+        update_outcome
     }
 
     /// A future wrapping around `update()`. This will perform logic based upon the update
@@ -79,8 +90,12 @@ impl<U: BeaconNodeDuties, S: Signer + Display> DutiesManager<U, S> {
     pub fn run_update(&self, epoch: Epoch, log: slog::Logger) -> Result<Async<()>, ()> {
         match self.update(epoch) {
             Err(error) => error!(log, "Epoch duties poll error"; "error" => format!("{:?}", error)),
-            Ok(UpdateOutcome::NoChange(epoch)) => debug!(log, "No change in duties"; "epoch" => epoch),
-            Ok(UpdateOutcome::DutiesChanged(epoch, duties)) => info!(log, "Duties changed (potential re-org)"; "epoch" => epoch, "duties" => format!("{:?}", duties)),
+            Ok(UpdateOutcome::NoChange(epoch)) => {
+                debug!(log, "No change in duties"; "epoch" => epoch)
+            }
+            Ok(UpdateOutcome::DutiesChanged(epoch, duties)) => {
+                info!(log, "Duties changed (potential re-org)"; "epoch" => epoch, "duties" => format!("{:?}", duties))
+            }
             Ok(UpdateOutcome::NewDuties(epoch, duties)) => {
                 info!(log, "New duties obtained"; "epoch" => epoch);
                 print_duties(&log, duties);

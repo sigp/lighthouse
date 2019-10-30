@@ -213,7 +213,6 @@ fn main() {
     };
 
     // start the validator service.
-    // this specifies the GRPC and signer type to use as the duty manager beacon node.
     match result {
         Ok(_) => info!(log, "Validator client shutdown successfully."),
         Err(e) => crit!(log, "Validator client exited with error"; "error" => e.to_string()),

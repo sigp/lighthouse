@@ -31,7 +31,7 @@ impl<T: Connect> BeaconNodeDuties for ValidatorServiceRestClient<T> {
             .map(|pk| pk.as_hex_string())
             .map(|pk| ("pub_keys", pk.as_str()))
             .collect_vec();
-        parameters_vec.push(("epoch", epoch.into()));
+        parameters_vec.push(("epoch", format!("{}", epoch).as_str()));
         self.client
             .make_get_request(self.endpoint.as_str(), parameters_vec)
             .and_then(|response| {

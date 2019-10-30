@@ -6,6 +6,7 @@ pub use self::rest::BeaconBlockRestClient;
 pub use crate::error::{BeaconNodeError, PublishOutcome};
 use crate::signer::Signer;
 use core::marker::PhantomData;
+use futures::future::Future;
 use slog::{error, info, trace, warn};
 use std::sync::Arc;
 use tree_hash::{SignedRoot, TreeHash};
@@ -25,7 +26,7 @@ pub enum ValidatorEvent {
     /// A block was not produced as it would have been slashable.
     SlashableBlockNotProduced(Slot),
     /// An attestation was not produced as it would have been slashable.
-    IndexedAttestationNotProduced(Slot),
+    AttestationNotProduced(Slot),
     /// The Beacon Node was unable to produce a block at that slot.
     BeaconNodeUnableToProduceBlock(Slot),
     /// The signer failed to sign the message.
@@ -34,6 +35,10 @@ pub enum ValidatorEvent {
     PublishAttestationFailed,
     /// Beacon node rejected the attestation.
     InvalidAttestation,
+    /// Beacon node rejected the block
+    InvalidBlock,
+    /// The validator suffered an internal error; this should never happen
+    InternalError,
 }
 
 /// This struct contains the logic for requesting and signing beacon blocks for a validator. The
@@ -61,17 +66,25 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
     /// Handle outputs and results from block production.
     pub fn handle_produce_block(&mut self) {
         match self.produce_block() {
-            Ok(ValidatorEvent::BlockProduced(slot)) => info!(
+            ValidatorEvent::BlockProduced(slot) => info!(
                 self.log,
                 "Block produced";
                 "validator" => format!("{}", self.signer),
                 "slot" => slot,
             ),
-            Err(e) => error!(self.log, "Block production error"; "Error" => format!("{:?}", e)),
-            Ok(ValidatorEvent::SignerRejection(_slot)) => error!(self.log, "Block production error"; "Error" => "Signer Could not sign the block".to_string()),
-            Ok(ValidatorEvent::SlashableBlockNotProduced(_slot)) => error!(self.log, "Block production error"; "Error" => "Rejected the block as it could have been slashed".to_string()),
-            Ok(ValidatorEvent::BeaconNodeUnableToProduceBlock(_slot)) => error!(self.log, "Block production error"; "Error" => "Beacon node was unable to produce a block".to_string()),
-            Ok(v) => warn!(self.log, "Unknown result for block production"; "Error" => format!("{:?}",v)),
+            //Err(e) => error!(self.log, "Block production error"; "Error" => format!("{:?}", e)),
+            ValidatorEvent::SignerRejection(_slot) => {
+                error!(self.log, "Block production error"; "Error" => "Signer Could not sign the block".to_string())
+            }
+            ValidatorEvent::SlashableBlockNotProduced(_slot) => {
+                error!(self.log, "Block production error"; "Error" => "Rejected the block as it could have been slashed".to_string())
+            }
+            ValidatorEvent::BeaconNodeUnableToProduceBlock(_slot) => {
+                error!(self.log, "Block production error"; "Error" => "Beacon node was unable to produce a block".to_string())
+            }
+            v => {
+                warn!(self.log, "Unknown result for block production"; "Error" => format!("{:?}",v))
+            }
         }
     }
 
@@ -85,7 +98,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
     ///
     /// The slash-protection code is not yet implemented. There is zero protection against
     /// slashing.
-    pub fn produce_block(&mut self) -> Result<ValidatorEvent, Error> {
+    pub fn produce_block(&mut self) -> ValidatorEvent {
         let epoch = self.slot.epoch(self.slots_per_epoch);
         trace!(self.log, "Producing block"; "epoch" => epoch);
 
@@ -96,32 +109,54 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
         ) {
             None => {
                 warn!(self.log, "Signing rejected"; "message" => format!("{:?}", message));
-                return Ok(ValidatorEvent::SignerRejection(self.slot));
+                return ValidatorEvent::SignerRejection(self.slot);
             }
             Some(signature) => signature,
         };
 
-        if let Some(block) = self
+        let publish_future = self
             .beacon_node
-            .produce_beacon_block(self.slot, &randao_reveal)?
-        {
-            if self.safe_to_produce(&block) {
+            .produce_beacon_block(self.slot, &randao_reveal)
+            .map_err(|e| ValidatorEvent::BeaconNodeUnableToProduceBlock(self.slot))
+            .and_then(|block| {
+                if !self.safe_to_produce(&block) {
+                    return futures::future::err(ValidatorEvent::SlashableBlockNotProduced(
+                        self.slot,
+                    ));
+                }
+                futures::future::ok(block)
+            })
+            .and_then(|block| {
                 let slot = block.slot;
                 let domain = self
                     .spec
                     .get_domain(epoch, Domain::BeaconProposer, &self.fork);
-                if let Some(block) = self.sign_block(block, domain) {
-                    self.beacon_node.publish_beacon_block(block)?;
-                    Ok(ValidatorEvent::BlockProduced(slot))
-                } else {
-                    Ok(ValidatorEvent::SignerRejection(self.slot))
+                match self.sign_block(block, domain) {
+                    Some(block) => futures::future::ok(block),
+                    None => futures::future::err(ValidatorEvent::SignerRejection(self.slot)),
                 }
-            } else {
-                Ok(ValidatorEvent::SlashableBlockNotProduced(self.slot))
-            }
-        } else {
-            Ok(ValidatorEvent::BeaconNodeUnableToProduceBlock(self.slot))
-        }
+            })
+            .and_then(|block| {
+                self.beacon_node
+                    .publish_beacon_block(block)
+                    .map_err(|e| ValidatorEvent::BeaconNodeUnableToProduceBlock(self.slot))
+            })
+            .and_then(|outcome| match outcome {
+                PublishOutcome::Valid => {
+                    //TODO: This should probably not be self.slot, and should be derived from the block.
+                    futures::future::ok(ValidatorEvent::BlockProduced(self.slot))
+                }
+                PublishOutcome::Invalid(string) => {
+                    futures::future::err(ValidatorEvent::InvalidBlock)
+                }
+                PublishOutcome::Rejected(string) => {
+                    futures::future::err(ValidatorEvent::InvalidBlock)
+                }
+            })
+            .map_err(|e: ValidatorEvent| futures::future::ok(e))
+            .wait()
+            .expect("Cannot be an error, since we already converted those to ok.");
+        publish_future
     }
 
     /// Consumes a block, returning that block signed by the validators private key.
