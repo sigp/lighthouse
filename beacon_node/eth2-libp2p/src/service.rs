@@ -8,10 +8,7 @@ use crate::{Topic, TopicHash};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
-    identity::Keypair,
-    multiaddr::Multiaddr,
-    muxing::StreamMuxerBox,
-    nodes::Substream,
+    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, nodes::Substream,
     transport::boxed::Boxed,
 };
 use libp2p::{core, secio, PeerId, Swarm, Transport};
@@ -216,11 +213,11 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
         .upgrade(core::upgrade::Version::V1)
         .authenticate(secio::SecioConfig::new(local_private_key))
         .multiplex(core::upgrade::SelectUpgrade::new(
-                libp2p::yamux::Config::default(),
-                libp2p::mplex::MplexConfig::new(),
-            ))
-            .map(|(peer, muxer), _| (peer, core::muxing::StreamMuxerBox::new(muxer)))
-            .timeout(Duration::from_secs(20))
+            libp2p::yamux::Config::default(),
+            libp2p::mplex::MplexConfig::new(),
+        ))
+        .map(|(peer, muxer), _| (peer, core::muxing::StreamMuxerBox::new(muxer)))
+        .timeout(Duration::from_secs(20))
         .timeout(Duration::from_secs(20))
         .map_err(|err| Error::new(ErrorKind::Other, err))
         .boxed()

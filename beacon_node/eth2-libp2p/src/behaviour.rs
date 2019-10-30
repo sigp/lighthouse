@@ -154,7 +154,9 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
     fn inject_event(&mut self, event: IdentifyEvent) {
         match event {
             IdentifyEvent::Received {
-                peer_id, mut info, observed_addr
+                peer_id,
+                mut info,
+                observed_addr,
             } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
                     debug!(
