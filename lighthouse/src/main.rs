@@ -8,6 +8,7 @@ use environment::EnvironmentBuilder;
 use slog::{crit, info, warn};
 use std::process::exit;
 use types::EthSpec;
+use validator_client::ProductionValidatorClient;
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
@@ -52,6 +53,7 @@ fn main() {
                 .default_value("trace"),
         )
         .subcommand(beacon_node::cli_app())
+        .subcommand(validator_client::cli_app())
         .get_matches();
 
     macro_rules! run_with_spec {
@@ -122,7 +124,23 @@ fn run<E: EthSpec>(
         None
     };
 
-    if beacon_node.is_none() {
+    let validator_client = if let Some(sub_matches) = matches.subcommand_matches("Validator Client")
+    {
+        let runtime_context = environment.core_context();
+
+        let validator = ProductionValidatorClient::new_from_cli(runtime_context, sub_matches)
+            .map_err(|e| format!("Failed to init validator client: {}", e))?;
+
+        validator
+            .start_service()
+            .map_err(|e| format!("Failed to start validator client service: {}", e))?;
+
+        Some(validator)
+    } else {
+        None
+    };
+
+    if beacon_node.is_none() && validator_client.is_none() {
         crit!(log, "No subcommand supplied. See --help .");
         return Err("No subcommand supplied.".into());
     }
@@ -132,8 +150,8 @@ fn run<E: EthSpec>(
 
     info!(log, "Shutting down..");
 
-    // Drop the beacon node (if it was started), cleanly shutting down all related services.
     drop(beacon_node);
+    drop(validator_client);
 
     // Shutdown the environment once all tasks have completed.
     environment.shutdown_on_idle()

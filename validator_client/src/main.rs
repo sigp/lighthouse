@@ -1,3 +1,6 @@
+fn main() {}
+
+/*
 mod attestation_producer;
 mod block_producer;
 mod config;
@@ -352,3 +355,4 @@ fn process_testnet_subcommand(
 
     Ok((client_config, eth2_config))
 }
+*/

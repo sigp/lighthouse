@@ -17,3 +17,4 @@ slog-term = "^2.4.0"
 slog-async = "^2.3.0"
 environment = { path = "./environment" }
 futures = "0.1.25"
+validator_client = { "path" = "../validator_client" }
