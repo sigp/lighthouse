@@ -1,5 +1,3 @@
-extern crate fs2;
-
 use fs2::FileExt;
 use slashing_protection::attester_slashings::{check_for_attester_slashing, SignedAttestation};
 use slashing_protection::enums::{NotSafe, Safe, ValidityReason};
@@ -9,12 +7,7 @@ use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{Error as IOError, ErrorKind, Read, Result as IOResult, Write};
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time;
-use types::{
-    AttestationData, AttestationDataAndCustodyBit, BeaconBlockHeader, Checkpoint, Crosslink, Epoch,
-    Hash256, Signature, Slot,
-};
+use types::{AttestationDataAndCustodyBit, BeaconBlockHeader};
 
 /// Trait used to know if type T can be checked for slashing safety
 trait SafeFromSlashing<T> {
@@ -28,7 +21,6 @@ trait SafeFromSlashing<T> {
         data_history: &[T],
     ) -> Result<Safe, NotSafe>;
 
-    ///
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
@@ -68,7 +60,6 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
         check_for_proposer_slashing(incoming_data, data_history)
     }
 
-    // should be generic
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
         let check = self.check_for_slashing(&incoming_data);
         match check {
@@ -99,7 +90,7 @@ impl<T: Encode + Decode + Clone + PartialEq> PartialEq for HistoryInfo<T> {
 
 impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
     pub fn update_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
-        self.data.insert(index, data); // assert(index < data_history.len()) ?
+        self.data.insert(index, data);
         let mut file = File::create(self.filepath.as_path()).unwrap();
         file.lock_exclusive()?;
         file.write_all(&self.data.as_ssz_bytes())?;
@@ -152,50 +143,52 @@ impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
     }
 }
 
-fn go_to_sleep(time: u64) {
-    let ten_millis = time::Duration::from_millis(time);
-    thread::sleep(ten_millis);
-}
-
-fn attestation_and_custody_bit_builder(source: u64, target: u64) -> AttestationDataAndCustodyBit {
-    let source = build_checkpoint(source);
-    let target = build_checkpoint(target);
-    let crosslink = Crosslink::default();
-
-    let data = AttestationData {
-        beacon_block_root: Hash256::zero(),
-        source,
-        target,
-        crosslink,
-    };
-
-    AttestationDataAndCustodyBit {
-        data,
-        custody_bit: false,
-    }
-}
-
-fn block_builder(slot: u64) -> BeaconBlockHeader {
-    BeaconBlockHeader {
-        slot: Slot::from(slot),
-        parent_root: Hash256::random(),
-        state_root: Hash256::random(),
-        body_root: Hash256::random(),
-        signature: Signature::empty_signature(),
-    }
-}
-
-fn build_checkpoint(epoch_num: u64) -> Checkpoint {
-    Checkpoint {
-        epoch: Epoch::from(epoch_num),
-        root: Hash256::zero(),
-    }
-}
-
 #[cfg(test)]
 mod single_threaded_tests {
     use super::*;
     use tempfile::NamedTempFile;
+    use types::{
+        AttestationData, AttestationDataAndCustodyBit, Checkpoint, Crosslink, Epoch, Hash256,
+        Signature, Slot,
+    };
+
+    fn attestation_and_custody_bit_builder(
+        source: u64,
+        target: u64,
+    ) -> AttestationDataAndCustodyBit {
+        let source = build_checkpoint(source);
+        let target = build_checkpoint(target);
+        let crosslink = Crosslink::default();
+
+        let data = AttestationData {
+            beacon_block_root: Hash256::zero(),
+            source,
+            target,
+            crosslink,
+        };
+
+        AttestationDataAndCustodyBit {
+            data,
+            custody_bit: false,
+        }
+    }
+
+    fn block_builder(slot: u64) -> BeaconBlockHeader {
+        BeaconBlockHeader {
+            slot: Slot::from(slot),
+            parent_root: Hash256::random(),
+            state_root: Hash256::random(),
+            body_root: Hash256::random(),
+            signature: Signature::empty_signature(),
+        }
+    }
+
+    fn build_checkpoint(epoch_num: u64) -> Checkpoint {
+        Checkpoint {
+            epoch: Epoch::from(epoch_num),
+            root: Hash256::zero(),
+        }
+    }
 
     #[test]
     fn simple_attestation_insertion() {
@@ -369,73 +362,5 @@ mod single_threaded_tests {
         assert_eq!(block_history, file_written_version);
 
         block_file.close().unwrap(); // Making sure it's correctly closed
-    }
-}
-
-#[cfg(test)]
-mod multi_threaded_tests {
-    // necessary?
-    use super::*;
-    use parking_lot::Mutex;
-    use std::sync::mpsc::channel;
-    use std::sync::Arc;
-    use tempfile::NamedTempFile;
-
-    #[test]
-    fn simple_attestation_test() {
-        let attestation_file = NamedTempFile::new().unwrap();
-        let filename = attestation_file.path();
-
-        let attestation_history: Arc<Mutex<HistoryInfo<SignedAttestation>>> = Arc::new(Mutex::new(
-            HistoryInfo::try_from(filename).expect("IO error with file"),
-        ));
-
-        let (tx, rx) = channel();
-
-        let data = Arc::clone(&attestation_history);
-        thread::spawn(move || {
-            let attestation1 = attestation_and_custody_bit_builder(1, 2);
-            let mut data = data.lock();
-            let _ = data.update_if_valid(&attestation1);
-        });
-        let data = Arc::clone(&attestation_history);
-        thread::spawn(move || {
-            let attestation2 = attestation_and_custody_bit_builder(2, 3);
-            let mut data = data.lock();
-            let _ = data.update_if_valid(&attestation2);
-        });
-        let (data, tx) = (Arc::clone(&attestation_history), tx.clone());
-        thread::spawn(move || {
-            let attestation3 = attestation_and_custody_bit_builder(3, 4);
-            let mut new_data = data.lock();
-            let _ = new_data.update_if_valid(&attestation3);
-            tx.send(()).unwrap();
-        });
-
-        rx.recv().unwrap();
-
-        let attestation1 = attestation_and_custody_bit_builder(1, 2);
-        let attestation2 = attestation_and_custody_bit_builder(2, 3);
-        let attestation3 = attestation_and_custody_bit_builder(3, 4);
-
-        let mut expected_vector = vec![];
-        expected_vector.push(SignedAttestation::from(&attestation1));
-        expected_vector.push(SignedAttestation::from(&attestation2));
-        expected_vector.push(SignedAttestation::from(&attestation3));
-
-        let mutex = attestation_history.lock();
-        {
-            // Making sure that data in memory is correct.
-            // Different scope for mutex lock
-            let attestation_history = &mutex.data;
-            assert_eq!(expected_vector, *attestation_history);
-        }
-
-        // Making sure that data in the file is correct
-        let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
-        assert_eq!(*mutex, file_written_version);
-
-        attestation_file.close().unwrap(); // Making sure it's correctly closed
     }
 }
