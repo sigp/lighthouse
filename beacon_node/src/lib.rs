@@ -91,10 +91,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .and_then(move |builder| {
                 let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend
                 {
-                    builder.json_rpc_eth1_backend(
-                        client_config.eth1.clone(),
-                        client_config.dummy_eth1_backend,
-                    )?
+                    builder.json_rpc_eth1_backend(client_config.eth1.clone())?
                 } else if client_config.dummy_eth1_backend {
                     builder.dummy_eth1_backend()?
                 } else {
