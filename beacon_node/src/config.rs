@@ -29,6 +29,10 @@ pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
 
     let mut builder = ConfigBuilder::new(cli_args, core_log)?;
 
+    if cli_args.is_present("dummy-eth1") {
+        builder.client_config.dummy_eth1_backend = true;
+    }
+
     if let Some(val) = cli_args.value_of("eth1-endpoint") {
         builder.set_eth1_endpoint(val)
     }
@@ -183,6 +187,8 @@ fn process_testnet_subcommand(
                 .parse::<u64>()
                 .map_err(|e| format!("Unable to parse minutes: {:?}", e))?;
 
+            builder.client_config.dummy_eth1_backend = true;
+
             builder.set_genesis(ClientGenesis::Interop {
                 validator_count,
                 genesis_time: recent_genesis_time(minutes),
@@ -200,6 +206,8 @@ fn process_testnet_subcommand(
                 .ok_or_else(|| "No genesis time supplied")?
                 .parse::<u64>()
                 .map_err(|e| format!("Unable to parse genesis time: {:?}", e))?;
+
+            builder.client_config.dummy_eth1_backend = true;
 
             builder.set_genesis(ClientGenesis::Interop {
                 validator_count,
@@ -241,8 +249,8 @@ fn process_testnet_subcommand(
 /// Allows for building a set of configurations based upon `clap` arguments.
 struct ConfigBuilder {
     log: Logger,
-    eth2_config: Eth2Config,
-    client_config: ClientConfig,
+    pub eth2_config: Eth2Config,
+    pub client_config: ClientConfig,
 }
 
 impl ConfigBuilder {

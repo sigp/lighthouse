@@ -182,6 +182,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          * Eth1 Integration
          */
         .arg(
+            Arg::with_name("dummy-eth1")
+                .long("dummy-eth1")
+                .help("If present, uses an eth1 backend that generates static dummy data.\
+                      Identical to the method used at the 2019 Canada interop.")
+        )
+        .arg(
             Arg::with_name("eth1-endpoint")
                 .long("eth1-endpoint")
                 .value_name("HTTP-ENDPOINT")
