@@ -7,10 +7,10 @@ license = "Apache-2.0"
 description = "Hashing primitives used in Ethereum 2.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ring = "0.14.6"
+ring = "0.16.9"
 
 [dev-dependencies]
 rustc-hex = "2.0.1"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.2.47"
+wasm-bindgen-test = "0.3.2"
