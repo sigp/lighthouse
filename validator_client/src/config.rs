@@ -150,7 +150,7 @@ impl Config {
     /// must align with the public key loaded from it, otherwise an error is returned.
     ///
     /// An error will be returned if `path` is a file (not a directory).
-    fn read_keypair_file(&self, path: PathBuf) -> Result<Keypair, String> {
+    pub fn read_keypair_file(&self, path: PathBuf) -> Result<Keypair, String> {
         if !path.is_dir() {
             return Err("Is not a directory".into());
         }
