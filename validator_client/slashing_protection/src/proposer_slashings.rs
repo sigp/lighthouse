@@ -5,8 +5,8 @@ use types::{BeaconBlockHeader, Hash256, Slot};
 
 #[derive(PartialEq, Debug)]
 pub enum InvalidBlock {
-    BlockSlotTooEarly,
-    DoubleBlockProposal,
+    BlockSlotTooEarly(SignedBlock),
+    DoubleBlockProposal(SignedBlock),
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq)]
@@ -60,10 +60,10 @@ pub fn check_for_proposer_slashing(
                 reason: ValidityReason::SameVote,
             })
         } else {
-            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal))
+            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(block_history[index].clone())))
         }
     } else {
-        Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly))
+        Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(block_history[block_history.len() - 1].clone())))
     }
 }
 
@@ -158,6 +158,21 @@ mod block_tests {
     }
 
     #[test]
+    fn invalid_slot_too_early() {
+        let mut history = vec![];
+
+        history.push(SignedBlock::new(1, Hash256::random()));
+        history.push(SignedBlock::new(3, Hash256::random()));
+
+        let new_block = block_builder(2);
+
+        assert_eq!(
+            check_for_proposer_slashing(&new_block, &history),
+            Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(history[1].clone())))
+        );
+    }
+
+    #[test]
     fn invalid_double_block_proposal() {
         let mut history = vec![];
 
@@ -169,7 +184,7 @@ mod block_tests {
 
         assert_eq!(
             check_for_proposer_slashing(&new_block, &history),
-            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal))
+            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(history[1].clone())))
         );
     }
 }
