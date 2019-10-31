@@ -93,9 +93,19 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .and_then(move |builder| {
                 let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend
                 {
+                    info!(
+                        log,
+                        "Block production enabled";
+                        "endpoint" => &client_config.eth1.endpoint,
+                        "method" => "json rpc via http"
+                    );
                     builder.json_rpc_eth1_backend(client_config.eth1.clone())?
                 } else if client_config.dummy_eth1_backend {
-                    warn!(log, "Using the \"interop\" eth1 backend");
+                    warn!(
+                        log,
+                        "Block production impaired";
+                        "reason" => "dummy eth1 backend is enabled"
+                    );
                     builder.dummy_eth1_backend()?
                 } else {
                     info!(

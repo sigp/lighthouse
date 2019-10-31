@@ -26,7 +26,6 @@ use state_processing::{
 use std::fs;
 use std::io::prelude::*;
 use std::sync::Arc;
-use std::time::Duration;
 use store::iter::{BlockRootsIterator, StateRootsIterator};
 use store::{Error as DBError, Store};
 use tree_hash::TreeHash;
@@ -128,119 +127,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconInfo<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Instantiate a new Beacon Chain, from genesis.
-    pub fn from_genesis(
-        store: Arc<T::Store>,
-        eth1_backend: Option<T::Eth1Chain>,
-        fork_choice_backend: T::LmdGhost,
-        event_handler: T::EventHandler,
-        mut genesis_state: BeaconState<T::EthSpec>,
-        mut genesis_block: BeaconBlock<T::EthSpec>,
-        spec: ChainSpec,
-        log: Logger,
-    ) -> Result<Self, Error> {
-        genesis_state.build_all_caches(&spec)?;
-
-        let genesis_state_root = genesis_state.canonical_root();
-        store.put(&genesis_state_root, &genesis_state)?;
-
-        genesis_block.state_root = genesis_state_root;
-
-        let genesis_block_root = genesis_block.block_header().canonical_root();
-        store.put(&genesis_block_root, &genesis_block)?;
-
-        // Also store the genesis block under the `ZERO_HASH` key.
-        let genesis_block_root = genesis_block.canonical_root();
-        store.put(&Hash256::zero(), &genesis_block)?;
-
-        let canonical_head = RwLock::new(CheckPoint::new(
-            genesis_block.clone(),
-            genesis_block_root,
-            genesis_state.clone(),
-            genesis_state_root,
-        ));
-
-        // Slot clock
-        let slot_clock = T::SlotClock::new(
-            spec.genesis_slot,
-            Duration::from_secs(genesis_state.genesis_time),
-            Duration::from_millis(spec.milliseconds_per_slot),
-        );
-
-        let fork_choice = ForkChoice::new(store.clone(), fork_choice_backend, genesis_block_root);
-
-        info!(log, "Beacon chain initialized from genesis";
-              "validator_count" => genesis_state.validators.len(),
-              "state_root" => format!("{}", genesis_state_root),
-              "block_root" => format!("{}", genesis_block_root),
-        );
-
-        Ok(Self {
-            spec,
-            slot_clock,
-            op_pool: OperationPool::new(),
-            eth1_chain: eth1_backend.map(Eth1Chain::new),
-            canonical_head,
-            genesis_block_root,
-            fork_choice,
-            event_handler,
-            store,
-            log,
-        })
-    }
-
-    /// Attempt to load an existing instance from the given `store`.
-    pub fn from_store(
-        store: Arc<T::Store>,
-        eth1_backend: Option<T::Eth1Chain>,
-        fork_choice_backend: T::LmdGhost,
-        event_handler: T::EventHandler,
-        spec: ChainSpec,
-        log: Logger,
-    ) -> Result<Option<BeaconChain<T>>, Error> {
-        let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
-        let p: PersistedBeaconChain<T> = match store.get(&key) {
-            Err(e) => return Err(e.into()),
-            Ok(None) => return Ok(None),
-            Ok(Some(p)) => p,
-        };
-
-        let state = &p.canonical_head.beacon_state;
-
-        let slot_clock = T::SlotClock::new(
-            spec.genesis_slot,
-            Duration::from_secs(state.genesis_time),
-            Duration::from_millis(spec.milliseconds_per_slot),
-        );
-
-        let last_finalized_root = p.canonical_head.beacon_state.finalized_checkpoint.root;
-        let last_finalized_block = &p.canonical_head.beacon_block;
-
-        let op_pool = p.op_pool.into_operation_pool(state, &spec);
-
-        let fork_choice = ForkChoice::new(store.clone(), fork_choice_backend, last_finalized_root);
-
-        info!(log, "Beacon chain initialized from store";
-              "head_root" => format!("{}", p.canonical_head.beacon_block_root),
-              "head_epoch" => format!("{}", p.canonical_head.beacon_block.slot.epoch(T::EthSpec::slots_per_epoch())),
-              "finalized_root" => format!("{}", last_finalized_root),
-              "finalized_epoch" => format!("{}", last_finalized_block.slot.epoch(T::EthSpec::slots_per_epoch())),
-        );
-
-        Ok(Some(BeaconChain {
-            spec,
-            slot_clock,
-            fork_choice,
-            op_pool,
-            event_handler,
-            eth1_chain: eth1_backend.map(Eth1Chain::new),
-            canonical_head: RwLock::new(p.canonical_head),
-            genesis_block_root: p.genesis_block_root,
-            store,
-            log,
-        }))
-    }
-
     /// Attempt to save this instance to `self.store`.
     pub fn persist(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_CHAIN);

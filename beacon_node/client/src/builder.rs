@@ -46,7 +46,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     exit_signals: Vec<Signal>,
     event_handler: Option<T::EventHandler>,
-    eth1_backend: Option<T::Eth1Chain>,
     libp2p_network: Option<Arc<NetworkService<T>>>,
     libp2p_network_send: Option<UnboundedSender<NetworkMessage>>,
     http_listen_addr: Option<SocketAddr>,
@@ -74,7 +73,6 @@ where
             beacon_chain: None,
             exit_signals: vec![],
             event_handler: None,
-            eth1_backend: None,
             libp2p_network: None,
             libp2p_network_send: None,
             http_listen_addr: None,
@@ -438,7 +436,6 @@ where
                     .clone()
                     .ok_or_else(|| "beacon_chain requires a slot clock")?,
             )
-            .eth1_backend(self.eth1_backend)
             .empty_reduced_tree_fork_choice()
             .map_err(|e| format!("Failed to init fork choice: {}", e))?
             .build()
@@ -447,7 +444,6 @@ where
         self.beacon_chain = Some(Arc::new(chain));
         self.beacon_chain_builder = None;
         self.event_handler = None;
-        self.eth1_backend = None;
 
         Ok(self)
     }
