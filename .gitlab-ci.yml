@@ -1,6 +1,10 @@
 #Adapted from https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
 
-image: 'sigp/lighthouse:latest'
+default:
+  image: 'sigp/lighthouse:latest'
+  cache:
+    paths:
+      - tests/ef_tests/*-v0.8.3.tar.gz
 
 stages:
   - test
@@ -29,12 +33,21 @@ test-release:
   script:
     - cargo test --verbose --all --release
 
-test-fake-crypto:
+test-ef:
   stage: test
   variables:
     GIT_SUBMODULE_STRATEGY: normal
   script:
-    - cargo test --manifest-path tests/ef_tests/Cargo.toml --release --features fake_crypto
+    - make make-ef-tests
+    - cargo test --manifest-path tests/ef_tests/Cargo.toml --release --features ef_tests
+
+test-ef-fake-crypto:
+  stage: test
+  variables:
+    GIT_SUBMODULE_STRATEGY: normal
+  script:
+    - make make-ef-tests
+    - cargo test --manifest-path tests/ef_tests/Cargo.toml --release --features ef_tests fake_crypto
 
 documentation:
   stage: document

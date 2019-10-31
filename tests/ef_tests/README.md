@@ -2,22 +2,12 @@
 
 This crate parses and executes the test vectors at [ethereum/eth2.0-spec-tests](https://github.com/ethereum/eth2.0-spec-tests).
 
-Functionality is achieved only via the `$ cargo test` command.
+Functionality is achieved only via the `$ cargo test --features ef_tests` command.
 
-## Tests
+## Running the Tests
 
-Because the test vectors are very large, we do not download the
-tests vectors or require that the tests pass by default. Specifically;
-
-- If the `tests/ef_tests/eth2.0-spec-tests` directory is not present, all tests
-	indicate a `pass` when they did not actually run.
-- If that directory _is_ present, the tests are executed faithfully, failing if
-	a discrepancy is found.
-
-## Downloading Test Vectors
-
-The `eth2.0-spec-tests` directory is not present by default. To
-obtain it, use the Makefile:
+Because the test vectors are very large, we do not download or run them by default.
+To download them, run (in this directory):
 
 ```
 $ make
@@ -27,4 +17,26 @@ _Note: this may download hundreds of MB of compressed archives from the
 [ethereum/eth2.0-spec-tests](https://github.com/ethereum/eth2.0-spec-tests/),
 which may expand into several GB of files._
 
-Remove the tests to save space or update to a new version with `$ make clean`.
+If successful, you should now have the extracted tests in `./eth2.0-spec-tests`.
+
+Run them with:
+
+```
+$ cargo test --features ef_tests
+```
+
+The tests won't run without the `ef_tests` feature enabled (this is to ensure that a top-level
+`cargo test --all` won't fail on missing files).
+
+## Saving Space
+
+When you download the tests, the downloaded archives will be kept in addition to the extracted
+files. You have several options for saving space:
+
+1. Delete the archives (`make clean-archives`), and keep the extracted files. Suitable for everyday
+   use, just don't re-run `make` or it will redownload the archives.
+2. Delete the extracted files (`make clean-test-files`), and keep the archives. Suitable for CI, or
+   temporarily saving space. If you re-run `make` it will extract the archives rather than
+   redownloading them.
+3. Delete everything (`make clean`). Good for updating to a new version, or if you no longer wish to
+   run the EF tests.
