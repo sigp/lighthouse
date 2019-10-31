@@ -90,10 +90,6 @@ pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
         }
     };
 
-    if cli_args.is_present("goerli") {
-        builder.set_goerli_params()
-    }
-
     builder.build(cli_args)
 }
 
@@ -232,6 +228,29 @@ fn process_testnet_subcommand(
 
             builder.set_genesis(start_method)
         }
+        ("prysm", Some(_)) => {
+            let mut spec = &mut builder.eth2_config.spec;
+            let mut client_config = &mut builder.client_config;
+
+            spec.min_deposit_amount = 100;
+            spec.max_effective_balance = 3_200_000_000;
+            spec.ejection_balance = 1_600_000_000;
+            spec.effective_balance_increment = 100_000_000;
+            spec.min_genesis_time = 0;
+            spec.genesis_fork = Fork {
+                previous_version: [0; 4],
+                current_version: [0, 0, 0, 2],
+                epoch: Epoch::new(0),
+            };
+
+            client_config.eth1.deposit_contract_address =
+                "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();
+            client_config.eth1.deposit_contract_deploy_block = 1487270;
+            client_config.eth1.follow_distance = 16;
+            client_config.dummy_eth1_backend = false;
+
+            builder.set_genesis(ClientGenesis::DepositContract)
+        }
         (cmd, Some(_)) => {
             return Err(format!(
                 "Invalid valid method specified: {}. See 'testnet --help'.",
@@ -341,24 +360,6 @@ impl ConfigBuilder {
 
     pub fn set_genesis(&mut self, method: ClientGenesis) {
         self.client_config.genesis = method;
-    }
-
-    pub fn set_goerli_params(&mut self) {
-        let mut spec = &mut self.eth2_config.spec;
-
-        spec.min_deposit_amount = 100;
-        spec.max_effective_balance = 3_200_000_000;
-        spec.ejection_balance = 1_600_000_000;
-        spec.effective_balance_increment = 100_000_000;
-        spec.min_genesis_time = 0;
-        spec.genesis_fork = Fork {
-            previous_version: [0; 4],
-            current_version: [0, 0, 0, 2],
-            epoch: Epoch::new(0),
-        };
-        // TODO: GENESIS_FORK_VERSION
-
-        self.client_config.eth1.follow_distance = 16;
     }
 
     /// Import the libp2p address for `server` into the list of libp2p nodes to connect with.

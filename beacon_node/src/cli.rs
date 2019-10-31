@@ -172,11 +172,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with_all(&["no-ws", "port-bump"])
                 .takes_value(true),
         )
-        .arg(
-            Arg::with_name("goerli")
-                .long("goerli")
-                .help("When set, uses the parameters for the Goerli testnet.")
-        )
 
         /*
          * Eth1 Integration
@@ -341,6 +336,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .value_name("FILE")
                     .required(true)
                     .help("A file from which to read the state"))
+            )
+            /*
+             * `prysm`
+             *
+             * Connect to the Prysmatic Labs testnet.
+             */
+            .subcommand(SubCommand::with_name("prysm")
+                .about("Connect to the Prysmatic Labs testnet on Goerli.")
             )
         )
 }
