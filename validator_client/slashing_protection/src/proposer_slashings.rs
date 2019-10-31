@@ -11,8 +11,8 @@ pub enum InvalidBlock {
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq)]
 pub struct SignedBlock {
-    pub slot: Slot,
-    pub signing_root: Hash256,
+    slot: Slot,
+    signing_root: Hash256,
 }
 
 impl From<&BeaconBlockHeader> for SignedBlock {

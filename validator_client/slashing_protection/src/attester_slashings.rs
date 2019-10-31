@@ -6,9 +6,9 @@ use types::{AttestationData, AttestationDataAndCustodyBit, Epoch, Hash256};
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq)]
 pub struct SignedAttestation {
-    pub source_epoch: Epoch,
-    pub target_epoch: Epoch,
-    pub signing_root: Hash256,
+    source_epoch: Epoch,
+    target_epoch: Epoch,
+    signing_root: Hash256,
 }
 
 impl From<&AttestationDataAndCustodyBit> for SignedAttestation {
