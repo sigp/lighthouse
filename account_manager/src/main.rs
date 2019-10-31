@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use types::DepositData;
 use validator_client::Config as ValidatorClientConfig;
+mod cipher;
 mod deposit;
+mod kdf;
 mod keystore;
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
