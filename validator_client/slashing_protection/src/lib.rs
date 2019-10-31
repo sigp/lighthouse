@@ -1,5 +1,5 @@
 mod attester_slashings;
-mod history_info;
+mod slashing_protection;
 mod proposer_slashings;
 
 mod enums {
