@@ -31,8 +31,11 @@ mod enums {
 
     #[derive(PartialEq, Debug)]
     pub enum ValidityReason {
+        // History is empty so inserting is safe
         EmptyHistory,
+        // Re-signing a previous vote is safe
         SameVote,
+        // Incoming data is safe from slashing
         Valid,
     }
 

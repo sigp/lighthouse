@@ -60,10 +60,14 @@ pub fn check_for_proposer_slashing(
                 reason: ValidityReason::SameVote,
             })
         } else {
-            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(block_history[index].clone())))
+            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
+                block_history[index].clone(),
+            )))
         }
     } else {
-        Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(block_history[block_history.len() - 1].clone())))
+        Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(
+            block_history[block_history.len() - 1].clone(),
+        )))
     }
 }
 
@@ -168,7 +172,9 @@ mod block_tests {
 
         assert_eq!(
             check_for_proposer_slashing(&new_block, &history),
-            Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(history[1].clone())))
+            Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(
+                history[1].clone()
+            )))
         );
     }
 
@@ -184,7 +190,9 @@ mod block_tests {
 
         assert_eq!(
             check_for_proposer_slashing(&new_block, &history),
-            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(history[1].clone())))
+            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
+                history[1].clone()
+            )))
         );
     }
 }

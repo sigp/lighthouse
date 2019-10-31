@@ -32,12 +32,19 @@ fn check_surrounded(
     attestation_data: &AttestationData,
     attestation_history: &[SignedAttestation],
 ) -> Result<(), NotSafe> {
-    let surrounded = attestation_history.iter().rev().position(|historical_attestation| {
-        historical_attestation.source_epoch < attestation_data.source.epoch
-    });
+    let surrounded = attestation_history
+        .iter()
+        .rev()
+        .position(|historical_attestation| {
+            historical_attestation.source_epoch < attestation_data.source.epoch
+        });
     match surrounded {
-        Some(index) => Err(NotSafe::InvalidAttestation(InvalidAttestation::SurroundedVote(attestation_history[attestation_history.len() - 1 - index].clone()))),
-        None => Ok(())
+        Some(index) => Err(NotSafe::InvalidAttestation(
+            InvalidAttestation::SurroundedVote(
+                attestation_history[attestation_history.len() - 1 - index].clone(),
+            ),
+        )),
+        None => Ok(()),
     }
 }
 
@@ -45,12 +52,19 @@ fn check_surrounding(
     attestation_data: &AttestationData,
     attestation_history: &[SignedAttestation],
 ) -> Result<(), NotSafe> {
-    let surrounding = attestation_history.iter().rev().position(|historical_attestation| {
-        historical_attestation.source_epoch > attestation_data.source.epoch
-    });
+    let surrounding = attestation_history
+        .iter()
+        .rev()
+        .position(|historical_attestation| {
+            historical_attestation.source_epoch > attestation_data.source.epoch
+        });
     match surrounding {
-        Some(index) => Err(NotSafe::InvalidAttestation(InvalidAttestation::SurroundingVote(attestation_history[attestation_history.len() - 1 - index].clone()))),
-        None => Ok(())
+        Some(index) => Err(NotSafe::InvalidAttestation(
+            InvalidAttestation::SurroundingVote(
+                attestation_history[attestation_history.len() - 1 - index].clone(),
+            ),
+        )),
+        None => Ok(()),
     }
 }
 
@@ -88,7 +102,9 @@ pub fn check_for_attester_slashing(
                 reason: ValidityReason::SameVote,
             });
         } else {
-            return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(attestation_history[target_index].clone())));
+            return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
+                attestation_history[target_index].clone(),
+            )));
         }
     }
 
@@ -317,7 +333,9 @@ mod attestation_tests {
         let attestation_data = attestation_data_and_custody_bit_builder(3, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(history[0].clone())))
+            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
+                history[0].clone()
+            )))
         );
     }
 
@@ -331,7 +349,9 @@ mod attestation_tests {
         let attestation_data = attestation_data_and_custody_bit_builder(4, 5);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(history[1].clone())))
+            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
+                history[1].clone()
+            )))
         );
     }
 
@@ -345,7 +365,9 @@ mod attestation_tests {
         let attestation_data = attestation_data_and_custody_bit_builder(5, 6);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(history[2].clone())))
+            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
+                history[2].clone()
+            )))
         );
     }
 
@@ -359,7 +381,9 @@ mod attestation_tests {
         let attestation_data = attestation_data_and_custody_bit_builder(2, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(history[0].clone())))
+            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
+                history[0].clone()
+            )))
         );
     }
 
