@@ -16,6 +16,8 @@ dirs = "2.0.1"
 eth2_ssz = "0.1"
 parity-crypto = "0.4.2"
 rand = "0.7.2"
+rust-crypto = "0.2.36"
+hex = "0.4.0"
 
 [dev-dependencies]
 tree_hash = "0.1"
