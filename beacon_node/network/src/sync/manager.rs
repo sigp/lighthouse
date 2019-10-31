@@ -553,9 +553,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn process_potential_block_requests(&mut self) {
         // check if an outbound request is required
+
         // Managing a fixed number of outbound requests is maintained at the RPC protocol libp2p
         // layer and not needed here. Therefore we create many outbound requests and let the RPC
-        // handle the number of simultaneous requests. Request all queued objects.
+        // handle the number of simultaneous requests.
+        // Request all queued objects.
 
         // remove any failed batches
         let debug_log = &self.log;
@@ -575,25 +577,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // process queued block requests
         for (peer_id, block_requests) in self.import_queue.iter_mut() {
-                if block_requests.state == BlockRequestsState::Queued {
-                    let request_id = self.current_req_id;
-                    block_requests.state = BlockRequestsState::Pending(request_id);
-                    self.current_req_id += 1;
+            if block_requests.state == BlockRequestsState::Queued {
+                let request_id = self.current_req_id;
+                block_requests.state = BlockRequestsState::Pending(request_id);
+                self.current_req_id += 1;
 
-                    let request = BlocksByRangeRequest {
-                        head_block_root: block_requests.target_head_root,
-                        start_slot: block_requests.current_start_slot.as_u64(),
-                        count: BLOCKS_PER_REQUEST,
-                        step: 0,
-                    };
-                    request_blocks(
-                        &mut self.network,
-                        &self.log,
-                        peer_id.clone(),
-                        request_id,
-                        request,
-                    );
-                }
+                let request = BlocksByRangeRequest {
+                    head_block_root: block_requests.target_head_root,
+                    start_slot: block_requests.current_start_slot.as_u64(),
+                    count: BLOCKS_PER_REQUEST,
+                    step: 0,
+                };
+                request_blocks(
+                    &mut self.network,
+                    &self.log,
+                    peer_id.clone(),
+                    request_id,
+                    request,
+                );
             }
         }
     }

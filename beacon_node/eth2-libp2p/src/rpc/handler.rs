@@ -11,7 +11,7 @@ use libp2p::swarm::protocols_handler::{
 };
 use smallvec::SmallVec;
 use std::time::{Duration, Instant};
-use tokio_io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 //TODO: Implement close() on the substream types to improve the poll code.
 //TODO: Implement check_timeout() on the substream types

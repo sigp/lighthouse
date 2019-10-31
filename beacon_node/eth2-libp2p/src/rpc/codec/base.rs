@@ -1,8 +1,8 @@
 //! This handles the various supported encoding mechanism for the Eth 2.0 RPC.
 
 use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
-use bytes::BufMut;
-use bytes::BytesMut;
+use libp2p::bytes::BufMut;
+use libp2p::bytes::BytesMut;
 use tokio::codec::{Decoder, Encoder};
 
 pub trait OutboundCodec: Encoder + Decoder {

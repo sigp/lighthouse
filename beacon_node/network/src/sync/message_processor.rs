@@ -6,7 +6,7 @@ use beacon_chain::{
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{debug, info, o, trace, warn};
+use slog::{debug, error, info, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
