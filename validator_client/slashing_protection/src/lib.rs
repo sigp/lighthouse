@@ -1,8 +1,8 @@
-mod attester_slashings;
-mod proposer_slashings;
-mod slashing_protection;
+pub mod attester_slashings;
+pub mod proposer_slashings;
+pub mod slashing_protection;
 
-mod enums {
+pub mod enums {
     use crate::attester_slashings::InvalidAttestation;
     use crate::proposer_slashings::InvalidBlock;
     use ssz::DecodeError;

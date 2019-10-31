@@ -2,7 +2,7 @@ use crate::enums::{NotSafe, Safe, ValidityReason};
 use ssz_derive::{Decode, Encode};
 use std::convert::From;
 use tree_hash::TreeHash;
-use types::{AttestationData, AttestationDataAndCustodyBit, Epoch, Hash256};
+use types::{AttestationData, Epoch, Hash256};
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq)]
 pub struct SignedAttestation {
@@ -11,11 +11,11 @@ pub struct SignedAttestation {
     signing_root: Hash256,
 }
 
-impl From<&AttestationDataAndCustodyBit> for SignedAttestation {
-    fn from(attestation: &AttestationDataAndCustodyBit) -> Self {
+impl From<&AttestationData> for SignedAttestation {
+    fn from(attestation: &AttestationData) -> Self {
         Self {
-            source_epoch: attestation.data.source.epoch,
-            target_epoch: attestation.data.target.epoch,
+            source_epoch: attestation.source.epoch,
+            target_epoch: attestation.target.epoch,
             signing_root: Hash256::from_slice(&attestation.tree_hash_root()),
         }
     }
@@ -70,7 +70,7 @@ fn check_surrounding(
 
 /// Checks if the incoming attestation is surrounding a vote, is a surrounded by another vote, or if it is a double vote.
 pub fn check_for_attester_slashing(
-    attestation_data_and_custody: &AttestationDataAndCustodyBit,
+    attestation_data: &AttestationData,
     attestation_history: &[SignedAttestation],
 ) -> Result<Safe, NotSafe> {
     if attestation_history.is_empty() {
@@ -80,7 +80,7 @@ pub fn check_for_attester_slashing(
         });
     }
 
-    let attestation_data = &attestation_data_and_custody.data;
+    let attestation_data = &attestation_data;
 
     // Getting the index of the current SignedAttestation that is closest to the incoming attestation
     let target_index = match attestation_history
@@ -95,7 +95,7 @@ pub fn check_for_attester_slashing(
 
     if attestation_history[target_index].target_epoch == attestation_data.target.epoch {
         if attestation_history[target_index].signing_root
-            == Hash256::from_slice(&attestation_data_and_custody.tree_hash_root())
+            == Hash256::from_slice(&attestation_data.tree_hash_root())
         {
             return Ok(Safe {
                 insert_index: target_index,
@@ -156,24 +156,19 @@ mod attestation_tests {
         }
     }
 
-    fn attestation_data_and_custody_bit_builder(
+    fn attestation_data_builder(
         source: u64,
         target: u64,
-    ) -> AttestationDataAndCustodyBit {
+    ) -> AttestationData {
         let source = build_checkpoint(source);
         let target = build_checkpoint(target);
         let crosslink = Crosslink::default();
 
-        let data = AttestationData {
+        AttestationData {
             beacon_block_root: Hash256::zero(),
             source,
             target,
             crosslink,
-        };
-
-        AttestationDataAndCustodyBit {
-            data,
-            custody_bit: false,
         }
     }
 
@@ -181,7 +176,7 @@ mod attestation_tests {
     fn valid_empty_history() {
         let history = vec![];
 
-        let attestation_data = attestation_data_and_custody_bit_builder(2, 3);
+        let attestation_data = attestation_data_builder(2, 3);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
@@ -197,7 +192,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(0, 1, Hash256::random()));
         history.push(SignedAttestation::new(2, 3, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(1, 2);
+        let attestation_data = attestation_data_builder(1, 2);
 
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
@@ -214,7 +209,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(0, 1, Hash256::random()));
         history.push(SignedAttestation::new(1, 2, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(2, 3);
+        let attestation_data = attestation_data_builder(2, 3);
 
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
@@ -230,7 +225,7 @@ mod attestation_tests {
         let mut history = vec![];
         history.push(SignedAttestation::new(6, 7, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(6, 8);
+        let attestation_data = attestation_data_builder(6, 8);
 
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
@@ -246,7 +241,7 @@ mod attestation_tests {
         let mut history = vec![];
         history.push(SignedAttestation::new(6, 8, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(6, 7);
+        let attestation_data = attestation_data_builder(6, 7);
 
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
@@ -258,7 +253,7 @@ mod attestation_tests {
     fn valid_same_vote_first() {
         let mut history = vec![];
 
-        let attestation_data = attestation_data_and_custody_bit_builder(0, 1);
+        let attestation_data = attestation_data_builder(0, 1);
 
         history.push(SignedAttestation::new(
             0,
@@ -281,7 +276,7 @@ mod attestation_tests {
     fn valid_same_vote_middle() {
         let mut history = vec![];
 
-        let attestation_data = attestation_data_and_custody_bit_builder(1, 2);
+        let attestation_data = attestation_data_builder(1, 2);
 
         history.push(SignedAttestation::new(0, 1, Hash256::random()));
         history.push(SignedAttestation::new(
@@ -304,7 +299,7 @@ mod attestation_tests {
     fn valid_same_vote_last() {
         let mut history = vec![];
 
-        let attestation_data = attestation_data_and_custody_bit_builder(2, 3);
+        let attestation_data = attestation_data_builder(2, 3);
 
         history.push(SignedAttestation::new(0, 1, Hash256::random()));
         history.push(SignedAttestation::new(1, 2, Hash256::random()));
@@ -330,7 +325,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(4, 5, Hash256::random()));
         history.push(SignedAttestation::new(5, 6, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(3, 4);
+        let attestation_data = attestation_data_builder(3, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
@@ -346,7 +341,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(4, 5, Hash256::random()));
         history.push(SignedAttestation::new(5, 6, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(4, 5);
+        let attestation_data = attestation_data_builder(4, 5);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
@@ -362,7 +357,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(4, 5, Hash256::random()));
         history.push(SignedAttestation::new(5, 6, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(5, 6);
+        let attestation_data = attestation_data_builder(5, 6);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
@@ -378,7 +373,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(4, 5, Hash256::random()));
         history.push(SignedAttestation::new(5, 6, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(2, 4);
+        let attestation_data = attestation_data_builder(2, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
@@ -394,7 +389,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(4, 5, Hash256::random()));
         history.push(SignedAttestation::new(6, 7, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(1, 4);
+        let attestation_data = attestation_data_builder(1, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
@@ -410,7 +405,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(4, 5, Hash256::random()));
         history.push(SignedAttestation::new(6, 7, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(3, 6);
+        let attestation_data = attestation_data_builder(3, 6);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
@@ -426,7 +421,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(4, 5, Hash256::random()));
         history.push(SignedAttestation::new(6, 7, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(5, 8);
+        let attestation_data = attestation_data_builder(5, 8);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
@@ -440,7 +435,7 @@ mod attestation_tests {
         let mut history = vec![];
         history.push(SignedAttestation::new(221, 224, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(4, 227);
+        let attestation_data = attestation_data_builder(4, 227);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
@@ -455,7 +450,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(2, 3, Hash256::random()));
         history.push(SignedAttestation::new(3, 4, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(2, 5);
+        let attestation_data = attestation_data_builder(2, 5);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
@@ -472,7 +467,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(2, 3, Hash256::random()));
         history.push(SignedAttestation::new(3, 4, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(1, 5);
+        let attestation_data = attestation_data_builder(1, 5);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
@@ -487,7 +482,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(0, 1, Hash256::random()));
         history.push(SignedAttestation::new(0, 7, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(1, 2);
+        let attestation_data = attestation_data_builder(1, 2);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
@@ -503,7 +498,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(1, 6, Hash256::random()));
         history.push(SignedAttestation::new(6, 7, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(2, 3);
+        let attestation_data = attestation_data_builder(2, 3);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
@@ -518,7 +513,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(1, 2, Hash256::random()));
         history.push(SignedAttestation::new(1, 6, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(2, 3);
+        let attestation_data = attestation_data_builder(2, 3);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
@@ -534,7 +529,7 @@ mod attestation_tests {
         history.push(SignedAttestation::new(1, 5, Hash256::random()));
         history.push(SignedAttestation::new(2, 6, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(3, 4);
+        let attestation_data = attestation_data_builder(3, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
@@ -548,7 +543,7 @@ mod attestation_tests {
         let mut history = vec![];
         history.push(SignedAttestation::new(221, 224, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(4, 5);
+        let attestation_data = attestation_data_builder(4, 5);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::PruningError)
@@ -560,7 +555,7 @@ mod attestation_tests {
         let mut history = vec![];
         history.push(SignedAttestation::new(221, 224, Hash256::random()));
 
-        let attestation_data = attestation_data_and_custody_bit_builder(222, 223);
+        let attestation_data = attestation_data_builder(222, 223);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::PruningError)

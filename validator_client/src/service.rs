@@ -14,6 +14,13 @@ use crate::config::Config as ValidatorConfig;
 use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
 use crate::error as error_chain;
 use crate::signer::Signer;
+
+use parking_lot::Mutex;
+use slashing_protection::attester_slashings::SignedAttestation;
+use slashing_protection::proposer_slashings::SignedBlock;
+use slashing_protection::slashing_protection::HistoryInfo;
+use std::convert::TryFrom;
+
 use bls::Keypair;
 use eth2_config::Eth2Config;
 use grpcio::{ChannelBuilder, EnvBuilder};
@@ -373,6 +380,10 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let beacon_node = self.beacon_block_client.clone();
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
+                    let path = "~/.block.file"; // placeholder
+                    let history_info = Arc::new(Mutex::new(
+                        HistoryInfo::<SignedBlock>::try_from(path).unwrap(),
+                    )); // no unwrap pls
                     std::thread::spawn(move || {
                         info!(
                             log,
@@ -390,6 +401,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                             slots_per_epoch,
                             _phantom: PhantomData::<E>,
                             log,
+                            history_info,
                         };
                         block_producer.handle_produce_block();
                     });
@@ -406,6 +418,10 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let beacon_node = self.attestation_client.clone();
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
+                    let path = "~/.attestation.file"; // placeholder
+                    let history_info = Arc::new(Mutex::new(
+                        HistoryInfo::<SignedAttestation>::try_from(path).expect("error with file"),
+                    ));
                     std::thread::spawn(move || {
                         info!(
                             log,
@@ -421,6 +437,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                             beacon_node,
                             signer,
                             slots_per_epoch,
+                            history_info,
                             _phantom: PhantomData::<E>,
                         };
                         attestation_producer.handle_produce_attestation(log);

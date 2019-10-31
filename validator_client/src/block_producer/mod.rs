@@ -6,6 +6,9 @@ pub use self::beacon_node_block::{BeaconNodeError, PublishOutcome};
 pub use self::grpc::BeaconBlockGrpcClient;
 use crate::signer::Signer;
 use core::marker::PhantomData;
+use parking_lot::Mutex;
+use slashing_protection::proposer_slashings::SignedBlock;
+use slashing_protection::slashing_protection::{HistoryInfo, SafeFromSlashing};
 use slog::{error, info, trace, warn};
 use std::sync::Arc;
 use tree_hash::{SignedRoot, TreeHash};
@@ -55,6 +58,8 @@ pub struct BlockProducer<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> {
     pub _phantom: PhantomData<E>,
     /// The logger, for logging
     pub log: slog::Logger,
+    /// The history of previously signed blocks
+    pub history_info: Arc<Mutex<HistoryInfo<SignedBlock>>>,
 }
 
 impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
@@ -129,8 +134,6 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
     /// Important: this function will not check to ensure the block is not slashable. This must be
     /// done upstream.
     fn sign_block(&mut self, mut block: BeaconBlock<E>, domain: u64) -> Option<BeaconBlock<E>> {
-        self.store_produce(&block);
-
         match self.signer.sign_message(&block.signed_root()[..], domain) {
             None => None,
             Some(signature) => {
@@ -145,20 +148,11 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
     /// !!! UNSAFE !!!
     ///
     /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn safe_to_produce(&self, _block: &BeaconBlock<E>) -> bool {
+    fn safe_to_produce(&self, block: &BeaconBlock<E>) -> bool {
         // TODO: ensure the producer doesn't produce slashable blocks.
         // https://github.com/sigp/lighthouse/issues/160
-        true
-    }
-
-    /// Record that a block was produced so that slashable votes may not be made in the future.
-    ///
-    /// !!! UNSAFE !!!
-    ///
-    /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn store_produce(&mut self, _block: &BeaconBlock<E>) {
-        // TODO: record this block production to prevent future slashings.
-        // https://github.com/sigp/lighthouse/issues/160
+        let mut history = self.history_info.lock();
+        history.update_if_valid(&block.block_header()).is_ok()
     }
 }
 

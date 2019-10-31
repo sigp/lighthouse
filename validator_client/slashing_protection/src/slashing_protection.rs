@@ -6,11 +6,11 @@ use ssz::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Result as IOResult, Write};
-use std::path::{Path, PathBuf};
-use types::{AttestationDataAndCustodyBit, BeaconBlockHeader};
+use std::path::PathBuf;
+use types::{AttestationData, BeaconBlockHeader};
 
 /// Trait used to know if type T can be checked for slashing safety
-trait SafeFromSlashing<T> {
+pub trait SafeFromSlashing<T> {
     type U;
 
     /// Verifies that the incoming_data is not slashable and returns
@@ -27,11 +27,11 @@ trait SafeFromSlashing<T> {
 }
 
 impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
-    type U = AttestationDataAndCustodyBit;
+    type U = AttestationData;
 
     fn verify_and_get_index(
         &self,
-        incoming_data: &AttestationDataAndCustodyBit,
+        incoming_data: &AttestationData,
         data_history: &[SignedAttestation],
     ) -> Result<Safe, NotSafe> {
         check_for_attester_slashing(incoming_data, data_history)
@@ -76,9 +76,9 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
     }
 }
 
-/// Struct used for checking if attestations or blockheader are slashing-safe.
+/// Struct used for checking if attestations or blockheader are safe from slashing.
 #[derive(Debug)]
-struct HistoryInfo<T: Encode + Decode + Clone + PartialEq> {
+pub struct HistoryInfo<T: Encode + Decode + Clone + PartialEq> {
     filepath: PathBuf,
     data: Vec<T>,
 }
@@ -104,16 +104,16 @@ impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
     }
 }
 
-impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
+impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&str> for HistoryInfo<T> {
     type Error = NotSafe;
 
-    fn try_from(filepath: &Path) -> Result<Self, Self::Error> {
+    fn try_from(filepath: &str) -> Result<Self, Self::Error> {
         let mut file = match File::open(filepath) {
             Ok(file) => file,
             Err(e) => match e.kind() {
                 ErrorKind::NotFound => {
                     return Ok(Self {
-                        filepath: filepath.to_owned(),
+                        filepath: PathBuf::from(filepath),
                         data: vec![],
                     });
                 }
@@ -133,7 +133,7 @@ impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
         let data_history = Vec::from_ssz_bytes(&bytes)?;
 
         Ok(Self {
-            filepath: filepath.to_owned(),
+            filepath: PathBuf::from(filepath),
             data: data_history.to_vec(),
         })
     }
@@ -144,28 +144,23 @@ mod single_threaded_tests {
     use super::*;
     use tempfile::NamedTempFile;
     use types::{
-        AttestationData, AttestationDataAndCustodyBit, Checkpoint, Crosslink, Epoch, Hash256,
+        AttestationData, Checkpoint, Crosslink, Epoch, Hash256,
         Signature, Slot,
     };
 
     fn attestation_and_custody_bit_builder(
         source: u64,
         target: u64,
-    ) -> AttestationDataAndCustodyBit {
+    ) -> AttestationData {
         let source = build_checkpoint(source);
         let target = build_checkpoint(target);
         let crosslink = Crosslink::default();
 
-        let data = AttestationData {
+        AttestationData {
             beacon_block_root: Hash256::zero(),
             source,
             target,
             crosslink,
-        };
-
-        AttestationDataAndCustodyBit {
-            data,
-            custody_bit: false,
         }
     }
 
@@ -189,7 +184,7 @@ mod single_threaded_tests {
     #[test]
     fn simple_attestation_insertion() {
         let attestation_file = NamedTempFile::new().unwrap();
-        let filename = attestation_file.path();
+        let filename = attestation_file.path().to_str().expect("error with file path");
 
         let mut attestation_history: HistoryInfo<SignedAttestation> =
             HistoryInfo::try_from(filename).expect("IO error with file");
@@ -221,7 +216,7 @@ mod single_threaded_tests {
     #[test]
     fn interlaced_attestation_insertion() {
         let attestation_file = NamedTempFile::new().unwrap();
-        let filename = attestation_file.path();
+        let filename = attestation_file.path().to_str().expect("error with file path");
 
         let mut attestation_history: HistoryInfo<SignedAttestation> =
             HistoryInfo::try_from(filename).expect("IO error with file");
@@ -259,7 +254,7 @@ mod single_threaded_tests {
     #[test]
     fn attestation_with_failures() {
         let attestation_file = NamedTempFile::new().unwrap();
-        let filename = attestation_file.path();
+        let filename = attestation_file.path().to_str().expect("error with file path");
 
         let mut attestation_history: HistoryInfo<SignedAttestation> =
             HistoryInfo::try_from(filename).expect("IO error with file");
@@ -295,7 +290,7 @@ mod single_threaded_tests {
     #[test]
     fn simple_block_test() {
         let block_file = NamedTempFile::new().unwrap();
-        let filename = block_file.path();
+        let filename = block_file.path().to_str().expect("error with file path");
 
         let mut block_history: HistoryInfo<SignedBlock> =
             HistoryInfo::try_from(filename).expect("IO error with file");
@@ -327,7 +322,7 @@ mod single_threaded_tests {
     #[test]
     fn block_with_failures() {
         let block_file = NamedTempFile::new().unwrap();
-        let filename = block_file.path();
+        let filename = block_file.path().to_str().expect("error with file path");
 
         let mut block_history: HistoryInfo<SignedBlock> =
             HistoryInfo::try_from(filename).expect("IO error with file");
