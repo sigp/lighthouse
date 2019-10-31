@@ -23,24 +23,21 @@ impl From<&AttestationDataAndCustodyBit> for SignedAttestation {
 
 #[derive(PartialEq, Debug)]
 pub enum InvalidAttestation {
-    DoubleVote,
-    SurroundingVote,
-    SurroundedVote,
+    DoubleVote(SignedAttestation),
+    SurroundingVote(SignedAttestation),
+    SurroundedVote(SignedAttestation),
 }
 
 fn check_surrounded(
     attestation_data: &AttestationData,
     attestation_history: &[SignedAttestation],
 ) -> Result<(), NotSafe> {
-    let surrounded = attestation_history.iter().any(|historical_attestation| {
+    let surrounded = attestation_history.iter().rev().position(|historical_attestation| {
         historical_attestation.source_epoch < attestation_data.source.epoch
     });
-    if surrounded {
-        Err(NotSafe::InvalidAttestation(
-            InvalidAttestation::SurroundedVote,
-        ))
-    } else {
-        Ok(())
+    match surrounded {
+        Some(index) => Err(NotSafe::InvalidAttestation(InvalidAttestation::SurroundedVote(attestation_history[attestation_history.len() - 1 - index].clone()))),
+        None => Ok(())
     }
 }
 
@@ -48,15 +45,12 @@ fn check_surrounding(
     attestation_data: &AttestationData,
     attestation_history: &[SignedAttestation],
 ) -> Result<(), NotSafe> {
-    let surrounding = attestation_history.iter().any(|historical_attestation| {
+    let surrounding = attestation_history.iter().rev().position(|historical_attestation| {
         historical_attestation.source_epoch > attestation_data.source.epoch
     });
-    if surrounding {
-        Err(NotSafe::InvalidAttestation(
-            InvalidAttestation::SurroundingVote,
-        ))
-    } else {
-        Ok(())
+    match surrounding {
+        Some(index) => Err(NotSafe::InvalidAttestation(InvalidAttestation::SurroundingVote(attestation_history[attestation_history.len() - 1 - index].clone()))),
+        None => Ok(())
     }
 }
 
@@ -94,7 +88,7 @@ pub fn check_for_attester_slashing(
                 reason: ValidityReason::SameVote,
             });
         } else {
-            return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote));
+            return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(attestation_history[target_index].clone())));
         }
     }
 
@@ -323,7 +317,7 @@ mod attestation_tests {
         let attestation_data = attestation_data_and_custody_bit_builder(3, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote))
+            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(history[0].clone())))
         );
     }
 
@@ -337,7 +331,7 @@ mod attestation_tests {
         let attestation_data = attestation_data_and_custody_bit_builder(4, 5);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote))
+            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(history[1].clone())))
         );
     }
 
@@ -351,7 +345,7 @@ mod attestation_tests {
         let attestation_data = attestation_data_and_custody_bit_builder(5, 6);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote))
+            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(history[2].clone())))
         );
     }
 
@@ -365,7 +359,7 @@ mod attestation_tests {
         let attestation_data = attestation_data_and_custody_bit_builder(2, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote))
+            Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(history[0].clone())))
         );
     }
 
@@ -380,7 +374,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote
+                InvalidAttestation::SurroundingVote(history[0].clone())
             ))
         );
     }
@@ -396,7 +390,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote
+                InvalidAttestation::SurroundingVote(history[1].clone())
             ))
         );
     }
@@ -412,7 +406,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote
+                InvalidAttestation::SurroundingVote(history[2].clone())
             ))
         );
     }
@@ -426,7 +420,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote
+                InvalidAttestation::SurroundingVote(history[0].clone())
             ))
         );
     }
@@ -441,7 +435,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote
+                InvalidAttestation::SurroundingVote(history[1].clone())
             ))
         );
     }
@@ -458,7 +452,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote
+                InvalidAttestation::SurroundingVote(history[3].clone())
             ))
         );
     }
@@ -467,13 +461,13 @@ mod attestation_tests {
     fn invalid_surrounded_first_vote() {
         let mut history = vec![];
         history.push(SignedAttestation::new(0, 1, Hash256::random()));
-        history.push(SignedAttestation::new(0, 3, Hash256::random()));
+        history.push(SignedAttestation::new(0, 7, Hash256::random()));
 
         let attestation_data = attestation_data_and_custody_bit_builder(1, 2);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundedVote
+                InvalidAttestation::SurroundedVote(history[1].clone())
             ))
         );
     }
@@ -489,7 +483,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundedVote
+                InvalidAttestation::SurroundedVote(history[1].clone())
             ))
         );
     }
@@ -504,7 +498,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundedVote
+                InvalidAttestation::SurroundedVote(history[1].clone())
             ))
         );
     }
@@ -513,14 +507,14 @@ mod attestation_tests {
     fn invalid_surrounded_multiple_votes() {
         let mut history = vec![];
         history.push(SignedAttestation::new(0, 1, Hash256::random()));
-        history.push(SignedAttestation::new(1, 6, Hash256::random()));
-        history.push(SignedAttestation::new(2, 5, Hash256::random()));
+        history.push(SignedAttestation::new(1, 5, Hash256::random()));
+        history.push(SignedAttestation::new(2, 6, Hash256::random()));
 
         let attestation_data = attestation_data_and_custody_bit_builder(3, 4);
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundedVote
+                InvalidAttestation::SurroundedVote(history[2].clone())
             ))
         );
     }
