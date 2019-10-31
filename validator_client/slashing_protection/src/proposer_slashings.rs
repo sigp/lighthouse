@@ -35,13 +35,14 @@ pub fn check_for_proposer_slashing(
         });
     }
 
-    let last_block = &block_history[block_history.len() - 1];
-    if block_header.slot > last_block.slot {
+    let latest_signed_block = &block_history[block_history.len() - 1];
+    if block_header.slot > latest_signed_block.slot {
         return Ok(Safe {
             insert_index: block_history.len(),
             reason: ValidityReason::Valid,
         });
     }
+
     let index = block_history
         .iter()
         .rev()
@@ -51,6 +52,7 @@ pub fn check_for_proposer_slashing(
         None => return Err(NotSafe::PruningError),
         Some(num) => block_history.len() - 1 - num,
     };
+
     if block_history[index].slot == block_header.slot {
         if block_history[index].signing_root == block_header.canonical_root() {
             Ok(Safe {

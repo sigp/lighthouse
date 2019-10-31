@@ -60,6 +60,7 @@ fn check_surrounding(
     }
 }
 
+/// Checks if the incoming attestation is surrounding a vote, is a surrounded by another vote, or if it is a double vote.
 pub fn check_for_attester_slashing(
     attestation_data_and_custody: &AttestationDataAndCustodyBit,
     attestation_history: &[SignedAttestation],
@@ -72,6 +73,8 @@ pub fn check_for_attester_slashing(
     }
 
     let attestation_data = &attestation_data_and_custody.data;
+
+    // Getting the index of the current SignedAttestation that is closest to the incoming attestation
     let target_index = match attestation_history
         .iter()
         .rev()
@@ -82,7 +85,6 @@ pub fn check_for_attester_slashing(
         Some(index) => attestation_history.len() - index - 1,
     };
 
-    check_surrounded(attestation_data, &attestation_history[target_index + 1..])?;
     if attestation_history[target_index].target_epoch == attestation_data.target.epoch {
         if attestation_history[target_index].signing_root
             == Hash256::from_slice(&attestation_data_and_custody.tree_hash_root())
@@ -96,6 +98,9 @@ pub fn check_for_attester_slashing(
         }
     }
 
+    check_surrounded(attestation_data, &attestation_history[target_index + 1..])?;
+
+    // Getting the index of the second closest SignedAttestation that has a source equal to the new attestation's target
     let source_index =
         match attestation_history[..=target_index]
             .iter()
@@ -104,6 +109,7 @@ pub fn check_for_attester_slashing(
                 historical_attestation.target_epoch <= attestation_data.source.epoch
             }) {
             None => 0,
+            // Adding plus one here to have the second one and not the first one
             Some(index) => target_index - index + 1,
         };
 
@@ -210,7 +216,7 @@ mod attestation_tests {
     }
 
     #[test]
-    fn valid_source_before_history() {
+    fn valid_source_from_first_entry() {
         let mut history = vec![];
         history.push(SignedAttestation::new(6, 7, Hash256::random()));
 
@@ -226,7 +232,7 @@ mod attestation_tests {
     }
 
     #[test]
-    fn invalid_source_before_history() {
+    fn invalid_source_from_first_entry() {
         let mut history = vec![];
         history.push(SignedAttestation::new(6, 8, Hash256::random()));
 

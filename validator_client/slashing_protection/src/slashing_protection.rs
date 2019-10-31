@@ -21,6 +21,8 @@ trait SafeFromSlashing<T> {
         data_history: &[T],
     ) -> Result<Safe, NotSafe>;
 
+    /// Checks if incoming_data is free from slashings, and if so updates the in-memory and writes it to the history file.
+    /// If the error returned is an IOError, do not sign nor broadcast the attestation.
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
@@ -36,12 +38,12 @@ impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
     }
 
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
-        let check = self.check_for_slashing(&incoming_data);
+        let check = self.verify_and_get_index(incoming_data, &self.data[..]);
         match check {
             Ok(safe) => match safe.reason {
                 ValidityReason::SameVote => Ok(()),
                 _ => self
-                    .update_and_write(SignedAttestation::from(incoming_data), safe.insert_index)
+                    .insert_and_write(SignedAttestation::from(incoming_data), safe.insert_index)
                     .map_err(|e| NotSafe::IOError(e.kind())),
             },
             Err(notsafe) => Err(notsafe),
@@ -61,12 +63,12 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
     }
 
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
-        let check = self.check_for_slashing(&incoming_data);
+        let check = self.verify_and_get_index(incoming_data, &self.data[..]);
         match check {
             Ok(safe) => match safe.reason {
                 ValidityReason::SameVote => Ok(()),
                 _ => self
-                    .update_and_write(SignedBlock::from(incoming_data), safe.insert_index)
+                    .insert_and_write(SignedBlock::from(incoming_data), safe.insert_index)
                     .map_err(|e| NotSafe::IOError(e.kind())),
             },
             Err(notsafe) => Err(notsafe),
@@ -74,6 +76,7 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
     }
 }
 
+/// Struct used for checking if attestations or blockheader are slashing-safe.
 #[derive(Debug)]
 struct HistoryInfo<T: Encode + Decode + Clone + PartialEq> {
     filepath: PathBuf,
@@ -89,7 +92,8 @@ impl<T: Encode + Decode + Clone + PartialEq> PartialEq for HistoryInfo<T> {
 }
 
 impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
-    pub fn update_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
+    /// Inserts the incomning data in the in-memory history, and writes it to the history file.
+    pub fn insert_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
         self.data.insert(index, data);
         let mut file = File::create(self.filepath.as_path()).unwrap();
         file.lock_exclusive()?;
@@ -97,17 +101,6 @@ impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
         file.unlock()?;
 
         Ok(())
-    }
-
-    fn check_for_slashing(
-        &self,
-        incoming_data: &<HistoryInfo<T> as SafeFromSlashing<T>>::U,
-    ) -> Result<Safe, NotSafe>
-    where
-        Self: SafeFromSlashing<T>,
-    {
-        let data_history = &self.data[..];
-        self.verify_and_get_index(incoming_data, data_history)
     }
 }
 
