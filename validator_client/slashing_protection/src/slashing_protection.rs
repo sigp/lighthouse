@@ -5,7 +5,7 @@ use fs2::FileExt;
 use ssz::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fs::File;
-use std::io::{Error as IOError, ErrorKind, Read, Result as IOResult, Write};
+use std::io::{ErrorKind, Read, Result as IOResult, Write};
 use std::path::{Path, PathBuf};
 use types::{AttestationDataAndCustodyBit, BeaconBlockHeader};
 
@@ -92,10 +92,10 @@ impl<T: Encode + Decode + Clone + PartialEq> PartialEq for HistoryInfo<T> {
 }
 
 impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
-    /// Inserts the incomning data in the in-memory history, and writes it to the history file.
+    /// Inserts the incoming data in the in-memory history, and writes it to the history file.
     pub fn insert_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
         self.data.insert(index, data);
-        let mut file = File::create(self.filepath.as_path()).unwrap();
+        let mut file = File::create(self.filepath.as_path())?;
         file.lock_exclusive()?;
         file.write_all(&self.data.as_ssz_bytes())?;
         file.unlock()?;
@@ -105,29 +105,32 @@ impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
 }
 
 impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
-    type Error = IOError;
+    type Error = NotSafe;
 
     fn try_from(filepath: &Path) -> Result<Self, Self::Error> {
         let mut file = match File::open(filepath) {
             Ok(file) => file,
             Err(e) => match e.kind() {
                 ErrorKind::NotFound => {
-                    // SCOTT: should we keep this? or return err if not found?
                     return Ok(Self {
                         filepath: filepath.to_owned(),
                         data: vec![],
                     });
                 }
-                _ => return Err(e),
+                _ => return Err(NotSafe::from(e)),
             },
         };
-        file.lock_exclusive().unwrap();
+
+        // Locking file before reading
+        file.lock_exclusive()?;
 
         let mut bytes = vec![];
-        file.read_to_end(&mut bytes).unwrap();
-        file.unlock().unwrap();
+        file.read_to_end(&mut bytes)?;
 
-        let data_history = Vec::from_ssz_bytes(&bytes).unwrap();
+        // Unlocking file now that we don't need it anymore
+        file.unlock()?;
+
+        let data_history = Vec::from_ssz_bytes(&bytes)?;
 
         Ok(Self {
             filepath: filepath.to_owned(),
@@ -212,7 +215,7 @@ mod single_threaded_tests {
             HistoryInfo::try_from(filename).expect("IO error with file");
         assert_eq!(attestation_history, file_written_version);
 
-        attestation_file.close().unwrap(); // Making sure it's correctly closed
+        attestation_file.close().unwrap();
     }
 
     #[test]
@@ -250,7 +253,7 @@ mod single_threaded_tests {
             HistoryInfo::try_from(filename).expect("IO error with file");
         assert_eq!(attestation_history, file_written_version);
 
-        attestation_file.close().unwrap(); // Making sure it's correctly closed
+        attestation_file.close().unwrap();
     }
 
     #[test]
@@ -286,7 +289,7 @@ mod single_threaded_tests {
             HistoryInfo::try_from(filename).expect("IO error with file");
         assert_eq!(attestation_history, file_written_version);
 
-        attestation_file.close().unwrap(); // Making sure it's correctly closed
+        attestation_file.close().unwrap();
     }
 
     #[test]
@@ -318,7 +321,7 @@ mod single_threaded_tests {
             HistoryInfo::try_from(filename).expect("IO error with file");
         assert_eq!(block_history, file_written_version);
 
-        block_file.close().unwrap(); // Making sure it's correctly closed
+        block_file.close().unwrap();
     }
 
     #[test]
@@ -354,6 +357,6 @@ mod single_threaded_tests {
             HistoryInfo::try_from(filename).expect("IO error with file");
         assert_eq!(block_history, file_written_version);
 
-        block_file.close().unwrap(); // Making sure it's correctly closed
+        block_file.close().unwrap();
     }
 }

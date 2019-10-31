@@ -5,7 +5,20 @@ mod slashing_protection;
 mod enums {
     use crate::attester_slashings::InvalidAttestation;
     use crate::proposer_slashings::InvalidBlock;
-    use std::io::ErrorKind;
+    use ssz::DecodeError;
+    use std::io::{Error as IOError, ErrorKind};
+
+    impl From<IOError> for NotSafe {
+        fn from(error: IOError) -> NotSafe {
+            NotSafe::IOError(error.kind())
+        }
+    }
+
+    impl From<DecodeError> for NotSafe {
+        fn from(error: DecodeError) -> NotSafe {
+            NotSafe::DecodeError(error)
+        }
+    }
 
     #[derive(PartialEq, Debug)]
     pub enum NotSafe {
@@ -13,6 +26,7 @@ mod enums {
         InvalidBlock(InvalidBlock),
         PruningError,
         IOError(ErrorKind),
+        DecodeError(DecodeError),
     }
 
     #[derive(PartialEq, Debug)]
