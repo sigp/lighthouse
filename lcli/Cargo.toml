@@ -8,13 +8,13 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "2.33"
+clap = "2.33.0"
 hex = "0.3"
-log = "0.4"
-serde = "1.0"
-serde_yaml = "0.8"
-simple_logger = "1.0"
+log = "0.4.8"
+serde = "1.0.102"
+serde_yaml = "0.8.11"
+simple_logger = "1.3.0"
 types = { path = "../eth2/types" }
 state_processing = { path = "../eth2/state_processing" }
-eth2_ssz = { path = "../eth2/utils/ssz" }
-regex = "1.3"
+eth2_ssz = "0.1.2"
+regex = "1.3.1"

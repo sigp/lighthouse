@@ -11,12 +11,12 @@ name = "benches"
 harness = false
 
 [dev-dependencies]
-criterion = "0.2"
-rand = "0.7"
+criterion = "0.3.0"
+rand = "0.7.2"
 tree_hash_derive = "0.2"
 types = { path = "../../types" }
 
 [dependencies]
-ethereum-types = "0.6"
-eth2_hashing = "0.1"
-lazy_static = "1.4"
+ethereum-types = "0.8.0"
+eth2_hashing = "0.1.0"
+lazy_static = "1.4.0"

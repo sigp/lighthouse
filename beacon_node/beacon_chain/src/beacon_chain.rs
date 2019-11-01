@@ -44,6 +44,8 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 /// Only useful for testing.
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
+const BLOCK_SKIPPING_LOGGING_THRESHOLD: u64 = 3;
+
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
     /// Block was valid and imported into the block graph.
@@ -374,6 +376,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if slot == head_state.slot {
             Ok(head_state)
         } else if slot > head_state.slot {
+            if slot > head_state.slot + BLOCK_SKIPPING_LOGGING_THRESHOLD {
+                warn!(
+                    self.log,
+                    "Skipping more than {} blocks", BLOCK_SKIPPING_LOGGING_THRESHOLD;
+                    "head_slot" => head_state.slot,
+                    "request_slot" => slot
+                )
+            }
             let head_state_slot = head_state.slot;
             let mut state = head_state;
             while state.slot < slot {

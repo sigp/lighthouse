@@ -9,13 +9,13 @@ name = "benches"
 harness = false
 
 [dev-dependencies]
-criterion = "0.2"
-env_logger = "0.6.0"
-serde = "1.0"
-serde_derive = "1.0"
-lazy_static = "1.4"
-serde_yaml = "0.8"
-eth2_ssz = { path = "../utils/ssz" }
+criterion = "0.3.0"
+env_logger = "0.7.1"
+serde = "1.0.102"
+serde_derive = "1.0.102"
+lazy_static = "1.4.0"
+serde_yaml = "0.8.11"
+eth2_ssz = "0.1.2"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 store = { path = "../../beacon_node/store" }
 lmd_ghost = { path = "../lmd_ghost" }
@@ -23,15 +23,15 @@ lmd_ghost = { path = "../lmd_ghost" }
 
 [dependencies]
 bls = { path = "../utils/bls" }
-integer-sqrt = "0.1"
-itertools = "0.8"
+integer-sqrt = "0.1.2"
+itertools = "0.8.1"
 eth2_ssz_types = { path = "../utils/ssz_types" }
 merkle_proof = { path = "../utils/merkle_proof" }
-log = "0.4"
-tree_hash = "0.1"
+log = "0.4.8"
+tree_hash = "0.1.0"
 tree_hash_derive = "0.2"
 types = { path = "../types" }
-rayon = "1.0"
+rayon = "1.2.0"
 
 [features]
 fake_crypto = ["bls/fake_crypto"]

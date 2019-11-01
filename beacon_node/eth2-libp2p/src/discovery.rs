@@ -286,7 +286,7 @@ fn load_enr(
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers.
-    let mut local_enr = EnrBuilder::new()
+    let mut local_enr = EnrBuilder::new("v4")
         .ip(config.discovery_address)
         .tcp(config.libp2p_port)
         .udp(config.discovery_port)
@@ -302,7 +302,7 @@ fn load_enr(
                 match Enr::from_str(&enr_string) {
                     Ok(enr) => {
                         if enr.node_id() == local_enr.node_id() {
-                            if enr.ip() == config.discovery_address.into()
+                            if enr.ip().map(Into::into) == Some(config.discovery_address)
                                 && enr.tcp() == Some(config.libp2p_port)
                                 && enr.udp() == Some(config.discovery_port)
                             {

@@ -91,7 +91,7 @@ mod tests {
     }
 
     fn random_tmp_file() -> String {
-        let mut rng = thread_rng();
+        let rng = thread_rng();
 
         rng.sample_iter(&Alphanumeric).take(7).collect()
     }
