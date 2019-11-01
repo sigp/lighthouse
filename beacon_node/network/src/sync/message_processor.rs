@@ -249,7 +249,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         for root in request.block_roots.iter() {
             if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
                 self.network.send_rpc_response(
-                    peer_id,
+                    peer_id.clone(),
                     request_id,
                     RPCResponse::BlocksByRoot(Some(block.as_ssz_bytes())),
                 );
@@ -339,7 +339,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
 
         for block in blocks {
             self.network.send_rpc_response(
-                peer_id,
+                peer_id.clone(),
                 request_id,
                 RPCResponse::BlocksByRange(Some(block.as_ssz_bytes())),
             );
@@ -350,6 +350,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     }
 
     /// Handle a `BlocksByRange` response from the peer.
+    /// A `beacon_block` behaves as a stream which is terminated on a `None` response.
     pub fn on_blocks_by_range_response(
         &mut self,
         peer_id: PeerId,

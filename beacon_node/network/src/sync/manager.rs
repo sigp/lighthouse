@@ -135,8 +135,7 @@ enum BlockRequestsState {
 struct BlockRequests<T: EthSpec> {
     /// The peer's head slot and the target of this batch download.
     target_head_slot: Slot,
-    /// The peer's head root, used to specify which chain of blocks we are downloading from the
-    /// blocks.
+    /// The peer's head root, used to specify which chain of blocks we are downloading from.
     target_head_root: Hash256,
     /// The blocks that we have currently downloaded from the peer that are yet to be processed.
     downloaded_blocks: Vec<BeaconBlock<T>>,
@@ -350,7 +349,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        mut block: Option<BeaconBlock<T::EthSpec>>,
+        block: Option<BeaconBlock<T::EthSpec>>,
     ) {
         // find the request associated with this response
         let block_requests = match self
@@ -372,21 +371,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             block_requests.downloaded_blocks.push(downloaded_block);
             return;
         }
+        // the batch has finished processing, or terminated early
 
-        // the batch has finished processing
-
-        // ensure the underlying chain still exists
-        let chain = match self.chain.upgrade() {
-            Some(chain) => chain,
-            None => {
-                trace!(self.log, "Chain dropped. Sync terminating");
-                return;
-            }
-        };
-
+        // TODO: The following requirement may need to be relaxed as a node could fork and prune
+        // their old head, given to us during a STATUS.
         // If we are syncing up to a target head block, at least the target head block should be
         // returned.
-        let blocks = block_requests.downloaded_blocks;
+        let blocks = &block_requests.downloaded_blocks;
         if blocks.is_empty() {
             debug!(self.log, "BlocksByRange response was empty"; "request_id" => request_id);
             block_requests.consecutive_empty_batches += 1;
@@ -432,12 +423,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_requests.state = BlockRequestsState::ReadyToProcess;
     }
 
-    /// The response to a BlocksByRoot request.
+    /// The response to a `BlocksByRoot` request.
+    /// The current implementation takes one block at a time. As blocks are streamed, any
+    /// subsequent blocks will simply be ignored. The `None` stream terminator is ignored in this
+    /// implementation.
     pub fn blocks_by_root_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        mut block: Option<BeaconBlock<T::EthSpec>>,
+        block: Option<BeaconBlock<T::EthSpec>>,
     ) {
         // find the request
         let parent_request = match self
@@ -447,8 +441,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             Some(req) => req,
             None => {
-                // No pending request, invalid request_id or coding error
-                warn!(self.log, "BlocksByRoot response unknown"; "request_id" => request_id);
+                if block.is_some() {
+                    // No pending request, invalid request_id or coding error
+                    warn!(self.log, "BlocksByRoot response unknown"; "request_id" => request_id);
+                }
+                // it could be a stream termination None, in which case we just ignore it
                 return;
             }
         };
@@ -461,21 +458,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             return;
         }
 
-        // currently only support a single block lookup. Reject any response that has more than 1
-        // block
-        if blocks.len() != 1 {
-            //TODO: Potentially downvote the peer
-            debug!(self.log, "Peer sent more than 1 parent. Ignoring";
-            "peer_id" => format!("{:?}", peer_id),
-            "no_parents" => blocks.len()
-            );
-            return;
-        }
-
         // add the block to response
         parent_request
             .downloaded_blocks
-            .push(blocks.pop().expect("must exist"));
+            .push(block.expect("must exist"));
 
         // queue for processing
         parent_request.state = BlockRequestsState::ReadyToProcess;

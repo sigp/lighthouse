@@ -261,8 +261,8 @@ where
             RPCEvent::Response(rpc_id, res) => {
                 //TODO: Restructure the stream management for multiple chunks
 
-                //All this logic is to prevent multiple channel sends. A generalised response could
-                //be terminated if every response sent a None to terminate the stream.
+                // All this logic is to prevent multiple channel sends. A generalised response could
+                // be terminated if every response sent a None to terminate the stream.
 
                 let res_is_multiple = res.multiple_responses();
                 let res_end_of_stream = res.is_none();
@@ -382,7 +382,7 @@ where
                                 self.substreams
                                     .push(SubstreamState::ClosingInbound(raw_substream));
                             } else {
-                                // check for queued chunks and update the steam
+                                // check for queued chunks and update the stream
                                 update_chunked_stream(
                                     &mut self.substreams,
                                     raw_substream,
@@ -535,7 +535,7 @@ where
     }
 }
 
-// Check for new items to send to the peer
+// Check for new items to send to the peer and update the underlying stream
 fn update_chunked_stream<TSubstream: AsyncRead + AsyncWrite>(
     substreams: &mut Vec<SubstreamState<TSubstream>>,
     raw_substream: InboundFramed<TSubstream>,
