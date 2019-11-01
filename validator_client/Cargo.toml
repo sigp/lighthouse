@@ -21,6 +21,8 @@ clap = "2.32.0"
 lighthouse_bootstrap = { path = "../eth2/utils/lighthouse_bootstrap" }
 eth2_interop_keypairs = { path = "../eth2/utils/eth2_interop_keypairs" }
 grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
+slashing_protection = { path = "./slashing_protection" }
+parking_lot = "0.9.0"
 protos = { path = "../protos" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
 types = { path = "../eth2/types" }

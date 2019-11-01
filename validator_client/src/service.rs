@@ -14,6 +14,14 @@ use crate::config::Config as ValidatorConfig;
 use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
 use crate::error as error_chain;
 use crate::signer::Signer;
+
+use parking_lot::Mutex;
+use slashing_protection::attester_slashings::SignedAttestation;
+use slashing_protection::proposer_slashings::SignedBlock;
+use slashing_protection::slashing_protection::HistoryInfo;
+use std::convert::TryFrom;
+use std::path::Path;
+
 use bls::Keypair;
 use eth2_config::Eth2Config;
 use grpcio::{ChannelBuilder, EnvBuilder};
@@ -213,6 +221,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         eth2_config: Eth2Config,
         log: slog::Logger,
     ) -> error_chain::Result<()> {
+        let data_dir = client_config.data_dir.clone();
         // connect to the node and retrieve its properties and initialize the gRPC clients
         let mut service = Service::<ValidatorServiceClient, Keypair, E>::initialize_service(
             client_config,
@@ -264,7 +273,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     // wait for node to process
                     std::thread::sleep(TIME_DELAY_FROM_SLOT);
                     // if a non-fatal error occurs, proceed to the next slot.
-                    let _ignore_error = service.per_slot_execution();
+                    let _ignore_error = service.per_slot_execution(&data_dir.as_path());
                     // completed a slot process
                     Ok(())
                 })
@@ -276,7 +285,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
 
     /// The execution logic that runs every slot.
     // Errors are logged to output, and core execution continues unless fatal errors occur.
-    fn per_slot_execution(&mut self) -> error_chain::Result<()> {
+    fn per_slot_execution(&mut self, data_dir: &Path) -> error_chain::Result<()> {
         /* get the new current slot and epoch */
         self.update_current_slot()?;
 
@@ -284,7 +293,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         self.check_for_duties();
 
         /* process any required duties for validators */
-        self.process_duties();
+        self.process_duties(data_dir);
 
         trace!(
             self.log,
@@ -349,7 +358,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
     }
 
     /// If there are any duties to process, spawn a separate thread and perform required actions.
-    fn process_duties(&mut self) {
+    fn process_duties(&mut self, data_dir: &Path) {
         if let Some(work) = self.duties_manager.get_current_work(
             self.current_slot
                 .expect("The current slot must be updated before processing duties"),
@@ -373,6 +382,11 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let beacon_node = self.beacon_block_client.clone();
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
+                    let path = data_dir.join("signed_blocks_history");
+                    let history_info = Arc::new(Mutex::new(
+                        HistoryInfo::<SignedBlock>::try_from(path)
+                            .expect("The path provided must be a valid path"),
+                    ));
                     std::thread::spawn(move || {
                         info!(
                             log,
@@ -390,6 +404,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                             slots_per_epoch,
                             _phantom: PhantomData::<E>,
                             log,
+                            history_info,
                         };
                         block_producer.handle_produce_block();
                     });
@@ -406,6 +421,11 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let beacon_node = self.attestation_client.clone();
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
+                    let path = data_dir.join("signed_attestations_history");
+                    let history_info = Arc::new(Mutex::new(
+                        HistoryInfo::<SignedAttestation>::try_from(path)
+                            .expect("The path provided must be a valid path"),
+                    ));
                     std::thread::spawn(move || {
                         info!(
                             log,
@@ -421,6 +441,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                             beacon_node,
                             signer,
                             slots_per_epoch,
+                            history_info,
                             _phantom: PhantomData::<E>,
                         };
                         attestation_producer.handle_produce_attestation(log);

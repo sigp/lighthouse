@@ -15,6 +15,10 @@ use types::{
     AttestationDuty, BitList,
 };
 
+use parking_lot::Mutex;
+use slashing_protection::attester_slashings::SignedAttestation;
+use slashing_protection::slashing_protection::{HistoryInfo, SafeFromSlashing};
+
 //TODO: Group these errors at a crate level
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -42,6 +46,8 @@ pub struct AttestationProducer<'a, B: BeaconNodeAttestation, S: Signer, E: EthSp
     pub signer: &'a S,
     /// Used for calculating epoch.
     pub slots_per_epoch: u64,
+    ///
+    pub history_info: Arc<Mutex<HistoryInfo<SignedAttestation>>>,
     /// Mere vessel for E.
     pub _phantom: PhantomData<E>,
 }
@@ -70,11 +76,6 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
     /// Assumes that an attestation is required at this slot (does not check the duties).
     ///
     /// Ensures the message is not slashable.
-    ///
-    /// !!! UNSAFE !!!
-    ///
-    /// The slash-protection code is not yet implemented. There is zero protection against
-    /// slashing.
     pub fn produce_attestation(&mut self) -> Result<ValidatorEvent, Error> {
         let epoch = self.duty.slot.epoch(self.slots_per_epoch);
 
@@ -113,8 +114,6 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
         duties: AttestationDuty,
         domain: u64,
     ) -> Option<Attestation<E>> {
-        self.store_produce(&attestation);
-
         // build the aggregate signature
         let aggregate_signature = {
             let message = AttestationDataAndCustodyBit {
@@ -143,21 +142,8 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
     }
 
     /// Returns `true` if signing an attestation is safe (non-slashable).
-    ///
-    /// !!! UNSAFE !!!
-    ///
-    /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn safe_to_produce(&self, _attestation: &AttestationData) -> bool {
-        //TODO: Implement slash protection
-        true
-    }
-
-    /// Record that an attestation was produced so that slashable votes may not be made in the future.
-    ///
-    /// !!! UNSAFE !!!
-    ///
-    /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
-    fn store_produce(&mut self, _attestation: &AttestationData) {
-        // TODO: Implement slash protection
+    fn safe_to_produce(&self, attestation: &AttestationData) -> bool {
+        let mut history = self.history_info.lock();
+        history.update_if_valid(attestation).is_ok()
     }
 }
