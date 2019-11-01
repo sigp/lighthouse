@@ -15,23 +15,23 @@ use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
 use crate::error as error_chain;
 use crate::signer::Signer;
 
-use parking_lot::Mutex;
-use slashing_protection::attester_slashings::SignedAttestation;
-use slashing_protection::proposer_slashings::SignedBlock;
-use slashing_protection::slashing_protection::HistoryInfo;
-use std::convert::TryFrom;
-use std::path::Path;
 use bls::Keypair;
 use eth2_config::Eth2Config;
 use grpcio::{ChannelBuilder, EnvBuilder};
+use parking_lot::Mutex;
 use protos::services::Empty;
 use protos::services_grpc::{
     AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
     ValidatorServiceClient,
 };
+use slashing_protection::attester_slashings::SignedAttestation;
+use slashing_protection::proposer_slashings::SignedBlock;
+use slashing_protection::slashing_protection::HistoryInfo;
 use slog::{crit, error, info, trace, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
+use std::convert::TryFrom;
 use std::marker::PhantomData;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
