@@ -51,7 +51,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// given `matches` and potentially configuration files on the local filesystem or other
     /// configurations hosted remotely.
     pub fn new_from_cli<'a, 'b>(
-        context: RuntimeContext<E>,
+        mut context: RuntimeContext<E>,
         matches: &ArgMatches<'b>,
     ) -> impl Future<Item = Self, Error = String> + 'a {
         let log = context.log.clone();
@@ -59,7 +59,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         // FIXME: the eth2 config in the env is being completely ignored.
         get_configs(&matches, log).into_future().and_then(
             move |(client_config, eth2_config, _log)| {
-                Self::new(context, client_config, eth2_config)
+                context.eth2_config = eth2_config;
+                Self::new(context, client_config)
             },
         )
     }
@@ -70,9 +71,9 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     pub fn new(
         context: RuntimeContext<E>,
         client_config: ClientConfig,
-        eth2_config: Eth2Config,
     ) -> impl Future<Item = Self, Error = String> {
-        let http_eth2_config = eth2_config.clone();
+        let http_eth2_config = context.eth2_config().clone();
+        let spec = context.eth2_config().spec.clone();
         let genesis_eth1_config = client_config.eth1.clone();
         let client_genesis = client_config.genesis.clone();
         let log = context.log.clone();
@@ -85,7 +86,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 Ok(ClientBuilder::new(context.eth_spec_instance.clone())
                     .runtime_context(context)
                     .disk_store(&db_path)?
-                    .chain_spec(eth2_config.spec.clone()))
+                    .chain_spec(spec))
             })
             .and_then(move |builder| {
                 builder.beacon_chain_builder(client_genesis, genesis_eth1_config)

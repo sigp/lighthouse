@@ -113,7 +113,7 @@ pub struct RuntimeContext<E: EthSpec> {
     pub executor: TaskExecutor,
     pub log: Logger,
     pub eth_spec_instance: E,
-    eth2_config: Eth2Config,
+    pub eth2_config: Eth2Config,
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
