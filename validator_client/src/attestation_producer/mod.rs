@@ -76,11 +76,6 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
     /// Assumes that an attestation is required at this slot (does not check the duties).
     ///
     /// Ensures the message is not slashable.
-    ///
-    /// !!! UNSAFE !!!
-    ///
-    /// The slash-protection code is not yet implemented. There is zero protection against
-    /// slashing.
     pub fn produce_attestation(&mut self) -> Result<ValidatorEvent, Error> {
         let epoch = self.duty.slot.epoch(self.slots_per_epoch);
 
@@ -147,10 +142,6 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
     }
 
     /// Returns `true` if signing an attestation is safe (non-slashable).
-    ///
-    /// !!! UNSAFE !!!
-    ///
-    /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
     fn safe_to_produce(&self, attestation: &AttestationData) -> bool {
         let mut history = self.history_info.lock();
         history.update_if_valid(attestation).is_ok()

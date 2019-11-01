@@ -119,7 +119,7 @@ pub fn check_for_attester_slashing(
                 historical_attestation.target_epoch <= attestation_data.source.epoch
             }) {
             None => 0,
-            // Adding plus one here to have the second one and not the first one
+            // Adding plus one here to have the second one and not the first one, for a small optimization
             Some(index) => target_index - index + 1,
         };
 
@@ -156,10 +156,7 @@ mod attestation_tests {
         }
     }
 
-    fn attestation_data_builder(
-        source: u64,
-        target: u64,
-    ) -> AttestationData {
+    fn attestation_data_builder(source: u64, target: u64) -> AttestationData {
         let source = build_checkpoint(source);
         let target = build_checkpoint(target);
         let crosslink = Crosslink::default();

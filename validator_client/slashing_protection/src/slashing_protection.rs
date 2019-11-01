@@ -6,9 +6,9 @@ use ssz::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Result as IOResult, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use types::{AttestationData, BeaconBlockHeader};
-use std::os::unix::fs::PermissionsExt;
 
 /// Trait used to know if type T can be checked for slashing safety
 pub trait SafeFromSlashing<T> {
@@ -67,7 +67,9 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
         let check = self.verify_and_get_index(incoming_data, &self.data[..]);
         match check {
             Ok(safe) => match safe.reason {
+                // Casting the same vote, no need to add it go the history
                 ValidityReason::SameVote => Ok(()),
+                // New attestation, add it to memory and file history
                 _ => self
                     .insert_and_write(SignedBlock::from(incoming_data), safe.insert_index)
                     .map_err(|e| NotSafe::IOError(e.kind())),
@@ -93,18 +95,25 @@ impl<T: Encode + Decode + Clone + PartialEq> PartialEq for HistoryInfo<T> {
 }
 
 impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
-
     /// Inserts the incoming data in the in-memory history, and writes it to the history file.
     pub fn insert_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
         self.data.insert(index, data);
+
+        // Creating file if it doesn't exist, else opening it.
         let mut file = File::create(self.filepath.as_path())?;
+
+        // Locking the file to make sure we're atomically writing to it
         file.lock_exclusive()?;
+
+        // Setting permissions to be 600 (rw-------).
         let mut perm = file.metadata()?.permissions();
         perm.set_mode(0o600);
         file.set_permissions(perm)?;
 
-
+        // Writing new history to file
         file.write_all(&self.data.as_ssz_bytes())?;
+
+        // Unlocking file because we're done with it.
         file.unlock()?;
 
         Ok(())
@@ -127,12 +136,14 @@ impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
         let mut file = match File::open(filepath) {
             Ok(file) => file,
             Err(e) => match e.kind() {
+                // File was not found meaning it has not been created yet, and that history is empty.
                 ErrorKind::NotFound => {
                     return Ok(Self {
                         filepath: PathBuf::from(filepath),
                         data: vec![],
                     });
                 }
+                // Another error occured, report it and stop everything.
                 _ => return Err(NotSafe::from(e)),
             },
         };
@@ -159,15 +170,9 @@ impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
 mod single_threaded_tests {
     use super::*;
     use tempfile::NamedTempFile;
-    use types::{
-        AttestationData, Checkpoint, Crosslink, Epoch, Hash256,
-        Signature, Slot,
-    };
+    use types::{AttestationData, Checkpoint, Crosslink, Epoch, Hash256, Signature, Slot};
 
-    fn attestation_and_custody_bit_builder(
-        source: u64,
-        target: u64,
-    ) -> AttestationData {
+    fn attestation_and_custody_bit_builder(source: u64, target: u64) -> AttestationData {
         let source = build_checkpoint(source);
         let target = build_checkpoint(target);
         let crosslink = Crosslink::default();

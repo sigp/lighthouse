@@ -139,13 +139,7 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
     }
 
     /// Returns `true` if signing a block is safe (non-slashable).
-    ///
-    /// !!! UNSAFE !!!
-    ///
-    /// Important: this function is presently stubbed-out. It provides ZERO SAFETY.
     fn safe_to_produce(&self, block: &BeaconBlock<E>) -> bool {
-        // TODO: ensure the producer doesn't produce slashable blocks.
-        // https://github.com/sigp/lighthouse/issues/160
         let mut history = self.history_info.lock();
         history.update_if_valid(&block.block_header()).is_ok()
     }
