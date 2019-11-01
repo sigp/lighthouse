@@ -5,6 +5,8 @@ use std::io::prelude::*;
 use std::path::PathBuf;
 use types::ChainSpec;
 
+mod yaml_config;
+
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

@@ -149,7 +149,14 @@ fn main() {
                         .takes_value(true)
                         .default_value("http://localhost:8545")
                         .help("The URL to the eth1 JSON-RPC http API."),
-                ),
+                )
+                .arg(
+                    Arg::with_name("confirmations")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("3")
+                        .help("The number of block confirmations before declaring the contract deployed."),
+                )
         )
         .subcommand(
             SubCommand::with_name("pycli")
