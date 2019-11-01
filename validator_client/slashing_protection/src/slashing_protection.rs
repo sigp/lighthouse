@@ -6,7 +6,7 @@ use ssz::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Result as IOResult, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use types::{AttestationData, BeaconBlockHeader};
 
 /// Trait used to know if type T can be checked for slashing safety
@@ -104,10 +104,19 @@ impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
     }
 }
 
-impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&str> for HistoryInfo<T> {
+impl<T: Encode + Decode + Clone + PartialEq> TryFrom<PathBuf> for HistoryInfo<T> {
     type Error = NotSafe;
 
-    fn try_from(filepath: &str) -> Result<Self, Self::Error> {
+    fn try_from(filepath: PathBuf) -> Result<Self, Self::Error> {
+        let path = filepath.as_path();
+        Self::try_from(path)
+    }
+}
+
+impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
+    type Error = NotSafe;
+
+    fn try_from(filepath: &Path) -> Result<Self, Self::Error> {
         let mut file = match File::open(filepath) {
             Ok(file) => file,
             Err(e) => match e.kind() {
@@ -184,7 +193,7 @@ mod single_threaded_tests {
     #[test]
     fn simple_attestation_insertion() {
         let attestation_file = NamedTempFile::new().unwrap();
-        let filename = attestation_file.path().to_str().expect("error with file path");
+        let filename = attestation_file.path();
 
         let mut attestation_history: HistoryInfo<SignedAttestation> =
             HistoryInfo::try_from(filename).expect("IO error with file");
@@ -216,7 +225,7 @@ mod single_threaded_tests {
     #[test]
     fn interlaced_attestation_insertion() {
         let attestation_file = NamedTempFile::new().unwrap();
-        let filename = attestation_file.path().to_str().expect("error with file path");
+        let filename = attestation_file.path();
 
         let mut attestation_history: HistoryInfo<SignedAttestation> =
             HistoryInfo::try_from(filename).expect("IO error with file");
@@ -254,7 +263,7 @@ mod single_threaded_tests {
     #[test]
     fn attestation_with_failures() {
         let attestation_file = NamedTempFile::new().unwrap();
-        let filename = attestation_file.path().to_str().expect("error with file path");
+        let filename = attestation_file.path();
 
         let mut attestation_history: HistoryInfo<SignedAttestation> =
             HistoryInfo::try_from(filename).expect("IO error with file");
@@ -290,7 +299,7 @@ mod single_threaded_tests {
     #[test]
     fn simple_block_test() {
         let block_file = NamedTempFile::new().unwrap();
-        let filename = block_file.path().to_str().expect("error with file path");
+        let filename = block_file.path();
 
         let mut block_history: HistoryInfo<SignedBlock> =
             HistoryInfo::try_from(filename).expect("IO error with file");
@@ -322,7 +331,7 @@ mod single_threaded_tests {
     #[test]
     fn block_with_failures() {
         let block_file = NamedTempFile::new().unwrap();
-        let filename = block_file.path().to_str().expect("error with file path");
+        let filename = block_file.path();
 
         let mut block_history: HistoryInfo<SignedBlock> =
             HistoryInfo::try_from(filename).expect("IO error with file");

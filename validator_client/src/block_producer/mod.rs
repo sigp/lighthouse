@@ -85,11 +85,6 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
     /// Assumes that a block is required at this slot (does not check the duties).
     ///
     /// Ensures the message is not slashable.
-    ///
-    /// !!! UNSAFE !!!
-    ///
-    /// The slash-protection code is not yet implemented. There is zero protection against
-    /// slashing.
     pub fn produce_block(&mut self) -> Result<ValidatorEvent, Error> {
         let epoch = self.slot.epoch(self.slots_per_epoch);
         trace!(self.log, "Producing block"; "epoch" => epoch);
