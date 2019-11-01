@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::{ErrorKind, Read, Result as IOResult, Write};
 use std::path::{Path, PathBuf};
 use types::{AttestationData, BeaconBlockHeader};
+use std::os::unix::fs::PermissionsExt;
 
 /// Trait used to know if type T can be checked for slashing safety
 pub trait SafeFromSlashing<T> {
@@ -92,11 +93,17 @@ impl<T: Encode + Decode + Clone + PartialEq> PartialEq for HistoryInfo<T> {
 }
 
 impl<T: Encode + Decode + Clone + PartialEq> HistoryInfo<T> {
+
     /// Inserts the incoming data in the in-memory history, and writes it to the history file.
     pub fn insert_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
         self.data.insert(index, data);
         let mut file = File::create(self.filepath.as_path())?;
         file.lock_exclusive()?;
+        let mut perm = file.metadata()?.permissions();
+        perm.set_mode(0o600);
+        file.set_permissions(perm)?;
+
+
         file.write_all(&self.data.as_ssz_bytes())?;
         file.unlock()?;
 
