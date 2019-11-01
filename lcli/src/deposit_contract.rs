@@ -6,6 +6,9 @@ use std::time::Duration;
 use types::{test_utils::generate_deterministic_keypair, EthSpec, Hash256};
 use web3::{transports::Http, Web3};
 
+/// Number of confirmations before we accept the deposit contract has been successfully deployed.
+pub const DEPLOY_CONFIRMATIONS: usize = 3;
+
 pub fn run_deposit_contract<T: EthSpec>(
     mut env: Environment<T>,
     matches: &ArgMatches,
@@ -37,10 +40,13 @@ pub fn run_deposit_contract<T: EthSpec>(
 
     let deposit_contract = env
         .runtime()
-        .block_on(DepositContract::deploy(web3))
+        .block_on(DepositContract::deploy(web3, DEPLOY_CONFIRMATIONS))
         .map_err(|e| format!("Failed to deploy contract: {}", e))?;
 
-    info!("Deposit contract address: {}", deposit_contract.address());
+    info!(
+        "Deposit contract deployed. Address: {}",
+        deposit_contract.address()
+    );
 
     env.runtime()
         .block_on(do_deposits::<T>(deposit_contract, count, delay))

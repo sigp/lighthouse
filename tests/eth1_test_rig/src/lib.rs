@@ -21,11 +21,10 @@ use web3::types::{Address, U256};
 use web3::{Transport, Web3};
 
 const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
-const DEPOSIT_ACCOUNTS_INDEX: usize = 1;
+const DEPOSIT_ACCOUNTS_INDEX: usize = 0;
 
-const CONFIRMATIONS: usize = 0;
-const CONTRACT_DEPLOY_GAS: usize = 1_000_000_000;
-const DEPOSIT_GAS: usize = 1_000_000_000;
+const CONTRACT_DEPLOY_GAS: usize = 4_000_000;
+const DEPOSIT_GAS: usize = 4_000_000;
 
 // Deposit contract
 pub const ABI: &[u8] = include_bytes!("../contract/v0.8.3_validator_registration.json");
@@ -39,7 +38,7 @@ pub struct GanacheEth1Instance {
 impl GanacheEth1Instance {
     pub fn new() -> impl Future<Item = Self, Error = String> {
         GanacheInstance::new().into_future().and_then(|ganache| {
-            DepositContract::deploy(ganache.web3.clone()).map(|deposit_contract| Self {
+            DepositContract::deploy(ganache.web3.clone(), 0).map(|deposit_contract| Self {
                 ganache,
                 deposit_contract,
             })
@@ -62,10 +61,13 @@ pub struct DepositContract {
 }
 
 impl DepositContract {
-    pub fn deploy(web3: Web3<Http>) -> impl Future<Item = Self, Error = String> {
+    pub fn deploy(
+        web3: Web3<Http>,
+        confirmations: usize,
+    ) -> impl Future<Item = Self, Error = String> {
         let web3_1 = web3.clone();
 
-        deploy_deposit_contract(web3.clone())
+        deploy_deposit_contract(web3.clone(), confirmations)
             .map_err(|e| {
                 format!(
                     "Failed to deploy contract: {}. Is scripts/ganache_tests_node.sh running?.",
@@ -193,6 +195,7 @@ fn from_gwei(gwei: u64) -> U256 {
 
 fn deploy_deposit_contract<T: Transport>(
     web3: Web3<T>,
+    confirmations: usize,
 ) -> impl Future<Item = Address, Error = String> {
     let bytecode = String::from_utf8_lossy(&BYTECODE);
     let web3_1 = web3.clone();
@@ -209,7 +212,7 @@ fn deploy_deposit_contract<T: Transport>(
         .and_then(move |deploy_address| {
             Contract::deploy(web3.eth(), &ABI)
                 .map_err(|e| format!("Unable to build contract deployer: {:?}", e))?
-                .confirmations(CONFIRMATIONS)
+                .confirmations(confirmations)
                 .options(Options {
                     gas: Some(U256::from(CONTRACT_DEPLOY_GAS)),
                     ..Options::default()
@@ -222,7 +225,6 @@ fn deploy_deposit_contract<T: Transport>(
                 .map(|contract| contract.address())
                 .map_err(|e| format!("Unable to resolve pending contract: {:?}", e))
         })
-        .and_then(move |address| increase_time(web3_1.clone(), 1).map(move |_| address))
 }
 
 /// Increase the timestamp on future blocks by `increase_by` seconds.
