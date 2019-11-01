@@ -21,7 +21,6 @@ use slashing_protection::proposer_slashings::SignedBlock;
 use slashing_protection::slashing_protection::HistoryInfo;
 use std::convert::TryFrom;
 use std::path::Path;
-
 use bls::Keypair;
 use eth2_config::Eth2Config;
 use grpcio::{ChannelBuilder, EnvBuilder};
