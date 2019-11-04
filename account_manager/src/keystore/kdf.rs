@@ -1,6 +1,8 @@
 use crypto::sha2::Sha256;
 use crypto::{hmac::Hmac, mac::Mac, pbkdf2, scrypt};
+use rand::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::default::Default;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Pbkdf2 {
@@ -8,6 +10,18 @@ pub struct Pbkdf2 {
     pub dklen: u32,
     pub prf: Prf,
     pub salt: Vec<u8>,
+}
+impl Default for Pbkdf2 {
+    // TODO: verify size of salt
+    fn default() -> Self {
+        let salt = rand::thread_rng().gen::<[u8; 32]>();
+        Pbkdf2 {
+            dklen: 32,
+            c: 262144,
+            prf: Prf::HmacSha256,
+            salt: salt.to_vec(),
+        }
+    }
 }
 
 impl Pbkdf2 {
@@ -39,9 +53,24 @@ fn log_2(x: u32) -> u32 {
 impl Scrypt {
     pub fn derive_key(&self, password: &str) -> Vec<u8> {
         let mut dk = [0u8; 32];
+        // TODO: verify `N` is power of 2
         let params = scrypt::ScryptParams::new(log_2(self.n) as u8, self.r, self.p);
         scrypt::scrypt(password.as_bytes(), &self.salt, &params, &mut dk);
         dk.to_vec()
+    }
+}
+
+impl Default for Scrypt {
+    // TODO: verify size of salt
+    fn default() -> Self {
+        let salt = rand::thread_rng().gen::<[u8; 32]>();
+        Scrypt {
+            dklen: 32,
+            n: 262144,
+            r: 8,
+            p: 1,
+            salt: salt.to_vec(),
+        }
     }
 }
 
@@ -50,6 +79,12 @@ impl Scrypt {
 pub enum Kdf {
     Scrypt(Scrypt),
     Pbkdf2(Pbkdf2),
+}
+
+impl Default for Kdf {
+    fn default() -> Self {
+        Kdf::Pbkdf2(Pbkdf2::default())
+    }
 }
 
 impl Kdf {

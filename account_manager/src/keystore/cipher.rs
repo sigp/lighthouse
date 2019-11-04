@@ -1,5 +1,7 @@
 use crypto::aes::{ctr, KeySize};
+use rand::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::default::Default;
 
 const IV_SIZE: usize = 16;
 
@@ -12,7 +14,7 @@ pub struct CipherModule {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Aes128Ctr {
-    pub iv: Vec<u8>,
+    pub iv: [u8; 16],
 }
 
 impl Aes128Ctr {
@@ -35,6 +37,13 @@ impl Aes128Ctr {
 #[serde(untagged)]
 pub enum Cipher {
     Aes128Ctr(Aes128Ctr),
+}
+
+impl Default for Cipher {
+    fn default() -> Self {
+        let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>();
+        Cipher::Aes128Ctr(Aes128Ctr { iv })
+    }
 }
 
 impl Cipher {
