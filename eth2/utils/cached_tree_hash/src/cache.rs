@@ -1,9 +1,10 @@
 use crate::{Error, Hash256};
 use eth2_hashing::{hash_concat, ZERO_HASHES};
+use ssz_derive::{Decode, Encode};
 use tree_hash::BYTES_PER_CHUNK;
 
 /// Sparse Merkle tree suitable for tree hashing vectors and lists.
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct TreeHashCache {
     /// Depth is such that the tree has a capacity for 2^depth leaves
     depth: usize,

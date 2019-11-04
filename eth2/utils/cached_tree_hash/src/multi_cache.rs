@@ -1,4 +1,5 @@
 use crate::{int_log, CachedTreeHash, Error, Hash256, TreeHashCache};
+use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, VariableList};
 use tree_hash::mix_in_length;
 
@@ -9,7 +10,7 @@ use tree_hash::mix_in_length;
 /// Note: this cache could be made composable by replacing the hardcoded `Vec<TreeHashCache>` with
 /// `Vec<C>`, allowing arbitrary nesting, but for now we stick to 2-level nesting because that's all
 /// we need.
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct MultiTreeHashCache {
     list_cache: TreeHashCache,
     value_caches: Vec<TreeHashCache>,

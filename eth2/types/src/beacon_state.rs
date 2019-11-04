@@ -78,7 +78,7 @@ impl AllowNextEpoch {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct BeaconTreeHashCache {
     initialized: bool,
     block_roots: TreeHashCache,

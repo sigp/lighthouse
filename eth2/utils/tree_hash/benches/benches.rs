@@ -1,10 +1,8 @@
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
-use eth2_hashing::hash;
 use lazy_static::lazy_static;
-use tree_hash::TreeHash;
 use types::test_utils::{generate_deterministic_keypairs, TestingBeaconStateBuilder};
-use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec, MinimalEthSpec, Validator};
+use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec, MinimalEthSpec};
 
 lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = { generate_deterministic_keypairs(300_000) };
