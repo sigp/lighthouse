@@ -1,7 +1,7 @@
 use crypto::sha2::Sha256;
 use crypto::{hmac::Hmac, mac::Mac, pbkdf2, scrypt};
 use rand::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Serialize, Serializer};
 use std::default::Default;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -9,6 +9,8 @@ pub struct Pbkdf2 {
     pub c: u32,
     pub dklen: u32,
     pub prf: Prf,
+    #[serde(serialize_with = "serialize_salt")]
+    #[serde(deserialize_with = "deserialize_salt")]
     pub salt: Vec<u8>,
 }
 impl Default for Pbkdf2 {
@@ -39,6 +41,8 @@ pub struct Scrypt {
     pub n: u32,
     pub r: u32,
     pub p: u32,
+    #[serde(serialize_with = "serialize_salt")]
+    #[serde(deserialize_with = "deserialize_salt")]
     pub salt: Vec<u8>,
 }
 const fn num_bits<T>() -> usize {
@@ -72,6 +76,33 @@ impl Default for Scrypt {
             salt: salt.to_vec(),
         }
     }
+}
+
+fn serialize_salt<S>(x: &Vec<u8>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    s.serialize_str(&hex::encode(x))
+}
+
+fn deserialize_salt<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    struct StringVisitor;
+    impl<'de> de::Visitor<'de> for StringVisitor {
+        type Value = Vec<u8>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("String should be hex format")
+        }
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            hex::decode(v).map_err(E::custom)
+        }
+    }
+    deserializer.deserialize_any(StringVisitor)
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -115,5 +146,17 @@ impl Prf {
         match &self {
             _hmac_sha256 => Hmac::new(Sha256::new(), password),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serde() {
+        let json = r#"{"c":262144,"dklen":32,"prf":"hmac-sha256","salt":"d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"}"#;
+        let data: Pbkdf2 = serde_json::from_str(&json).unwrap();
+        println!("{:?}", data);
     }
 }

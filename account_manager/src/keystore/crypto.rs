@@ -11,7 +11,12 @@ pub struct Crypto {
 }
 
 impl Crypto {
-    pub fn encrypt(password: String, secret: &[u8], kdf: Kdf, cipher: Cipher) -> Self {
+    pub fn encrypt(
+        password: String,
+        secret: &[u8],
+        kdf: Kdf,
+        cipher: Cipher,
+    ) -> Result<Self, String> {
         // Generate derived key
         let derived_key = match &kdf {
             Kdf::Pbkdf2(pbkdf2) => pbkdf2.derive_key(&password),
@@ -26,7 +31,7 @@ impl Crypto {
         let mut pre_image: Vec<u8> = derived_key[16..32].to_owned(); // last 16 bytes of decryption key
         pre_image.append(&mut cipher_message.clone());
         let checksum = Checksum::gen_checksum(&pre_image);
-        Crypto {
+        Ok(Crypto {
             kdf: KdfModule {
                 function: kdf.function(),
                 params: kdf.clone(),
@@ -42,10 +47,10 @@ impl Crypto {
                 params: cipher.clone(),
                 message: hex::encode(cipher_message),
             },
-        }
+        })
     }
 
-    pub fn decrypt(&self, password: String) -> Vec<u8> {
+    pub fn decrypt(&self, password: String) -> Result<String, String> {
         // Genrate derived key
         let derived_key = match &self.kdf.params {
             Kdf::Pbkdf2(pbkdf2) => pbkdf2.derive_key(&password),
@@ -53,16 +58,20 @@ impl Crypto {
         };
         // Regenerate checksum
         let mut pre_image: Vec<u8> = derived_key[16..32].to_owned();
-        pre_image.append(&mut hex::decode(self.cipher.message.clone()).unwrap());
+        pre_image.append(
+            &mut hex::decode(self.cipher.message.clone())
+                .map_err(|e| format!("Cipher message should be in hex: {}", e))?,
+        );
         let checksum = Checksum::gen_checksum(&pre_image);
         debug_assert_eq!(checksum, self.checksum.message);
         let secret = match &self.cipher.params {
             Cipher::Aes128Ctr(cipher) => cipher.decrypt(
                 &derived_key[0..16],
-                &hex::decode(self.cipher.message.clone()).unwrap(),
+                &hex::decode(self.cipher.message.clone())
+                    .map_err(|e| format!("Cipher message should be in hex: {}", e))?,
             ),
         };
-        return secret;
+        Ok(hex::encode(secret))
     }
 }
 
@@ -100,14 +109,14 @@ mod tests {
             iv: from_slice(&iv),
         });
 
-        let keystore = Crypto::encrypt(password.clone(), &secret, kdf, cipher);
+        let keystore = Crypto::encrypt(password.clone(), &secret, kdf, cipher).unwrap();
         let json = serde_json::to_string(&keystore).unwrap();
         println!("{}", json);
 
         let recovered_keystore: Crypto = serde_json::from_str(&json).unwrap();
-        let recovered_secret = recovered_keystore.decrypt(password);
+        let recovered_secret = recovered_keystore.decrypt(password).unwrap();
 
-        assert_eq!(recovered_secret, secret);
+        assert_eq!(hex::encode(secret), recovered_secret);
     }
 
     #[test]
@@ -132,13 +141,13 @@ mod tests {
             iv: from_slice(&iv),
         });
 
-        let keystore = Crypto::encrypt(password.clone(), &secret, kdf, cipher);
+        let keystore = Crypto::encrypt(password.clone(), &secret, kdf, cipher).unwrap();
         let json = serde_json::to_string(&keystore).unwrap();
         println!("{}", json);
 
         let recovered_keystore: Crypto = serde_json::from_str(&json).unwrap();
-        let recovered_secret = recovered_keystore.decrypt(password);
+        let recovered_secret = recovered_keystore.decrypt(password).unwrap();
 
-        assert_eq!(recovered_secret, secret);
+        assert_eq!(hex::encode(secret), recovered_secret);
     }
 }
