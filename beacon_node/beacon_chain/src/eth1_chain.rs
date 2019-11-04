@@ -3,9 +3,12 @@ use eth1::{Config as Eth1Config, Service as HttpService};
 use eth2_hashing::hash;
 use exit_future::Exit;
 use futures::Future;
+use integer_sqrt::IntegerSquareRoot;
 use slog::Logger;
 use std::marker::PhantomData;
-use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
+use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Unsigned};
+
+const DEPOSIT_TREE_DEPTH: usize = 32;
 
 /// Holds an `Eth1ChainBackend` and serves requests from the `BeaconChain`.
 pub struct Eth1Chain<T: BeaconChainTypes> {
@@ -170,32 +173,75 @@ impl<T: EthSpec> JsonRpcEth1Backend<T> {
             })
             .collect()
     }
-
-    /// Returns a list of `Deposit` objects, within the given deposit index `range`.
-    ///
-    /// The `deposit_count` is used to generate the proofs for the `Deposits`. For example, if we
-    /// have 100 proofs, but the eth2 chain only acknowledges 50 of them, we must produce our
-    /// proofs with respect to a tree size of 50.
-    ///
-    ///
-    /// ## Errors
-    ///
-    /// - If `deposit_count` is larger than `range.end`.
-    /// - There are not sufficient deposits in the tree to generate the proof.
-    pub fn get_deposits(
-        &self,
-        range: Range<u64>,
-        deposit_count: u64,
-        tree_depth: usize,
-    ) -> Result<(Hash256, Vec<Deposit>), String> {
-        self.core
-            .deposits()
-            .read()
-            .cache
-            .get_deposits(range, deposit_count, tree_depth)
-            .map_err(|e| format!("Failed to get deposits: {:?}", e))
-    }
     */
+}
+
+impl<T: EthSpec> JsonRpcEth1Backend<T> {
+    fn try_eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, String> {
+        panic!()
+        /*
+        let blocks = self.core.blocks().read();
+
+        let eth1_follow_distance = spec.eth1_follow_distance;
+        let slots_per_eth1_voting_period = T::SlotsPerEth1VotingPeriod::to_u64();
+
+        let voting_period_start_slot =
+            (state.slot / slots_per_eth1_voting_period) * slots_per_eth1_voting_period;
+        let voting_period_start_seconds = slot_start_seconds(
+            state.genesis_time,
+            spec.milliseconds_per_slot,
+            voting_period_start_slot,
+        );
+
+        let voting_period_start_block_number: u64 = blocks
+            .iter()
+            .rev()
+            .find(|block| block.timestamp <= voting_period_start_seconds)
+            .map(|block| block.number)
+            .ok_or_else(|| "Unable to find eth1 head at start of voting period".to_string())?;
+
+        let previous_eth1_block_number: u64 = blocks
+            .iter()
+            .find(|block| block.hash == state.eth1_data.block_hash)
+            .map(|block| block.number)
+            .ok_or_else(|| "Unable to find current eth1 block hash in cache".to_string())?;
+
+        let new_eth1_data = blocks
+            .iter()
+            .rev()
+            .skip_while(|block| {
+                block.number > voting_period_start_block_number + eth1_follow_distance
+            })
+            .take_while(|block| {
+                block.number > voting_period_start_block_number + eth1_follow_distance * 2
+            })
+            .collect();
+
+        let all_eth1_data = blocks
+            .iter()
+            .rev()
+            .skip_while(|block| {
+                block.number > voting_period_start_block_number + eth1_follow_distance * 2
+            })
+            .take_while(|block| block.number >= previous_eth1_block_number)
+            .collect();
+
+        let valid_votes = state
+            .eth1_data_votes
+            .iter()
+            .enumerate()
+            .filter(|(i, vote)| {
+                let i = *i as u64;
+                // TODO: I think the specification is wrong about the logic here.
+                //
+                // See: https://github.com/ethereum/eth2.0-specs/pull/1463
+                let period_tail =
+                    i % slots_per_eth1_voting_period >= slots_per_eth1_voting_period.integer_sqrt();
+                new_eth1_data.contains(vote) || (period_tail && all_eth1_data.contains(vote))
+            })
+            .collect();
+        */
+    }
 }
 
 impl<T: EthSpec> Eth1ChainBackend<T> for JsonRpcEth1Backend<T> {
@@ -206,9 +252,20 @@ impl<T: EthSpec> Eth1ChainBackend<T> for JsonRpcEth1Backend<T> {
     fn queued_deposits(
         &self,
         state: &BeaconState<T>,
-        spec: &ChainSpec,
+        _spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
-        panic!()
+        let deposit_count = state.eth1_data.deposit_count;
+
+        let next = state.eth1_deposit_index + 1;
+        let last = std::cmp::min(deposit_count, next + T::MaxDeposits::to_u64());
+
+        self.core
+            .deposits()
+            .read()
+            .cache
+            .get_deposits(next..last, deposit_count, DEPOSIT_TREE_DEPTH)
+            .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
+            .map(|(_deposit_root, deposits)| deposits)
     }
 }
 
@@ -219,13 +276,11 @@ fn int_to_bytes32(int: u64) -> Vec<u8> {
     vec
 }
 
-/*
 /// Returns the unix-epoch seconds at the start of the given `slot`.
 fn slot_start_seconds<T: EthSpec>(
     genesis_unix_seconds: u64,
-    seconds_per_slot: u64,
+    milliseconds_per_slot: u64,
     slot: Slot,
 ) -> u64 {
-    genesis_unix_seconds + slot.as_u64() * seconds_per_slot
+    genesis_unix_seconds + slot.as_u64() * milliseconds_per_slot / 1_000
 }
-*/

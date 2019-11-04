@@ -1,4 +1,5 @@
 use rayon::{iter::ParallelIterator, prelude::*};
+use std::iter::DoubleEndedIterator;
 use std::ops::RangeInclusive;
 use types::{Eth1Data, Hash256};
 
@@ -73,7 +74,7 @@ impl BlockCache {
     ///
     /// - Monotically increase block numbers.
     /// - Non-uniformly increasing block timestamps.
-    pub fn iter(&self) -> impl Iterator<Item = &Eth1Block> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Eth1Block> {
         self.blocks.iter()
     }
 
