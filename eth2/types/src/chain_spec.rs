@@ -3,8 +3,6 @@ use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
 use utils::{u8_from_hex_str, u8_to_hex_str};
 
-mod yaml_chain_spec;
-
 /// Each of the BLS signature domains.
 ///
 /// Spec v0.8.1

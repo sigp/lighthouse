@@ -18,9 +18,8 @@ pub struct LocalBeaconNode<T> {
 impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
     pub fn production(context: RuntimeContext<E>) -> Self {
         let (client_config, datadir) = testing_client_config();
-        let eth2_config = context.eth2_config().clone();
 
-        let client = ProductionBeaconNode::new(context, client_config, eth2_config)
+        let client = ProductionBeaconNode::new(context, client_config)
             .wait()
             .expect("should build production client")
             .into_inner();
