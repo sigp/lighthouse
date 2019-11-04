@@ -1,9 +1,8 @@
-use crate::checksum::{Checksum, ChecksumModule};
-use crate::cipher::{Cipher, CipherModule};
-use crate::kdf::{Kdf, KdfModule};
+use crate::keystore::checksum::{Checksum, ChecksumModule};
+use crate::keystore::cipher::{Cipher, CipherModule};
+use crate::keystore::kdf::{Kdf, KdfModule};
 use serde::{Deserialize, Serialize};
 
-/// Crypto
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Crypto {
     pub kdf: KdfModule,
@@ -70,8 +69,15 @@ impl Crypto {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cipher::{Aes128Ctr, Cipher};
-    use crate::kdf::{Kdf, Pbkdf2, Prf, Scrypt};
+    use crate::keystore::cipher::{Aes128Ctr, Cipher};
+    use crate::keystore::kdf::{Kdf, Pbkdf2, Prf, Scrypt};
+
+    fn from_slice(bytes: &[u8]) -> [u8; 16] {
+        let mut array = [0; 16];
+        let bytes = &bytes[..array.len()]; // panics if not enough data
+        array.copy_from_slice(bytes);
+        array
+    }
 
     #[test]
     fn test_pbkdf2() {
@@ -90,7 +96,9 @@ mod tests {
             salt: salt,
         });
 
-        let cipher = Cipher::Aes128Ctr(Aes128Ctr { iv });
+        let cipher = Cipher::Aes128Ctr(Aes128Ctr {
+            iv: from_slice(&iv),
+        });
 
         let keystore = Crypto::encrypt(password.clone(), &secret, kdf, cipher);
         let json = serde_json::to_string(&keystore).unwrap();
@@ -120,7 +128,9 @@ mod tests {
             salt: salt,
         });
 
-        let cipher = Cipher::Aes128Ctr(Aes128Ctr { iv });
+        let cipher = Cipher::Aes128Ctr(Aes128Ctr {
+            iv: from_slice(&iv),
+        });
 
         let keystore = Crypto::encrypt(password.clone(), &secret, kdf, cipher);
         let json = serde_json::to_string(&keystore).unwrap();
