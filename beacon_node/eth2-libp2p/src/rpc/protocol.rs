@@ -52,9 +52,13 @@ impl UpgradeInfo for RPCProtocol {
 
     fn protocol_info(&self) -> Self::InfoIter {
         vec![
+            ProtocolId::new(RPC_STATUS, "1", "ssz_snappy"),
             ProtocolId::new(RPC_STATUS, "1", "ssz"),
+            ProtocolId::new(RPC_GOODBYE, "1", "ssz_snappy"),
             ProtocolId::new(RPC_GOODBYE, "1", "ssz"),
+            ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz_snappy"),
             ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
+            ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz_snappy"),
             ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
         ]
     }
@@ -151,6 +155,24 @@ where
                         }
                     } as FnAndThen<TSocket>)
             }
+            "ssz_snappy" | _ => {
+                let ssz_codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol, MAX_RPC_SIZE));
+                let codec = InboundCodec::SSZ(ssz_codec);
+                let mut timed_socket = TimeoutStream::new(socket);
+                timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
+                Framed::new(timed_socket, codec)
+                    .into_future()
+                    .timeout(Duration::from_secs(REQUEST_TIMEOUT))
+                    .map_err(RPCError::from as FnMapErr<TSocket>)
+                    .and_then({
+                        |(req, stream)| match req {
+                            Some(req) => futures::future::ok((req, stream)),
+                            None => futures::future::err(RPCError::Custom(
+                                "Stream terminated early".into(),
+                            )),
+                        }
+                    } as FnAndThen<TSocket>)
+            }
         }
     }
 }
@@ -183,10 +205,22 @@ impl RPCRequest {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RPCRequest::Status(_) => vec![ProtocolId::new(RPC_STATUS, "1", "ssz")],
-            RPCRequest::Goodbye(_) => vec![ProtocolId::new(RPC_GOODBYE, "1", "ssz")],
-            RPCRequest::BlocksByRange(_) => vec![ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz")],
-            RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz")],
+            RPCRequest::Status(_) => vec![
+                ProtocolId::new(RPC_STATUS, "1", "ssz"),
+                ProtocolId::new(RPC_STATUS, "1", "ssz_snappy"),
+            ],
+            RPCRequest::Goodbye(_) => vec![
+                ProtocolId::new(RPC_GOODBYE, "1", "ssz"),
+                ProtocolId::new(RPC_GOODBYE, "1", "ssz_snappy"),
+            ],
+            RPCRequest::BlocksByRange(_) => vec![
+                ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
+                ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz_snappy"),
+            ],
+            RPCRequest::BlocksByRoot(_) => vec![
+                ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
+                ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz_snappy"),
+            ],
         }
     }
 
