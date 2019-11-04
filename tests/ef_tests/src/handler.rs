@@ -2,6 +2,7 @@ use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name;
 use crate::type_name::TypeName;
 use cached_tree_hash::CachedTreeHash;
+use std::fmt::Debug;
 use std::fs;
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -95,7 +96,7 @@ pub struct SszStaticHandler<T, E>(PhantomData<(T, E)>);
 pub struct SszStaticSRHandler<T, E>(PhantomData<(T, E)>);
 
 /// Handler for SSZ types that implement `CachedTreeHash`.
-pub struct SszStaticTHCHandler<T, E>(PhantomData<(T, E)>);
+pub struct SszStaticTHCHandler<T, C, E>(PhantomData<(T, C, E)>);
 
 impl<T, E> Handler for SszStaticHandler<T, E>
 where
@@ -137,12 +138,13 @@ where
     }
 }
 
-impl<T, E> Handler for SszStaticTHCHandler<T, E>
+impl<T, C, E> Handler for SszStaticTHCHandler<T, C, E>
 where
-    T: cases::SszStaticType + CachedTreeHash + TypeName,
+    T: cases::SszStaticType + CachedTreeHash<C> + TypeName,
+    C: Debug + Sync,
     E: TypeName,
 {
-    type Case = cases::SszStaticTHC<T>;
+    type Case = cases::SszStaticTHC<T, C>;
 
     fn config_name() -> &'static str {
         E::name()

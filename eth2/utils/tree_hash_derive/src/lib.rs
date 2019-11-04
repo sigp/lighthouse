@@ -14,14 +14,14 @@ use syn::{parse_macro_input, Attribute, DeriveInput, Meta};
 fn get_hashable_fields<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a syn::Ident> {
     get_hashable_fields_and_their_caches(struct_data)
         .into_iter()
-        .map(|(ident, _)| ident)
+        .map(|(ident, _, _)| ident)
         .collect()
 }
 
-/// Return a Vec of the hashable fields of a struct, and each field's optional cache field.
+/// Return a Vec of the hashable fields of a struct, and each field's type and optional cache field.
 fn get_hashable_fields_and_their_caches<'a>(
     struct_data: &'a syn::DataStruct,
-) -> Vec<(&'a syn::Ident, Option<syn::Ident>)> {
+) -> Vec<(&'a syn::Ident, syn::Type, Option<syn::Ident>)> {
     struct_data
         .fields
         .iter()
@@ -34,7 +34,7 @@ fn get_hashable_fields_and_their_caches<'a>(
                     .as_ref()
                     .expect("tree_hash_derive only supports named struct fields");
                 let opt_cache_field = get_cache_field_for(&f);
-                Some((ident, opt_cache_field))
+                Some((ident, f.ty.clone(), opt_cache_field))
             }
         })
         .collect()
@@ -209,17 +209,17 @@ pub fn cached_tree_hash_derive(input: TokenStream) -> TokenStream {
     };
 
     let fields = get_hashable_fields_and_their_caches(&struct_data);
-    let caching_field = fields
+    let caching_field_ty = fields
         .iter()
-        .filter(|(_, cache_field)| cache_field.is_some())
-        .map(|(f, _)| *f);
+        .filter(|(_, _, cache_field)| cache_field.is_some())
+        .map(|(_, ty, _)| ty);
     let caching_field_cache_field = fields
         .iter()
-        .flat_map(|(_, cache_field)| cache_field.as_ref());
+        .flat_map(|(_, _, cache_field)| cache_field.as_ref());
 
     let tree_hash_root_expr = fields
         .iter()
-        .map(|(field, caching_field)| match caching_field {
+        .map(|(field, _, caching_field)| match caching_field {
             None => quote! {
                 self.#field.tree_hash_root()
             },
@@ -232,22 +232,20 @@ pub fn cached_tree_hash_derive(input: TokenStream) -> TokenStream {
         });
 
     let output = quote! {
-        impl #impl_generics cached_tree_hash::CachedTreeHash for #name #ty_generics #where_clause {
-            type Cache = #cache_type;
-
-            fn new_tree_hash_cache(&self) -> Self::Cache {
+        impl #impl_generics cached_tree_hash::CachedTreeHash<#cache_type> for #name #ty_generics #where_clause {
+            fn new_tree_hash_cache() -> #cache_type {
                 // Call new cache for each sub type
-                Self::Cache {
+                #cache_type {
                     initialized: true,
                     #(
-                        #caching_field_cache_field: self.#caching_field.new_tree_hash_cache()
+                        #caching_field_cache_field: <#caching_field_ty>::new_tree_hash_cache()
                     ),*
                 }
             }
 
             fn recalculate_tree_hash_root(
                 &self,
-                cache: &mut Self::Cache)
+                cache: &mut #cache_type)
             -> Result<Hash256, cached_tree_hash::Error>
             {
                 let mut leaves = vec![];

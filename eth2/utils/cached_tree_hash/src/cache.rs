@@ -26,52 +26,55 @@ impl TreeHashCache {
     /// Compute the updated Merkle root for the given `leaves`.
     pub fn recalculate_merkle_root(
         &mut self,
-        leaves: impl Iterator<Item = [u8; BYTES_PER_CHUNK]>,
+        leaves: impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator,
     ) -> Result<Hash256, Error> {
         let dirty_indices = self.update_leaves(leaves)?;
-        Ok(self.update_merkle_root(dirty_indices))
+        self.update_merkle_root(dirty_indices)
     }
 
     /// Phase 1 of the algorithm: compute the indices of all dirty leaves.
-    fn update_leaves(
+    pub fn update_leaves(
         &mut self,
-        leaves: impl Iterator<Item = [u8; BYTES_PER_CHUNK]>,
+        mut leaves: impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator,
     ) -> Result<Vec<usize>, Error> {
-        let mut dirty = vec![];
-        let mut num_new_leaves = 0;
+        let new_leaf_count = leaves.len();
 
-        for (i, new_leaf) in leaves.enumerate() {
-            match self.leaves().get_mut(i) {
-                Some(leaf) => {
-                    if leaf.as_bytes() != &new_leaf {
-                        *leaf = Hash256::from_slice(&new_leaf);
-                        dirty.push(i);
-                    }
-                }
-                None => {
-                    if i < 2usize.pow(self.depth as u32) {
-                        self.leaves().push(Hash256::from_slice(&new_leaf));
-                        dirty.push(i);
-                    } else {
-                        return Err(Error::TooManyLeaves);
-                    }
-                }
-            }
-            num_new_leaves += 1;
+        if new_leaf_count < self.leaves().len() {
+            return Err(Error::CannotShrink);
+        } else if new_leaf_count > 2usize.pow(self.depth as u32) {
+            return Err(Error::TooManyLeaves);
         }
 
-        // Disallow updates that reduce the number of leaves
-        if num_new_leaves < self.leaves().len() {
-            Err(Error::CannotShrink)
-        } else {
-            Ok(dirty)
-        }
+        // Update the existing leaves
+        let mut dirty = self
+            .leaves()
+            .iter_mut()
+            .enumerate()
+            .zip(&mut leaves)
+            .flat_map(|((i, leaf), new_leaf)| {
+                if leaf.as_bytes() != &new_leaf {
+                    leaf.assign_from_slice(&new_leaf);
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // Push the rest of the new leaves (if any)
+        dirty.extend(self.leaves().len()..new_leaf_count);
+        self.leaves()
+            .extend(leaves.map(|l| Hash256::from_slice(&l)));
+
+        Ok(dirty)
     }
 
     /// Phase 2: propagate changes upwards from the leaves of the tree, and compute the root.
-    fn update_merkle_root(&mut self, mut dirty_indices: Vec<usize>) -> Hash256 {
+    ///
+    /// Returns an error if `dirty_indices` is inconsistent with the cache.
+    pub fn update_merkle_root(&mut self, mut dirty_indices: Vec<usize>) -> Result<Hash256, Error> {
         if dirty_indices.is_empty() {
-            return self.root();
+            return Ok(self.root());
         }
 
         let mut depth = self.depth;
@@ -89,15 +92,18 @@ impl TreeHashCache {
                     .copied()
                     .unwrap_or_else(|| Hash256::from_slice(&ZERO_HASHES[self.depth - depth]));
 
-                let new_hash = Hash256::from_slice(&hash_concat(left.as_bytes(), right.as_bytes()));
+                let new_hash = hash_concat(left.as_bytes(), right.as_bytes());
 
                 match self.layers[depth - 1].get_mut(idx) {
                     Some(hash) => {
-                        *hash = new_hash;
+                        hash.assign_from_slice(&new_hash);
                     }
                     None => {
-                        assert_eq!(self.layers[depth - 1].len(), idx);
-                        self.layers[depth - 1].push(new_hash);
+                        // Parent layer should already contain nodes for all non-dirty indices
+                        if idx != self.layers[depth - 1].len() {
+                            return Err(Error::CacheInconsistent);
+                        }
+                        self.layers[depth - 1].push(Hash256::from_slice(&new_hash));
                     }
                 }
             }
@@ -106,17 +112,18 @@ impl TreeHashCache {
             depth -= 1;
         }
 
-        self.root()
+        Ok(self.root())
     }
 
-    fn root(&self) -> Hash256 {
+    /// Get the root of this cache, without doing any updates/computation.
+    pub fn root(&self) -> Hash256 {
         self.layers[0]
             .get(0)
             .copied()
             .unwrap_or_else(|| Hash256::from_slice(&ZERO_HASHES[self.depth]))
     }
 
-    fn leaves(&mut self) -> &mut Vec<Hash256> {
+    pub fn leaves(&mut self) -> &mut Vec<Hash256> {
         &mut self.layers[self.depth]
     }
 }

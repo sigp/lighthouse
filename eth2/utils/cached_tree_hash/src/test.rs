@@ -12,6 +12,10 @@ fn int_hashes(start: u64, end: u64) -> Vec<Hash256> {
     (start..end).map(Hash256::from_low_u64_le).collect()
 }
 
+type List16 = VariableList<Hash256, U16>;
+type Vector16 = FixedVector<Hash256, U16>;
+type Vector16u64 = FixedVector<u64, U16>;
+
 #[test]
 fn max_leaves() {
     let depth = 4;
@@ -36,10 +40,10 @@ fn max_leaves() {
 #[test]
 fn cannot_shrink() {
     let init_len = 12;
-    let list1: VariableList<Hash256, U16> = VariableList::new(int_hashes(0, init_len)).unwrap();
-    let list2: VariableList<Hash256, U16> = VariableList::new(int_hashes(0, init_len - 1)).unwrap();
+    let list1 = List16::new(int_hashes(0, init_len)).unwrap();
+    let list2 = List16::new(int_hashes(0, init_len - 1)).unwrap();
 
-    let mut cache = list1.new_tree_hash_cache();
+    let mut cache = List16::new_tree_hash_cache();
     assert!(list1.recalculate_tree_hash_root(&mut cache).is_ok());
     assert_eq!(
         list2.recalculate_tree_hash_root(&mut cache),
@@ -63,9 +67,9 @@ fn empty_leaves() {
 #[test]
 fn fixed_vector_hash256() {
     let len = 16;
-    let vec: FixedVector<Hash256, U16> = FixedVector::new(int_hashes(0, len)).unwrap();
+    let vec = Vector16::new(int_hashes(0, len)).unwrap();
 
-    let mut cache = vec.new_tree_hash_cache();
+    let mut cache = Vector16::new_tree_hash_cache();
 
     assert_eq!(
         Hash256::from_slice(&vec.tree_hash_root()),
@@ -76,9 +80,9 @@ fn fixed_vector_hash256() {
 #[test]
 fn fixed_vector_u64() {
     let len = 16;
-    let vec: FixedVector<u64, U16> = FixedVector::new((0..len).collect()).unwrap();
+    let vec = Vector16u64::new((0..len).collect()).unwrap();
 
-    let mut cache = vec.new_tree_hash_cache();
+    let mut cache = Vector16u64::new_tree_hash_cache();
 
     assert_eq!(
         Hash256::from_slice(&vec.tree_hash_root()),
@@ -89,9 +93,9 @@ fn fixed_vector_u64() {
 #[test]
 fn variable_list_hash256() {
     let len = 13;
-    let list: VariableList<Hash256, U16> = VariableList::new(int_hashes(0, len)).unwrap();
+    let list = List16::new(int_hashes(0, len)).unwrap();
 
-    let mut cache = list.new_tree_hash_cache();
+    let mut cache = List16::new_tree_hash_cache();
 
     assert_eq!(
         Hash256::from_slice(&list.tree_hash_root()),
@@ -121,8 +125,8 @@ fn variable_list_h256_test<Len: Unsigned>(leaves_and_skips: Vec<(u64, bool)>) ->
         .take(Len::to_usize())
         .collect();
 
-    let mut list: VariableList<Hash256, Len> = VariableList::new(vec![]).unwrap();
-    let mut cache = list.new_tree_hash_cache();
+    let mut list: VariableList<Hash256, Len>;
+    let mut cache = VariableList::<Hash256, Len>::new_tree_hash_cache();
 
     for (end, (_, update_cache)) in leaves_and_skips.into_iter().enumerate() {
         list = VariableList::new(leaves[..end].to_vec()).unwrap();

@@ -99,10 +99,6 @@ macro_rules! ssz_static_test {
     ($test_name:ident, $typ:ident$(<$generics:tt>)?, SR) => {
         ssz_static_test!($test_name, SszStaticSRHandler, $typ$(<$generics>)?);
     };
-    // Tree hash caching
-    ($test_name:ident, $typ:ident$(<$generics:tt>)?, THC) => {
-        ssz_static_test!($test_name, SszStaticTHCHandler, $typ$(<$generics>)?);
-    };
     // Non-signed root, non-tree hash caching
     ($test_name:ident, $typ:ident$(<$generics:tt>)?) => {
         ssz_static_test!($test_name, SszStaticHandler, $typ$(<$generics>)?);
@@ -126,11 +122,11 @@ macro_rules! ssz_static_test {
         );
     };
     // Base case
-    ($test_name:ident, $handler:ident, { $(($typ:ty, $spec:ident)),+ }) => {
+    ($test_name:ident, $handler:ident, { $(($($typ:ty),+)),+ }) => {
         #[test]
         fn $test_name() {
             $(
-                $handler::<$typ, $spec>::run();
+                $handler::<$($typ),+>::run();
             )+
         }
     };
@@ -151,7 +147,13 @@ mod ssz_static {
     ssz_static_test!(beacon_block, BeaconBlock<_>, SR);
     ssz_static_test!(beacon_block_body, BeaconBlockBody<_>);
     ssz_static_test!(beacon_block_header, BeaconBlockHeader, SR);
-    ssz_static_test!(beacon_state, BeaconState<_>, THC);
+    ssz_static_test!(
+        beacon_state,
+        SszStaticTHCHandler, {
+            (BeaconState<MinimalEthSpec>, BeaconTreeHashCache, MinimalEthSpec),
+            (BeaconState<MainnetEthSpec>, BeaconTreeHashCache, MainnetEthSpec)
+        }
+    );
     ssz_static_test!(checkpoint, Checkpoint);
     ssz_static_test!(compact_committee, CompactCommittee<_>);
     ssz_static_test!(crosslink, Crosslink);
