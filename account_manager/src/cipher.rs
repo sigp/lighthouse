@@ -1,5 +1,5 @@
+use crate::module::CryptoModule;
 use crypto::aes::{ctr, KeySize};
-
 const IV_SIZE: usize = 16;
 
 pub struct CipherMessage<C: Cipher> {
@@ -31,4 +31,20 @@ impl Cipher for Aes128Ctr {
 pub trait Cipher {
     fn encrypt(&self, key: &[u8], pt: &[u8]) -> Vec<u8>;
     fn decrypt(&self, key: &[u8], ct: &[u8]) -> Vec<u8>;
+}
+
+impl<C: Cipher> CryptoModule for CipherMessage<C> {
+    type Params = C;
+
+    fn function(&self) -> String {
+        "aes-128-ctr".to_string()
+    }
+
+    fn params(&self) -> &Self::Params {
+        &self.cipher
+    }
+
+    fn message(&self) -> Vec<u8> {
+        self.message.clone()
+    }
 }
