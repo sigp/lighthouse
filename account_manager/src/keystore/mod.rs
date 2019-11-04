@@ -30,20 +30,20 @@ pub struct Keystore {
 }
 
 impl Keystore {
-    pub fn to_keystore(secret_key: &SecretKey, password: String) -> Keystore {
+    pub fn to_keystore(secret_key: &SecretKey, password: String) -> Result<Keystore, String> {
         let crypto = Crypto::encrypt(
             password,
             &secret_key.as_raw().as_bytes(),
             Kdf::default(),
             Cipher::default(),
-        );
+        )?;
         let uuid = Uuid::new_v4();
         let version = Version::default();
-        Keystore {
+        Ok(Keystore {
             crypto,
             uuid,
             version,
-        }
+        })
     }
 }
 
