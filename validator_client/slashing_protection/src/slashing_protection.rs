@@ -3,11 +3,10 @@ use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
 use fs2::FileExt;
 use ssz::{Decode, Encode};
-use std::convert::TryFrom;
-use std::fs::File;
-use std::io::{ErrorKind, Read, Result as IOResult, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Result as IOResult, Write, Seek, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use types::{AttestationData, BeaconBlockHeader};
 
 /// Trait used to know if type T can be checked for slashing safety
@@ -67,7 +66,7 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
         let check = self.verify_and_get_index(incoming_data, &self.data[..]);
         match check {
             Ok(safe) => match safe.reason {
-                // Casting the same vote, no need to add it go the history
+                // Casting the same vote, no need to add it to the history
                 ValidityReason::SameVote => Ok(()),
                 // New attestation, add it to memory and file history
                 _ => self
@@ -80,79 +79,54 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
 }
 
 /// Struct used for checking if attestations or blockheaders are safe from slashing.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct HistoryInfo<T> {
-    filepath: PathBuf,
+    file: File,
     data: Vec<T>,
 }
 
-impl<T: Encode> HistoryInfo<T> {
+impl<T: PartialEq> PartialEq for HistoryInfo<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+
+impl<T: Clone + Encode + Decode> HistoryInfo<T> {
     /// Inserts the incoming data in the in-memory history, and writes it to the history file.
-    pub fn insert_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
+    fn insert_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
+        // Insert the incoming data in memory
         self.data.insert(index, data);
 
-        // Creating file if it doesn't exist, else opening it.
-        let mut file = File::create(self.filepath.as_path())?;
-
-        // Locking the file to make sure we're atomically writing to it
-        file.lock_exclusive()?;
-
-        // Setting permissions to be 600 (rw-------).
-        let mut perm = file.metadata()?.permissions();
-        perm.set_mode(0o600);
-        file.set_permissions(perm)?;
-
         // Writing new history to file
-        file.write_all(&self.data.as_ssz_bytes())?;
-
-        // Unlocking file because we're done with it.
-        file.unlock()?;
+        self.file.seek(SeekFrom::Start(0))?;
+        self.file.write_all(&self.data.as_ssz_bytes())?;
 
         Ok(())
     }
-}
 
-impl<T: Encode + Decode + Clone + PartialEq> TryFrom<PathBuf> for HistoryInfo<T> {
-    type Error = NotSafe;
+    pub fn empty(path: &Path) -> Result<Self, NotSafe> {
+        let file = File::create(path)?;
 
-    fn try_from(filepath: PathBuf) -> Result<Self, Self::Error> {
-        let path = filepath.as_path();
-        Self::try_from(path)
+        let mut perm = file.metadata()?.permissions();
+        perm.set_mode(0o600);
+        file.set_permissions(perm)?;
+        Self::open(path)
     }
-}
 
-impl<T: Encode + Decode + Clone + PartialEq> TryFrom<&Path> for HistoryInfo<T> {
-    type Error = NotSafe;
+    pub fn open(path: &Path) -> Result<Self, NotSafe> {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)?;
 
-    fn try_from(filepath: &Path) -> Result<Self, Self::Error> {
-        let mut file = match File::open(filepath) {
-            Ok(file) => file,
-            Err(e) => match e.kind() {
-                // File was not found meaning it has not been created yet, and that history is empty.
-                ErrorKind::NotFound => {
-                    return Ok(Self {
-                        filepath: PathBuf::from(filepath),
-                        data: vec![],
-                    });
-                }
-                // Another error occured, report it and stop everything.
-                _ => return Err(NotSafe::from(e)),
-            },
-        };
-
-        // Locking file before reading
-        file.lock_exclusive()?;
-
+        file.try_lock_exclusive()?;
         let mut bytes = vec![];
         file.read_to_end(&mut bytes)?;
-
-        // Unlocking file now that we don't need it anymore
-        file.unlock()?;
 
         let data_history = Vec::from_ssz_bytes(&bytes)?;
 
         Ok(Self {
-            filepath: PathBuf::from(filepath),
+            file,
             data: data_history.to_vec(),
         })
     }
@@ -196,11 +170,11 @@ mod single_threaded_tests {
 
     #[test]
     fn simple_attestation_insertion() {
-        let attestation_file = NamedTempFile::new().unwrap();
+        let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = attestation_file.path();
 
         let mut attestation_history: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
+            HistoryInfo::empty(filename).expect("IO error with file");
 
         let attestation1 = attestation_and_custody_bit_builder(1, 2);
         let attestation2 = attestation_and_custody_bit_builder(2, 3);
@@ -218,21 +192,26 @@ mod single_threaded_tests {
         // Making sure that data in memory is correct..
         assert_eq!(expected_vector, attestation_history.data);
 
+        // Copying the current data
+        let old_data = attestation_history.data.clone();
+        // Dropping the HistoryInfo struct
+        drop(attestation_history);
+
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
-        assert_eq!(attestation_history, file_written_version);
+            HistoryInfo::open(filename).expect("IO error with file");
+        assert_eq!(old_data, file_written_version.data);
 
-        attestation_file.close().unwrap();
+        attestation_file.close().expect("temporary file not properly removed");
     }
 
     #[test]
     fn interlaced_attestation_insertion() {
-        let attestation_file = NamedTempFile::new().unwrap();
+        let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = attestation_file.path();
 
         let mut attestation_history: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
+            HistoryInfo::empty(filename).expect("IO error with file");
 
         let attestation1 = attestation_and_custody_bit_builder(5, 9);
         let attestation2 = attestation_and_custody_bit_builder(7, 12);
@@ -256,21 +235,26 @@ mod single_threaded_tests {
         // Making sure that data in memory is correct..
         assert_eq!(expected_vector, attestation_history.data);
 
+        // Copying the current data
+        let old_data = attestation_history.data.clone();
+        // Dropping the HistoryInfo struct
+        drop(attestation_history);
+
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
-        assert_eq!(attestation_history, file_written_version);
+            HistoryInfo::open(filename).expect("IO error with file");
+        assert_eq!(old_data, file_written_version.data);
 
-        attestation_file.close().unwrap();
+        attestation_file.close().expect("temporary file not properly removed");
     }
 
     #[test]
     fn attestation_with_failures() {
-        let attestation_file = NamedTempFile::new().unwrap();
+        let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = attestation_file.path();
 
         let mut attestation_history: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
+            HistoryInfo::empty(filename).expect("IO error with file");
 
         let attestation1 = attestation_and_custody_bit_builder(1, 2);
         let attestation2 = attestation_and_custody_bit_builder(1, 2); // should not get added
@@ -292,21 +276,26 @@ mod single_threaded_tests {
         // Making sure that data in memory is correct..
         assert_eq!(expected_vector, attestation_history.data);
 
+        // Copying the current data
+        let old_data = attestation_history.data.clone();
+        // Dropping the HistoryInfo struct
+        drop(attestation_history);
+
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
-        assert_eq!(attestation_history, file_written_version);
+            HistoryInfo::open(filename).expect("IO error with file");
+        assert_eq!(old_data, file_written_version.data);
 
-        attestation_file.close().unwrap();
+        attestation_file.close().expect("temporary file not properly removed");
     }
 
     #[test]
     fn simple_block_test() {
-        let block_file = NamedTempFile::new().unwrap();
+        let block_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = block_file.path();
 
         let mut block_history: HistoryInfo<SignedBlock> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
+            HistoryInfo::empty(filename).expect("IO error with file");
 
         let block1 = block_builder(1);
         let block2 = block_builder(2);
@@ -324,21 +313,26 @@ mod single_threaded_tests {
         // Making sure that data in memory is correct.
         assert_eq!(expected_vector, block_history.data);
 
+        // Copying the current data
+        let old_data = block_history.data.clone();
+        // Dropping the HistoryInfo struct
+        drop(block_history);
+
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedBlock> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
-        assert_eq!(block_history, file_written_version);
+            HistoryInfo::open(filename).expect("IO error with file");
+        assert_eq!(old_data, file_written_version.data);
 
-        block_file.close().unwrap();
+        block_file.close().expect("temporary file not properly removed");
     }
 
     #[test]
     fn block_with_failures() {
-        let block_file = NamedTempFile::new().unwrap();
+        let block_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = block_file.path();
 
         let mut block_history: HistoryInfo<SignedBlock> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
+            HistoryInfo::empty(filename).expect("IO error with file");
 
         let block1 = block_builder(1);
         let block2 = block_builder(1); // fails
@@ -360,11 +354,16 @@ mod single_threaded_tests {
         // Making sure that data in memory is correct.
         assert_eq!(expected_vector, block_history.data);
 
+        // Copying the current data
+        let old_data = block_history.data.clone();
+        // Dropping the HistoryInfo struct
+        drop(block_history);
+
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedBlock> =
-            HistoryInfo::try_from(filename).expect("IO error with file");
-        assert_eq!(block_history, file_written_version);
+            HistoryInfo::open(filename).expect("IO error with file");
+        assert_eq!(old_data, file_written_version.data);
 
-        block_file.close().unwrap();
+        block_file.close().expect("temporary file not properly removed");
     }
 }
