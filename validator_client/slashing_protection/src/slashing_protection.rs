@@ -79,22 +79,14 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
     }
 }
 
-/// Struct used for checking if attestations or blockheader are safe from slashing.
+/// Struct used for checking if attestations or blockheaders are safe from slashing.
 #[derive(Debug, PartialEq)]
-pub struct HistoryInfo<T: Encode + Decode + Clone> {
+pub struct HistoryInfo<T> {
     filepath: PathBuf,
     data: Vec<T>,
 }
 
-// impl<T> PartialEq for HistoryInfo<T> {
-    // fn eq(&self, other: &Self) -> bool {
-        // let my_data = &self.data;
-        // let other_data = &other.data;
-        // self.filepath == other.filepath && *my_data == *other_data
-    // }
-// }
-
-impl<T: Encode + Decode + Clone> HistoryInfo<T> {
+impl<T: Encode> HistoryInfo<T> {
     /// Inserts the incoming data in the in-memory history, and writes it to the history file.
     pub fn insert_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
         self.data.insert(index, data);
