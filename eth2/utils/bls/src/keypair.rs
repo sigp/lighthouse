@@ -3,7 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Keypair {
     pub sk: SecretKey,
     pub pk: PublicKey,
@@ -19,12 +19,6 @@ impl Keypair {
 
     pub fn identifier(&self) -> String {
         self.pk.concatenated_hex_id()
-    }
-}
-
-impl PartialEq for Keypair {
-    fn eq(&self, other: &Keypair) -> bool {
-        self == other
     }
 }
 
