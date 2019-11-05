@@ -90,15 +90,3 @@ impl Cipher {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_serde() {
-        // let json = r#"{"c":262144,"dklen":32,"prf":"hmac-sha256","salt":"d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"}"#;
-        // let data: Pbkdf2 = serde_json::from_str(&json).unwrap();
-        // println!("{:?}", data);
-    }
-}
