@@ -2,14 +2,14 @@ mod checksum;
 mod cipher;
 mod crypto;
 mod kdf;
-mod module;
 use crate::keystore::cipher::Cipher;
 use crate::keystore::crypto::Crypto;
 use crate::keystore::kdf::Kdf;
-use bls::SecretKey;
+use bls::{Keypair, PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Version for `Keystore`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Version {
     #[serde(rename = "4")]
@@ -30,27 +30,34 @@ pub struct Keystore {
 }
 
 impl Keystore {
-    pub fn to_keystore(secret_key: &SecretKey, password: String) -> Result<Keystore, String> {
+    /// Generate `Keystore` object for a BLS12-381 secret key from a
+    /// keypair and password.
+    pub fn to_keystore(keypair: &Keypair, password: String) -> Self {
         let crypto = Crypto::encrypt(
             password,
-            &secret_key.as_raw().as_bytes(),
+            &keypair.sk.as_raw().as_bytes(),
             Kdf::default(),
             Cipher::default(),
-        )?;
+        );
         let uuid = Uuid::new_v4();
         let version = Version::default();
-        Ok(Keystore {
+        Keystore {
             crypto,
             uuid,
             version,
-        })
+        }
     }
 
-    pub fn from_keystore(keystore_str: String, password: String) -> Result<SecretKey, String> {
-        let keystore: Keystore = serde_json::from_str(&keystore_str)
-            .map_err(|e| format!("Keystore file invalid: {}", e))?;
-        let sk = keystore.crypto.decrypt(password)?;
-        SecretKey::from_bytes(&sk).map_err(|e| format!("Invalid secret key {:?}", e))
+    /// Regenerate a BLS12-381 `Keypair` given the `Keystore` object and
+    /// the correct password.
+    ///
+    /// An error is returned if the secret in the `Keystore` is not a valid
+    /// BLS12-381 secret key or if the password provided is incorrect.
+    pub fn from_keystore(&self, password: String) -> Result<Keypair, String> {
+        let sk = SecretKey::from_bytes(&self.crypto.decrypt(password)?)
+            .map_err(|e| format!("Invalid secret key in keystore {:?}", e))?;
+        let pk = PublicKey::from_secret_key(&sk);
+        Ok(Keypair { sk, pk })
     }
 }
 
@@ -62,12 +69,11 @@ mod tests {
     fn test_keystore() {
         let keypair = Keypair::random();
         let password = "testpassword".to_string();
-        let keystore = Keystore::to_keystore(&keypair.sk, password.clone()).unwrap();
+        let keystore = Keystore::to_keystore(&keypair, password.clone());
 
         let json_str = serde_json::to_string(&keystore).unwrap();
-        println!("{}", json_str);
-
-        let sk = Keystore::from_keystore(json_str, password).unwrap();
-        assert_eq!(sk, keypair.sk);
+        let recovered_keystore: Keystore = serde_json::from_str(&json_str).unwrap();
+        let recovered_keypair = recovered_keystore.from_keystore(password).unwrap();
+        assert_eq!(keypair, recovered_keypair);
     }
 }

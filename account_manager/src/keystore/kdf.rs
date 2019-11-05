@@ -4,6 +4,11 @@ use rand::prelude::*;
 use serde::{de, Deserialize, Serialize, Serializer};
 use std::default::Default;
 
+// TODO: verify size of salt
+const SALT_SIZE: usize = 32;
+const DECRYPTION_KEY_SIZE: u32 = 32;
+
+/// Parameters for `pbkdf2` key derivation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Pbkdf2 {
     pub c: u32,
@@ -14,27 +19,28 @@ pub struct Pbkdf2 {
     pub salt: Vec<u8>,
 }
 impl Default for Pbkdf2 {
-    // TODO: verify size of salt
     fn default() -> Self {
-        let salt = rand::thread_rng().gen::<[u8; 32]>();
+        let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
         Pbkdf2 {
-            dklen: 32,
+            dklen: DECRYPTION_KEY_SIZE,
             c: 262144,
-            prf: Prf::HmacSha256,
+            prf: Prf::default(),
             salt: salt.to_vec(),
         }
     }
 }
 
 impl Pbkdf2 {
+    /// Derive key from password.
     pub fn derive_key(&self, password: &str) -> Vec<u8> {
-        let mut dk = [0u8; 32];
+        let mut dk = [0u8; DECRYPTION_KEY_SIZE as usize];
         let mut mac = self.prf.mac(password.as_bytes());
         pbkdf2::pbkdf2(&mut mac, &self.salt, self.c, &mut dk);
         dk.to_vec()
     }
 }
 
+/// Parameters for `scrypt` key derivation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Scrypt {
     pub dklen: u32,
@@ -45,31 +51,31 @@ pub struct Scrypt {
     #[serde(deserialize_with = "deserialize_salt")]
     pub salt: Vec<u8>,
 }
-const fn num_bits<T>() -> usize {
-    std::mem::size_of::<T>() * 8
-}
 
-fn log_2(x: u32) -> u32 {
-    assert!(x > 0);
-    num_bits::<u32>() as u32 - x.leading_zeros() - 1
+/// Compute floor of log2 of a u32.
+fn log2_int(x: u32) -> u32 {
+    if x == 0 {
+        return 0;
+    }
+    31 - x.leading_zeros()
 }
 
 impl Scrypt {
     pub fn derive_key(&self, password: &str) -> Vec<u8> {
-        let mut dk = [0u8; 32];
-        // TODO: verify `N` is power of 2
-        let params = scrypt::ScryptParams::new(log_2(self.n) as u8, self.r, self.p);
+        let mut dk = [0u8; DECRYPTION_KEY_SIZE as usize];
+        // Assert that `n` is power of 2
+        debug_assert_eq!(self.n, 2u32.pow(log2_int(self.n)));
+        let params = scrypt::ScryptParams::new(log2_int(self.n) as u8, self.r, self.p);
         scrypt::scrypt(password.as_bytes(), &self.salt, &params, &mut dk);
         dk.to_vec()
     }
 }
 
 impl Default for Scrypt {
-    // TODO: verify size of salt
     fn default() -> Self {
-        let salt = rand::thread_rng().gen::<[u8; 32]>();
+        let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
         Scrypt {
-            dklen: 32,
+            dklen: DECRYPTION_KEY_SIZE,
             n: 262144,
             r: 8,
             p: 1,
@@ -78,6 +84,7 @@ impl Default for Scrypt {
     }
 }
 
+/// Serialize `salt` to its hex representation.
 fn serialize_salt<S>(x: &Vec<u8>, s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -85,6 +92,7 @@ where
     s.serialize_str(&hex::encode(x))
 }
 
+/// Deserialize `salt` from its hex representation to bytes.
 fn deserialize_salt<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
 where
     D: de::Deserializer<'de>,
@@ -127,6 +135,7 @@ impl Kdf {
     }
 }
 
+/// KDF module representation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct KdfModule {
     pub function: String,
@@ -134,6 +143,7 @@ pub struct KdfModule {
     pub message: String,
 }
 
+/// PRF for use in `pbkdf2`.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum Prf {
     #[serde(rename = "hmac-sha256")]
@@ -141,10 +151,15 @@ pub enum Prf {
 }
 
 impl Prf {
-    // TODO: is password what should be passed here?
     pub fn mac(&self, password: &[u8]) -> impl Mac {
         match &self {
             _hmac_sha256 => Hmac::new(Sha256::new(), password),
         }
+    }
+}
+
+impl Default for Prf {
+    fn default() -> Self {
+        Prf::HmacSha256
     }
 }
