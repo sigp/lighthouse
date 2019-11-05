@@ -4,9 +4,9 @@ use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
 use fs2::FileExt;
 use ssz::{Decode, Encode};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Result as IOResult, Write, Seek, SeekFrom};
+use std::io::{Read, Result as IOResult, Seek, SeekFrom, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path};
+use std::path::Path;
 use types::{AttestationData, BeaconBlockHeader};
 
 /// Trait used to know if type T can be checked for slashing safety
@@ -84,10 +84,7 @@ impl<T: Clone + Encode + Decode> HistoryInfo<T> {
     }
 
     pub fn open(path: &Path) -> Result<Self, NotSafe> {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)?;
+        let mut file = OpenOptions::new().read(true).write(true).open(path)?;
 
         file.try_lock_exclusive()?;
         let mut bytes = vec![];
@@ -172,7 +169,9 @@ mod single_threaded_tests {
             HistoryInfo::open(filename).expect("IO error with file");
         assert_eq!(old_data, file_written_version.data);
 
-        attestation_file.close().expect("temporary file not properly removed");
+        attestation_file
+            .close()
+            .expect("temporary file not properly removed");
     }
 
     #[test]
@@ -215,7 +214,9 @@ mod single_threaded_tests {
             HistoryInfo::open(filename).expect("IO error with file");
         assert_eq!(old_data, file_written_version.data);
 
-        attestation_file.close().expect("temporary file not properly removed");
+        attestation_file
+            .close()
+            .expect("temporary file not properly removed");
     }
 
     #[test]
@@ -256,7 +257,9 @@ mod single_threaded_tests {
             HistoryInfo::open(filename).expect("IO error with file");
         assert_eq!(old_data, file_written_version.data);
 
-        attestation_file.close().expect("temporary file not properly removed");
+        attestation_file
+            .close()
+            .expect("temporary file not properly removed");
     }
 
     #[test]
@@ -310,9 +313,10 @@ mod single_threaded_tests {
         assert_eq!(expected_vector, file_written_version.data);
         drop(file_written_version);
 
-        attestation_file.close().expect("temporary file not properly removed");
+        attestation_file
+            .close()
+            .expect("temporary file not properly removed");
     }
-
 
     #[test]
     fn simple_block_test() {
@@ -348,7 +352,9 @@ mod single_threaded_tests {
             HistoryInfo::open(filename).expect("IO error with file");
         assert_eq!(old_data, file_written_version.data);
 
-        block_file.close().expect("temporary file not properly removed");
+        block_file
+            .close()
+            .expect("temporary file not properly removed");
     }
 
     #[test]
@@ -389,6 +395,8 @@ mod single_threaded_tests {
             HistoryInfo::open(filename).expect("IO error with file");
         assert_eq!(old_data, file_written_version.data);
 
-        block_file.close().expect("temporary file not properly removed");
+        block_file
+            .close()
+            .expect("temporary file not properly removed");
     }
 }
