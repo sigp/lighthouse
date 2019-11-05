@@ -2,6 +2,7 @@ use crate::keystore::checksum::{Checksum, ChecksumModule};
 use crate::keystore::cipher::{Cipher, CipherModule};
 use crate::keystore::kdf::{Kdf, KdfModule};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Crypto {
@@ -39,7 +40,7 @@ impl Crypto {
             },
             checksum: ChecksumModule {
                 function: Checksum::function(),
-                params: (),
+                params: BTreeMap::new(),
                 message: checksum,
             },
             cipher: CipherModule {
@@ -50,7 +51,7 @@ impl Crypto {
         })
     }
 
-    pub fn decrypt(&self, password: String) -> Result<String, String> {
+    pub fn decrypt(&self, password: String) -> Result<Vec<u8>, String> {
         // Genrate derived key
         let derived_key = match &self.kdf.params {
             Kdf::Pbkdf2(pbkdf2) => pbkdf2.derive_key(&password),
@@ -71,7 +72,7 @@ impl Crypto {
                     .map_err(|e| format!("Cipher message should be in hex: {}", e))?,
             ),
         };
-        Ok(hex::encode(secret))
+        Ok(secret)
     }
 }
 
@@ -116,7 +117,7 @@ mod tests {
         let recovered_keystore: Crypto = serde_json::from_str(&json).unwrap();
         let recovered_secret = recovered_keystore.decrypt(password).unwrap();
 
-        assert_eq!(hex::encode(secret), recovered_secret);
+        assert_eq!(secret, recovered_secret);
     }
 
     #[test]
@@ -148,6 +149,6 @@ mod tests {
         let recovered_keystore: Crypto = serde_json::from_str(&json).unwrap();
         let recovered_secret = recovered_keystore.decrypt(password).unwrap();
 
-        assert_eq!(hex::encode(secret), recovered_secret);
+        assert_eq!(secret, recovered_secret);
     }
 }

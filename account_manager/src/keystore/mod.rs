@@ -45,6 +45,13 @@ impl Keystore {
             version,
         })
     }
+
+    pub fn from_keystore(keystore_str: String, password: String) -> Result<SecretKey, String> {
+        let keystore: Keystore = serde_json::from_str(&keystore_str)
+            .map_err(|e| format!("Keystore file invalid: {}", e))?;
+        let sk = keystore.crypto.decrypt(password)?;
+        SecretKey::from_bytes(&sk).map_err(|e| format!("Invalid secret key {:?}", e))
+    }
 }
 
 #[cfg(test)]
@@ -52,11 +59,15 @@ mod tests {
     use super::*;
     use bls::Keypair;
     #[test]
-    fn test_json() {
+    fn test_keystore() {
         let keypair = Keypair::random();
         let password = "testpassword".to_string();
-        let keystore = Keystore::to_keystore(&keypair.sk, password);
+        let keystore = Keystore::to_keystore(&keypair.sk, password.clone()).unwrap();
 
-        println!("{}", serde_json::to_string(&keystore).unwrap());
+        let json_str = serde_json::to_string(&keystore).unwrap();
+        println!("{}", json_str);
+
+        let sk = Keystore::from_keystore(json_str, password).unwrap();
+        assert_eq!(sk, keypair.sk);
     }
 }

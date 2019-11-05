@@ -3,14 +3,14 @@ use rand::prelude::*;
 use serde::{de, Deserialize, Serialize, Serializer};
 use std::default::Default;
 
-fn from_slice(bytes: &[u8]) -> [u8; 16] {
-    let mut array = [0; 16];
+const IV_SIZE: usize = 16;
+
+fn from_slice(bytes: &[u8]) -> [u8; IV_SIZE] {
+    let mut array = [0; IV_SIZE];
     let bytes = &bytes[..array.len()]; // panics if not enough data
     array.copy_from_slice(bytes);
     array
 }
-
-const IV_SIZE: usize = 16;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct CipherModule {
