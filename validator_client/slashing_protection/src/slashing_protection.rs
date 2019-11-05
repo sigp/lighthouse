@@ -85,12 +85,6 @@ pub struct HistoryInfo<T> {
     data: Vec<T>,
 }
 
-impl<T: PartialEq> PartialEq for HistoryInfo<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.data == other.data
-    }
-}
-
 impl<T: Clone + Encode + Decode> HistoryInfo<T> {
     /// Inserts the incoming data in the in-memory history, and writes it to the history file.
     fn insert_and_write(&mut self, data: T, index: usize) -> IOResult<()> {
@@ -288,6 +282,61 @@ mod single_threaded_tests {
 
         attestation_file.close().expect("temporary file not properly removed");
     }
+
+    #[test]
+    fn loading_from_file() {
+        let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let filename = attestation_file.path();
+
+        let mut attestation_history: HistoryInfo<SignedAttestation> =
+            HistoryInfo::empty(filename).expect("IO error with file");
+
+        let attestation1 = attestation_and_custody_bit_builder(1, 2);
+        let attestation2 = attestation_and_custody_bit_builder(2, 3);
+        let attestation3 = attestation_and_custody_bit_builder(3, 4);
+
+        let _ = attestation_history.update_if_valid(&attestation1);
+        let _ = attestation_history.update_if_valid(&attestation2);
+        let _ = attestation_history.update_if_valid(&attestation3);
+
+        let mut expected_vector = vec![];
+        expected_vector.push(SignedAttestation::from(&attestation1));
+        expected_vector.push(SignedAttestation::from(&attestation2));
+        expected_vector.push(SignedAttestation::from(&attestation3));
+
+        // Making sure that data in memory is correct..
+        assert_eq!(expected_vector, attestation_history.data);
+
+        // Copying the current data
+        let old_data = attestation_history.data.clone();
+        // Dropping the HistoryInfo struct
+        drop(attestation_history);
+
+        // Making sure that data in the file is correct
+        let mut file_written_version: HistoryInfo<SignedAttestation> =
+            HistoryInfo::open(filename).expect("IO error with file");
+
+        assert_eq!(old_data, file_written_version.data);
+
+        // Inserting new attestations
+        let attestation4 = attestation_and_custody_bit_builder(4, 5);
+        let attestation5 = attestation_and_custody_bit_builder(5, 6);
+        let attestation6 = attestation_and_custody_bit_builder(6, 7);
+
+        let _ = file_written_version.update_if_valid(&attestation4);
+        let _ = file_written_version.update_if_valid(&attestation5);
+        let _ = file_written_version.update_if_valid(&attestation6);
+
+        expected_vector.push(SignedAttestation::from(&attestation4));
+        expected_vector.push(SignedAttestation::from(&attestation5));
+        expected_vector.push(SignedAttestation::from(&attestation6));
+
+        assert_eq!(expected_vector, file_written_version.data);
+        drop(file_written_version);
+
+        attestation_file.close().expect("temporary file not properly removed");
+    }
+
 
     #[test]
     fn simple_block_test() {
