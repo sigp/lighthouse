@@ -5,6 +5,7 @@ use std::default::Default;
 
 const IV_SIZE: usize = 16;
 
+/// Convert slice to fixed length array.
 fn from_slice(bytes: &[u8]) -> [u8; IV_SIZE] {
     let mut array = [0; IV_SIZE];
     let bytes = &bytes[..array.len()]; // panics if not enough data
@@ -12,6 +13,7 @@ fn from_slice(bytes: &[u8]) -> [u8; IV_SIZE] {
     array
 }
 
+/// Cipher module representation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct CipherModule {
     pub function: String,
@@ -19,6 +21,7 @@ pub struct CipherModule {
     pub message: String,
 }
 
+/// Parameters for AES128 with ctr mode.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Aes128Ctr {
     #[serde(serialize_with = "serialize_iv")]
@@ -42,6 +45,7 @@ impl Aes128Ctr {
     }
 }
 
+/// Serialize `iv` to its hex representation.
 fn serialize_iv<S>(x: &[u8], s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -49,13 +53,14 @@ where
     s.serialize_str(&hex::encode(x))
 }
 
+/// Deserialize `iv` from its hex representation to bytes.
 fn deserialize_iv<'de, D>(deserializer: D) -> Result<[u8; 16], D::Error>
 where
     D: de::Deserializer<'de>,
 {
     struct StringVisitor;
     impl<'de> de::Visitor<'de> for StringVisitor {
-        type Value = [u8; 16];
+        type Value = [u8; IV_SIZE];
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
             formatter.write_str("String should be hex format and 16 bytes in length")
         }

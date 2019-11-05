@@ -3,6 +3,7 @@ use crypto::sha2::Sha256;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Checksum module for `Keystore`.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ChecksumModule {
     pub function: String,
@@ -14,6 +15,7 @@ pub struct ChecksumModule {
 pub struct Checksum(String);
 
 impl Checksum {
+    /// Generate checksum using checksum function.
     pub fn gen_checksum(message: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.input(message);

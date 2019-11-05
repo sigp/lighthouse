@@ -4,6 +4,7 @@ use crate::keystore::kdf::{Kdf, KdfModule};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Crypto module for keystore.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Crypto {
     pub kdf: KdfModule,
@@ -12,12 +13,9 @@ pub struct Crypto {
 }
 
 impl Crypto {
-    pub fn encrypt(
-        password: String,
-        secret: &[u8],
-        kdf: Kdf,
-        cipher: Cipher,
-    ) -> Result<Self, String> {
+    /// Generate crypto module for `Keystore` given the password,
+    /// secret to encrypt, kdf params and cipher params.
+    pub fn encrypt(password: String, secret: &[u8], kdf: Kdf, cipher: Cipher) -> Self {
         // Generate derived key
         let derived_key = match &kdf {
             Kdf::Pbkdf2(pbkdf2) => pbkdf2.derive_key(&password),
@@ -28,10 +26,10 @@ impl Crypto {
             Cipher::Aes128Ctr(cipher) => cipher.encrypt(&derived_key[0..16], secret),
         };
         // Generate checksum
-        let mut pre_image: Vec<u8> = derived_key[16..32].to_owned(); // last 16 bytes of decryption key
+        let mut pre_image: Vec<u8> = derived_key[16..32].to_owned();
         pre_image.append(&mut cipher_message.clone());
         let checksum = Checksum::gen_checksum(&pre_image);
-        Ok(Crypto {
+        Crypto {
             kdf: KdfModule {
                 function: kdf.function(),
                 params: kdf.clone(),
@@ -47,9 +45,13 @@ impl Crypto {
                 params: cipher.clone(),
                 message: hex::encode(cipher_message),
             },
-        })
+        }
     }
 
+    /// Recover the secret present in the Keystore given the correct password.
+    ///
+    /// An error will be returned if `cipher.message` is not in hex format or
+    /// if password is incorrect.
     pub fn decrypt(&self, password: String) -> Result<Vec<u8>, String> {
         // Genrate derived key
         let derived_key = match &self.kdf.params {
@@ -63,7 +65,11 @@ impl Crypto {
                 .map_err(|e| format!("Cipher message should be in hex: {}", e))?,
         );
         let checksum = Checksum::gen_checksum(&pre_image);
-        debug_assert_eq!(checksum, self.checksum.message);
+
+        // `password` is incorrect if checksums don't match
+        if checksum != self.checksum.message {
+            return Err("Incorrect password. Checksum does not match".into());
+        }
         let secret = match &self.cipher.params {
             Cipher::Aes128Ctr(cipher) => cipher.decrypt(
                 &derived_key[0..16],
@@ -111,7 +117,7 @@ mod tests {
             iv: from_slice(&iv),
         });
 
-        let keystore = Crypto::encrypt(password.clone(), &secret, kdf, cipher).unwrap();
+        let keystore = Crypto::encrypt(password.clone(), &secret, kdf, cipher);
 
         assert_eq!(expected_checksum, keystore.checksum.message);
         assert_eq!(expected_cipher, keystore.cipher.message);
@@ -149,7 +155,7 @@ mod tests {
             iv: from_slice(&iv),
         });
 
-        let keystore = Crypto::encrypt(password.clone(), &secret, kdf, cipher).unwrap();
+        let keystore = Crypto::encrypt(password.clone(), &secret, kdf, cipher);
 
         assert_eq!(expected_checksum, keystore.checksum.message);
         assert_eq!(expected_cipher, keystore.cipher.message);
