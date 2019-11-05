@@ -124,7 +124,10 @@ impl MerkleTree {
                     // All other possibilities are invalid MerkleTrees
                     (_, _) => return Err(MerkleTreeError::Invalid),
                 };
-                *hash = hash_concat(left.hash(), right.hash());
+                hash.assign_from_slice(&hash_concat(
+                    left.hash().as_bytes(),
+                    right.hash().as_bytes(),
+                ));
             }
         }
 
