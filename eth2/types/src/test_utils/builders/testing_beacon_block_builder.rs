@@ -11,18 +11,21 @@ use merkle_proof::MerkleTree;
 use rayon::prelude::*;
 use tree_hash::{SignedRoot, TreeHash};
 
-pub enum DepositTestTask {
-    Valid,
-    BadPubKey,
-    BadSig,
-    InvalidPubKey,
-}
-
 /// Builds a beacon block to be used for testing purposes.
 ///
 /// This struct should **never be used for production purposes.**
 pub struct TestingBeaconBlockBuilder<T: EthSpec> {
     pub block: BeaconBlock<T>,
+}
+
+/// Enum used for passing test options to builder
+#[derive(PartialEq)]
+pub enum DepositTestTask {
+    Valid,
+    BadPubKey,
+    BadSig,
+    InvalidPubKey,
+    NoReset,
 }
 
 /// Enum used for passing test options to builder
@@ -339,7 +342,12 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
 
         // Manually setting the deposit_count to process deposits
         // This is for test purposes only
-        state.eth1_data.deposit_count += num_deposits;
+        if test_task == DepositTestTask::NoReset {
+            state.eth1_data.deposit_count += num_deposits;
+        } else {
+            state.eth1_deposit_index = 0;
+            state.eth1_data.deposit_count = num_deposits;
+        }
     }
 
     /// Insert a `Valid` exit into the state.
