@@ -94,7 +94,7 @@ impl default::Default for PublicKey {
 
 impl_ssz!(PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE, "PublicKey");
 
-impl_tree_hash!(PublicKey, U48);
+impl_tree_hash!(PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE);
 
 impl Serialize for PublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

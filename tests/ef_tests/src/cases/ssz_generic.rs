@@ -218,7 +218,7 @@ fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
         check_serialization(&value, &serialized)?;
 
         if let Some(ref meta) = meta {
-            check_tree_hash(&meta.root, value.tree_hash_root())?;
+            check_tree_hash(&meta.root, &value.tree_hash_root())?;
         }
     }
     // Invalid
