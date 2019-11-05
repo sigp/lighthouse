@@ -1,11 +1,12 @@
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ChecksumModule {
     pub function: String,
-    pub params: (),
+    pub params: BTreeMap<(), ()>, // TODO: need a better way to encode empty json object
     pub message: String,
 }
 
