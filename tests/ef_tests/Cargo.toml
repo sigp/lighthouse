@@ -23,6 +23,7 @@ eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 tree_hash = "0.1.0"
 tree_hash_derive = "0.2"
+cached_tree_hash = { path = "../../eth2/utils/cached_tree_hash" }
 state_processing = { path = "../../eth2/state_processing" }
 swap_or_not_shuffle = { path = "../../eth2/utils/swap_or_not_shuffle" }
 types = { path = "../../eth2/types" }

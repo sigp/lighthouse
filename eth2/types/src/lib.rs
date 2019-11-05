@@ -23,6 +23,7 @@ pub mod crosslink_committee;
 pub mod deposit;
 pub mod deposit_data;
 pub mod eth1_data;
+pub mod eth_spec;
 pub mod fork;
 pub mod free_attestation;
 pub mod historical_batch;
@@ -37,6 +38,7 @@ pub mod slot_epoch_macros;
 pub mod relative_epoch;
 pub mod slot_epoch;
 pub mod slot_height;
+mod tree_hash_impls;
 pub mod validator;
 
 use ethereum_types::{H160, H256, U256};

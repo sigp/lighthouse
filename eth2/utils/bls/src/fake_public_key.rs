@@ -102,7 +102,7 @@ impl default::Default for FakePublicKey {
 
 impl_ssz!(FakePublicKey, BLS_PUBLIC_KEY_BYTE_SIZE, "FakePublicKey");
 
-impl_tree_hash!(FakePublicKey, U48);
+impl_tree_hash!(FakePublicKey, BLS_PUBLIC_KEY_BYTE_SIZE);
 
 impl Serialize for FakePublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

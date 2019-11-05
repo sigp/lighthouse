@@ -2,8 +2,10 @@ use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::SszStaticType;
 use crate::decode::yaml_decode_file;
+use cached_tree_hash::CachedTreeHash;
 use serde_derive::Deserialize;
 use std::fs;
+use std::marker::PhantomData;
 use tree_hash::SignedRoot;
 use types::Hash256;
 
@@ -25,6 +27,14 @@ pub struct SszStaticSR<T> {
     roots: SszStaticRoots,
     serialized: Vec<u8>,
     value: T,
+}
+
+#[derive(Debug, Clone)]
+pub struct SszStaticTHC<T, C> {
+    roots: SszStaticRoots,
+    serialized: Vec<u8>,
+    value: T,
+    _phantom: PhantomData<C>,
 }
 
 fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
@@ -55,6 +65,17 @@ impl<T: SszStaticType + SignedRoot> LoadCase for SszStaticSR<T> {
     }
 }
 
+impl<T: SszStaticType + CachedTreeHash<C>, C: Debug + Sync> LoadCase for SszStaticTHC<T, C> {
+    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+        load_from_dir(path).map(|(roots, serialized, value)| Self {
+            roots,
+            serialized,
+            value,
+            _phantom: PhantomData,
+        })
+    }
+}
+
 pub fn check_serialization<T: SszStaticType>(value: &T, serialized: &[u8]) -> Result<(), Error> {
     // Check serialization
     let serialized_result = value.as_ssz_bytes();
@@ -68,18 +89,18 @@ pub fn check_serialization<T: SszStaticType>(value: &T, serialized: &[u8]) -> Re
     Ok(())
 }
 
-pub fn check_tree_hash(expected_str: &str, actual_root: Vec<u8>) -> Result<(), Error> {
+pub fn check_tree_hash(expected_str: &str, actual_root: &[u8]) -> Result<(), Error> {
     let expected_root = hex::decode(&expected_str[2..])
         .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
     let expected_root = Hash256::from_slice(&expected_root);
-    let tree_hash_root = Hash256::from_slice(&actual_root);
+    let tree_hash_root = Hash256::from_slice(actual_root);
     compare_result::<Hash256, Error>(&Ok(tree_hash_root), &Some(expected_root))
 }
 
 impl<T: SszStaticType> Case for SszStatic<T> {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         check_serialization(&self.value, &self.serialized)?;
-        check_tree_hash(&self.roots.root, self.value.tree_hash_root())?;
+        check_tree_hash(&self.roots.root, &self.value.tree_hash_root())?;
         Ok(())
     }
 }
@@ -87,15 +108,28 @@ impl<T: SszStaticType> Case for SszStatic<T> {
 impl<T: SszStaticType + SignedRoot> Case for SszStaticSR<T> {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         check_serialization(&self.value, &self.serialized)?;
-        check_tree_hash(&self.roots.root, self.value.tree_hash_root())?;
+        check_tree_hash(&self.roots.root, &self.value.tree_hash_root())?;
         check_tree_hash(
             &self
                 .roots
                 .signing_root
                 .as_ref()
                 .expect("signed root exists"),
-            self.value.signed_root(),
+            &self.value.signed_root(),
         )?;
+        Ok(())
+    }
+}
+
+impl<T: SszStaticType + CachedTreeHash<C>, C: Debug + Sync> Case for SszStaticTHC<T, C> {
+    fn result(&self, _case_index: usize) -> Result<(), Error> {
+        check_serialization(&self.value, &self.serialized)?;
+        check_tree_hash(&self.roots.root, &self.value.tree_hash_root())?;
+
+        let mut cache = T::new_tree_hash_cache();
+        let cached_tree_hash_root = self.value.recalculate_tree_hash_root(&mut cache).unwrap();
+        check_tree_hash(&self.roots.root, cached_tree_hash_root.as_bytes())?;
+
         Ok(())
     }
 }

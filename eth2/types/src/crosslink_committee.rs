@@ -1,7 +1,6 @@
 use crate::*;
-use tree_hash_derive::TreeHash;
 
-#[derive(Default, Clone, Debug, PartialEq, TreeHash)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct CrosslinkCommittee<'a> {
     pub slot: Slot,
     pub shard: Shard,
@@ -18,7 +17,7 @@ impl<'a> CrosslinkCommittee<'a> {
     }
 }
 
-#[derive(Default, Clone, Debug, PartialEq, TreeHash)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct OwnedCrosslinkCommittee {
     pub slot: Slot,
     pub shard: Shard,
