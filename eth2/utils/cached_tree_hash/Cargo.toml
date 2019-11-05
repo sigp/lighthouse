@@ -1,0 +1,17 @@
+[package]
+name = "cached_tree_hash"
+version = "0.1.0"
+authors = ["Michael Sproul <michael@sigmaprime.io>"]
+edition = "2018"
+
+[dependencies]
+ethereum-types = "0.8"
+eth2_ssz_types = { path = "../ssz_types" }
+eth2_hashing = "0.1"
+eth2_ssz_derive = "0.1.0"
+eth2_ssz = "0.1.2"
+tree_hash = "0.1"
+
+[dev-dependencies]
+quickcheck = "0.9"
+quickcheck_macros = "0.8"
