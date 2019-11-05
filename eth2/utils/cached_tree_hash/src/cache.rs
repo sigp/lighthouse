@@ -53,7 +53,7 @@ impl TreeHashCache {
             .enumerate()
             .zip(&mut leaves)
             .flat_map(|((i, leaf), new_leaf)| {
-                if leaf.as_bytes() != &new_leaf {
+                if leaf.as_bytes() != new_leaf {
                     leaf.assign_from_slice(&new_leaf);
                     Some(i)
                 } else {

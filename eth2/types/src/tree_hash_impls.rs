@@ -1,8 +1,12 @@
+//! This module contains custom implementations of `CachedTreeHash` for ETH2-specific types.
+//!
+//! It makes some assumptions about the layouts and update patterns of other structs in this
+//! crate, and should be updated carefully whenever those structs are changed.
 use crate::{Hash256, Validator};
 use cached_tree_hash::{int_log, CachedTreeHash, Error, TreeHashCache};
 use tree_hash::TreeHash;
 
-// Number of struct fields on `Validator`.
+/// Number of struct fields on `Validator`.
 const NUM_VALIDATOR_FIELDS: usize = 8;
 
 impl CachedTreeHash<TreeHashCache> for Validator {
@@ -10,6 +14,9 @@ impl CachedTreeHash<TreeHashCache> for Validator {
         TreeHashCache::new(int_log(NUM_VALIDATOR_FIELDS))
     }
 
+    /// Efficiently tree hash a `Validator`, assuming it was updated by a valid state transition.
+    ///
+    /// Specifically, we assume that the `pubkey` and `withdrawal_credentials` fields are constant.
     fn recalculate_tree_hash_root(&self, cache: &mut TreeHashCache) -> Result<Hash256, Error> {
         // If the cache is empty, hash every field to fill it.
         if cache.leaves().is_empty() {
