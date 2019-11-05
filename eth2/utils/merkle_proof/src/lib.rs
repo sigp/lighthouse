@@ -1,24 +1,11 @@
-#[macro_use]
-extern crate lazy_static;
-
-use eth2_hashing::hash;
+use eth2_hashing::{hash, hash_concat, ZERO_HASHES};
 use ethereum_types::H256;
+use lazy_static::lazy_static;
 
 const MAX_TREE_DEPTH: usize = 32;
 const EMPTY_SLICE: &[H256] = &[];
 
 lazy_static! {
-    /// Cached zero hashes where `ZERO_HASHES[i]` is the hash of a Merkle tree with 2^i zero leaves.
-    static ref ZERO_HASHES: Vec<H256> = {
-        let mut hashes = vec![H256::from([0; 32]); MAX_TREE_DEPTH + 1];
-
-        for i in 0..MAX_TREE_DEPTH {
-            hashes[i + 1] = hash_concat(hashes[i], hashes[i]);
-        }
-
-        hashes
-    };
-
     /// Zero nodes to act as "synthetic" left and right subtrees of other zero nodes.
     static ref ZERO_NODES: Vec<MerkleTree> = {
         (0..=MAX_TREE_DEPTH).map(MerkleTree::Zero).collect()
@@ -78,7 +65,10 @@ impl MerkleTree {
 
                 let left_subtree = MerkleTree::create(left_leaves, depth - 1);
                 let right_subtree = MerkleTree::create(right_leaves, depth - 1);
-                let hash = hash_concat(left_subtree.hash(), right_subtree.hash());
+                let hash = H256::from_slice(&hash_concat(
+                    left_subtree.hash().as_bytes(),
+                    right_subtree.hash().as_bytes(),
+                ));
 
                 Node(hash, Box::new(left_subtree), Box::new(right_subtree))
             }
@@ -146,7 +136,7 @@ impl MerkleTree {
         match *self {
             MerkleTree::Leaf(h) => h,
             MerkleTree::Node(h, _, _) => h,
-            MerkleTree::Zero(depth) => ZERO_HASHES[depth],
+            MerkleTree::Zero(depth) => H256::from_slice(&ZERO_HASHES[depth]),
         }
     }
 
@@ -228,8 +218,7 @@ fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index: usi
     for (i, leaf) in branch.iter().enumerate().take(depth) {
         let ith_bit = (index >> i) & 0x01;
         if ith_bit == 1 {
-            let input = concat(leaf.as_bytes().to_vec(), merkle_root);
-            merkle_root = hash(&input);
+            merkle_root = hash_concat(leaf.as_bytes(), &merkle_root);
         } else {
             let mut input = merkle_root;
             input.extend_from_slice(leaf.as_bytes());
@@ -238,20 +227,6 @@ fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index: usi
     }
 
     H256::from_slice(&merkle_root)
-}
-
-/// Concatenate two vectors.
-fn concat(mut vec1: Vec<u8>, mut vec2: Vec<u8>) -> Vec<u8> {
-    vec1.append(&mut vec2);
-    vec1
-}
-
-/// Compute the hash of two other hashes concatenated.
-fn hash_concat(h1: H256, h2: H256) -> H256 {
-    H256::from_slice(&hash(&concat(
-        h1.as_bytes().to_vec(),
-        h2.as_bytes().to_vec(),
-    )))
 }
 
 #[cfg(test)]
@@ -318,10 +293,10 @@ mod tests {
         let leaf_b10 = H256::from([0xCC; 32]);
         let leaf_b11 = H256::from([0xDD; 32]);
 
-        let node_b0x = hash_concat(leaf_b00, leaf_b01);
-        let node_b1x = hash_concat(leaf_b10, leaf_b11);
+        let node_b0x = H256::from_slice(&hash_concat(leaf_b00.as_bytes(), leaf_b01.as_bytes()));
+        let node_b1x = H256::from_slice(&hash_concat(leaf_b10.as_bytes(), leaf_b11.as_bytes()));
 
-        let root = hash_concat(node_b0x, node_b1x);
+        let root = H256::from_slice(&hash_concat(node_b0x.as_bytes(), node_b1x.as_bytes()));
 
         let tree = MerkleTree::create(&[leaf_b00, leaf_b01, leaf_b10, leaf_b11], 2);
         assert_eq!(tree.hash(), root);
@@ -335,10 +310,10 @@ mod tests {
         let leaf_b10 = H256::from([0xCC; 32]);
         let leaf_b11 = H256::from([0xDD; 32]);
 
-        let node_b0x = hash_concat(leaf_b00, leaf_b01);
-        let node_b1x = hash_concat(leaf_b10, leaf_b11);
+        let node_b0x = H256::from_slice(&hash_concat(leaf_b00.as_bytes(), leaf_b01.as_bytes()));
+        let node_b1x = H256::from_slice(&hash_concat(leaf_b10.as_bytes(), leaf_b11.as_bytes()));
 
-        let root = hash_concat(node_b0x, node_b1x);
+        let root = H256::from_slice(&hash_concat(node_b0x.as_bytes(), node_b1x.as_bytes()));
 
         // Run some proofs
         assert!(verify_merkle_proof(

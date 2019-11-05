@@ -2,6 +2,7 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
+use cached_tree_hash::{CachedTreeHash, MultiTreeHashCache, TreeHashCache};
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes32, int_to_bytes8};
@@ -12,7 +13,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::TreeHash;
+use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 pub use self::committee_cache::CommitteeCache;
 pub use eth_spec::*;
@@ -57,6 +58,7 @@ pub enum Error {
     RelativeEpochError(RelativeEpochError),
     CommitteeCacheUninitialized(RelativeEpoch),
     SszTypesError(ssz_types::Error),
+    CachedTreeHashError(cached_tree_hash::Error),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -75,6 +77,26 @@ impl AllowNextEpoch {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
+pub struct BeaconTreeHashCache {
+    initialized: bool,
+    block_roots: TreeHashCache,
+    state_roots: TreeHashCache,
+    historical_roots: TreeHashCache,
+    validators: MultiTreeHashCache,
+    balances: TreeHashCache,
+    randao_mixes: TreeHashCache,
+    active_index_roots: TreeHashCache,
+    compact_committees_roots: TreeHashCache,
+    slashings: TreeHashCache,
+}
+
+impl BeaconTreeHashCache {
+    pub fn is_initialized(&self) -> bool {
+        self.initialized
+    }
+}
+
 /// The state of the `BeaconChain` at some slot.
 ///
 /// Spec v0.8.0
@@ -88,9 +110,11 @@ impl AllowNextEpoch {
     Encode,
     Decode,
     TreeHash,
+    CachedTreeHash,
     CompareFields,
 )]
 #[serde(bound = "T: EthSpec")]
+#[cached_tree_hash(type = "BeaconTreeHashCache")]
 pub struct BeaconState<T>
 where
     T: EthSpec,
@@ -103,9 +127,12 @@ where
     // History
     pub latest_block_header: BeaconBlockHeader,
     #[compare_fields(as_slice)]
+    #[cached_tree_hash(block_roots)]
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     #[compare_fields(as_slice)]
+    #[cached_tree_hash(state_roots)]
     pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
+    #[cached_tree_hash(historical_roots)]
     pub historical_roots: VariableList<Hash256, T::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
@@ -115,19 +142,25 @@ where
 
     // Registry
     #[compare_fields(as_slice)]
+    #[cached_tree_hash(validators)]
     pub validators: VariableList<Validator, T::ValidatorRegistryLimit>,
     #[compare_fields(as_slice)]
+    #[cached_tree_hash(balances)]
     pub balances: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Shuffling
     pub start_shard: u64,
+    #[cached_tree_hash(randao_mixes)]
     pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
     #[compare_fields(as_slice)]
+    #[cached_tree_hash(active_index_roots)]
     pub active_index_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
     #[compare_fields(as_slice)]
+    #[cached_tree_hash(compact_committees_roots)]
     pub compact_committees_roots: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
 
     // Slashings
+    #[cached_tree_hash(slashings)]
     pub slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations
@@ -164,6 +197,12 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     pub exit_cache: ExitCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    pub tree_hash_cache: BeaconTreeHashCache,
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -225,6 +264,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
+            tree_hash_cache: BeaconTreeHashCache::default(),
         }
     }
 
@@ -825,7 +865,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.build_committee_cache(RelativeEpoch::Current, spec)?;
         self.build_committee_cache(RelativeEpoch::Next, spec)?;
         self.update_pubkey_cache()?;
-        self.update_tree_hash_cache()?;
+        self.build_tree_hash_cache()?;
         self.exit_cache.build_from_registry(&self.validators, spec);
 
         Ok(())
@@ -936,41 +976,40 @@ impl<T: EthSpec> BeaconState<T> {
         self.pubkey_cache = PubkeyCache::default()
     }
 
-    /// Update the tree hash cache, building it for the first time if it is empty.
-    ///
-    /// Returns the `tree_hash_root` resulting from the update. This root can be considered the
-    /// canonical root of `self`.
-    ///
-    /// ## Note
-    ///
-    /// Cache not currently implemented, just performs a full tree hash.
-    pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
-        // TODO(#440): re-enable cached tree hash
-        Ok(Hash256::from_slice(&self.tree_hash_root()))
+    /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
+    pub fn initialize_tree_hash_cache(&mut self) {
+        if !self.tree_hash_cache.initialized {
+            self.tree_hash_cache = Self::new_tree_hash_cache();
+        }
     }
 
-    /// Returns the tree hash root determined by the last execution of `self.update_tree_hash_cache(..)`.
+    /// Build and update the tree hash cache if it isn't already initialized.
+    pub fn build_tree_hash_cache(&mut self) -> Result<(), Error> {
+        self.update_tree_hash_cache().map(|_| ())
+    }
+
+    /// Build the tree hash cache, with blatant disregard for any existing cache.
+    pub fn force_build_tree_hash_cache(&mut self) -> Result<(), Error> {
+        self.tree_hash_cache.initialized = false;
+        self.build_tree_hash_cache()
+    }
+
+    /// Compute the tree hash root of the state using the tree hash cache.
     ///
-    /// Note: does _not_ update the cache and may return an outdated root.
-    ///
-    /// Returns an error if the cache is not initialized or if an error is encountered during the
-    /// cache update.
-    ///
-    /// ## Note
-    ///
-    /// Cache not currently implemented, just performs a full tree hash.
-    pub fn cached_tree_hash_root(&self) -> Result<Hash256, Error> {
-        // TODO(#440): re-enable cached tree hash
-        Ok(Hash256::from_slice(&self.tree_hash_root()))
+    /// Initialize the tree hash cache if it isn't already initialized.
+    pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
+        self.initialize_tree_hash_cache();
+
+        let mut cache = std::mem::replace(&mut self.tree_hash_cache, <_>::default());
+        let result = self.recalculate_tree_hash_root(&mut cache);
+        std::mem::replace(&mut self.tree_hash_cache, cache);
+
+        Ok(result?)
     }
 
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
-    ///
-    /// ## Note
-    ///
-    /// Cache not currently implemented, is a no-op.
     pub fn drop_tree_hash_cache(&mut self) {
-        // TODO(#440): re-enable cached tree hash
+        self.tree_hash_cache = BeaconTreeHashCache::default();
     }
 }
 
@@ -983,5 +1022,11 @@ impl From<RelativeEpochError> for Error {
 impl From<ssz_types::Error> for Error {
     fn from(e: ssz_types::Error) -> Error {
         Error::SszTypesError(e)
+    }
+}
+
+impl From<cached_tree_hash::Error> for Error {
+    fn from(e: cached_tree_hash::Error) -> Error {
+        Error::CachedTreeHashError(e)
     }
 }

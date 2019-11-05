@@ -38,6 +38,7 @@ pub mod slot_epoch_macros;
 pub mod relative_epoch;
 pub mod slot_epoch;
 pub mod slot_height;
+mod tree_hash_impls;
 pub mod validator;
 
 use ethereum_types::{H160, H256, U256};

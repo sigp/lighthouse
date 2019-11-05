@@ -131,36 +131,6 @@ impl TreeHash for H256 {
     }
 }
 
-// TODO: this implementation always panics, it only exists to allow us to compile whilst
-// refactoring tree hash. Should be removed.
-macro_rules! impl_for_list {
-    ($type: ty) => {
-        impl<T> TreeHash for $type
-        where
-            T: TreeHash,
-        {
-            fn tree_hash_type() -> TreeHashType {
-                unimplemented!("TreeHash is not implemented for Vec or slice")
-            }
-
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                unimplemented!("TreeHash is not implemented for Vec or slice")
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                unimplemented!("TreeHash is not implemented for Vec or slice")
-            }
-
-            fn tree_hash_root(&self) -> Vec<u8> {
-                unimplemented!("TreeHash is not implemented for Vec or slice")
-            }
-        }
-    };
-}
-
-impl_for_list!(Vec<T>);
-impl_for_list!(&[T]);
-
 /// Returns `int` as little-endian bytes with a length of 32.
 fn int_to_bytes32(int: u64) -> Vec<u8> {
     let mut vec = int.to_le_bytes().to_vec();
