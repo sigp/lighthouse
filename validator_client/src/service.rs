@@ -29,7 +29,6 @@ use slashing_protection::proposer_slashings::SignedBlock;
 use slashing_protection::slashing_protection::HistoryInfo;
 use slog::{crit, error, info, trace, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
-use std::convert::TryFrom;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
@@ -382,10 +381,10 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
                     let path = data_dir.join("signed_blocks_history");
-                    let history_info = Arc::new(Mutex::new(
-                        HistoryInfo::<SignedBlock>::try_from(path)
-                            .expect("The path provided must be a valid path"),
-                    ));
+                    let history = HistoryInfo::<SignedBlock>::open(&path).unwrap_or_else(|_| {
+                        HistoryInfo::<SignedBlock>::empty(&path).expect("failed to create file")
+                    });
+                    let history_info = Arc::new(Mutex::new(history));
                     std::thread::spawn(move || {
                         info!(
                             log,
@@ -421,10 +420,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let log = self.log.clone();
                     let slots_per_epoch = self.slots_per_epoch;
                     let path = data_dir.join("signed_attestations_history");
-                    let history_info = Arc::new(Mutex::new(
-                        HistoryInfo::<SignedAttestation>::try_from(path)
-                            .expect("The path provided must be a valid path"),
-                    ));
+                    let history = HistoryInfo::<SignedAttestation>::open(&path.as_path())
+                        .unwrap_or_else(|_| {
+                            HistoryInfo::<SignedAttestation>::empty(&path.as_path())
+                                .expect("failed to create file")
+                        });
+                    let history_info = Arc::new(Mutex::new(history));
                     std::thread::spawn(move || {
                         info!(
                             log,
