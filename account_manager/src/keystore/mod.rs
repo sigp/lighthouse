@@ -31,13 +31,18 @@ pub struct Keystore {
 
 impl Keystore {
     /// Generate `Keystore` object for a BLS12-381 secret key from a
-    /// keypair and password.
-    pub fn to_keystore(keypair: &Keypair, password: String) -> Self {
+    /// keypair and password. Optionally, provide params for kdf and cipher.
+    pub fn to_keystore(
+        keypair: &Keypair,
+        password: String,
+        kdf: Option<Kdf>,
+        cipher: Option<Cipher>,
+    ) -> Self {
         let crypto = Crypto::encrypt(
             password,
             &keypair.sk.as_raw().as_bytes(),
-            Kdf::default(),
-            Cipher::default(),
+            kdf.unwrap_or_default(),
+            cipher.unwrap_or_default(),
         );
         let uuid = Uuid::new_v4();
         let version = Version::default();
@@ -69,7 +74,7 @@ mod tests {
     fn test_keystore() {
         let keypair = Keypair::random();
         let password = "testpassword".to_string();
-        let keystore = Keystore::to_keystore(&keypair, password.clone());
+        let keystore = Keystore::to_keystore(&keypair, password.clone(), None, None);
 
         let json_str = serde_json::to_string(&keystore).unwrap();
         let recovered_keystore: Keystore = serde_json::from_str(&json_str).unwrap();
