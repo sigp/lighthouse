@@ -1,5 +1,5 @@
 use crate::attester_slashings::{check_for_attester_slashing, SignedAttestation};
-use crate::enums::{NotSafe, Safe, ValidityReason};
+use crate::enums::{NotSafe, ValidityReason};
 use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
 use fs2::FileExt;
 use ssz::{Decode, Encode};
@@ -13,14 +13,6 @@ use types::{AttestationData, BeaconBlockHeader};
 pub trait SafeFromSlashing<T> {
     type U;
 
-    /// Verifies that the incoming_data is not slashable and returns
-    /// the index at which it should get inserted in the history.
-    fn verify_and_get_index(
-        &self,
-        incoming_data: &Self::U,
-        data_history: &[T],
-    ) -> Result<Safe, NotSafe>;
-
     /// Checks if incoming_data is free from slashings, and if so updates the in-memory and writes it to the history file.
     /// If the error returned is an IOError, do not sign nor broadcast the attestation.
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
@@ -29,16 +21,8 @@ pub trait SafeFromSlashing<T> {
 impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
 
-    fn verify_and_get_index(
-        &self,
-        incoming_data: &AttestationData,
-        data_history: &[SignedAttestation],
-    ) -> Result<Safe, NotSafe> {
-        check_for_attester_slashing(incoming_data, data_history)
-    }
-
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
-        let check = self.verify_and_get_index(incoming_data, &self.data[..]);
+        let check = check_for_attester_slashing(incoming_data, &self.data[..]);
         match check {
             Ok(safe) => match safe.reason {
                 ValidityReason::SameVote => Ok(()),
@@ -54,16 +38,8 @@ impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
 impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
     type U = BeaconBlockHeader;
 
-    fn verify_and_get_index(
-        &self,
-        incoming_data: &BeaconBlockHeader,
-        data_history: &[SignedBlock],
-    ) -> Result<Safe, NotSafe> {
-        check_for_proposer_slashing(incoming_data, data_history)
-    }
-
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
-        let check = self.verify_and_get_index(incoming_data, &self.data[..]);
+        let check = check_for_proposer_slashing(incoming_data, &self.data[..]);
         match check {
             Ok(safe) => match safe.reason {
                 // Casting the same vote, no need to add it to the history
