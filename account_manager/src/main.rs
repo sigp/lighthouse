@@ -4,9 +4,7 @@ use slog::{crit, debug, info, o, Drain};
 use std::fs;
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
-use types::DepositData;
 use validator_client::Config as ValidatorClientConfig;
-mod deposit;
 pub mod keystore;
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
 pub const CLIENT_CONFIG_FILENAME: &str = "account-manager.toml";
@@ -68,39 +66,6 @@ fn main() {
                         .default_value("1"),
                 ),
         )
-        .subcommand(
-            SubCommand::with_name("generate_deposit_params")
-                .about("Generates deposit parameters for submitting to the deposit contract")
-                .version("0.0.1")
-                .author("Sigma Prime <contact@sigmaprime.io>")
-                .arg(
-                    Arg::with_name("validator_sk_path")
-                        .long("validator_sk_path")
-                        .short("v")
-                        .value_name("validator_sk_path")
-                        .help("Path to the validator private key directory")
-                        .takes_value(true)
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("withdrawal_sk_path")
-                        .long("withdrawal_sk_path")
-                        .short("w")
-                        .value_name("withdrawal_sk_path")
-                        .help("Path to the withdrawal private key directory")
-                        .takes_value(true)
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("deposit_amount")
-                        .long("deposit_amount")
-                        .short("a")
-                        .value_name("deposit_amount")
-                        .help("Deposit amount in GWEI")
-                        .takes_value(true)
-                        .required(true),
-                ),
-        )
         .get_matches();
 
     let data_dir = match matches
@@ -160,32 +125,6 @@ fn main() {
                 }
             }
         }
-        ("generate_deposit_params", Some(m)) => {
-            let validator_kp_path = m
-                .value_of("validator_sk_path")
-                .expect("generating deposit params requires validator key path")
-                .parse::<PathBuf>()
-                .expect("Must be a valid path");
-            let withdrawal_kp_path = m
-                .value_of("withdrawal_sk_path")
-                .expect("generating deposit params requires withdrawal key path")
-                .parse::<PathBuf>()
-                .expect("Must be a valid path");
-            let amount = m
-                .value_of("deposit_amount")
-                .expect("generating deposit params requires deposit amount")
-                .parse::<u64>()
-                .expect("Must be a valid u64");
-            let deposit = generate_deposit_params(
-                validator_kp_path,
-                withdrawal_kp_path,
-                amount,
-                &client_config,
-                &log,
-            );
-            // TODO: just printing for now. Decide how to process
-            println!("Deposit data: {:?}", deposit);
-        }
         _ => {
             crit!(
                 log,
@@ -231,19 +170,4 @@ fn save_key(keypair: &Keypair, config: &ValidatorClientConfig, log: &slog::Logge
         keypair.identifier(),
         key_path.to_string_lossy()
     );
-}
-
-fn generate_deposit_params(
-    vk_path: PathBuf,
-    wk_path: PathBuf,
-    amount: u64,
-    config: &ValidatorClientConfig,
-    log: &slog::Logger,
-) -> DepositData {
-    let vk: Keypair = config.read_keypair_file(vk_path).unwrap();
-    let wk: Keypair = config.read_keypair_file(wk_path).unwrap();
-
-    let spec = types::ChainSpec::default();
-    debug!(log, "Generating deposit parameters");
-    deposit::generate_deposit_params(vk, &wk, amount, &spec)
 }
