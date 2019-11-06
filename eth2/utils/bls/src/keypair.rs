@@ -22,6 +22,7 @@ impl Keypair {
     }
 }
 
+#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for Keypair {
     /// Note: this is distinct from consensus serialization, it will produce a different hash.
     ///
