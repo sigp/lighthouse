@@ -12,7 +12,9 @@ use std::sync::Arc;
 use store::Store;
 use tokio::sync::{mpsc, oneshot};
 use tree_hash::SignedRoot;
-use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
+use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot, BeaconState, RelativeEpoch, Domain};
+use state_processing::per_block_processing::verify_block_signature;
+use bls::SignatureSet;
 
 //TODO: Put a maximum limit on the number of block that can be requested.
 //TODO: Rate limit requests
@@ -385,7 +387,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
 
     /// Process a gossip message declaring a new block.
     ///
-    /// Attempts to apply to block to the beacon chain. May queue the block for later processing.
+    /// Attempts to apply a block to the beacon chain. May queue the block for later processing.
     ///
     /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers. 524
     /// Old blocks or blocks on a different fork. Will need to recalc proposer shuffle.
@@ -394,7 +396,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     /// Do we know the block's parent?
     /// 1.) It's a recent block on the same chain. We can use the current cache in the BeaconChain. (cheap)
     /// 2.) Old block on a different fork. (may have to recalc shuffling)
-    /// If we don't know the block's parent, we don't who is supposed to sign it, therefore we can
+    /// If we don't know the block's parent, we don't know who is supposed to sign it, therefore we can
     /// not validate the signature.
     /// 1.) We can try to look up the block's parent using the syncing thread. (it's expensive not sure how to reprop from sync thread)
     pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) -> bool {
@@ -410,16 +412,18 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     trace!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
                     self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block.clone()));
-                    SHOULD_FORWARD_GOSSIP_BLOCK
+                    SHOULD_NOT_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::FutureSlot {
                     present_slot,
                     block_slot,
                 } if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot => {
                     //TODO: Decide the logic here
-                    SHOULD_FORWARD_GOSSIP_BLOCK
+                    SHOULD_NOT_FORWARD_GOSSIP_BLOCK
                 }
-                BlockProcessingOutcome::BlockIsAlreadyKnown => SHOULD_FORWARD_GOSSIP_BLOCK,
+                BlockProcessingOutcome::BlockIsAlreadyKnown => {
+                    self.should_forward_block(block)
+                },
                 other => {
                     warn!(
                         self.log,
@@ -451,6 +455,46 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 SHOULD_NOT_FORWARD_GOSSIP_BLOCK
             }
         }
+    }
+
+    fn should_forward_block(&mut self, block: BeaconBlock<T::EthSpec>) -> bool {
+        let parent_block: BeaconBlock<T::EthSpec> = self.chain.store.get(&block.parent_root).unwrap().unwrap();
+
+        let parent_state_root = parent_block.state_root;
+        let parent_state: BeaconState<T::EthSpec> = self
+            .chain
+            .store
+            .get(&parent_state_root)
+            .unwrap().unwrap();
+
+        let relative_epoch = RelativeEpoch::from_slot(
+            parent_block.slot,
+            block.slot,
+            T::EthSpec::slots_per_epoch()
+        ).unwrap();
+
+        let proposer_index = parent_state
+            .get_beacon_proposer_index(
+                block.slot,
+                relative_epoch,
+                &self.chain.spec
+            ).unwrap();
+        let proposer = &parent_state.validators.get(proposer_index).unwrap();
+
+        let domain = self.chain.spec.get_domain(
+            block.slot.epoch(T::EthSpec::slots_per_epoch()),
+            Domain::BeaconProposer,
+            &parent_state.fork,
+        );
+
+        let set = SignatureSet::single(
+            &block.signature,
+            &proposer.pubkey,
+            block.signed_root(),
+            domain
+        );
+
+        set.is_valid()
     }
 
     /// Process a gossip message declaring a new attestation.

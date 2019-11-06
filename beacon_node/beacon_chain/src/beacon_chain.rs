@@ -1093,7 +1093,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // processing.
         let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
-        // Load the blocks parent block from the database, returning invalid if that block is not
+        // Load the blocks parent block from the database, returning ParentUnknown if that block is not
         // found.
         let parent_block: BeaconBlock<T::EthSpec> = match self.store.get(&block.parent_root)? {
             Some(block) => block,

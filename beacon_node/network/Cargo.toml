@@ -21,3 +21,5 @@ error-chain = "0.12.0"
 tokio = "0.1.16"
 parking_lot = "0.9.0"
 smallvec = "0.6.10"
+state_processing = { path = "../../eth2/state_processing" }
+bls = { path = "../../eth2/utils/bls" }
