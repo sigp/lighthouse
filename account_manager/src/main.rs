@@ -7,7 +7,7 @@ use types::test_utils::generate_deterministic_keypair;
 use types::DepositData;
 use validator_client::Config as ValidatorClientConfig;
 mod deposit;
-mod keystore;
+pub mod keystore;
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
 pub const CLIENT_CONFIG_FILENAME: &str = "account-manager.toml";
 

@@ -7,6 +7,8 @@ use crate::keystore::crypto::Crypto;
 use crate::keystore::kdf::Kdf;
 use bls::{Keypair, PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 /// Version for `Keystore`.
@@ -22,10 +24,14 @@ impl Default for Version {
     }
 }
 
+/// TODO: Implement `path` according to
+/// https://github.com/ethereum/EIPs/blob/de52c7ef2e44f2ab95d6aa4b90245c3c969aaf9f/EIPS/eip-2334.md
+/// For now, `path` is set to en empty string.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Keystore {
     crypto: Crypto,
     uuid: Uuid,
+    path: String,
     version: Version,
 }
 
@@ -46,9 +52,11 @@ impl Keystore {
         );
         let uuid = Uuid::new_v4();
         let version = Version::default();
+        let path = "".to_string();
         Keystore {
             crypto,
             uuid,
+            path,
             version,
         }
     }
