@@ -61,12 +61,26 @@ impl Keystore {
         }
     }
 
+    /// Regenerate a BLS12-381 `Keypair` given path to the keystore file and
+    /// the correct password.
+    ///
+    /// An error is returned if the secret in the file does not contain a valid
+    /// `Keystore` or if the secret contained is not a
+    /// BLS12-381 secret key or if the password provided is incorrect.
+    pub fn read_keystore_file(keystore_path: PathBuf, password: String) -> Result<Keypair, String> {
+        let mut key_file = File::open(keystore_path.clone())
+            .map_err(|e| format!("Unable to open keystore file: {}", e))?;
+        let keystore: Keystore = serde_json::from_reader(&mut key_file)
+            .map_err(|e| format!("Invalid keystore format: {:?}", e))?;
+        keystore.from_keystore(password)
+    }
+
     /// Regenerate a BLS12-381 `Keypair` given the `Keystore` object and
     /// the correct password.
     ///
     /// An error is returned if the secret in the `Keystore` is not a valid
     /// BLS12-381 secret key or if the password provided is incorrect.
-    pub fn from_keystore(&self, password: String) -> Result<Keypair, String> {
+    fn from_keystore(&self, password: String) -> Result<Keypair, String> {
         let sk = SecretKey::from_bytes(&self.crypto.decrypt(password)?)
             .map_err(|e| format!("Invalid secret key in keystore {:?}", e))?;
         let pk = PublicKey::from_secret_key(&sk);
