@@ -350,7 +350,7 @@ impl<TStore, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
             TStore,
             TSlotClock,
             TLmdGhost,
-            JsonRpcEth1Backend<TEthSpec>,
+            JsonRpcEth1Backend<TEthSpec, TStore>,
             TEthSpec,
             TEventHandler,
         >,
@@ -365,7 +365,7 @@ where
     /// Sets the `BeaconChain` eth1 back-end to `JsonRpcEth1Backend`.
     ///
     /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
-    pub fn json_rpc_eth1_backend(self, backend: JsonRpcEth1Backend<TEthSpec>) -> Self {
+    pub fn json_rpc_eth1_backend(self, backend: JsonRpcEth1Backend<TEthSpec, TStore>) -> Self {
         self.eth1_backend(Some(backend))
     }
 
@@ -380,8 +380,12 @@ where
             .log
             .as_ref()
             .ok_or_else(|| "dummy_eth1_backend requires a log".to_string())?;
+        let store = self
+            .store
+            .clone()
+            .ok_or_else(|| "dummy_eth1_backend requires a store.".to_string())?;
 
-        let backend = JsonRpcEth1Backend::new(Eth1Config::default(), log.clone());
+        let backend = JsonRpcEth1Backend::new(Eth1Config::default(), log.clone(), store);
 
         let mut eth1_chain = Eth1Chain::new(backend);
         eth1_chain.use_dummy_backend = true;

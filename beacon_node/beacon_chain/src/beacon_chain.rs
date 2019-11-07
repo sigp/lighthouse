@@ -1211,7 +1211,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             signature: Signature::empty_signature(),
             body: BeaconBlockBody {
                 randao_reveal,
-                eth1_data: eth1_chain.eth1_data_for_block_production(&state)?,
+                eth1_data: eth1_chain.eth1_data_for_block_production(&state, &self.spec)?,
                 graffiti,
                 proposer_slashings: proposer_slashings.into(),
                 attester_slashings: attester_slashings.into(),

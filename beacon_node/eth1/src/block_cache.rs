@@ -26,7 +26,7 @@ pub enum Error {
 /// A block of the eth1 chain.
 ///
 /// Contains all information required to add a `BlockCache` entry.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct Eth1Block {
     pub hash: Hash256,
     pub timestamp: u64,

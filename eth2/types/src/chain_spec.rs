@@ -91,6 +91,11 @@ pub struct ChainSpec {
     domain_voluntary_exit: u32,
     domain_transfer: u32,
 
+    /*
+     * Eth1
+     */
+    pub eth1_follow_distance: u64,
+
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
 
@@ -203,6 +208,11 @@ impl ChainSpec {
             domain_deposit: 3,
             domain_voluntary_exit: 4,
             domain_transfer: 5,
+
+            /*
+             * Eth1
+             */
+            eth1_follow_distance: 1_024,
 
             /*
              * Fork

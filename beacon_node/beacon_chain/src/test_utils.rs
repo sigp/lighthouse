@@ -29,7 +29,7 @@ pub type HarnessType<E> = Witness<
     MemoryStore,
     TestingSlotClock,
     ThreadSafeReducedTree<MemoryStore, E>,
-    JsonRpcEth1Backend<E>,
+    JsonRpcEth1Backend<E, MemoryStore>,
     E,
     NullEventHandler<E>,
 >;
