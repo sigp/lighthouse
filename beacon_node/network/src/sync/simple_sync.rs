@@ -13,8 +13,8 @@ use store::Store;
 use tokio::sync::{mpsc, oneshot};
 use tree_hash::SignedRoot;
 use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot, BeaconState, RelativeEpoch, Domain};
-use state_processing::per_block_processing::verify_block_signature;
 use bls::SignatureSet;
+use state_processing::per_slot_processing;
 
 //TODO: Put a maximum limit on the number of block that can be requested.
 //TODO: Rate limit requests
@@ -458,43 +458,54 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     }
 
     fn should_forward_block(&mut self, block: BeaconBlock<T::EthSpec>) -> bool {
-        let parent_block: BeaconBlock<T::EthSpec> = self.chain.store.get(&block.parent_root).unwrap().unwrap();
-
-        let parent_state_root = parent_block.state_root;
-        let parent_state: BeaconState<T::EthSpec> = self
+        if let Ok(Some(parent_block)) = self
             .chain
             .store
-            .get(&parent_state_root)
-            .unwrap().unwrap();
+            .get::<BeaconBlock<T::EthSpec>>(&block.parent_root)
+        {
+            let mut parent_state = self
+                .chain
+                .store
+                .get::<BeaconState<T::EthSpec>>(&parent_block.state_root)
+                .unwrap().unwrap(); // should handle better
 
-        let relative_epoch = RelativeEpoch::from_slot(
-            parent_block.slot,
-            block.slot,
-            T::EthSpec::slots_per_epoch()
-        ).unwrap();
-
-        let proposer_index = parent_state
-            .get_beacon_proposer_index(
+            let relative_epoch = RelativeEpoch::from_slot(
+                parent_block.slot,
                 block.slot,
-                relative_epoch,
-                &self.chain.spec
-            ).unwrap();
-        let proposer = &parent_state.validators.get(proposer_index).unwrap();
+                T::EthSpec::slots_per_epoch()
+            ).map_err(|_| -> Result<RelativeEpoch, String> {
+                for _ in parent_state.slot.as_u64()..block.slot.as_u64() {
+                    per_slot_processing(&mut parent_state, &self.chain.spec);
+                }
+                parent_state.build_committee_cache(RelativeEpoch::Current, &self.chain.spec);
+                Ok(RelativeEpoch::Current)
+            }).unwrap();
 
-        let domain = self.chain.spec.get_domain(
-            block.slot.epoch(T::EthSpec::slots_per_epoch()),
-            Domain::BeaconProposer,
-            &parent_state.fork,
-        );
+            let proposer_index = parent_state
+                .get_beacon_proposer_index(
+                    block.slot,
+                    relative_epoch,
+                    &self.chain.spec
+                ).unwrap();
+            let proposer = &parent_state.validators.get(proposer_index).unwrap();
 
-        let set = SignatureSet::single(
-            &block.signature,
-            &proposer.pubkey,
-            block.signed_root(),
-            domain
-        );
+            let domain = self.chain.spec.get_domain(
+                block.slot.epoch(T::EthSpec::slots_per_epoch()),
+                Domain::BeaconProposer,
+                &parent_state.fork
+            );
 
-        set.is_valid()
+            let set = SignatureSet::single(
+                &block.signature,
+                &proposer.pubkey,
+                block.signed_root(),
+                domain
+            );
+
+            return set.is_valid();
+        }
+
+        false
     }
 
     /// Process a gossip message declaring a new attestation.
