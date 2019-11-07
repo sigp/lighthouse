@@ -1,11 +1,12 @@
 use crate::BeaconChainTypes;
-use eth1::{Config as Eth1Config, Service as HttpService};
+use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use exit_future::Exit;
 use futures::Future;
 use integer_sqrt::IntegerSquareRoot;
 use slog::Logger;
 use std::collections::HashMap;
+use std::iter::DoubleEndedIterator;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -158,125 +159,6 @@ impl<T: EthSpec, S: Store> JsonRpcEth1Backend<T, S> {
     }
 }
 
-type BlockNumber = u64;
-type Eth1DataBlockNumber = HashMap<Eth1Data, BlockNumber>;
-type Eth1DataVoteCount = HashMap<(Eth1Data, BlockNumber), u64>;
-
-impl<T: EthSpec, S: Store> JsonRpcEth1Backend<T, S> {
-    fn eth1_data_sets(
-        &self,
-        state: &BeaconState<T>,
-        prev_eth1_hash: Hash256,
-        spec: &ChainSpec,
-    ) -> Result<(Eth1DataBlockNumber, Eth1DataBlockNumber), String> {
-        let blocks = self.core.blocks().read();
-
-        let slots_per_eth1_voting_period = T::SlotsPerEth1VotingPeriod::to_u64();
-        let eth1_follow_distance = spec.eth1_follow_distance;
-
-        let voting_period_start_slot =
-            (state.slot / slots_per_eth1_voting_period) * slots_per_eth1_voting_period;
-        let voting_period_start_seconds = slot_start_seconds::<T>(
-            state.genesis_time,
-            spec.milliseconds_per_slot,
-            voting_period_start_slot,
-        );
-
-        let voting_period_start_block_number: u64 = blocks
-            .iter()
-            .rev()
-            .find(|block| block.timestamp <= voting_period_start_seconds)
-            .map(|block| block.number)
-            .ok_or_else(|| "Unable to find eth1 head at start of voting period".to_string())?;
-
-        let previous_eth1_block_number: u64 = blocks
-            .iter()
-            .find(|block| block.hash == prev_eth1_hash)
-            .map(|block| block.number)
-            .ok_or_else(|| "Unable to find current eth1 block hash in cache".to_string())?;
-
-        let new_eth1_data = HashMap::from_iter(
-            blocks
-                .iter()
-                .rev()
-                .skip_while(|block| {
-                    block.number > voting_period_start_block_number + eth1_follow_distance
-                })
-                .take_while(|block| {
-                    block.number > voting_period_start_block_number + eth1_follow_distance * 2
-                })
-                // Note: this filter map quietly ignores any block from before the deposit contract
-                // was deployed.
-                .filter_map(|block| Some((block.clone().eth1_data()?, block.number))),
-        );
-
-        let all_eth1_data = HashMap::from_iter(
-            blocks
-                .iter()
-                .rev()
-                .skip_while(|block| {
-                    block.number > voting_period_start_block_number + eth1_follow_distance * 2
-                })
-                .take_while(|block| block.number >= previous_eth1_block_number)
-                // Note: this filter map quietly ignores any block from before the deposit contract
-                // was deployed.
-                .filter_map(|block| Some((block.clone().eth1_data()?, block.number))),
-        );
-
-        Ok((new_eth1_data, all_eth1_data))
-    }
-
-    fn collect_valid_votes(
-        &self,
-        state: &BeaconState<T>,
-        new_eth1_data: Eth1DataBlockNumber,
-        all_eth1_data: Eth1DataBlockNumber,
-    ) -> Result<Eth1DataVoteCount, String> {
-        let slots_per_eth1_voting_period = T::SlotsPerEth1VotingPeriod::to_u64();
-
-        let mut valid_votes = HashMap::new();
-
-        state
-            .eth1_data_votes
-            .iter()
-            .enumerate()
-            .filter_map(|(i, vote)| {
-                new_eth1_data
-                    .get(vote)
-                    .map(|block_number| (vote.clone(), *block_number))
-                    .or_else(|| {
-                        let i = i as u64;
-                        let period_tail = i >= slots_per_eth1_voting_period.integer_sqrt();
-                        if period_tail {
-                            all_eth1_data
-                                .get(vote)
-                                .map(|block_number| (vote.clone(), *block_number))
-                        } else {
-                            None
-                        }
-                    })
-            })
-            .for_each(|(eth1_data, block_number)| {
-                valid_votes
-                    .entry((eth1_data, block_number))
-                    .and_modify(|count| *count += 1)
-                    .or_insert(1_u64);
-            });
-
-        Ok(valid_votes)
-    }
-
-    fn find_winning_vote(&self, valid_votes: Eth1DataVoteCount) -> Result<Eth1Data, String> {
-        valid_votes
-            .iter()
-            .max_by_key(|((_eth1_data, block_number), vote_count)| {
-                (*vote_count, u64::max_value() - block_number)
-            })
-            .ok_or_else(|| "Unable to find winning eth1 vote".to_string())
-            .map(|((eth1_data, _), _)| eth1_data.clone())
-    }
-}
-
 impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for JsonRpcEth1Backend<T, S> {
     fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
         let period = T::SlotsPerEth1VotingPeriod::to_u64();
@@ -300,16 +182,16 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for JsonRpcEth1Backend<T, S> {
                 .block_hash
         };
 
-        let (new_eth1_data, all_eth1_data) = self
-            .eth1_data_sets(state, prev_eth1_hash, spec)
-            .map_err(|e| Error::BackendError(e))?;
-        let valid_votes = self
-            .collect_valid_votes(state, new_eth1_data, all_eth1_data)
+        let blocks = self.core.blocks().read();
+
+        let (new_eth1_data, all_eth1_data) =
+            eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec)
+                .map_err(|e| Error::BackendError(e))?;
+        let valid_votes = collect_valid_votes(state, new_eth1_data, all_eth1_data)
             .map_err(|e| Error::BackendError(e))?;
 
         // TODO: return random if a vote was not found.
-        self.find_winning_vote(valid_votes)
-            .map_err(|e| Error::BackendError(e))
+        find_winning_vote(valid_votes).map_err(|e| Error::BackendError(e))
     }
 
     fn queued_deposits(
@@ -332,6 +214,124 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for JsonRpcEth1Backend<T, S> {
     }
 }
 
+type BlockNumber = u64;
+type Eth1DataBlockNumber = HashMap<Eth1Data, BlockNumber>;
+type Eth1DataVoteCount = HashMap<(Eth1Data, BlockNumber), u64>;
+
+fn eth1_data_sets<'a, T: EthSpec, I>(
+    blocks: I,
+    state: &BeaconState<T>,
+    prev_eth1_hash: Hash256,
+    spec: &ChainSpec,
+) -> Result<(Eth1DataBlockNumber, Eth1DataBlockNumber), String>
+where
+    T: EthSpec,
+    I: DoubleEndedIterator<Item = &'a Eth1Block> + Clone,
+{
+    let slots_per_eth1_voting_period = T::SlotsPerEth1VotingPeriod::to_u64();
+    let eth1_follow_distance = spec.eth1_follow_distance;
+
+    let voting_period_start_slot =
+        (state.slot / slots_per_eth1_voting_period) * slots_per_eth1_voting_period;
+    let voting_period_start_seconds = slot_start_seconds::<T>(
+        state.genesis_time,
+        spec.milliseconds_per_slot,
+        voting_period_start_slot,
+    );
+
+    let voting_period_start_block_number: u64 = blocks
+        .clone()
+        .rev()
+        .find(|block| block.timestamp <= voting_period_start_seconds)
+        .map(|block| block.number)
+        .ok_or_else(|| "Unable to find eth1 head at start of voting period".to_string())?;
+
+    let previous_eth1_block_number: u64 = blocks
+        .clone()
+        .find(|block| block.hash == prev_eth1_hash)
+        .map(|block| block.number)
+        .ok_or_else(|| "Unable to find current eth1 block hash in cache".to_string())?;
+
+    let new_eth1_data = HashMap::from_iter(
+        blocks
+            .clone()
+            .rev()
+            .skip_while(|block| {
+                block.number > voting_period_start_block_number + eth1_follow_distance
+            })
+            .take_while(|block| {
+                block.number > voting_period_start_block_number + eth1_follow_distance * 2
+            })
+            // Note: this filter map quietly ignores any block from before the deposit contract
+            // was deployed.
+            .filter_map(|block| Some((block.clone().eth1_data()?, block.number))),
+    );
+
+    let all_eth1_data = HashMap::from_iter(
+        blocks
+            .clone()
+            .rev()
+            .skip_while(|block| {
+                block.number > voting_period_start_block_number + eth1_follow_distance * 2
+            })
+            .take_while(|block| block.number >= previous_eth1_block_number)
+            // Note: this filter map quietly ignores any block from before the deposit contract
+            // was deployed.
+            .filter_map(|block| Some((block.clone().eth1_data()?, block.number))),
+    );
+
+    Ok((new_eth1_data, all_eth1_data))
+}
+
+fn collect_valid_votes<T: EthSpec>(
+    state: &BeaconState<T>,
+    new_eth1_data: Eth1DataBlockNumber,
+    all_eth1_data: Eth1DataBlockNumber,
+) -> Result<Eth1DataVoteCount, String> {
+    let slots_per_eth1_voting_period = T::SlotsPerEth1VotingPeriod::to_u64();
+
+    let mut valid_votes = HashMap::new();
+
+    state
+        .eth1_data_votes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, vote)| {
+            new_eth1_data
+                .get(vote)
+                .map(|block_number| (vote.clone(), *block_number))
+                .or_else(|| {
+                    let i = i as u64;
+                    let period_tail = i >= slots_per_eth1_voting_period.integer_sqrt();
+                    if period_tail {
+                        all_eth1_data
+                            .get(vote)
+                            .map(|block_number| (vote.clone(), *block_number))
+                    } else {
+                        None
+                    }
+                })
+        })
+        .for_each(|(eth1_data, block_number)| {
+            valid_votes
+                .entry((eth1_data, block_number))
+                .and_modify(|count| *count += 1)
+                .or_insert(1_u64);
+        });
+
+    Ok(valid_votes)
+}
+
+fn find_winning_vote(valid_votes: Eth1DataVoteCount) -> Result<Eth1Data, String> {
+    valid_votes
+        .iter()
+        .max_by_key(|((_eth1_data, block_number), vote_count)| {
+            (*vote_count, u64::max_value() - block_number)
+        })
+        .ok_or_else(|| "Unable to find winning eth1 vote".to_string())
+        .map(|((eth1_data, _), _)| eth1_data.clone())
+}
+
 /// Returns `int` as little-endian bytes with a length of 32.
 fn int_to_bytes32(int: u64) -> Vec<u8> {
     let mut vec = int.to_le_bytes().to_vec();
@@ -346,4 +346,84 @@ fn slot_start_seconds<T: EthSpec>(
     slot: Slot,
 ) -> u64 {
     genesis_unix_seconds + slot.as_u64() * milliseconds_per_slot / 1_000
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use types::MinimalEthSpec;
+
+    type TestEthSpec = MinimalEthSpec;
+
+    mod winning_vote {
+        use super::*;
+
+        type Vote = ((Eth1Data, u64), u64);
+
+        fn vote(block_number: u64, vote_count: u64) -> Vote {
+            (
+                (
+                    Eth1Data {
+                        deposit_root: Hash256::zero(),
+                        deposit_count: 0,
+                        block_hash: Hash256::zero(),
+                    },
+                    block_number,
+                ),
+                vote_count,
+            )
+        }
+
+        fn vote_data(vote: &Vote) -> Eth1Data {
+            (vote.0).0.clone()
+        }
+
+        #[test]
+        fn no_votes() {
+            let no_votes = vec![vote(0, 0), vote(1, 0), vote(3, 0), vote(2, 0)];
+
+            assert_eq!(
+                // Favour the highest block number when there are no votes.
+                vote_data(&no_votes[2]),
+                find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
+                    .expect("should find winner")
+            );
+        }
+
+        #[test]
+        fn equal_votes() {
+            let no_votes = vec![vote(0, 1), vote(1, 1), vote(3, 1), vote(2, 1)];
+
+            assert_eq!(
+                // Favour the highest block number when there are equal votes.
+                vote_data(&no_votes[2]),
+                find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
+                    .expect("should find winner")
+            );
+        }
+
+        #[test]
+        fn some_votes() {
+            let no_votes = vec![vote(0, 0), vote(1, 1), vote(3, 1), vote(2, 2)];
+
+            assert_eq!(
+                // Favour the highest vote over the highest block number.
+                vote_data(&no_votes[3]),
+                find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
+                    .expect("should find winner")
+            );
+        }
+
+        #[test]
+        fn tying_votes() {
+            let no_votes = vec![vote(0, 0), vote(1, 1), vote(3, 2), vote(2, 2)];
+
+            assert_eq!(
+                // Favour the highest block number for tying votes.
+                vote_data(&no_votes[2]),
+                find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
+                    .expect("should find winner")
+            );
+        }
+    }
 }

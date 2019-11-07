@@ -74,7 +74,7 @@ impl BlockCache {
     ///
     /// - Monotically increase block numbers.
     /// - Non-uniformly increasing block timestamps.
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Eth1Block> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Eth1Block> + Clone {
         self.blocks.iter()
     }
 
