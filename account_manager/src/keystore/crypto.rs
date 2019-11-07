@@ -2,7 +2,6 @@ use crate::keystore::checksum::{Checksum, ChecksumModule};
 use crate::keystore::cipher::{Cipher, CipherModule};
 use crate::keystore::kdf::{Kdf, KdfModule};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// Crypto module for keystore.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -37,7 +36,7 @@ impl Crypto {
             },
             checksum: ChecksumModule {
                 function: Checksum::function(),
-                params: BTreeMap::new(),
+                params: serde_json::Value::Object(serde_json::Map::default()),
                 message: checksum,
             },
             cipher: CipherModule {

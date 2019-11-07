@@ -1,13 +1,12 @@
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// Checksum module for `Keystore`.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ChecksumModule {
     pub function: String,
-    pub params: BTreeMap<(), ()>, // TODO: need a better way to encode empty json object
+    pub params: serde_json::Value, // Empty json object
     pub message: String,
 }
 
