@@ -353,7 +353,104 @@ mod test {
     use super::*;
     use types::MinimalEthSpec;
 
-    type TestEthSpec = MinimalEthSpec;
+    type E = MinimalEthSpec;
+
+    fn get_eth1_data(i: u64) -> Eth1Data {
+        Eth1Data {
+            block_hash: Hash256::from_low_u64_be(i),
+            deposit_root: Hash256::from_low_u64_be(u64::max_value() - i),
+            deposit_count: i,
+        }
+    }
+
+    #[test]
+    fn test_slot_start_seconds() {
+        let zero_sec = 0;
+        assert_eq!(slot_start_seconds::<E>(100, zero_sec, Slot::new(2)), 100);
+
+        let half_sec = 500;
+        assert_eq!(slot_start_seconds::<E>(100, half_sec, Slot::new(0)), 100);
+        assert_eq!(slot_start_seconds::<E>(100, half_sec, Slot::new(1)), 100);
+        assert_eq!(slot_start_seconds::<E>(100, half_sec, Slot::new(2)), 101);
+        assert_eq!(slot_start_seconds::<E>(100, half_sec, Slot::new(3)), 101);
+
+        let one_sec = 1_000;
+        assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(0)), 100);
+        assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(1)), 101);
+        assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(2)), 102);
+
+        let three_sec = 3_000;
+        assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(0)), 100);
+        assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(1)), 103);
+        assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(2)), 106);
+    }
+
+    mod collect_valid_votes {
+        use super::*;
+
+        fn get_eth1_data_vec(n: u64, block_number_offset: u64) -> Vec<(Eth1Data, BlockNumber)> {
+            (0..n)
+                .map(|i| (get_eth1_data(i), i + block_number_offset))
+                .collect()
+        }
+
+        macro_rules! assert_votes {
+            ($votes: expr, $expected: expr, $text: expr) => {
+                let expected = $expected;
+                assert_eq!(
+                    $votes.len(),
+                    expected.len(),
+                    "map should have the same number of elements"
+                );
+                expected.iter().for_each(|(eth1_data, block_number)| {
+                    $votes
+                        .get(&(eth1_data.clone(), *block_number))
+                        .expect("should contain eth1 data");
+                })
+            };
+        }
+
+        #[test]
+        fn empty_state() {
+            let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+            let spec = &E::default_spec();
+            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+
+            let all_eth1_data = get_eth1_data_vec(slots, 0);
+            let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
+
+            let votes = collect_valid_votes(
+                &state,
+                HashMap::from_iter(new_eth1_data.clone().into_iter()),
+                HashMap::from_iter(all_eth1_data.clone().into_iter()),
+            )
+            .expect("should get valid votes");
+            assert_eq!(
+                votes.len(),
+                0,
+                "should not find any votes when state has no votes"
+            );
+
+            let mut state_with_votes = state.clone();
+            state_with_votes.eth1_data_votes = new_eth1_data[0..slots as usize / 4]
+                .iter()
+                .map(|(eth1_data, _)| eth1_data)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            let votes = collect_valid_votes(
+                &state_with_votes,
+                HashMap::from_iter(new_eth1_data.clone().into_iter()),
+                HashMap::from_iter(all_eth1_data.clone().into_iter()),
+            )
+            .expect("should get valid votes");
+            assert_votes!(
+                votes,
+                new_eth1_data[0..slots as usize / 4].to_vec(),
+                "should find as many votes as were in the state"
+            );
+        }
+    }
 
     mod winning_vote {
         use super::*;
