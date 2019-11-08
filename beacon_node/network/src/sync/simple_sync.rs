@@ -418,8 +418,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     present_slot,
                     block_slot,
                 } if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot => {
-                    //TODO: Decide the logic here
-                    SHOULD_NOT_FORWARD_GOSSIP_BLOCK
+                    self.should_forward_block(block)
                 }
                 BlockProcessingOutcome::BlockIsAlreadyKnown => {
                     self.should_forward_block(block)
@@ -458,41 +457,57 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     }
 
     fn should_forward_block(&mut self, block: BeaconBlock<T::EthSpec>) -> bool {
+        // Retrieve the parent block, if it exists.
         if let Ok(Some(parent_block)) = self
             .chain
             .store
             .get::<BeaconBlock<T::EthSpec>>(&block.parent_root)
         {
-            let mut parent_state = self
-                .chain
-                .store
-                .get::<BeaconState<T::EthSpec>>(&parent_block.state_root)
-                .unwrap().unwrap(); // should handle better
+            // Check if the parent block's state is equal to the current state, if it is, then
+            // we can validate the block using the current chain.
+            let mut state =
+                match self.chain.head().beacon_state_root == parent_block.state_root {
+                    true => self.chain.head().beacon_state.clone(),
+                    false => self
+                        .chain
+                        .store
+                        .get::<BeaconState<T::EthSpec>>(&parent_block.state_root)
+                        .unwrap().unwrap() // should handle better
+                };
 
+            // Determine the epochal relationship between the state used to validate the block and
+            // the block itself.
             let relative_epoch = RelativeEpoch::from_slot(
                 parent_block.slot,
                 block.slot,
                 T::EthSpec::slots_per_epoch()
             ).map_err(|_| -> Result<RelativeEpoch, String> {
-                for _ in parent_state.slot.as_u64()..block.slot.as_u64() {
-                    per_slot_processing(&mut parent_state, &self.chain.spec);
+                // If the block is more than one epoch in the future, we must fast-forward to
+                // the state and compute the committee.
+                for _ in state.slot.as_u64()..block.slot.as_u64() {
+                    per_slot_processing(&mut state, &self.chain.spec);
                 }
-                parent_state.build_committee_cache(RelativeEpoch::Current, &self.chain.spec);
+
+                // Note: this is expensive.
+                state.build_committee_cache(RelativeEpoch::Current, &self.chain.spec);
+
                 Ok(RelativeEpoch::Current)
             }).unwrap();
 
-            let proposer_index = parent_state
+            // Retrieve the block's designated proposer.
+            let proposer_index = state
                 .get_beacon_proposer_index(
                     block.slot,
                     relative_epoch,
                     &self.chain.spec
                 ).unwrap();
-            let proposer = &parent_state.validators.get(proposer_index).unwrap();
+            let proposer = state.validators.get(proposer_index).unwrap();
 
+            // Create a SignatureSet and validate it.
             let domain = self.chain.spec.get_domain(
                 block.slot.epoch(T::EthSpec::slots_per_epoch()),
                 Domain::BeaconProposer,
-                &parent_state.fork
+                &state.fork
             );
 
             let set = SignatureSet::single(
@@ -505,13 +520,15 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             return set.is_valid();
         }
 
+        // The signature can not be verified without the parent's state, so in this case, we simply
+        // do not forward.
         false
     }
 
     /// Process a gossip message declaring a new attestation.
     ///
     /// Not currently implemented.
-    pub fn on_attestation_gossip(&mut self, _peer_id: PeerId, msg: Attestation<T::EthSpec>) {
+    pub fn on_attestation_gossip(&mut self, _peer_id: PeerId, msg: Attestation<T::EthSpec>) -> bool {
         match self.chain.process_attestation(msg.clone()) {
             Ok(outcome) => {
                 info!(
@@ -537,7 +554,13 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 );
                 error!(self.log, "Invalid gossip attestation"; "error" => format!("{:?}", e));
             }
-        }
+        };
+
+        true
+    }
+
+    fn should_forward_attestation(&self, attestation: Attestation<T::EthSpec>) -> bool {
+        true
     }
 }
 

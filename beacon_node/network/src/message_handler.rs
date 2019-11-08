@@ -216,9 +216,11 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             PubsubMessage::Attestation(message) => match self.decode_gossip_attestation(message) {
                 Ok(attestation) => {
                     // TODO: Apply more sophisticated validation and decoding logic - 524 verify attestation
-                    self.propagate_message(id, peer_id.clone());
-                    self.message_processor
-                        .on_attestation_gossip(peer_id, attestation);
+                    let should_forward_on = self.message_processor
+                        .on_attestation_gossip(peer_id.clone(), attestation);
+                    if should_forward_on {
+                        self.propagate_message(id, peer_id);
+                    }
                 }
                 Err(e) => {
                     debug!(self.log, "Invalid gossiped attestation"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
