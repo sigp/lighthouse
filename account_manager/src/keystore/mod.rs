@@ -106,8 +106,7 @@ impl Keystore {
     /// Return the path of the keystore file.
     pub fn save_keystore(&self, base_path: PathBuf, key_type: KeyType) -> Result<PathBuf, String> {
         let validator_path = base_path.join(VALIDATOR_FOLDER_NAME);
-        validator_path.join(self.uuid.to_string());
-
+        let validator_path = validator_path.join(self.uuid.to_string());
         let mut file_name = match key_type {
             KeyType::Voting => "voting-".to_string(),
             KeyType::Withdrawal => "withdrawal-".to_string(),

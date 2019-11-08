@@ -4,12 +4,14 @@ use keystore::{KeyType, Keystore};
 use rpassword::read_password;
 use slog::{crit, debug, info, o, Drain};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use validator_client::Config as ValidatorClientConfig;
+mod deposit;
 pub mod keystore;
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
+pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "account-manager.toml";
 
 fn main() {
@@ -70,7 +72,7 @@ fn main() {
                 ),
         )
         .subcommand(
-            SubCommand::with_name("generate_deposit_params")
+            SubCommand::with_name("generate_deposit_keystores")
                 .about("Generates and saves validator and withdrawal keystores and generates deposit parameters from them")
                 .version("0.0.1")
                 .author("Sigma Prime <contact@sigmaprime.io>")
@@ -83,15 +85,6 @@ fn main() {
                         .takes_value(true)
                         .required(true),
                 )
-                .arg(
-                    Arg::with_name("validator count")
-                        .long("validator_count")
-                        .short("n")
-                        .value_name("validator_count")
-                        .help("If supplied along with `index`, generates keys `i..i + n`.")
-                        .takes_value(true)
-                        .default_value("1"),
-                ),
         )
         .get_matches();
 
@@ -152,15 +145,7 @@ fn main() {
                 }
             }
         }
-        ("generate_deposit_params", Some(m)) => {
-            let deposit_amount = m
-                .value_of("deposit_amount")
-                .expect("generating deposit params requires deposit amount")
-                .parse::<u64>()
-                .expect("Must be a valid u64");
-            // TODO: check deposit amount
-            generate_deposit_keystores(&log);
-        }
+        ("generate_deposit_keystores", Some(_)) => generate_deposit_keystores(&log),
         _ => {
             crit!(
                 log,
@@ -174,19 +159,29 @@ fn generate_random(config: &ValidatorClientConfig, log: &slog::Logger) {
     save_key(&Keypair::random(), config, log)
 }
 
-/// Generate and store validator and withdrawal keys.
+/// Generate and store validator and withdrawal keystores.
 fn generate_deposit_keystores(log: &slog::Logger) {
+    // Get password from user
+    // TODO: fix the order of log and print
     print!("Enter password: ");
+    std::io::stdout().flush().unwrap();
     let password = read_password().expect("Unable to read password");
+
+    // Generate keypairs
+    let validator_keypair = Keypair::random();
+    let withdrawal_keypair = Keypair::random();
+
+    // Note: Validator and withdrawal keystores have same uuid
     let validator_keystore =
-        Keystore::to_keystore(&Keypair::random(), password.clone(), None, None, None);
+        Keystore::to_keystore(&validator_keypair, password.clone(), None, None, None);
     let withdrawal_keystore = Keystore::to_keystore(
-        &Keypair::random(),
+        &withdrawal_keypair,
         password,
         None,
         None,
         Some(validator_keystore.uuid),
     );
+    debug!(log, "Saving keys in keystores");
     save_keystore(&validator_keystore, KeyType::Voting, log);
     save_keystore(&withdrawal_keystore, KeyType::Withdrawal, log);
 }

@@ -15,12 +15,14 @@ types = { path = "../eth2/types" }
 dirs = "2.0.1"
 eth2_ssz = "0.1"
 rand = "0.7.2"
+rpassword = "1.0"
 rust-crypto = "0.2.36"
 hex = "0.4.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_repr = "0.1"
 uuid = { version = "0.8", features = ["serde", "v4"] }
+time = "0.1.42"
 
 [dev-dependencies]
 tree_hash = "0.1"
