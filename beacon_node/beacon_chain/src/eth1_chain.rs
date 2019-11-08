@@ -175,26 +175,7 @@ impl<T: EthSpec, S: Store> JsonRpcEth1Backend<T, S> {
 
 impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for JsonRpcEth1Backend<T, S> {
     fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
-        let period = T::SlotsPerEth1VotingPeriod::to_u64();
-
-        // Find `state.eth1_data.block_hash` for the state at the start of the voting period.
-        let prev_eth1_hash = if state.slot % period < period / 2 {
-            // When the state is less than half way through the period we can safely assume that
-            // the eth1_data has not changed since the start of the period.
-            state.eth1_data.block_hash
-        } else {
-            let slot = (state.slot / period) * period;
-            let prev_state_root = state
-                .get_state_root(slot)
-                .map_err(|e| Error::UnableToGetPreviousStateRoot(e))?;
-
-            self.store
-                .get::<BeaconState<T>>(&prev_state_root)
-                .map_err(|e| Error::StoreError(e))?
-                .ok_or_else(|| Error::PreviousStateNotInDB)?
-                .eth1_data
-                .block_hash
-        };
+        let prev_eth1_hash = eth1_block_hash_at_start_of_voting_period(self.store.clone(), state)?;
 
         let blocks = self.core.blocks().read();
 
@@ -270,6 +251,31 @@ fn random_eth1_data() -> Eth1Data {
         block_hash: Hash256::from_slice(&rand_bytes!(32)),
         deposit_root: Hash256::from_slice(&rand_bytes!(32)),
         deposit_count: u64::from_le_bytes(rand_bytes!(8)),
+    }
+}
+
+fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
+    store: Arc<S>,
+    state: &BeaconState<T>,
+) -> Result<Hash256, Error> {
+    let period = T::SlotsPerEth1VotingPeriod::to_u64();
+
+    // Find `state.eth1_data.block_hash` for the state at the start of the voting period.
+    if state.slot % period < period / 2 {
+        // When the state is less than half way through the period we can safely assume that
+        // the eth1_data has not changed since the start of the period.
+        Ok(state.eth1_data.block_hash)
+    } else {
+        let slot = (state.slot / period) * period;
+        let prev_state_root = state
+            .get_state_root(slot)
+            .map_err(|e| Error::UnableToGetPreviousStateRoot(e))?;
+
+        store
+            .get::<BeaconState<T>>(&prev_state_root)
+            .map_err(|e| Error::StoreError(e))?
+            .ok_or_else(|| Error::PreviousStateNotInDB)
+            .map(|state| state.eth1_data.block_hash)
     }
 }
 
@@ -444,18 +450,154 @@ mod test {
         assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(2)), 106);
     }
 
+    fn get_eth1_block(timestamp: u64, number: u64) -> Eth1Block {
+        Eth1Block {
+            number,
+            timestamp,
+            hash: Hash256::from_low_u64_be(number),
+            deposit_root: Some(Hash256::from_low_u64_be(number)),
+            deposit_count: Some(number),
+        }
+    }
+
+    /*
+    mod json_backend {
+        use super::*;
+        use store::MemoryStore;
+
+        #[test]
+        fn thingo() {
+            let mut spec = E::default_spec();
+            spec.milliseconds_per_slot = 1_000;
+
+            let slots_per_eth1_voting_period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+            let eth1_follow_distance = spec.eth1_follow_distance;
+
+            let eth1_config = Eth1Config {
+                follow_distance: eth1_follow_distance,
+                ..Eth1Config::default()
+            };
+
+            let backend = JsonRpcEth1Backend::new(config, )
+
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            state.genesis_time = 0;
+            state.slot = Slot::from(slots_per_eth1_voting_period * 3);
+
+            let prev_eth1_hash = Hash256::zero();
+
+            let blocks = (0..eth1_follow_distance * 4)
+                .map(|i| get_eth1_block(i, i))
+                .collect::<Vec<_>>();
+
+            let (new_eth1_data, all_eth1_data) =
+                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec)
+                    .expect("should find data");
+
+            assert_eq!(
+                all_eth1_data.len(),
+                eth1_follow_distance as usize * 2,
+                "all_eth1_data should have appropriate length"
+            );
+            assert_eq!(
+                new_eth1_data.len(),
+                eth1_follow_distance as usize,
+                "new_eth1_data should have appropriate length"
+            );
+
+            for (eth1_data, block_number) in &new_eth1_data {
+                assert_eq!(
+                    all_eth1_data.get(eth1_data),
+                    Some(block_number),
+                    "all_eth1_data should contain all items in new_eth1_data"
+                );
+            }
+
+            (1..=eth1_follow_distance * 2)
+                .map(|i| get_eth1_block(i, i))
+                .for_each(|eth1_block| {
+                    assert_eq!(
+                        eth1_block.number,
+                        *all_eth1_data
+                            .get(&eth1_block.clone().eth1_data().unwrap())
+                            .expect("all_eth1_data should have expected block")
+                    )
+                });
+
+            (eth1_follow_distance + 1..=eth1_follow_distance * 2)
+                .map(|i| get_eth1_block(i, i))
+                .for_each(|eth1_block| {
+                    assert_eq!(
+                        eth1_block.number,
+                        *new_eth1_data
+                            .get(&eth1_block.clone().eth1_data().unwrap())
+                            .expect(&format!(
+                                "new_eth1_data should have expected block #{}",
+                                eth1_block.number
+                            ))
+                    )
+                });
+        }
+    }
+    */
+    mod prev_block_hash {
+        use super::*;
+        use store::MemoryStore;
+
+        #[test]
+        fn without_store_lookup() {
+            let spec = &E::default_spec();
+            let store = Arc::new(MemoryStore::open());
+
+            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+
+            assert_eq!(
+                eth1_block_hash_at_start_of_voting_period(store, &state),
+                Ok(state.eth1_data.block_hash),
+                "should return the states eth1 data in the first half of the period"
+            );
+        }
+
+        #[test]
+        fn with_store_lookup() {
+            let spec = &E::default_spec();
+            let store = Arc::new(MemoryStore::open());
+
+            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+            let mut prev_state = state.clone();
+
+            state.slot = Slot::new(period / 2);
+
+            let expected_root = Hash256::from_low_u64_be(42);
+
+            prev_state.eth1_data.block_hash = expected_root;
+
+            assert!(
+                prev_state.eth1_data != state.eth1_data,
+                "test requires state eth1_data are different"
+            );
+
+            store
+                .put(
+                    &state
+                        .get_state_root(Slot::new(0))
+                        .expect("should find state root"),
+                    &prev_state,
+                )
+                .expect("should store state");
+
+            assert_eq!(
+                eth1_block_hash_at_start_of_voting_period(store, &state),
+                Ok(expected_root),
+                "should return the eth1_data from the previous state"
+            );
+        }
+    }
+
     mod eth1_data_sets {
         use super::*;
-
-        fn get_eth1_block(timestamp: u64, number: u64) -> Eth1Block {
-            Eth1Block {
-                number,
-                timestamp,
-                hash: Hash256::from_low_u64_be(number),
-                deposit_root: Some(Hash256::from_low_u64_be(number)),
-                deposit_count: Some(number),
-            }
-        }
 
         #[test]
         fn empty_cache() {
