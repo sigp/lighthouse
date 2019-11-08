@@ -1,11 +1,14 @@
 use bls::Keypair;
 use clap::{App, Arg, SubCommand};
+use keystore::{KeyType, Keystore};
+use rpassword::read_password;
 use slog::{crit, debug, info, o, Drain};
 use std::fs;
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 use validator_client::Config as ValidatorClientConfig;
 pub mod keystore;
+
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse-validator";
 pub const CLIENT_CONFIG_FILENAME: &str = "account-manager.toml";
 
@@ -53,6 +56,30 @@ fn main() {
                         .short("i")
                         .value_name("index")
                         .help("The index of the validator, for which the test key is generated")
+                        .takes_value(true)
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("validator count")
+                        .long("validator_count")
+                        .short("n")
+                        .value_name("validator_count")
+                        .help("If supplied along with `index`, generates keys `i..i + n`.")
+                        .takes_value(true)
+                        .default_value("1"),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("generate_deposit_params")
+                .about("Generates and saves validator and withdrawal keystores and generates deposit parameters from them")
+                .version("0.0.1")
+                .author("Sigma Prime <contact@sigmaprime.io>")
+                .arg(
+                    Arg::with_name("deposit_amount")
+                        .long("deposit_amount")
+                        .short("d")
+                        .value_name("deposit_amount")
+                        .help("The amount being deposited in GWEI")
                         .takes_value(true)
                         .required(true),
                 )
@@ -125,6 +152,15 @@ fn main() {
                 }
             }
         }
+        ("generate_deposit_params", Some(m)) => {
+            let deposit_amount = m
+                .value_of("deposit_amount")
+                .expect("generating deposit params requires deposit amount")
+                .parse::<u64>()
+                .expect("Must be a valid u64");
+            // TODO: check deposit amount
+            generate_deposit_keystores(&log);
+        }
         _ => {
             crit!(
                 log,
@@ -136,6 +172,23 @@ fn main() {
 
 fn generate_random(config: &ValidatorClientConfig, log: &slog::Logger) {
     save_key(&Keypair::random(), config, log)
+}
+
+/// Generate and store validator and withdrawal keys.
+fn generate_deposit_keystores(log: &slog::Logger) {
+    print!("Enter password: ");
+    let password = read_password().expect("Unable to read password");
+    let validator_keystore =
+        Keystore::to_keystore(&Keypair::random(), password.clone(), None, None, None);
+    let withdrawal_keystore = Keystore::to_keystore(
+        &Keypair::random(),
+        password,
+        None,
+        None,
+        Some(validator_keystore.uuid),
+    );
+    save_keystore(&validator_keystore, KeyType::Voting, log);
+    save_keystore(&withdrawal_keystore, KeyType::Withdrawal, log);
 }
 
 fn generate_deterministic_multiple(
@@ -168,6 +221,17 @@ fn save_key(keypair: &Keypair, config: &ValidatorClientConfig, log: &slog::Logge
         log,
         "Keypair generated {:?}, saved to: {:?}",
         keypair.identifier(),
+        key_path.to_string_lossy()
+    );
+}
+
+fn save_keystore(keystore: &Keystore, key_type: KeyType, log: &slog::Logger) {
+    let key_path: PathBuf = keystore
+        .save_keystore(PathBuf::from(DEFAULT_DATA_DIR), key_type)
+        .unwrap();
+    debug!(
+        log,
+        "Keystore file generated ,saved to: {:?}",
         key_path.to_string_lossy()
     );
 }
