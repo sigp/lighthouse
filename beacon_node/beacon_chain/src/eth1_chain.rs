@@ -423,7 +423,7 @@ mod test {
     }
 
     #[test]
-    fn test_slot_start_seconds() {
+    fn slot_start_time() {
         let zero_sec = 0;
         assert_eq!(slot_start_seconds::<E>(100, zero_sec, Slot::new(2)), 100);
 
