@@ -247,6 +247,7 @@ impl ChainSpec {
             max_epochs_per_crosslink: 4,
             network_id: 2, // lighthouse testnet network id
             boot_nodes,
+            eth1_follow_distance: 16,
             ..ChainSpec::mainnet()
         }
     }

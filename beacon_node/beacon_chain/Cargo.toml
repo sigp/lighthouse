@@ -39,7 +39,7 @@ futures = "0.1.25"
 exit-future = "0.1.3"
 genesis = { path = "../genesis" }
 integer-sqrt = "0.1"
+rand = "0.5.5"
 
 [dev-dependencies]
-rand = "0.5.5"
 lazy_static = "1.3.0"

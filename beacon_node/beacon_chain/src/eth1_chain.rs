@@ -4,7 +4,8 @@ use eth2_hashing::hash;
 use exit_future::Exit;
 use futures::Future;
 use integer_sqrt::IntegerSquareRoot;
-use slog::Logger;
+use rand::prelude::*;
+use slog::{crit, Logger};
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::iter::FromIterator;
@@ -26,11 +27,21 @@ pub enum Error {
     /// The deposit index of the state is higher than the deposit contract. This is a critical
     /// consensus error.
     DepositIndexTooHigh,
-    DepositRootMismatch,
-    NoEth1Vote,
+    /// The current state was unable to return the root for the state at the start of the eth1
+    /// voting period.
     UnableToGetPreviousStateRoot(BeaconStateError),
+    /// The state required to find the previous eth1 block was not found in the store.
     PreviousStateNotInDB,
+    /// There was an error accessing an object in the database.
     StoreError(StoreError),
+    /// The eth1 head block at the start of the eth1 voting period is unknown.
+    ///
+    /// The eth1 caches are likely stale.
+    UnknownVotingPeriodHead,
+    /// The block that was previously voted into the state is unknown.
+    ///
+    /// The eth1 caches are stale, or a junk value was voted into the chain.
+    UnknownPreviousEth1BlockHash,
 }
 
 /// Holds an `Eth1ChainBackend` and serves requests from the `BeaconChain`.
@@ -133,14 +144,16 @@ impl<T: EthSpec> Default for DummyEth1ChainBackend<T> {
 pub struct JsonRpcEth1Backend<T: EthSpec, S> {
     pub core: HttpService,
     store: Arc<S>,
+    log: Logger,
     _phantom: PhantomData<T>,
 }
 
 impl<T: EthSpec, S: Store> JsonRpcEth1Backend<T, S> {
     pub fn new(config: Eth1Config, log: Logger, store: Arc<S>) -> Self {
         Self {
-            core: HttpService::new(config, log),
+            core: HttpService::new(config, log.clone()),
             store,
+            log,
             _phantom: PhantomData,
         }
     }
@@ -152,6 +165,7 @@ impl<T: EthSpec, S: Store> JsonRpcEth1Backend<T, S> {
     /// Instantiates `self` from an existing service.
     pub fn from_service(service: HttpService, store: Arc<S>) -> Self {
         Self {
+            log: service.log.clone(),
             core: service,
             store,
             _phantom: PhantomData,
@@ -185,13 +199,40 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for JsonRpcEth1Backend<T, S> {
         let blocks = self.core.blocks().read();
 
         let (new_eth1_data, all_eth1_data) =
-            eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec)
-                .map_err(|e| Error::BackendError(e))?;
-        let valid_votes = collect_valid_votes(state, new_eth1_data, all_eth1_data)
-            .map_err(|e| Error::BackendError(e))?;
+            match eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec) {
+                Ok(val) => val,
+                Err(e) => {
+                    crit!(
+                        self.log,
+                        "Unable to cast valid vote for Eth1Data";
+                        "tip" => "check connection to eth1 node",
+                        "reason" => format!("{:?}", e),
+                    );
+                    // If there is a failure to get either `new_eth1_data` or `all_eth1_data`,
+                    // simply return a random vote.
+                    //
+                    // See: https://github.com/ethereum/eth2.0-specs/issues/1431
+                    return Ok(random_eth1_data());
+                }
+            };
 
-        // TODO: return random if a vote was not found.
-        find_winning_vote(valid_votes).map_err(|e| Error::BackendError(e))
+        let valid_votes = collect_valid_votes(state, new_eth1_data, all_eth1_data);
+
+        // If there is no winning vote, there mustn't be any votes at all. Therefore, we should log
+        // an error but return a random vote.
+        //
+        // This behaviour is effectively "vote random junk if my eth1 cache is not ready".
+        //
+        // See: https://github.com/ethereum/eth2.0-specs/issues/1431
+        Ok(find_winning_vote(valid_votes).unwrap_or_else(|| {
+            crit!(
+                self.log,
+                "Unable to cast valid vote for Eth1Data";
+                "tip" => "check connection to eth1 node",
+                "reason" => "no votes",
+            );
+            random_eth1_data()
+        }))
     }
 
     fn queued_deposits(
@@ -214,6 +255,24 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for JsonRpcEth1Backend<T, S> {
     }
 }
 
+fn random_eth1_data() -> Eth1Data {
+    let mut rng = rand::thread_rng();
+
+    macro_rules! rand_bytes {
+        ($num_bytes: expr) => {{
+            let mut arr = [0_u8; $num_bytes];
+            rng.fill(&mut arr[..]);
+            arr
+        }};
+    }
+
+    Eth1Data {
+        block_hash: Hash256::from_slice(&rand_bytes!(32)),
+        deposit_root: Hash256::from_slice(&rand_bytes!(32)),
+        deposit_count: u64::from_le_bytes(rand_bytes!(8)),
+    }
+}
+
 type BlockNumber = u64;
 type Eth1DataBlockNumber = HashMap<Eth1Data, BlockNumber>;
 type Eth1DataVoteCount = HashMap<(Eth1Data, BlockNumber), u64>;
@@ -223,7 +282,7 @@ fn eth1_data_sets<'a, T: EthSpec, I>(
     state: &BeaconState<T>,
     prev_eth1_hash: Hash256,
     spec: &ChainSpec,
-) -> Result<(Eth1DataBlockNumber, Eth1DataBlockNumber), String>
+) -> Result<(Eth1DataBlockNumber, Eth1DataBlockNumber), Error>
 where
     T: EthSpec,
     I: DoubleEndedIterator<Item = &'a Eth1Block> + Clone,
@@ -244,23 +303,24 @@ where
         .rev()
         .find(|block| block.timestamp <= voting_period_start_seconds)
         .map(|block| block.number)
-        .ok_or_else(|| "Unable to find eth1 head at start of voting period".to_string())?;
+        .ok_or_else(|| Error::UnknownVotingPeriodHead)?;
 
     let previous_eth1_block_number: u64 = blocks
         .clone()
         .find(|block| block.hash == prev_eth1_hash)
         .map(|block| block.number)
-        .ok_or_else(|| "Unable to find current eth1 block hash in cache".to_string())?;
+        .ok_or_else(|| Error::UnknownPreviousEth1BlockHash)?;
 
     let new_eth1_data = HashMap::from_iter(
         blocks
             .clone()
             .rev()
             .skip_while(|block| {
-                block.number > voting_period_start_block_number + eth1_follow_distance
+                block.number > voting_period_start_block_number.saturating_sub(eth1_follow_distance)
             })
             .take_while(|block| {
-                block.number > voting_period_start_block_number + eth1_follow_distance * 2
+                block.number
+                    > voting_period_start_block_number.saturating_sub(eth1_follow_distance * 2)
             })
             // Note: this filter map quietly ignores any block from before the deposit contract
             // was deployed.
@@ -272,9 +332,9 @@ where
             .clone()
             .rev()
             .skip_while(|block| {
-                block.number > voting_period_start_block_number + eth1_follow_distance * 2
+                block.number > voting_period_start_block_number.saturating_sub(eth1_follow_distance)
             })
-            .take_while(|block| block.number >= previous_eth1_block_number)
+            .take_while(|block| block.number > previous_eth1_block_number)
             // Note: this filter map quietly ignores any block from before the deposit contract
             // was deployed.
             .filter_map(|block| Some((block.clone().eth1_data()?, block.number))),
@@ -287,7 +347,7 @@ fn collect_valid_votes<T: EthSpec>(
     state: &BeaconState<T>,
     new_eth1_data: Eth1DataBlockNumber,
     all_eth1_data: Eth1DataBlockNumber,
-) -> Result<Eth1DataVoteCount, String> {
+) -> Eth1DataVoteCount {
     let slots_per_eth1_voting_period = T::SlotsPerEth1VotingPeriod::to_u64();
 
     let mut valid_votes = HashMap::new();
@@ -319,16 +379,15 @@ fn collect_valid_votes<T: EthSpec>(
                 .or_insert(1_u64);
         });
 
-    Ok(valid_votes)
+    valid_votes
 }
 
-fn find_winning_vote(valid_votes: Eth1DataVoteCount) -> Result<Eth1Data, String> {
+fn find_winning_vote(valid_votes: Eth1DataVoteCount) -> Option<Eth1Data> {
     valid_votes
         .iter()
         .max_by_key(|((_eth1_data, block_number), vote_count)| {
             (*vote_count, u64::max_value() - block_number)
         })
-        .ok_or_else(|| "Unable to find winning eth1 vote".to_string())
         .map(|((eth1_data, _), _)| eth1_data.clone())
 }
 
@@ -385,6 +444,117 @@ mod test {
         assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(2)), 106);
     }
 
+    mod eth1_data_sets {
+        use super::*;
+
+        fn get_eth1_block(timestamp: u64, number: u64) -> Eth1Block {
+            Eth1Block {
+                number,
+                timestamp,
+                hash: Hash256::from_low_u64_be(number),
+                deposit_root: Some(Hash256::from_low_u64_be(number)),
+                deposit_count: Some(number),
+            }
+        }
+
+        #[test]
+        fn empty_cache() {
+            let spec = &E::default_spec();
+            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+            let prev_eth1_hash = Hash256::zero();
+
+            let blocks = vec![];
+
+            assert_eq!(
+                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, spec),
+                Err(Error::UnknownVotingPeriodHead)
+            );
+        }
+
+        #[test]
+        fn no_known_block_hash() {
+            let mut spec = E::default_spec();
+            spec.milliseconds_per_slot = 1_000;
+
+            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            let prev_eth1_hash = Hash256::from_low_u64_be(42);
+
+            let blocks = vec![get_eth1_block(0, 0)];
+
+            assert_eq!(
+                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec),
+                Err(Error::UnknownPreviousEth1BlockHash)
+            );
+        }
+
+        #[test]
+        fn ideal_scenario() {
+            let mut spec = E::default_spec();
+            spec.milliseconds_per_slot = 1_000;
+
+            let slots_per_eth1_voting_period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+            let eth1_follow_distance = spec.eth1_follow_distance;
+
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            state.genesis_time = 0;
+            state.slot = Slot::from(slots_per_eth1_voting_period * 3);
+
+            let prev_eth1_hash = Hash256::zero();
+
+            let blocks = (0..eth1_follow_distance * 4)
+                .map(|i| get_eth1_block(i, i))
+                .collect::<Vec<_>>();
+
+            let (new_eth1_data, all_eth1_data) =
+                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec)
+                    .expect("should find data");
+
+            assert_eq!(
+                all_eth1_data.len(),
+                eth1_follow_distance as usize * 2,
+                "all_eth1_data should have appropriate length"
+            );
+            assert_eq!(
+                new_eth1_data.len(),
+                eth1_follow_distance as usize,
+                "new_eth1_data should have appropriate length"
+            );
+
+            for (eth1_data, block_number) in &new_eth1_data {
+                assert_eq!(
+                    all_eth1_data.get(eth1_data),
+                    Some(block_number),
+                    "all_eth1_data should contain all items in new_eth1_data"
+                );
+            }
+
+            (1..=eth1_follow_distance * 2)
+                .map(|i| get_eth1_block(i, i))
+                .for_each(|eth1_block| {
+                    assert_eq!(
+                        eth1_block.number,
+                        *all_eth1_data
+                            .get(&eth1_block.clone().eth1_data().unwrap())
+                            .expect("all_eth1_data should have expected block")
+                    )
+                });
+
+            (eth1_follow_distance + 1..=eth1_follow_distance * 2)
+                .map(|i| get_eth1_block(i, i))
+                .for_each(|eth1_block| {
+                    assert_eq!(
+                        eth1_block.number,
+                        *new_eth1_data
+                            .get(&eth1_block.clone().eth1_data().unwrap())
+                            .expect(&format!(
+                                "new_eth1_data should have expected block #{}",
+                                eth1_block.number
+                            ))
+                    )
+                });
+        }
+    }
+
     mod collect_valid_votes {
         use super::*;
 
@@ -423,8 +593,7 @@ mod test {
                 &state,
                 HashMap::from_iter(new_eth1_data.clone().into_iter()),
                 HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            )
-            .expect("should get valid votes");
+            );
             assert_eq!(
                 votes.len(),
                 0,
@@ -452,8 +621,7 @@ mod test {
                 &state,
                 HashMap::from_iter(new_eth1_data.clone().into_iter()),
                 HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            )
-            .expect("should get valid votes");
+            );
             assert_votes!(
                 votes,
                 new_eth1_data[0..slots as usize / 4].to_vec(),
@@ -486,8 +654,7 @@ mod test {
                 &state,
                 HashMap::from_iter(new_eth1_data.clone().into_iter()),
                 HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            )
-            .expect("should get valid votes");
+            );
             assert_votes!(
                 votes,
                 // There should only be one value if there's a duplicate
@@ -525,8 +692,7 @@ mod test {
                 &state,
                 HashMap::from_iter(new_eth1_data.clone().into_iter()),
                 HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            )
-            .expect("should get valid votes");
+            );
 
             assert_votes!(
                 votes,
@@ -560,8 +726,7 @@ mod test {
                 &state,
                 HashMap::from_iter(new_eth1_data.clone().into_iter()),
                 HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            )
-            .expect("should get valid votes");
+            );
 
             assert_votes!(
                 votes,
