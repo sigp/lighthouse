@@ -5,12 +5,19 @@ pub mod slashing_protection;
 pub mod enums {
     use crate::attester_slashings::InvalidAttestation;
     use crate::proposer_slashings::InvalidBlock;
+    use rusqlite::Error as SQLError;
     use ssz::DecodeError;
     use std::io::{Error as IOError, ErrorKind};
 
     impl From<IOError> for NotSafe {
         fn from(error: IOError) -> NotSafe {
             NotSafe::IOError(error.kind())
+        }
+    }
+
+    impl From<SQLError> for NotSafe {
+        fn from(error: SQLError) -> NotSafe {
+            NotSafe::SQLError(error.to_string())
         }
     }
 
@@ -26,6 +33,7 @@ pub mod enums {
         InvalidBlock(InvalidBlock),
         PruningError,
         IOError(ErrorKind),
+        SQLError(String),
         DecodeError(DecodeError),
     }
 
@@ -41,7 +49,6 @@ pub mod enums {
 
     #[derive(PartialEq, Debug)]
     pub struct Safe {
-        pub insert_index: usize, // index at which the new SignedAttestation should get inserted in the history
         pub reason: ValidityReason, // Used to check if the attestation is a SameVote, in which case it should not get inserted
     }
 }
