@@ -244,6 +244,7 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
     }
 }
 
+/// Produces an `Eth1Data` with all fields sourced from `rand::thread_rng()`.
 fn random_eth1_data() -> Eth1Data {
     let mut rng = rand::thread_rng();
 
@@ -254,6 +255,10 @@ fn random_eth1_data() -> Eth1Data {
             arr
         }};
     }
+
+    // Note: it seems easier to just use `Hash256::random(..)` to get the hash values, however I
+    // prefer to be explicit about the source of entropy instead of relying upon the maintainers of
+    // `Hash256` to ensure their entropy is suitable for our purposes.
 
     Eth1Data {
         block_hash: Hash256::from_slice(&rand_bytes!(32)),
@@ -289,6 +294,11 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
     }
 }
 
+/// Calculates and returns `(new_eth1_data, all_eth1_data)` for the given `state`, based upon the
+/// blocks in the `block` iterator.
+///
+/// `prev_eth1_hash` is the `eth1_data.block_hash` at the start of the voting period defined by
+/// `state.slot`.
 fn eth1_data_sets<'a, T: EthSpec, I>(
     blocks: I,
     state: &BeaconState<T>,
@@ -333,6 +343,8 @@ where
     }
 }
 
+/// Selects and counts the votes in `state.eth1_data_votes`, if they appear in `new_eth1_data` or
+/// `all_eth1_data` when it is the voting period tail.
 fn collect_valid_votes<T: EthSpec>(
     state: &BeaconState<T>,
     new_eth1_data: Eth1DataBlockNumber,
@@ -372,6 +384,7 @@ fn collect_valid_votes<T: EthSpec>(
     valid_votes
 }
 
+/// Selects the winning vote from `valid_votes`.
 fn find_winning_vote(valid_votes: Eth1DataVoteCount) -> Option<Eth1Data> {
     valid_votes
         .iter()
