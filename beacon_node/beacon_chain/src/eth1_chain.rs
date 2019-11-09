@@ -120,6 +120,11 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     ) -> Result<Vec<Deposit>, Error>;
 }
 
+/// Provides a simple, testing-only backend that generates deterministic, meaningless eth1 data.
+///
+/// Never creates deposits, therefore the validator set is static.
+///
+/// This was used in the 2019 Canada interop workshops.
 pub struct DummyEth1ChainBackend<T: EthSpec>(PhantomData<T>);
 
 impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
