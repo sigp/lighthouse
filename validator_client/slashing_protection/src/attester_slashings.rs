@@ -85,6 +85,7 @@ pub fn check_for_attester_slashing(
 ) -> Result<Safe, NotSafe> {
     if attestation_history.is_empty() {
         return Ok(Safe {
+            insert_index: 0,
             reason: ValidityReason::EmptyHistory,
         });
     }
@@ -107,6 +108,7 @@ pub fn check_for_attester_slashing(
             == Hash256::from_slice(&attestation_data.tree_hash_root())
         {
             return Ok(Safe {
+                insert_index: target_index,
                 reason: ValidityReason::SameVote,
             });
         } else {
@@ -137,6 +139,7 @@ pub fn check_for_attester_slashing(
     )?;
 
     Ok(Safe {
+        insert_index: target_index + 1,
         reason: ValidityReason::Valid,
     })
 }
@@ -174,6 +177,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
+                insert_index: 0,
                 reason: ValidityReason::EmptyHistory,
             })
         );
@@ -190,6 +194,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
+                insert_index: 1,
                 reason: ValidityReason::Valid,
             })
         );
@@ -206,6 +211,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
+                insert_index: 2,
                 reason: ValidityReason::Valid,
             })
         );
@@ -221,6 +227,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
+                insert_index: 1,
                 reason: ValidityReason::Valid,
             })
         );
@@ -256,6 +263,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
+                insert_index: 0,
                 reason: ValidityReason::SameVote,
             })
         );
@@ -278,6 +286,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
+                insert_index: 1,
                 reason: ValidityReason::SameVote,
             })
         );
@@ -300,6 +309,7 @@ mod attestation_tests {
         assert_eq!(
             check_for_attester_slashing(&attestation_data, &history[..]),
             Ok(Safe {
+                insert_index: 2,
                 reason: ValidityReason::SameVote,
             })
         );

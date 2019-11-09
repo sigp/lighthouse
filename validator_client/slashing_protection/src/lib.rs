@@ -49,6 +49,7 @@ pub mod enums {
 
     #[derive(PartialEq, Debug)]
     pub struct Safe {
+        pub insert_index: usize,
         pub reason: ValidityReason, // Used to check if the attestation is a SameVote, in which case it should not get inserted
     }
 }

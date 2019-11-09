@@ -2,14 +2,20 @@ use crate::attester_slashings::{check_for_attester_slashing, SignedAttestation};
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
 use rusqlite::{params, Connection};
-use ssz::Encode;
-use std::marker::PhantomData;
 use ssz::Decode;
-use std::os::unix::fs::PermissionsExt;
+use ssz::Encode;
 use std::fs::OpenOptions;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tree_hash::TreeHash;
 use types::{AttestationData, BeaconBlockHeader, Hash256}; // dump data // for dump data
+
+/// Struct used for checking if attestations or blockheaders are safe from slashing.
+#[derive(Debug)]
+pub struct HistoryInfo<T> {
+    conn: Connection,
+    pub data: Vec<T>,
+}
 
 /// Trait used to know if type T can be checked for slashing safety
 pub trait SafeFromSlashing<T> {
@@ -24,19 +30,17 @@ trait CheckAndInsert<T> {
     type U;
 
     fn check(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe>;
-    fn insert(&self, incoming_data: &Self::U) -> Result<(), NotSafe>;
+    fn insert(&mut self, insert_index: usize, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
 impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
 
     fn check(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
-        let mut history = self.dump_data();
-        history.sort_by(|a, b| a.target_epoch.partial_cmp(&b.target_epoch).unwrap());
-        check_for_attester_slashing(incoming_data, &history)
+        check_for_attester_slashing(incoming_data, &self.data[..])
     }
 
-    fn insert(&self, incoming_data: &Self::U) -> Result<(), NotSafe> {
+    fn insert(&mut self, insert_index: usize, incoming_data: &Self::U) -> Result<(), NotSafe> {
         let target: u64 = incoming_data.target.epoch.into();
         let source: u64 = incoming_data.source.epoch.into();
         self.conn.execute(
@@ -48,6 +52,8 @@ impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
                 Hash256::from_slice(&incoming_data.tree_hash_root()).as_ssz_bytes()
             ],
         )?;
+        self.data
+            .insert(insert_index, SignedAttestation::from(incoming_data));
         Ok(())
     }
 }
@@ -56,87 +62,85 @@ impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
     type U = BeaconBlockHeader;
 
     fn check(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
-        let mut history = self.dump_data();
-        history.sort_by(|a, b| a.slot.partial_cmp(&b.slot).unwrap());
-        check_for_proposer_slashing(incoming_data, &history)
+        check_for_proposer_slashing(incoming_data, &self.data[..])
     }
 
-    fn insert(&self, incoming_data: &Self::U) -> Result<(), NotSafe> {
+    fn insert(&mut self, insert_index: usize, incoming_data: &Self::U) -> Result<(), NotSafe> {
         let slot: u64 = incoming_data.slot.into();
         self.conn.execute(
             "INSERT INTO signed_blocks (slot, signing_root)
                 VALUES (?1, ?2)",
-            params![
-                slot as i64,
-                incoming_data.canonical_root().as_ssz_bytes()
-            ],
+            params![slot as i64, incoming_data.canonical_root().as_ssz_bytes()],
         )?;
+        self.data
+            .insert(insert_index, SignedBlock::from(incoming_data));
         Ok(())
     }
 }
 
-    trait DataDump<T> {
-        fn dump_data(&self) -> Vec<T>;
-    }
+trait LoadData<T> {
+    fn load_data(conn: &Connection) -> Vec<T>;
+}
 
-    impl DataDump<SignedAttestation> for HistoryInfo<SignedAttestation> {
-        fn dump_data(&self) -> Vec<SignedAttestation> {
-            let mut attestation_history_select = self
-                .conn
+impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
+    fn load_data(conn: &Connection) -> Vec<SignedAttestation> {
+        let mut attestation_history_select = conn
                 .prepare("select target_epoch, source_epoch, signing_root from signed_attestations order by target_epoch asc")
                 .unwrap();
-            let history = attestation_history_select
-                .query_map(params![], |row| {
-                    let target_i: i64 = row.get(0).unwrap();
-                    let source_i: i64 = row.get(1).unwrap();
-                    let target_epoch = target_i as u64;
-                    let source_epoch = source_i as u64;
-                    let hash_blob: Vec<u8> = row.get(2).unwrap();
-                    let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
-                        .expect("should have a valid ssz encoded hash256 in db");
+        let history = attestation_history_select
+            .query_map(params![], |row| {
+                let target_i: i64 = row.get(0).unwrap();
+                let source_i: i64 = row.get(1).unwrap();
+                let target_epoch = target_i as u64;
+                let source_epoch = source_i as u64;
+                let hash_blob: Vec<u8> = row.get(2).unwrap();
+                let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
+                    .expect("should have a valid ssz encoded hash256 in db");
 
-                    Ok(SignedAttestation::new(
-                        source_epoch,
-                        target_epoch,
-                        signing_root,
-                    ))
-                })
-                .unwrap();
+                Ok(SignedAttestation::new(
+                    source_epoch,
+                    target_epoch,
+                    signing_root,
+                ))
+            })
+            .unwrap();
 
-            let mut attestation_history = vec![];
-            for attestation in history {
-                attestation_history.push(attestation.unwrap())
-            }
-            attestation_history
+        let mut attestation_history = vec![];
+        for attestation in history {
+            attestation_history.push(attestation.unwrap())
         }
+
+        attestation_history.sort_by(|a, b| a.target_epoch.partial_cmp(&b.target_epoch).unwrap());
+        attestation_history
     }
+}
 
-    impl DataDump<SignedBlock> for HistoryInfo<SignedBlock> {
-        fn dump_data(&self) -> Vec<SignedBlock> {
-            let mut block_history_select = self
-                .conn
-                .prepare("select slot, signing_root from signed_blocks order by slot asc")
-                .unwrap();
-            let history = block_history_select
-                .query_map(params![], |row| {
-                    let slot_i: i64 = row.get(0).unwrap();
-                    let slot = slot_i as u64;
-                    let hash_blob: Vec<u8> = row.get(1).unwrap();
-                    let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
-                        .expect("should have a valid ssz encoded hash256 in db");
+impl LoadData<SignedBlock> for Vec<SignedBlock> {
+    fn load_data(conn: &Connection) -> Vec<SignedBlock> {
+        let mut block_history_select = conn
+            .prepare("select slot, signing_root from signed_blocks where slot order by slot asc")
+            .unwrap();
+        let history = block_history_select
+            .query_map(params![], |row| {
+                let slot_i: i64 = row.get(0).unwrap();
+                let slot = slot_i as u64;
+                let hash_blob: Vec<u8> = row.get(1).unwrap();
+                let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
+                    .expect("should have a valid ssz encoded hash256 in db");
 
-                    Ok(SignedBlock::new(slot, signing_root))
-                })
-                .unwrap();
+                Ok(SignedBlock::new(slot, signing_root))
+            })
+            .unwrap();
 
-            let mut block_history = vec![];
-            for block in history {
-                block_history.push(block.unwrap())
-            }
-            block_history
+        let mut block_history = vec![];
+        for block in history {
+            block_history.push(block.unwrap())
         }
-    }
 
+        block_history.sort_by(|a, b| a.slot.partial_cmp(&b.slot).unwrap());
+        block_history
+    }
+}
 
 impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
@@ -146,7 +150,7 @@ impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
         match check {
             Ok(safe) => match safe.reason {
                 ValidityReason::SameVote => Ok(()),
-                _ => self.insert(incoming_data),
+                _ => self.insert(safe.insert_index, incoming_data),
             },
             Err(notsafe) => Err(notsafe),
         }
@@ -161,23 +165,67 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
         match check {
             Ok(safe) => match safe.reason {
                 ValidityReason::SameVote => Ok(()),
-                _ => self.insert(incoming_data),
+                _ => self.insert(safe.insert_index, incoming_data),
             },
             Err(notsafe) => Err(notsafe),
         }
     }
 }
 
-/// Struct used for checking if attestations or blockheaders are safe from slashing.
-#[derive(Debug)]
-pub struct HistoryInfo<T> {
-    conn: Connection,
-    phantom: PhantomData<T>,
+trait OpenOrEmpty<T> {
+    fn empty(path: &Path) -> Result<HistoryInfo<T>, NotSafe>; // should not be NotSafe.. ?
+    fn open(path: &Path) -> Result<HistoryInfo<T>, NotSafe>;
 }
 
-impl<T> HistoryInfo<T> {
-    pub fn empty(path: &Path) -> Result<Self, NotSafe> {
-        let file = OpenOptions::new().write(true).read(true).create(true).open(path)?;
+impl OpenOrEmpty<SignedBlock> for HistoryInfo<SignedBlock> {
+    fn empty(path: &Path) -> Result<Self, NotSafe> {
+        let file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .create(true)
+            .open(path)?;
+
+        let mut perm = file.metadata()?.permissions();
+        perm.set_mode(0o600);
+        file.set_permissions(perm)?;
+        let conn = Connection::open(path)?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS signed_blocks (
+                slot INTEGER,
+                signing_root BLOB
+            )",
+            params![],
+        )?;
+
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS slot_index
+                ON signed_blocks(slot)",
+            params![],
+        )?;
+
+        Ok(Self {
+            conn,
+            data: Vec::new(),
+        })
+    }
+
+    fn open(path: &Path) -> Result<Self, NotSafe> {
+        let conn = Connection::open(path)?;
+
+        let data = <Vec<_> as LoadData<SignedBlock>>::load_data(&conn);
+
+        Ok(Self { conn, data })
+    }
+}
+
+impl OpenOrEmpty<SignedAttestation> for HistoryInfo<SignedAttestation> {
+    fn empty(path: &Path) -> Result<Self, NotSafe> {
+        let file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .create(true)
+            .open(path)?;
 
         let mut perm = file.metadata()?.permissions();
         perm.set_mode(0o600);
@@ -199,32 +247,18 @@ impl<T> HistoryInfo<T> {
             params![],
         )?;
 
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS signed_blocks (
-                slot INTEGER,
-                signing_root BLOB
-            )",
-            params![],
-        )?;
-
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS slot_index
-                ON signed_blocks(slot)",
-            params![],
-        )?;
-
         Ok(Self {
             conn,
-            phantom: PhantomData::<T>,
+            data: Vec::new(),
         })
     }
 
-    pub fn open(path: &Path) -> Result<Self, NotSafe> {
+    fn open(path: &Path) -> Result<Self, NotSafe> {
         let conn = Connection::open(path)?;
-        Ok(Self {
-            conn,
-            phantom: PhantomData::<T>,
-        })
+
+        let data = <Vec<_> as LoadData<SignedAttestation>>::load_data(&conn);
+
+        Ok(Self { conn, data })
     }
 }
 
@@ -234,7 +268,6 @@ mod single_threaded_tests {
     use tempfile::NamedTempFile;
     use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, Slot};
     use types::{Checkpoint, Crosslink, Signature};
-
 
     fn attestation_and_custody_bit_builder(source: u64, target: u64) -> AttestationData {
         let source = build_checkpoint(source);
@@ -287,10 +320,10 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation2));
         expected_vector.push(SignedAttestation::from(&attestation3));
 
-        assert_eq!(expected_vector, attestation_history.dump_data());
+        assert_eq!(expected_vector, attestation_history.data);
 
         // Copying the current data
-        let old_data = attestation_history.dump_data();
+        let old_data = attestation_history.data.clone();
 
         // Dropping the HistoryInfo struct
         drop(attestation_history);
@@ -298,7 +331,7 @@ mod single_threaded_tests {
         let file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
         // Making sure that data in the file is correct
-        assert_eq!(old_data, file_written_version.dump_data());
+        assert_eq!(old_data, file_written_version.data);
 
         attestation_file
             .close()
@@ -333,17 +366,17 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation5));
 
         // Making sure that data in memory is correct..
-        assert_eq!(expected_vector, attestation_history.dump_data());
+        assert_eq!(expected_vector, attestation_history.data);
 
         // Copying the current data
-        let old_data = attestation_history.dump_data();
+        let old_data = attestation_history.data.clone();
         // Dropping the HistoryInfo struct
         drop(attestation_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.dump_data());
+        assert_eq!(old_data, file_written_version.data);
 
         attestation_file
             .close()
@@ -376,17 +409,17 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation5));
 
         // Making sure that data in memory is correct..
-        assert_eq!(expected_vector, attestation_history.dump_data());
+        assert_eq!(expected_vector, attestation_history.data);
 
         // Copying the current data
-        let old_data = attestation_history.dump_data();
+        let old_data = attestation_history.data.clone();
         // Dropping the HistoryInfo struct
         drop(attestation_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.dump_data());
+        assert_eq!(old_data, file_written_version.data);
 
         attestation_file
             .close()
@@ -415,10 +448,10 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation3));
 
         // Making sure that data in memory is correct..
-        assert_eq!(expected_vector, attestation_history.dump_data());
+        assert_eq!(expected_vector, attestation_history.data);
 
         // Copying the current data
-        let old_data = attestation_history.dump_data();
+        let old_data = attestation_history.data.clone();
         // Dropping the HistoryInfo struct
         drop(attestation_history);
 
@@ -426,7 +459,7 @@ mod single_threaded_tests {
         let mut file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
 
-        assert_eq!(old_data, file_written_version.dump_data());
+        assert_eq!(old_data, file_written_version.data);
 
         // Inserting new attestations
         let attestation4 = attestation_and_custody_bit_builder(4, 5);
@@ -441,7 +474,7 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation5));
         expected_vector.push(SignedAttestation::from(&attestation6));
 
-        assert_eq!(expected_vector, file_written_version.dump_data());
+        assert_eq!(expected_vector, file_written_version.data);
         drop(file_written_version);
 
         attestation_file
@@ -471,17 +504,17 @@ mod single_threaded_tests {
         expected_vector.push(SignedBlock::from(&block3));
 
         // Making sure that data in memory is correct.
-        assert_eq!(expected_vector, block_history.dump_data());
+        assert_eq!(expected_vector, block_history.data);
 
         // Copying the current data
-        let old_data = block_history.dump_data();
+        let old_data = block_history.data.clone();
         // Dropping the HistoryInfo struct
         drop(block_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedBlock> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.dump_data());
+        assert_eq!(old_data, file_written_version.data);
 
         block_file
             .close()
@@ -519,17 +552,17 @@ mod single_threaded_tests {
         expected_vector.push(SignedBlock::from(&block4));
 
         // Making sure that data in memory is correct.
-        assert_eq!(expected_vector, block_history.dump_data());
+        assert_eq!(expected_vector, block_history.data);
 
         // Copying the current data
-        let old_data = block_history.dump_data();
+        let old_data = block_history.data.clone();
         // Dropping the HistoryInfo struct
         drop(block_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedBlock> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.dump_data());
+        assert_eq!(old_data, file_written_version.data);
 
         block_file
             .close()
