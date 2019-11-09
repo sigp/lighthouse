@@ -352,9 +352,6 @@ where
     /// Initializes a new, empty (no recorded votes or blocks) fork choice, using the
     /// `ThreadSafeReducedTree` backend.
     ///
-    /// Equivalent to calling `Self::fork_choice_backend` with a new `ThreadSafeReducedTree`
-    /// instance.
-    ///
     /// Requires the store and state to be initialized.
     pub fn empty_reduced_tree_fork_choice(self) -> Result<Self, String> {
         let store = self
@@ -395,8 +392,6 @@ where
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Sets the `BeaconChain` eth1 back-end to `CachingEth1Backend`.
-    ///
-    /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
     pub fn caching_eth1_backend(self, backend: CachingEth1Backend<TEthSpec, TStore>) -> Self {
         self.eth1_backend(Some(backend))
     }
@@ -441,8 +436,6 @@ where
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
     ///
-    /// Equivalent to calling `Self::slot_clock` with `TestingSlotClock`
-    ///
     /// Requires the state to be initialized.
     pub fn testing_slot_clock(self, slot_duration: Duration) -> Result<Self, String> {
         let genesis_time = self
@@ -474,8 +467,6 @@ where
     TEthSpec: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` event handler to `NullEventHandler`.
-    ///
-    /// Equivalent to calling `Self::event_handler` with `NullEventHandler`
     pub fn null_event_handler(self) -> Self {
         let handler = NullEventHandler::default();
         self.event_handler(handler)
