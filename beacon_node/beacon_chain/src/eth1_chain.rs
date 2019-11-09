@@ -193,38 +193,22 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
 
         let blocks = self.core.blocks().read();
 
-        let (new_eth1_data, all_eth1_data) =
-            match eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec) {
-                Ok(val) => val,
-                Err(e) => {
-                    crit!(
-                        self.log,
-                        "Unable to cast valid vote for Eth1Data";
-                        "tip" => "check connection to eth1 node",
-                        "reason" => format!("{:?}", e),
-                    );
-                    // If there is a failure to get either `new_eth1_data` or `all_eth1_data`,
-                    // simply return a random vote.
-                    //
-                    // See: https://github.com/ethereum/eth2.0-specs/issues/1431
-                    return Ok(random_eth1_data());
-                }
-            };
+        let eth1_data = eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec)
+            .map(|(new_eth1_data, all_eth1_data)| {
+                collect_valid_votes(state, new_eth1_data, all_eth1_data)
+            })
+            .and_then(find_winning_vote)
+            .unwrap_or_else(|| {
+                crit!(
+                    self.log,
+                    "Unable to cast valid vote for Eth1Data";
+                    "hint" => "check connection to eth1 node",
+                    "reason" => "no votes",
+                );
+                random_eth1_data()
+            });
 
-        let valid_votes = collect_valid_votes(state, new_eth1_data, all_eth1_data);
-
-        // If there are no suitable eth1 blocks known, log an error and return a random vote.
-        //
-        // See: https://github.com/ethereum/eth2.0-specs/issues/1431
-        Ok(find_winning_vote(valid_votes).unwrap_or_else(|| {
-            crit!(
-                self.log,
-                "Unable to cast valid vote for Eth1Data";
-                "tip" => "check connection to eth1 node",
-                "reason" => "no votes",
-            );
-            random_eth1_data()
-        }))
+        Ok(eth1_data)
     }
 
     fn queued_deposits(
@@ -299,65 +283,43 @@ fn eth1_data_sets<'a, T: EthSpec, I>(
     state: &BeaconState<T>,
     prev_eth1_hash: Hash256,
     spec: &ChainSpec,
-) -> Result<(Eth1DataBlockNumber, Eth1DataBlockNumber), Error>
+) -> Option<(Eth1DataBlockNumber, Eth1DataBlockNumber)>
 where
     T: EthSpec,
     I: DoubleEndedIterator<Item = &'a Eth1Block> + Clone,
 {
-    let slots_per_eth1_voting_period = T::SlotsPerEth1VotingPeriod::to_u64();
+    let period = T::SlotsPerEth1VotingPeriod::to_u64();
     let eth1_follow_distance = spec.eth1_follow_distance;
-
-    let voting_period_start_slot =
-        (state.slot / slots_per_eth1_voting_period) * slots_per_eth1_voting_period;
+    let voting_period_start_slot = (state.slot / period) * period;
     let voting_period_start_seconds = slot_start_seconds::<T>(
         state.genesis_time,
         spec.milliseconds_per_slot,
         voting_period_start_slot,
     );
 
-    let voting_period_start_block_number: u64 = blocks
-        .clone()
+    let in_scope_eth1_data = blocks
         .rev()
-        .find(|block| block.timestamp <= voting_period_start_seconds)
-        .map(|block| block.number)
-        .ok_or_else(|| Error::UnknownVotingPeriodHead)?;
+        .skip_while(|eth1_block| eth1_block.timestamp > voting_period_start_seconds)
+        .skip(eth1_follow_distance as usize)
+        .filter_map(|block| Some((block.clone().eth1_data()?, block.number)));
 
-    let previous_eth1_block_number: u64 = blocks
+    if in_scope_eth1_data
         .clone()
-        .find(|block| block.hash == prev_eth1_hash)
-        .map(|block| block.number)
-        .ok_or_else(|| Error::UnknownPreviousEth1BlockHash)?;
-
-    let new_eth1_data = HashMap::from_iter(
-        blocks
+        .any(|(eth1_data, _)| eth1_data.block_hash == prev_eth1_hash)
+    {
+        let new_eth1_data = in_scope_eth1_data
             .clone()
-            .rev()
-            .skip_while(|block| {
-                block.number > voting_period_start_block_number.saturating_sub(eth1_follow_distance)
-            })
-            .take_while(|block| {
-                block.number
-                    > voting_period_start_block_number.saturating_sub(eth1_follow_distance * 2)
-            })
-            // Note: this filter map quietly ignores any block from before the deposit contract
-            // was deployed.
-            .filter_map(|block| Some((block.clone().eth1_data()?, block.number))),
-    );
+            .take(eth1_follow_distance as usize);
+        let all_eth1_data =
+            in_scope_eth1_data.take_while(|(eth1_data, _)| eth1_data.block_hash != prev_eth1_hash);
 
-    let all_eth1_data = HashMap::from_iter(
-        blocks
-            .clone()
-            .rev()
-            .skip_while(|block| {
-                block.number > voting_period_start_block_number.saturating_sub(eth1_follow_distance)
-            })
-            .take_while(|block| block.number > previous_eth1_block_number)
-            // Note: this filter map quietly ignores any block from before the deposit contract
-            // was deployed.
-            .filter_map(|block| Some((block.clone().eth1_data()?, block.number))),
-    );
-
-    Ok((new_eth1_data, all_eth1_data))
+        Some((
+            HashMap::from_iter(new_eth1_data),
+            HashMap::from_iter(all_eth1_data),
+        ))
+    } else {
+        None
+    }
 }
 
 fn collect_valid_votes<T: EthSpec>(
@@ -642,8 +604,8 @@ mod test {
             let blocks = vec![];
 
             assert_eq!(
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, spec),
-                Err(Error::UnknownVotingPeriodHead)
+                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec),
+                None
             );
         }
 
@@ -659,7 +621,7 @@ mod test {
 
             assert_eq!(
                 eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec),
-                Err(Error::UnknownPreviousEth1BlockHash)
+                None
             );
         }
 
