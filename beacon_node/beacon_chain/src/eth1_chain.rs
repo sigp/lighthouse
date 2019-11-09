@@ -17,6 +17,10 @@ use types::{
 
 const DEPOSIT_TREE_DEPTH: usize = 32;
 
+type BlockNumber = u64;
+type Eth1DataBlockNumber = HashMap<Eth1Data, BlockNumber>;
+type Eth1DataVoteCount = HashMap<(Eth1Data, BlockNumber), u64>;
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// Unable to return an Eth1Data for the given epoch.
@@ -154,6 +158,11 @@ impl<T: EthSpec> Default for DummyEth1ChainBackend<T> {
     }
 }
 
+/// Maintains a cache of eth1 blocks and deposits and provides functions to allow block producers
+/// to include new deposits and vote on `Eth1Data`.
+///
+/// The `core` connects to some external eth1 client (e.g., Parity/Geth) and polls it for
+/// information.
 #[derive(Clone)]
 pub struct CachingEth1Backend<T: EthSpec, S> {
     pub core: HttpService,
@@ -163,6 +172,9 @@ pub struct CachingEth1Backend<T: EthSpec, S> {
 }
 
 impl<T: EthSpec, S: Store> CachingEth1Backend<T, S> {
+    /// Instantiates `self` with empty caches.
+    ///
+    /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
     pub fn new(config: Eth1Config, log: Logger, store: Arc<S>) -> Self {
         Self {
             core: HttpService::new(config, log.clone()),
@@ -172,6 +184,7 @@ impl<T: EthSpec, S: Store> CachingEth1Backend<T, S> {
         }
     }
 
+    /// Starts the routine which connects to the external eth1 node and updates the caches.
     pub fn start(&self, exit: Exit) -> impl Future<Item = (), Error = ()> {
         self.core.auto_update(exit)
     }
@@ -249,6 +262,8 @@ fn random_eth1_data() -> Eth1Data {
     }
 }
 
+/// Returns `state.eth1_data.block_hash` at the start of eth1 voting period defined by
+/// `state.slot`.
 fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
     store: Arc<S>,
     state: &BeaconState<T>,
@@ -269,14 +284,10 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
         store
             .get::<BeaconState<T>>(&prev_state_root)
             .map_err(|e| Error::StoreError(e))?
-            .ok_or_else(|| Error::PreviousStateNotInDB)
             .map(|state| state.eth1_data.block_hash)
+            .ok_or_else(|| Error::PreviousStateNotInDB)
     }
 }
-
-type BlockNumber = u64;
-type Eth1DataBlockNumber = HashMap<Eth1Data, BlockNumber>;
-type Eth1DataVoteCount = HashMap<(Eth1Data, BlockNumber), u64>;
 
 fn eth1_data_sets<'a, T: EthSpec, I>(
     blocks: I,
@@ -399,6 +410,11 @@ mod test {
             deposit_root: Hash256::from_low_u64_be(u64::max_value() - i),
             deposit_count: i,
         }
+    }
+
+    #[test]
+    fn random_eth1_data_doesnt_panic() {
+        random_eth1_data();
     }
 
     #[test]
