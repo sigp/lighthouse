@@ -155,14 +155,14 @@ impl<T: EthSpec> Default for DummyEth1ChainBackend<T> {
 }
 
 #[derive(Clone)]
-pub struct JsonRpcEth1Backend<T: EthSpec, S> {
+pub struct CachingEth1Backend<T: EthSpec, S> {
     pub core: HttpService,
     store: Arc<S>,
     log: Logger,
     _phantom: PhantomData<T>,
 }
 
-impl<T: EthSpec, S: Store> JsonRpcEth1Backend<T, S> {
+impl<T: EthSpec, S: Store> CachingEth1Backend<T, S> {
     pub fn new(config: Eth1Config, log: Logger, store: Arc<S>) -> Self {
         Self {
             core: HttpService::new(config, log.clone()),
@@ -187,7 +187,7 @@ impl<T: EthSpec, S: Store> JsonRpcEth1Backend<T, S> {
     }
 }
 
-impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for JsonRpcEth1Backend<T, S> {
+impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
     fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
         let prev_eth1_hash = eth1_block_hash_at_start_of_voting_period(self.store.clone(), state)?;
 
@@ -213,10 +213,7 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for JsonRpcEth1Backend<T, S> {
 
         let valid_votes = collect_valid_votes(state, new_eth1_data, all_eth1_data);
 
-        // If there is no winning vote, there mustn't be any votes at all. Therefore, we should log
-        // an error but return a random vote.
-        //
-        // This behaviour is effectively "vote random junk if my eth1 cache is not ready".
+        // If there are no suitable eth1 blocks known, log an error and return a random vote.
         //
         // See: https://github.com/ethereum/eth2.0-specs/issues/1431
         Ok(find_winning_vote(valid_votes).unwrap_or_else(|| {
@@ -489,7 +486,7 @@ mod test {
 
             let log = null_logger().unwrap();
             let store = Arc::new(MemoryStore::open());
-            let eth1_chain = Eth1Chain::new(JsonRpcEth1Backend::new(eth1_config, log, store));
+            let eth1_chain = Eth1Chain::new(CachingEth1Backend::new(eth1_config, log, store));
 
             assert_eq!(
                 eth1_chain.use_dummy_backend, false,
@@ -523,7 +520,7 @@ mod test {
             let log = null_logger().unwrap();
             let store = Arc::new(MemoryStore::open());
             let eth1_chain =
-                Eth1Chain::new(JsonRpcEth1Backend::new(eth1_config, log, store.clone()));
+                Eth1Chain::new(CachingEth1Backend::new(eth1_config, log, store.clone()));
 
             assert_eq!(
                 eth1_chain.use_dummy_backend, false,

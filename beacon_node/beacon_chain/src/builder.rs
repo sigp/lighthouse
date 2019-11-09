@@ -1,4 +1,4 @@
-use crate::eth1_chain::JsonRpcEth1Backend;
+use crate::eth1_chain::CachingEth1Backend;
 use crate::events::NullEventHandler;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::{
@@ -17,17 +17,48 @@ use std::time::Duration;
 use store::Store;
 use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
-/// Builds a `BeaconChain`, either creating anew from genesis or resuming from an existing chain
+/// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
+/// functionality and only exists to satisfy the type system.
+pub struct Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>(
+    PhantomData<(
+        TStore,
+        TSlotClock,
+        TLmdGhost,
+        TEth1Backend,
+        TEthSpec,
+        TEventHandler,
+    )>,
+);
+
+impl<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler> BeaconChainTypes
+    for Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+where
+    TStore: Store + 'static,
+    TSlotClock: SlotClock + 'static,
+    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEthSpec: EthSpec + 'static,
+    TEventHandler: EventHandler<TEthSpec> + 'static,
+{
+    type Store = TStore;
+    type SlotClock = TSlotClock;
+    type LmdGhost = TLmdGhost;
+    type Eth1Chain = TEth1Backend;
+    type EthSpec = TEthSpec;
+    type EventHandler = TEventHandler;
+}
+
+/// Builds a `BeaconChain` by either creating anew from genesis, or, resuming from an existing chain
 /// persisted to `store`.
 ///
 /// Types may be elided and the compiler will infer them if all necessary builder methods have been
-/// called. If type inference errors are being raised it is likely that not all sufficient methods
+/// called. If type inference errors are being raised, it is likely that not all required methods
 /// have been called.
 ///
 /// See the tests for an example of a complete working example.
 pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     store: Option<Arc<T::Store>>,
-    /// The finalized checkpoint that will be used to start the chain. May be genesis or a higher
+    /// The finalized checkpoint to anchor the chain. May be genesis or a higher
     /// checkpoint.
     pub finalized_checkpoint: Option<CheckPoint<T::EthSpec>>,
     genesis_block_root: Option<Hash256>,
@@ -96,6 +127,9 @@ where
         self
     }
 
+    /// Attempt to load an existing chain from the builder's `Store`.
+    ///
+    /// May initialize several components; including the op_pool and finalized checkpoints.
     pub fn resume_from_db(mut self) -> Result<Self, String> {
         let log = self
             .log
@@ -138,7 +172,7 @@ where
         Ok(self)
     }
 
-    /// Starts a new chain from genesis a genesis state.
+    /// Starts a new chain from a genesis state.
     pub fn genesis_state(
         mut self,
         mut beacon_state: BeaconState<TEthSpec>,
@@ -185,11 +219,9 @@ where
         Ok(self.empty_op_pool())
     }
 
-    /// Sets the `BeaconChain` fork choice back-end.
+    /// Sets the `BeaconChain` fork choice backend.
     ///
     /// Requires the store and state to have been specified earlier in the build chain.
-    ///
-    /// For example, provide `ThreadSafeReducedTree` as a `backend`.
     pub fn fork_choice_backend(mut self, backend: TLmdGhost) -> Result<Self, String> {
         let store = self
             .store
@@ -204,15 +236,13 @@ where
         Ok(self)
     }
 
-    /// Sets the `BeaconChain` eth1 back-end.
-    ///
-    /// For example, provide `InteropEth1ChainBackend` as a `backend`.
+    /// Sets the `BeaconChain` eth1 backend.
     pub fn eth1_backend(mut self, backend: Option<TEth1Backend>) -> Self {
         self.eth1_chain = backend.map(Eth1Chain::new);
         self
     }
 
-    /// Sets the `BeaconChain` event handler back-end.
+    /// Sets the `BeaconChain` event handler backend.
     ///
     /// For example, provide `WebSocketSender` as a `handler`.
     pub fn event_handler(mut self, handler: TEventHandler) -> Self {
@@ -237,7 +267,9 @@ where
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
-    /// Will also raise ambiguous type errors if some parameters have not been configured.
+    ///
+    /// Will also raise ambiguous type errors at compile time if some parameters have not been
+    /// configured.
     #[allow(clippy::type_complexity)] // I think there's nothing to be gained here from a type alias.
     pub fn build(
         self,
@@ -350,7 +382,7 @@ impl<TStore, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
             TStore,
             TSlotClock,
             TLmdGhost,
-            JsonRpcEth1Backend<TEthSpec, TStore>,
+            CachingEth1Backend<TEthSpec, TStore>,
             TEthSpec,
             TEventHandler,
         >,
@@ -362,10 +394,10 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
-    /// Sets the `BeaconChain` eth1 back-end to `JsonRpcEth1Backend`.
+    /// Sets the `BeaconChain` eth1 back-end to `CachingEth1Backend`.
     ///
     /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
-    pub fn json_rpc_eth1_backend(self, backend: JsonRpcEth1Backend<TEthSpec, TStore>) -> Self {
+    pub fn caching_eth1_backend(self, backend: CachingEth1Backend<TEthSpec, TStore>) -> Self {
         self.eth1_backend(Some(backend))
     }
 
@@ -385,7 +417,7 @@ where
             .clone()
             .ok_or_else(|| "dummy_eth1_backend requires a store.".to_string())?;
 
-        let backend = JsonRpcEth1Backend::new(Eth1Config::default(), log.clone(), store);
+        let backend = CachingEth1Backend::new(Eth1Config::default(), log.clone(), store);
 
         let mut eth1_chain = Eth1Chain::new(backend);
         eth1_chain.use_dummy_backend = true;
@@ -448,37 +480,6 @@ where
         let handler = NullEventHandler::default();
         self.event_handler(handler)
     }
-}
-
-/// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
-/// functionality and only exists to satisfy the type system.
-pub struct Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>(
-    PhantomData<(
-        TStore,
-        TSlotClock,
-        TLmdGhost,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-    )>,
-);
-
-impl<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler> BeaconChainTypes
-    for Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
-where
-    TStore: Store + 'static,
-    TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
-{
-    type Store = TStore;
-    type SlotClock = TSlotClock;
-    type LmdGhost = TLmdGhost;
-    type Eth1Chain = TEth1Backend;
-    type EthSpec = TEthSpec;
-    type EventHandler = TEventHandler;
 }
 
 fn genesis_block<T: EthSpec>(genesis_state: &BeaconState<T>, spec: &ChainSpec) -> BeaconBlock<T> {

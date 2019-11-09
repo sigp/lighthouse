@@ -2,7 +2,7 @@ use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::Client;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
-    eth1_chain::JsonRpcEth1Backend,
+    eth1_chain::CachingEth1Backend,
     lmd_ghost::ThreadSafeReducedTree,
     slot_clock::{SlotClock, SystemTimeSlotClock},
     store::{DiskStore, MemoryStore, Store},
@@ -530,7 +530,7 @@ impl<TStore, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
             TStore,
             TSlotClock,
             TLmdGhost,
-            JsonRpcEth1Backend<TEthSpec, TStore>,
+            CachingEth1Backend<TEthSpec, TStore>,
             TEthSpec,
             TEventHandler,
         >,
@@ -542,24 +542,24 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
-    /// Sets the `BeaconChain` eth1 back-end to `JsonRpcEth1Backend`.
+    /// Sets the `BeaconChain` eth1 back-end to `CachingEth1Backend`.
     ///
     /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
-    pub fn json_rpc_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
+    pub fn caching_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "json_rpc_eth1_backend requires a runtime_context")?
+            .ok_or_else(|| "caching_eth1_backend requires a runtime_context")?
             .service_context("eth1_rpc");
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "json_rpc_eth1_backend requires a beacon_chain_builder")?;
+            .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "json_rpc_eth1_backend requires a store".to_string())?;
+            .ok_or_else(|| "caching_eth1_backend requires a store".to_string())?;
 
-        let backend = JsonRpcEth1Backend::new(config, context.log, store);
+        let backend = CachingEth1Backend::new(config, context.log, store);
 
         let exit = {
             let (tx, rx) = exit_future::signal();
@@ -579,7 +579,7 @@ where
     pub fn no_eth1_backend(mut self) -> Result<Self, String> {
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "json_rpc_eth1_backend requires a beacon_chain_builder")?;
+            .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
 
         self.beacon_chain_builder = Some(beacon_chain_builder.no_eth1_backend());
 
@@ -593,12 +593,12 @@ where
     ///
     /// ## Notes
     ///
-    /// The client is given the `JsonRpcEth1Backend` type, but the http backend is never started and the
+    /// The client is given the `CachingEth1Backend` type, but the http backend is never started and the
     /// caches are never used.
     pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
         let beacon_chain_builder = self
             .beacon_chain_builder
-            .ok_or_else(|| "json_rpc_eth1_backend requires a beacon_chain_builder")?;
+            .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
 
         self.beacon_chain_builder = Some(beacon_chain_builder.dummy_eth1_backend()?);
 

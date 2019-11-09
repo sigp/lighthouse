@@ -1,6 +1,6 @@
 use crate::{
     builder::{BeaconChainBuilder, Witness},
-    eth1_chain::JsonRpcEth1Backend,
+    eth1_chain::CachingEth1Backend,
     events::NullEventHandler,
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
@@ -29,7 +29,7 @@ pub type HarnessType<E> = Witness<
     MemoryStore,
     TestingSlotClock,
     ThreadSafeReducedTree<MemoryStore, E>,
-    JsonRpcEth1Backend<E, MemoryStore>,
+    CachingEth1Backend<E, MemoryStore>,
     E,
     NullEventHandler<E>,
 >;

@@ -10,7 +10,7 @@ pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::{
-    builder::Witness, eth1_chain::JsonRpcEth1Backend, events::WebSocketSender,
+    builder::Witness, eth1_chain::CachingEth1Backend, events::WebSocketSender,
     lmd_ghost::ThreadSafeReducedTree, slot_clock::SystemTimeSlotClock,
 };
 use clap::ArgMatches;
@@ -28,7 +28,7 @@ pub type ProductionClient<E> = Client<
         DiskStore,
         SystemTimeSlotClock,
         ThreadSafeReducedTree<DiskStore, E>,
-        JsonRpcEth1Backend<E, DiskStore>,
+        CachingEth1Backend<E, DiskStore>,
         E,
         WebSocketSender<E>,
     >,
@@ -100,7 +100,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                         "endpoint" => &client_config.eth1.endpoint,
                         "method" => "json rpc via http"
                     );
-                    builder.json_rpc_eth1_backend(client_config.eth1.clone())?
+                    builder.caching_eth1_backend(client_config.eth1.clone())?
                 } else if client_config.dummy_eth1_backend {
                     warn!(
                         log,
