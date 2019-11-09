@@ -1,17 +1,15 @@
 #![cfg(test)]
 
 use node_test_rig::{environment::EnvironmentBuilder, LocalBeaconNode};
-use types::{EthSpec, Slot};
+use types::{MinimalEthSpec, Slot};
 
-#[test]
-fn http_server_minimal() {
-    test_http_server(EnvironmentBuilder::minimal());
+fn env_builder() -> EnvironmentBuilder<MinimalEthSpec> {
+    EnvironmentBuilder::minimal()
 }
 
-// TODO: add other spec configs.
-
-fn test_http_server<E: EthSpec>(env_builder: EnvironmentBuilder<E>) {
-    let mut env = env_builder
+#[test]
+fn http_server_genesis_state() {
+    let mut env = env_builder()
         .null_logger()
         .expect("should build env logger")
         .tokio_runtime()
