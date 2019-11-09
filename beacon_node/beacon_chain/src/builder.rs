@@ -33,7 +33,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     genesis_block_root: Option<Hash256>,
     op_pool: Option<OperationPool<T::EthSpec>>,
     fork_choice: Option<ForkChoice<T>>,
-    eth1_chain: Option<Eth1Chain<T>>,
+    eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
     spec: ChainSpec,

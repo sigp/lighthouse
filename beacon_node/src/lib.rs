@@ -28,7 +28,7 @@ pub type ProductionClient<E> = Client<
         DiskStore,
         SystemTimeSlotClock,
         ThreadSafeReducedTree<DiskStore, E>,
-        JsonRpcEth1Backend<E>,
+        JsonRpcEth1Backend<E, DiskStore>,
         E,
         WebSocketSender<E>,
     >,

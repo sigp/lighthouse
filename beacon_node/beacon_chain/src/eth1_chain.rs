@@ -1,4 +1,3 @@
-use crate::BeaconChainTypes;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use exit_future::Exit;
@@ -45,18 +44,28 @@ pub enum Error {
 }
 
 /// Holds an `Eth1ChainBackend` and serves requests from the `BeaconChain`.
-pub struct Eth1Chain<T: BeaconChainTypes> {
-    backend: T::Eth1Chain,
+pub struct Eth1Chain<T, E>
+where
+    T: Eth1ChainBackend<E>,
+    E: EthSpec,
+{
+    backend: T,
     /// When `true`, the backend will be ignored and dummy data from the 2019 Canada interop method
     /// will be used instead.
     pub use_dummy_backend: bool,
+    _phantom: PhantomData<E>,
 }
 
-impl<T: BeaconChainTypes> Eth1Chain<T> {
-    pub fn new(backend: T::Eth1Chain) -> Self {
+impl<T, E> Eth1Chain<T, E>
+where
+    T: Eth1ChainBackend<E>,
+    E: EthSpec,
+{
+    pub fn new(backend: T) -> Self {
         Self {
             backend,
             use_dummy_backend: false,
+            _phantom: PhantomData,
         }
     }
 
@@ -64,7 +73,7 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
     /// `state`.
     pub fn eth1_data_for_block_production(
         &self,
-        state: &BeaconState<T::EthSpec>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<Eth1Data, Error> {
         if self.use_dummy_backend {
@@ -80,7 +89,7 @@ impl<T: BeaconChainTypes> Eth1Chain<T> {
     /// invalid.
     pub fn deposits_for_block_inclusion(
         &self,
-        state: &BeaconState<T::EthSpec>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
         if self.use_dummy_backend {
@@ -460,86 +469,109 @@ mod test {
         }
     }
 
-    /*
-    mod json_backend {
+    mod eth1_chain_json_backend {
         use super::*;
+        use environment::null_logger;
         use store::MemoryStore;
 
         #[test]
-        fn thingo() {
-            let mut spec = E::default_spec();
-            spec.milliseconds_per_slot = 1_000;
-
-            let slots_per_eth1_voting_period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-            let eth1_follow_distance = spec.eth1_follow_distance;
+        fn empty_cache() {
+            let spec = &E::default_spec();
 
             let eth1_config = Eth1Config {
-                follow_distance: eth1_follow_distance,
                 ..Eth1Config::default()
             };
 
-            let backend = JsonRpcEth1Backend::new(config, )
+            let log = null_logger().unwrap();
+            let store = Arc::new(MemoryStore::open());
+            let eth1_chain = Eth1Chain::new(JsonRpcEth1Backend::new(eth1_config, log, store));
+
+            assert_eq!(
+                eth1_chain.use_dummy_backend, false,
+                "test should not use dummy backend"
+            );
+
+            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+
+            let a = eth1_chain
+                .eth1_data_for_block_production(&state, &spec)
+                .expect("should produce first random eth1 data");
+            let b = eth1_chain
+                .eth1_data_for_block_production(&state, &spec)
+                .expect("should produce second random eth1 data");
+
+            assert!(
+                a != b,
+                "random votes should be returned with an empty cache"
+            );
+        }
+
+        #[test]
+        fn unknown_previous_state() {
+            let spec = &E::default_spec();
+            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+
+            let eth1_config = Eth1Config {
+                ..Eth1Config::default()
+            };
+
+            let log = null_logger().unwrap();
+            let store = Arc::new(MemoryStore::open());
+            let eth1_chain =
+                Eth1Chain::new(JsonRpcEth1Backend::new(eth1_config, log, store.clone()));
+
+            assert_eq!(
+                eth1_chain.use_dummy_backend, false,
+                "test should not use dummy backend"
+            );
 
             let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
-            state.genesis_time = 0;
-            state.slot = Slot::from(slots_per_eth1_voting_period * 3);
+            let mut prev_state = state.clone();
 
-            let prev_eth1_hash = Hash256::zero();
+            prev_state.slot = Slot::new(period * 1_000);
+            state.slot = Slot::new(period * 1_000 + period / 2);
 
-            let blocks = (0..eth1_follow_distance * 4)
-                .map(|i| get_eth1_block(i, i))
-                .collect::<Vec<_>>();
+            (0..2048).for_each(|i| {
+                eth1_chain
+                    .backend
+                    .core
+                    .blocks()
+                    .write()
+                    .insert_root_or_child(get_eth1_block(i, i))
+                    .expect("should add blocks to cache");
+            });
 
-            let (new_eth1_data, all_eth1_data) =
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec)
-                    .expect("should find data");
+            let expected_root = Hash256::from_low_u64_be(u64::max_value());
+            prev_state.eth1_data.block_hash = expected_root;
 
-            assert_eq!(
-                all_eth1_data.len(),
-                eth1_follow_distance as usize * 2,
-                "all_eth1_data should have appropriate length"
+            assert!(
+                prev_state.eth1_data != state.eth1_data,
+                "test requires state eth1_data are different"
             );
-            assert_eq!(
-                new_eth1_data.len(),
-                eth1_follow_distance as usize,
-                "new_eth1_data should have appropriate length"
+
+            store
+                .put(
+                    &state
+                        .get_state_root(prev_state.slot)
+                        .expect("should find state root"),
+                    &prev_state,
+                )
+                .expect("should store state");
+
+            let a = eth1_chain
+                .eth1_data_for_block_production(&state, &spec)
+                .expect("should produce first random eth1 data");
+            let b = eth1_chain
+                .eth1_data_for_block_production(&state, &spec)
+                .expect("should produce second random eth1 data");
+
+            assert!(
+                a != b,
+                "random votes should be returned if the previous eth1 data block hash is unknown"
             );
-
-            for (eth1_data, block_number) in &new_eth1_data {
-                assert_eq!(
-                    all_eth1_data.get(eth1_data),
-                    Some(block_number),
-                    "all_eth1_data should contain all items in new_eth1_data"
-                );
-            }
-
-            (1..=eth1_follow_distance * 2)
-                .map(|i| get_eth1_block(i, i))
-                .for_each(|eth1_block| {
-                    assert_eq!(
-                        eth1_block.number,
-                        *all_eth1_data
-                            .get(&eth1_block.clone().eth1_data().unwrap())
-                            .expect("all_eth1_data should have expected block")
-                    )
-                });
-
-            (eth1_follow_distance + 1..=eth1_follow_distance * 2)
-                .map(|i| get_eth1_block(i, i))
-                .for_each(|eth1_block| {
-                    assert_eq!(
-                        eth1_block.number,
-                        *new_eth1_data
-                            .get(&eth1_block.clone().eth1_data().unwrap())
-                            .expect(&format!(
-                                "new_eth1_data should have expected block #{}",
-                                eth1_block.number
-                            ))
-                    )
-                });
         }
     }
-    */
+
     mod prev_block_hash {
         use super::*;
         use store::MemoryStore;

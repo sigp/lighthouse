@@ -64,12 +64,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     }
 
     pub fn null_logger(mut self) -> Result<Self, String> {
-        let log_builder = NullLoggerBuilder;
-        self.log = Some(
-            log_builder
-                .build()
-                .map_err(|e| format!("Failed to start null logger: {:?}", e))?,
-        );
+        self.log = Some(null_logger()?);
         Ok(self)
     }
 
@@ -207,4 +202,11 @@ impl<E: EthSpec> Environment<E> {
     pub fn validator_client_log(&self) -> Logger {
         self.log.new(o!("client" => "validator"))
     }
+}
+
+pub fn null_logger() -> Result<Logger, String> {
+    let log_builder = NullLoggerBuilder;
+    log_builder
+        .build()
+        .map_err(|e| format!("Failed to start null logger: {:?}", e))
 }

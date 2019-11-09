@@ -110,7 +110,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// inclusion in a block.
     pub op_pool: OperationPool<T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
-    pub eth1_chain: Option<Eth1Chain<T>>,
+    pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
     pub(crate) canonical_head: RwLock<CheckPoint<T::EthSpec>>,
     /// The root of the genesis block.

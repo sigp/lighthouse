@@ -530,7 +530,7 @@ impl<TStore, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
             TStore,
             TSlotClock,
             TLmdGhost,
-            JsonRpcEth1Backend<TEthSpec>,
+            JsonRpcEth1Backend<TEthSpec, TStore>,
             TEthSpec,
             TEventHandler,
         >,
@@ -554,8 +554,12 @@ where
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or_else(|| "json_rpc_eth1_backend requires a beacon_chain_builder")?;
+        let store = self
+            .store
+            .clone()
+            .ok_or_else(|| "json_rpc_eth1_backend requires a store".to_string())?;
 
-        let backend = JsonRpcEth1Backend::new(config, context.log);
+        let backend = JsonRpcEth1Backend::new(config, context.log, store);
 
         let exit = {
             let (tx, rx) = exit_future::signal();

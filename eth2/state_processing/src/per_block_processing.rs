@@ -445,7 +445,6 @@ pub fn process_deposit<T: EthSpec>(
         // The signature should be checked for new validators. Return early for a bad
         // signature.
         if verify_deposit_signature(&deposit.data, spec).is_err() {
-            dbg!("bad sig boi");
             return Ok(());
         }
 
