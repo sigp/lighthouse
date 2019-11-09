@@ -1,5 +1,5 @@
-pub mod attester_slashings;
-pub mod proposer_slashings;
+mod attester_slashings;
+mod proposer_slashings;
 pub mod slashing_protection;
 
 pub mod enums {

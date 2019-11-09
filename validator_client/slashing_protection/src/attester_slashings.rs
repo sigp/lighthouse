@@ -1,24 +1,21 @@
 use crate::enums::{NotSafe, Safe, ValidityReason};
-use rusqlite::{params, Connection};
-use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use std::convert::From;
-use std::str::FromStr;
 use tree_hash::TreeHash;
 use types::{AttestationData, Epoch, Hash256};
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq)]
 pub struct SignedAttestation {
     source_epoch: Epoch,
-    target_epoch: Epoch,
+    pub target_epoch: Epoch,
     signing_root: Hash256,
 }
 
 impl SignedAttestation {
-    pub fn new(source_epoch: Epoch, target_epoch: Epoch, signing_root: Hash256) -> Self {
+    pub fn new(source_epoch: u64, target_epoch: u64, signing_root: Hash256) -> Self {
         Self {
-            source_epoch,
-            target_epoch,
+            source_epoch: Epoch::from(source_epoch),
+            target_epoch: Epoch::from(target_epoch),
             signing_root,
         }
     }
@@ -84,40 +81,15 @@ fn check_surrounding(
 /// Checks if the incoming attestation is surrounding a vote, is a surrounded by another vote, or if it is a double vote.
 pub fn check_for_attester_slashing(
     attestation_data: &AttestationData,
-    conn: &Connection,
+    attestation_history: &[SignedAttestation],
 ) -> Result<Safe, NotSafe> {
-    let mut is_empty_stmt = conn.prepare("select exists (select 1 from MyTable)")?;
-
-    if is_empty_stmt.exists(params![])? {
+    if attestation_history.is_empty() {
         return Ok(Safe {
             reason: ValidityReason::EmptyHistory,
         });
     }
 
-    // optimize by selecting only what we need?
-    let mut attestation_history_select =
-        conn.prepare("select slot, signing_root from signed_blocks order by slot asc")?;
-    let history = attestation_history_select.query_map(params![], |row| {
-        let target_str: String = row.get(0)?;
-        let source_str: String = row.get(1)?;
-        let hash_blob: Vec<u8> = row.get(2)?;
-
-        Ok(SignedAttestation {
-            target_epoch: Epoch::from(
-                u64::from_str(target_str.as_ref()).expect("should have a valid u64 stored in db"),
-            ),
-            source_epoch: Epoch::from(
-                u64::from_str(source_str.as_ref()).expect("should have a valid u64 stored in db"),
-            ),
-            signing_root: Hash256::from_ssz_bytes(hash_blob.as_ref())
-                .expect("should have a valid ssz encoded hash256 in db"),
-        })
-    })?;
-
-    let mut attestation_history = vec![];
-    for attestation in history {
-        attestation_history.push(attestation.unwrap())
-    }
+    let attestation_data = &attestation_data;
 
     // Getting the index of the current SignedAttestation that is closest to the incoming attestation
     let target_index = match attestation_history
@@ -169,7 +141,7 @@ pub fn check_for_attester_slashing(
     })
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod attestation_tests {
     use super::*;
     use types::{Checkpoint, Crosslink};
@@ -178,16 +150,6 @@ mod attestation_tests {
         Checkpoint {
             epoch: Epoch::from(epoch_num),
             root: Hash256::zero(),
-        }
-    }
-
-    impl SignedAttestation {
-        fn new(source_epoch: u64, target_epoch: u64, signing_root: Hash256) -> Self {
-            Self {
-                source_epoch: Epoch::from(source_epoch),
-                target_epoch: Epoch::from(target_epoch),
-                signing_root,
-            }
         }
     }
 
@@ -587,4 +549,3 @@ mod attestation_tests {
         );
     }
 }
-*/

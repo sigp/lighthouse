@@ -1,9 +1,6 @@
 use crate::enums::{NotSafe, Safe, ValidityReason};
-use rusqlite::{params, Connection};
-use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use std::convert::From;
-use std::str::FromStr;
 use types::{BeaconBlockHeader, Hash256, Slot};
 
 #[derive(PartialEq, Debug)]
@@ -14,13 +11,16 @@ pub enum InvalidBlock {
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq)]
 pub struct SignedBlock {
-    slot: Slot,
+    pub slot: Slot,
     signing_root: Hash256,
 }
 
 impl SignedBlock {
-    pub fn new(slot: Slot, signing_root: Hash256) -> Self {
-        Self { slot, signing_root }
+    pub fn new(slot: u64, signing_root: Hash256) -> Self {
+        Self {
+            slot: Slot::from(slot),
+            signing_root,
+        }
     }
 }
 
@@ -35,34 +35,12 @@ impl From<&BeaconBlockHeader> for SignedBlock {
 
 pub fn check_for_proposer_slashing(
     block_header: &BeaconBlockHeader,
-    conn: &Connection,
+    block_history: &[SignedBlock],
 ) -> Result<Safe, NotSafe> {
-    let mut is_empty_stmt = conn.prepare("select exists (select 1 from MyTable)")?;
-
-    if is_empty_stmt.exists(params![])? {
+    if block_history.is_empty() {
         return Ok(Safe {
             reason: ValidityReason::EmptyHistory,
         });
-    }
-
-    // optimize by selecting only what we need?
-    let mut block_history_select =
-        conn.prepare("select slot, signing_root from signed_blocks order by slot asc")?;
-    let history = block_history_select.query_map(params![], |row| {
-        let slot_str: String = row.get(0)?;
-        let hash_blob: Vec<u8> = row.get(1)?;
-        Ok(SignedBlock {
-            slot: Slot::from(
-                u64::from_str(slot_str.as_ref()).expect("should have a valid u64 stored in db"),
-            ),
-            signing_root: Hash256::from_ssz_bytes(hash_blob.as_ref())
-                .expect("should have a valid ssz encoded hash256 in db"),
-        })
-    })?;
-
-    let mut block_history = vec![];
-    for block in history {
-        block_history.push(block.unwrap())
     }
 
     let latest_signed_block = &block_history[block_history.len() - 1];
@@ -99,19 +77,10 @@ pub fn check_for_proposer_slashing(
     }
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod block_tests {
     use super::*;
     use types::{BeaconBlockHeader, Signature};
-
-    impl SignedBlock {
-        fn new(slot: u64, signing_root: Hash256) -> Self {
-            Self {
-                slot: Slot::from(slot),
-                signing_root,
-            }
-        }
-    }
 
     fn block_builder(slot: u64) -> BeaconBlockHeader {
         BeaconBlockHeader {
@@ -221,4 +190,3 @@ mod block_tests {
         );
     }
 }
-*/

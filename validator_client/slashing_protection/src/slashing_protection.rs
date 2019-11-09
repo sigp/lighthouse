@@ -1,16 +1,16 @@
 use crate::attester_slashings::{check_for_attester_slashing, SignedAttestation};
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
-use rusqlite::Error as SQLError;
 use rusqlite::{params, Connection};
-use ssz::{Decode, Encode};
-use std::fs::File;
+use ssz::Encode;
 use std::marker::PhantomData;
+use ssz::Decode;
+use std::str::FromStr;
 use std::os::unix::fs::PermissionsExt;
+use std::fs::OpenOptions;
 use std::path::Path;
-use std::str::FromStr; // for dump data
 use tree_hash::TreeHash;
-use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, Slot}; // dump data // for dump data
+use types::{AttestationData, BeaconBlockHeader, Hash256}; // dump data // for dump data
 
 /// Trait used to know if type T can be checked for slashing safety
 pub trait SafeFromSlashing<T> {
@@ -32,16 +32,20 @@ impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
 
     fn check(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
-        check_for_attester_slashing(incoming_data, &self.conn)
+        let mut history = self.dump_data();
+        history.sort_by(|a, b| a.target_epoch.partial_cmp(&b.target_epoch).unwrap());
+        check_for_attester_slashing(incoming_data, &history)
     }
 
     fn insert(&self, incoming_data: &Self::U) -> Result<(), NotSafe> {
+        let target: u64 = incoming_data.target.epoch.into();
+        let source: u64 = incoming_data.source.epoch.into();
         self.conn.execute(
-            "INSERT INTO signed_attestations (target_epoch, source_epoch, hash)
+            "INSERT INTO signed_attestations (target_epoch, source_epoch, signing_root)
         VALUES (?1, ?2, ?3)",
             params![
-                incoming_data.target.epoch.to_string(),
-                incoming_data.source.epoch.to_string(),
+                target as i64,
+                source as i64,
                 Hash256::from_slice(&incoming_data.tree_hash_root()).as_ssz_bytes()
             ],
         )?;
@@ -53,21 +57,87 @@ impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
     type U = BeaconBlockHeader;
 
     fn check(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
-        check_for_proposer_slashing(incoming_data, &self.conn)
+        let mut history = self.dump_data();
+        history.sort_by(|a, b| a.slot.partial_cmp(&b.slot).unwrap());
+        check_for_proposer_slashing(incoming_data, &history)
     }
 
     fn insert(&self, incoming_data: &Self::U) -> Result<(), NotSafe> {
+        let slot: u64 = incoming_data.slot.into();
         self.conn.execute(
-            "INSERT INTO signed_blocks (target_epoch, hash)
-        VALUES (?1, ?2)",
+            "INSERT INTO signed_blocks (slot, signing_root)
+                VALUES (?1, ?2)",
             params![
-                incoming_data.slot.to_string(),
+                slot as i64,
                 incoming_data.canonical_root().as_ssz_bytes()
             ],
         )?;
         Ok(())
     }
 }
+
+    trait DataDump<T> {
+        fn dump_data(&self) -> Vec<T>;
+    }
+
+    impl DataDump<SignedAttestation> for HistoryInfo<SignedAttestation> {
+        fn dump_data(&self) -> Vec<SignedAttestation> {
+            let mut attestation_history_select = self
+                .conn
+                .prepare("select target_epoch, source_epoch, signing_root from signed_attestations order by target_epoch asc")
+                .unwrap();
+            let history = attestation_history_select
+                .query_map(params![], |row| {
+                    let target_i: i64 = row.get(0).unwrap();
+                    let source_i: i64 = row.get(1).unwrap();
+                    let target_epoch = target_i as u64;
+                    let source_epoch = source_i as u64;
+                    let hash_blob: Vec<u8> = row.get(2).unwrap();
+                    let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
+                        .expect("should have a valid ssz encoded hash256 in db");
+
+                    Ok(SignedAttestation::new(
+                        source_epoch,
+                        target_epoch,
+                        signing_root,
+                    ))
+                })
+                .unwrap();
+
+            let mut attestation_history = vec![];
+            for attestation in history {
+                attestation_history.push(attestation.unwrap())
+            }
+            attestation_history
+        }
+    }
+
+    impl DataDump<SignedBlock> for HistoryInfo<SignedBlock> {
+        fn dump_data(&self) -> Vec<SignedBlock> {
+            let mut block_history_select = self
+                .conn
+                .prepare("select slot, signing_root from signed_blocks order by slot asc")
+                .unwrap();
+            let history = block_history_select
+                .query_map(params![], |row| {
+                    let slot_i: i64 = row.get(0).unwrap();
+                    let slot = slot_i as u64;
+                    let hash_blob: Vec<u8> = row.get(1).unwrap();
+                    let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
+                        .expect("should have a valid ssz encoded hash256 in db");
+
+                    Ok(SignedBlock::new(slot, signing_root))
+                })
+                .unwrap();
+
+            let mut block_history = vec![];
+            for block in history {
+                block_history.push(block.unwrap())
+            }
+            block_history
+        }
+    }
+
 
 impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
@@ -77,7 +147,7 @@ impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
         match check {
             Ok(safe) => match safe.reason {
                 ValidityReason::SameVote => Ok(()),
-                _ => self.insert(incoming_data), // self.conn..
+                _ => self.insert(incoming_data),
             },
             Err(notsafe) => Err(notsafe),
         }
@@ -92,7 +162,7 @@ impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
         match check {
             Ok(safe) => match safe.reason {
                 ValidityReason::SameVote => Ok(()),
-                _ => self.insert(incoming_data), // self.conn..
+                _ => self.insert(incoming_data),
             },
             Err(notsafe) => Err(notsafe),
         }
@@ -108,12 +178,46 @@ pub struct HistoryInfo<T> {
 
 impl<T> HistoryInfo<T> {
     pub fn empty(path: &Path) -> Result<Self, NotSafe> {
-        let file = File::create(path)?;
+        let file = OpenOptions::new().write(true).read(true).create(true).open(path)?;
 
         let mut perm = file.metadata()?.permissions();
         perm.set_mode(0o600);
         file.set_permissions(perm)?;
-        Self::open(path)
+        let conn = Connection::open(path)?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS signed_attestations (
+                target_epoch INTEGER,
+                source_epoch INTEGER,
+                signing_root BLOB
+            )",
+            params![],
+        )?;
+
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS target_index
+                ON signed_attestations(target_epoch)",
+            params![],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS signed_blocks (
+                slot INTEGER,
+                signing_root BLOB
+            )",
+            params![],
+        )?;
+
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS slot_index
+                ON signed_blocks(slot)",
+            params![],
+        )?;
+
+        Ok(Self {
+            conn,
+            phantom: PhantomData::<T>,
+        })
     }
 
     pub fn open(path: &Path) -> Result<Self, NotSafe> {
@@ -129,72 +233,9 @@ impl<T> HistoryInfo<T> {
 mod single_threaded_tests {
     use super::*;
     use tempfile::NamedTempFile;
-    use types::{AttestationData, Checkpoint, Crosslink, Epoch, Hash256, Signature, Slot};
+    use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, Slot};
+    use types::{Checkpoint, Crosslink, Signature};
 
-    trait DataDump<T> {
-        fn dump_data(&self) -> Result<Vec<T>, SQLError>; // move to test
-    }
-
-    impl DataDump<SignedAttestation> for HistoryInfo<SignedAttestation> {
-        fn dump_data(&self) -> Result<Vec<SignedAttestation>, SQLError> {
-            let mut attestation_history_select = self
-                .conn
-                .prepare("select slot, signing_root from signed_blocks order by slot asc")?;
-            let history = attestation_history_select.query_map(params![], |row| {
-                let target_str: String = row.get(0)?;
-                let source_str: String = row.get(1)?;
-                let hash_blob: Vec<u8> = row.get(2)?;
-                let target_epoch = Epoch::from(
-                    u64::from_str(target_str.as_ref())
-                        .expect("should have a valid u64 stored in db"),
-                );
-                let source_epoch = Epoch::from(
-                    u64::from_str(source_str.as_ref())
-                        .expect("should have a valid u64 stored in db"),
-                );
-                let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
-                    .expect("should have a valid ssz encoded hash256 in db");
-
-                Ok(SignedAttestation::new(
-                    target_epoch,
-                    source_epoch,
-                    signing_root,
-                ))
-            })?;
-
-            let mut attestation_history = vec![];
-            for attestation in history {
-                attestation_history.push(attestation.unwrap())
-            }
-            Ok(attestation_history)
-        }
-    }
-
-    impl DataDump<SignedBlock> for HistoryInfo<SignedBlock> {
-        fn dump_data(&self) -> Result<Vec<SignedBlock>, SQLError> {
-            let mut block_history_select = self
-                .conn
-                .prepare("select slot, signing_root from signed_blocks order by slot asc")?;
-            let history = block_history_select.query_map(params![], |row| {
-                let slot_str: String = row.get(0)?;
-                let hash_blob: Vec<u8> = row.get(1)?;
-                let slot = Slot::from(
-                    u64::from_str(slot_str.as_ref()).expect("should have a valid u64 stored in db"),
-                );
-                let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
-                    .expect("should have a valid ssz encoded hash256 in db");
-
-                Ok(SignedBlock::new(slot, signing_root))
-            })?;
-
-            let mut block_history = vec![];
-            for block in history {
-                block_history.push(block.unwrap())
-            }
-
-            Ok(block_history)
-        }
-    }
 
     fn attestation_and_custody_bit_builder(source: u64, target: u64) -> AttestationData {
         let source = build_checkpoint(source);
@@ -247,13 +288,16 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation2));
         expected_vector.push(SignedAttestation::from(&attestation3));
 
+        assert_eq!(expected_vector, attestation_history.dump_data());
+
         // Copying the current data
         let old_data = attestation_history.dump_data();
+
         // Dropping the HistoryInfo struct
         drop(attestation_history);
 
         let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::empty(filename).expect("IO error with file");
+            HistoryInfo::open(filename).expect("IO error with file");
         // Making sure that data in the file is correct
         assert_eq!(old_data, file_written_version.dump_data());
 
@@ -261,9 +305,8 @@ mod single_threaded_tests {
             .close()
             .expect("temporary file not properly removed");
     }
-}
 
-/*    #[test]
+    #[test]
     fn interlaced_attestation_insertion() {
         let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = attestation_file.path();
@@ -291,17 +334,17 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation5));
 
         // Making sure that data in memory is correct..
-        assert_eq!(expected_vector, attestation_history.data);
+        assert_eq!(expected_vector, attestation_history.dump_data());
 
         // Copying the current data
-        let old_data = attestation_history.data.clone();
+        let old_data = attestation_history.dump_data();
         // Dropping the HistoryInfo struct
         drop(attestation_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(old_data, file_written_version.dump_data());
 
         attestation_file
             .close()
@@ -334,17 +377,17 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation5));
 
         // Making sure that data in memory is correct..
-        assert_eq!(expected_vector, attestation_history.data);
+        assert_eq!(expected_vector, attestation_history.dump_data());
 
         // Copying the current data
-        let old_data = attestation_history.data.clone();
+        let old_data = attestation_history.dump_data();
         // Dropping the HistoryInfo struct
         drop(attestation_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(old_data, file_written_version.dump_data());
 
         attestation_file
             .close()
@@ -373,10 +416,10 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation3));
 
         // Making sure that data in memory is correct..
-        assert_eq!(expected_vector, attestation_history.data);
+        assert_eq!(expected_vector, attestation_history.dump_data());
 
         // Copying the current data
-        let old_data = attestation_history.data.clone();
+        let old_data = attestation_history.dump_data();
         // Dropping the HistoryInfo struct
         drop(attestation_history);
 
@@ -384,7 +427,7 @@ mod single_threaded_tests {
         let mut file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
 
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(old_data, file_written_version.dump_data());
 
         // Inserting new attestations
         let attestation4 = attestation_and_custody_bit_builder(4, 5);
@@ -399,7 +442,7 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation5));
         expected_vector.push(SignedAttestation::from(&attestation6));
 
-        assert_eq!(expected_vector, file_written_version.data);
+        assert_eq!(expected_vector, file_written_version.dump_data());
         drop(file_written_version);
 
         attestation_file
@@ -429,17 +472,17 @@ mod single_threaded_tests {
         expected_vector.push(SignedBlock::from(&block3));
 
         // Making sure that data in memory is correct.
-        assert_eq!(expected_vector, block_history.data);
+        assert_eq!(expected_vector, block_history.dump_data());
 
         // Copying the current data
-        let old_data = block_history.data.clone();
+        let old_data = block_history.dump_data();
         // Dropping the HistoryInfo struct
         drop(block_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedBlock> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(old_data, file_written_version.dump_data());
 
         block_file
             .close()
@@ -460,11 +503,16 @@ mod single_threaded_tests {
         let block4 = block_builder(10);
         let block5 = block_builder(0); // fails
 
-        let _ = block_history.update_if_valid(&block1);
-        let _ = block_history.update_if_valid(&block2);
-        let _ = block_history.update_if_valid(&block3);
-        let _ = block_history.update_if_valid(&block4);
-        let _ = block_history.update_if_valid(&block5);
+        let a = block_history.update_if_valid(&block1);
+        println!("{:?}", a);
+        let b = block_history.update_if_valid(&block2);
+        println!("{:?}", b);
+        let c = block_history.update_if_valid(&block3);
+        println!("{:?}", c);
+        let d = block_history.update_if_valid(&block4);
+        println!("{:?}", d);
+        let e = block_history.update_if_valid(&block5);
+        println!("{:?}", e);
 
         let mut expected_vector = vec![];
         expected_vector.push(SignedBlock::from(&block1));
@@ -472,21 +520,20 @@ mod single_threaded_tests {
         expected_vector.push(SignedBlock::from(&block4));
 
         // Making sure that data in memory is correct.
-        assert_eq!(expected_vector, block_history.data);
+        assert_eq!(expected_vector, block_history.dump_data());
 
         // Copying the current data
-        let old_data = block_history.data.clone();
+        let old_data = block_history.dump_data();
         // Dropping the HistoryInfo struct
         drop(block_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedBlock> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(old_data, file_written_version.dump_data());
 
         block_file
             .close()
             .expect("temporary file not properly removed");
     }
 }
-*/
