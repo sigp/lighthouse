@@ -2,13 +2,13 @@ use crate::attester_slashings::{check_for_attester_slashing, SignedAttestation};
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
 use rusqlite::{params, Connection};
-use ssz::Encode;
-use std::marker::PhantomData;
 use ssz::Decode;
-use std::str::FromStr;
-use std::os::unix::fs::PermissionsExt;
+use ssz::Encode;
 use std::fs::OpenOptions;
+use std::marker::PhantomData;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::str::FromStr;
 use tree_hash::TreeHash;
 use types::{AttestationData, BeaconBlockHeader, Hash256}; // dump data // for dump data
 
@@ -67,77 +67,73 @@ impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
         self.conn.execute(
             "INSERT INTO signed_blocks (slot, signing_root)
                 VALUES (?1, ?2)",
-            params![
-                slot as i64,
-                incoming_data.canonical_root().as_ssz_bytes()
-            ],
+            params![slot as i64, incoming_data.canonical_root().as_ssz_bytes()],
         )?;
         Ok(())
     }
 }
 
-    trait DataDump<T> {
-        fn dump_data(&self) -> Vec<T>;
-    }
+trait DataDump<T> {
+    fn dump_data(&self) -> Vec<T>;
+}
 
-    impl DataDump<SignedAttestation> for HistoryInfo<SignedAttestation> {
-        fn dump_data(&self) -> Vec<SignedAttestation> {
-            let mut attestation_history_select = self
+impl DataDump<SignedAttestation> for HistoryInfo<SignedAttestation> {
+    fn dump_data(&self) -> Vec<SignedAttestation> {
+        let mut attestation_history_select = self
                 .conn
                 .prepare("select target_epoch, source_epoch, signing_root from signed_attestations order by target_epoch asc")
                 .unwrap();
-            let history = attestation_history_select
-                .query_map(params![], |row| {
-                    let target_i: i64 = row.get(0).unwrap();
-                    let source_i: i64 = row.get(1).unwrap();
-                    let target_epoch = target_i as u64;
-                    let source_epoch = source_i as u64;
-                    let hash_blob: Vec<u8> = row.get(2).unwrap();
-                    let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
-                        .expect("should have a valid ssz encoded hash256 in db");
+        let history = attestation_history_select
+            .query_map(params![], |row| {
+                let target_i: i64 = row.get(0).unwrap();
+                let source_i: i64 = row.get(1).unwrap();
+                let target_epoch = target_i as u64;
+                let source_epoch = source_i as u64;
+                let hash_blob: Vec<u8> = row.get(2).unwrap();
+                let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
+                    .expect("should have a valid ssz encoded hash256 in db");
 
-                    Ok(SignedAttestation::new(
-                        source_epoch,
-                        target_epoch,
-                        signing_root,
-                    ))
-                })
-                .unwrap();
+                Ok(SignedAttestation::new(
+                    source_epoch,
+                    target_epoch,
+                    signing_root,
+                ))
+            })
+            .unwrap();
 
-            let mut attestation_history = vec![];
-            for attestation in history {
-                attestation_history.push(attestation.unwrap())
-            }
-            attestation_history
+        let mut attestation_history = vec![];
+        for attestation in history {
+            attestation_history.push(attestation.unwrap())
         }
+        attestation_history
     }
+}
 
-    impl DataDump<SignedBlock> for HistoryInfo<SignedBlock> {
-        fn dump_data(&self) -> Vec<SignedBlock> {
-            let mut block_history_select = self
-                .conn
-                .prepare("select slot, signing_root from signed_blocks order by slot asc")
-                .unwrap();
-            let history = block_history_select
-                .query_map(params![], |row| {
-                    let slot_i: i64 = row.get(0).unwrap();
-                    let slot = slot_i as u64;
-                    let hash_blob: Vec<u8> = row.get(1).unwrap();
-                    let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
-                        .expect("should have a valid ssz encoded hash256 in db");
+impl DataDump<SignedBlock> for HistoryInfo<SignedBlock> {
+    fn dump_data(&self) -> Vec<SignedBlock> {
+        let mut block_history_select = self
+            .conn
+            .prepare("select slot, signing_root from signed_blocks order by slot asc")
+            .unwrap();
+        let history = block_history_select
+            .query_map(params![], |row| {
+                let slot_i: i64 = row.get(0).unwrap();
+                let slot = slot_i as u64;
+                let hash_blob: Vec<u8> = row.get(1).unwrap();
+                let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
+                    .expect("should have a valid ssz encoded hash256 in db");
 
-                    Ok(SignedBlock::new(slot, signing_root))
-                })
-                .unwrap();
+                Ok(SignedBlock::new(slot, signing_root))
+            })
+            .unwrap();
 
-            let mut block_history = vec![];
-            for block in history {
-                block_history.push(block.unwrap())
-            }
-            block_history
+        let mut block_history = vec![];
+        for block in history {
+            block_history.push(block.unwrap())
         }
+        block_history
     }
-
+}
 
 impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
@@ -178,7 +174,11 @@ pub struct HistoryInfo<T> {
 
 impl<T> HistoryInfo<T> {
     pub fn empty(path: &Path) -> Result<Self, NotSafe> {
-        let file = OpenOptions::new().write(true).read(true).create(true).open(path)?;
+        let file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .create(true)
+            .open(path)?;
 
         let mut perm = file.metadata()?.permissions();
         perm.set_mode(0o600);
@@ -235,7 +235,6 @@ mod single_threaded_tests {
     use tempfile::NamedTempFile;
     use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, Slot};
     use types::{Checkpoint, Crosslink, Signature};
-
 
     fn attestation_and_custody_bit_builder(source: u64, target: u64) -> AttestationData {
         let source = build_checkpoint(source);
