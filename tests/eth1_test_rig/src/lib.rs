@@ -9,7 +9,6 @@ mod ganache;
 
 use futures::{stream, Future, IntoFuture, Stream};
 use ganache::GanacheInstance;
-use serde_json::json;
 use ssz::Encode;
 use std::time::{Duration, Instant};
 use tokio::{runtime::Runtime, timer::Delay};
@@ -198,7 +197,6 @@ fn deploy_deposit_contract<T: Transport>(
     confirmations: usize,
 ) -> impl Future<Item = Address, Error = String> {
     let bytecode = String::from_utf8_lossy(&BYTECODE);
-    let web3_1 = web3.clone();
 
     web3.eth()
         .accounts()
@@ -225,15 +223,4 @@ fn deploy_deposit_contract<T: Transport>(
                 .map(|contract| contract.address())
                 .map_err(|e| format!("Unable to resolve pending contract: {:?}", e))
         })
-}
-
-/// Increase the timestamp on future blocks by `increase_by` seconds.
-fn increase_time<T: Transport>(
-    web3: Web3<T>,
-    increase_by: u64,
-) -> impl Future<Item = (), Error = String> {
-    web3.transport()
-        .execute("evm_increaseTime", vec![json!(increase_by)])
-        .map(|_json_value| ())
-        .map_err(|e| format!("Failed to increase time on EVM (is this ganache?): {:?}", e))
 }
