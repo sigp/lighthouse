@@ -8,7 +8,7 @@ use crate::signer::Signer;
 use core::marker::PhantomData;
 use parking_lot::Mutex;
 use slashing_protection::proposer_slashings::SignedBlock;
-use slashing_protection::slashing_protection::{HistoryInfo, SafeFromSlashing};
+use slashing_protection::slashing_protection::{HistoryInfo, SlashingProtection};
 use slog::{error, info, trace, warn};
 use std::sync::Arc;
 use tree_hash::{SignedRoot, TreeHash};
@@ -73,10 +73,18 @@ impl<'a, B: BeaconNodeBlock, S: Signer, E: EthSpec> BlockProducer<'a, B, S, E> {
                 "slot" => slot,
             ),
             Err(e) => error!(self.log, "Block production error"; "Error" => format!("{:?}", e)),
-            Ok(ValidatorEvent::SignerRejection(_slot)) => error!(self.log, "Block production error"; "Error" => "Signer Could not sign the block".to_string()),
-            Ok(ValidatorEvent::SlashableBlockNotProduced(_slot)) => error!(self.log, "Block production error"; "Error" => "Rejected the block as it could have been slashed".to_string()),
-            Ok(ValidatorEvent::BeaconNodeUnableToProduceBlock(_slot)) => error!(self.log, "Block production error"; "Error" => "Beacon node was unable to produce a block".to_string()),
-            Ok(v) => warn!(self.log, "Unknown result for block production"; "Error" => format!("{:?}",v)),
+            Ok(ValidatorEvent::SignerRejection(_slot)) => {
+                error!(self.log, "Block production error"; "Error" => "Signer Could not sign the block".to_string())
+            }
+            Ok(ValidatorEvent::SlashableBlockNotProduced(_slot)) => {
+                error!(self.log, "Block production error"; "Error" => "Rejected the block as it could have been slashed".to_string())
+            }
+            Ok(ValidatorEvent::BeaconNodeUnableToProduceBlock(_slot)) => {
+                error!(self.log, "Block production error"; "Error" => "Beacon node was unable to produce a block".to_string())
+            }
+            Ok(v) => {
+                warn!(self.log, "Unknown result for block production"; "Error" => format!("{:?}",v))
+            }
         }
     }
 

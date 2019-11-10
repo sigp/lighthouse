@@ -26,7 +26,7 @@ use protos::services_grpc::{
 };
 use slashing_protection::attester_slashings::SignedAttestation;
 use slashing_protection::proposer_slashings::SignedBlock;
-use slashing_protection::slashing_protection::HistoryInfo;
+use slashing_protection::slashing_protection::{HistoryInfo, SlashingProtection};
 use slog::{crit, error, info, trace, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::marker::PhantomData;

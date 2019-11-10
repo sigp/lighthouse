@@ -17,7 +17,7 @@ use types::{
 
 use parking_lot::Mutex;
 use slashing_protection::attester_slashings::SignedAttestation;
-use slashing_protection::slashing_protection::{HistoryInfo, SafeFromSlashing};
+use slashing_protection::slashing_protection::{HistoryInfo, SlashingProtection};
 
 //TODO: Group these errors at a crate level
 #[derive(Debug, PartialEq)]
@@ -63,11 +63,21 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
                 "slot" => slot,
             ),
             Err(e) => error!(log, "Attestation production error"; "Error" => format!("{:?}", e)),
-            Ok(ValidatorEvent::SignerRejection(_slot)) => error!(log, "Attestation production error"; "Error" => "Signer could not sign the attestation".to_string()),
-            Ok(ValidatorEvent::IndexedAttestationNotProduced(_slot)) => error!(log, "Attestation production error"; "Error" => "Rejected the attestation as it could have been slashed".to_string()),
-            Ok(ValidatorEvent::PublishAttestationFailed) => error!(log, "Attestation production error"; "Error" => "Beacon node was unable to publish an attestation".to_string()),
-            Ok(ValidatorEvent::InvalidAttestation) => error!(log, "Attestation production error"; "Error" => "The signed attestation was invalid".to_string()),
-            Ok(v) => warn!(log, "Unknown result for attestation production"; "Error" => format!("{:?}",v)),
+            Ok(ValidatorEvent::SignerRejection(_slot)) => {
+                error!(log, "Attestation production error"; "Error" => "Signer could not sign the attestation".to_string())
+            }
+            Ok(ValidatorEvent::IndexedAttestationNotProduced(_slot)) => {
+                error!(log, "Attestation production error"; "Error" => "Rejected the attestation as it could have been slashed".to_string())
+            }
+            Ok(ValidatorEvent::PublishAttestationFailed) => {
+                error!(log, "Attestation production error"; "Error" => "Beacon node was unable to publish an attestation".to_string())
+            }
+            Ok(ValidatorEvent::InvalidAttestation) => {
+                error!(log, "Attestation production error"; "Error" => "The signed attestation was invalid".to_string())
+            }
+            Ok(v) => {
+                warn!(log, "Unknown result for attestation production"; "Error" => format!("{:?}",v))
+            }
         }
     }
 
