@@ -1,25 +1,10 @@
 use super::BYTES_PER_CHUNK;
-use eth2_hashing::hash;
+use eth2_hashing::{hash, hash_concat, ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
 
 /// The size of the cache that stores padding nodes for a given height.
 ///
 /// Currently, we panic if we encounter a tree with a height larger than `MAX_TREE_DEPTH`.
-///
-/// It is set to 48 as we expect it to be sufficiently high that we won't exceed it.
-pub const MAX_TREE_DEPTH: usize = 48;
-
-lazy_static! {
-    /// Cached zero hashes where `ZERO_HASHES[i]` is the hash of a Merkle tree with 2^i zero leaves.
-    static ref ZERO_HASHES: Vec<Vec<u8>> = {
-        let mut hashes = vec![vec![0; 32]; MAX_TREE_DEPTH + 1];
-
-        for i in 0..MAX_TREE_DEPTH {
-            hashes[i + 1] = hash_concat(&hashes[i], &hashes[i]);
-        }
-
-        hashes
-    };
-}
+pub const MAX_TREE_DEPTH: usize = ZERO_HASHES_MAX_INDEX;
 
 /// Merkleize `bytes` and return the root, optionally padding the tree out to `min_leaves` number of
 /// leaves.
@@ -234,17 +219,6 @@ fn get_zero_hash(height: usize) -> &'static [u8] {
     } else {
         panic!("Tree exceeds MAX_TREE_DEPTH of {}", MAX_TREE_DEPTH)
     }
-}
-
-/// Concatenate two vectors.
-fn concat(mut vec1: Vec<u8>, mut vec2: Vec<u8>) -> Vec<u8> {
-    vec1.append(&mut vec2);
-    vec1
-}
-
-/// Compute the hash of two other hashes concatenated.
-pub fn hash_concat(h1: &[u8], h2: &[u8]) -> Vec<u8> {
-    hash(&concat(h1.to_vec(), h2.to_vec()))
 }
 
 /// Returns the next even number following `n`. If `n` is even, `n` is returned.

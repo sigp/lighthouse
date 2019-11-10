@@ -155,7 +155,7 @@ impl_ssz!(
     "AggregateSignature"
 );
 
-impl_tree_hash!(AggregateSignature, U96);
+impl_tree_hash!(AggregateSignature, BLS_AGG_SIG_BYTE_SIZE);
 
 impl Serialize for AggregateSignature {
     /// Serde serialization is compliant the Ethereum YAML test format.
