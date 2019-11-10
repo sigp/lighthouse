@@ -9,7 +9,7 @@ use std::sync::Mutex;
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 
-/// Defines how the client should find the genesis `BeaconState`.
+/// Defines how the client should initialize the `BeaconChain` and other components.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientGenesis {
     /// Reads the genesis state and other persisted data from the `Store`.

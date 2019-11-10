@@ -1,17 +1,11 @@
-use rayon::{iter::ParallelIterator, prelude::*};
 use std::iter::DoubleEndedIterator;
 use std::ops::RangeInclusive;
 use types::{Eth1Data, Hash256};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
-    /// The timestamp of each block **must** be higher than the block prior to it.
+    /// The timestamp of each block equal to or later than the block prior to it.
     InconsistentTimestamp { parent: u64, child: u64 },
-    /// There is no block prior to the given `target_secs`, unable to complete request.
-    NoBlockForTarget {
-        target_secs: u64,
-        known_blocks: usize,
-    },
     /// Some `Eth1Block` was provided with the same block number but different data. The source
     /// of eth1 data is inconsistent.
     Conflicting(u64),
@@ -78,17 +72,8 @@ impl BlockCache {
         self.blocks.iter()
     }
 
-    /// Returns an rayon parallel iterator over all blocks.
-    ///
-    /// Blocks will be returned with:
-    ///
-    /// - Monotically increase block numbers.
-    /// - Non-uniformly increasing block timestamps.
-    pub fn par_iter(&self) -> impl ParallelIterator<Item = &Eth1Block> {
-        self.blocks.par_iter()
-    }
-
-    /// Shortens the cache, keeping the latest `len` blocks and dropping the rest.
+    /// Shortens the cache, keeping the latest (by block number) `len` blocks while dropping the
+    /// rest.
     ///
     /// If `len` is greater than the vector's current length, this has no effect.
     ///
@@ -294,177 +279,4 @@ mod tests {
                 .expect("should add consecutive blocks with duplicate timestamps");
         }
     }
-
-    /*
-    #[test]
-    fn duplicate_timestamp() {
-        let mut blocks = get_blocks(7, 10);
-
-        blocks[0].timestamp = 0;
-        blocks[1].timestamp = 10;
-        blocks[2].timestamp = 10;
-        blocks[3].timestamp = 20;
-        blocks[4].timestamp = 30;
-        blocks[5].timestamp = 40;
-        blocks[6].timestamp = 40;
-
-        let mut cache = BlockCache::default();
-
-        for block in &blocks {
-            insert(&mut cache, block.clone()).expect("should add consecutive blocks");
-        }
-
-        // Ensures that the given `target` finds the snapsnot at `blocks[i]`.
-        let do_test = |target, i: usize| {
-            assert_eq!(
-                cache.get_eth1_data_ancestors(target, 1),
-                Ok(vec![blocks[i].clone().into()]),
-                "should find block {} for timestamp {}",
-                i,
-                target.as_secs()
-            );
-        };
-
-        do_test(Duration::from_secs(0), 0);
-        do_test(Duration::from_secs(10), 2);
-        do_test(Duration::from_secs(20), 3);
-        do_test(Duration::from_secs(30), 4);
-        do_test(Duration::from_secs(40), 6);
-    }
-    */
-
-    /*
-    #[test]
-    fn block_at_time_valid() {
-        let n = 16;
-        let duration = 10;
-        let blocks = get_blocks(n, duration);
-
-        let mut cache = BlockCache::default();
-
-        for block in blocks {
-            insert(&mut cache, block.clone()).expect("should add consecutive blocks");
-        }
-
-        for i in 0..n as u64 {
-            // Should find exact match when times match.
-            assert_eq!(
-                cache.eth1_data_at_time(Duration::from_secs(i * duration)),
-                Some(get_block(i, 10).into()),
-                "should find eth1 data with exact time for {}",
-                i
-            );
-
-            // Should find prior when searching between times (low duration).
-            assert_eq!(
-                cache.eth1_data_at_time(Duration::from_secs(i * duration + 1)),
-                Some(get_block(i, 10).into()),
-                "should find prior low eth1 data when searching between durations for  {}",
-                i
-            );
-
-            // Should find prior when searching between times (high duration).
-            assert_eq!(
-                cache.eth1_data_at_time(Duration::from_secs((i + 1) * duration - 1)),
-                Some(get_block(i, 10).into()),
-                "should find prior high eth1 data when searching between durations for  {}",
-                i
-            );
-        }
-    }
-
-    #[test]
-    fn block_at_time_invalid() {
-        let x = 2;
-        let duration = 10;
-
-        let mut cache = BlockCache::new(0);
-
-        // Should return none on empty cache.
-        assert!(cache.eth1_data_at_time(Duration::from_secs(x)).is_none());
-
-        insert(&mut cache, get_block(x, duration)).expect("should add first block");
-
-        // Should return none for prior time.
-        assert!(cache
-            .eth1_data_at_time(Duration::from_secs((x - 1) * duration))
-            .is_none());
-    }
-
-    #[test]
-    fn block_ancestors_valid() {
-        let n = 16;
-        let duration = 10;
-        let blocks = get_blocks(n, duration);
-
-        let mut cache = BlockCache::new(0);
-
-        for block in &blocks {
-            insert(&mut cache, block.clone()).expect("should add consecutive blocks");
-        }
-
-        for i in 0..n as u64 {
-            for max_count in 0..i as usize {
-                let ancestors: Vec<Eth1Data> = blocks[0..=i as usize]
-                    .iter()
-                    .rev()
-                    .take(max_count)
-                    .rev()
-                    .cloned()
-                    .map(Into::into)
-                    .collect();
-
-                assert_eq!(ancestors.len(), max_count);
-
-                // Exact time.
-                assert_eq!(
-                    cache.get_eth1_data_ancestors(Duration::from_secs(i * duration), max_count),
-                    Ok(ancestors.clone()),
-                    "should find ancestors for i: {}, max_count: {}, scenario: exact",
-                    i,
-                    max_count
-                );
-
-                // Time above by large margin.
-                assert_eq!(
-                    cache.get_eth1_data_ancestors(
-                        Duration::from_secs((i + 1) * duration - 1),
-                        max_count
-                    ),
-                    Ok(ancestors.clone()),
-                    "should find ancestors for {} small duration",
-                    i
-                );
-
-                // Time above by small margin.
-                assert_eq!(
-                    cache.get_eth1_data_ancestors(Duration::from_secs(i * duration + 1), max_count),
-                    Ok(ancestors.clone()),
-                    "should find ancestors for {} large duration",
-                    i
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn block_ancestors_invalid() {
-        let x = 2;
-        let duration = 10;
-
-        let mut cache = BlockCache::new(0);
-
-        // Should return error on empty cache.
-        assert!(cache
-            .get_eth1_data_ancestors(Duration::from_secs(x), 1)
-            .is_err());
-
-        insert(&mut cache, get_block(x, duration)).expect("should add first block");
-
-        // Should return error for prior time.
-        assert!(cache
-            .get_eth1_data_ancestors(Duration::from_secs((x - 1) * duration), 1)
-            .is_err());
-    }
-    */
 }
