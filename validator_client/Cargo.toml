@@ -4,10 +4,6 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>", "Luke Anderson <luke@lukeanderson.com.au>"]
 edition = "2018"
 
-# [[bin]]
-# name = "validator_client"
-# path = "src/main.rs"
-
 [lib]
 name = "validator_client"
 path = "src/lib.rs"
