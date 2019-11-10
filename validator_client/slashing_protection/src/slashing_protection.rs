@@ -1,7 +1,7 @@
 use crate::attester_slashings::{check_for_attester_slashing, SignedAttestation};
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OpenFlags};
 use ssz::Decode;
 use ssz::Encode;
 use std::fs::OpenOptions;
@@ -13,30 +13,26 @@ use types::{AttestationData, BeaconBlockHeader, Hash256}; // dump data // for du
 /// Struct used for checking if attestations or blockheaders are safe from slashing.
 #[derive(Debug)]
 pub struct HistoryInfo<T> {
+    // The connection to the database.
     conn: Connection,
+    // In-memory vector containing all previously signed data.
     pub data: Vec<T>,
 }
 
-/// Trait used to know if type T can be checked for slashing safety
-pub trait SafeFromSlashing<T> {
-    type U;
-
-    /// Checks if incoming_data is free from slashings, and if so updates the in-memory and writes it to the history file.
-    /// If the error returned is an IOError, do not sign nor broadcast the attestation.
-    fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
-}
-
+/// Utility function to check for slashing conditions and inserting new attestations/blocks in the db and in memory.
 trait CheckAndInsert<T> {
     type U;
 
-    fn check(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe>;
+    /// Checks if the incoming_data is safe from slashing
+    fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe>;
+    /// Inserts the incoming_data in th sqlite db and in the in-memory vector.
     fn insert(&mut self, insert_index: usize, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
 impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
 
-    fn check(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
+    fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
         check_for_attester_slashing(incoming_data, &self.data[..])
     }
 
@@ -61,7 +57,7 @@ impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
 impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
     type U = BeaconBlockHeader;
 
-    fn check(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
+    fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
         check_for_proposer_slashing(incoming_data, &self.data[..])
     }
 
@@ -78,106 +74,94 @@ impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
     }
 }
 
+/// Function to load_data from an sqlite db, and store it as a sorted vector.
 trait LoadData<T> {
-    fn load_data(conn: &Connection) -> Vec<T>;
+    fn load_data(conn: &Connection) -> Result<Vec<T>, NotSafe>;
 }
 
 impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
-    fn load_data(conn: &Connection) -> Vec<SignedAttestation> {
+    fn load_data(conn: &Connection) -> Result<Vec<SignedAttestation>, NotSafe> {
         let mut attestation_history_select = conn
-                .prepare("select target_epoch, source_epoch, signing_root from signed_attestations order by target_epoch asc")
-                .unwrap();
-        let history = attestation_history_select
-            .query_map(params![], |row| {
-                let target_i: i64 = row.get(0).unwrap();
-                let source_i: i64 = row.get(1).unwrap();
-                let target_epoch = target_i as u64;
-                let source_epoch = source_i as u64;
-                let hash_blob: Vec<u8> = row.get(2).unwrap();
-                let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
-                    .expect("should have a valid ssz encoded hash256 in db");
+                .prepare("select target_epoch, source_epoch, signing_root from signed_attestations order by target_epoch asc")?;
+        let history = attestation_history_select.query_map(params![], |row| {
+            let target_i: i64 = row.get(0)?;
+            let source_i: i64 = row.get(1)?;
+            let target_epoch = target_i as u64;
+            let source_epoch = source_i as u64;
+            let hash_blob: Vec<u8> = row.get(2)?;
+            let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
+                .expect("should have a valid ssz encoded hash256 in db");
 
-                Ok(SignedAttestation::new(
-                    source_epoch,
-                    target_epoch,
-                    signing_root,
-                ))
-            })
-            .unwrap();
+            Ok(SignedAttestation::new(
+                source_epoch,
+                target_epoch,
+                signing_root,
+            ))
+        })?;
 
         let mut attestation_history = vec![];
         for attestation in history {
-            attestation_history.push(attestation.unwrap())
+            let attestation = attestation?;
+            attestation_history.push(attestation)
         }
 
-        attestation_history.sort_by(|a, b| a.target_epoch.partial_cmp(&b.target_epoch).unwrap());
-        attestation_history
+        // We need to sort data because results were stored as i64 and not u64.
+        attestation_history.sort_by(|a, b| {
+            a.target_epoch
+                .partial_cmp(&b.target_epoch)
+                .expect("an error occured while comparing attestations")
+        });
+        Ok(attestation_history)
     }
 }
 
 impl LoadData<SignedBlock> for Vec<SignedBlock> {
-    fn load_data(conn: &Connection) -> Vec<SignedBlock> {
+    fn load_data(conn: &Connection) -> Result<Vec<SignedBlock>, NotSafe> {
         let mut block_history_select = conn
-            .prepare("select slot, signing_root from signed_blocks where slot order by slot asc")
-            .unwrap();
-        let history = block_history_select
-            .query_map(params![], |row| {
-                let slot_i: i64 = row.get(0).unwrap();
-                let slot = slot_i as u64;
-                let hash_blob: Vec<u8> = row.get(1).unwrap();
-                let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
-                    .expect("should have a valid ssz encoded hash256 in db");
+            .prepare("select slot, signing_root from signed_blocks where slot order by slot asc")?;
+        let history = block_history_select.query_map(params![], |row| {
+            let slot_i: i64 = row.get(0)?;
+            let slot = slot_i as u64;
+            let hash_blob: Vec<u8> = row.get(1)?;
+            let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
+                .expect("should have a valid ssz encoded hash256 in db");
 
-                Ok(SignedBlock::new(slot, signing_root))
-            })
-            .unwrap();
+            Ok(SignedBlock::new(slot, signing_root))
+        })?;
 
         let mut block_history = vec![];
         for block in history {
-            block_history.push(block.unwrap())
+            let block = block?;
+            block_history.push(block)
         }
 
-        block_history.sort_by(|a, b| a.slot.partial_cmp(&b.slot).unwrap());
-        block_history
+        // We need to sort data because results were stored as i64 and not u64.
+        block_history.sort_by(|a, b| {
+            a.slot
+                .partial_cmp(&b.slot)
+                .expect("an error occured while comparing blocks")
+        });
+        Ok(block_history)
     }
 }
 
-impl SafeFromSlashing<SignedAttestation> for HistoryInfo<SignedAttestation> {
-    type U = AttestationData;
+pub trait SlashingProtection<T> {
+    type U;
 
-    fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
-        let check = self.check(incoming_data);
-        match check {
-            Ok(safe) => match safe.reason {
-                ValidityReason::SameVote => Ok(()),
-                _ => self.insert(safe.insert_index, incoming_data),
-            },
-            Err(notsafe) => Err(notsafe),
-        }
-    }
+    /// Creates an empty HistoryInfo, and an associated sqlite database with the name passed in as argument.
+    /// Returns an error if the database already exists.
+    fn empty(path: &Path) -> Result<HistoryInfo<T>, NotSafe>; // notsafe?
+
+    ///
+    fn open(path: &Path) -> Result<HistoryInfo<T>, NotSafe>; // notsafe?
+
+    ///
+    fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
-impl SafeFromSlashing<SignedBlock> for HistoryInfo<SignedBlock> {
+impl SlashingProtection<SignedBlock> for HistoryInfo<SignedBlock> {
     type U = BeaconBlockHeader;
 
-    fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
-        let check = self.check(incoming_data);
-        match check {
-            Ok(safe) => match safe.reason {
-                ValidityReason::SameVote => Ok(()),
-                _ => self.insert(safe.insert_index, incoming_data),
-            },
-            Err(notsafe) => Err(notsafe),
-        }
-    }
-}
-
-trait OpenOrEmpty<T> {
-    fn empty(path: &Path) -> Result<HistoryInfo<T>, NotSafe>; // should not be NotSafe.. ?
-    fn open(path: &Path) -> Result<HistoryInfo<T>, NotSafe>;
-}
-
-impl OpenOrEmpty<SignedBlock> for HistoryInfo<SignedBlock> {
     fn empty(path: &Path) -> Result<Self, NotSafe> {
         let file = OpenOptions::new()
             .write(true)
@@ -211,15 +195,28 @@ impl OpenOrEmpty<SignedBlock> for HistoryInfo<SignedBlock> {
     }
 
     fn open(path: &Path) -> Result<Self, NotSafe> {
-        let conn = Connection::open(path)?;
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
 
-        let data = <Vec<_> as LoadData<SignedBlock>>::load_data(&conn);
+        let data = <Vec<_> as LoadData<SignedBlock>>::load_data(&conn)?;
 
         Ok(Self { conn, data })
     }
+
+    fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
+        let check = self.check_slashing(incoming_data);
+        match check {
+            Ok(safe) => match safe.reason {
+                ValidityReason::SameVote => Ok(()),
+                _ => self.insert(safe.insert_index, incoming_data),
+            },
+            Err(notsafe) => Err(notsafe),
+        }
+    }
 }
 
-impl OpenOrEmpty<SignedAttestation> for HistoryInfo<SignedAttestation> {
+impl SlashingProtection<SignedAttestation> for HistoryInfo<SignedAttestation> {
+    type U = AttestationData;
+
     fn empty(path: &Path) -> Result<Self, NotSafe> {
         let file = OpenOptions::new()
             .write(true)
@@ -254,11 +251,22 @@ impl OpenOrEmpty<SignedAttestation> for HistoryInfo<SignedAttestation> {
     }
 
     fn open(path: &Path) -> Result<Self, NotSafe> {
-        let conn = Connection::open(path)?;
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
 
-        let data = <Vec<_> as LoadData<SignedAttestation>>::load_data(&conn);
+        let data = <Vec<_> as LoadData<SignedAttestation>>::load_data(&conn)?;
 
         Ok(Self { conn, data })
+    }
+
+    fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
+        let check = self.check_slashing(incoming_data);
+        match check {
+            Ok(safe) => match safe.reason {
+                ValidityReason::SameVote => Ok(()),
+                _ => self.insert(safe.insert_index, incoming_data),
+            },
+            Err(notsafe) => Err(notsafe),
+        }
     }
 }
 
@@ -336,6 +344,16 @@ mod single_threaded_tests {
         attestation_file
             .close()
             .expect("temporary file not properly removed");
+    }
+
+    #[test]
+    fn open_invalid_db() {
+        let filename = Path::new("this_file_does_not_exist.txt");
+
+        let attestation_history: Result<HistoryInfo<SignedAttestation>, NotSafe> =
+            HistoryInfo::open(filename);
+
+        assert!(attestation_history.is_err());
     }
 
     #[test]
@@ -535,16 +553,11 @@ mod single_threaded_tests {
         let block4 = block_builder(10);
         let block5 = block_builder(0); // fails
 
-        let a = block_history.update_if_valid(&block1);
-        println!("{:?}", a);
-        let b = block_history.update_if_valid(&block2);
-        println!("{:?}", b);
-        let c = block_history.update_if_valid(&block3);
-        println!("{:?}", c);
-        let d = block_history.update_if_valid(&block4);
-        println!("{:?}", d);
-        let e = block_history.update_if_valid(&block5);
-        println!("{:?}", e);
+        let _ = block_history.update_if_valid(&block1);
+        let _ = block_history.update_if_valid(&block2);
+        let _ = block_history.update_if_valid(&block3);
+        let _ = block_history.update_if_valid(&block4);
+        let _ = block_history.update_if_valid(&block5);
 
         let mut expected_vector = vec![];
         expected_vector.push(SignedBlock::from(&block1));
