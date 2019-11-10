@@ -12,19 +12,21 @@ const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 /// Defines how the client should find the genesis `BeaconState`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientGenesis {
+    /// Reads the genesis state and other persisted data from the `Store`.
     Resume,
+    /// Creates a genesis state as per the 2019 Canada interop specifications.
     Interop {
         validator_count: usize,
         genesis_time: u64,
     },
+    /// Connects to an eth1 node and waits until it can create the genesis state from the deposit
+    /// contract.
     DepositContract,
-    SszFile {
-        path: PathBuf,
-    },
-    RemoteNode {
-        server: String,
-        port: Option<u16>,
-    },
+    /// Loads the genesis state from a SSZ-encoded `BeaconState` file.
+    SszFile { path: PathBuf },
+    /// Connects to another Lighthouse instance and reads the genesis state and other data via the
+    /// HTTP API.
+    RemoteNode { server: String, port: Option<u16> },
 }
 
 impl Default for ClientGenesis {
@@ -47,6 +49,8 @@ pub struct Config {
     pub dummy_eth1_backend: bool,
     pub sync_eth1_chain: bool,
     #[serde(skip)]
+    /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
+    /// via the CLI at runtime, instead of from a configuration file saved to disk.
     pub genesis: ClientGenesis,
     pub network: network::NetworkConfig,
     pub rpc: rpc::Config,
