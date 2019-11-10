@@ -164,7 +164,9 @@ mod tests {
     use toml;
 
     #[test]
-    fn serde_serialize() {
-        let _ = toml::to_string(&Config::default()).expect("Should serde encode default config");
+    fn serde() {
+        let config = Config::default();
+        let serialized = toml::to_string(&config).expect("should serde encode default config");
+        toml::from_str::<Config>(&serialized).expect("should serde decode default config");
     }
 }
