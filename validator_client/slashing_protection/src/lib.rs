@@ -49,7 +49,10 @@ pub mod enums {
 
     #[derive(PartialEq, Debug)]
     pub struct Safe {
+        /// Index at which the new data should get inserted.
         pub insert_index: usize,
-        pub reason: ValidityReason, // Used to check if the attestation is a SameVote, in which case it should not get inserted
+
+        /// Used to check if the attestation is a SameVote, in which case it should not get inserted.
+        pub reason: ValidityReason,
     }
 }

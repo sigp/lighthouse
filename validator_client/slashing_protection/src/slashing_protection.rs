@@ -8,7 +8,7 @@ use std::fs::OpenOptions;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tree_hash::TreeHash;
-use types::{AttestationData, BeaconBlockHeader, Hash256}; // dump data // for dump data
+use types::{AttestationData, BeaconBlockHeader, Hash256};
 
 /// Struct used for checking if attestations or blockheaders are safe from slashing.
 #[derive(Debug)]
@@ -150,11 +150,11 @@ pub trait SlashingProtection<T> {
 
     /// Creates an empty HistoryInfo, and an associated sqlite database with the name passed in as argument.
     /// Returns an error if the database already exists.
-    fn empty(path: &Path) -> Result<HistoryInfo<T>, NotSafe>; // notsafe?
+    fn empty(path: &Path) -> Result<HistoryInfo<T>, NotSafe>;
 
     /// Creates a HistoryInfo<T> by connecting to an existing db file.
     /// Returns an error if file doesn't exist.
-    fn open(path: &Path) -> Result<HistoryInfo<T>, NotSafe>; // notsafe?
+    fn open(path: &Path) -> Result<HistoryInfo<T>, NotSafe>;
 
     /// Updates the sqlite db and the in-memory Vec if the incoming_data is safe from slashings.
     /// If incoming_data is not safe, returns the associated error.
