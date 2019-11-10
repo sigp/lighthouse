@@ -1,7 +1,6 @@
 mod block_cache;
 mod deposit_cache;
 mod deposit_log;
-mod deposit_set;
 pub mod http;
 mod inner;
 mod service;
@@ -9,7 +8,6 @@ mod service;
 pub use block_cache::{BlockCache, Eth1Block};
 pub use deposit_cache::DepositCache;
 pub use deposit_log::DepositLog;
-pub use deposit_set::DepositSet;
 pub use service::{BlockCacheUpdateOutcome, Config, DepositCacheUpdateOutcome, Error, Service};
 
 use slog::Logger;
