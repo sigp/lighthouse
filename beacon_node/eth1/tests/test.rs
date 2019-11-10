@@ -5,7 +5,7 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
 use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Block, Log};
-use eth1::{BlockProposalService, Config, Service};
+use eth1::{Config, Service};
 use eth1::{DepositCache, DepositLog};
 use eth1_test_rig::GanacheEth1Instance;
 use exit_future;
@@ -417,7 +417,7 @@ mod deposit_tree {
 
         let start_block = get_block_number(runtime, &web3);
 
-        let service = BlockProposalService::new(
+        let service = Service::new(
             Config {
                 endpoint: eth1.endpoint(),
                 deposit_contract_address: deposit_contract.address(),
@@ -438,17 +438,20 @@ mod deposit_tree {
             }
 
             runtime
-                .block_on(service.core.update_deposit_cache())
+                .block_on(service.update_deposit_cache())
                 .expect("should perform update");
 
             runtime
-                .block_on(service.core.update_deposit_cache())
+                .block_on(service.update_deposit_cache())
                 .expect("should perform update when nothing has changed");
 
             let first = n * round;
             let last = n * (round + 1);
 
             let (_root, local_deposits) = service
+                .deposits()
+                .read()
+                .cache
                 .get_deposits(first..last, last, 32)
                 .expect(&format!("should get deposits in round {}", round));
 

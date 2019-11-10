@@ -124,7 +124,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) log: Logger,
 }
 
-type BeaconInfo<T> = (BeaconBlock<T>, BeaconState<T>);
+type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Attempt to save this instance to `self.store`.
@@ -1152,7 +1152,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         randao_reveal: Signature,
         slot: Slot,
-    ) -> Result<BeaconInfo<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         let state = self
             .state_at_slot(slot - 1)
             .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
@@ -1173,7 +1173,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
-    ) -> Result<BeaconInfo<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
