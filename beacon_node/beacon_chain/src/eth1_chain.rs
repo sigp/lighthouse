@@ -230,17 +230,24 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
         _spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
         let deposit_count = state.eth1_data.deposit_count;
+        let deposit_index = state.eth1_deposit_index;
 
-        let next = state.eth1_deposit_index + 1;
-        let last = std::cmp::min(deposit_count, next + T::MaxDeposits::to_u64());
+        if deposit_index > deposit_count {
+            Err(Error::DepositIndexTooHigh)
+        } else if deposit_index == deposit_count {
+            Ok(vec![])
+        } else {
+            let next = deposit_index + 1;
+            let last = std::cmp::min(deposit_count, next + T::MaxDeposits::to_u64());
 
-        self.core
-            .deposits()
-            .read()
-            .cache
-            .get_deposits(next..last, deposit_count, DEPOSIT_TREE_DEPTH)
-            .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
-            .map(|(_deposit_root, deposits)| deposits)
+            self.core
+                .deposits()
+                .read()
+                .cache
+                .get_deposits(next..last, deposit_count, DEPOSIT_TREE_DEPTH)
+                .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
+                .map(|(_deposit_root, deposits)| deposits)
+        }
     }
 }
 
@@ -465,17 +472,53 @@ mod test {
         use environment::null_logger;
         use store::MemoryStore;
 
-        #[test]
-        fn empty_cache() {
-            let spec = &E::default_spec();
-
+        fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E, MemoryStore>, E> {
             let eth1_config = Eth1Config {
                 ..Eth1Config::default()
             };
 
             let log = null_logger().unwrap();
             let store = Arc::new(MemoryStore::open());
-            let eth1_chain = Eth1Chain::new(CachingEth1Backend::new(eth1_config, log, store));
+            Eth1Chain::new(CachingEth1Backend::new(eth1_config, log, store))
+        }
+
+        #[test]
+        fn deposits_empty_cache() {
+            let spec = &E::default_spec();
+
+            let eth1_chain = get_eth1_chain();
+
+            assert_eq!(
+                eth1_chain.use_dummy_backend, false,
+                "test should not use dummy backend"
+            );
+
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            state.eth1_deposit_index = 0;
+            state.eth1_data.deposit_count = 0;
+
+            assert!(
+                eth1_chain
+                    .deposits_for_block_inclusion(&state, spec)
+                    .is_ok(),
+                "should succeed if cache is empty but no deposits are required"
+            );
+
+            state.eth1_data.deposit_count = 1;
+
+            assert!(
+                eth1_chain
+                    .deposits_for_block_inclusion(&state, spec)
+                    .is_err(),
+                "should fail to get deposits if required, but cache is empty"
+            );
+        }
+
+        #[test]
+        fn eth1_data_empty_cache() {
+            let spec = &E::default_spec();
+
+            let eth1_chain = get_eth1_chain();
 
             assert_eq!(
                 eth1_chain.use_dummy_backend, false,
@@ -498,18 +541,12 @@ mod test {
         }
 
         #[test]
-        fn unknown_previous_state() {
+        fn eth1_data_unknown_previous_state() {
             let spec = &E::default_spec();
             let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
 
-            let eth1_config = Eth1Config {
-                ..Eth1Config::default()
-            };
-
-            let log = null_logger().unwrap();
-            let store = Arc::new(MemoryStore::open());
-            let eth1_chain =
-                Eth1Chain::new(CachingEth1Backend::new(eth1_config, log, store.clone()));
+            let eth1_chain = get_eth1_chain();
+            let store = eth1_chain.backend.store.clone();
 
             assert_eq!(
                 eth1_chain.use_dummy_backend, false,
