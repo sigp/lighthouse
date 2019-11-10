@@ -1,7 +1,7 @@
 use crate::attester_slashings::{check_for_attester_slashing, SignedAttestation};
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, Error as SQLErr, OpenFlags};
 use ssz::Decode;
 use ssz::Encode;
 use std::fs::OpenOptions;
@@ -76,11 +76,11 @@ impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
 
 /// Function to load_data from an sqlite db, and store it as a sorted vector.
 trait LoadData<T> {
-    fn load_data(conn: &Connection) -> Result<Vec<T>, NotSafe>;
+    fn load_data(conn: &Connection) -> Result<Vec<T>, SQLErr>;
 }
 
 impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
-    fn load_data(conn: &Connection) -> Result<Vec<SignedAttestation>, NotSafe> {
+    fn load_data(conn: &Connection) -> Result<Vec<SignedAttestation>, SQLErr> {
         let mut attestation_history_select = conn
                 .prepare("select target_epoch, source_epoch, signing_root from signed_attestations order by target_epoch asc")?;
         let history = attestation_history_select.query_map(params![], |row| {
@@ -116,7 +116,7 @@ impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
 }
 
 impl LoadData<SignedBlock> for Vec<SignedBlock> {
-    fn load_data(conn: &Connection) -> Result<Vec<SignedBlock>, NotSafe> {
+    fn load_data(conn: &Connection) -> Result<Vec<SignedBlock>, SQLErr> {
         let mut block_history_select = conn
             .prepare("select slot, signing_root from signed_blocks where slot order by slot asc")?;
         let history = block_history_select.query_map(params![], |row| {
@@ -152,10 +152,12 @@ pub trait SlashingProtection<T> {
     /// Returns an error if the database already exists.
     fn empty(path: &Path) -> Result<HistoryInfo<T>, NotSafe>; // notsafe?
 
-    ///
+    /// Creates a HistoryInfo<T> by connecting to an existing db file.
+    /// Returns an error if file doesn't exist.
     fn open(path: &Path) -> Result<HistoryInfo<T>, NotSafe>; // notsafe?
 
-    ///
+    /// Updates the sqlite db and the in-memory Vec if the incoming_data is safe from slashings.
+    /// If incoming_data is not safe, returns the associated error.
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
@@ -347,8 +349,19 @@ mod single_threaded_tests {
     }
 
     #[test]
-    fn open_invalid_db() {
+    fn open_non_existing_db() {
         let filename = Path::new("this_file_does_not_exist.txt");
+
+        let attestation_history: Result<HistoryInfo<SignedAttestation>, NotSafe> =
+            HistoryInfo::open(filename);
+
+        assert!(attestation_history.is_err());
+    }
+
+    #[test]
+    fn open_invalid_db() {
+        let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let filename = attestation_file.path();
 
         let attestation_history: Result<HistoryInfo<SignedAttestation>, NotSafe> =
             HistoryInfo::open(filename);
