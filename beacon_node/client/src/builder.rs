@@ -44,9 +44,12 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 500;
 /// The builder may start some services (e.g.., libp2p, http server) immediately after they are
 /// initialized, _before_ the `self.build(..)` method has been called.
 ///
-/// Types may be elided and the compile will infer them once all required methods have been called.
-/// If "cannot infer type" compile errors are being raised, ensure that all required components
-/// have been initialized.
+/// Types may be elided and the compiler will infer them once all required methods have been
+/// called.
+///
+/// If type inference errors are raised, ensure all necessary components have been initialized. For
+/// example, the compiler will be unable to infer `T::Store` unless `self.disk_store(..)` or
+/// `self.memory_store(..)` has been called.
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     store: Option<Arc<T::Store>>,
@@ -74,6 +77,8 @@ where
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Instantiates a new, empty builder.
+    ///
+    /// The `eth_spec_instance` parameter is used to concretize `TEthSpec`.
     pub fn new(eth_spec_instance: TEthSpec) -> Self {
         Self {
             slot_clock: None,
@@ -92,14 +97,13 @@ where
         }
     }
 
-    /// Defines the runtime context (tokio executor, logger, etc) that this builder and the
-    /// eventual client will use.
+    /// Specifies the runtime context (tokio executor, logger, etc) for client services.
     pub fn runtime_context(mut self, context: RuntimeContext<TEthSpec>) -> Self {
         self.runtime_context = Some(context);
         self
     }
 
-    /// Set the `ChainSpec` for the builder and the eventual client.
+    /// Specifies the `ChainSpec`.
     pub fn chain_spec(mut self, spec: ChainSpec) -> Self {
         self.chain_spec = Some(spec);
         self
@@ -287,7 +291,7 @@ where
         Ok(self)
     }
 
-    /// Immediately starts the http server.
+    /// Immediately starts the beacon node REST API http server.
     pub fn http_server(
         mut self,
         client_config: &ClientConfig,
@@ -333,10 +337,7 @@ where
         Ok(self)
     }
 
-    /// Immediately starts the service that pushes notifications about the libp2p peer count to the
-    /// `Logger`.
-    ///
-    /// Useful for notifying users when the peer count is low.
+    /// Immediately starts the service that periodically logs about the libp2p peer count.
     pub fn peer_count_notifier(mut self) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -379,8 +380,7 @@ where
         Ok(self)
     }
 
-    /// Immediately starts the service that pushes notifications about the current slot to the
-    /// `Logger`.
+    /// Immediately starts the service that periodically logs information each slot.
     pub fn slot_notifier(mut self) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -442,8 +442,7 @@ where
     /// Consumers the builder, returning a `Client` if all necessary components have been
     /// specified.
     ///
-    /// If "cannot infer type" compile errors are being raised, ensure that all required components
-    /// have been initialized.
+    /// If type inference errors are being raised, see the comment on the definition of `Self`.
     pub fn build(
         self,
     ) -> Client<Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>> {
