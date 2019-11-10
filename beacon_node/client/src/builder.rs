@@ -37,6 +37,16 @@ pub const WARN_PEER_COUNT: usize = 1;
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 500;
 
+/// Builds a `Client` instance.
+///
+/// ## Notes
+///
+/// The builder may start some services (e.g.., libp2p, http server) immediately after they are
+/// initialized, _before_ the `self.build(..)` method has been called.
+///
+/// Types may be elided and the compile will infer them once all required methods have been called.
+/// If "cannot infer type" compile errors are being raised, ensure that all required components
+/// have been initialized.
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     store: Option<Arc<T::Store>>,
@@ -63,6 +73,7 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
+    /// Instantiates a new, empty builder.
     pub fn new(eth_spec_instance: TEthSpec) -> Self {
         Self {
             slot_clock: None,
@@ -81,16 +92,21 @@ where
         }
     }
 
+    /// Defines the runtime context (tokio executor, logger, etc) that this builder and the
+    /// eventual client will use.
     pub fn runtime_context(mut self, context: RuntimeContext<TEthSpec>) -> Self {
         self.runtime_context = Some(context);
         self
     }
 
+    /// Set the `ChainSpec` for the builder and the eventual client.
     pub fn chain_spec(mut self, spec: ChainSpec) -> Self {
         self.chain_spec = Some(spec);
         self
     }
 
+    /// Initializes the `BeaconChainBuilder`. The `build_beacon_chain` method will need to be
+    /// called later in order to actually instantiate the `BeaconChain`.
     pub fn beacon_chain_builder(
         mut self,
         client_genesis: ClientGenesis,
@@ -145,10 +161,32 @@ where
                         }
                         ClientGenesis::DepositContract => {
                             let genesis_service = Eth1GenesisService::new(
+                                // Some of the configuration options for `Eth1Config` are
+                                // hard-coded when listening for genesis from the deposit contract.
+                                //
+                                // The idea is that the `Eth1Config` supplied to this function
+                                // (`config`) is intended for block production duties (i.e.,
+                                // listening for deposit events and voting on eth1 data) and that
+                                // we can make listening for genesis more efficient if we modify
+                                // some params.
                                 Eth1Config {
+                                    // Truncating the block cache makes searching for genesis more
+                                    // complicated.
                                     block_cache_truncation: None,
+                                    // Scan large ranges of blocks when awaiting genesis.
                                     blocks_per_log_query: 1_000,
+                                    // Only perform a single log request each time the eth1 node is
+                                    // polled.
+                                    //
+                                    // For small testnets this makes finding genesis much faster,
+                                    // as it usually happens within 1,000 blocks.
                                     max_log_requests_per_update: Some(1),
+                                    // Only perform a single block request each time the eth1 node
+                                    // is polled.
+                                    //
+                                    // For small testnets, this is much faster as they do not have
+                                    // a `MIN_GENESIS_SECONDS`, so after `MIN_GENESIS_VALIDATOR_COUNT`
+                                    // has been reached only a single block needs to be read.
                                     max_blocks_per_update: Some(1),
                                     ..config
                                 },
@@ -198,6 +236,7 @@ where
             })
     }
 
+    /// Immediately starts the libp2p networking stack.
     pub fn libp2p_network(mut self, config: &NetworkConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
@@ -219,6 +258,7 @@ where
         Ok(self)
     }
 
+    /// Immediately starts the gRPC server (gRPC is soon to be deprecated).
     pub fn grpc_server(mut self, config: &RpcConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
@@ -247,6 +287,7 @@ where
         Ok(self)
     }
 
+    /// Immediately starts the http server.
     pub fn http_server(
         mut self,
         client_config: &ClientConfig,
@@ -292,6 +333,10 @@ where
         Ok(self)
     }
 
+    /// Immediately starts the service that pushes notifications about the libp2p peer count to the
+    /// `Logger`.
+    ///
+    /// Useful for notifying users when the peer count is low.
     pub fn peer_count_notifier(mut self) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -334,6 +379,8 @@ where
         Ok(self)
     }
 
+    /// Immediately starts the service that pushes notifications about the current slot to the
+    /// `Logger`.
     pub fn slot_notifier(mut self) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -392,6 +439,11 @@ where
         Ok(self)
     }
 
+    /// Consumers the builder, returning a `Client` if all necessary components have been
+    /// specified.
+    ///
+    /// If "cannot infer type" compile errors are being raised, ensure that all required components
+    /// have been initialized.
     pub fn build(
         self,
     ) -> Client<Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>> {
@@ -423,6 +475,7 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
+    /// Consumes the internal `BeaconChainBuilder`, attaching the resulting `BeaconChain` to self.
     pub fn build_beacon_chain(mut self) -> Result<Self, String> {
         let chain = self
             .beacon_chain_builder
@@ -460,6 +513,7 @@ where
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
 {
+    /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
     pub fn websocket_event_handler(mut self, config: WebSocketConfig) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -498,6 +552,7 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
+    /// Specifies that the `Client` should use a `DiskStore` database.
     pub fn disk_store(mut self, path: &Path) -> Result<Self, String> {
         let store = DiskStore::open(path)
             .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
@@ -517,6 +572,7 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
+    /// Specifies that the `Client` should use a `MemoryStore` database.
     pub fn memory_store(mut self) -> Self {
         let store = MemoryStore::open();
         self.store = Some(Arc::new(store));
@@ -542,9 +598,9 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
-    /// Sets the `BeaconChain` eth1 back-end to `CachingEth1Backend`.
-    ///
-    /// Equivalent to calling `Self::eth1_backend` with `InteropEth1ChainBackend`.
+    /// Specifies that the `BeaconChain` should cache eth1 blocks/logs from a remote eth1 node
+    /// (e.g., Parity/Geth) and refer to that cache when collecting deposits or eth1 votes during
+    /// block production.
     pub fn caching_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -586,10 +642,10 @@ where
         Ok(self)
     }
 
-    /// Use an eth1 backend that can produce blocks but is not connected to the an Eth1 node.
+    /// Use an eth1 backend that can produce blocks but is not connected to an Eth1 node.
     ///
-    /// This backend will never produce deposits, so it's impossible to add validators after
-    /// genesis. The `Eth1Data` votes will all be for some deterministic junk data.
+    /// This backend will never produce deposits so it's impossible to add validators after
+    /// genesis. The `Eth1Data` votes will be deterministic junk data.
     ///
     /// ## Notes
     ///
@@ -617,6 +673,7 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
+    /// Specifies that the slot clock should read the time from the computers system clock.
     pub fn system_time_slot_clock(mut self) -> Result<Self, String> {
         let beacon_chain_builder = self
             .beacon_chain_builder
