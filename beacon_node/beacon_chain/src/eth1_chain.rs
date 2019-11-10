@@ -388,9 +388,7 @@ fn collect_valid_votes<T: EthSpec>(
 fn find_winning_vote(valid_votes: Eth1DataVoteCount) -> Option<Eth1Data> {
     valid_votes
         .iter()
-        .max_by_key(|((_eth1_data, block_number), vote_count)| {
-            (*vote_count, u64::max_value() - block_number)
-        })
+        .max_by_key(|((_eth1_data, block_number), vote_count)| (*vote_count, block_number))
         .map(|((eth1_data, _), _)| eth1_data.clone())
 }
 
@@ -912,9 +910,9 @@ mod test {
             (
                 (
                     Eth1Data {
-                        deposit_root: Hash256::zero(),
-                        deposit_count: 0,
-                        block_hash: Hash256::zero(),
+                        deposit_root: Hash256::from_low_u64_be(block_number),
+                        deposit_count: block_number,
+                        block_hash: Hash256::from_low_u64_be(block_number),
                     },
                     block_number,
                 ),
@@ -940,36 +938,48 @@ mod test {
 
         #[test]
         fn equal_votes() {
-            let no_votes = vec![vote(0, 1), vote(1, 1), vote(3, 1), vote(2, 1)];
+            let votes = vec![vote(0, 1), vote(1, 1), vote(3, 1), vote(2, 1)];
 
             assert_eq!(
                 // Favour the highest block number when there are equal votes.
-                vote_data(&no_votes[2]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
+                vote_data(&votes[2]),
+                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
                     .expect("should find winner")
             );
         }
 
         #[test]
         fn some_votes() {
-            let no_votes = vec![vote(0, 0), vote(1, 1), vote(3, 1), vote(2, 2)];
+            let votes = vec![vote(0, 0), vote(1, 1), vote(3, 1), vote(2, 2)];
 
             assert_eq!(
                 // Favour the highest vote over the highest block number.
-                vote_data(&no_votes[3]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
+                vote_data(&votes[3]),
+                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
                     .expect("should find winner")
             );
         }
 
         #[test]
         fn tying_votes() {
-            let no_votes = vec![vote(0, 0), vote(1, 1), vote(3, 2), vote(2, 2)];
+            let votes = vec![vote(0, 0), vote(1, 1), vote(2, 2), vote(3, 2)];
 
             assert_eq!(
                 // Favour the highest block number for tying votes.
-                vote_data(&no_votes[2]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
+                vote_data(&votes[3]),
+                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
+                    .expect("should find winner")
+            );
+        }
+
+        #[test]
+        fn all_tying_votes() {
+            let votes = vec![vote(3, 42), vote(2, 42), vote(1, 42), vote(0, 42)];
+
+            assert_eq!(
+                // Favour the highest block number for tying votes.
+                vote_data(&votes[0]),
+                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
                     .expect("should find winner")
             );
         }
