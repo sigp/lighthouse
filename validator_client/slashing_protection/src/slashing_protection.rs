@@ -377,7 +377,7 @@ mod single_threaded_tests {
         let attestation_history: Result<HistoryInfo<SignedAttestation>, NotSafe> =
             HistoryInfo::open(filename);
 
-        assert!(attestation_history.is_err());
+        assert!(attestation_history.is_err()); // SCOTT
     }
 
     #[test]
@@ -396,11 +396,21 @@ mod single_threaded_tests {
 
         let attestation1 = attestation_and_custody_bit_builder(5, 9);
         let invalid_attest = attestation_history.update_if_valid(&attestation1);
-        assert!(invalid_attest.is_err());
+        assert_eq!(
+            invalid_attest,
+            Err(NotSafe::SQLError(
+                "no such table: signed_attestations".to_string()
+            ))
+        ); // SCOTT
 
         let block1 = block_builder(1);
         let invalid_block = block_history.update_if_valid(&block1);
-        assert!(invalid_block.is_err());
+        assert_eq!(
+            invalid_block,
+            Err(NotSafe::SQLError(
+                "no such table: signed_blocks".to_string()
+            ))
+        ); // SCOTT
     }
 
     #[test]
