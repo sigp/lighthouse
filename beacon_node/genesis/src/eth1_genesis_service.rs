@@ -205,7 +205,7 @@ impl Eth1GenesisService {
             .filter(|block| {
                 self.highest_known_block()
                     .map(|n| block.number <= n)
-                    .unwrap_or_else(|| true)
+                    .unwrap_or_else(|| false)
             })
             .find(|block| {
                 let mut highest_processed_block = self.highest_processed_block.lock();
