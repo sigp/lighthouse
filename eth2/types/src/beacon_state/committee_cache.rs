@@ -101,12 +101,18 @@ impl CommitteeCache {
         &self.shuffling
     }
 
+    /// Get the Beacon committee for the given `slot` and `index`.
+    ///
+    /// Return `None` if the cache is uninitialized, or the `slot` or `index` is out of range.
     pub fn get_beacon_committee(
         &self,
         slot: Slot,
         index: CommitteeIndex,
     ) -> Option<BeaconCommittee> {
-        if self.initialized_epoch.is_none() || index >= self.committees_per_slot {
+        if self.initialized_epoch.is_none()
+            || !self.is_initialized_at(slot.epoch(self.slots_per_epoch))
+            || index >= self.committees_per_slot
+        {
             return None;
         }
 
@@ -121,6 +127,7 @@ impl CommitteeCache {
         })
     }
 
+    /// Get all the Beacon committees at a given `slot`.
     pub fn get_beacon_committees_at_slot(&self, slot: Slot) -> Result<Vec<BeaconCommittee>, Error> {
         if self.initialized_epoch.is_none() {
             return Err(Error::CommitteeCacheUninitialized(None));
@@ -165,6 +172,7 @@ impl CommitteeCache {
             })
     }
 
+    /// Convert an index addressing the list of all epoch committees into a slot and per-slot index.
     fn convert_to_slot_and_index(
         &self,
         global_committee_index: u64,
@@ -193,6 +201,7 @@ impl CommitteeCache {
         self.committees_per_slot as usize * self.slots_per_epoch as usize
     }
 
+    /// Returns the number of committees per slot for this cache's epoch.
     pub fn committees_per_slot(&self) -> u64 {
         self.committees_per_slot
     }
@@ -251,13 +260,3 @@ pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> V
 
     active
 }
-
-/*
-/// Returns the count of all `validators` indices where the validator is active at the given
-/// `epoch`.
-///
-/// Spec v0.9.1
-fn get_active_validator_count(validators: &[Validator], epoch: Epoch) -> usize {
-    validators.iter().filter(|v| v.is_active_at(epoch)).count()
-}
-*/
