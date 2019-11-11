@@ -39,7 +39,6 @@ pub fn check_for_proposer_slashing(
 ) -> Result<Safe, NotSafe> {
     if block_history.is_empty() {
         return Ok(Safe {
-            insert_index: 0,
             reason: ValidityReason::EmptyHistory,
         });
     }
@@ -47,7 +46,6 @@ pub fn check_for_proposer_slashing(
     let latest_signed_block = &block_history[block_history.len() - 1];
     if block_header.slot > latest_signed_block.slot {
         return Ok(Safe {
-            insert_index: block_history.len(),
             reason: ValidityReason::Valid,
         });
     }
@@ -65,7 +63,6 @@ pub fn check_for_proposer_slashing(
     if block_history[index].slot == block_header.slot {
         if block_history[index].signing_root == block_header.canonical_root() {
             Ok(Safe {
-                insert_index: index,
                 reason: ValidityReason::SameVote,
             })
         } else {
@@ -104,7 +101,6 @@ mod block_tests {
         assert_eq!(
             check_for_proposer_slashing(&new_block, &history),
             Ok(Safe {
-                insert_index: 0,
                 reason: ValidityReason::EmptyHistory
             })
         );
@@ -121,7 +117,6 @@ mod block_tests {
         assert_eq!(
             check_for_proposer_slashing(&new_block, &history),
             Ok(Safe {
-                insert_index: 2,
                 reason: ValidityReason::Valid
             })
         );
@@ -140,7 +135,6 @@ mod block_tests {
         assert_eq!(
             check_for_proposer_slashing(&new_block, &history),
             Ok(Safe {
-                insert_index: 2,
                 reason: ValidityReason::SameVote
             })
         );

@@ -383,12 +383,24 @@ mod single_threaded_tests {
     #[test]
     fn open_invalid_db() {
         let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
-        let filename = attestation_file.path();
+        let attestation_filename = attestation_file.path();
 
-        let attestation_history: Result<HistoryInfo<SignedAttestation>, NotSafe> =
-            HistoryInfo::open(filename);
+        let block_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let block_filename = block_file.path();
 
-        assert!(attestation_history.is_err());
+        let mut attestation_history: HistoryInfo<SignedAttestation> =
+            HistoryInfo::open(attestation_filename).expect("IO error with file");
+
+        let mut block_history: HistoryInfo<SignedBlock> =
+            HistoryInfo::open(block_filename).expect("IO error with file");
+
+        let attestation1 = attestation_and_custody_bit_builder(5, 9);
+        let invalid_attest = attestation_history.update_if_valid(&attestation1);
+        assert!(invalid_attest.is_err());
+
+        let block1 = block_builder(1);
+        let invalid_block = block_history.update_if_valid(&block1);
+        assert!(invalid_block.is_err());
     }
 
     #[test]
