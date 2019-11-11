@@ -1,7 +1,7 @@
 use crate::{
     test_utils::{
         TestingAttestationBuilder, TestingAttesterSlashingBuilder, TestingDepositBuilder,
-        TestingProposerSlashingBuilder, TestingTransferBuilder, TestingVoluntaryExitBuilder,
+        TestingProposerSlashingBuilder, TestingVoluntaryExitBuilder,
     },
     *,
 };
@@ -116,7 +116,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         // - The slot of the committee.
         // - A list of all validators in the committee.
         // - A list of all validators in the committee that should sign the attestation.
-        // - The shard of the committee.
+        // - The index of the committee.
         let mut committees: Vec<(Slot, Vec<usize>, Vec<usize>, u64)> = vec![];
 
         if slot < T::slots_per_epoch() {
@@ -132,16 +132,16 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                 break;
             }
 
-            for crosslink_committee in state.get_crosslink_committees_at_slot(slot)? {
+            for beacon_committee in state.get_beacon_committees_at_slot(slot)? {
                 if attestations_added >= num_attestations {
                     break;
                 }
 
                 committees.push((
                     slot,
-                    crosslink_committee.committee.to_vec(),
-                    crosslink_committee.committee.to_vec(),
-                    crosslink_committee.shard,
+                    beacon_committee.committee.to_vec(),
+                    beacon_committee.committee.to_vec(),
+                    beacon_committee.index,
                 ));
 
                 attestations_added += 1;
@@ -157,26 +157,25 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                 break;
             }
 
-            for index in 0..committees.len() {
+            for i in 0..committees.len() {
                 if committees.len() >= num_attestations as usize {
                     break;
                 }
 
-                let (slot, committee, mut signing_validators, shard) = committees[index].clone();
+                let (slot, committee, mut signing_validators, index) = committees[i].clone();
 
                 let new_signing_validators =
                     signing_validators.split_off(signing_validators.len() / 2);
 
-                committees[index] = (slot, committee.clone(), signing_validators, shard);
-                committees.push((slot, committee, new_signing_validators, shard));
+                committees[i] = (slot, committee.clone(), signing_validators, index);
+                committees.push((slot, committee, new_signing_validators, index));
             }
         }
 
         let attestations: Vec<_> = committees
             .par_iter()
-            .map(|(slot, committee, signing_validators, shard)| {
-                let mut builder =
-                    TestingAttestationBuilder::new(state, committee, *slot, *shard, spec);
+            .map(|(slot, committee, signing_validators, index)| {
+                let mut builder = TestingAttestationBuilder::new(state, committee, *slot, *index);
 
                 let signing_secret_keys: Vec<&SecretKey> = signing_validators
                     .iter()
@@ -243,25 +242,6 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             .voluntary_exits
             .push(builder.build())
             .unwrap()
-    }
-
-    /// Insert a `Valid` transfer into the state.
-    ///
-    /// Note: this will set the validator to be withdrawable by directly modifying the state
-    /// validator registry. This _may_ cause problems historic hashes, etc.
-    pub fn insert_transfer(
-        &mut self,
-        state: &BeaconState<T>,
-        from: u64,
-        to: u64,
-        amount: u64,
-        keypair: Keypair,
-        spec: &ChainSpec,
-    ) {
-        let mut builder = TestingTransferBuilder::new(from, to, amount, state.slot);
-        builder.sign::<T>(keypair, &state.fork, spec);
-
-        self.block.body.transfers.push(builder.build()).unwrap()
     }
 
     /// Signs and returns the block, consuming the builder.

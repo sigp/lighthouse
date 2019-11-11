@@ -13,8 +13,7 @@ use store::MemoryStore;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
     AggregateSignature, Attestation, AttestationDataAndCustodyBit, BeaconBlock, BeaconState,
-    BitList, ChainSpec, Domain, EthSpec, Hash256, Keypair, RelativeEpoch, SecretKey, Signature,
-    Slot,
+    BitList, ChainSpec, Domain, EthSpec, Hash256, Keypair, SecretKey, Signature, Slot,
 };
 
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -216,7 +215,7 @@ where
                 .block_proposer(slot)
                 .expect("should get block proposer from chain"),
             _ => state
-                .get_beacon_proposer_index(slot, RelativeEpoch::Current, &self.spec)
+                .get_beacon_proposer_index(slot, &self.spec)
                 .expect("should get block proposer from state"),
         };
 
@@ -293,13 +292,13 @@ where
         let mut attestations = vec![];
 
         state
-            .get_crosslink_committees_at_slot(state.slot)
+            .get_beacon_committees_at_slot(state.slot)
             .expect("should get committees")
             .iter()
-            .for_each(|cc| {
-                let committee_size = cc.committee.len();
+            .for_each(|bc| {
+                let committee_size = bc.committee.len();
 
-                let mut local_attestations: Vec<Attestation<E>> = cc
+                let mut local_attestations: Vec<Attestation<E>> = bc
                     .committee
                     .par_iter()
                     .enumerate()
@@ -310,7 +309,7 @@ where
                             let data = self
                                 .chain
                                 .produce_attestation_data_for_block(
-                                    cc.shard,
+                                    bc.index,
                                     head_block_root,
                                     head_block_slot,
                                     state,
@@ -332,8 +331,11 @@ where
                                 }
                                 .tree_hash_root();
 
-                                let domain =
-                                    spec.get_domain(data.target.epoch, Domain::Attestation, fork);
+                                let domain = spec.get_domain(
+                                    data.target.epoch,
+                                    Domain::BeaconAttester,
+                                    fork,
+                                );
 
                                 let mut agg_sig = AggregateSignature::new();
                                 agg_sig.add(&Signature::new(

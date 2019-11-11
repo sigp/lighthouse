@@ -57,11 +57,21 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
                 "slot" => slot,
             ),
             Err(e) => error!(log, "Attestation production error"; "Error" => format!("{:?}", e)),
-            Ok(ValidatorEvent::SignerRejection(_slot)) => error!(log, "Attestation production error"; "Error" => "Signer could not sign the attestation".to_string()),
-            Ok(ValidatorEvent::IndexedAttestationNotProduced(_slot)) => error!(log, "Attestation production error"; "Error" => "Rejected the attestation as it could have been slashed".to_string()),
-            Ok(ValidatorEvent::PublishAttestationFailed) => error!(log, "Attestation production error"; "Error" => "Beacon node was unable to publish an attestation".to_string()),
-            Ok(ValidatorEvent::InvalidAttestation) => error!(log, "Attestation production error"; "Error" => "The signed attestation was invalid".to_string()),
-            Ok(v) => warn!(log, "Unknown result for attestation production"; "Error" => format!("{:?}",v)),
+            Ok(ValidatorEvent::SignerRejection(_slot)) => {
+                error!(log, "Attestation production error"; "Error" => "Signer could not sign the attestation".to_string())
+            }
+            Ok(ValidatorEvent::IndexedAttestationNotProduced(_slot)) => {
+                error!(log, "Attestation production error"; "Error" => "Rejected the attestation as it could have been slashed".to_string())
+            }
+            Ok(ValidatorEvent::PublishAttestationFailed) => {
+                error!(log, "Attestation production error"; "Error" => "Beacon node was unable to publish an attestation".to_string())
+            }
+            Ok(ValidatorEvent::InvalidAttestation) => {
+                error!(log, "Attestation production error"; "Error" => "The signed attestation was invalid".to_string())
+            }
+            Ok(v) => {
+                warn!(log, "Unknown result for attestation production"; "Error" => format!("{:?}",v))
+            }
         }
     }
 
@@ -80,9 +90,11 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
 
         let attestation = self
             .beacon_node
-            .produce_attestation_data(self.duty.slot, self.duty.shard)?;
+            .produce_attestation_data(self.duty.slot, self.duty.index)?;
         if self.safe_to_produce(&attestation) {
-            let domain = self.spec.get_domain(epoch, Domain::Attestation, &self.fork);
+            let domain = self
+                .spec
+                .get_domain(epoch, Domain::BeaconAttester, &self.fork);
             if let Some(attestation) = self.sign_attestation(attestation, self.duty, domain) {
                 match self.beacon_node.publish_attestation(attestation) {
                     Ok(PublishOutcome::InvalidAttestation(_string)) => {
@@ -132,7 +144,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
 
         let mut aggregation_bits = BitList::with_capacity(duties.committee_len).ok()?;
         let custody_bits = BitList::with_capacity(duties.committee_len).ok()?;
-        aggregation_bits.set(duties.committee_index, true).ok()?;
+        aggregation_bits.set(duties.committee_position, true).ok()?;
 
         Some(Attestation {
             aggregation_bits,

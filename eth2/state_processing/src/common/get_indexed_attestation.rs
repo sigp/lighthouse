@@ -6,7 +6,7 @@ type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 
 /// Convert `attestation` to (almost) indexed-verifiable form.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.0
 pub fn get_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
@@ -63,18 +63,16 @@ mod test {
         state.build_all_caches(&spec).unwrap();
         state.slot += 1;
 
-        let shard = 0;
-        let cc = state
-            .get_crosslink_committee_for_shard(shard, RelativeEpoch::Current)
-            .unwrap();
+        let index = 0;
+        let bc = state.get_beacon_committee(Slot::new(0), index).unwrap();
 
         // Make a third of the validators sign with custody bit 0, a third with custody bit 1
         // and a third not sign at all.
         assert!(
-            cc.committee.len() >= 4,
+            bc.committee.len() >= 4,
             "need at least 4 validators per committee for this test to work"
         );
-        let (mut bit_0_indices, mut bit_1_indices): (Vec<_>, Vec<_>) = cc
+        let (mut bit_0_indices, mut bit_1_indices): (Vec<_>, Vec<_>) = bc
             .committee
             .iter()
             .enumerate()
@@ -99,7 +97,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let mut attestation_builder =
-            TestingAttestationBuilder::new(&state, &cc.committee, cc.slot, shard, &spec);
+            TestingAttestationBuilder::new(&state, &bc.committee, bc.slot, index);
         attestation_builder
             .sign(&bit_0_indices, &bit_0_keys, &state.fork, &spec, false)
             .sign(&bit_1_indices, &bit_1_keys, &state.fork, &spec, true);

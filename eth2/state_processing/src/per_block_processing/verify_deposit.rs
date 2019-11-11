@@ -14,7 +14,7 @@ fn error(reason: DepositInvalid) -> BlockOperationError<DepositInvalid> {
 
 /// Verify `Deposit.pubkey` signed `Deposit.signature`.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.0
 pub fn verify_deposit_signature<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
@@ -50,7 +50,7 @@ pub fn get_existing_validator_index<T: EthSpec>(
 /// The deposit index is provided as a parameter so we can check proofs
 /// before they're due to be processed, and in parallel.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.0
 pub fn verify_deposit_merkle_proof<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,

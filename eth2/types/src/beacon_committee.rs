@@ -1,25 +1,25 @@
 use crate::*;
 
 #[derive(Default, Clone, Debug, PartialEq)]
-pub struct CrosslinkCommittee<'a> {
+pub struct BeaconCommittee<'a> {
     pub slot: Slot,
-    pub shard: Shard,
+    pub index: CommitteeIndex,
     pub committee: &'a [usize],
 }
 
-impl<'a> CrosslinkCommittee<'a> {
-    pub fn into_owned(self) -> OwnedCrosslinkCommittee {
-        OwnedCrosslinkCommittee {
+impl<'a> BeaconCommittee<'a> {
+    pub fn into_owned(self) -> OwnedBeaconCommittee {
+        OwnedBeaconCommittee {
             slot: self.slot,
-            shard: self.shard,
+            index: self.index,
             committee: self.committee.to_vec(),
         }
     }
 }
 
 #[derive(Default, Clone, Debug, PartialEq)]
-pub struct OwnedCrosslinkCommittee {
+pub struct OwnedBeaconCommittee {
     pub slot: Slot,
-    pub shard: Shard,
+    pub index: CommitteeIndex,
     pub committee: Vec<usize>,
 }

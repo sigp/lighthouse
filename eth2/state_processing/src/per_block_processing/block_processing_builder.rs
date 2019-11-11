@@ -48,9 +48,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             )),
         }
 
-        let proposer_index = state
-            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
-            .unwrap();
+        let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
         match randao_sk {

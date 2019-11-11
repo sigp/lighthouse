@@ -21,7 +21,8 @@ impl TestingAttesterSlashingBuilder {
     where
         F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
     {
-        let shard = 0;
+        let slot = Slot::new(1);
+        let index = 0;
         let epoch_1 = Epoch::new(1);
         let epoch_2 = Epoch::new(2);
         let hash_1 = Hash256::from_low_u64_le(1);
@@ -34,19 +35,13 @@ impl TestingAttesterSlashingBuilder {
             epoch: epoch_1,
             root: hash_2,
         };
-        let crosslink = Crosslink {
-            shard,
-            parent_root: hash_1,
-            start_epoch: epoch_1,
-            end_epoch: epoch_2,
-            data_root: hash_1,
-        };
 
         let data_1 = AttestationData {
+            slot,
+            index,
             beacon_block_root: hash_1,
             source: checkpoint_1.clone(),
             target: checkpoint_1,
-            crosslink,
         };
 
         let data_2 = AttestationData {
@@ -77,8 +72,12 @@ impl TestingAttesterSlashingBuilder {
             let message = attestation_data_and_custody_bit.tree_hash_root();
 
             for validator_index in validator_indices {
-                let signature =
-                    signer(*validator_index, &message[..], epoch_2, Domain::Attestation);
+                let signature = signer(
+                    *validator_index,
+                    &message[..],
+                    epoch_2,
+                    Domain::BeaconAttester,
+                );
                 attestation.signature.add(&signature);
             }
         };

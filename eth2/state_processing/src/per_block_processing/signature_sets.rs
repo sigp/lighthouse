@@ -8,8 +8,7 @@ use tree_hash::{SignedRoot, TreeHash};
 use types::{
     AggregateSignature, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
     BeaconBlockHeader, BeaconState, BeaconStateError, ChainSpec, Deposit, Domain, EthSpec, Fork,
-    Hash256, IndexedAttestation, ProposerSlashing, PublicKey, RelativeEpoch, Signature, Transfer,
-    VoluntaryExit,
+    Hash256, IndexedAttestation, ProposerSlashing, PublicKey, Signature, VoluntaryExit,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -42,8 +41,7 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
     block_signed_root: Option<Hash256>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let proposer_index =
-        state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?;
+    let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
     let block_proposer = &state
         .validators
         .get(proposer_index)
@@ -75,8 +73,7 @@ pub fn randao_signature_set<'a, T: EthSpec>(
     block: &'a BeaconBlock<T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let block_proposer = &state.validators
-        [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
+    let block_proposer = &state.validators[state.get_beacon_proposer_index(block.slot, spec)?];
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),
@@ -154,7 +151,7 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
-        Domain::Attestation,
+        Domain::BeaconAttester,
         &state.fork,
     );
 
@@ -237,28 +234,6 @@ pub fn exit_signature_set<'a, T: EthSpec>(
     Ok(SignatureSet::single(
         &exit.signature,
         &validator.pubkey,
-        message,
-        domain,
-    ))
-}
-
-/// Returns a signature set that is valid if the `Transfer` was signed by `transfer.pubkey`.
-pub fn transfer_signature_set<'a, T: EthSpec>(
-    state: &'a BeaconState<T>,
-    transfer: &'a Transfer,
-    spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>> {
-    let domain = spec.get_domain(
-        transfer.slot.epoch(T::slots_per_epoch()),
-        Domain::Transfer,
-        &state.fork,
-    );
-
-    let message = transfer.signed_root();
-
-    Ok(SignatureSet::single(
-        &transfer.signature,
-        &transfer.pubkey,
         message,
         domain,
     ))

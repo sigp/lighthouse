@@ -12,14 +12,8 @@ pub struct TestingAttestationBuilder<T: EthSpec> {
 
 impl<T: EthSpec> TestingAttestationBuilder<T> {
     /// Create a new attestation builder.
-    pub fn new(
-        state: &BeaconState<T>,
-        committee: &[usize],
-        slot: Slot,
-        shard: u64,
-        spec: &ChainSpec,
-    ) -> Self {
-        let data_builder = TestingAttestationDataBuilder::new(state, shard, slot, spec);
+    pub fn new(state: &BeaconState<T>, committee: &[usize], slot: Slot, index: u64) -> Self {
+        let data_builder = TestingAttestationDataBuilder::new(state, index, slot);
 
         let mut aggregation_bits = BitList::with_capacity(committee.len()).unwrap();
         let mut custody_bits = BitList::with_capacity(committee.len()).unwrap();
@@ -87,7 +81,7 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
 
             let domain = spec.get_domain(
                 self.attestation.data.target.epoch,
-                Domain::Attestation,
+                Domain::BeaconAttester,
                 fork,
             );
 

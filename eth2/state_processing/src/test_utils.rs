@@ -12,7 +12,6 @@ pub struct BlockBuilder<T: EthSpec> {
     pub num_attestations: usize,
     pub num_deposits: usize,
     pub num_exits: usize,
-    pub num_transfers: usize,
 }
 
 impl<T: EthSpec> BlockBuilder<T> {
@@ -30,7 +29,6 @@ impl<T: EthSpec> BlockBuilder<T> {
             num_attestations: 0,
             num_deposits: 0,
             num_exits: 0,
-            num_transfers: 0,
         }
     }
 
@@ -40,7 +38,6 @@ impl<T: EthSpec> BlockBuilder<T> {
         self.num_attestations = T::MaxAttestations::to_usize();
         self.num_deposits = T::MaxDeposits::to_usize();
         self.num_exits = T::MaxVoluntaryExits::to_usize();
-        self.num_transfers = T::MaxTransfers::to_usize();
     }
 
     pub fn set_slot(&mut self, slot: Slot) {
@@ -58,9 +55,7 @@ impl<T: EthSpec> BlockBuilder<T> {
 
         builder.set_slot(state.slot);
 
-        let proposer_index = state
-            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
-            .unwrap();
+        let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
 
         let proposer_keypair = &keypairs[proposer_index];
 
@@ -151,24 +146,6 @@ impl<T: EthSpec> BlockBuilder<T> {
             "Inserted {} exits.",
             builder.block.body.voluntary_exits.len()
         );
-
-        // Insert the maximum possible number of `Transfer` objects.
-        for _ in 0..self.num_transfers {
-            let validator_index = validators_iter.next().expect("Insufficient validators.");
-
-            // Manually set the validator to be withdrawn.
-            state.validators[validator_index as usize].withdrawable_epoch = state.previous_epoch();
-
-            builder.insert_transfer(
-                &state,
-                validator_index,
-                validator_index,
-                1,
-                keypairs[validator_index as usize].clone(),
-                spec,
-            );
-        }
-        info!("Inserted {} transfers.", builder.block.body.transfers.len());
 
         // Set the eth1 data to be different from the state.
         self.block_builder.block.body.eth1_data.block_hash = Hash256::from_slice(&[42; 32]);
