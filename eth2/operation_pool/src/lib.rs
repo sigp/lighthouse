@@ -578,7 +578,7 @@ mod tests {
             let mut builder = TestingAttestationBuilder::new(state, committee, slot, index);
             let signers = &committee[signing_range];
             let committee_keys = signers.iter().map(|&i| &keypairs[i].sk).collect::<Vec<_>>();
-            builder.sign(signers, &committee_keys, &state.fork, spec, false);
+            builder.sign(signers, &committee_keys, &state.fork, spec);
             extra_signer.map(|c_idx| {
                 let validator_index = committee[c_idx];
                 builder.sign(
@@ -586,7 +586,6 @@ mod tests {
                     &[&keypairs[validator_index].sk],
                     &state.fork,
                     spec,
-                    false,
                 )
             });
             builder.build()
