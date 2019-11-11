@@ -11,8 +11,6 @@ pub enum Error {
     Conflicting(u64),
     /// The given block was not one block number higher than the higest known block number.
     NonConsecutive { given: u64, expected: u64 },
-    /// The given block number is too large to fit in a usize.
-    BlockNumberTooLarge(u64),
     /// Some invariant was violated, there is a likely bug in the code.
     Internal(String),
 }
@@ -64,9 +62,9 @@ impl BlockCache {
 
     /// Returns an iterator over all blocks.
     ///
-    /// Blocks will be returned with:
+    /// Blocks a guaranteed to be returned with;
     ///
-    /// - Monotically increase block numbers.
+    /// - Monotonically increasing block numbers.
     /// - Non-uniformly increasing block timestamps.
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Eth1Block> + Clone {
         self.blocks.iter()
@@ -76,10 +74,8 @@ impl BlockCache {
     /// rest.
     ///
     /// If `len` is greater than the vector's current length, this has no effect.
-    ///
-    /// Providing `len == 0` is a no-op.
     pub fn truncate(&mut self, len: usize) {
-        if (len != 0) && len < self.blocks.len() {
+        if len < self.blocks.len() {
             self.blocks = self.blocks.split_off(self.blocks.len() - len);
         }
     }
@@ -92,16 +88,12 @@ impl BlockCache {
 
     /// Returns a block with the corresponding number, if any.
     pub fn block_by_number(&self, block_number: u64) -> Option<&Eth1Block> {
-        self.blocks
-            .get(self.block_index_by_block_number(block_number)?)
-    }
-
-    /// Returns a block with the corresponding number, if any.
-    fn block_index_by_block_number(&self, target: u64) -> Option<usize> {
-        self.blocks
-            .as_slice()
-            .binary_search_by(|block| block.number.cmp(&target))
-            .ok()
+        self.blocks.get(
+            self.blocks
+                .as_slice()
+                .binary_search_by(|block| block.number.cmp(&block_number))
+                .ok()?,
+        )
     }
 
     /// Insert an `Eth1Snapshot` into `self`, allowing future queries.
@@ -207,7 +199,7 @@ mod tests {
             insert(&mut cache, block.clone()).expect("should add consecutive blocks");
         }
 
-        for len in vec![1, 2, 3, 4, 8, 15, 16] {
+        for len in vec![0, 1, 2, 3, 4, 8, 15, 16] {
             let mut cache = cache.clone();
 
             cache.truncate(len);
@@ -219,10 +211,6 @@ mod tests {
                 len
             );
         }
-
-        let mut cache_2 = cache.clone();
-        cache_2.truncate(0);
-        assert_eq!(cache_2.blocks.len(), n, "truncate to 0 should be a no-op");
 
         let mut cache_2 = cache.clone();
         cache_2.truncate(17);
@@ -278,5 +266,7 @@ mod tests {
             insert(&mut cache, block.clone())
                 .expect("should add consecutive blocks with duplicate timestamps");
         }
+
+        assert_eq!(cache.blocks, blocks, "should have added all blocks");
     }
 }

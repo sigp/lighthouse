@@ -6,21 +6,26 @@ use types::{Deposit, Hash256};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
-    NonConsecutive {
-        log_index: u64,
-        expected: usize,
-    },
+    /// A deposit log was added when a prior deposit was not already in the cache.
+    ///
+    /// Logs have to be added with monotonically-increasing block numbers.
+    NonConsecutive { log_index: u64, expected: usize },
+    /// The eth1 event log data was unable to be parsed.
     LogParseError(String),
+    /// There are insufficient deposits in the cache to fulfil the request.
     InsufficientDeposits {
         known_deposits: usize,
         requested: u64,
     },
+    /// A log with the given index is already present in the cache and it does not match the one
+    /// provided.
     DuplicateDistinctLog(u64),
+    /// The deposit count must always be large enough to account for the requested deposit range.
+    ///
+    /// E.g., you cannot request deposit 10 when the deposit count is 9.
+    DepositCountInvalid { deposit_count: u64, range_end: u64 },
+    /// An unexpected condition was encountered.
     InternalError(String),
-    DepositCountInvalid {
-        deposit_count: u64,
-        range_end: u64,
-    },
 }
 
 /// Emulates the eth1 deposit contract merkle tree.
@@ -40,11 +45,12 @@ impl DepositDataTree {
         }
     }
 
+    /// Returns 32 bytes representing the "mix in length" for the merkle root of this tree.
     fn length_bytes(&self) -> Vec<u8> {
         int_to_bytes32(self.mix_in_length)
     }
 
-    /// Retrieve the root hash of this Merkle tree.
+    /// Retrieve the root hash of this Merkle tree with the length mixed in.
     pub fn root(&self) -> Hash256 {
         let mut preimage = [0; 64];
         preimage[0..32].copy_from_slice(&self.tree.hash()[..]);
@@ -169,6 +175,13 @@ impl DepositCache {
                 .roots
                 .get(0..deposit_count as usize)
                 .ok_or_else(|| Error::InternalError("Unable to get known root".into()))?;
+
+            // Note: there is likely a more optimal solution than recreating the `DepositDataTree`
+            // each time this function is called.
+            //
+            // Perhaps a base merkle tree could be maintained that contains all deposits up to the
+            // last finalized eth1 deposit count. Then, that tree could be cloned and extended for
+            // each of these calls.
 
             let tree = DepositDataTree::create(roots, deposit_count as usize, tree_depth);
 
