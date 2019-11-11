@@ -5,7 +5,7 @@ use utils::{u8_from_hex_str, u8_to_hex_str};
 
 /// Each of the BLS signature domains.
 ///
-/// Spec v0.9.0
+/// Spec v0.9.1
 pub enum Domain {
     BeaconProposer,
     BeaconAttester,
@@ -16,7 +16,7 @@ pub enum Domain {
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.9.0
+/// Spec v0.9.1
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
@@ -91,7 +91,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Get the domain number, unmodified by the fork.
     ///
-    /// Spec v0.9.0
+    /// Spec v0.9.1
     pub fn get_domain_constant(&self, domain: Domain) -> u32 {
         match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
@@ -104,7 +104,7 @@ impl ChainSpec {
 
     /// Get the domain number that represents the fork meta and signature domain.
     ///
-    /// Spec v0.9.0
+    /// Spec v0.9.1
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
         let domain_constant = self.get_domain_constant(domain);
 
@@ -119,7 +119,7 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.9.0
+    /// Spec v0.9.1
     pub fn mainnet() -> Self {
         Self {
             /*
@@ -196,7 +196,7 @@ impl ChainSpec {
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/configs/constant_presets/minimal.yaml
     ///
-    /// Spec v0.9.0
+    /// Spec v0.9.1
     pub fn minimal() -> Self {
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];

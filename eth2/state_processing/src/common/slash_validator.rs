@@ -4,7 +4,7 @@ use types::{BeaconStateError as Error, *};
 
 /// Slash the validator with index ``index``.
 ///
-/// Spec v0.9.0
+/// Spec v0.9.1
 pub fn slash_validator<T: EthSpec>(
     state: &mut BeaconState<T>,
     slashed_index: usize,

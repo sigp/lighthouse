@@ -5,7 +5,7 @@ use types::*;
 
 /// Initialize a `BeaconState` from genesis data.
 ///
-/// Spec v0.9.0
+/// Spec v0.9.1
 // TODO: this is quite inefficient and we probably want to rethink how we do this
 pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     eth1_block_hash: Hash256,
@@ -58,7 +58,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 
 /// Determine whether a candidate genesis state is suitable for starting the chain.
 ///
-/// Spec v0.9.0
+/// Spec v0.9.1
 pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> bool {
     state.genesis_time >= spec.min_genesis_time
         && state.get_active_validator_indices(T::genesis_epoch()).len() as u64
