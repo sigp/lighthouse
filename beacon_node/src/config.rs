@@ -598,7 +598,6 @@ impl ConfigBuilder {
     /// The supplied `cli_args` should be the base-level `clap` cli_args (i.e., not a subcommand
     /// cli_args).
     pub fn build(mut self, cli_args: &ArgMatches) -> Result<Config> {
-        self.eth2_config.apply_cli_args(cli_args)?;
         self.client_config.apply_cli_args(cli_args, &mut self.log)?;
 
         if let Some(bump) = cli_args.value_of("port-bump") {

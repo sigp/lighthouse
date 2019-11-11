@@ -1,4 +1,3 @@
-use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::prelude::*;
@@ -42,21 +41,6 @@ impl Eth2Config {
             spec_constants: "interop".to_string(),
             spec: ChainSpec::interop(),
         }
-    }
-}
-
-impl Eth2Config {
-    /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
-    ///
-    /// Returns an error if arguments are obviously invalid. May succeed even if some values are
-    /// invalid.
-    pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), &'static str> {
-        if args.is_present("recent-genesis") {
-            // FIXME: re-enable this.
-            // self.spec.min_genesis_time = recent_genesis_time()
-        }
-
-        Ok(())
     }
 }
 
