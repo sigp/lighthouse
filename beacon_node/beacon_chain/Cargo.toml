@@ -39,9 +39,8 @@ futures = "0.1.25"
 exit-future = "0.1.3"
 genesis = { path = "../genesis" }
 integer-sqrt = "0.1"
-rand = "0.5.5"
+rand = "0.7.2"
 
 [dev-dependencies]
 lazy_static = "1.4.0"
 environment = { path = "../../lighthouse/environment" }
-rand = "0.7.2"
