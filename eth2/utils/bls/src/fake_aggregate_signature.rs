@@ -93,7 +93,7 @@ impl_ssz!(
     "FakeAggregateSignature"
 );
 
-impl_tree_hash!(FakeAggregateSignature, U96);
+impl_tree_hash!(FakeAggregateSignature, BLS_AGG_SIG_BYTE_SIZE);
 
 impl Serialize for FakeAggregateSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

@@ -283,7 +283,7 @@ impl Eth1GenesisService {
         let genesis_state = initialize_beacon_state_from_eth1(
             eth1_block.hash,
             eth1_block.timestamp,
-            genesis_deposits(deposit_logs, &spec),
+            genesis_deposits(deposit_logs, &spec)?,
             &spec,
         )
         .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;

@@ -6,3 +6,4 @@ Cargo.lock
 *.raw_keypairs
 flamegraph.svg
 perf.data*
+*.tar.gz

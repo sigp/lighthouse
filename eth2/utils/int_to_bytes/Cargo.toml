@@ -5,8 +5,8 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-bytes = "0.4"
+bytes = "0.4.12"
 
 [dev-dependencies]
-yaml-rust = "0.4.2"
+yaml-rust = "0.4.3"
 hex = "0.3"

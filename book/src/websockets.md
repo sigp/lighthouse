@@ -1,4 +1,4 @@
-# Websocket Interface
+# Websocket API
 
 By default, a Lighthouse `beacon_node` exposes a websocket server on `localhost:5053`.
 

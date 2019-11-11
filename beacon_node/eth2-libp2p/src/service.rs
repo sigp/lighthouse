@@ -8,12 +8,8 @@ use crate::{Topic, TopicHash};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
-    identity::Keypair,
-    multiaddr::Multiaddr,
-    muxing::StreamMuxerBox,
-    nodes::Substream,
+    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, nodes::Substream,
     transport::boxed::Boxed,
-    upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
 use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{crit, debug, info, trace, warn};
@@ -206,7 +202,7 @@ impl Stream for Service {
 fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
     // TODO: The Wire protocol currently doesn't specify encryption and this will need to be customised
     // in the future.
-    let transport = libp2p::tcp::TcpConfig::new();
+    let transport = libp2p::tcp::TcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport);
     #[cfg(feature = "libp2p-websocket")]
     let transport = {
@@ -214,22 +210,15 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
         transport.or_transport(websocket::WsConfig::new(trans_clone))
     };
     transport
-        .with_upgrade(secio::SecioConfig::new(local_private_key))
-        .and_then(move |out, endpoint| {
-            let peer_id = out.remote_key.into_peer_id();
-            let peer_id2 = peer_id.clone();
-            let upgrade = core::upgrade::SelectUpgrade::new(
-                libp2p::yamux::Config::default(),
-                libp2p::mplex::MplexConfig::new(),
-            )
-            // TODO: use a single `.map` instead of two maps
-            .map_inbound(move |muxer| (peer_id, muxer))
-            .map_outbound(move |muxer| (peer_id2, muxer));
-
-            core::upgrade::apply(out.stream, upgrade, endpoint)
-                .map(|(id, muxer)| (id, core::muxing::StreamMuxerBox::new(muxer)))
-        })
-        .with_timeout(Duration::from_secs(20))
+        .upgrade(core::upgrade::Version::V1)
+        .authenticate(secio::SecioConfig::new(local_private_key))
+        .multiplex(core::upgrade::SelectUpgrade::new(
+            libp2p::yamux::Config::default(),
+            libp2p::mplex::MplexConfig::new(),
+        ))
+        .map(|(peer, muxer), _| (peer, core::muxing::StreamMuxerBox::new(muxer)))
+        .timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(20))
         .map_err(|err| Error::new(ErrorKind::Other, err))
         .boxed()
 }

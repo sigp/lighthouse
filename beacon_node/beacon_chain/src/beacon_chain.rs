@@ -10,7 +10,7 @@ use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use slog::{error, info, trace, warn, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
@@ -42,6 +42,8 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 ///
 /// Only useful for testing.
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
+
+const BLOCK_SKIPPING_LOGGING_THRESHOLD: u64 = 3;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -266,6 +268,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if slot == head_state.slot {
             Ok(head_state)
         } else if slot > head_state.slot {
+            if slot > head_state.slot + BLOCK_SKIPPING_LOGGING_THRESHOLD {
+                warn!(
+                    self.log,
+                    "Skipping more than {} blocks", BLOCK_SKIPPING_LOGGING_THRESHOLD;
+                    "head_slot" => head_state.slot,
+                    "request_slot" => slot
+                )
+            }
             let head_state_slot = head_state.slot;
             let mut state = head_state;
             while state.slot < slot {
@@ -538,8 +548,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     trace!(
                         self.log,
                         "Beacon attestation imported";
-                        "shard" => attestation.data.crosslink.shard,
                         "target_epoch" => attestation.data.target.epoch,
+                        "shard" => attestation.data.crosslink.shard,
                     );
                     let _ = self
                         .event_handler
@@ -1296,12 +1306,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 info!(
                     self.log,
                     "New head beacon block";
+                    "root" => format!("{}", beacon_block_root),
+                    "slot" => new_slot,
+                );
+                debug!(
+                    self.log,
+                    "Head beacon block";
                     "justified_root" => format!("{}", beacon_state.current_justified_checkpoint.root),
                     "justified_epoch" => beacon_state.current_justified_checkpoint.epoch,
                     "finalized_root" => format!("{}", beacon_state.finalized_checkpoint.root),
                     "finalized_epoch" => beacon_state.finalized_checkpoint.epoch,
-                    "root" => format!("{}", beacon_block_root),
-                    "slot" => new_slot,
                 );
             };
 

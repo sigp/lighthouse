@@ -9,11 +9,11 @@ name = "benches"
 harness = false
 
 [dev-dependencies]
-criterion = "0.2"
-yaml-rust = "0.4.2"
+criterion = "0.3.0"
+yaml-rust = "0.4.3"
 hex = "0.3"
-ethereum-types = "0.6"
+ethereum-types = "0.8.0"
 
 [dependencies]
-eth2_hashing = { path = "../eth2_hashing" }
+eth2_hashing = "0.1.0"
 int_to_bytes = { path = "../int_to_bytes" }
