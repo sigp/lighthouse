@@ -29,7 +29,7 @@ impl TestingDepositBuilder {
     /// - `pubkey` to the signing pubkey.
     /// - `withdrawal_credentials` to the signing pubkey.
     /// - `proof_of_possession`
-    pub fn sign(&mut self, keypair: &Keypair, spec: &ChainSpec) {
+    pub fn sign(mut self, keypair: &Keypair, spec: &ChainSpec) -> Self {
         let withdrawal_credentials = Hash256::from_slice(
             &get_withdrawal_credentials(&keypair.pk, spec.bls_withdrawal_prefix_byte)[..],
         );
@@ -38,6 +38,8 @@ impl TestingDepositBuilder {
         self.deposit.data.withdrawal_credentials = withdrawal_credentials;
 
         self.deposit.data.signature = self.deposit.data.create_signature(&keypair.sk, spec);
+
+        self
     }
 
     /// Builds the deposit, consuming the builder.

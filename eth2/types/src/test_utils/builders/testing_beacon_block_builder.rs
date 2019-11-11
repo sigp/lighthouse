@@ -211,10 +211,11 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     ) {
         let keypair = Keypair::random();
 
-        let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
-        builder.sign(&keypair, spec);
+        let deposit = TestingDepositBuilder::new(keypair.pk.clone(), amount)
+            .sign(&keypair, spec)
+            .build();
 
-        self.block.body.deposits.push(builder.build()).unwrap()
+        self.block.body.deposits.push(deposit).unwrap()
     }
 
     /// Insert a `Valid` exit into the state.
