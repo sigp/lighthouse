@@ -237,7 +237,7 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
         } else if deposit_index == deposit_count {
             Ok(vec![])
         } else {
-            let next = deposit_index + 1;
+            let next = deposit_index;
             let last = std::cmp::min(deposit_count, next + T::MaxDeposits::to_u64());
 
             self.core
@@ -470,7 +470,9 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use environment::null_logger;
+        use eth1::DepositLog;
         use store::MemoryStore;
+        use types::test_utils::{generate_deterministic_keypair, TestingDepositBuilder};
 
         fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E, MemoryStore>, E> {
             let eth1_config = Eth1Config {
@@ -480,6 +482,21 @@ mod test {
             let log = null_logger().unwrap();
             let store = Arc::new(MemoryStore::open());
             Eth1Chain::new(CachingEth1Backend::new(eth1_config, log, store))
+        }
+
+        fn get_deposit_log(i: u64, spec: &ChainSpec) -> DepositLog {
+            let keypair = generate_deterministic_keypair(i as usize);
+            let deposit_data =
+                TestingDepositBuilder::new(keypair.pk.clone(), spec.max_effective_balance)
+                    .sign(&keypair, spec)
+                    .build()
+                    .data;
+
+            DepositLog {
+                deposit_data,
+                block_number: i,
+                index: i,
+            }
         }
 
         #[test]
@@ -512,6 +529,89 @@ mod test {
                     .is_err(),
                 "should fail to get deposits if required, but cache is empty"
             );
+        }
+
+        #[test]
+        fn deposits_with_cache() {
+            let spec = &E::default_spec();
+
+            let eth1_chain = get_eth1_chain();
+            let max_deposits = <E as EthSpec>::MaxDeposits::to_u64();
+
+            assert_eq!(
+                eth1_chain.use_dummy_backend, false,
+                "test should not use dummy backend"
+            );
+
+            let deposits: Vec<_> = (0..max_deposits + 2)
+                .map(|i| get_deposit_log(i, spec))
+                .inspect(|log| {
+                    eth1_chain
+                        .backend
+                        .core
+                        .deposits()
+                        .write()
+                        .cache
+                        .insert_log(log.clone())
+                        .expect("should insert log")
+                })
+                .collect();
+
+            assert_eq!(
+                eth1_chain.backend.core.deposits().write().cache.len(),
+                deposits.len(),
+                "cache should store all logs"
+            );
+
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            state.eth1_deposit_index = 0;
+            state.eth1_data.deposit_count = 0;
+
+            assert!(
+                eth1_chain
+                    .deposits_for_block_inclusion(&state, spec)
+                    .is_ok(),
+                "should succeed if no deposits are required"
+            );
+
+            (0..3).for_each(|initial_deposit_index| {
+                state.eth1_deposit_index = initial_deposit_index as u64;
+
+                (initial_deposit_index..deposits.len()).for_each(|i| {
+                    state.eth1_data.deposit_count = i as u64;
+
+                    let deposits_for_inclusion = eth1_chain
+                        .deposits_for_block_inclusion(&state, spec)
+                        .expect(&format!("should find deposit for {}", i));
+
+                    let expected_len =
+                        std::cmp::min(i - initial_deposit_index, max_deposits as usize);
+
+                    assert_eq!(
+                        deposits_for_inclusion.len(),
+                        expected_len,
+                        "should find {} deposits",
+                        expected_len
+                    );
+
+                    let deposit_data_for_inclusion: Vec<_> = deposits_for_inclusion
+                        .into_iter()
+                        .map(|deposit| deposit.data)
+                        .collect();
+
+                    let expected_deposit_data: Vec<_> = deposits[initial_deposit_index
+                        ..std::cmp::min(initial_deposit_index + expected_len, deposits.len())]
+                        .iter()
+                        .map(|log| log.deposit_data.clone())
+                        .collect();
+
+                    assert_eq!(
+                        deposit_data_for_inclusion, expected_deposit_data,
+                        "should find the correct deposits for {}",
+                        i
+                    );
+                });
+            })
         }
 
         #[test]
