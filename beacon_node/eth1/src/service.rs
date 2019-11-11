@@ -179,6 +179,27 @@ impl Service {
         self.inner.config.read()
     }
 
+    /// Updates the configuration in `self to be `new_config`.
+    ///
+    /// Will truncate the block cache if the new configure specifies truncation.
+    pub fn update_config(&self, new_config: Config) -> Result<(), String> {
+        let mut old_config = self.inner.config.write();
+
+        if new_config.deposit_contract_deploy_block != old_config.deposit_contract_deploy_block {
+            // This may be possible, I just haven't looked into the details to ensure it's safe.
+            Err("Updating deposit_contract_deploy_block is not supported".to_string())
+        } else {
+            *old_config = new_config;
+
+            // Prevents a locking condition when calling prune_blocks.
+            drop(old_config);
+
+            self.inner.prune_blocks();
+
+            Ok(())
+        }
+    }
+
     /// Set the lowest block that the block cache will store.
     ///
     /// Note: this block may not always be present if truncating is enabled.

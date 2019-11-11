@@ -9,7 +9,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
 use environment::RuntimeContext;
-use eth1::Config as Eth1Config;
+use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_config::Eth2Config;
 use exit_future::Signal;
 use futures::{future, Future, IntoFuture, Stream};
@@ -57,6 +57,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     chain_spec: Option<ChainSpec>,
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
+    eth1_service: Option<Eth1Service>,
     exit_signals: Vec<Signal>,
     event_handler: Option<T::EventHandler>,
     libp2p_network: Option<Arc<NetworkService<T>>>,
@@ -87,6 +88,7 @@ where
             chain_spec: None,
             beacon_chain_builder: None,
             beacon_chain: None,
+            eth1_service: None,
             exit_signals: vec![],
             event_handler: None,
             libp2p_network: None,
@@ -138,7 +140,7 @@ where
 
                 Ok((builder, spec, context))
             })
-            .and_then(|(builder, spec, context)| {
+            .and_then(move |(builder, spec, context)| {
                 let genesis_state_future: Box<dyn Future<Item = _, Error = _> + Send> =
                     match client_genesis {
                         ClientGenesis::Interop {
@@ -150,7 +152,8 @@ where
 
                             let future = result
                                 .and_then(move |genesis_state| builder.genesis_state(genesis_state))
-                                .into_future();
+                                .into_future()
+                                .map(|v| (v, None));
 
                             Box::new(future)
                         }
@@ -159,7 +162,8 @@ where
 
                             let future = result
                                 .and_then(move |genesis_state| builder.genesis_state(genesis_state))
-                                .into_future();
+                                .into_future()
+                                .map(|v| (v, None));
 
                             Box::new(future)
                         }
@@ -202,9 +206,8 @@ where
                                     Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
                                     context.eth2_config().spec.clone(),
                                 )
-                                .and_then(move |genesis_state| {
-                                    builder.genesis_state(genesis_state)
-                                });
+                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
+                                .map(|v| (v, Some(genesis_service.into_core_service())));
 
                             Box::new(future)
                         }
@@ -221,12 +224,13 @@ where
                                         })?;
 
                                     builder.genesis_state(genesis_state)
-                                });
+                                })
+                                .map(|v| (v, None));
 
                             Box::new(future)
                         }
                         ClientGenesis::Resume => {
-                            let future = builder.resume_from_db().into_future();
+                            let future = builder.resume_from_db().into_future().map(|v| (v, None));
 
                             Box::new(future)
                         }
@@ -234,7 +238,8 @@ where
 
                 genesis_state_future
             })
-            .map(move |beacon_chain_builder| {
+            .map(move |(beacon_chain_builder, eth1_service_option)| {
+                self.eth1_service = eth1_service_option;
                 self.beacon_chain_builder = Some(beacon_chain_builder);
                 self
             })
@@ -614,7 +619,14 @@ where
             .clone()
             .ok_or_else(|| "caching_eth1_backend requires a store".to_string())?;
 
-        let backend = CachingEth1Backend::new(config, context.log, store);
+        let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
+            eth1_service_from_genesis.update_config(config.clone())?;
+            CachingEth1Backend::from_service(eth1_service_from_genesis, store)
+        } else {
+            CachingEth1Backend::new(config, context.log, store)
+        };
+
+        self.eth1_service = None;
 
         let exit = {
             let (tx, rx) = exit_future::signal();
