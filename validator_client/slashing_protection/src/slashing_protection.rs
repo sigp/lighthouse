@@ -5,6 +5,7 @@ use rusqlite::{params, Connection, Error as SQLErr, OpenFlags};
 use ssz::Decode;
 use ssz::Encode;
 use std::fs::OpenOptions;
+use std::marker::PhantomData;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tree_hash::TreeHash;
@@ -15,8 +16,9 @@ use types::{AttestationData, BeaconBlockHeader, Hash256};
 pub struct HistoryInfo<T> {
     // The connection to the database.
     conn: Connection,
-    // In-memory vector containing all previously signed data.
-    pub data: Vec<T>,
+
+    // Marker for T
+    phantom: PhantomData<T>,
 }
 
 /// Utility function to check for slashing conditions and inserting new attestations/blocks in the db and in memory.
@@ -26,17 +28,17 @@ trait CheckAndInsert<T> {
     /// Checks if the incoming_data is safe from slashing
     fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe>;
     /// Inserts the incoming_data in th sqlite db and in the in-memory vector.
-    fn insert(&mut self, insert_index: usize, incoming_data: &Self::U) -> Result<(), NotSafe>;
+    fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
 impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
 
     fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
-        check_for_attester_slashing(incoming_data, &self.data[..])
+        check_for_attester_slashing(incoming_data, &self.get_history()?[..]) // SCOTT
     }
 
-    fn insert(&mut self, insert_index: usize, incoming_data: &Self::U) -> Result<(), NotSafe> {
+    fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
         let target: u64 = incoming_data.target.epoch.into();
         let source: u64 = incoming_data.source.epoch.into();
         self.conn.execute(
@@ -48,8 +50,6 @@ impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
                 Hash256::from_slice(&incoming_data.tree_hash_root()).as_ssz_bytes()
             ],
         )?;
-        self.data
-            .insert(insert_index, SignedAttestation::from(incoming_data));
         Ok(())
     }
 }
@@ -58,18 +58,16 @@ impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
     type U = BeaconBlockHeader;
 
     fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
-        check_for_proposer_slashing(incoming_data, &self.data[..])
+        check_for_proposer_slashing(incoming_data, &self.get_history()?[..]) // SCOTT
     }
 
-    fn insert(&mut self, insert_index: usize, incoming_data: &Self::U) -> Result<(), NotSafe> {
+    fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
         let slot: u64 = incoming_data.slot.into();
         self.conn.execute(
             "INSERT INTO signed_blocks (slot, signing_root)
                 VALUES (?1, ?2)",
             params![slot as i64, incoming_data.canonical_root().as_ssz_bytes()],
         )?;
-        self.data
-            .insert(insert_index, SignedBlock::from(incoming_data));
         Ok(())
     }
 }
@@ -159,6 +157,8 @@ pub trait SlashingProtection<T> {
     /// Updates the sqlite db and the in-memory Vec if the incoming_data is safe from slashings.
     /// If incoming_data is not safe, returns the associated error.
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
+
+    fn get_history(&self) -> Result<Vec<T>, SQLErr>;
 }
 
 impl SlashingProtection<SignedBlock> for HistoryInfo<SignedBlock> {
@@ -192,16 +192,17 @@ impl SlashingProtection<SignedBlock> for HistoryInfo<SignedBlock> {
 
         Ok(Self {
             conn,
-            data: Vec::new(),
+            phantom: PhantomData,
         })
     }
 
     fn open(path: &Path) -> Result<Self, NotSafe> {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
 
-        let data = <Vec<_> as LoadData<SignedBlock>>::load_data(&conn)?;
-
-        Ok(Self { conn, data })
+        Ok(Self {
+            conn,
+            phantom: PhantomData,
+        })
     }
 
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
@@ -209,10 +210,14 @@ impl SlashingProtection<SignedBlock> for HistoryInfo<SignedBlock> {
         match check {
             Ok(safe) => match safe.reason {
                 ValidityReason::SameVote => Ok(()),
-                _ => self.insert(safe.insert_index, incoming_data),
+                _ => self.insert(incoming_data),
             },
             Err(notsafe) => Err(notsafe),
         }
+    }
+
+    fn get_history(&self) -> Result<Vec<SignedBlock>, SQLErr> {
+        <Vec<_> as LoadData<SignedBlock>>::load_data(&self.conn)
     }
 }
 
@@ -248,16 +253,17 @@ impl SlashingProtection<SignedAttestation> for HistoryInfo<SignedAttestation> {
 
         Ok(Self {
             conn,
-            data: Vec::new(),
+            phantom: PhantomData,
         })
     }
 
     fn open(path: &Path) -> Result<Self, NotSafe> {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
 
-        let data = <Vec<_> as LoadData<SignedAttestation>>::load_data(&conn)?;
-
-        Ok(Self { conn, data })
+        Ok(Self {
+            conn,
+            phantom: PhantomData,
+        })
     }
 
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
@@ -265,10 +271,14 @@ impl SlashingProtection<SignedAttestation> for HistoryInfo<SignedAttestation> {
         match check {
             Ok(safe) => match safe.reason {
                 ValidityReason::SameVote => Ok(()),
-                _ => self.insert(safe.insert_index, incoming_data),
+                _ => self.insert(incoming_data),
             },
             Err(notsafe) => Err(notsafe),
         }
+    }
+
+    fn get_history(&self) -> Result<Vec<SignedAttestation>, SQLErr> {
+        <Vec<_> as LoadData<SignedAttestation>>::load_data(&self.conn)
     }
 }
 
@@ -330,10 +340,17 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation2));
         expected_vector.push(SignedAttestation::from(&attestation3));
 
-        assert_eq!(expected_vector, attestation_history.data);
+        assert_eq!(
+            expected_vector,
+            attestation_history
+                .get_history()
+                .expect("error with sql db")
+        );
 
         // Copying the current data
-        let old_data = attestation_history.data.clone();
+        let old_data = attestation_history
+            .get_history()
+            .expect("error with sql db");
 
         // Dropping the HistoryInfo struct
         drop(attestation_history);
@@ -341,7 +358,12 @@ mod single_threaded_tests {
         let file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
         // Making sure that data in the file is correct
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(
+            old_data,
+            file_written_version
+                .get_history()
+                .expect("error with sql db")
+        );
 
         attestation_file
             .close()
@@ -397,17 +419,29 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation5));
 
         // Making sure that data in memory is correct..
-        assert_eq!(expected_vector, attestation_history.data);
+        assert_eq!(
+            expected_vector,
+            attestation_history
+                .get_history()
+                .expect("error with sql db")
+        );
 
         // Copying the current data
-        let old_data = attestation_history.data.clone();
+        let old_data = attestation_history
+            .get_history()
+            .expect("error with sql db");
         // Dropping the HistoryInfo struct
         drop(attestation_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(
+            old_data,
+            file_written_version
+                .get_history()
+                .expect("error with sql db")
+        );
 
         attestation_file
             .close()
@@ -440,17 +474,29 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation5));
 
         // Making sure that data in memory is correct..
-        assert_eq!(expected_vector, attestation_history.data);
+        assert_eq!(
+            expected_vector,
+            attestation_history
+                .get_history()
+                .expect("error with sql db")
+        );
 
         // Copying the current data
-        let old_data = attestation_history.data.clone();
+        let old_data = attestation_history
+            .get_history()
+            .expect("error with sql db");
         // Dropping the HistoryInfo struct
         drop(attestation_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(
+            old_data,
+            file_written_version
+                .get_history()
+                .expect("error with sql db")
+        );
 
         attestation_file
             .close()
@@ -479,10 +525,17 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation3));
 
         // Making sure that data in memory is correct..
-        assert_eq!(expected_vector, attestation_history.data);
+        assert_eq!(
+            expected_vector,
+            attestation_history
+                .get_history()
+                .expect("error with sql db")
+        );
 
         // Copying the current data
-        let old_data = attestation_history.data.clone();
+        let old_data = attestation_history
+            .get_history()
+            .expect("error with sql db");
         // Dropping the HistoryInfo struct
         drop(attestation_history);
 
@@ -490,7 +543,12 @@ mod single_threaded_tests {
         let mut file_written_version: HistoryInfo<SignedAttestation> =
             HistoryInfo::open(filename).expect("IO error with file");
 
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(
+            old_data,
+            file_written_version
+                .get_history()
+                .expect("error with sql db")
+        );
 
         // Inserting new attestations
         let attestation4 = attestation_and_custody_bit_builder(4, 5);
@@ -505,7 +563,12 @@ mod single_threaded_tests {
         expected_vector.push(SignedAttestation::from(&attestation5));
         expected_vector.push(SignedAttestation::from(&attestation6));
 
-        assert_eq!(expected_vector, file_written_version.data);
+        assert_eq!(
+            expected_vector,
+            file_written_version
+                .get_history()
+                .expect("error with sql db")
+        );
         drop(file_written_version);
 
         attestation_file
@@ -535,17 +598,25 @@ mod single_threaded_tests {
         expected_vector.push(SignedBlock::from(&block3));
 
         // Making sure that data in memory is correct.
-        assert_eq!(expected_vector, block_history.data);
+        assert_eq!(
+            expected_vector,
+            block_history.get_history().expect("error with sql db")
+        );
 
         // Copying the current data
-        let old_data = block_history.data.clone();
+        let old_data = block_history.get_history().expect("error with sql db");
         // Dropping the HistoryInfo struct
         drop(block_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedBlock> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(
+            old_data,
+            file_written_version
+                .get_history()
+                .expect("error with sql db")
+        );
 
         block_file
             .close()
@@ -578,17 +649,25 @@ mod single_threaded_tests {
         expected_vector.push(SignedBlock::from(&block4));
 
         // Making sure that data in memory is correct.
-        assert_eq!(expected_vector, block_history.data);
+        assert_eq!(
+            expected_vector,
+            block_history.get_history().expect("error with sql db")
+        );
 
         // Copying the current data
-        let old_data = block_history.data.clone();
+        let old_data = block_history.get_history().expect("error with sql db");
         // Dropping the HistoryInfo struct
         drop(block_history);
 
         // Making sure that data in the file is correct
         let file_written_version: HistoryInfo<SignedBlock> =
             HistoryInfo::open(filename).expect("IO error with file");
-        assert_eq!(old_data, file_written_version.data);
+        assert_eq!(
+            old_data,
+            file_written_version
+                .get_history()
+                .expect("error with sql db")
+        );
 
         block_file
             .close()
