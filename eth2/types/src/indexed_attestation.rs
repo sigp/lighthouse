@@ -9,7 +9,7 @@ use tree_hash_derive::{SignedRoot, TreeHash};
 ///
 /// To be included in an `AttesterSlashing`.
 ///
-/// Spec v0.9.0
+/// Spec v0.9.1
 #[derive(
     Debug,
     PartialEq,
@@ -25,8 +25,7 @@ use tree_hash_derive::{SignedRoot, TreeHash};
 #[serde(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
-    pub custody_bit_0_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
-    pub custody_bit_1_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
+    pub attesting_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     #[signed_root(skip_hashing)]
     pub signature: AggregateSignature,

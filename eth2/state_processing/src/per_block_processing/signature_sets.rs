@@ -2,13 +2,13 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
-use bls::SignatureSet;
+use bls::{SignatureSet, SignedMessage};
 use std::convert::TryInto;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    AggregateSignature, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
-    BeaconBlockHeader, BeaconState, BeaconStateError, ChainSpec, Deposit, Domain, EthSpec, Fork,
-    Hash256, IndexedAttestation, ProposerSlashing, PublicKey, Signature, VoluntaryExit,
+    AggregateSignature, AttesterSlashing, BeaconBlock, BeaconBlockHeader, BeaconState,
+    BeaconStateError, ChainSpec, Deposit, Domain, EthSpec, Fork, Hash256, IndexedAttestation,
+    ProposerSlashing, PublicKey, Signature, VoluntaryExit,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -138,16 +138,12 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
     indexed_attestation: &'b IndexedAttestation<T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let message_0 = AttestationDataAndCustodyBit {
-        data: indexed_attestation.data.clone(),
-        custody_bit: false,
-    }
-    .tree_hash_root();
-    let message_1 = AttestationDataAndCustodyBit {
-        data: indexed_attestation.data.clone(),
-        custody_bit: true,
-    }
-    .tree_hash_root();
+    let message = indexed_attestation.data.tree_hash_root();
+
+    let signed_message = SignedMessage::new(
+        get_pubkeys(state, &indexed_attestation.attesting_indices)?,
+        message,
+    );
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
@@ -155,14 +151,7 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
         &state.fork,
     );
 
-    Ok(SignatureSet::dual(
-        signature,
-        message_0,
-        get_pubkeys(state, &indexed_attestation.custody_bit_0_indices)?,
-        message_1,
-        get_pubkeys(state, &indexed_attestation.custody_bit_1_indices)?,
-        domain,
-    ))
+    Ok(SignatureSet::new(signature, vec![signed_message], domain))
 }
 
 /// Returns the signature set for the given `attester_slashing` and corresponding `pubkeys`.

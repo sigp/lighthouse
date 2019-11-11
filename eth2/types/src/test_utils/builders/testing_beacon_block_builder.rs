@@ -181,13 +181,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                     .iter()
                     .map(|validator_index| secret_keys[*validator_index])
                     .collect();
-                builder.sign(
-                    signing_validators,
-                    &signing_secret_keys,
-                    &state.fork,
-                    spec,
-                    false,
-                );
+                builder.sign(signing_validators, &signing_secret_keys, &state.fork, spec);
 
                 builder.build()
             })

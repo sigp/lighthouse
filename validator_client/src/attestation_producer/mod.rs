@@ -10,10 +10,7 @@ use beacon_node_attestation::BeaconNodeAttestation;
 use core::marker::PhantomData;
 use slog::{error, info, warn};
 use tree_hash::TreeHash;
-use types::{
-    AggregateSignature, Attestation, AttestationData, AttestationDataAndCustodyBit,
-    AttestationDuty, BitList,
-};
+use types::{AggregateSignature, Attestation, AttestationData, AttestationDuty, BitList};
 
 //TODO: Group these errors at a crate level
 #[derive(Debug, PartialEq)]
@@ -129,11 +126,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
 
         // build the aggregate signature
         let aggregate_signature = {
-            let message = AttestationDataAndCustodyBit {
-                data: attestation.clone(),
-                custody_bit: false,
-            }
-            .tree_hash_root();
+            let message = attestation.tree_hash_root();
 
             let sig = self.signer.sign_message(&message, domain)?;
 
@@ -143,13 +136,11 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
         };
 
         let mut aggregation_bits = BitList::with_capacity(duties.committee_len).ok()?;
-        let custody_bits = BitList::with_capacity(duties.committee_len).ok()?;
         aggregation_bits.set(duties.committee_position, true).ok()?;
 
         Some(Attestation {
             aggregation_bits,
             data: attestation,
-            custody_bits,
             signature: aggregate_signature,
         })
     }

@@ -50,26 +50,19 @@ impl TestingAttesterSlashingBuilder {
         };
 
         let mut attestation_1 = IndexedAttestation {
-            custody_bit_0_indices: validator_indices.to_vec().into(),
-            custody_bit_1_indices: VariableList::empty(),
+            attesting_indices: validator_indices.to_vec().into(),
             data: data_1,
             signature: AggregateSignature::new(),
         };
 
         let mut attestation_2 = IndexedAttestation {
-            custody_bit_0_indices: validator_indices.to_vec().into(),
-            custody_bit_1_indices: VariableList::empty(),
+            attesting_indices: validator_indices.to_vec().into(),
             data: data_2,
             signature: AggregateSignature::new(),
         };
 
         let add_signatures = |attestation: &mut IndexedAttestation<T>| {
-            // All validators sign with a `false` custody bit.
-            let attestation_data_and_custody_bit = AttestationDataAndCustodyBit {
-                data: attestation.data.clone(),
-                custody_bit: false,
-            };
-            let message = attestation_data_and_custody_bit.tree_hash_root();
+            let message = attestation.data.tree_hash_root();
 
             for validator_index in validator_indices {
                 let signature = signer(

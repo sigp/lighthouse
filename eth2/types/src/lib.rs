@@ -8,7 +8,6 @@ pub mod test_utils;
 
 pub mod attestation;
 pub mod attestation_data;
-pub mod attestation_data_and_custody_bit;
 pub mod attestation_duty;
 pub mod attester_slashing;
 pub mod beacon_block;
@@ -42,7 +41,6 @@ use ethereum_types::{H160, H256};
 
 pub use crate::attestation::Attestation;
 pub use crate::attestation_data::AttestationData;
-pub use crate::attestation_data_and_custody_bit::AttestationDataAndCustodyBit;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::BeaconBlock;

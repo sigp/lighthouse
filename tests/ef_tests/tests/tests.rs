@@ -133,10 +133,6 @@ mod ssz_static {
 
     ssz_static_test!(attestation, Attestation<_>, SR);
     ssz_static_test!(attestation_data, AttestationData);
-    ssz_static_test!(
-        attestation_data_and_custody_bit,
-        AttestationDataAndCustodyBit
-    );
     ssz_static_test!(attester_slashing, AttesterSlashing<_>);
     ssz_static_test!(beacon_block, BeaconBlock<_>, SR);
     ssz_static_test!(beacon_block_body, BeaconBlockBody<_>);
@@ -180,7 +176,7 @@ fn epoch_processing_justification_and_finalization() {
 #[test]
 fn epoch_processing_rewards_and_penalties() {
     EpochProcessingHandler::<MinimalEthSpec, RewardsAndPenalties>::run();
-    EpochProcessingHandler::<MainnetEthSpec, RewardsAndPenalties>::run();
+    // Note: there are no reward and penalty tests for mainnet yet
 }
 
 #[test]

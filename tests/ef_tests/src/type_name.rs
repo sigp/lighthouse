@@ -38,7 +38,6 @@ type_name!(MainnetEthSpec, "mainnet");
 
 type_name_generic!(Attestation);
 type_name!(AttestationData);
-type_name!(AttestationDataAndCustodyBit);
 type_name_generic!(AttesterSlashing);
 type_name_generic!(BeaconBlock);
 type_name_generic!(BeaconBlockBody);

@@ -71,15 +71,13 @@ where
     let attestation_2 = &attester_slashing.attestation_2;
 
     let attesting_indices_1 = attestation_1
-        .custody_bit_0_indices
+        .attesting_indices
         .iter()
-        .chain(&attestation_1.custody_bit_1_indices)
         .cloned()
         .collect::<BTreeSet<_>>();
     let attesting_indices_2 = attestation_2
-        .custody_bit_0_indices
+        .attesting_indices
         .iter()
-        .chain(&attestation_2.custody_bit_1_indices)
         .cloned()
         .collect::<BTreeSet<_>>();
 

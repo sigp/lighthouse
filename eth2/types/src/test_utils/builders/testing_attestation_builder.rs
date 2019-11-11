@@ -16,17 +16,14 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
         let data_builder = TestingAttestationDataBuilder::new(state, index, slot);
 
         let mut aggregation_bits = BitList::with_capacity(committee.len()).unwrap();
-        let mut custody_bits = BitList::with_capacity(committee.len()).unwrap();
 
         for (i, _) in committee.iter().enumerate() {
-            custody_bits.set(i, false).unwrap();
             aggregation_bits.set(i, false).unwrap();
         }
 
         let attestation = Attestation {
             aggregation_bits,
             data: data_builder.build(),
-            custody_bits,
             signature: AggregateSignature::new(),
         };
 
@@ -46,7 +43,6 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
         secret_keys: &[&SecretKey],
         fork: &Fork,
         spec: &ChainSpec,
-        custody_bit: bool,
     ) -> &mut Self {
         assert_eq!(
             signing_validators.len(),
@@ -66,18 +62,7 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
                 .set(committee_index, true)
                 .unwrap();
 
-            if custody_bit {
-                self.attestation
-                    .custody_bits
-                    .set(committee_index, true)
-                    .unwrap();
-            }
-
-            let message = AttestationDataAndCustodyBit {
-                data: self.attestation.data.clone(),
-                custody_bit,
-            }
-            .tree_hash_root();
+            let message = self.attestation.data.tree_hash_root();
 
             let domain = spec.get_domain(
                 self.attestation.data.target.epoch,

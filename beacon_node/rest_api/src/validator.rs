@@ -347,8 +347,6 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
     let attestation: Attestation<T::EthSpec> = Attestation {
         aggregation_bits,
         data: attestation_data,
-        custody_bits: BitList::with_capacity(val_duty.committee_len)
-            .expect("Should be able to create an empty BitList for the custody bits."),
         signature: AggregateSignature::new(),
     };
 

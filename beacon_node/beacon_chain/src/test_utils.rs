@@ -12,8 +12,8 @@ use std::sync::Arc;
 use store::MemoryStore;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    AggregateSignature, Attestation, AttestationDataAndCustodyBit, BeaconBlock, BeaconState,
-    BitList, ChainSpec, Domain, EthSpec, Hash256, Keypair, SecretKey, Signature, Slot,
+    AggregateSignature, Attestation, BeaconBlock, BeaconState, BitList, ChainSpec, Domain, EthSpec,
+    Hash256, Keypair, SecretKey, Signature, Slot,
 };
 
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -321,15 +321,9 @@ where
                             aggregation_bits
                                 .set(i, true)
                                 .expect("should be able to set aggregation bits");
-                            let custody_bits = BitList::with_capacity(committee_size)
-                                .expect("should make custody bits");
 
                             let signature = {
-                                let message = AttestationDataAndCustodyBit {
-                                    data: data.clone(),
-                                    custody_bit: false,
-                                }
-                                .tree_hash_root();
+                                let message = data.tree_hash_root();
 
                                 let domain = spec.get_domain(
                                     data.target.epoch,
@@ -350,7 +344,6 @@ where
                             let attestation = Attestation {
                                 aggregation_bits,
                                 data,
-                                custody_bits,
                                 signature,
                             };
 
