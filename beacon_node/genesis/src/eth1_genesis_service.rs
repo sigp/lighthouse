@@ -329,14 +329,19 @@ impl Eth1GenesisService {
                     // No need to verify proofs in order to test if some block will trigger genesis.
                     const PROOF_VERIFICATION: bool = false;
 
-                    process_deposit(
-                        &mut local_state,
-                        &deposit,
-                        spec,
-                        PROOF_VERIFICATION,
-                        // TODO: disable signature verification
-                    )
-                    .map_err(|e| format!("Error whilst processing deposit: {:?}", e))
+                    // Note: presently all the signatures are verified each time this function is
+                    // run.
+                    //
+                    // It would be more efficient to pre-verify signatures, filter out the invalid
+                    // ones and disable verification for `process_deposit`.
+                    //
+                    // This is only more efficient in scenarios where `min_genesis_time` occurs
+                    // _before_ `min_validator_count` is met. We're unlikely to see this scenario
+                    // in testnets (`min_genesis_time` is usually `0`) and I'm not certain it will
+                    // happen for the real, production deposit contract.
+
+                    process_deposit(&mut local_state, &deposit, spec, PROOF_VERIFICATION)
+                        .map_err(|e| format!("Error whilst processing deposit: {:?}", e))
                 })?;
 
             process_activations(&mut local_state, spec);
