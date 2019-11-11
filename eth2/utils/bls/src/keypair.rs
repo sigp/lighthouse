@@ -3,7 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Keypair {
     pub sk: SecretKey,
     pub pk: PublicKey,
@@ -22,12 +22,7 @@ impl Keypair {
     }
 }
 
-impl PartialEq for Keypair {
-    fn eq(&self, other: &Keypair) -> bool {
-        self == other
-    }
-}
-
+#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for Keypair {
     /// Note: this is distinct from consensus serialization, it will produce a different hash.
     ///
