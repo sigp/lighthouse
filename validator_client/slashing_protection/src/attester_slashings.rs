@@ -85,7 +85,6 @@ pub fn check_for_attester_slashing(
     attestation_data: &AttestationData,
     conn: &Connection,
 ) -> Result<Safe, NotSafe> {
-
     // Checking if history is empty
     let mut empty_select = conn.prepare("select 1 from signed_attestations limit 1")?;
     if !empty_select.exists(params![])? {
@@ -118,17 +117,18 @@ pub fn check_for_attester_slashing(
                 "select target_epoch, source_epoch from signed_attestations where target_epoch = ?",
             )?;
 
-            let conflicting_attest = double_vote_select.query_row(params![i64_target_epoch], |row| {
-                let target_epoch: i64 = row.get(0)?;
-                let target_epoch = i64_to_u64(target_epoch);
-                let source_epoch: i64 = row.get(1)?;
-                let source_epoch = i64_to_u64(source_epoch);
-                Ok(SignedAttestation::new(
-                    source_epoch,
-                    target_epoch,
-                    same_hash,
-                ))
-            })?;
+            let conflicting_attest =
+                double_vote_select.query_row(params![i64_target_epoch], |row| {
+                    let target_epoch: i64 = row.get(0)?;
+                    let target_epoch = i64_to_u64(target_epoch);
+                    let source_epoch: i64 = row.get(1)?;
+                    let source_epoch = i64_to_u64(source_epoch);
+                    Ok(SignedAttestation::new(
+                        source_epoch,
+                        target_epoch,
+                        same_hash,
+                    ))
+                })?;
             return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
                 conflicting_attest,
             )));
@@ -742,7 +742,7 @@ mod attestation_tests {
 
         let attestation_data = attestation_data_builder(4, 5);
         let res = attestation_history.update_if_valid(&attestation_data);
-            assert_eq!(res, Err(NotSafe::PruningError));
+        assert_eq!(res, Err(NotSafe::PruningError));
     }
 
     #[test]
