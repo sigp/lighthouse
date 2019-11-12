@@ -1,5 +1,8 @@
 use log::info;
-use types::test_utils::{TestingBeaconBlockBuilder, TestingBeaconStateBuilder};
+use types::test_utils::{
+    AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ExitTestTask,
+    ProposerSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
+};
 use types::{EthSpec, *};
 
 pub struct BlockBuilder<T: EthSpec> {
@@ -77,6 +80,7 @@ impl<T: EthSpec> BlockBuilder<T> {
             let validator_index = validators_iter.next().expect("Insufficient validators.");
 
             builder.insert_proposer_slashing(
+                &ProposerSlashingTestTask::Valid,
                 validator_index,
                 &keypairs[validator_index as usize].sk,
                 &state.fork,
@@ -102,7 +106,13 @@ impl<T: EthSpec> BlockBuilder<T> {
                 secret_keys.push(&keypairs[validator_index as usize].sk);
             }
 
-            builder.insert_attester_slashing(&attesters, &secret_keys, &state.fork, spec);
+            builder.insert_attester_slashing(
+                &AttesterSlashingTestTask::Valid,
+                &attesters,
+                &secret_keys,
+                &state.fork,
+                spec,
+            );
         }
         info!(
             "Inserted {} attester slashings.",
@@ -113,6 +123,7 @@ impl<T: EthSpec> BlockBuilder<T> {
         let all_secret_keys: Vec<&SecretKey> = keypairs.iter().map(|keypair| &keypair.sk).collect();
         builder
             .insert_attestations(
+                &AttestationTestTask::Valid,
                 &state,
                 &all_secret_keys,
                 self.num_attestations as usize,
@@ -125,15 +136,14 @@ impl<T: EthSpec> BlockBuilder<T> {
         );
 
         // Insert `Deposit` objects.
-        for i in 0..self.num_deposits {
-            builder.insert_deposit(
-                32_000_000_000,
-                state.eth1_data.deposit_count + (i as u64),
-                &state,
-                spec,
-            );
-        }
-        state.eth1_data.deposit_count += self.num_deposits as u64;
+        builder.insert_deposits(
+            32_000_000_000,
+            DepositTestTask::NoReset,
+            state.eth1_data.deposit_count,
+            self.num_deposits as u64,
+            &mut state,
+            spec,
+        );
         info!("Inserted {} deposits.", builder.block.body.deposits.len());
 
         // Insert the maximum possible number of `Exit` objects.
@@ -141,7 +151,8 @@ impl<T: EthSpec> BlockBuilder<T> {
             let validator_index = validators_iter.next().expect("Insufficient validators.");
 
             builder.insert_exit(
-                &state,
+                &ExitTestTask::Valid,
+                &mut state,
                 validator_index,
                 &keypairs[validator_index as usize].sk,
                 spec,

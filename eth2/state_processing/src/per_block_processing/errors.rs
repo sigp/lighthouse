@@ -190,8 +190,6 @@ pub enum ProposerSlashingInvalid {
 
 #[derive(Debug, PartialEq)]
 pub enum AttesterSlashingInvalid {
-    /// The attestation data is identical, an attestation cannot conflict with itself.
-    AttestationDataIdentical,
     /// The attestations were not in conflict.
     NotSlashable,
     /// The first `IndexedAttestation` was invalid.
@@ -257,8 +255,6 @@ pub enum AttestationInvalid {
     CustodyBitfieldNotSubset,
     /// There was no known committee in this `epoch` for the given shard and slot.
     NoCommitteeForShard { shard: u64, slot: Slot },
-    /// The validator index was unknown.
-    UnknownValidator(u64),
     /// The attestation signature verification failed.
     BadSignature,
     /// The shard block root was not set to zero. This is a phase 0 requirement.
@@ -311,8 +307,6 @@ pub enum IndexedAttestationInvalid {
 
 #[derive(Debug, PartialEq)]
 pub enum DepositInvalid {
-    /// The deposit index does not match the state index.
-    BadIndex { state: u64, deposit: u64 },
     /// The signature (proof-of-possession) does not match the given pubkey.
     BadSignature,
     /// The signature or pubkey does not represent a valid BLS point.
@@ -331,7 +325,7 @@ pub enum ExitInvalid {
     /// The specified validator has a non-maximum exit epoch.
     AlreadyExited(u64),
     /// The specified validator has already initiated exit.
-    AlreadyInitiatedExited(u64),
+    AlreadyInitiatedExit(u64),
     /// The exit is for a future epoch.
     FutureEpoch { state: Epoch, exit: Epoch },
     /// The validator has not been active for long enough.

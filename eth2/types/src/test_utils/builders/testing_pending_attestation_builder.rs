@@ -1,4 +1,4 @@
-use crate::test_utils::TestingAttestationDataBuilder;
+use crate::test_utils::{AttestationTestTask, TestingAttestationDataBuilder};
 use crate::*;
 
 /// Builds an `AttesterSlashing` to be used for testing purposes.
@@ -15,8 +15,14 @@ impl<T: EthSpec> TestingPendingAttestationBuilder<T> {
     ///
     /// * The aggregation and custody bitfields will all be empty, they need to be set with
     /// `Self::add_committee_participation`.
-    pub fn new(state: &BeaconState<T>, shard: u64, slot: Slot, spec: &ChainSpec) -> Self {
-        let data_builder = TestingAttestationDataBuilder::new(state, shard, slot, spec);
+    pub fn new(
+        test_task: &AttestationTestTask,
+        state: &BeaconState<T>,
+        shard: u64,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Self {
+        let data_builder = TestingAttestationDataBuilder::new(test_task, state, shard, slot, spec);
 
         let relative_epoch =
             RelativeEpoch::from_epoch(state.current_epoch(), slot.epoch(T::slots_per_epoch()))
