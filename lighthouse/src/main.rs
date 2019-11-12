@@ -13,7 +13,6 @@ use validator_client::ProductionValidatorClient;
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
-pub const TESTNET_CONFIG_FILENAME: &str = "testnet.toml";
 
 fn main() {
     // Debugging output for libp2p and external crates.
@@ -107,6 +106,14 @@ fn run<E: EthSpec>(
         log,
         "Ethereum 2.0 is pre-release. This software is experimental."
     );
+
+    // Note: the current code technically allows for starting a beacon node _and_ a validator
+    // client at the same time.
+    //
+    // Whilst this is possible, the mutual-exclusivity of `clap` sub-commands prevents it from
+    // actually happening.
+    //
+    // Creating a command which can run both might be useful future works.
 
     let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("Beacon Node") {
         let runtime_context = environment.core_context();

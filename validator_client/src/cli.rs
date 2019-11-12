@@ -3,7 +3,7 @@ use clap::{App, Arg, SubCommand};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("Validator Client")
-        .visible_aliases(&["v", "vc", "validator"])
+        .visible_aliases(&["v", "vc", "validator", "validator_client"])
         .version("0.0.1")
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Validator Client")

@@ -1,12 +1,11 @@
 //! This crate aims to provide a common set of tools that can be used to create a "environment" to
-//! run Lighthouse services like the `beacon_node` or `validator_client`. Namely,
+//! run Lighthouse services like the `beacon_node` or `validator_client`. This allows for the
+//! unification of creating tokio runtimes, loggers and eth2 specifications in production and in
+//! testing.
 //!
-//! - A `Runtime`.
-//! - A `Logger`.
-//! - An `EthSpec`.
-//! - An `Eth2Config`.
-//!
-//! An `Environment` can be used in production or in testing.
+//! The idea is that the main thread creates an `Environment`, which is then used to spawn a
+//! `Context` which can be handed to any service that wishes to start async tasks or perform
+//! logging.
 
 use eth2_config::Eth2Config;
 use futures::{sync::oneshot, Future};

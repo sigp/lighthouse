@@ -1,3 +1,8 @@
+//! Downloads the ABI and bytecode for the deposit contract from the ethereum spec repository and
+//! stores them in a `contract/` directory in the crate root.
+//!
+//! These files are required for some `include_bytes` calls used in this crate.
+
 use reqwest::Response;
 use serde_json::Value;
 use std::env;

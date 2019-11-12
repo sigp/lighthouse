@@ -19,8 +19,8 @@ use web3::transports::Http;
 use web3::types::{Address, U256};
 use web3::{Transport, Web3};
 
-const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
-const DEPOSIT_ACCOUNTS_INDEX: usize = 0;
+pub const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
+pub const DEPOSIT_ACCOUNTS_INDEX: usize = 0;
 
 const CONTRACT_DEPLOY_GAS: usize = 4_000_000;
 const DEPOSIT_GAS: usize = 4_000_000;
@@ -29,6 +29,7 @@ const DEPOSIT_GAS: usize = 4_000_000;
 pub const ABI: &[u8] = include_bytes!("../contract/v0.8.3_validator_registration.json");
 pub const BYTECODE: &[u8] = include_bytes!("../contract/v0.8.3_validator_registration.bytecode");
 
+/// Provides a dedicated ganache-cli instance with the deposit contract already deployed.
 pub struct GanacheEth1Instance {
     pub ganache: GanacheInstance,
     pub deposit_contract: DepositContract,
@@ -53,6 +54,7 @@ impl GanacheEth1Instance {
     }
 }
 
+/// Deploys and provides functions for the eth2 deposit contract, deployed on the eth1 chain.
 #[derive(Clone, Debug)]
 pub struct DepositContract {
     web3: Web3<Http>,
@@ -85,6 +87,8 @@ impl DepositContract {
         format!("0x{:x}", self.contract.address())
     }
 
+    /// A helper to return a fully-formed `DepositData`. Does not submit the deposit data to the
+    /// smart contact.
     pub fn deposit_helper<E: EthSpec>(
         &self,
         keypair: Keypair,
@@ -103,6 +107,9 @@ impl DepositContract {
         deposit
     }
 
+    /// Creates a random, valid deposit and submits it to the deposit contract.
+    ///
+    /// The keypairs are created randomly and destroyed.
     pub fn deposit_random<E: EthSpec>(&self, runtime: &mut Runtime) -> Result<(), String> {
         let keypair = Keypair::random();
 
@@ -118,12 +125,14 @@ impl DepositContract {
         self.deposit(runtime, deposit)
     }
 
+    /// Perfoms a blocking deposit.
     pub fn deposit(&self, runtime: &mut Runtime, deposit_data: DepositData) -> Result<(), String> {
         runtime
             .block_on(self.deposit_async(deposit_data))
             .map_err(|e| format!("Deposit failed: {:?}", e))
     }
 
+    /// Performs a non-blocking deposit.
     pub fn deposit_async(
         &self,
         deposit_data: DepositData,
@@ -158,6 +167,7 @@ impl DepositContract {
             .map(|_| ())
     }
 
+    /// Peforms many deposits, each preceded by a delay.
     pub fn deposit_multiple(
         &self,
         deposits: Vec<DelayThenDeposit>,
@@ -180,6 +190,8 @@ impl DepositContract {
     }
 }
 
+/// Describes a deposit and a delay that should should precede it's submission to the deposit
+/// contract.
 #[derive(Clone)]
 pub struct DelayThenDeposit {
     /// Wait this duration ...
@@ -192,6 +204,8 @@ fn from_gwei(gwei: u64) -> U256 {
     U256::from(gwei) * U256::exp10(9)
 }
 
+/// Deploys the deposit contract to the given web3 instance using the account with index
+/// `DEPLOYER_ACCOUNTS_INDEX`.
 fn deploy_deposit_contract<T: Transport>(
     web3: Web3<T>,
     confirmations: usize,

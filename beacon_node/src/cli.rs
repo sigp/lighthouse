@@ -2,7 +2,7 @@ use clap::{App, Arg, SubCommand};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("Beacon Node")
-        .visible_aliases(&["b", "bn", "beacon"])
+        .visible_aliases(&["b", "bn", "beacon", "beacon_node"])
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Client")
