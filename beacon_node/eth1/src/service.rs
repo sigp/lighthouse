@@ -31,11 +31,12 @@ const GET_DEPOSIT_ROOT_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_call to read the deposit contract deposit count.
 const GET_DEPOSIT_COUNT_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getLogs to read the deposit contract logs.
-const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 15_000;
+const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
-    /// The remote node is less synced that we expect.
+    /// The remote node is less synced that we expect, it is not useful until has done more
+    /// syncing.
     RemoteNotSynced {
         next_required_block: u64,
         remote_highest_block: u64,
@@ -56,14 +57,10 @@ pub enum Error {
     /// There was an inconsistency when adding a deposit to the cache.
     FailedToInsertDeposit(DepositCacheError),
     /// A log downloaded from the eth1 contract was not well formed.
-    IncompleteLogResponse { expected: usize, response: usize },
-    /// A log downloaded from the eth1 contract was not well formed.
     FailedToParseDepositLog {
         block_range: Range<u64>,
         error: String,
     },
-    /// The eth1 http json-rpc node returned an error.
-    Eth1RpcError(String),
     /// There was an unexpected internal error.
     Internal(String),
 }
@@ -99,6 +96,8 @@ pub struct Config {
     /// Defines the lowest block number that should be downloaded and added to the `BlockCache`.
     pub lowest_cached_block_number: u64,
     /// Defines how far behind the Eth1 node's head we should follow.
+    ///
+    /// Note: this should be less than or equal to the specifications `ETH1_FOLLOW_DISTANCE`.
     pub follow_distance: u64,
     /// Defines the number of blocks that should be retained each time the `BlockCache` calls truncate on
     /// itself.
@@ -406,31 +405,41 @@ impl Service {
                 },
             )
             .fold(0, move |mut sum, (block_range, log_chunk)| {
-                // It's important that blocks are log are imported atomically per-block, unless an
-                // error occurs. There is no guarantee for consistency if an error is returned.
-                //
-                // That is, if there are any logs from block `n`, then there are _all_ logs
-                // from block `n` and all prior blocks.
-                //
-                // This is achieved by taking an exclusive write-lock on the cache whilst adding
-                // logs one-by-one.
                 let mut cache = service_2.deposits().write();
 
-                for raw_log in log_chunk {
-                    let deposit_log = DepositLog::from_log(&raw_log).map_err(|error| {
-                        Error::FailedToParseDepositLog {
-                            block_range: block_range.clone(),
-                            error,
-                        }
-                    })?;
+                log_chunk
+                    .into_iter()
+                    .map(|raw_log| {
+                        DepositLog::from_log(&raw_log).map_err(|error| {
+                            Error::FailedToParseDepositLog {
+                                block_range: block_range.clone(),
+                                error,
+                            }
+                        })
+                    })
+                    // Return early if any of the logs cannot be parsed.
+                    //
+                    // This costs an additional `collect`, however it enforces that no logs are
+                    // imported if any one of them cannot be parsed.
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .map(|deposit_log| {
+                        cache
+                            .cache
+                            .insert_log(deposit_log)
+                            .map_err(Error::FailedToInsertDeposit)?;
 
-                    cache
-                        .cache
-                        .insert_log(deposit_log)
-                        .map_err(Error::FailedToInsertDeposit)?;
+                        sum += 1;
 
-                    sum += 1;
-                }
+                        Ok(())
+                    })
+                    // Returns if a deposit is unable to be added to the cache.
+                    //
+                    // If this error occurs, the cache will no longer be guaranteed to hold either
+                    // none or all of the logs for each block (i.e., they may exist _some_ logs for
+                    // a block, but not _all_ logs for that block). This scenario can cause the
+                    // node to choose an invalid genesis state or propose an invalid block.
+                    .collect::<Result<_, _>>()?;
 
                 cache.last_processed_block = Some(block_range.end.saturating_sub(1));
 
@@ -484,6 +493,9 @@ impl Service {
             range
                 .map(|range| {
                     if range.start() > range.end() {
+                        // Note: this check is not strictly necessary, however it remains to safe
+                        // guard against any regression which may cause an underflow in a following
+                        // subtraction operation.
                         Err(Error::Internal("Range was not increasing".into()))
                     } else {
                         let range_size = range.end() - range.start();
@@ -492,6 +504,8 @@ impl Service {
                             .unwrap_or_else(u64::max_value);
 
                         if range_size > max_size {
+                            // If the range of required blocks is larger than `max_size`, drop all
+                            // existing blocks and download `max_size` count of blocks.
                             let first_block = range.end() - max_size;
                             (*cache_5.block_cache.write()) = BlockCache::default();
                             Ok((first_block..=*range.end()).collect::<Vec<u64>>())
@@ -555,9 +569,13 @@ fn get_new_block_numbers<'a>(
             let remote_follow_block = remote_highest_block.saturating_sub(follow_distance);
 
             if next_required_block <= remote_follow_block {
-                // Plus one to make the range inclusive.
                 Ok(Some(next_required_block..=remote_follow_block))
             } else if next_required_block > remote_highest_block + 1 {
+                // If this is the case, the node must have gone "backwards" in terms of it's sync
+                // (i.e., it's head block is lower than it was before).
+                //
+                // We assume that the `follow_distance` should be sufficient to ensure this never
+                // happens, otherwise it is an error.
                 Err(Error::RemoteNotSynced {
                     next_required_block,
                     remote_highest_block,
@@ -618,6 +636,8 @@ mod tests {
 
     #[test]
     fn serde_serialize() {
-        let _ = toml::to_string(&Config::default()).expect("Should serde encode default config");
+        let serialized =
+            toml::to_string(&Config::default()).expect("Should serde encode default config");
+        toml::from_str::<Config>(&serialized).expect("Should serde decode default config");
     }
 }
