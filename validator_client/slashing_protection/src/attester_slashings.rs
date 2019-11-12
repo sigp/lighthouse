@@ -1,4 +1,6 @@
 use crate::enums::{NotSafe, Safe, ValidityReason};
+use crate::utils::{i64_to_u64, u64_to_i64};
+use rusqlite::{params, Connection};
 use ssz_derive::{Decode, Encode};
 use std::convert::From;
 use tree_hash::TreeHash;
@@ -81,66 +83,79 @@ fn check_surrounding(
 /// Checks if the incoming attestation is surrounding a vote, is a surrounded by another vote, or if it is a double vote.
 pub fn check_for_attester_slashing(
     attestation_data: &AttestationData,
-    attestation_history: &[SignedAttestation],
+    conn: &Connection,
 ) -> Result<Safe, NotSafe> {
-    if attestation_history.is_empty() {
+    let mut empty_select = conn.prepare("select 1 from signed_attestations limit 1")?;
+
+    if !empty_select.exists(params![])? {
         return Ok(Safe {
             reason: ValidityReason::EmptyHistory,
         });
     }
 
-    let attestation_data = &attestation_data;
-
     // Getting the index of the current SignedAttestation that is closest to the incoming attestation
-    let target_index = match attestation_history
-        .iter()
-        .rev()
-        .position(|historical_attestation| {
-            historical_attestation.target_epoch <= attestation_data.target.epoch
-        }) {
-        None => return Err(NotSafe::PruningError),
-        Some(index) => attestation_history.len() - index - 1,
-    };
+    let mut min_select = conn.prepare("select min(target_epoch) from signed_attestations")?;
 
-    if attestation_history[target_index].target_epoch == attestation_data.target.epoch {
-        if attestation_history[target_index].signing_root
-            == Hash256::from_slice(&attestation_data.tree_hash_root())
-        {
-            return Ok(Safe {
-                reason: ValidityReason::SameVote,
-            });
-        } else {
-            return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
-                attestation_history[target_index].clone(),
-            )));
-        }
+    let toto = min_select.query_row(params![], |row| {
+        let int: i64 = row.get(0)?;
+        let int = i64_to_u64(int);
+        Ok(int)
+    })?;
+
+    let min = toto;
+    if attestation_data.target.epoch < min {
+        return Err(NotSafe::PruningError);
     }
 
-    check_surrounded(attestation_data, &attestation_history[target_index + 1..])?;
+    let mut surrounded_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? order by target_epoch asc")?;
+    let target_epoch: u64 = attestation_data.target.epoch.into();
+    let db_target_epoch = u64_to_i64(target_epoch);
+    let vecc = surrounded_select.query_map(params![db_target_epoch], |row| {
+        let target: i64 = row.get(0)?;
+        let source: i64 = row.get(1)?;
+        let target = i64_to_u64(target);
+        let source = i64_to_u64(source);
+        let signing_root: Vec<u8> = row.get(2)?;
+        Ok(SignedAttestation::new(
+            source,
+            target,
+            Hash256::from_slice(&signing_root[..]),
+        ))
+    })?;
 
-    // Getting the index of the second closest SignedAttestation that has a source equal to the new attestation's target
-    let source_index =
-        match attestation_history[..=target_index]
-            .iter()
-            .rev()
-            .position(|historical_attestation| {
-                historical_attestation.target_epoch <= attestation_data.source.epoch
-            }) {
-            None => 0,
-            // Adding plus one here to have the second one and not the first one, for a small optimization
-            Some(index) => target_index - index + 1,
-        };
+    let mut surrounded_vec = vec![];
+    for elem in vecc {
+        surrounded_vec.push(elem.unwrap()); // unwrap
+    }
+    check_surrounded(attestation_data, &surrounded_vec[..])?;
 
-    check_surrounding(
-        attestation_data,
-        &attestation_history[source_index..=target_index],
-    )?;
-
+    let mut surrounding_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch >= ? and target_epoch <= ? order by target_epoch asc")?;
+    let source_epoch = attestation_data.target.epoch.into();
+    let db_source_epoch = u64_to_i64(source_epoch);
+    let vecc = surrounding_select.query_map(params![db_source_epoch, db_target_epoch], |row| {
+        let target: i64 = row.get(0)?;
+        let source: i64 = row.get(1)?;
+        let target = i64_to_u64(target);
+        let source = i64_to_u64(source);
+        let signing_root: Vec<u8> = row.get(2)?;
+        Ok(SignedAttestation::new(
+            source,
+            target,
+            Hash256::from_slice(&signing_root[..]),
+        ))
+    })?;
+    let mut surrounding_vec = vec![];
+    for elem in vecc {
+        surrounding_vec.push(elem.unwrap()); // unwrap
+    }
+    check_surrounding(attestation_data, &surrounding_vec[..])?;
+    // missing checking for double vote
     Ok(Safe {
         reason: ValidityReason::Valid,
     })
 }
 
+/*
 #[cfg(test)]
 mod attestation_tests {
     use super::*;
@@ -549,3 +564,4 @@ mod attestation_tests {
         );
     }
 }
+*/

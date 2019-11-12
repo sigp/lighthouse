@@ -1,6 +1,7 @@
 use crate::attester_slashings::{check_for_attester_slashing, SignedAttestation};
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
+use crate::utils::{i64_to_u64, u64_to_i64};
 use rusqlite::{params, Connection, Error as SQLErr, OpenFlags};
 use ssz::Decode;
 use ssz::Encode;
@@ -35,18 +36,20 @@ impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
 
     fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
-        check_for_attester_slashing(incoming_data, &self.get_history()?[..]) // SCOTT
+        check_for_attester_slashing(incoming_data, &self.conn) // SCOTT
     }
 
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
         let target: u64 = incoming_data.target.epoch.into();
         let source: u64 = incoming_data.source.epoch.into();
+        let target = u64_to_i64(target);
+        let source = u64_to_i64(source);
         self.conn.execute(
             "INSERT INTO signed_attestations (target_epoch, source_epoch, signing_root)
         VALUES (?1, ?2, ?3)",
             params![
-                target as i64,
-                source as i64,
+                target,
+                source,
                 Hash256::from_slice(&incoming_data.tree_hash_root()).as_ssz_bytes()
             ],
         )?;
@@ -63,10 +66,11 @@ impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
 
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
         let slot: u64 = incoming_data.slot.into();
+        let slot = u64_to_i64(slot);
         self.conn.execute(
             "INSERT INTO signed_blocks (slot, signing_root)
                 VALUES (?1, ?2)",
-            params![slot as i64, incoming_data.canonical_root().as_ssz_bytes()],
+            params![slot, incoming_data.canonical_root().as_ssz_bytes()],
         )?;
         Ok(())
     }
@@ -82,10 +86,10 @@ impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
         let mut attestation_history_select = conn
                 .prepare("select target_epoch, source_epoch, signing_root from signed_attestations order by target_epoch asc")?;
         let history = attestation_history_select.query_map(params![], |row| {
-            let target_i: i64 = row.get(0)?;
-            let source_i: i64 = row.get(1)?;
-            let target_epoch = target_i as u64;
-            let source_epoch = source_i as u64;
+            let target: i64 = row.get(0)?;
+            let source: i64 = row.get(1)?;
+            let target_epoch = i64_to_u64(target);
+            let source_epoch = i64_to_u64(source);
             let hash_blob: Vec<u8> = row.get(2)?;
             let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
                 .expect("should have a valid ssz encoded hash256 in db");
@@ -103,12 +107,6 @@ impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
             attestation_history.push(attestation)
         }
 
-        // We need to sort data because results were stored as i64 and not u64.
-        attestation_history.sort_by(|a, b| {
-            a.target_epoch
-                .partial_cmp(&b.target_epoch)
-                .expect("an error occured while comparing attestations")
-        });
         Ok(attestation_history)
     }
 }
@@ -118,8 +116,8 @@ impl LoadData<SignedBlock> for Vec<SignedBlock> {
         let mut block_history_select = conn
             .prepare("select slot, signing_root from signed_blocks where slot order by slot asc")?;
         let history = block_history_select.query_map(params![], |row| {
-            let slot_i: i64 = row.get(0)?;
-            let slot = slot_i as u64;
+            let slot: i64 = row.get(0)?;
+            let slot = i64_to_u64(slot);
             let hash_blob: Vec<u8> = row.get(1)?;
             let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
                 .expect("should have a valid ssz encoded hash256 in db");
@@ -133,12 +131,6 @@ impl LoadData<SignedBlock> for Vec<SignedBlock> {
             block_history.push(block)
         }
 
-        // We need to sort data because results were stored as i64 and not u64.
-        block_history.sort_by(|a, b| {
-            a.slot
-                .partial_cmp(&b.slot)
-                .expect("an error occured while comparing blocks")
-        });
         Ok(block_history)
     }
 }
@@ -248,6 +240,12 @@ impl SlashingProtection<SignedAttestation> for HistoryInfo<SignedAttestation> {
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS target_index
                 ON signed_attestations(target_epoch)",
+            params![],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS source_index
+                ON signed_attestations(source_epoch)",
             params![],
         )?;
 
@@ -537,9 +535,12 @@ mod single_threaded_tests {
         let attestation2 = attestation_and_custody_bit_builder(2, 3);
         let attestation3 = attestation_and_custody_bit_builder(3, 4);
 
-        let _ = attestation_history.update_if_valid(&attestation1);
-        let _ = attestation_history.update_if_valid(&attestation2);
-        let _ = attestation_history.update_if_valid(&attestation3);
+        let a = attestation_history.update_if_valid(&attestation1);
+        println!("{:?}", a);
+        let b = attestation_history.update_if_valid(&attestation2);
+        println!("{:?}", b);
+        let c = attestation_history.update_if_valid(&attestation3);
+        println!("{:?}", c);
 
         let mut expected_vector = vec![];
         expected_vector.push(SignedAttestation::from(&attestation1));
