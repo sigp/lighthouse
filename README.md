@@ -47,7 +47,7 @@ Current development overview:
 
 - ~~**April 2019**: Inital single-client testnets.~~
 - ~~**September 2019**: Inter-operability with other Ethereum 2.0 clients.~~
-- **Early-October 2019**: `lighthouse-0.0.1` release: All major phase 0
+- **Q4 2019**: `lighthouse-0.0.1` release: All major phase 0
      features implemented.
 - **Q4 2019**: Public, multi-client testnet with user-facing functionality.
 - **Q4 2019**: Third-party security review.
