@@ -87,12 +87,56 @@ pub fn check_for_attester_slashing(
 ) -> Result<Safe, NotSafe> {
     let mut empty_select = conn.prepare("select 1 from signed_attestations limit 1")?;
 
+    // check empty
     if !empty_select.exists(params![])? {
         return Ok(Safe {
             reason: ValidityReason::EmptyHistory,
         });
     }
 
+    // set utility
+    let target_epoch: u64 = attestation_data.target.epoch.into();
+    let i64_target_epoch = u64_to_i64(target_epoch);
+    let source_epoch: u64 = attestation_data.source.epoch.into();
+    let i64_source_epoch = u64_to_i64(source_epoch);
+
+    // check same_vote
+    let mut same_vote_select =
+        conn.prepare("select signing_root from signed_attestations where target_epoch = ?")?;
+    let same_vote = same_vote_select.query_row(params![i64_target_epoch], |row| {
+        let root: Vec<u8> = row.get(0)?;
+        let signing_root = Hash256::from_slice(&root[..]);
+        Ok(signing_root)
+    });
+
+    if let Ok(vote_hash) = same_vote {
+        if vote_hash == Hash256::from_slice(&attestation_data.tree_hash_root()[..]) {
+            return Ok(Safe {
+                reason: ValidityReason::SameVote,
+            });
+        } else {
+            let mut double_vote_select = conn.prepare(
+                "select target_epoch, source_epoch from signed_attestations where target_epoch = ?",
+            )?;
+
+            let double_vote = double_vote_select.query_row(params![i64_target_epoch], |row| {
+                let target_epoch: i64 = row.get(0)?;
+                let target_epoch = i64_to_u64(target_epoch);
+                let source_epoch: i64 = row.get(1)?;
+                let source_epoch = i64_to_u64(source_epoch);
+                Ok(SignedAttestation::new(
+                    source_epoch,
+                    target_epoch,
+                    vote_hash,
+                ))
+            })?;
+            return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
+                double_vote,
+            )));
+        }
+    }
+
+    // Check pruning
     // Getting the index of the current SignedAttestation that is closest to the incoming attestation
     let mut min_select = conn.prepare("select min(target_epoch) from signed_attestations")?;
 
@@ -107,10 +151,9 @@ pub fn check_for_attester_slashing(
         return Err(NotSafe::PruningError);
     }
 
+    // check surrounded
     let mut surrounded_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? order by target_epoch asc")?;
-    let target_epoch: u64 = attestation_data.target.epoch.into();
-    let db_target_epoch = u64_to_i64(target_epoch);
-    let vecc = surrounded_select.query_map(params![db_target_epoch], |row| {
+    let vecc = surrounded_select.query_map(params![i64_target_epoch], |row| {
         let target: i64 = row.get(0)?;
         let source: i64 = row.get(1)?;
         let target = i64_to_u64(target);
@@ -129,21 +172,21 @@ pub fn check_for_attester_slashing(
     }
     check_surrounded(attestation_data, &surrounded_vec[..])?;
 
+    // check surrounding
     let mut surrounding_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch >= ? and target_epoch <= ? order by target_epoch asc")?;
-    let source_epoch = attestation_data.target.epoch.into();
-    let db_source_epoch = u64_to_i64(source_epoch);
-    let vecc = surrounding_select.query_map(params![db_source_epoch, db_target_epoch], |row| {
-        let target: i64 = row.get(0)?;
-        let source: i64 = row.get(1)?;
-        let target = i64_to_u64(target);
-        let source = i64_to_u64(source);
-        let signing_root: Vec<u8> = row.get(2)?;
-        Ok(SignedAttestation::new(
-            source,
-            target,
-            Hash256::from_slice(&signing_root[..]),
-        ))
-    })?;
+    let vecc =
+        surrounding_select.query_map(params![i64_source_epoch, i64_target_epoch], |row| {
+            let target: i64 = row.get(0)?;
+            let source: i64 = row.get(1)?;
+            let target = i64_to_u64(target);
+            let source = i64_to_u64(source);
+            let signing_root: Vec<u8> = row.get(2)?;
+            Ok(SignedAttestation::new(
+                source,
+                target,
+                Hash256::from_slice(&signing_root[..]),
+            ))
+        })?;
     let mut surrounding_vec = vec![];
     for elem in vecc {
         surrounding_vec.push(elem.unwrap()); // unwrap
@@ -594,6 +637,9 @@ mod attestation_tests {
             .update_if_valid(&third)
             .expect("should have inserted prev data");
         let fourth = attestation_data_builder(3, 4);
+        attestation_history
+            .update_if_valid(&fourth)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(1, 5);
         let res = attestation_history.update_if_valid(&attestation_data);
@@ -602,34 +648,6 @@ mod attestation_tests {
             res,
             Err(NotSafe::InvalidAttestation(
                 InvalidAttestation::SurroundingVote(SignedAttestation::from(&fourth))
-            ))
-        );
-    }
-
-    #[test]
-    fn invalid_surrounded_first_vote() {
-        let (mut attestation_history, _attestation_file) = create_tmp();
-
-        let first = attestation_data_builder(0, 7);
-        attestation_history
-            .update_if_valid(&first)
-            .expect("should have inserted prev data");
-        let second = attestation_data_builder(7, 8);
-        attestation_history
-            .update_if_valid(&second)
-            .expect("should have inserted prev data");
-        let third = attestation_data_builder(8, 9);
-        attestation_history
-            .update_if_valid(&third)
-            .expect("should have inserted prev data");
-
-        let attestation_data = attestation_data_builder(1, 2);
-        let res = attestation_history.update_if_valid(&attestation_data);
-
-        assert_eq!(
-            res,
-            Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundedVote(SignedAttestation::from(&first))
             ))
         );
     }
@@ -710,6 +728,7 @@ mod attestation_tests {
         let attestation_data = attestation_data_builder(3, 4);
         let res = attestation_history.update_if_valid(&attestation_data);
 
+        println!("{:?}", third);
         assert_eq!(
             res,
             Err(NotSafe::InvalidAttestation(
@@ -728,7 +747,7 @@ mod attestation_tests {
 
         let attestation_data = attestation_data_builder(4, 5);
         let res = attestation_history.update_if_valid(&attestation_data);
-        assert_eq!(res, Err(NotSafe::PruningError));
+            assert_eq!(res, Err(NotSafe::PruningError));
     }
 
     #[test]
@@ -742,7 +761,5 @@ mod attestation_tests {
         let attestation_data = attestation_data_builder(222, 223);
         let res = attestation_history.update_if_valid(&attestation_data);
         assert_eq!(res, Err(NotSafe::PruningError));
-        let mut history = vec![];
-        history.push(SignedAttestation::new(221, 224, Hash256::random()));
     }
 }
