@@ -175,7 +175,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Vec<BeaconBlockBody<T::EthSpec>>, Error> {
         let bodies: Result<Vec<_>, _> = roots
             .iter()
-            .map(|root| match self.get_block(root)? {
+            .map(|root| match self.block_at_root(*root)? {
                 Some(block) => Ok(block.body),
                 None => Err(Error::DBInconsistent(format!("Missing block: {}", root))),
             })
@@ -190,7 +190,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_block_headers(&self, roots: &[Hash256]) -> Result<Vec<BeaconBlockHeader>, Error> {
         let headers: Result<Vec<BeaconBlockHeader>, _> = roots
             .iter()
-            .map(|root| match self.get_block(root)? {
+            .map(|root| match self.block_at_root(*root)? {
                 Some(block) => Ok(block.block_header()),
                 None => Err(Error::DBInconsistent("Missing block".into())),
             })
@@ -241,11 +241,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn get_block(
+    pub fn block_at_root(
         &self,
-        block_root: &Hash256,
+        block_root: Hash256,
     ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
-        Ok(self.store.get(block_root)?)
+        Ok(self.store.get(&block_root)?)
+    }
+
+    /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn block_at_slot(&self, slot: Slot) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
+        let root = self
+            .rev_iter_block_roots()
+            .find(|(_, this_slot)| *this_slot == slot)
+            .map(|(root, _)| root);
+
+        if let Some(block_root) = root {
+            Ok(self.store.get(&block_root)?)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";

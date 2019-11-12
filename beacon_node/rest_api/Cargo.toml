@@ -24,7 +24,6 @@ state_processing = { path = "../../eth2/state_processing" }
 types = { path = "../../eth2/types" }
 clap = "2.32.0"
 http = "^0.1.17"
-prometheus = { version = "^0.6", features = ["process"] }
 hyper = "0.12.35"
 exit-future = "0.1.3"
 tokio = "0.1.17"
@@ -36,3 +35,8 @@ slot_clock = { path = "../../eth2/utils/slot_clock" }
 hex = "0.3.2"
 parking_lot = "0.9"
 futures = "0.1.25"
+
+[dev-dependencies]
+remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }
+node_test_rig = { path = "../../tests/node_test_rig" }
+tree_hash = { path = "../../eth2/utils/tree_hash" }

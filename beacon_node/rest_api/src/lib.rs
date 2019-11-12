@@ -27,7 +27,8 @@ use hyper::rt::Future;
 use hyper::service::Service;
 use hyper::{Body, Method, Request, Response, Server};
 use parking_lot::RwLock;
-use slog::{info, o, warn};
+use slog::{info, warn};
+use std::net::SocketAddr;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,7 +38,7 @@ use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey;
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
-pub use config::Config as ApiConfig;
+pub use config::Config;
 pub use validator::ValidatorDuty;
 
 type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
@@ -137,19 +138,17 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
             }
 
             // Methods for Validator
-            (&Method::GET, "/beacon/validator/duties") => {
+            (&Method::GET, "/validator/duties") => {
                 into_boxfut(validator::get_validator_duties::<T>(req))
             }
-            (&Method::GET, "/beacon/validator/block") => {
+            (&Method::GET, "/validator/block") => {
                 into_boxfut(validator::get_new_beacon_block::<T>(req))
             }
-            (&Method::POST, "/beacon/validator/block") => validator::publish_beacon_block::<T>(req),
-            (&Method::GET, "/beacon/validator/attestation") => {
+            (&Method::POST, "/validator/block") => validator::publish_beacon_block::<T>(req),
+            (&Method::GET, "/validator/attestation") => {
                 into_boxfut(validator::get_new_attestation::<T>(req))
             }
-            (&Method::POST, "/beacon/validator/attestation") => {
-                validator::publish_attestation::<T>(req)
-            }
+            (&Method::POST, "/validator/attestation") => validator::publish_attestation::<T>(req),
 
             (&Method::GET, "/beacon/state") => into_boxfut(beacon::get_state::<T>(req)),
             (&Method::GET, "/beacon/state_root") => into_boxfut(beacon::get_state_root::<T>(req)),
@@ -199,16 +198,14 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
 }
 
 pub fn start_server<T: BeaconChainTypes>(
-    config: &ApiConfig,
+    config: &Config,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,
     db_path: PathBuf,
     eth2_config: Eth2Config,
-    log: &slog::Logger,
-) -> Result<exit_future::Signal, hyper::Error> {
-    let log = log.new(o!("Service" => "Api"));
-
+    log: slog::Logger,
+) -> Result<(exit_future::Signal, SocketAddr), hyper::Error> {
     // build a channel to kill the HTTP server
     let (exit_signal, exit) = exit_future::signal();
 
@@ -240,8 +237,11 @@ pub fn start_server<T: BeaconChainTypes>(
     };
 
     let log_clone = log.clone();
-    let server = Server::bind(&bind_addr)
-        .serve(service)
+    let server = Server::bind(&bind_addr).serve(service);
+
+    let actual_listen_addr = server.local_addr();
+
+    let server_future = server
         .with_graceful_shutdown(server_exit)
         .map_err(move |e| {
             warn!(
@@ -251,15 +251,15 @@ pub fn start_server<T: BeaconChainTypes>(
         });
 
     info!(
-    log,
-    "REST API started";
-    "address" => format!("{}", config.listen_address),
-    "port" => config.port,
+        log,
+        "REST API started";
+        "address" => format!("{}", actual_listen_addr.ip()),
+        "port" => actual_listen_addr.port(),
     );
 
-    executor.spawn(server);
+    executor.spawn(server_future);
 
-    Ok(exit_signal)
+    Ok((exit_signal, actual_listen_addr))
 }
 
 #[derive(Clone)]

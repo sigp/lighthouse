@@ -55,7 +55,7 @@
 
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
-pub use prometheus::{Histogram, IntCounter, IntGauge, Result};
+pub use prometheus::{Encoder, Histogram, IntCounter, IntGauge, Result, TextEncoder};
 
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {

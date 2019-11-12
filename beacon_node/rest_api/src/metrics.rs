@@ -3,7 +3,7 @@ use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, DBPath};
 use beacon_chain::BeaconChainTypes;
 use hyper::{Body, Request};
-use prometheus::{Encoder, TextEncoder};
+use lighthouse_metrics::{Encoder, TextEncoder};
 
 pub use lighthouse_metrics::*;
 
@@ -58,7 +58,7 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
     beacon_chain::scrape_for_metrics(&beacon_chain);
 
     encoder
-        .encode(&lighthouse_metrics::gather(), &mut buffer)
+        .encode(&lighthouse_metrics::gather()[..], &mut buffer)
         .unwrap();
 
     String::from_utf8(buffer)

@@ -12,3 +12,6 @@ url = "1.2"
 serde = "1.0"
 futures = "0.1.25"
 types = { path = "../../../eth2/types" }
+rest_api = { path = "../../../beacon_node/rest_api" }
+hex = "0.3"
+eth2_ssz = { path = "../../../eth2/utils/ssz" }
