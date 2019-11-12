@@ -418,7 +418,7 @@ fn slot_start_seconds<T: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::MinimalEthSpec;
+    use types::{test_utils::DepositTestTask, MinimalEthSpec};
 
     type E = MinimalEthSpec;
 
@@ -486,11 +486,10 @@ mod test {
 
         fn get_deposit_log(i: u64, spec: &ChainSpec) -> DepositLog {
             let keypair = generate_deterministic_keypair(i as usize);
-            let deposit_data =
-                TestingDepositBuilder::new(keypair.pk.clone(), spec.max_effective_balance)
-                    .sign(&keypair, spec)
-                    .build()
-                    .data;
+            let mut builder =
+                TestingDepositBuilder::new(keypair.pk.clone(), spec.max_effective_balance);
+            builder.sign(&DepositTestTask::Valid, &keypair, spec);
+            let deposit_data = builder.build().data;
 
             DepositLog {
                 deposit_data,

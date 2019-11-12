@@ -1,3 +1,4 @@
+use crate::test_utils::AttestationTestTask;
 use crate::*;
 use tree_hash::TreeHash;
 
@@ -12,8 +13,9 @@ impl TestingAttestationDataBuilder {
     /// Configures a new `AttestationData` which attests to all of the same parameters as the
     /// state.
     pub fn new<T: EthSpec>(
+        test_task: &AttestationTestTask,
         state: &BeaconState<T>,
-        shard: u64,
+        mut shard: u64,
         slot: Slot,
         spec: &ChainSpec,
     ) -> Self {
@@ -22,13 +24,13 @@ impl TestingAttestationDataBuilder {
 
         let is_previous_epoch = slot.epoch(T::slots_per_epoch()) != current_epoch;
 
-        let source = if is_previous_epoch {
+        let mut source = if is_previous_epoch {
             state.previous_justified_checkpoint.clone()
         } else {
             state.current_justified_checkpoint.clone()
         };
 
-        let target = if is_previous_epoch {
+        let mut target = if is_previous_epoch {
             Checkpoint {
                 epoch: previous_epoch,
                 root: *state
@@ -50,20 +52,66 @@ impl TestingAttestationDataBuilder {
             state.get_current_crosslink(shard).unwrap()
         };
 
+        let mut start = parent_crosslink.end_epoch;
+        let mut end = std::cmp::min(
+            target.epoch,
+            parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
+        );
+        let mut parent_root = Hash256::from_slice(&parent_crosslink.tree_hash_root());
+        let mut data_root = Hash256::zero();
+        let beacon_block_root = *state.get_block_root(slot).unwrap();
+
+        match test_task {
+            AttestationTestTask::BadParentCrosslinkStartEpoch => start = Epoch::from(10 as u64),
+            AttestationTestTask::BadParentCrosslinkEndEpoch => end = Epoch::from(0 as u64),
+            AttestationTestTask::BadParentCrosslinkHash => parent_root = Hash256::zero(),
+            AttestationTestTask::NoCommiteeForShard => shard += 2,
+            AttestationTestTask::BadShard => shard = T::ShardCount::to_u64(),
+            AttestationTestTask::IncludedTooEarly => shard += 1,
+            AttestationTestTask::IncludedTooLate => {
+                target = Checkpoint {
+                    epoch: Epoch::from(3 as u64),
+                    root: Hash256::zero(),
+                }
+            }
+            AttestationTestTask::BadTargetEpoch => {
+                target = Checkpoint {
+                    epoch: Epoch::from(5 as u64),
+                    root: Hash256::zero(),
+                }
+            }
+            AttestationTestTask::WrongJustifiedCheckpoint => {
+                source = Checkpoint {
+                    epoch: Epoch::from(0 as u64),
+                    root: Hash256::zero(),
+                }
+            }
+            AttestationTestTask::BadTargetTooLow => {
+                target = Checkpoint {
+                    epoch: Epoch::from(0 as u64),
+                    root: Hash256::zero(),
+                }
+            }
+            AttestationTestTask::BadTargetTooHigh => {
+                target = Checkpoint {
+                    epoch: Epoch::from(10 as u64),
+                    root: Hash256::zero(),
+                }
+            }
+            AttestationTestTask::BadParentCrosslinkDataRoot => data_root = parent_root,
+            _ => (),
+        }
         let crosslink = Crosslink {
             shard,
-            parent_root: Hash256::from_slice(&parent_crosslink.tree_hash_root()),
-            start_epoch: parent_crosslink.end_epoch,
-            end_epoch: std::cmp::min(
-                target.epoch,
-                parent_crosslink.end_epoch + spec.max_epochs_per_crosslink,
-            ),
-            data_root: Hash256::zero(),
+            parent_root,
+            start_epoch: start,
+            end_epoch: end,
+            data_root,
         };
 
         let data = AttestationData {
             // LMD GHOST vote
-            beacon_block_root: *state.get_block_root(slot).unwrap(),
+            beacon_block_root,
 
             // FFG Vote
             source,
