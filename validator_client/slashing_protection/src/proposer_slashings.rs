@@ -77,6 +77,7 @@ impl HistoryInfo<SignedBlock> {
             return Err(NotSafe::PruningError);
         }
 
+        // Checking if there's an existing entry in the db that has a slot equal to the block_header's slot.
         let mut same_slot_select = self
             .conn
             .prepare("select slot, signing_root from signed_blocks where slot = ?")?;
@@ -88,17 +89,21 @@ impl HistoryInfo<SignedBlock> {
             let signing_root = Hash256::from_slice(&signing_bytes[..]);
             Ok(SignedBlock::new(u64_slot, signing_root))
         });
+
         if let Ok(same_slot_attest) = same_slot_query {
             if same_slot_attest.signing_root == block_header.canonical_root() {
+                // Same slot and same hash -> we're re-broadcasting a previously signed block
                 Ok(Safe {
                     reason: ValidityReason::SameVote,
                 })
             } else {
+                // Same slot but not the same hash -> it's a DoubleBlockProposal
                 Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
                     same_slot_attest,
                 )))
             }
         } else {
+            // No signed block with the same slot -> the incoming block is targeting an invalid slot
             Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(
                 latest_block,
             )))
