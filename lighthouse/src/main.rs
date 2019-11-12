@@ -89,10 +89,10 @@ fn run<E: EthSpec>(
                 .value_of("debug-level")
                 .ok_or_else(|| "Expected --debug-level flag".to_string())?,
         )?
-        .tokio_runtime()?
+        .multi_threaded_tokio_runtime()?
         .build()?;
 
-    let log = environment.core_log();
+    let log = environment.core_context().log;
 
     if std::mem::size_of::<usize>() != 8 {
         crit!(

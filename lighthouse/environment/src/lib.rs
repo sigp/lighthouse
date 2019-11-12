@@ -1,3 +1,13 @@
+//! This crate aims to provide a common set of tools that can be used to create a "environment" to
+//! run Lighthouse services like the `beacon_node` or `validator_client`. Namely,
+//!
+//! - A `Runtime`.
+//! - A `Logger`.
+//! - An `EthSpec`.
+//! - An `Eth2Config`.
+//!
+//! An `Environment` can be used in production or in testing.
+
 use eth2_config::Eth2Config;
 use futures::{sync::oneshot, Future};
 use slog::{o, Drain, Level, Logger};
@@ -6,6 +16,7 @@ use std::cell::RefCell;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 
+/// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
     runtime: Option<Runtime>,
     log: Option<Logger>,
@@ -14,6 +25,7 @@ pub struct EnvironmentBuilder<E: EthSpec> {
 }
 
 impl EnvironmentBuilder<MinimalEthSpec> {
+    /// Creates a new builder using the `minimal` eth2 specification.
     pub fn minimal() -> Self {
         Self {
             runtime: None,
@@ -25,6 +37,7 @@ impl EnvironmentBuilder<MinimalEthSpec> {
 }
 
 impl EnvironmentBuilder<MainnetEthSpec> {
+    /// Creates a new builder using the `mainnet` eth2 specification.
     pub fn mainnet() -> Self {
         Self {
             runtime: None,
@@ -36,6 +49,7 @@ impl EnvironmentBuilder<MainnetEthSpec> {
 }
 
 impl EnvironmentBuilder<InteropEthSpec> {
+    /// Creates a new builder using the `interop` eth2 specification.
     pub fn interop() -> Self {
         Self {
             runtime: None,
@@ -47,12 +61,19 @@ impl EnvironmentBuilder<InteropEthSpec> {
 }
 
 impl<E: EthSpec> EnvironmentBuilder<E> {
-    pub fn tokio_runtime(mut self) -> Result<Self, String> {
+    /// Specifies that a multi-threaded tokio runtime should be used. Ideal for production uses.
+    ///
+    /// The `Runtime` used is just the standard tokio runtime.
+    pub fn multi_threaded_tokio_runtime(mut self) -> Result<Self, String> {
         self.runtime =
             Some(Runtime::new().map_err(|e| format!("Failed to start runtime: {:?}", e))?);
         Ok(self)
     }
 
+    /// Specifies that a single-threaded tokio runtime should be used. Ideal for testing purposes
+    /// where tests are already multi-threaded.
+    ///
+    /// This can solve problems if "too many open files" errors are thrown during tests.
     pub fn single_thread_tokio_runtime(mut self) -> Result<Self, String> {
         self.runtime = Some(
             RuntimeBuilder::new()
@@ -63,11 +84,17 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
+    /// Specifies that all logs should be sent to `null` (i.e., ignored).
     pub fn null_logger(mut self) -> Result<Self, String> {
         self.log = Some(null_logger()?);
         Ok(self)
     }
 
+    /// Specifies that the `slog` asynchronous logger should be used. Ideal for production.
+    ///
+    /// The logger is "async" because it has a dedicated thread that accepts logs and then
+    /// asynchronously flushes them to stdout/files/etc. This means the thread that raised the log
+    /// does not have to wait for the logs to be flushed.
     pub fn async_logger(mut self, debug_level: &str) -> Result<Self, String> {
         // Build the initial logger.
         let decorator = slog_term::TermDecorator::new().build();
@@ -89,6 +116,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
+    /// Consumes the builder, returning an `Environment`.
     pub fn build(self) -> Result<Environment<E>, String> {
         Ok(Environment {
             runtime: self
@@ -103,6 +131,10 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     }
 }
 
+/// An execution context that can be used by a service.
+///
+/// Distinct from an `Environment` because a `Context` is not able to give a mutable reference to a
+/// `Runtime`, instead it only has access to a `TaskExecutor`.
 #[derive(Clone)]
 pub struct RuntimeContext<E: EthSpec> {
     pub executor: TaskExecutor,
@@ -112,6 +144,9 @@ pub struct RuntimeContext<E: EthSpec> {
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
+    /// Returns a sub-context of this context.
+    ///
+    /// The generated service will have the `service_name` in all it's logs.
     pub fn service_context(&self, service_name: &'static str) -> Self {
         Self {
             executor: self.executor.clone(),
@@ -121,11 +156,14 @@ impl<E: EthSpec> RuntimeContext<E> {
         }
     }
 
+    /// Returns the `eth2_config` for this service.
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
     }
 }
 
+/// An environment where Lighthouse services can run. Used to start a production beacon node or
+/// validator client, or to run tests that involve logging and async task execution.
 pub struct Environment<E: EthSpec> {
     runtime: Runtime,
     log: Logger,
@@ -134,32 +172,35 @@ pub struct Environment<E: EthSpec> {
 }
 
 impl<E: EthSpec> Environment<E> {
-    pub fn executor(&self) -> TaskExecutor {
-        self.runtime.executor()
-    }
-
+    /// Returns a mutable reference to the `tokio` runtime.
+    ///
+    /// Useful in the rare scenarios where it's necessary to block the current thread until a task
+    /// is finished (e.g., during testing).
     pub fn runtime(&mut self) -> &mut Runtime {
         &mut self.runtime
     }
 
+    /// Returns a `Context` where no "service" has been added to the logger output.
     pub fn core_context(&mut self) -> RuntimeContext<E> {
         RuntimeContext {
-            executor: self.executor(),
+            executor: self.runtime.executor(),
             log: self.log.clone(),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }
     }
 
+    /// Returns a `Context` where the `service_name` is added to the logger output.
     pub fn service_context(&mut self, service_name: &'static str) -> RuntimeContext<E> {
         RuntimeContext {
-            executor: self.executor(),
+            executor: self.runtime.executor(),
             log: self.log.new(o!("service" => service_name)),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }
     }
 
+    /// Block the current thread until Ctrl+C is received.
     pub fn block_until_ctrl_c(&mut self) -> Result<(), String> {
         let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
         let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
@@ -176,6 +217,7 @@ impl<E: EthSpec> Environment<E> {
             .map_err(|e| format!("Ctrlc oneshot failed: {:?}", e))
     }
 
+    /// Shutdown the `tokio` runtime when all tasks are idle.
     pub fn shutdown_on_idle(self) -> Result<(), String> {
         self.runtime
             .shutdown_on_idle()
@@ -189,18 +231,6 @@ impl<E: EthSpec> Environment<E> {
 
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
-    }
-
-    pub fn service_log(&self, name: &'static str) -> Logger {
-        self.log.new(o!("service" => name))
-    }
-
-    pub fn core_log(&self) -> Logger {
-        self.log.clone()
-    }
-
-    pub fn validator_client_log(&self) -> Logger {
-        self.log.new(o!("client" => "validator"))
     }
 }
 

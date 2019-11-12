@@ -12,7 +12,7 @@ fn http_server_genesis_state() {
     let mut env = env_builder()
         .null_logger()
         .expect("should build env logger")
-        .tokio_runtime()
+        .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
         .build()
         .expect("environment should build");

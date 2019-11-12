@@ -13,7 +13,7 @@ use types::{test_utils::generate_deterministic_keypair, Hash256, MinimalEthSpec}
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
-        .tokio_runtime()
+        .single_thread_tokio_runtime()
         .expect("should start tokio runtime")
         .null_logger()
         .expect("should start null logger")
@@ -24,7 +24,7 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
 #[test]
 fn basic() {
     let mut env = new_env();
-    let log = env.core_log();
+    let log = env.core_context().log;
     let mut spec = env.eth2_config().spec.clone();
     let runtime = env.runtime();
 

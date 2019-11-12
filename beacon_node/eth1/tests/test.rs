@@ -111,7 +111,7 @@ mod auto_update {
     #[test]
     fn can_auto_update() {
         let mut env = new_env();
-        let log = env.core_log();
+        let log = env.core_context().log;
         let runtime = env.runtime();
 
         let eth1 = runtime
@@ -195,7 +195,7 @@ mod eth1_cache {
     #[test]
     fn simple_scenario() {
         let mut env = new_env();
-        let log = env.core_log();
+        let log = env.core_context().log;
         let runtime = env.runtime();
 
         for follow_distance in 0..2 {
@@ -267,7 +267,7 @@ mod eth1_cache {
     #[test]
     fn big_skip() {
         let mut env = new_env();
-        let log = env.core_log();
+        let log = env.core_context().log;
         let runtime = env.runtime();
 
         let eth1 = runtime
@@ -314,7 +314,7 @@ mod eth1_cache {
     #[test]
     fn pruning() {
         let mut env = new_env();
-        let log = env.core_log();
+        let log = env.core_context().log;
         let runtime = env.runtime();
 
         let eth1 = runtime
@@ -358,7 +358,7 @@ mod eth1_cache {
     #[test]
     fn double_update() {
         let mut env = new_env();
-        let log = env.core_log();
+        let log = env.core_context().log;
         let runtime = env.runtime();
 
         let n = 16;
@@ -404,7 +404,7 @@ mod deposit_tree {
     #[test]
     fn updating() {
         let mut env = new_env();
-        let log = env.core_log();
+        let log = env.core_context().log;
         let runtime = env.runtime();
 
         let n = 4;
@@ -477,7 +477,7 @@ mod deposit_tree {
     #[test]
     fn double_update() {
         let mut env = new_env();
-        let log = env.core_log();
+        let log = env.core_context().log;
         let runtime = env.runtime();
 
         let n = 8;

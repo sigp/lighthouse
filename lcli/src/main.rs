@@ -176,7 +176,7 @@ fn main() {
         .get_matches();
 
     let env = EnvironmentBuilder::minimal()
-        .tokio_runtime()
+        .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
         .null_logger()
         .expect("should start null logger")
