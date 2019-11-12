@@ -7,7 +7,6 @@ pub mod enums {
     use crate::attester_slashings::InvalidAttestation;
     use crate::proposer_slashings::InvalidBlock;
     use rusqlite::Error as SQLError;
-    use ssz::DecodeError;
     use std::io::{Error as IOError, ErrorKind};
 
     impl From<IOError> for NotSafe {
@@ -22,12 +21,6 @@ pub mod enums {
         }
     }
 
-    impl From<DecodeError> for NotSafe {
-        fn from(error: DecodeError) -> NotSafe {
-            NotSafe::DecodeError(error)
-        }
-    }
-
     #[derive(PartialEq, Debug)]
     pub enum NotSafe {
         InvalidAttestation(InvalidAttestation),
@@ -35,7 +28,6 @@ pub mod enums {
         PruningError,
         IOError(ErrorKind),
         SQLError(String),
-        DecodeError(DecodeError),
     }
 
     #[derive(PartialEq, Debug)]

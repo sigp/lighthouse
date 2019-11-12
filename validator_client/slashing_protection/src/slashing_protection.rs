@@ -3,8 +3,6 @@ use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::SignedBlock;
 use crate::utils::{i64_to_u64, u64_to_i64};
 use rusqlite::{params, Connection, Error as SQLErr, OpenFlags};
-use ssz::Decode;
-use ssz::Encode;
 use std::fs::OpenOptions;
 use std::marker::PhantomData;
 use std::os::unix::fs::PermissionsExt;
@@ -47,11 +45,7 @@ impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
         self.conn.execute(
             "INSERT INTO signed_attestations (target_epoch, source_epoch, signing_root)
         VALUES (?1, ?2, ?3)",
-            params![
-                target,
-                source,
-                Hash256::from_slice(&incoming_data.tree_hash_root()).as_ssz_bytes()
-            ],
+            params![target, source, incoming_data.tree_hash_root()],
         )?;
         Ok(())
     }
@@ -70,7 +64,7 @@ impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
         self.conn.execute(
             "INSERT INTO signed_blocks (slot, signing_root)
                 VALUES (?1, ?2)",
-            params![slot, incoming_data.canonical_root().as_ssz_bytes()],
+            params![slot, incoming_data.canonical_root().as_bytes()],
         )?;
         Ok(())
     }
@@ -91,8 +85,7 @@ impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
             let target_epoch = i64_to_u64(target);
             let source_epoch = i64_to_u64(source);
             let hash_blob: Vec<u8> = row.get(2)?;
-            let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
-                .expect("should have a valid ssz encoded hash256 in db");
+            let signing_root = Hash256::from_slice(hash_blob.as_ref());
 
             Ok(SignedAttestation::new(
                 source_epoch,
@@ -119,8 +112,7 @@ impl LoadData<SignedBlock> for Vec<SignedBlock> {
             let slot: i64 = row.get(0)?;
             let slot = i64_to_u64(slot);
             let hash_blob: Vec<u8> = row.get(1)?;
-            let signing_root = Hash256::from_ssz_bytes(hash_blob.as_ref())
-                .expect("should have a valid ssz encoded hash256 in db");
+            let signing_root = Hash256::from_slice(hash_blob.as_ref());
 
             Ok(SignedBlock::new(slot, signing_root))
         })?;
@@ -150,6 +142,7 @@ pub trait SlashingProtection<T> {
     /// If incoming_data is not safe, returns the associated error.
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 
+    /// Returns a sorted vector containing all the previously signed Ts (i.e. attestations or blocks)
     fn get_history(&self) -> Result<Vec<T>, SQLErr>;
 }
 

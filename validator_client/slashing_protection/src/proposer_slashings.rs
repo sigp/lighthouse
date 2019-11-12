@@ -2,7 +2,6 @@ use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::slashing_protection::HistoryInfo;
 use crate::utils::{i64_to_u64, u64_to_i64};
 use rusqlite::params;
-use ssz_derive::{Decode, Encode};
 use std::convert::From;
 use types::{BeaconBlockHeader, Hash256, Slot};
 
@@ -12,7 +11,7 @@ pub enum InvalidBlock {
     DoubleBlockProposal(SignedBlock),
 }
 
-#[derive(Debug, Clone, Encode, Decode, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SignedBlock {
     pub slot: Slot,
     signing_root: Hash256,
@@ -57,7 +56,7 @@ impl HistoryInfo<SignedBlock> {
             let i64_slot: i64 = row.get(0)?;
             let u64_slot = i64_to_u64(i64_slot);
             let signing_bytes: Vec<u8> = row.get(1)?;
-            let signing_root = Hash256::from_slice(&signing_bytes[..]);
+            let signing_root = Hash256::from_slice(signing_bytes.as_ref());
             Ok(SignedBlock::new(u64_slot, signing_root))
         })?;
         if block_header.slot > latest_block.slot {

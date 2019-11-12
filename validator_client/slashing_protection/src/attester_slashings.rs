@@ -2,12 +2,11 @@ use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::slashing_protection::HistoryInfo;
 use crate::utils::{i64_to_u64, u64_to_i64};
 use rusqlite::params;
-use ssz_derive::{Decode, Encode};
 use std::convert::From;
 use tree_hash::TreeHash;
 use types::{AttestationData, Epoch, Hash256};
 
-#[derive(Debug, Clone, Encode, Decode, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SignedAttestation {
     source_epoch: Epoch,
     pub target_epoch: Epoch,
