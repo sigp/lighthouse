@@ -1,5 +1,4 @@
 use crate::enums::{NotSafe, Safe, ValidityReason};
-use rusqlite::{params, Connection};
 use ssz_derive::{Decode, Encode};
 use std::convert::From;
 use types::{BeaconBlockHeader, Hash256, Slot};

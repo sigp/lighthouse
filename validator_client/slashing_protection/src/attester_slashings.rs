@@ -155,10 +155,12 @@ pub fn check_for_attester_slashing(
     })
 }
 
-/*
 #[cfg(test)]
 mod attestation_tests {
     use super::*;
+    use crate::slashing_protection::{HistoryInfo, SlashingProtection};
+    use tempfile::NamedTempFile;
+    use types::{AttestationData, Epoch, Hash256};
     use types::{Checkpoint, Crosslink};
 
     fn build_checkpoint(epoch_num: u64) -> Checkpoint {
@@ -181,387 +183,566 @@ mod attestation_tests {
         }
     }
 
+    fn create_tmp() -> (HistoryInfo<SignedAttestation>, NamedTempFile) {
+        let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let filename = attestation_file.path();
+
+        let attestation_history: HistoryInfo<SignedAttestation> =
+            HistoryInfo::empty(filename).expect("IO error with file");
+
+        (attestation_history, attestation_file)
+    }
+
     #[test]
     fn valid_empty_history() {
-        let history = vec![];
+        let (mut attestation_history, _attestation_file) = create_tmp();
 
         let attestation_data = attestation_data_builder(2, 3);
-        assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
-            Ok(Safe {
-                reason: ValidityReason::EmptyHistory,
-            })
-        );
+        let res = attestation_history.update_if_valid(&attestation_data);
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
     fn valid_middle_attestation() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(0, 1, Hash256::random()));
-        history.push(SignedAttestation::new(2, 3, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
 
-        let attestation_data = attestation_data_builder(1, 2);
+        let first = attestation_data_builder(0, 3);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(2, 5);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
 
-        assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
-            Ok(Safe {
-                reason: ValidityReason::Valid,
-            })
-        );
+        let attestation_data = attestation_data_builder(1, 4);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
     fn valid_last_attestation() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(0, 1, Hash256::random()));
-        history.push(SignedAttestation::new(1, 2, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let first = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(2, 3);
+        let res = attestation_history.update_if_valid(&attestation_data);
 
-        assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
-            Ok(Safe {
-                reason: ValidityReason::Valid,
-            })
-        );
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
     fn valid_source_from_first_entry() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(6, 7, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let first = attestation_data_builder(6, 7);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(6, 8);
+        let res = attestation_history.update_if_valid(&attestation_data);
 
-        assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
-            Ok(Safe {
-                reason: ValidityReason::Valid,
-            })
-        );
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
     fn invalid_source_from_first_entry() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(6, 8, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let first = attestation_data_builder(6, 8);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(6, 7);
+        let res = attestation_history.update_if_valid(&attestation_data);
 
-        assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::PruningError)
-        );
+        assert_eq!(res, Err(NotSafe::PruningError));
     }
 
     #[test]
     fn valid_same_vote_first() {
-        let mut history = vec![];
+        let (mut attestation_history, _attestation_file) = create_tmp();
 
-        let attestation_data = attestation_data_builder(0, 1);
+        let first = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(1, 2);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(2, 3);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
 
-        history.push(SignedAttestation::new(
-            0,
-            1,
-            Hash256::from_slice(&attestation_data.tree_hash_root()),
-        ));
-        history.push(SignedAttestation::new(1, 2, Hash256::random()));
-        history.push(SignedAttestation::new(2, 3, Hash256::random()));
+        let attestation_data = first;
+        let res = attestation_history.update_if_valid(&attestation_data);
 
-        assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
-            Ok(Safe {
-                reason: ValidityReason::SameVote,
-            })
-        );
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
     fn valid_same_vote_middle() {
-        let mut history = vec![];
+        let (mut attestation_history, _attestation_file) = create_tmp();
 
-        let attestation_data = attestation_data_builder(1, 2);
+        let first = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(1, 2);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(2, 3);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
 
-        history.push(SignedAttestation::new(0, 1, Hash256::random()));
-        history.push(SignedAttestation::new(
-            1,
-            2,
-            Hash256::from_slice(&attestation_data.tree_hash_root()),
-        ));
-        history.push(SignedAttestation::new(2, 3, Hash256::random()));
+        let attestation_data = second;
+        let res = attestation_history.update_if_valid(&attestation_data);
 
-        assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
-            Ok(Safe {
-                reason: ValidityReason::SameVote,
-            })
-        );
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
     fn valid_same_vote_last() {
-        let mut history = vec![];
+        let (mut attestation_history, _attestation_file) = create_tmp();
 
-        let attestation_data = attestation_data_builder(2, 3);
+        let first = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(1, 2);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(2, 3);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
 
-        history.push(SignedAttestation::new(0, 1, Hash256::random()));
-        history.push(SignedAttestation::new(1, 2, Hash256::random()));
-        history.push(SignedAttestation::new(
-            2,
-            3,
-            Hash256::from_slice(&attestation_data.tree_hash_root()),
-        ));
+        let attestation_data = third;
+        let res = attestation_history.update_if_valid(&attestation_data);
 
-        assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
-            Ok(Safe {
-                reason: ValidityReason::SameVote,
-            })
-        );
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
     fn invalid_double_vote_first() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(3, 4, Hash256::random()));
-        history.push(SignedAttestation::new(4, 5, Hash256::random()));
-        history.push(SignedAttestation::new(5, 6, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
 
-        let attestation_data = attestation_data_builder(3, 4);
+        let first = attestation_data_builder(1, 2);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(2, 3);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(3, 4);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
+
+        let attestation_data = attestation_data_builder(0, 2);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
-                history[0].clone()
+                SignedAttestation::from(&first)
             )))
         );
     }
 
     #[test]
     fn invalid_double_vote_middle() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(3, 4, Hash256::random()));
-        history.push(SignedAttestation::new(4, 5, Hash256::random()));
-        history.push(SignedAttestation::new(5, 6, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
 
-        let attestation_data = attestation_data_builder(4, 5);
+        let first = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(1, 3);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(3, 4);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
+
+        let attestation_data = attestation_data_builder(2, 3);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
-                history[1].clone()
+                SignedAttestation::from(&second)
             )))
         );
     }
 
     #[test]
     fn invalid_double_vote_last() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(3, 4, Hash256::random()));
-        history.push(SignedAttestation::new(4, 5, Hash256::random()));
-        history.push(SignedAttestation::new(5, 6, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
 
-        let attestation_data = attestation_data_builder(5, 6);
+        let first = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(1, 2);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(3, 5);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
+
+        let attestation_data = attestation_data_builder(4, 5);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
-                history[2].clone()
+                SignedAttestation::from(&third)
             )))
         );
     }
 
     #[test]
     fn invalid_double_vote_before() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(3, 4, Hash256::random()));
-        history.push(SignedAttestation::new(4, 5, Hash256::random()));
-        history.push(SignedAttestation::new(5, 6, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
 
-        let attestation_data = attestation_data_builder(2, 4);
+        let first = attestation_data_builder(2, 3);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(3, 4);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(5, 6);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
+
+        let attestation_data = attestation_data_builder(1, 3);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
-                history[0].clone()
+                SignedAttestation::from(&first)
             )))
         );
     }
 
     #[test]
     fn invalid_surround_first() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(2, 3, Hash256::random()));
-        history.push(SignedAttestation::new(4, 5, Hash256::random()));
-        history.push(SignedAttestation::new(6, 7, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let first = attestation_data_builder(2, 3);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(4, 5);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(6, 7);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(1, 4);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote(history[0].clone())
+                InvalidAttestation::SurroundingVote(SignedAttestation::from(&first))
             ))
         );
     }
 
     #[test]
     fn invalid_surround_middle() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(2, 3, Hash256::random()));
-        history.push(SignedAttestation::new(4, 5, Hash256::random()));
-        history.push(SignedAttestation::new(6, 7, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let first = attestation_data_builder(2, 3);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(4, 5);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(6, 7);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(3, 6);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote(history[1].clone())
+                InvalidAttestation::SurroundingVote(SignedAttestation::from(&second))
             ))
         );
     }
 
     #[test]
     fn invalid_surround_last() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(2, 3, Hash256::random()));
-        history.push(SignedAttestation::new(4, 5, Hash256::random()));
-        history.push(SignedAttestation::new(6, 7, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let first = attestation_data_builder(2, 3);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(4, 5);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(6, 7);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(5, 8);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote(history[2].clone())
+                InvalidAttestation::SurroundingVote(SignedAttestation::from(&third))
             ))
         );
     }
 
     #[test]
     fn invalid_surround_before() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(221, 224, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+        let first = attestation_data_builder(221, 224);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(4, 227);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote(history[0].clone())
+                InvalidAttestation::SurroundingVote(SignedAttestation::from(&first))
             ))
         );
     }
 
     #[test]
     fn invalid_surround_from_first_source() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(2, 3, Hash256::random()));
-        history.push(SignedAttestation::new(3, 4, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+        let first = attestation_data_builder(2, 3);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(3, 4);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(2, 5);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote(history[1].clone())
+                InvalidAttestation::SurroundingVote(SignedAttestation::from(&second))
             ))
         );
     }
 
     #[test]
     fn invalid_surround_multiple_votes() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(0, 1, Hash256::random()));
-        history.push(SignedAttestation::new(1, 2, Hash256::random()));
-        history.push(SignedAttestation::new(2, 3, Hash256::random()));
-        history.push(SignedAttestation::new(3, 4, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let first = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(1, 2);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(2, 3);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
+        let fourth = attestation_data_builder(3, 4);
 
         let attestation_data = attestation_data_builder(1, 5);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundingVote(history[3].clone())
+                InvalidAttestation::SurroundingVote(SignedAttestation::from(&fourth))
             ))
         );
     }
 
     #[test]
     fn invalid_surrounded_first_vote() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(0, 1, Hash256::random()));
-        history.push(SignedAttestation::new(0, 7, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let first = attestation_data_builder(0, 7);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(7, 8);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(8, 9);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(1, 2);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundedVote(history[1].clone())
+                InvalidAttestation::SurroundedVote(SignedAttestation::from(&first))
             ))
         );
     }
 
     #[test]
     fn invalid_surrounded_middle_vote() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(1, 2, Hash256::random()));
-        history.push(SignedAttestation::new(1, 6, Hash256::random()));
-        history.push(SignedAttestation::new(6, 7, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let first = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(1, 7);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(8, 9);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(2, 3);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundedVote(history[1].clone())
+                InvalidAttestation::SurroundedVote(SignedAttestation::from(&second))
             ))
         );
     }
 
     #[test]
     fn invalid_surrounded_last_vote() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(1, 2, Hash256::random()));
-        history.push(SignedAttestation::new(1, 6, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
 
-        let attestation_data = attestation_data_builder(2, 3);
+        let first = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(1, 2);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(2, 7);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
+
+        let attestation_data = attestation_data_builder(3, 4);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundedVote(history[1].clone())
+                InvalidAttestation::SurroundedVote(SignedAttestation::from(&third))
             ))
         );
     }
 
     #[test]
     fn invalid_surrounded_multiple_votes() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(0, 1, Hash256::random()));
-        history.push(SignedAttestation::new(1, 5, Hash256::random()));
-        history.push(SignedAttestation::new(2, 6, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let first = attestation_data_builder(0, 1);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = attestation_data_builder(1, 5);
+        attestation_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = attestation_data_builder(2, 6);
+        attestation_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(3, 4);
+        let res = attestation_history.update_if_valid(&attestation_data);
+
         assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
+            res,
             Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SurroundedVote(history[2].clone())
+                InvalidAttestation::SurroundedVote(SignedAttestation::from(&third))
             ))
         );
     }
 
     #[test]
     fn invalid_prunning_error_target_too_small() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(221, 224, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+        let first = attestation_data_builder(221, 224);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(4, 5);
-        assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::PruningError)
-        );
+        let res = attestation_history.update_if_valid(&attestation_data);
+        assert_eq!(res, Err(NotSafe::PruningError));
     }
 
     #[test]
     fn invalid_prunning_error_target_surrounded() {
-        let mut history = vec![];
-        history.push(SignedAttestation::new(221, 224, Hash256::random()));
+        let (mut attestation_history, _attestation_file) = create_tmp();
+        let first = attestation_data_builder(221, 224);
+        attestation_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
 
         let attestation_data = attestation_data_builder(222, 223);
-        assert_eq!(
-            check_for_attester_slashing(&attestation_data, &history[..]),
-            Err(NotSafe::PruningError)
-        );
+        let res = attestation_history.update_if_valid(&attestation_data);
+        assert_eq!(res, Err(NotSafe::PruningError));
+        let mut history = vec![];
+        history.push(SignedAttestation::new(221, 224, Hash256::random()));
     }
 }
-*/
