@@ -1,6 +1,7 @@
 use crate::enums::{NotSafe, Safe, ValidityReason};
+use crate::slashing_protection::HistoryInfo;
 use crate::utils::{i64_to_u64, u64_to_i64};
-use rusqlite::{params, Connection};
+use rusqlite::params;
 use ssz_derive::{Decode, Encode};
 use std::convert::From;
 use tree_hash::TreeHash;
@@ -46,15 +47,12 @@ fn check_surrounded(
 ) -> Result<(), NotSafe> {
     let surrounded = attestation_history
         .iter()
-        .rev()
         .position(|historical_attestation| {
             historical_attestation.source_epoch < attestation_data.source.epoch
         });
     match surrounded {
         Some(index) => Err(NotSafe::InvalidAttestation(
-            InvalidAttestation::SurroundedVote(
-                attestation_history[attestation_history.len() - 1 - index].clone(),
-            ),
+            InvalidAttestation::SurroundedVote(attestation_history[index].clone()),
         )),
         None => Ok(()),
     }
@@ -66,110 +64,92 @@ fn check_surrounding(
 ) -> Result<(), NotSafe> {
     let surrounding = attestation_history
         .iter()
-        .rev()
         .position(|historical_attestation| {
             historical_attestation.source_epoch > attestation_data.source.epoch
         });
     match surrounding {
         Some(index) => Err(NotSafe::InvalidAttestation(
-            InvalidAttestation::SurroundingVote(
-                attestation_history[attestation_history.len() - 1 - index].clone(),
-            ),
+            InvalidAttestation::SurroundingVote(attestation_history[index].clone()),
         )),
         None => Ok(()),
     }
 }
 
 /// Checks if the incoming attestation is surrounding a vote, is a surrounded by another vote, or if it is a double vote.
-pub fn check_for_attester_slashing(
-    attestation_data: &AttestationData,
-    conn: &Connection,
-) -> Result<Safe, NotSafe> {
-    // Checking if history is empty
-    let mut empty_select = conn.prepare("select 1 from signed_attestations limit 1")?;
-    if !empty_select.exists(params![])? {
-        return Ok(Safe {
-            reason: ValidityReason::EmptyHistory,
-        });
-    }
-
-    // Setting up utility vars
-    let target_epoch: u64 = attestation_data.target.epoch.into();
-    let i64_target_epoch = u64_to_i64(target_epoch);
-    let source_epoch: u64 = attestation_data.source.epoch.into();
-    let i64_source_epoch = u64_to_i64(source_epoch);
-
-    // Checking if the attestation_data signing_root is already present in the db
-    let mut same_hash_select =
-        conn.prepare("select signing_root from signed_attestations where target_epoch = ?")?;
-    let same_hash_select = same_hash_select.query_row(params![i64_target_epoch], |row| {
-        let root: Vec<u8> = row.get(0)?;
-        let signing_root = Hash256::from_slice(&root[..]);
-        Ok(signing_root)
-    });
-    if let Ok(same_hash) = same_hash_select {
-        if same_hash == Hash256::from_slice(&attestation_data.tree_hash_root()[..]) {
+impl HistoryInfo<SignedAttestation> {
+    pub fn check_for_attester_slashing(
+        &self,
+        attestation_data: &AttestationData,
+    ) -> Result<Safe, NotSafe> {
+        // Checking if history is empty
+        let mut empty_select = self
+            .conn
+            .prepare("select 1 from signed_attestations limit 1")?;
+        if !empty_select.exists(params![])? {
             return Ok(Safe {
-                reason: ValidityReason::SameVote,
+                reason: ValidityReason::EmptyHistory,
             });
-        } else {
-            let mut double_vote_select = conn.prepare(
+        }
+
+        // Setting up utility vars
+        let target_epoch: u64 = attestation_data.target.epoch.into();
+        let i64_target_epoch = u64_to_i64(target_epoch);
+        let source_epoch: u64 = attestation_data.source.epoch.into();
+        let i64_source_epoch = u64_to_i64(source_epoch);
+
+        // Checking if the attestation_data signing_root is already present in the db
+        let mut same_hash_select = self
+            .conn
+            .prepare("select signing_root from signed_attestations where target_epoch = ?")?;
+        let same_hash_select = same_hash_select.query_row(params![i64_target_epoch], |row| {
+            let root: Vec<u8> = row.get(0)?;
+            let signing_root = Hash256::from_slice(&root[..]);
+            Ok(signing_root)
+        });
+        if let Ok(same_hash) = same_hash_select {
+            if same_hash == Hash256::from_slice(&attestation_data.tree_hash_root()[..]) {
+                return Ok(Safe {
+                    reason: ValidityReason::SameVote,
+                });
+            } else {
+                let mut double_vote_select = self.conn.prepare(
                 "select target_epoch, source_epoch from signed_attestations where target_epoch = ?",
             )?;
 
-            let conflicting_attest =
-                double_vote_select.query_row(params![i64_target_epoch], |row| {
-                    let target_epoch: i64 = row.get(0)?;
-                    let target_epoch = i64_to_u64(target_epoch);
-                    let source_epoch: i64 = row.get(1)?;
-                    let source_epoch = i64_to_u64(source_epoch);
-                    Ok(SignedAttestation::new(
-                        source_epoch,
-                        target_epoch,
-                        same_hash,
-                    ))
-                })?;
-            return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
-                conflicting_attest,
-            )));
+                let conflicting_attest =
+                    double_vote_select.query_row(params![i64_target_epoch], |row| {
+                        let target_epoch: i64 = row.get(0)?;
+                        let target_epoch = i64_to_u64(target_epoch);
+                        let source_epoch: i64 = row.get(1)?;
+                        let source_epoch = i64_to_u64(source_epoch);
+                        Ok(SignedAttestation::new(
+                            source_epoch,
+                            target_epoch,
+                            same_hash,
+                        ))
+                    })?;
+                return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
+                    conflicting_attest,
+                )));
+            }
         }
-    }
 
-    // Checking for PruningError (where attestation_data's target is smaller than the minimum target epoch in db)
-    let mut min_select = conn.prepare("select min(target_epoch) from signed_attestations")?;
-    let min_query = min_select.query_row(params![], |row| {
-        let int: i64 = row.get(0)?;
-        let int = i64_to_u64(int);
-        Ok(int)
-    })?;
-    if attestation_data.target.epoch < min_query {
-        return Err(NotSafe::PruningError);
-    }
+        // Checking for PruningError (where attestation_data's target is smaller than the minimum target epoch in db)
+        let mut min_select = self
+            .conn
+            .prepare("select min(target_epoch) from signed_attestations")?;
+        let min_query = min_select.query_row(params![], |row| {
+            let int: i64 = row.get(0)?;
+            let int = i64_to_u64(int);
+            Ok(int)
+        })?;
+        if attestation_data.target.epoch < min_query {
+            return Err(NotSafe::PruningError);
+        }
 
-    // Checking if attestation_data is not surrounded by any previous votes
-    let mut surrounded_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? order by target_epoch asc")?;
-    let surrounded_query = surrounded_select.query_map(params![i64_target_epoch], |row| {
-        let target: i64 = row.get(0)?;
-        let source: i64 = row.get(1)?;
-        let target = i64_to_u64(target);
-        let source = i64_to_u64(source);
-        let signing_root: Vec<u8> = row.get(2)?;
-        Ok(SignedAttestation::new(
-            source,
-            target,
-            Hash256::from_slice(&signing_root[..]),
-        ))
-    })?;
-    let mut surrounded_vec = vec![];
-    for elem in surrounded_query {
-        surrounded_vec.push(elem?);
-    }
-    check_surrounded(attestation_data, &surrounded_vec[..])?;
-
-    // Checking if attestation_Data is not surrounding any previous votes
-    let mut surrounding_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? and target_epoch < ? order by target_epoch asc")?;
-    let surrounding_query =
-        surrounding_select.query_map(params![i64_source_epoch, i64_target_epoch], |row| {
+        // Checking if attestation_data is not surrounded by any previous votes
+        let mut surrounded_select = self.conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? order by target_epoch desc")?;
+        let surrounded_query = surrounded_select.query_map(params![i64_target_epoch], |row| {
             let target: i64 = row.get(0)?;
             let source: i64 = row.get(1)?;
             let target = i64_to_u64(target);
@@ -181,16 +161,38 @@ pub fn check_for_attester_slashing(
                 Hash256::from_slice(&signing_root[..]),
             ))
         })?;
-    let mut surrounding_vec = vec![];
-    for elem in surrounding_query {
-        surrounding_vec.push(elem?);
-    }
-    check_surrounding(attestation_data, &surrounding_vec[..])?;
+        let mut surrounded_vec = vec![];
+        for elem in surrounded_query {
+            surrounded_vec.push(elem?);
+        }
+        check_surrounded(attestation_data, &surrounded_vec[..])?;
 
-    // Everything has been checked, return Valid
-    Ok(Safe {
-        reason: ValidityReason::Valid,
-    })
+        // Checking if attestation_Data is not surrounding any previous votes
+        let mut surrounding_select = self.conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? and target_epoch < ? order by target_epoch desc")?;
+        let surrounding_query =
+            surrounding_select.query_map(params![i64_source_epoch, i64_target_epoch], |row| {
+                let target: i64 = row.get(0)?;
+                let source: i64 = row.get(1)?;
+                let target = i64_to_u64(target);
+                let source = i64_to_u64(source);
+                let signing_root: Vec<u8> = row.get(2)?;
+                Ok(SignedAttestation::new(
+                    source,
+                    target,
+                    Hash256::from_slice(&signing_root[..]),
+                ))
+            })?;
+        let mut surrounding_vec = vec![];
+        for elem in surrounding_query {
+            surrounding_vec.push(elem?);
+        }
+        check_surrounding(attestation_data, &surrounding_vec[..])?;
+
+        // Everything has been checked, return Valid
+        Ok(Safe {
+            reason: ValidityReason::Valid,
+        })
+    }
 }
 
 #[cfg(test)]
