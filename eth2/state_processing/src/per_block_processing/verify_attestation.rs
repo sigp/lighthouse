@@ -61,6 +61,7 @@ pub fn verify_attestation_for_state<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<()> {
     let data = &attestation.data;
+
     verify!(
         data.crosslink.shard < T::ShardCount::to_u64(),
         Invalid::BadShard
