@@ -1,6 +1,6 @@
 use crate::attester_slashings::SignedAttestation;
 use crate::enums::{NotSafe, Safe, ValidityReason};
-use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
+use crate::proposer_slashings::SignedBlock;
 use crate::utils::{i64_to_u64, u64_to_i64};
 use rusqlite::{params, Connection, Error as SQLErr, OpenFlags};
 use ssz::Decode;
