@@ -1,4 +1,7 @@
 use crate::enums::{NotSafe, Safe, ValidityReason};
+use crate::slashing_protection::HistoryInfo;
+use crate::utils::{i64_to_u64, u64_to_i64};
+use rusqlite::params;
 use ssz_derive::{Decode, Encode};
 use std::convert::From;
 use types::{BeaconBlockHeader, Hash256, Slot};
@@ -33,53 +36,81 @@ impl From<&BeaconBlockHeader> for SignedBlock {
     }
 }
 
-pub fn check_for_proposer_slashing(
-    block_header: &BeaconBlockHeader,
-    block_history: &[SignedBlock],
-) -> Result<Safe, NotSafe> {
-    if block_history.is_empty() {
-        return Ok(Safe {
-            reason: ValidityReason::EmptyHistory,
+impl HistoryInfo<SignedBlock> {
+    pub fn check_for_proposer_slashing(
+        &self,
+        block_header: &BeaconBlockHeader,
+    ) -> Result<Safe, NotSafe> {
+        // Checking if history is empty
+        let mut empty_select = self.conn.prepare("select 1 from signed_blocks limit 1")?;
+        if !empty_select.exists(params![])? {
+            return Ok(Safe {
+                reason: ValidityReason::EmptyHistory,
+            });
+        }
+
+        // Short-circuit: checking if the incoming block has a higher slot than the maximum slot in the db.
+        let mut latest_block_select = self
+            .conn
+            .prepare("select max(slot), signing_root from signed_blocks")?;
+        let latest_block = latest_block_select.query_row(params![], |row| {
+            let i64_slot: i64 = row.get(0)?;
+            let u64_slot = i64_to_u64(i64_slot);
+            let signing_bytes: Vec<u8> = row.get(1)?;
+            let signing_root = Hash256::from_slice(&signing_bytes[..]);
+            Ok(SignedBlock::new(u64_slot, signing_root))
+        })?;
+        if block_header.slot > latest_block.slot {
+            return Ok(Safe {
+                reason: ValidityReason::Valid,
+            });
+        }
+
+        // Checking for Pruning Error i.e the incoming block slot is smaller than the minimum slot signed in the db.
+        let mut min_select = self.conn.prepare("select min(slot) from signed_blocks")?;
+        let oldest_slot = min_select.query_row(params![], |row| {
+            let i64_slot: i64 = row.get(0)?;
+            let u64_slot = i64_to_u64(i64_slot);
+            Ok(u64_slot)
+        })?;
+        if block_header.slot < Slot::from(oldest_slot) {
+            return Err(NotSafe::PruningError);
+        }
+
+        let mut same_slot_select = self
+            .conn
+            .prepare("select slot, signing_root from signed_blocks where slot = ?")?;
+        let block_header_slot = u64_to_i64(block_header.slot.into());
+        let same_slot_query = same_slot_select.query_row(params![block_header_slot], |row| {
+            let i64_slot: i64 = row.get(0)?;
+            let u64_slot = i64_to_u64(i64_slot);
+            let signing_bytes: Vec<u8> = row.get(1)?;
+            let signing_root = Hash256::from_slice(&signing_bytes[..]);
+            Ok(SignedBlock::new(u64_slot, signing_root))
         });
-    }
-
-    let latest_signed_block = &block_history[block_history.len() - 1];
-    if block_header.slot > latest_signed_block.slot {
-        return Ok(Safe {
-            reason: ValidityReason::Valid,
-        });
-    }
-
-    let index = block_history
-        .iter()
-        .rev()
-        .position(|historical_block| historical_block.slot <= block_header.slot);
-
-    let index = match index {
-        None => return Err(NotSafe::PruningError),
-        Some(num) => block_history.len() - 1 - num,
-    };
-
-    if block_history[index].slot == block_header.slot {
-        if block_history[index].signing_root == block_header.canonical_root() {
-            Ok(Safe {
-                reason: ValidityReason::SameVote,
-            })
+        if let Ok(same_slot_attest) = same_slot_query {
+            if same_slot_attest.signing_root == block_header.canonical_root() {
+                Ok(Safe {
+                    reason: ValidityReason::SameVote,
+                })
+            } else {
+                Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
+                    same_slot_attest,
+                )))
+            }
         } else {
-            Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
-                block_history[index].clone(),
+            Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(
+                latest_block,
             )))
         }
-    } else {
-        Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(
-            block_history[block_history.len() - 1].clone(),
-        )))
     }
 }
 
 #[cfg(test)]
 mod block_tests {
     use super::*;
+    use crate::slashing_protection::SlashingProtection;
+    use tempfile::NamedTempFile;
     use types::{BeaconBlockHeader, Signature};
 
     fn block_builder(slot: u64) -> BeaconBlockHeader {
@@ -92,100 +123,124 @@ mod block_tests {
         }
     }
 
+    fn create_tmp() -> (HistoryInfo<SignedBlock>, NamedTempFile) {
+        let block_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let filename = block_file.path();
+
+        let block_history: HistoryInfo<SignedBlock> =
+            HistoryInfo::empty(filename).expect("IO error with file");
+
+        (block_history, block_file)
+    }
+
     #[test]
     fn valid_empty_history() {
-        let history = vec![];
+        let (mut block_history, _attestation_file) = create_tmp();
 
         let new_block = block_builder(3);
-
-        assert_eq!(
-            check_for_proposer_slashing(&new_block, &history),
-            Ok(Safe {
-                reason: ValidityReason::EmptyHistory
-            })
-        );
+        let res = block_history.update_if_valid(&new_block);
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
     fn valid_block() {
-        let mut history = vec![];
+        let (mut block_history, _attestation_file) = create_tmp();
 
-        history.push(SignedBlock::new(1, Hash256::random()));
-        history.push(SignedBlock::new(2, Hash256::random()));
+        let first = block_builder(1);
+        block_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = block_builder(2);
+        block_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+
         let new_block = block_builder(3);
-
-        assert_eq!(
-            check_for_proposer_slashing(&new_block, &history),
-            Ok(Safe {
-                reason: ValidityReason::Valid
-            })
-        );
+        let res = block_history.update_if_valid(&new_block);
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
     fn valid_same_block() {
-        let mut history = vec![];
+        let (mut block_history, _attestation_file) = create_tmp();
 
-        let new_block = block_builder(3);
+        let first = block_builder(1);
+        block_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = block_builder(2);
+        block_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
 
-        history.push(SignedBlock::new(1, Hash256::random()));
-        history.push(SignedBlock::new(2, Hash256::random()));
-        history.push(SignedBlock::new(3, new_block.canonical_root()));
-
-        assert_eq!(
-            check_for_proposer_slashing(&new_block, &history),
-            Ok(Safe {
-                reason: ValidityReason::SameVote
-            })
-        );
+        let res = block_history.update_if_valid(&second);
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
     fn invalid_pruning_error() {
-        let mut history = vec![];
+        let (mut block_history, _attestation_file) = create_tmp();
+
+        let first = block_builder(1);
+        block_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = block_builder(2);
+        block_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
 
         let new_block = block_builder(0);
-
-        history.push(SignedBlock::new(2, Hash256::random()));
-        history.push(SignedBlock::new(3, Hash256::random()));
-
-        assert_eq!(
-            check_for_proposer_slashing(&new_block, &history),
-            Err(NotSafe::PruningError)
-        );
+        let res = block_history.update_if_valid(&new_block);
+        assert_eq!(res, Err(NotSafe::PruningError));
     }
 
     #[test]
     fn invalid_slot_too_early() {
-        let mut history = vec![];
+        let (mut block_history, _attestation_file) = create_tmp();
 
-        history.push(SignedBlock::new(1, Hash256::random()));
-        history.push(SignedBlock::new(3, Hash256::random()));
+        let first = block_builder(1);
+        block_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = block_builder(3);
+        block_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
 
         let new_block = block_builder(2);
-
+        let res = block_history.update_if_valid(&new_block);
         assert_eq!(
-            check_for_proposer_slashing(&new_block, &history),
+            res,
             Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(
-                history[1].clone()
+                SignedBlock::from(&second)
             )))
         );
     }
 
     #[test]
     fn invalid_double_block_proposal() {
-        let mut history = vec![];
+        let (mut block_history, _attestation_file) = create_tmp();
 
-        history.push(SignedBlock::new(1, Hash256::random()));
-        history.push(SignedBlock::new(2, Hash256::random()));
-        history.push(SignedBlock::new(3, Hash256::random()));
+        let first = block_builder(1);
+        block_history
+            .update_if_valid(&first)
+            .expect("should have inserted prev data");
+        let second = block_builder(2);
+        block_history
+            .update_if_valid(&second)
+            .expect("should have inserted prev data");
+        let third = block_builder(3);
+        block_history
+            .update_if_valid(&third)
+            .expect("should have inserted prev data");
 
         let new_block = block_builder(2);
-
+        let res = block_history.update_if_valid(&new_block);
         assert_eq!(
-            check_for_proposer_slashing(&new_block, &history),
+            res,
             Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
-                history[1].clone()
+                SignedBlock::from(&second)
             )))
         );
     }
