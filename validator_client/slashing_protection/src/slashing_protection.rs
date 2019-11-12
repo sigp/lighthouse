@@ -1,4 +1,4 @@
-use crate::attester_slashings::{check_for_attester_slashing, SignedAttestation};
+use crate::attester_slashings::SignedAttestation;
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::{check_for_proposer_slashing, SignedBlock};
 use crate::utils::{i64_to_u64, u64_to_i64};
@@ -16,7 +16,7 @@ use types::{AttestationData, BeaconBlockHeader, Hash256};
 #[derive(Debug)]
 pub struct HistoryInfo<T> {
     // The connection to the database.
-    conn: Connection,
+    pub conn: Connection,
 
     // Marker for T
     phantom: PhantomData<T>,
@@ -36,7 +36,7 @@ impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
     type U = AttestationData;
 
     fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
-        check_for_attester_slashing(incoming_data, &self.conn) // SCOTT
+        self.check_for_attester_slashing(incoming_data)
     }
 
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
@@ -61,7 +61,7 @@ impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
     type U = BeaconBlockHeader;
 
     fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
-        check_for_proposer_slashing(incoming_data, &self.get_history()?[..]) // SCOTT
+        self.check_for_proposer_slashing(incoming_data) // SCOTT
     }
 
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
