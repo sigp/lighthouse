@@ -85,32 +85,31 @@ pub fn check_for_attester_slashing(
     attestation_data: &AttestationData,
     conn: &Connection,
 ) -> Result<Safe, NotSafe> {
-    let mut empty_select = conn.prepare("select 1 from signed_attestations limit 1")?;
 
-    // check empty
+    // Checking if history is empty
+    let mut empty_select = conn.prepare("select 1 from signed_attestations limit 1")?;
     if !empty_select.exists(params![])? {
         return Ok(Safe {
             reason: ValidityReason::EmptyHistory,
         });
     }
 
-    // set utility
+    // Setting up utility vars
     let target_epoch: u64 = attestation_data.target.epoch.into();
     let i64_target_epoch = u64_to_i64(target_epoch);
     let source_epoch: u64 = attestation_data.source.epoch.into();
     let i64_source_epoch = u64_to_i64(source_epoch);
 
-    // check same_vote
-    let mut same_vote_select =
+    // Checking if the attestation_data signing_root is already present in the db
+    let mut same_hash_select =
         conn.prepare("select signing_root from signed_attestations where target_epoch = ?")?;
-    let same_vote = same_vote_select.query_row(params![i64_target_epoch], |row| {
+    let same_hash_select = same_hash_select.query_row(params![i64_target_epoch], |row| {
         let root: Vec<u8> = row.get(0)?;
         let signing_root = Hash256::from_slice(&root[..]);
         Ok(signing_root)
     });
-
-    if let Ok(vote_hash) = same_vote {
-        if vote_hash == Hash256::from_slice(&attestation_data.tree_hash_root()[..]) {
+    if let Ok(same_hash) = same_hash_select {
+        if same_hash == Hash256::from_slice(&attestation_data.tree_hash_root()[..]) {
             return Ok(Safe {
                 reason: ValidityReason::SameVote,
             });
@@ -119,7 +118,7 @@ pub fn check_for_attester_slashing(
                 "select target_epoch, source_epoch from signed_attestations where target_epoch = ?",
             )?;
 
-            let double_vote = double_vote_select.query_row(params![i64_target_epoch], |row| {
+            let conflicting_attest = double_vote_select.query_row(params![i64_target_epoch], |row| {
                 let target_epoch: i64 = row.get(0)?;
                 let target_epoch = i64_to_u64(target_epoch);
                 let source_epoch: i64 = row.get(1)?;
@@ -127,33 +126,29 @@ pub fn check_for_attester_slashing(
                 Ok(SignedAttestation::new(
                     source_epoch,
                     target_epoch,
-                    vote_hash,
+                    same_hash,
                 ))
             })?;
             return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
-                double_vote,
+                conflicting_attest,
             )));
         }
     }
 
-    // Check pruning
-    // Getting the index of the current SignedAttestation that is closest to the incoming attestation
+    // Checking for PruningError (where attestation_data's target is smaller than the minimum target epoch in db)
     let mut min_select = conn.prepare("select min(target_epoch) from signed_attestations")?;
-
-    let toto = min_select.query_row(params![], |row| {
+    let min_query = min_select.query_row(params![], |row| {
         let int: i64 = row.get(0)?;
         let int = i64_to_u64(int);
         Ok(int)
     })?;
-
-    let min = toto;
-    if attestation_data.target.epoch < min {
+    if attestation_data.target.epoch < min_query {
         return Err(NotSafe::PruningError);
     }
 
-    // check surrounded
+    // Checking if attestation_data is not surrounded by any previous votes
     let mut surrounded_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? order by target_epoch asc")?;
-    let vecc = surrounded_select.query_map(params![i64_target_epoch], |row| {
+    let surrounded_query = surrounded_select.query_map(params![i64_target_epoch], |row| {
         let target: i64 = row.get(0)?;
         let source: i64 = row.get(1)?;
         let target = i64_to_u64(target);
@@ -165,16 +160,15 @@ pub fn check_for_attester_slashing(
             Hash256::from_slice(&signing_root[..]),
         ))
     })?;
-
     let mut surrounded_vec = vec![];
-    for elem in vecc {
-        surrounded_vec.push(elem.unwrap()); // unwrap
+    for elem in surrounded_query {
+        surrounded_vec.push(elem?);
     }
     check_surrounded(attestation_data, &surrounded_vec[..])?;
 
-    // check surrounding
-    let mut surrounding_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch >= ? and target_epoch <= ? order by target_epoch asc")?;
-    let vecc =
+    // Checking if attestation_Data is not surrounding any previous votes
+    let mut surrounding_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? and target_epoch < ? order by target_epoch asc")?;
+    let surrounding_query =
         surrounding_select.query_map(params![i64_source_epoch, i64_target_epoch], |row| {
             let target: i64 = row.get(0)?;
             let source: i64 = row.get(1)?;
@@ -188,11 +182,12 @@ pub fn check_for_attester_slashing(
             ))
         })?;
     let mut surrounding_vec = vec![];
-    for elem in vecc {
-        surrounding_vec.push(elem.unwrap()); // unwrap
+    for elem in surrounding_query {
+        surrounding_vec.push(elem?);
     }
     check_surrounding(attestation_data, &surrounding_vec[..])?;
-    // missing checking for double vote
+
+    // Everything has been checked, return Valid
     Ok(Safe {
         reason: ValidityReason::Valid,
     })
