@@ -5,9 +5,9 @@ extern crate lazy_static;
 extern crate network as client_network;
 
 mod beacon;
-mod config;
+pub mod config;
 mod error;
-mod helpers;
+pub mod helpers;
 mod metrics;
 mod network;
 mod node;
@@ -19,6 +19,7 @@ mod validator;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::NetworkMessage;
 use client_network::Service as NetworkService;
+pub use config::ApiEncodingFormat;
 use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
 use futures::future::IntoFuture;
@@ -26,8 +27,7 @@ use hyper::rt::Future;
 use hyper::service::Service;
 use hyper::{Body, Method, Request, Response, Server};
 use parking_lot::RwLock;
-use slog::{info, warn};
-use std::net::SocketAddr;
+use slog::{info, o, warn};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -35,8 +35,10 @@ use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 use url_query::UrlQuery;
 
+pub use crate::helpers::parse_pubkey;
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
-pub use config::Config;
+pub use config::Config as ApiConfig;
+pub use validator::ValidatorDuty;
 
 type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 
@@ -197,14 +199,16 @@ impl<T: BeaconChainTypes> Service for ApiService<T> {
 }
 
 pub fn start_server<T: BeaconChainTypes>(
-    config: &Config,
+    config: &ApiConfig,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,
     db_path: PathBuf,
     eth2_config: Eth2Config,
-    log: slog::Logger,
-) -> Result<(exit_future::Signal, SocketAddr), hyper::Error> {
+    log: &slog::Logger,
+) -> Result<exit_future::Signal, hyper::Error> {
+    let log = log.new(o!("Service" => "Api"));
+
     // build a channel to kill the HTTP server
     let (exit_signal, exit) = exit_future::signal();
 
@@ -236,11 +240,8 @@ pub fn start_server<T: BeaconChainTypes>(
     };
 
     let log_clone = log.clone();
-    let server = Server::bind(&bind_addr).serve(service);
-
-    let actual_listen_addr = server.local_addr();
-
-    let server_future = server
+    let server = Server::bind(&bind_addr)
+        .serve(service)
         .with_graceful_shutdown(server_exit)
         .map_err(move |e| {
             warn!(
@@ -250,15 +251,15 @@ pub fn start_server<T: BeaconChainTypes>(
         });
 
     info!(
-        log,
-        "REST API started";
-        "address" => format!("{}", actual_listen_addr.ip()),
-        "port" => actual_listen_addr.port(),
+    log,
+    "REST API started";
+    "address" => format!("{}", config.listen_address),
+    "port" => config.port,
     );
 
-    executor.spawn(server_future);
+    executor.spawn(server);
 
-    Ok((exit_signal, actual_listen_addr))
+    Ok(exit_signal)
 }
 
 #[derive(Clone)]

@@ -2,6 +2,37 @@ use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 
+/// Defines the encoding for the API
+///
+/// The validator client can speak to the beacon node in a number of encodings. Currently both JSON
+/// and YAML are supported.
+#[derive(Clone, Serialize, Deserialize, Copy)]
+pub enum ApiEncodingFormat {
+    JSON,
+    YAML,
+    SSZ,
+}
+
+impl ApiEncodingFormat {
+    pub fn get_content_type(&self) -> &str {
+        match self {
+            ApiEncodingFormat::JSON => "application/json",
+            ApiEncodingFormat::YAML => "application/yaml",
+            ApiEncodingFormat::SSZ => "application/ssz",
+        }
+    }
+}
+
+impl From<&str> for ApiEncodingFormat {
+    fn from(f: &str) -> ApiEncodingFormat {
+        match f {
+            "application/yaml" => ApiEncodingFormat::YAML,
+            "application/ssz" => ApiEncodingFormat::SSZ,
+            _ => ApiEncodingFormat::JSON,
+        }
+    }
+}
+
 /// HTTP REST API Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
