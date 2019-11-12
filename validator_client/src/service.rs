@@ -197,63 +197,6 @@ impl<E: EthSpec> Service<ValidatorServiceClient, Keypair, E> {
             _phantom: PhantomData,
         })
     }
-
-    /*
-    /// Initialise the service then run the core thread.
-    // TODO: Improve handling of generic BeaconNode types, to stub grpcClient
-    pub fn start(&self) -> error_chain::Result<()> {
-        // set up the validator service runtime
-        let mut runtime = Builder::new()
-            .clock(Clock::system())
-            .name_prefix("validator-client-")
-            .build()
-            .map_err(|e| format!("Tokio runtime failed: {}", e))?;
-
-        let duration_to_next_slot = service
-            .slot_clock
-            .duration_to_next_slot()
-            .ok_or_else::<error_chain::Error, _>(|| {
-                "Unable to determine duration to next slot. Exiting.".into()
-            })?;
-
-        // set up the validator work interval - start at next slot and proceed every slot
-        let interval = {
-            // Set the interval to start at the next slot, and every slot after
-            let slot_duration = Duration::from_millis(service.spec.milliseconds_per_slot);
-            //TODO: Handle checked add correctly
-            Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
-        };
-
-        if service.slot_clock.now().is_none() {
-            warn!(
-                log,
-                "Starting node prior to genesis";
-            );
-        }
-
-        info!(
-            log,
-            "Waiting for next slot";
-            "seconds_to_wait" => duration_to_next_slot.as_secs()
-        );
-
-        /* kick off the core service */
-        runtime.block_on(
-            interval
-                .for_each(move |_| {
-                    // wait for node to process
-                    std::thread::sleep(TIME_DELAY_FROM_SLOT);
-                    // if a non-fatal error occurs, proceed to the next slot.
-                    let _ignore_error = service.per_slot_execution();
-                    // completed a slot process
-                    Ok(())
-                })
-                .map_err(|e| format!("Service thread failed: {:?}", e)),
-        )?;
-        // validator client exited
-        Ok(())
-    }
-    */
 }
 
 impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, S, E> {
