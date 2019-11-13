@@ -280,7 +280,7 @@ mod single_threaded_tests {
     use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, Slot};
     use types::{Checkpoint, Crosslink, Signature};
 
-    fn attestation_and_custody_bit_builder(source: u64, target: u64) -> AttestationData {
+    fn attestation_data_builder(source: u64, target: u64) -> AttestationData {
         let source = build_checkpoint(source);
         let target = build_checkpoint(target);
         let crosslink = Crosslink::default();
@@ -318,9 +318,9 @@ mod single_threaded_tests {
         let mut attestation_history: HistoryInfo<SignedAttestation> =
             HistoryInfo::empty(filename).expect("IO error with file");
 
-        let attestation1 = attestation_and_custody_bit_builder(1, 2);
-        let attestation2 = attestation_and_custody_bit_builder(2, 3);
-        let attestation3 = attestation_and_custody_bit_builder(3, 4);
+        let attestation1 = attestation_data_builder(1, 2);
+        let attestation2 = attestation_data_builder(2, 3);
+        let attestation3 = attestation_data_builder(3, 4);
 
         let _ = attestation_history.update_if_valid(&attestation1);
         let _ = attestation_history.update_if_valid(&attestation2);
@@ -385,7 +385,7 @@ mod single_threaded_tests {
         let mut block_history: HistoryInfo<SignedBlock> =
             HistoryInfo::open(block_filename).expect("IO error with file");
 
-        let attestation1 = attestation_and_custody_bit_builder(5, 9);
+        let attestation1 = attestation_data_builder(5, 9);
         let invalid_attest = attestation_history.update_if_valid(&attestation1);
         assert_eq!(
             invalid_attest,
@@ -412,11 +412,11 @@ mod single_threaded_tests {
         let mut attestation_history: HistoryInfo<SignedAttestation> =
             HistoryInfo::empty(filename).expect("IO error with file");
 
-        let attestation1 = attestation_and_custody_bit_builder(5, 9);
-        let attestation2 = attestation_and_custody_bit_builder(7, 12);
-        let attestation3 = attestation_and_custody_bit_builder(5, 10);
-        let attestation4 = attestation_and_custody_bit_builder(6, 11);
-        let attestation5 = attestation_and_custody_bit_builder(8, 13);
+        let attestation1 = attestation_data_builder(5, 9);
+        let attestation2 = attestation_data_builder(7, 12);
+        let attestation3 = attestation_data_builder(5, 10);
+        let attestation4 = attestation_data_builder(6, 11);
+        let attestation5 = attestation_data_builder(8, 13);
 
         let _ = attestation_history.update_if_valid(&attestation1);
         let _ = attestation_history.update_if_valid(&attestation2);
@@ -469,11 +469,11 @@ mod single_threaded_tests {
         let mut attestation_history: HistoryInfo<SignedAttestation> =
             HistoryInfo::empty(filename).expect("IO error with file");
 
-        let attestation1 = attestation_and_custody_bit_builder(1, 2);
-        let attestation2 = attestation_and_custody_bit_builder(1, 2); // should not get added
-        let attestation3 = attestation_and_custody_bit_builder(2, 3);
-        let attestation4 = attestation_and_custody_bit_builder(1, 3); // should not get added
-        let attestation5 = attestation_and_custody_bit_builder(3, 4);
+        let attestation1 = attestation_data_builder(1, 2);
+        let attestation2 = attestation_data_builder(1, 2); // should not get added
+        let attestation3 = attestation_data_builder(2, 3);
+        let attestation4 = attestation_data_builder(1, 3); // should not get added
+        let attestation5 = attestation_data_builder(3, 4);
 
         let _ = attestation_history.update_if_valid(&attestation1);
         let _ = attestation_history.update_if_valid(&attestation2);
@@ -524,9 +524,9 @@ mod single_threaded_tests {
         let mut attestation_history: HistoryInfo<SignedAttestation> =
             HistoryInfo::empty(filename).expect("IO error with file");
 
-        let attestation1 = attestation_and_custody_bit_builder(1, 2);
-        let attestation2 = attestation_and_custody_bit_builder(2, 3);
-        let attestation3 = attestation_and_custody_bit_builder(3, 4);
+        let attestation1 = attestation_data_builder(1, 2);
+        let attestation2 = attestation_data_builder(2, 3);
+        let attestation3 = attestation_data_builder(3, 4);
 
         let a = attestation_history.update_if_valid(&attestation1);
         println!("{:?}", a);
@@ -567,9 +567,9 @@ mod single_threaded_tests {
         );
 
         // Inserting new attestations
-        let attestation4 = attestation_and_custody_bit_builder(4, 5);
-        let attestation5 = attestation_and_custody_bit_builder(5, 6);
-        let attestation6 = attestation_and_custody_bit_builder(6, 7);
+        let attestation4 = attestation_data_builder(4, 5);
+        let attestation5 = attestation_data_builder(5, 6);
+        let attestation6 = attestation_data_builder(6, 7);
 
         let _ = file_written_version.update_if_valid(&attestation4);
         let _ = file_written_version.update_if_valid(&attestation5);
