@@ -1,11 +1,11 @@
 use crate::helpers::{
     check_content_type_for_json, get_beacon_chain_from_request, get_logger_from_request,
-    parse_pubkey, publish_attestation_to_network, publish_beacon_block_to_network,
+    parse_pubkey, parse_signature, publish_attestation_to_network, publish_beacon_block_to_network,
 };
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
 use beacon_chain::{AttestationProcessingOutcome, BeaconChainTypes, BlockProcessingOutcome};
-use bls::{AggregateSignature, PublicKey, Signature, BLS_PUBLIC_KEY_BYTE_SIZE};
+use bls::{AggregateSignature, PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
 use futures::future::Future;
 use futures::stream::Stream;
 use hyper::{Body, Request};
@@ -166,16 +166,12 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         .map_err(|e| {
             ApiError::BadRequest(format!("Invalid slot parameter, must be a u64. {:?}", e))
         })?;
-    let randao_bytes = query
+    let randao_reveal = query
         .first_of(&["randao_reveal"])
-        .map(|(_key, value)| value)
-        .map(hex::decode)?
+        .and_then(|(_key, value)| parse_signature(&value))
         .map_err(|e| {
             ApiError::BadRequest(format!("Invalid hex string for randao_reveal: {:?}", e))
         })?;
-    let randao_reveal = Signature::from_bytes(randao_bytes.as_slice()).map_err(|e| {
-        ApiError::BadRequest(format!("randao_reveal is not a valid signature: {:?}", e))
-    })?;
 
     let (new_block, _state) = beacon_chain
         .produce_block(randao_reveal, slot)

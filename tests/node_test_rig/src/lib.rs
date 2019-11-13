@@ -63,5 +63,7 @@ fn testing_client_config() -> (ClientConfig, TempDir) {
         genesis_time: 13_371_337,
     };
 
+    client_config.dummy_eth1_backend = true;
+
     (client_config, tempdir)
 }

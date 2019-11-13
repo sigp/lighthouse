@@ -1,12 +1,15 @@
 #![cfg(test)]
 
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     LocalBeaconNode,
 };
+use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypair, Domain, EthSpec, MinimalEthSpec, Signature, Slot,
+    test_utils::generate_deterministic_keypair, ChainSpec, Domain, EthSpec, MinimalEthSpec,
+    Signature, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -21,11 +24,29 @@ fn build_env() -> Environment<E> {
         .expect("environment should build")
 }
 
+/// Returns the randao reveal for the given slot (assuming the given `beacon_chain` uses
+/// deterministic keypairs).
+fn get_randao_reveal<T: BeaconChainTypes>(
+    beacon_chain: Arc<BeaconChain<T>>,
+    slot: Slot,
+    spec: &ChainSpec,
+) -> Signature {
+    let fork = beacon_chain.head().beacon_state.fork.clone();
+    let proposer_index = beacon_chain
+        .block_proposer(slot)
+        .expect("should get proposer index");
+    let keypair = generate_deterministic_keypair(proposer_index);
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let message = epoch.tree_hash_root();
+    let domain = spec.get_domain(epoch, Domain::Randao, &fork);
+    Signature::new(&message, domain, &keypair.sk)
+}
+
 #[test]
-fn validator_block() {
+fn validator_block_get() {
     let mut env = build_env();
 
-    let spec = E::default_spec();
+    let spec = &E::default_spec();
 
     let node = LocalBeaconNode::production(env.core_context());
     let remote_node = node.remote_node().expect("should produce remote node");
@@ -35,19 +56,8 @@ fn validator_block() {
         .beacon_chain()
         .expect("client should have beacon chain");
 
-    let fork = beacon_chain.head().beacon_state.fork.clone();
-
     let slot = Slot::new(1);
-    let randao_reveal = {
-        let proposer_index = beacon_chain
-            .block_proposer(slot)
-            .expect("should get proposer index");
-        let keypair = generate_deterministic_keypair(proposer_index);
-        let epoch = slot.epoch(E::slots_per_epoch());
-        let message = epoch.tree_hash_root();
-        let domain = spec.get_domain(epoch, Domain::Randao, &fork);
-        Signature::new(&message, domain, &keypair.sk)
-    };
+    let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
 
     let block = env
         .runtime()
