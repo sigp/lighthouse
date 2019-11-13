@@ -53,6 +53,7 @@ fn main() {
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(validator_client::cli_app())
+        .subcommand(account_manager::cli_app())
         .get_matches();
 
     macro_rules! run_with_spec {
@@ -114,6 +115,16 @@ fn run<E: EthSpec>(
     // actually happening.
     //
     // Creating a command which can run both might be useful future works.
+
+    if let Some(sub_matches) = matches.subcommand_matches("Account Manager") {
+        let runtime_context = environment.core_context();
+
+        account_manager::run(sub_matches, runtime_context);
+
+        // Exit early if the account manager was run. It does not used the tokio executor, so no
+        // need to wait for it to shutdown.
+        return Ok(());
+    }
 
     let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("Beacon Node") {
         let runtime_context = environment.core_context();
