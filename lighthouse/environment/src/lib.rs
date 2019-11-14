@@ -9,9 +9,12 @@
 
 use eth2_config::Eth2Config;
 use futures::{sync::oneshot, Future};
-use slog::{o, Drain, Level, Logger};
+use slog::{info, o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::cell::RefCell;
+use std::fs::OpenOptions;
+use std::path::PathBuf;
+use std::sync::Mutex;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 
@@ -222,6 +225,28 @@ impl<E: EthSpec> Environment<E> {
             .shutdown_on_idle()
             .wait()
             .map_err(|e| format!("Tokio runtime shutdown returned an error: {:?}", e))
+    }
+
+    /// Sets the logger (and all child loggers) to log to a file.
+    pub fn log_to_json_file(&mut self, path: PathBuf) -> Result<(), String> {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .map_err(|e| format!("Unable to open logfile: {:?}", e))?;
+
+        let drain = Mutex::new(slog_json::Json::default(file)).fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        self.log = slog::Logger::root(drain, o!());
+
+        info!(
+            self.log,
+            "Logging to JSON file";
+            "path" => format!("{:?}", path)
+        );
+
+        Ok(())
     }
 
     pub fn eth_spec_instance(&self) -> &E {

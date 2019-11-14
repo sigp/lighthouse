@@ -6,6 +6,7 @@ use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use slog::{crit, info, warn};
+use std::path::PathBuf;
 use std::process::exit;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
@@ -93,6 +94,13 @@ fn run<E: EthSpec>(
         .build()?;
 
     let log = environment.core_context().log;
+
+    if let Some(log_path) = matches.value_of("logfile") {
+        let path = log_path
+            .parse::<PathBuf>()
+            .map_err(|e| format!("Failed to parse log path: {:?}", e))?;
+        environment.log_to_json_file(path)?;
+    }
 
     if std::mem::size_of::<usize>() != 8 {
         crit!(
