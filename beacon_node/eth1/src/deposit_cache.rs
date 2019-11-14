@@ -61,7 +61,7 @@ impl DepositDataTree {
     /// Return the leaf at `index` and a Merkle proof of its inclusion.
     ///
     /// The Merkle proof is in "bottom-up" order, starting with a leaf node
-    /// and moving up the tree. Its length will be exactly equal to `depth`.
+    /// and moving up the tree. Its length will be exactly equal to `depth + 1`.
     pub fn generate_proof(&self, index: usize) -> (Hash256, Vec<Hash256>) {
         let (root, mut proof) = self.tree.generate_proof(index, self.depth);
         proof.push(Hash256::from_slice(&self.length_bytes()));
@@ -71,7 +71,7 @@ impl DepositDataTree {
 
 /// Mirrors the merkle tree of deposits in the eth1 deposit contract.
 ///
-/// Provides `Deposit` objects will merkle proofs included.
+/// Provides `Deposit` objects with merkle proofs included.
 #[derive(Default)]
 pub struct DepositCache {
     logs: Vec<DepositLog>,

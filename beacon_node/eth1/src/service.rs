@@ -97,7 +97,7 @@ pub struct Config {
     pub lowest_cached_block_number: u64,
     /// Defines how far behind the Eth1 node's head we should follow.
     ///
-    /// Note: this should be less than or equal to the specifications `ETH1_FOLLOW_DISTANCE`.
+    /// Note: this should be less than or equal to the specification's `ETH1_FOLLOW_DISTANCE`.
     pub follow_distance: u64,
     /// Defines the number of blocks that should be retained each time the `BlockCache` calls truncate on
     /// itself.

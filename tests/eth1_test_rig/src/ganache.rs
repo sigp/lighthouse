@@ -40,7 +40,7 @@ impl GanacheInstance {
             .arg("10")
             .arg("--port")
             .arg(format!("{}", port))
-            .arg("--seed")
+            .arg("--mnemonic")
             .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
             .spawn()
             .map_err(|e| {
