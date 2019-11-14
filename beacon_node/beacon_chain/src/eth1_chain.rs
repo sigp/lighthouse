@@ -13,9 +13,8 @@ use std::sync::Arc;
 use store::{Error as StoreError, Store};
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned,
+    DEPOSIT_TREE_DEPTH,
 };
-
-const DEPOSIT_TREE_DEPTH: usize = 32;
 
 type BlockNumber = u64;
 type Eth1DataBlockNumber = HashMap<Eth1Data, BlockNumber>;

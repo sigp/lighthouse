@@ -58,7 +58,7 @@ pub use crate::checkpoint::Checkpoint;
 pub use crate::compact_committee::CompactCommittee;
 pub use crate::crosslink::Crosslink;
 pub use crate::crosslink_committee::{CrosslinkCommittee, OwnedCrosslinkCommittee};
-pub use crate::deposit::Deposit;
+pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::fork::Fork;
