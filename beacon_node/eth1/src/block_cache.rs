@@ -1,4 +1,3 @@
-use std::iter::DoubleEndedIterator;
 use std::ops::RangeInclusive;
 use types::{Eth1Data, Hash256};
 
@@ -138,7 +137,7 @@ impl BlockCache {
         // Only permit blocks when it's either:
         //
         // - The first block inserted.
-        // - Exactly only block number higher than the highest known block number.
+        // - Exactly one block number higher than the highest known block number.
         if block.number != expected_block_number {
             return Err(Error::NonConsecutive {
                 given: block.number,
@@ -146,8 +145,8 @@ impl BlockCache {
             });
         }
 
-        // If the block is not the first block inserted, ensure that it's timestamp is not higher
-        // than it's parents.
+        // If the block is not the first block inserted, ensure that its timestamp is not higher
+        // than its parents.
         if let Some(previous_block) = self.blocks.last() {
             if previous_block.timestamp > block.timestamp {
                 return Err(Error::InconsistentTimestamp {

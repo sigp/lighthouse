@@ -48,7 +48,7 @@ impl DepositLog {
 
         let deposit_data = DepositData {
             pubkey: PublicKeyBytes::from_ssz_bytes(pubkey)
-                .map_err(|e| format!("Invalid index ssz: {:?}", e))?,
+                .map_err(|e| format!("Invalid pubkey ssz: {:?}", e))?,
             withdrawal_credentials: Hash256::from_ssz_bytes(withdrawal_credentials)
                 .map_err(|e| format!("Invalid withdrawal_credentials ssz: {:?}", e))?,
             amount: u64::from_ssz_bytes(amount)

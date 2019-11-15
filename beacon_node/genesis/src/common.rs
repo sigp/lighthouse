@@ -1,3 +1,4 @@
+use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
 use rayon::prelude::*;
 use tree_hash::TreeHash;
@@ -23,7 +24,7 @@ pub fn genesis_deposits(
         }
 
         let (_, mut proof) = tree.generate_proof(i, depth);
-        proof.push(Hash256::from_slice(&int_to_bytes32(i + 1)));
+        proof.push(Hash256::from_slice(&int_to_bytes32((i + 1) as u64)));
 
         assert_eq!(
             proof.len(),
@@ -40,11 +41,4 @@ pub fn genesis_deposits(
         .map(|(data, proof)| (data, proof.into()))
         .map(|(data, proof)| Deposit { proof, data })
         .collect())
-}
-
-/// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: usize) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
 }
