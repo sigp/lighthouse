@@ -294,13 +294,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             let keypair = Keypair::random();
 
             let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
-            builder.sign(
-                &test_task,
-                &keypair,
-                state.slot.epoch(T::slots_per_epoch()),
-                &state.fork,
-                spec,
-            );
+            builder.sign(&test_task, &keypair, spec);
             datas.push(builder.build().data);
         }
 

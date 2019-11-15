@@ -10,10 +10,10 @@ use self::epoch_duties::{EpochDuties, EpochDutiesMapError};
 pub use self::epoch_duties::{EpochDutiesMap, WorkInfo};
 use super::signer::Signer;
 use futures::Async;
+use parking_lot::RwLock;
 use slog::{debug, error, info};
 use std::fmt::Display;
 use std::sync::Arc;
-use std::sync::RwLock;
 use types::{Epoch, PublicKey, Slot};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -55,20 +55,20 @@ impl<U: BeaconNodeDuties, S: Signer + Display> DutiesManager<U, S> {
         let duties = self.beacon_node.request_duties(epoch, &public_keys)?;
         {
             // If these duties were known, check to see if they're updates or identical.
-            if let Some(known_duties) = self.duties_map.read()?.get(&epoch) {
+            if let Some(known_duties) = self.duties_map.read().get(&epoch) {
                 if *known_duties == duties {
                     return Ok(UpdateOutcome::NoChange(epoch));
                 }
             }
         }
-        if !self.duties_map.read()?.contains_key(&epoch) {
+        if !self.duties_map.read().contains_key(&epoch) {
             //TODO: Remove clone by removing duties from outcome
-            self.duties_map.write()?.insert(epoch, duties.clone());
+            self.duties_map.write().insert(epoch, duties.clone());
             return Ok(UpdateOutcome::NewDuties(epoch, duties));
         }
         // duties have changed
         //TODO: Duties could be large here. Remove from display and avoid the clone.
-        self.duties_map.write()?.insert(epoch, duties.clone());
+        self.duties_map.write().insert(epoch, duties.clone());
         Ok(UpdateOutcome::DutiesChanged(epoch, duties))
     }
 
@@ -97,7 +97,7 @@ impl<U: BeaconNodeDuties, S: Signer + Display> DutiesManager<U, S> {
         let mut current_work: Vec<(usize, WorkInfo)> = Vec::new();
 
         // if the map is poisoned, return None
-        let duties = self.duties_map.read().ok()?;
+        let duties = self.duties_map.read();
 
         for (index, validator_signer) in self.signers.iter().enumerate() {
             match duties.is_work_slot(slot, &validator_signer.to_public()) {

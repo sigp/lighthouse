@@ -33,13 +33,18 @@ members = [
     "beacon_node/eth2-libp2p",
     "beacon_node/rpc",
     "beacon_node/version",
+    "beacon_node/eth1",
     "beacon_node/beacon_chain",
     "beacon_node/websocket_server",
     "tests/ef_tests",
+    "tests/eth1_test_rig",
+    "tests/node_test_rig",
     "lcli",
     "protos",
     "validator_client",
     "account_manager",
+    "lighthouse",
+    "lighthouse/environment"
 ]
 
 [patch]

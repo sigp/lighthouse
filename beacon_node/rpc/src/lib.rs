@@ -9,7 +9,7 @@ use self::beacon_block::BeaconBlockServiceInstance;
 use self::beacon_node::BeaconNodeServiceInstance;
 use self::validator::ValidatorServiceInstance;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-pub use config::Config as RPCConfig;
+pub use config::Config;
 use futures::Future;
 use grpcio::{Environment, ServerBuilder};
 use network::NetworkMessage;
@@ -17,19 +17,18 @@ use protos::services_grpc::{
     create_attestation_service, create_beacon_block_service, create_beacon_node_service,
     create_validator_service,
 };
-use slog::{info, o, warn};
+use slog::{info, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 
-pub fn start_server<T: BeaconChainTypes + Clone + 'static>(
-    config: &RPCConfig,
+pub fn start_server<T: BeaconChainTypes>(
+    config: &Config,
     executor: &TaskExecutor,
     network_chan: mpsc::UnboundedSender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
-    log: &slog::Logger,
+    log: slog::Logger,
 ) -> exit_future::Signal {
-    let log = log.new(o!("Service"=>"RPC"));
     let env = Arc::new(Environment::new(1));
 
     // build a channel to kill the rpc server

@@ -216,7 +216,7 @@ impl<T: EthSpec> BeaconState<T> {
             // Versioning
             genesis_time,
             slot: spec.genesis_slot,
-            fork: Fork::genesis(T::genesis_epoch()),
+            fork: spec.genesis_fork.clone(),
 
             // History
             latest_block_header: BeaconBlock::<T>::empty(spec).temporary_block_header(),

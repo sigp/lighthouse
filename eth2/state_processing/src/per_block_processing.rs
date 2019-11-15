@@ -444,7 +444,7 @@ pub fn process_deposit<T: EthSpec>(
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
-        if verify_deposit_signature(state, deposit, spec).is_err() {
+        if verify_deposit_signature(&deposit.data, spec).is_err() {
             return Ok(());
         }
 

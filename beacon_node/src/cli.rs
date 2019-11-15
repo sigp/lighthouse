@@ -1,22 +1,9 @@
-mod config;
-mod run;
-
 use clap::{App, Arg, SubCommand};
-use config::get_configs;
-use env_logger::{Builder, Env};
-use slog::{crit, o, warn, Drain, Level};
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
-pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
-pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
-pub const TESTNET_CONFIG_FILENAME: &str = "testnet.toml";
-
-fn main() {
-    // debugging output for libp2p and external crates
-    Builder::from_env(Env::default()).init();
-
-    let matches = App::new("Lighthouse")
-        .version(version::version().as_str())
+pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("Beacon Node")
+        .visible_aliases(&["b", "bn", "beacon", "beacon_node"])
+        .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Client")
         /*
@@ -29,13 +16,6 @@ fn main() {
                 .help("Data directory for keys and databases.")
                 .takes_value(true)
                 .global(true)
-        )
-        .arg(
-            Arg::with_name("logfile")
-                .long("logfile")
-                .value_name("FILE")
-                .help("File path where output will be written.")
-                .takes_value(true),
         )
         .arg(
             Arg::with_name("network-dir")
@@ -197,35 +177,44 @@ fn main() {
          * Eth1 Integration
          */
         .arg(
-            Arg::with_name("eth1-server")
-                .long("eth1-server")
-                .value_name("SERVER")
+            Arg::with_name("dummy-eth1")
+                .long("dummy-eth1")
+                .help("If present, uses an eth1 backend that generates static dummy data.\
+                      Identical to the method used at the 2019 Canada interop.")
+        )
+        .arg(
+            Arg::with_name("eth1-endpoint")
+                .long("eth1-endpoint")
+                .value_name("HTTP-ENDPOINT")
                 .help("Specifies the server for a web3 connection to the Eth1 chain.")
                 .takes_value(true)
+                .default_value("http://localhost:8545")
         )
-        /*
-         * Database parameters.
-         */
         .arg(
-            Arg::with_name("db")
-                .long("db")
-                .value_name("DB")
-                .help("Type of database to use.")
+            Arg::with_name("eth1-follow")
+                .long("eth1-follow")
+                .value_name("BLOCK_COUNT")
+                .help("Specifies how many blocks we should cache behind the eth1 head. A larger number means a smaller cache.")
                 .takes_value(true)
-                .possible_values(&["disk", "memory"])
-                .default_value("disk"),
+                // TODO: set this higher once we're not using testnets all the time.
+                .default_value("0")
         )
-        /*
-         * Logging.
-         */
         .arg(
-            Arg::with_name("debug-level")
-                .long("debug-level")
-                .value_name("LEVEL")
-                .help("The title of the spec constants for chain config.")
+            Arg::with_name("deposit-contract")
+                .long("deposit-contract")
+                .short("e")
+                .value_name("DEPOSIT-CONTRACT")
+                .help("Specifies the deposit contract address on the Eth1 chain.")
                 .takes_value(true)
-                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
-                .default_value("trace"),
+        )
+        .arg(
+            Arg::with_name("deposit-contract-deploy")
+                .long("deposit-contract-deploy")
+                .value_name("BLOCK_NUMBER")
+                .help("Specifies the block number that the deposit contract was deployed at.")
+                .takes_value(true)
+                // TODO: set this higher once we're not using testnets all the time.
+                .default_value("0")
         )
         /*
          * The "testnet" sub-command.
@@ -234,17 +223,6 @@ fn main() {
          */
         .subcommand(SubCommand::with_name("testnet")
             .about("Create a new Lighthouse datadir using a testnet strategy.")
-            .arg(
-                Arg::with_name("spec")
-                    .short("s")
-                    .long("spec")
-                    .value_name("TITLE")
-                    .help("Specifies the default eth2 spec type. Only effective when creating a new datadir.")
-                    .takes_value(true)
-                    .required(true)
-                    .possible_values(&["mainnet", "minimal", "interop"])
-                    .default_value("minimal")
-            )
             .arg(
                 Arg::with_name("eth2-config")
                     .long("eth2-config")
@@ -347,68 +325,25 @@ fn main() {
              * Start a new node, using a genesis state loaded from a YAML file
              */
             .subcommand(SubCommand::with_name("file")
-                .about("Creates a new datadir where the genesis state is read from YAML. May fail to parse \
+                .about("Creates a new datadir where the genesis state is read from file. May fail to parse \
                        a file that was generated to a different spec than that specified by --spec.")
                 .arg(Arg::with_name("format")
                     .value_name("FORMAT")
                     .required(true)
-                    .possible_values(&["yaml", "ssz", "json"])
+                    .possible_values(&["ssz"])
                     .help("The encoding of the state in the file."))
                 .arg(Arg::with_name("file")
-                    .value_name("YAML_FILE")
+                    .value_name("FILE")
                     .required(true)
-                    .help("A YAML file from which to read the state"))
+                    .help("A file from which to read the state"))
+            )
+            /*
+             * `prysm`
+             *
+             * Connect to the Prysmatic Labs testnet.
+             */
+            .subcommand(SubCommand::with_name("prysm")
+                .about("Connect to the Prysmatic Labs testnet on Goerli.")
             )
         )
-        .get_matches();
-
-    // build the initial logger
-    let decorator = slog_term::TermDecorator::new().build();
-    let decorator = logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-    let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    let drain = slog_async::Async::new(drain).build();
-
-    let drain = match matches.value_of("debug-level") {
-        Some("info") => drain.filter_level(Level::Info),
-        Some("debug") => drain.filter_level(Level::Debug),
-        Some("trace") => drain.filter_level(Level::Trace),
-        Some("warn") => drain.filter_level(Level::Warning),
-        Some("error") => drain.filter_level(Level::Error),
-        Some("crit") => drain.filter_level(Level::Critical),
-        _ => unreachable!("guarded by clap"),
-    };
-
-    let log = slog::Logger::root(drain.fuse(), o!());
-
-    if std::mem::size_of::<usize>() != 8 {
-        crit!(
-            log,
-            "Lighthouse only supports 64bit CPUs";
-            "detected" => format!("{}bit", std::mem::size_of::<usize>() * 8)
-        );
-    }
-
-    warn!(
-        log,
-        "Ethereum 2.0 is pre-release. This software is experimental."
-    );
-
-    let log_clone = log.clone();
-
-    // Load the process-wide configuration.
-    //
-    // May load this from disk or create a new configuration, depending on the CLI flags supplied.
-    let (client_config, eth2_config, log) = match get_configs(&matches, log) {
-        Ok(configs) => configs,
-        Err(e) => {
-            crit!(log_clone, "Failed to load configuration. Exiting"; "error" => e);
-            return;
-        }
-    };
-
-    // Start the node using a `tokio` executor.
-    match run::run_beacon_node(client_config, eth2_config, &log) {
-        Ok(_) => {}
-        Err(e) => crit!(log, "Beacon node failed to start"; "reason" => format!("{:}", e)),
-    }
 }
