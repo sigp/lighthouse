@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use futures::Future;
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     LocalBeaconNode,
@@ -42,6 +43,47 @@ fn get_randao_reveal<T: BeaconChainTypes>(
     Signature::new(&message, domain, &keypair.sk)
 }
 
+/*
+#[test]
+fn validator_block_post() {
+    let mut env = build_env();
+
+    let spec = &E::default_spec();
+
+    let node = LocalBeaconNode::production(env.core_context());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let beacon_chain = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain");
+
+    let slot = Slot::new(1);
+    let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
+
+    let block = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .produce_block(slot, randao_reveal.clone()),
+        )
+        .expect("should fetch block from http api");
+
+    assert!(env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .publish_block(block)
+                .and_then(|_| Ok(()))
+        )
+        .is_ok());
+}
+*/
+
 #[test]
 fn validator_block_get() {
     let mut env = build_env();
@@ -65,7 +107,7 @@ fn validator_block_get() {
             remote_node
                 .http
                 .validator()
-                .block(slot, randao_reveal.clone()),
+                .produce_block(slot, randao_reveal.clone()),
         )
         .expect("should fetch block from http api");
 
@@ -91,12 +133,12 @@ fn beacon_state() {
 
     let (state_by_slot, root) = env
         .runtime()
-        .block_on(remote_node.http.beacon().state_by_slot(Slot::new(0)))
+        .block_on(remote_node.http.beacon().get_state_by_slot(Slot::new(0)))
         .expect("should fetch state from http api");
 
     let (state_by_root, root_2) = env
         .runtime()
-        .block_on(remote_node.http.beacon().state_by_root(root))
+        .block_on(remote_node.http.beacon().get_state_by_root(root))
         .expect("should fetch state from http api");
 
     let mut db_state = node
@@ -135,12 +177,12 @@ fn beacon_block() {
 
     let (block_by_slot, root) = env
         .runtime()
-        .block_on(remote_node.http.beacon().block_by_slot(Slot::new(0)))
+        .block_on(remote_node.http.beacon().get_block_by_slot(Slot::new(0)))
         .expect("should fetch block from http api");
 
     let (block_by_root, root_2) = env
         .runtime()
-        .block_on(remote_node.http.beacon().block_by_root(root))
+        .block_on(remote_node.http.beacon().get_block_by_root(root))
         .expect("should fetch block from http api");
 
     let db_block = node

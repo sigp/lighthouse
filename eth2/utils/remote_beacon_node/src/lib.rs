@@ -4,14 +4,17 @@
 //! Presently, this is only used for testing but it _could_ become a user-facing library.
 
 use futures::{Future, IntoFuture};
-use reqwest::r#async::{Client, RequestBuilder};
+use reqwest::r#async::{Client, ClientBuilder, RequestBuilder};
 use serde::Deserialize;
 use ssz::Encode;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::time::Duration;
 use types::{BeaconBlock, BeaconState, EthSpec, Signature};
 use types::{Hash256, Slot};
 use url::Url;
+
+pub const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 
 /// Connects to a remote Lighthouse (or compatible) node via HTTP.
 pub struct RemoteBeaconNode<E: EthSpec> {
@@ -37,15 +40,22 @@ pub enum Error {
 pub struct HttpClient<E> {
     client: Client,
     url: Url,
+    timeout: Duration,
     _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> HttpClient<E> {
     /// Creates a new instance (without connecting to the node).
+    ///
+    /// The `timeout` is set to 15 seconds.
     pub fn new(server_url: String) -> Result<Self, Error> {
         Ok(Self {
-            client: Client::new(),
+            client: ClientBuilder::new()
+                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+                .build()
+                .expect("should build from static configuration"),
             url: Url::parse(&server_url)?,
+            timeout: Duration::from_secs(15),
             _phantom: PhantomData,
         })
     }
@@ -67,6 +77,12 @@ impl<E: EthSpec> HttpClient<E> {
         self.url(path)
             .map(|url| Client::new().get(&url.to_string()))
     }
+
+    pub fn post(&self, path: &str) -> Result<RequestBuilder, Error> {
+        // TODO: add timeout
+        self.url(path)
+            .map(|url| Client::new().post(&url.to_string()))
+    }
 }
 
 /// Provides the functions on the `/beacon` endpoint of the node.
@@ -81,8 +97,23 @@ impl<E: EthSpec> Validator<E> {
             .map_err(Into::into)
     }
 
+    /// Posts a block to the beacon node, expecting it to verify it and publish it to the network.
+    pub fn publish_block(&self, block: BeaconBlock<E>) -> impl Future<Item = (), Error = Error> {
+        let client = self.0.clone();
+        self.url("block")
+            .into_future()
+            .and_then(move |url| client.post(&url.to_string()))
+            .and_then(move |builder| {
+                builder
+                    .json(&block)
+                    .send()
+                    .map_err(|e| Error::ReqwestError(e))
+            })
+            .map(|_response| ())
+    }
+
     /// Requests a new (unsigned) block from the beacon node.
-    pub fn block(
+    pub fn produce_block(
         &self,
         slot: Slot,
         randao_reveal: Signature,
@@ -116,23 +147,23 @@ impl<E: EthSpec> Beacon<E> {
     }
 
     /// Returns the block and block root at the given slot.
-    pub fn block_by_slot(
+    pub fn get_block_by_slot(
         &self,
         slot: Slot,
     ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
-        self.block("slot", format!("{}", slot.as_u64()))
+        self.get_block("slot", format!("{}", slot.as_u64()))
     }
 
     /// Returns the block and block root at the given root.
-    pub fn block_by_root(
+    pub fn get_block_by_root(
         &self,
         root: Hash256,
     ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
-        self.block("root", root_as_string(root))
+        self.get_block("root", root_as_string(root))
     }
 
     /// Returns the block and block root at the given slot.
-    fn block(
+    fn get_block(
         &self,
         query_key: &'static str,
         query_param: String,
@@ -151,23 +182,23 @@ impl<E: EthSpec> Beacon<E> {
     }
 
     /// Returns the state and state root at the given slot.
-    pub fn state_by_slot(
+    pub fn get_state_by_slot(
         &self,
         slot: Slot,
     ) -> impl Future<Item = (BeaconState<E>, Hash256), Error = Error> {
-        self.state("slot", format!("{}", slot.as_u64()))
+        self.get_state("slot", format!("{}", slot.as_u64()))
     }
 
     /// Returns the state and state root at the given root.
-    pub fn state_by_root(
+    pub fn get_state_by_root(
         &self,
         root: Hash256,
     ) -> impl Future<Item = (BeaconState<E>, Hash256), Error = Error> {
-        self.state("root", root_as_string(root))
+        self.get_state("root", root_as_string(root))
     }
 
     /// Returns the state and state root at the given slot.
-    fn state(
+    fn get_state(
         &self,
         query_key: &'static str,
         query_param: String,
