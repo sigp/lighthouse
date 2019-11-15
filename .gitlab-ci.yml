@@ -1,7 +1,7 @@
 #Adapted from https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
 
 default:
-  image: 'sigp/lighthouse:eth1'
+  image: 'sigp/lighthouse:latest'
   cache:
     paths:
       - tests/ef_tests/*-v0.8.3.tar.gz
