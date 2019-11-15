@@ -7,6 +7,8 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+pub const DEPOSIT_TREE_DEPTH: usize = 32;
+
 /// A deposit to potentially become a beacon chain validator.
 ///
 /// Spec v0.8.0

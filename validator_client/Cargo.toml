@@ -4,10 +4,6 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>", "Luke Anderson <luke@lukeanderson.com.au>"]
 edition = "2018"
 
-[[bin]]
-name = "validator_client"
-path = "src/main.rs"
-
 [lib]
 name = "validator_client"
 path = "src/lib.rs"
@@ -38,4 +34,7 @@ bincode = "1.2.0"
 futures = "0.1.29"
 dirs = "2.0.2"
 logging = { path = "../eth2/utils/logging" }
+environment = { path = "../lighthouse/environment" }
+parking_lot = "0.7"
+exit-future = "0.1.4"
 libc = "0.2.65"

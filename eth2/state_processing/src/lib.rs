@@ -8,7 +8,7 @@ pub mod per_epoch_processing;
 pub mod per_slot_processing;
 pub mod test_utils;
 
-pub use genesis::{initialize_beacon_state_from_eth1, is_valid_genesis_state};
+pub use genesis::{initialize_beacon_state_from_eth1, is_valid_genesis_state, process_activations};
 pub use per_block_processing::{
     errors::BlockProcessingError, per_block_processing, BlockSignatureStrategy, VerifySignatures,
 };

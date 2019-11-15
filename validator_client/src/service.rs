@@ -17,6 +17,7 @@ use crate::signer::Signer;
 use bls::Keypair;
 use eth2_config::Eth2Config;
 use grpcio::{ChannelBuilder, EnvBuilder};
+use parking_lot::RwLock;
 use protos::services::Empty;
 use protos::services_grpc::{
     AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
@@ -26,17 +27,8 @@ use slog::{crit, error, info, trace, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::sync::RwLock;
-use std::time::{Duration, Instant};
-use tokio::prelude::*;
-use tokio::runtime::Builder;
-use tokio::timer::Interval;
-use tokio_timer::clock::Clock;
+use std::time::Duration;
 use types::{ChainSpec, Epoch, EthSpec, Fork, Slot};
-
-/// A fixed amount of time after a slot to perform operations. This gives the node time to complete
-/// per-slot processes.
-const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
 
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
@@ -45,12 +37,12 @@ pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpe
     /// The node's current fork version we are processing on.
     fork: Fork,
     /// The slot clock for this service.
-    slot_clock: SystemTimeSlotClock,
+    pub slot_clock: SystemTimeSlotClock,
     /// The slot that is currently, or was previously processed by the service.
-    current_slot: Option<Slot>,
+    current_slot: RwLock<Option<Slot>>,
     slots_per_epoch: u64,
     /// The chain specification for this clients instance.
-    spec: Arc<ChainSpec>,
+    pub spec: Arc<ChainSpec>,
     /// The duties manager which maintains the state of when to perform actions.
     duties_manager: Arc<DutiesManager<B, S>>,
     // GRPC Clients
@@ -63,12 +55,12 @@ pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpe
     _phantom: PhantomData<E>,
 }
 
-impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, S, E> {
+impl<E: EthSpec> Service<ValidatorServiceClient, Keypair, E> {
     ///  Initial connection to the beacon node to determine its properties.
     ///
     ///  This tries to connect to a beacon node. Once connected, it initialised the gRPC clients
     ///  and returns an instance of the service.
-    fn initialize_service(
+    pub fn initialize_service(
         client_config: ValidatorConfig,
         eth2_config: Eth2Config,
         log: slog::Logger,
@@ -195,7 +187,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
         Ok(Service {
             fork,
             slot_clock,
-            current_slot: None,
+            current_slot: RwLock::new(None),
             slots_per_epoch,
             spec,
             duties_manager,
@@ -205,78 +197,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             _phantom: PhantomData,
         })
     }
+}
 
-    /// Initialise the service then run the core thread.
-    // TODO: Improve handling of generic BeaconNode types, to stub grpcClient
-    pub fn start(
-        client_config: ValidatorConfig,
-        eth2_config: Eth2Config,
-        log: slog::Logger,
-    ) -> error_chain::Result<()> {
-        // connect to the node and retrieve its properties and initialize the gRPC clients
-        let mut service = Service::<ValidatorServiceClient, Keypair, E>::initialize_service(
-            client_config,
-            eth2_config,
-            log.clone(),
-        )?;
-
-        // we have connected to a node and established its parameters. Spin up the core service
-
-        // set up the validator service runtime
-        let mut runtime = Builder::new()
-            .clock(Clock::system())
-            .name_prefix("validator-client-")
-            .build()
-            .map_err(|e| format!("Tokio runtime failed: {}", e))?;
-
-        let duration_to_next_slot = service
-            .slot_clock
-            .duration_to_next_slot()
-            .ok_or_else::<error_chain::Error, _>(|| {
-                "Unable to determine duration to next slot. Exiting.".into()
-            })?;
-
-        // set up the validator work interval - start at next slot and proceed every slot
-        let interval = {
-            // Set the interval to start at the next slot, and every slot after
-            let slot_duration = Duration::from_millis(service.spec.milliseconds_per_slot);
-            //TODO: Handle checked add correctly
-            Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
-        };
-
-        if service.slot_clock.now().is_none() {
-            warn!(
-                log,
-                "Starting node prior to genesis";
-            );
-        }
-
-        info!(
-            log,
-            "Waiting for next slot";
-            "seconds_to_wait" => duration_to_next_slot.as_secs()
-        );
-
-        /* kick off the core service */
-        runtime.block_on(
-            interval
-                .for_each(move |_| {
-                    // wait for node to process
-                    std::thread::sleep(TIME_DELAY_FROM_SLOT);
-                    // if a non-fatal error occurs, proceed to the next slot.
-                    let _ignore_error = service.per_slot_execution();
-                    // completed a slot process
-                    Ok(())
-                })
-                .map_err(|e| format!("Service thread failed: {:?}", e)),
-        )?;
-        // validator client exited
-        Ok(())
-    }
-
+impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, S, E> {
     /// The execution logic that runs every slot.
     // Errors are logged to output, and core execution continues unless fatal errors occur.
-    fn per_slot_execution(&mut self) -> error_chain::Result<()> {
+    pub fn per_slot_execution(&self) -> error_chain::Result<()> {
         /* get the new current slot and epoch */
         self.update_current_slot()?;
 
@@ -295,7 +221,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
     }
 
     /// Updates the known current slot and epoch.
-    fn update_current_slot(&mut self) -> error_chain::Result<()> {
+    fn update_current_slot(&self) -> error_chain::Result<()> {
         let wall_clock_slot = self
             .slot_clock
             .now()
@@ -304,11 +230,12 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
             })?;
 
         let wall_clock_epoch = wall_clock_slot.epoch(self.slots_per_epoch);
+        let mut current_slot = self.current_slot.write();
 
         // this is a non-fatal error. If the slot clock repeats, the node could
         // have been slow to process the previous slot and is now duplicating tasks.
         // We ignore duplicated but raise a critical error.
-        if let Some(current_slot) = self.current_slot {
+        if let Some(current_slot) = *current_slot {
             if wall_clock_slot <= current_slot {
                 crit!(
                     self.log,
@@ -317,17 +244,18 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                 return Err("Duplicate slot".into());
             }
         }
-        self.current_slot = Some(wall_clock_slot);
+        *current_slot = Some(wall_clock_slot);
         info!(self.log, "Processing"; "slot" => wall_clock_slot.as_u64(), "epoch" => wall_clock_epoch.as_u64());
         Ok(())
     }
 
     /// For all known validator keypairs, update any known duties from the beacon node.
-    fn check_for_duties(&mut self) {
+    fn check_for_duties(&self) {
         let cloned_manager = self.duties_manager.clone();
         let cloned_log = self.log.clone();
         let current_epoch = self
             .current_slot
+            .read()
             .expect("The current slot must be updated before checking for duties")
             .epoch(self.slots_per_epoch);
 
@@ -349,9 +277,10 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
     }
 
     /// If there are any duties to process, spawn a separate thread and perform required actions.
-    fn process_duties(&mut self) {
+    fn process_duties(&self) {
         if let Some(work) = self.duties_manager.get_current_work(
             self.current_slot
+                .read()
                 .expect("The current slot must be updated before processing duties"),
         ) {
             trace!(
@@ -368,6 +297,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     let fork = self.fork.clone();
                     let slot = self
                         .current_slot
+                        .read()
                         .expect("The current slot must be updated before processing duties");
                     let spec = self.spec.clone();
                     let beacon_node = self.beacon_block_client.clone();
@@ -399,6 +329,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
                     // spawns a thread to produce and sign an attestation
                     let slot = self
                         .current_slot
+                        .read()
                         .expect("The current slot must be updated before processing duties");
                     let signers = self.duties_manager.signers.clone(); // this is an arc
                     let fork = self.fork.clone();

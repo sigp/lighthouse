@@ -1,11 +1,15 @@
 #[macro_use]
 extern crate log;
 
+mod deposit_contract;
 mod parse_hex;
 mod pycli;
 mod transition_blocks;
 
 use clap::{App, Arg, SubCommand};
+use deposit_contract::run_deposit_contract;
+use environment::EnvironmentBuilder;
+use log::Level;
 use parse_hex::run_parse_hex;
 use pycli::run_pycli;
 use std::fs::File;
@@ -17,7 +21,7 @@ use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, Mini
 type LocalEthSpec = MinimalEthSpec;
 
 fn main() {
-    simple_logger::init().expect("logger should initialize");
+    simple_logger::init_with_level(Level::Info).expect("logger should initialize");
 
     let matches = App::new("Lighthouse CLI Tool")
         .version("0.1.0")
@@ -116,6 +120,45 @@ fn main() {
                 ),
         )
         .subcommand(
+            SubCommand::with_name("deposit-contract")
+                .about(
+                    "Uses an eth1 test rpc (e.g., ganache-cli) to simulate the deposit contract.",
+                )
+                .version("0.1.0")
+                .author("Paul Hauner <paul@sigmaprime.io>")
+                .arg(
+                    Arg::with_name("count")
+                        .short("c")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The number of deposits to be submitted."),
+                )
+                .arg(
+                    Arg::with_name("delay")
+                        .short("d")
+                        .value_name("MILLIS")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The delay (in milliseconds) between each deposit"),
+                )
+                .arg(
+                    Arg::with_name("endpoint")
+                        .short("e")
+                        .value_name("HTTP_SERVER")
+                        .takes_value(true)
+                        .default_value("http://localhost:8545")
+                        .help("The URL to the eth1 JSON-RPC http API."),
+                )
+                .arg(
+                    Arg::with_name("confirmations")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("3")
+                        .help("The number of block confirmations before declaring the contract deployed."),
+                )
+        )
+        .subcommand(
             SubCommand::with_name("pycli")
                 .about("TODO")
                 .version("0.1.0")
@@ -131,6 +174,14 @@ fn main() {
                 ),
         )
         .get_matches();
+
+    let env = EnvironmentBuilder::minimal()
+        .multi_threaded_tokio_runtime()
+        .expect("should start tokio runtime")
+        .null_logger()
+        .expect("should start null logger")
+        .build()
+        .expect("should build env");
 
     match matches.subcommand() {
         ("genesis_yaml", Some(matches)) => {
@@ -178,6 +229,8 @@ fn main() {
         }
         ("pycli", Some(matches)) => run_pycli::<LocalEthSpec>(matches)
             .unwrap_or_else(|e| error!("Failed to run pycli: {}", e)),
+        ("deposit-contract", Some(matches)) => run_deposit_contract::<LocalEthSpec>(env, matches)
+            .unwrap_or_else(|e| error!("Failed to run deposit contract sim: {}", e)),
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
 }

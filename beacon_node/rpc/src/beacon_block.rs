@@ -16,11 +16,21 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{BeaconBlock, Signature, Slot};
 
-#[derive(Clone)]
 pub struct BeaconBlockServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
     pub log: Logger,
+}
+
+// NOTE: Deriving Clone puts bogus bounds on T, so we implement it manually.
+impl<T: BeaconChainTypes> Clone for BeaconBlockServiceInstance<T> {
+    fn clone(&self) -> Self {
+        Self {
+            chain: self.chain.clone(),
+            network_chan: self.network_chan.clone(),
+            log: self.log.clone(),
+        }
+    }
 }
 
 impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
