@@ -1,21 +1,19 @@
 use crate::helpers::{
-    check_content_type_for_json, get_beacon_chain_from_request, get_logger_from_request,
-    parse_pubkey, parse_signature, publish_attestation_to_network, publish_beacon_block_to_network,
+    check_content_type_for_json, parse_pubkey, parse_signature, publish_attestation_to_network,
+    publish_beacon_block_to_network,
 };
 use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
-use beacon_chain::{AttestationProcessingOutcome, BeaconChainTypes, BlockProcessingOutcome};
+use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
+use beacon_chain::{
+    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
+};
 use bls::{AggregateSignature, PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
 use futures::future::Future;
 use futures::stream::Stream;
 use hyper::{Body, Request};
-use network::NetworkMessage;
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use slog::{info, trace, warn};
+use slog::{info, trace, warn, Logger};
 use std::sync::Arc;
-use tokio;
-use tokio::sync::mpsc;
 use types::beacon_state::EthSpec;
 use types::{Attestation, BeaconBlock, BitList, Epoch, RelativeEpoch, Shard, Slot};
 
@@ -44,10 +42,12 @@ impl ValidatorDuty {
 }
 
 /// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch
-pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let log = get_logger_from_request(&req);
+pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+    log: Logger,
+) -> ApiResult {
     slog::trace!(log, "Validator duties requested of API: {:?}", &req);
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
     let mut head_state = beacon_chain.head().beacon_state;
 
     slog::trace!(log, "Got head state from request.");
@@ -154,9 +154,10 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 }
 
 /// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
-pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-
+pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
     let query = UrlQuery::from_request(&req)?;
     let slot = query
         .first_of(&["slot"])
@@ -186,17 +187,13 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 }
 
 /// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
-pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> BoxFut {
+pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+    network_chan: NetworkChannel,
+    log: Logger,
+) -> BoxFut {
     try_future!(check_content_type_for_json(&req));
-    let log = get_logger_from_request(&req);
-    let beacon_chain = try_future!(get_beacon_chain_from_request::<T>(&req));
-    // Get the network sending channel from the request, for later transmission
-    let network_chan = req
-        .extensions()
-        .get::<Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>>()
-        .expect("Should always get the network channel from the request, since we put it in there.")
-        .clone();
-
     let response_builder = ResponseBuilder::new(&req);
 
     let body = req.into_body();
@@ -239,8 +236,10 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -
 }
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
-pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+pub fn get_new_attestation<T: BeaconChainTypes + 'static>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
     let mut head_state = beacon_chain.head().beacon_state;
 
     let query = UrlQuery::from_request(&req)?;
@@ -347,17 +346,13 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
 }
 
 /// HTTP Handler to publish an Attestation, which has been signed by a validator.
-pub fn publish_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) -> BoxFut {
+pub fn publish_attestation<T: BeaconChainTypes + 'static>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+    network_chan: NetworkChannel,
+    log: Logger,
+) -> BoxFut {
     try_future!(check_content_type_for_json(&req));
-    let log = get_logger_from_request(&req);
-    let beacon_chain = try_future!(get_beacon_chain_from_request::<T>(&req));
-    // Get the network sending channel from the request, for later transmission
-    let network_chan = req
-        .extensions()
-        .get::<Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>>()
-        .expect("Should always get the network channel from the request, since we put it in there.")
-        .clone();
-
     let response_builder = ResponseBuilder::new(&req);
 
     let body = req.into_body();

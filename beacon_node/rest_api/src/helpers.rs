@@ -213,26 +213,6 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
     ))
 }
 
-pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(
-    req: &Request<Body>,
-) -> Result<(Arc<BeaconChain<T>>), ApiError> {
-    // Get beacon state
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".into()))?;
-
-    Ok(beacon_chain.clone())
-}
-
-pub fn get_logger_from_request(req: &Request<Body>) -> slog::Logger {
-    let log = req
-        .extensions()
-        .get::<slog::Logger>()
-        .expect("Should always get the logger from the request, since we put it in there.");
-    log.to_owned()
-}
-
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
     block: BeaconBlock<T::EthSpec>,
