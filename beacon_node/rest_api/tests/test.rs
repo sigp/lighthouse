@@ -1,16 +1,16 @@
 #![cfg(test)]
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use futures::Future;
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     LocalBeaconNode,
 };
+use remote_beacon_node::BeaconBlockPublishStatus;
 use std::sync::Arc;
-use tree_hash::TreeHash;
+use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    test_utils::generate_deterministic_keypair, ChainSpec, Domain, EthSpec, MinimalEthSpec,
-    Signature, Slot,
+    test_utils::generate_deterministic_keypair, BeaconBlock, ChainSpec, Domain, EthSpec,
+    MinimalEthSpec, Signature, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -43,7 +43,23 @@ fn get_randao_reveal<T: BeaconChainTypes>(
     Signature::new(&message, domain, &keypair.sk)
 }
 
-/*
+/// Signs the given block (assuming the given `beacon_chain` uses deterministic keypairs).
+fn sign_block<T: BeaconChainTypes>(
+    beacon_chain: Arc<BeaconChain<T>>,
+    block: &mut BeaconBlock<T::EthSpec>,
+    spec: &ChainSpec,
+) {
+    let fork = beacon_chain.head().beacon_state.fork.clone();
+    let proposer_index = beacon_chain
+        .block_proposer(block.slot)
+        .expect("should get proposer index");
+    let keypair = generate_deterministic_keypair(proposer_index);
+    let epoch = block.slot.epoch(E::slots_per_epoch());
+    let message = block.signed_root();
+    let domain = spec.get_domain(epoch, Domain::BeaconProposer, &fork);
+    block.signature = Signature::new(&message, domain, &keypair.sk);
+}
+
 #[test]
 fn validator_block_post() {
     let mut env = build_env();
@@ -61,7 +77,7 @@ fn validator_block_post() {
     let slot = Slot::new(1);
     let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
 
-    let block = env
+    let mut block = env
         .runtime()
         .block_on(
             remote_node
@@ -71,18 +87,39 @@ fn validator_block_post() {
         )
         .expect("should fetch block from http api");
 
-    assert!(env
+    // Try publishing the block without a signature, ensure it is flagged as invalid.
+    let publish_status = env
         .runtime()
-        .block_on(
-            remote_node
-                .http
-                .validator()
-                .publish_block(block)
-                .and_then(|_| Ok(()))
-        )
-        .is_ok());
+        .block_on(remote_node.http.validator().publish_block(block.clone()))
+        .expect("should publish block");
+    assert!(
+        !publish_status.is_valid(),
+        "the unsigned published block should not be valid"
+    );
+
+    sign_block(beacon_chain.clone(), &mut block, spec);
+    let block_root = block.canonical_root();
+
+    let publish_status = env
+        .runtime()
+        .block_on(remote_node.http.validator().publish_block(block.clone()))
+        .expect("should publish block");
+    assert_eq!(
+        publish_status,
+        BeaconBlockPublishStatus::Valid,
+        "the signed published block should be valid"
+    );
+
+    let head = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_head())
+        .expect("should get head");
+
+    assert_eq!(
+        head.block_root, block_root,
+        "the published block should become the head block"
+    );
 }
-*/
 
 #[test]
 fn validator_block_get() {

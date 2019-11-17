@@ -4,8 +4,11 @@
 //! Presently, this is only used for testing but it _could_ become a user-facing library.
 
 use futures::{Future, IntoFuture};
-use reqwest::r#async::{Client, ClientBuilder, RequestBuilder};
-use serde::Deserialize;
+use reqwest::{
+    r#async::{Client, ClientBuilder, Response},
+    StatusCode,
+};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use ssz::Encode;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
@@ -13,6 +16,8 @@ use std::time::Duration;
 use types::{BeaconBlock, BeaconState, EthSpec, Signature};
 use types::{Hash256, Slot};
 use url::Url;
+
+pub use rest_api::HeadResponse;
 
 pub const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 
@@ -72,16 +77,51 @@ impl<E: EthSpec> HttpClient<E> {
         self.url.join(path).map_err(|e| e.into())
     }
 
-    pub fn get(&self, path: &str) -> Result<RequestBuilder, Error> {
-        // TODO: add timeout
-        self.url(path)
-            .map(|url| Client::new().get(&url.to_string()))
+    pub fn json_post<T: Serialize>(
+        &self,
+        url: Url,
+        body: T,
+    ) -> impl Future<Item = Response, Error = Error> {
+        self.client
+            .post(&url.to_string())
+            .json(&body)
+            .send()
+            .map_err(Error::from)
     }
 
-    pub fn post(&self, path: &str) -> Result<RequestBuilder, Error> {
-        // TODO: add timeout
-        self.url(path)
-            .map(|url| Client::new().post(&url.to_string()))
+    pub fn json_get<T: DeserializeOwned>(
+        &self,
+        mut url: Url,
+        query_pairs: Vec<(String, String)>,
+    ) -> impl Future<Item = T, Error = Error> {
+        query_pairs.into_iter().for_each(|(key, param)| {
+            url.query_pairs_mut().append_pair(&key, &param);
+        });
+
+        self.client
+            .get(&url.to_string())
+            .send()
+            .map_err(Error::from)
+            .and_then(|response| response.error_for_status().map_err(Error::from))
+            .and_then(|mut success| success.json::<T>().map_err(Error::from))
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum BeaconBlockPublishStatus {
+    /// The block was valid and has been published to the network.
+    Valid,
+    /// The block was not valid and may or may not have been published to the network.
+    Invalid(String),
+    /// The server responsed with an unknown status code. The block may or may not have been
+    /// published to the network.
+    Unknown,
+}
+
+impl BeaconBlockPublishStatus {
+    /// Returns `true` if `*self == BeaconBlockPublishStatus::Valid`.
+    pub fn is_valid(&self) -> bool {
+        *self == BeaconBlockPublishStatus::Valid
     }
 }
 
@@ -98,18 +138,28 @@ impl<E: EthSpec> Validator<E> {
     }
 
     /// Posts a block to the beacon node, expecting it to verify it and publish it to the network.
-    pub fn publish_block(&self, block: BeaconBlock<E>) -> impl Future<Item = (), Error = Error> {
+    pub fn publish_block(
+        &self,
+        block: BeaconBlock<E>,
+    ) -> impl Future<Item = BeaconBlockPublishStatus, Error = Error> {
         let client = self.0.clone();
         self.url("block")
             .into_future()
-            .and_then(move |url| client.post(&url.to_string()))
-            .and_then(move |builder| {
-                builder
-                    .json(&block)
-                    .send()
-                    .map_err(|e| Error::ReqwestError(e))
+            .and_then(move |url| client.json_post::<_>(url, block))
+            .and_then(|mut response| {
+                response
+                    .text()
+                    .map(|text| (response, text))
+                    .map_err(Error::from)
             })
-            .map(|_response| ())
+            .and_then(|(response, text)| match response.status() {
+                StatusCode::OK => Ok(BeaconBlockPublishStatus::Valid),
+                StatusCode::ACCEPTED => Ok(BeaconBlockPublishStatus::Invalid(text)),
+                _ => response
+                    .error_for_status()
+                    .map_err(Error::from)
+                    .map(|_| BeaconBlockPublishStatus::Unknown),
+            })
     }
 
     /// Requests a new (unsigned) block from the beacon node.
@@ -119,18 +169,15 @@ impl<E: EthSpec> Validator<E> {
         randao_reveal: Signature,
     ) -> impl Future<Item = BeaconBlock<E>, Error = Error> {
         let client = self.0.clone();
-        self.url("block")
-            .into_future()
-            .and_then(move |mut url| {
-                url.query_pairs_mut()
-                    .append_pair("slot", &format!("{}", slot.as_u64()));
-                url.query_pairs_mut()
-                    .append_pair("randao_reveal", &signature_as_string(&randao_reveal));
-                client.get(&url.to_string())
-            })
-            .and_then(|builder| builder.send().map_err(Error::from))
-            .and_then(|response| response.error_for_status().map_err(Error::from))
-            .and_then(|mut success| success.json::<BeaconBlock<E>>().map_err(Error::from))
+        self.url("block").into_future().and_then(move |url| {
+            client.json_get::<BeaconBlock<E>>(
+                url,
+                vec![
+                    ("slot".into(), format!("{}", slot.as_u64())),
+                    ("randao_reveal".into(), signature_as_string(&randao_reveal)),
+                ],
+            )
+        })
     }
 }
 
@@ -146,12 +193,19 @@ impl<E: EthSpec> Beacon<E> {
             .map_err(Into::into)
     }
 
+    pub fn get_head(&self) -> impl Future<Item = HeadResponse, Error = Error> {
+        let client = self.0.clone();
+        self.url("head")
+            .into_future()
+            .and_then(move |url| client.json_get::<HeadResponse>(url, vec![]))
+    }
+
     /// Returns the block and block root at the given slot.
     pub fn get_block_by_slot(
         &self,
         slot: Slot,
     ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
-        self.get_block("slot", format!("{}", slot.as_u64()))
+        self.get_block("slot".to_string(), format!("{}", slot.as_u64()))
     }
 
     /// Returns the block and block root at the given root.
@@ -159,25 +213,21 @@ impl<E: EthSpec> Beacon<E> {
         &self,
         root: Hash256,
     ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
-        self.get_block("root", root_as_string(root))
+        self.get_block("root".to_string(), root_as_string(root))
     }
 
     /// Returns the block and block root at the given slot.
     fn get_block(
         &self,
-        query_key: &'static str,
+        query_key: String,
         query_param: String,
     ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
         let client = self.0.clone();
         self.url("block")
             .into_future()
-            .and_then(move |mut url| {
-                url.query_pairs_mut().append_pair(query_key, &query_param);
-                client.get(&url.to_string())
+            .and_then(move |url| {
+                client.json_get::<BlockResponse<E>>(url, vec![(query_key, query_param)])
             })
-            .and_then(|builder| builder.send().map_err(Error::from))
-            .and_then(|response| response.error_for_status().map_err(Error::from))
-            .and_then(|mut success| success.json::<BlockResponse<E>>().map_err(Error::from))
             .map(|response| (response.beacon_block, response.root))
     }
 
@@ -186,7 +236,7 @@ impl<E: EthSpec> Beacon<E> {
         &self,
         slot: Slot,
     ) -> impl Future<Item = (BeaconState<E>, Hash256), Error = Error> {
-        self.get_state("slot", format!("{}", slot.as_u64()))
+        self.get_state("slot".to_string(), format!("{}", slot.as_u64()))
     }
 
     /// Returns the state and state root at the given root.
@@ -194,25 +244,21 @@ impl<E: EthSpec> Beacon<E> {
         &self,
         root: Hash256,
     ) -> impl Future<Item = (BeaconState<E>, Hash256), Error = Error> {
-        self.get_state("root", root_as_string(root))
+        self.get_state("root".to_string(), root_as_string(root))
     }
 
     /// Returns the state and state root at the given slot.
     fn get_state(
         &self,
-        query_key: &'static str,
+        query_key: String,
         query_param: String,
     ) -> impl Future<Item = (BeaconState<E>, Hash256), Error = Error> {
         let client = self.0.clone();
         self.url("state")
             .into_future()
-            .and_then(move |mut url| {
-                url.query_pairs_mut().append_pair(query_key, &query_param);
-                client.get(&url.to_string())
+            .and_then(move |url| {
+                client.json_get::<StateResponse<E>>(url, vec![(query_key, query_param)])
             })
-            .and_then(|builder| builder.send().map_err(Error::from))
-            .and_then(|response| response.error_for_status().map_err(Error::from))
-            .and_then(|mut success| success.json::<StateResponse<E>>().map_err(Error::from))
             .map(|response| (response.beacon_state, response.root))
     }
 }

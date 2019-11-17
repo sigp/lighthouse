@@ -3,13 +3,13 @@ use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use hyper::{Body, Request};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ssz_derive::Encode;
 use std::sync::Arc;
 use store::Store;
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot, Validator};
 
-#[derive(Serialize, Encode)]
+#[derive(Serialize, Deserialize, Encode)]
 pub struct HeadResponse {
     pub slot: Slot,
     pub block_root: Hash256,
