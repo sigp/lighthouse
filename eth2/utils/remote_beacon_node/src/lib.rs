@@ -3,7 +3,7 @@
 //!
 //! Presently, this is only used for testing but it _could_ become a user-facing library.
 
-use futures::{Future, IntoFuture};
+use futures::{future, Future, IntoFuture};
 use reqwest::{
     r#async::{Client, ClientBuilder, Response},
     StatusCode,
@@ -13,11 +13,10 @@ use ssz::Encode;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::time::Duration;
-use types::{BeaconBlock, BeaconState, EthSpec, Signature};
-use types::{Hash256, Slot};
+use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, PublicKey, Signature, Slot};
 use url::Url;
 
-pub use rest_api::HeadResponse;
+pub use rest_api::{HeadResponse, ValidatorDuty};
 
 pub const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 
@@ -37,8 +36,14 @@ impl<E: EthSpec> RemoteBeaconNode<E> {
 
 #[derive(Debug)]
 pub enum Error {
+    /// Unable to parse a URL. Check the server URL.
     UrlParseError(url::ParseError),
+    /// The `reqwest` library returned an error.
     ReqwestError(reqwest::Error),
+    /// There was an error when encoding/decoding an object using serde.
+    SerdeJsonError(serde_json::Error),
+    /// The server responded to the request, however it did not return a 200-type success code.
+    DidNotSucceed { status: StatusCode, body: String },
 }
 
 #[derive(Clone)]
@@ -102,8 +107,27 @@ impl<E: EthSpec> HttpClient<E> {
             .get(&url.to_string())
             .send()
             .map_err(Error::from)
-            .and_then(|response| response.error_for_status().map_err(Error::from))
+            .and_then(|response| error_for_status(response).map_err(Error::from))
             .and_then(|mut success| success.json::<T>().map_err(Error::from))
+    }
+}
+
+/// Returns an `Error` (with a description) if the `response` was not a 200-type success response.
+///
+/// Distinct from `Response::error_for_status` because it includes the body of the response as
+/// text. This ensures the error message from the server is not discarded.
+fn error_for_status(
+    mut response: Response,
+) -> Box<dyn Future<Item = Response, Error = Error> + Send> {
+    let status = response.status();
+
+    if status.is_success() {
+        Box::new(future::ok(response))
+    } else {
+        Box::new(response.text().then(move |text_result| match text_result {
+            Err(e) => Err(Error::ReqwestError(e)),
+            Ok(body) => Err(Error::DidNotSucceed { status, body }),
+        }))
     }
 }
 
@@ -135,6 +159,28 @@ impl<E: EthSpec> Validator<E> {
             .url("validator/")
             .and_then(move |url| url.join(path).map_err(Error::from))
             .map_err(Into::into)
+    }
+
+    /// Returns the duties required of the given validator pubkeys in the given epoch.
+    pub fn get_duties(
+        &self,
+        epoch: Epoch,
+        validator_pubkeys: &[PublicKey],
+    ) -> impl Future<Item = Vec<ValidatorDuty>, Error = Error> {
+        let validator_pubkeys: Vec<String> =
+            validator_pubkeys.iter().map(pubkey_as_string).collect();
+
+        let client = self.0.clone();
+        self.url("duties").into_future().and_then(move |url| {
+            let mut query_params = validator_pubkeys
+                .into_iter()
+                .map(|pubkey| ("validator_pubkeys".to_string(), pubkey))
+                .collect::<Vec<_>>();
+
+            query_params.push(("epoch".into(), format!("{}", epoch.as_u64())));
+
+            client.json_get::<_>(url, query_params)
+        })
     }
 
     /// Posts a block to the beacon node, expecting it to verify it and publish it to the network.
@@ -285,6 +331,10 @@ fn signature_as_string(signature: &Signature) -> String {
     format!("0x{}", hex::encode(signature.as_ssz_bytes()))
 }
 
+fn pubkey_as_string(pubkey: &PublicKey) -> String {
+    format!("0x{}", hex::encode(pubkey.as_ssz_bytes()))
+}
+
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Error {
         Error::ReqwestError(e)
@@ -294,5 +344,11 @@ impl From<reqwest::Error> for Error {
 impl From<url::ParseError> for Error {
     fn from(e: url::ParseError) -> Error {
         Error::UrlParseError(e)
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(e: serde_json::Error) -> Error {
+        Error::SerdeJsonError(e)
     }
 }

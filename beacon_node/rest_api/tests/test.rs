@@ -9,8 +9,8 @@ use remote_beacon_node::BeaconBlockPublishStatus;
 use std::sync::Arc;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconBlock, ChainSpec, Domain, EthSpec,
-    MinimalEthSpec, Signature, Slot,
+    test_utils::generate_deterministic_keypair, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec,
+    MinimalEthSpec, RelativeEpoch, Signature, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -58,6 +58,93 @@ fn sign_block<T: BeaconChainTypes>(
     let message = block.signed_root();
     let domain = spec.get_domain(epoch, Domain::BeaconProposer, &fork);
     block.signature = Signature::new(&message, domain, &keypair.sk);
+}
+
+#[test]
+fn validator_duties() {
+    let mut env = build_env();
+
+    let spec = &E::default_spec();
+
+    let node = LocalBeaconNode::production(env.core_context());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let beacon_chain = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain");
+
+    let epoch = Epoch::new(0);
+
+    let validators = beacon_chain
+        .head()
+        .beacon_state
+        .validators
+        .iter()
+        .map(|v| v.pubkey.clone())
+        .collect::<Vec<_>>();
+
+    let duties = env
+        .runtime()
+        .block_on(remote_node.http.validator().get_duties(epoch, &validators))
+        .expect("should fetch block from http api");
+
+    assert_eq!(
+        validators.len(),
+        duties.len(),
+        "there should be a duty for each validator"
+    );
+
+    let state = beacon_chain.head().beacon_state.clone();
+
+    validators
+        .iter()
+        .zip(duties.iter())
+        .for_each(|(validator, duty)| {
+            assert_eq!(*validator, duty.validator_pubkey, "pubkey should match");
+
+            let validator_index = state
+                .get_validator_index(validator)
+                .expect("should have pubkey cache")
+                .expect("pubkey should exist");
+
+            let attestation_duty = state
+                .get_attestation_duties(validator_index, RelativeEpoch::Current)
+                .expect("should have attestation duties cache")
+                .expect("should have attestation duties");
+
+            assert_eq!(
+                Some(attestation_duty.slot),
+                duty.attestation_slot,
+                "attestation slot should match"
+            );
+
+            assert_eq!(
+                Some(attestation_duty.shard),
+                duty.attestation_shard,
+                "attestation shard should match"
+            );
+
+            if let Some(slot) = duty.block_proposal_slot {
+                let expected_proposer = state
+                    .get_beacon_proposer_index(slot, RelativeEpoch::Current, spec)
+                    .expect("should know proposer");
+                assert_eq!(
+                    expected_proposer, validator_index,
+                    "should get correct proposal slot"
+                );
+            } else {
+                epoch.slot_iter(E::slots_per_epoch()).for_each(|slot| {
+                    let slot_proposer = state
+                        .get_beacon_proposer_index(slot, RelativeEpoch::Current, spec)
+                        .expect("should know proposer");
+                    assert!(
+                        slot_proposer != validator_index,
+                        "validator should not have proposal slot in this epoch"
+                    )
+                })
+            }
+        });
 }
 
 #[test]

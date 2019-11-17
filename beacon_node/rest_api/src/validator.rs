@@ -7,7 +7,7 @@ use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
-use bls::{AggregateSignature, PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
+use bls::{AggregateSignature, PublicKey};
 use futures::future::Future;
 use futures::stream::Stream;
 use hyper::{Body, Request};
@@ -27,18 +27,6 @@ pub struct ValidatorDuty {
     pub attestation_shard: Option<Shard>,
     /// The slot in which a validator must propose a block, or `null` if block production is not required.
     pub block_proposal_slot: Option<Slot>,
-}
-
-impl ValidatorDuty {
-    pub fn new() -> ValidatorDuty {
-        ValidatorDuty {
-            validator_pubkey: PublicKey::from_bytes(vec![0; BLS_PUBLIC_KEY_BYTE_SIZE].as_slice())
-                .expect("Should always be able to create a 'zero' BLS public key."),
-            attestation_slot: None,
-            attestation_shard: None,
-            block_proposal_slot: None,
-        }
-    }
 }
 
 /// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch
@@ -103,8 +91,12 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
 
     // Look up duties for each validator
     for val_pk in validators {
-        let mut duty = ValidatorDuty::new();
-        duty.validator_pubkey = val_pk.clone();
+        let mut duty = ValidatorDuty {
+            validator_pubkey: val_pk.clone(),
+            attestation_slot: None,
+            attestation_shard: None,
+            block_proposal_slot: None,
+        };
 
         // Get the validator index
         // If it does not exist in the index, just add a null duty and move on.
@@ -131,7 +123,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
             Ok(None) => {}
             Err(e) => {
                 return Err(ApiError::ServerError(format!(
-                    "unable to read cache for attestation duties: {:?}",
+                    "Unable to read cache for attestation duties: {:?}",
                     e
                 )))
             }
@@ -150,6 +142,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
 
         duties.append(&mut vec![duty]);
     }
+
     ResponseBuilder::new(&req)?.body_no_ssz(&duties)
 }
 

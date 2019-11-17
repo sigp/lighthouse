@@ -55,7 +55,7 @@ pub fn parse_signature(string: &str) -> Result<Signature, ApiError> {
             .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature bytes: {:?}", e)))
     } else {
         Err(ApiError::BadRequest(
-            "Signature must have a '0x' prefix".to_string(),
+            "Signature must have a 0x prefix".to_string(),
         ))
     }
 }
@@ -73,7 +73,7 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
             .map_err(|e| ApiError::BadRequest(format!("Unable to parse root: {:?}", e)))
     } else {
         Err(ApiError::BadRequest(
-            "Root must have a '0x' prefix".to_string(),
+            "Root must have a 0x prefix".to_string(),
         ))
     }
 }
@@ -90,7 +90,7 @@ pub fn parse_pubkey(string: &str) -> Result<PublicKey, ApiError> {
         Ok(pubkey)
     } else {
         Err(ApiError::BadRequest(
-            "Public key must have a '0x' prefix".to_string(),
+            "Public key must have a 0x prefix".to_string(),
         ))
     }
 }
