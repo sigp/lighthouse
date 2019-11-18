@@ -1,5 +1,6 @@
 use bls::get_withdrawal_credentials;
 use deposit_contract::eth1_tx_data;
+use hex;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::fs;
@@ -90,7 +91,13 @@ fn load_eth1_deposit_data(base_path: PathBuf) -> Result<Vec<u8>, String> {
         .read_to_end(&mut bytes)
         .map_err(|e| format!("Unable to read eth1 deposit data file: {}", e))?;
 
-    Ok(bytes)
+    let string = String::from_utf8_lossy(&bytes);
+    if string.starts_with("0x") {
+        hex::decode(&string[2..])
+            .map_err(|e| format!("Unable to decode eth1 data file as hex: {}", e))
+    } else {
+        Err(format!("String did not start with 0x: {}", string))
+    }
 }
 
 /// A helper struct to allow SSZ enc/dec for a `Keypair`.
@@ -273,7 +280,7 @@ impl ValidatorDirectoryBuilder {
 
         File::create(&path)
             .map_err(|e| format!("Unable to create file: {}", e))?
-            .write_all(&deposit_data)
+            .write_all(&format!("0x{}", hex::encode(&deposit_data)).as_bytes())
             .map_err(|e| format!("Unable to write eth1 data file: {}", e))?;
 
         self.deposit_data = Some(deposit_data);
