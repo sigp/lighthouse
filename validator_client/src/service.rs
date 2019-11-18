@@ -14,7 +14,6 @@ use crate::config::Config as ValidatorConfig;
 use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
 use crate::error as error_chain;
 use crate::signer::Signer;
-use bls::Keypair;
 use eth2_config::Eth2Config;
 use grpcio::{ChannelBuilder, EnvBuilder};
 use parking_lot::RwLock;
@@ -28,7 +27,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ChainSpec, Epoch, EthSpec, Fork, Slot};
+use types::{ChainSpec, Epoch, EthSpec, Fork, Keypair, Slot};
 
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.

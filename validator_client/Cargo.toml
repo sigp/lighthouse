@@ -9,7 +9,6 @@ name = "validator_client"
 path = "src/lib.rs"
 
 [dependencies]
-bls = { path = "../eth2/utils/bls" }
 eth2_ssz = "0.1.2"
 eth2_config = { path = "../eth2/utils/eth2_config" }
 tree_hash = "0.1.0"
@@ -37,3 +36,5 @@ environment = { path = "../lighthouse/environment" }
 parking_lot = "0.7"
 exit-future = "0.1.4"
 libc = "0.2.65"
+account_manager = { path = "../account_manager" }
+lazy_static = "1.4.0"

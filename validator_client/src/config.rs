@@ -1,5 +1,5 @@
+use account_manager::validator::ValidatorDirectory;
 use bincode;
-use bls::Keypair;
 use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, warn};
@@ -9,12 +9,8 @@ use std::ops::Range;
 use std::path::PathBuf;
 use types::{
     test_utils::{generate_deterministic_keypair, load_keypairs_from_yaml},
-    EthSpec, MainnetEthSpec,
+    EthSpec, Keypair, MainnetEthSpec,
 };
-
-pub const DEFAULT_SERVER: &str = "localhost";
-pub const DEFAULT_SERVER_GRPC_PORT: &str = "5051";
-pub const DEFAULT_SERVER_HTTP_PORT: &str = "5052";
 
 #[derive(Clone)]
 pub enum KeySource {
@@ -58,16 +54,12 @@ impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
         Self {
-            data_dir: PathBuf::from(".lighthouse-validator"),
+            data_dir: PathBuf::from(".lighthouse/validators"),
             key_source: <_>::default(),
             log_file: PathBuf::from(""),
-            server: DEFAULT_SERVER.into(),
-            server_grpc_port: DEFAULT_SERVER_GRPC_PORT
-                .parse::<u16>()
-                .expect("gRPC port constant should be valid"),
-            server_http_port: DEFAULT_SERVER_GRPC_PORT
-                .parse::<u16>()
-                .expect("HTTP port constant should be valid"),
+            server: "localhost".into(),
+            server_grpc_port: 5051,
+            server_http_port: 5052,
             slots_per_epoch: MainnetEthSpec::slots_per_epoch(),
         }
     }
@@ -106,75 +98,44 @@ impl Config {
         Ok(())
     }
 
-    /// Reads a single keypair from the given `path`.
+    /// Loads the validator keys from disk.
     ///
-    /// `path` should be the path to a directory containing a private key. The file name of `path`
-    /// must align with the public key loaded from it, otherwise an error is returned.
+    /// ## Errors
     ///
-    /// An error will be returned if `path` is a file (not a directory).
-    fn read_keypair_file(&self, path: PathBuf) -> Result<Keypair, String> {
-        if !path.is_dir() {
-            return Err("Is not a directory".into());
-        }
-
-        let key_filename: PathBuf = path.join(DEFAULT_PRIVATE_KEY_FILENAME);
-
-        if !key_filename.is_file() {
-            return Err(format!(
-                "Private key is not a file: {:?}",
-                key_filename.to_str()
-            ));
-        }
-
-        let mut key_file = File::open(key_filename.clone())
-            .map_err(|e| format!("Unable to open private key file: {}", e))?;
-
-        let key: Keypair = bincode::deserialize_from(&mut key_file)
-            .map_err(|e| format!("Unable to deserialize private key: {:?}", e))?;
-
-        let ki = key.identifier();
-        if ki
-            != path
-                .file_name()
-                .ok_or_else(|| "Invalid path".to_string())?
-                .to_string_lossy()
-        {
-            Err(format!(
-                "The validator key ({:?}) did not match the directory filename {:?}.",
-                ki,
-                path.to_str()
-            ))
-        } else {
-            Ok(key)
-        }
-    }
-
+    /// Returns an error if the base directory does not exist, however it does not return for any
+    /// invalid directories/files. Instead, it just filters out failures and logs errors. This
+    /// behaviour is intended to avoid the scenario where a single invalid file can stop all
+    /// validators.
     pub fn fetch_keys_from_disk(&self, log: &slog::Logger) -> Result<Vec<Keypair>, String> {
-        Ok(
-            fs::read_dir(&self.full_data_dir().expect("Data dir must exist"))
-                .map_err(|e| format!("Failed to read datadir: {:?}", e))?
-                .filter_map(|validator_dir| {
-                    let path = validator_dir.ok()?.path();
+        let base_dir = self
+            .full_data_dir()
+            .ok_or_else(|| format!("Base directory does not exist: {:?}", self.full_data_dir()))?;
 
-                    if path.is_dir() {
-                        match self.read_keypair_file(path.clone()) {
-                            Ok(keypair) => Some(keypair),
-                            Err(e) => {
-                                error!(
-                                    log,
-                                    "Failed to parse a validator keypair";
-                                    "error" => e,
-                                    "path" => path.to_str(),
-                                );
-                                None
-                            }
+        let keypairs = fs::read_dir(&base_dir)
+            .map_err(|e| format!("Failed to read base directory: {:?}", e))?
+            .filter_map(|validator_dir| {
+                let path = validator_dir.ok()?.path();
+
+                if path.is_dir() {
+                    match ValidatorDirectory::load_for_signing(path.clone()) {
+                        Ok(validator_directory) => validator_directory.voting_keypair,
+                        Err(e) => {
+                            error!(
+                                log,
+                                "Failed to load a validator directory";
+                                "error" => e,
+                                "path" => path.to_str(),
+                            );
+                            None
                         }
-                    } else {
-                        None
                     }
-                })
-                .collect(),
-        )
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(keypairs)
     }
 
     pub fn fetch_testing_keypairs(
