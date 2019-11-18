@@ -25,6 +25,27 @@ where
     serializer.serialize_str(&hex)
 }
 
+pub fn u32_from_hex_str<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+
+    u32::from_str_radix(&s.as_str()[2..], 16).map_err(D::Error::custom).map(u32::from_be)
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // Serde requires the `num` to be a ref.
+pub fn u32_to_hex_str<S>(num: &u32, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut hex: String = "0x".to_string();
+    let bytes = num.to_le_bytes();
+    hex.push_str(&hex::encode(&bytes));
+
+    serializer.serialize_str(&hex)
+}
+
 pub fn fork_from_hex_str<'de, D>(deserializer: D) -> Result<[u8; FORK_BYTES_LEN], D::Error>
 where
     D: Deserializer<'de>,
