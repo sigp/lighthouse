@@ -13,7 +13,9 @@ use ssz::Encode;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::time::Duration;
-use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, PublicKey, Signature, Slot};
+use types::{
+    Attestation, BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, PublicKey, Signature, Slot,
+};
 use url::Url;
 
 pub use rest_api::{HeadResponse, ValidatorDuty};
@@ -159,6 +161,30 @@ impl<E: EthSpec> Validator<E> {
             .url("validator/")
             .and_then(move |url| url.join(path).map_err(Error::from))
             .map_err(Into::into)
+    }
+
+    /// Produces an unsigned attestation.
+    pub fn produce_attestation(
+        &self,
+        slot: Slot,
+        shard: u64,
+        validator_pubkey: &PublicKey,
+        poc_bit: bool,
+    ) -> impl Future<Item = Attestation<E>, Error = Error> {
+        let query_params = vec![
+            ("slot".into(), format!("{}", slot)),
+            ("shard".into(), format!("{}", shard)),
+            ("poc_bit".into(), format!("{}", poc_bit as u8)),
+            (
+                "validator_pubkey".into(),
+                pubkey_as_string(validator_pubkey),
+            ),
+        ];
+
+        let client = self.0.clone();
+        self.url("attestation")
+            .into_future()
+            .and_then(move |url| client.json_get(url, query_params))
     }
 
     /// Returns the duties required of the given validator pubkeys in the given epoch.

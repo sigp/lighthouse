@@ -61,6 +61,44 @@ fn sign_block<T: BeaconChainTypes>(
 }
 
 #[test]
+fn validator_produce_attestation() {
+    let mut env = build_env();
+
+    let node = LocalBeaconNode::production(env.core_context());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let beacon_chain = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain");
+    let state = beacon_chain.head().beacon_state.clone();
+
+    let validator_index = 0;
+    let validator_pubkey = state.validators[validator_index].pubkey.clone();
+    let duties = state
+        .get_attestation_duties(validator_index, RelativeEpoch::Current)
+        .expect("should have attestation duties cache")
+        .expect("should have attestation duties");
+
+    let attestation = env
+        .runtime()
+        .block_on(remote_node.http.validator().produce_attestation(
+            duties.slot,
+            duties.shard,
+            &validator_pubkey,
+            false,
+        ))
+        .expect("should fetch attestation from http api");
+
+    assert_eq!(
+        attestation.data.crosslink.shard, duties.shard,
+        "should have same shard"
+    );
+
+    // TODO: try to push the attestation.
+}
+
+#[test]
 fn validator_duties() {
     let mut env = build_env();
 
