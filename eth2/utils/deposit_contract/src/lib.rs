@@ -1,6 +1,6 @@
 use ethabi::{Contract, Token};
 use ssz::Encode;
-use types::{ChainSpec, DepositData, SecretKey};
+use types::{DepositData, SecretKey};
 
 pub use ethabi::Error;
 
@@ -25,8 +25,8 @@ pub fn eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error> {
 mod tests {
     use super::*;
     use types::{
-        test_utils::generate_deterministic_keypair, EthSpec, Hash256, Keypair, MinimalEthSpec,
-        Signature,
+        test_utils::generate_deterministic_keypair, ChainSpec, EthSpec, Hash256, Keypair,
+        MinimalEthSpec, Signature,
     };
 
     type E = MinimalEthSpec;
