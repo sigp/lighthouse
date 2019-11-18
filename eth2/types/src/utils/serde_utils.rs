@@ -31,7 +31,9 @@ where
 {
     let s: String = Deserialize::deserialize(deserializer)?;
 
-    u32::from_str_radix(&s.as_str()[2..], 16).map_err(D::Error::custom).map(u32::from_be)
+    u32::from_str_radix(&s.as_str()[2..], 16)
+        .map_err(D::Error::custom)
+        .map(u32::from_be)
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // Serde requires the `num` to be a ref.
