@@ -4,6 +4,13 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com"]
 edition = "2018"
 
+[lib]
+name = "beacon_node"
+path = "src/lib.rs"
+
+[dev-dependencies]
+node_test_rig = { path = "../tests/node_test_rig" }
+
 [dependencies]
 eth2_config = { path = "../eth2/utils/eth2_config" }
 lighthouse_bootstrap = { path = "../eth2/utils/lighthouse_bootstrap" }
@@ -25,3 +32,5 @@ env_logger = "0.7.1"
 dirs = "2.0.2"
 logging = { path = "../eth2/utils/logging" }
 futures = "0.1.29"
+environment = { path = "../lighthouse/environment" }
+genesis = { path = "genesis" }

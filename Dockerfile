@@ -19,6 +19,8 @@ RUN git clone https://github.com/google/protobuf.git && \
     cd .. && \
     rm -r protobuf
 
+RUN apt-get install -y nodejs npm
+RUN npm install -g ganache-cli --unsafe-perm
 
 RUN mkdir -p /cache/cargocache && chmod -R ugo+rwX /cache/cargocache
 

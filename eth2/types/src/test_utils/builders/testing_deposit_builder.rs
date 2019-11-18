@@ -30,14 +30,7 @@ impl TestingDepositBuilder {
     /// - `pubkey` to the signing pubkey.
     /// - `withdrawal_credentials` to the signing pubkey.
     /// - `proof_of_possession`
-    pub fn sign(
-        &mut self,
-        test_task: &DepositTestTask,
-        keypair: &Keypair,
-        epoch: Epoch,
-        fork: &Fork,
-        spec: &ChainSpec,
-    ) {
+    pub fn sign(&mut self, test_task: &DepositTestTask, keypair: &Keypair, spec: &ChainSpec) {
         let new_key = Keypair::random();
         let mut pubkeybytes = PublicKeyBytes::from(keypair.pk.clone());
         let mut secret_key = keypair.sk.clone();
@@ -61,10 +54,7 @@ impl TestingDepositBuilder {
         // Building the data and signing it
         self.deposit.data.pubkey = pubkeybytes;
         self.deposit.data.withdrawal_credentials = withdrawal_credentials;
-        self.deposit.data.signature =
-            self.deposit
-                .data
-                .create_signature(&secret_key, epoch, fork, spec);
+        self.deposit.data.signature = self.deposit.data.create_signature(&secret_key, spec);
     }
 
     /// Builds the deposit, consuming the builder.

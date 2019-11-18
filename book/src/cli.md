@@ -1,24 +1,32 @@
 # Command-Line Interface (CLI)
 
-Lighthouse a collection of CLI applications. The two primary binaries are:
+The `lighthouse` binary provides all necessary Ethereum 2.0 functionality. It
+has two primary sub-commands:
 
-- `beacon_node`: the largest and most fundamental component which connects to
+- `$ lighthouse beacon_node`: the largest and most fundamental component which connects to
 	the p2p network, processes messages and tracks the head of the beacon
 	chain.
-- `validator_client`: a lightweight but important component which loads a validators private
+- `$ lighthouse validator_client`: a lightweight but important component which loads a validators private
 	key and signs messages using a `beacon_node` as a source-of-truth.
 
-There are also some ancillary binaries:
+There are also some ancillary binaries like `lcli` and `account_manager`, but
+these are primarily for testing.
 
-- `account_manager`: generates cryptographic keys.
-- `lcli`: a general-purpose utility for troubleshooting Lighthouse state
-	transitions (developer tool).
+> **Note:** documentation sometimes uses `$ lighthouse bn` and `$ lighthouse
+> vc` instead of the long-form `beacon_node` and `validator_client`. These
+> commands are valid on the CLI too.
 
 ## Installation
 
-Presently, we recommend building Lighthouse using the `$ cargo build --release
---all` command and executing binaries from the
-`<lighthouse-repository>/target/release` directory.
+Typical users may install `lighthouse` to `CARGO_HOME` with `cargo install
+--path lighthouse` from the root of the repository. See ["Configuring the
+`PATH` environment variable"](https://www.rust-lang.org/tools/install) for more
+information.
+
+For develeopers, we recommend building Lighthouse using the `$ cargo build --release
+--bin lighthouse` command and executing binaries from the
+`<lighthouse-repository>/target/release` directory. This is more ergonomic when
+modifying and rebuilding regularly.
 
 ## Documentation
 
@@ -27,36 +35,29 @@ documentation.
 
 
 ```bash
-$ ./beacon_node --help
+$ lighthouse beacon_node --help
 ```
 
 ```bash
-$ ./validator_client --help
-```
-
-```bash
-$ ./account_manager --help
-```
-
-```bash
-$ ./lcli --help
+$ lighthouse validator_client --help
 ```
 
 ## Beacon Node
 
-The `beacon_node` CLI has two primary tasks:
+The `$ lighthouse beacon_node` (or `$ lighthouse bn`) command has two primary
+tasks:
 
-- **Resuming** an existing database with `$ ./beacon_node`.
-- **Creating** a new testnet database using `$ ./beacon_node testnet`.
+- **Resuming** an existing database with `$ lighthouse bn`.
+- **Creating** a new testnet database using `$ lighthouse bn testnet`.
 
 ## Creating a new database
 
-Use the `$./beacon_node testnet` command (see [testnets](./testnets.md) for more
-information).
+Use the `$ lighthouse bn testnet` command (see [testnets](./testnets.md) for
+more information).
 
 ## Resuming from an existing database
 
-Once a database has been created, it can be resumed by running `$ ./beacon_node`.
+Once a database has been created, it can be resumed by running `$ lighthouse bn`.
 
-Presently, this command will fail if no existing database is found. You must
-use the `$ ./beacon_node testnet` command to create a new database.
+Presently, you are not allowed to call `$ lighthouse bn` unless you have first
+created a database using `$ lighthouse bn testnet`.

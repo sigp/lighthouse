@@ -1,14 +1,17 @@
 use crate::{
-    events::NullEventHandler, AttestationProcessingOutcome, BeaconChain, BeaconChainBuilder,
-    BeaconChainTypes, BlockProcessingOutcome, InteropEth1ChainBackend,
+    builder::{BeaconChainBuilder, Witness},
+    eth1_chain::CachingEth1Backend,
+    events::NullEventHandler,
+    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
-use lmd_ghost::LmdGhost;
+use genesis::interop_genesis_state;
+use lmd_ghost::ThreadSafeReducedTree;
 use rayon::prelude::*;
 use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
-use std::marker::PhantomData;
 use std::sync::Arc;
+use std::time::Duration;
 use store::MemoryStore;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
@@ -17,11 +20,19 @@ use types::{
     Slot,
 };
 
+pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 pub use types::test_utils::generate_deterministic_keypairs;
 
-pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
-
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690; // 4th September 2019
+
+pub type HarnessType<E> = Witness<
+    MemoryStore,
+    TestingSlotClock,
+    ThreadSafeReducedTree<MemoryStore, E>,
+    CachingEth1Backend<E, MemoryStore>,
+    E,
+    NullEventHandler<E>,
+>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -48,50 +59,19 @@ pub enum AttestationStrategy {
     SomeValidators(Vec<usize>),
 }
 
-/// Used to make the `BeaconChainHarness` generic over some types.
-pub struct CommonTypes<L, E>
-where
-    L: LmdGhost<MemoryStore, E>,
-    E: EthSpec,
-{
-    _phantom_l: PhantomData<L>,
-    _phantom_e: PhantomData<E>,
-}
-
-impl<L, E> BeaconChainTypes for CommonTypes<L, E>
-where
-    L: LmdGhost<MemoryStore, E> + 'static,
-    E: EthSpec,
-{
-    type Store = MemoryStore;
-    type SlotClock = TestingSlotClock;
-    type LmdGhost = L;
-    type Eth1Chain = InteropEth1ChainBackend<E>;
-    type EthSpec = E;
-    type EventHandler = NullEventHandler<E>;
-}
-
 /// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
 /// attestations.
 ///
 /// Used for testing.
-pub struct BeaconChainHarness<L, E>
-where
-    L: LmdGhost<MemoryStore, E> + 'static,
-    E: EthSpec,
-{
-    pub chain: BeaconChain<CommonTypes<L, E>>,
+pub struct BeaconChainHarness<T: BeaconChainTypes> {
+    pub chain: BeaconChain<T>,
     pub keypairs: Vec<Keypair>,
     pub spec: ChainSpec,
 }
 
-impl<L, E> BeaconChainHarness<L, E>
-where
-    L: LmdGhost<MemoryStore, E>,
-    E: EthSpec,
-{
+impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn new(keypairs: Vec<Keypair>) -> Self {
+    pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
         let spec = E::default_spec();
 
         let log = TerminalLoggerBuilder::new()
@@ -99,22 +79,29 @@ where
             .build()
             .expect("logger should build");
 
-        let store = Arc::new(MemoryStore::open());
-
-        let chain =
-            BeaconChainBuilder::quick_start(HARNESS_GENESIS_TIME, &keypairs, spec.clone(), log)
-                .unwrap_or_else(|e| panic!("Failed to create beacon chain builder: {}", e))
-                .build(
-                    store.clone(),
-                    InteropEth1ChainBackend::default(),
-                    NullEventHandler::default(),
-                )
-                .unwrap_or_else(|e| panic!("Failed to build beacon chain: {}", e));
+        let chain = BeaconChainBuilder::new(eth_spec_instance)
+            .logger(log.clone())
+            .custom_spec(spec.clone())
+            .store(Arc::new(MemoryStore::open()))
+            .genesis_state(
+                interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec)
+                    .expect("should generate interop state"),
+            )
+            .expect("should build state using recent genesis")
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
+            .null_event_handler()
+            .testing_slot_clock(Duration::from_secs(1))
+            .expect("should configure testing slot clock")
+            .empty_reduced_tree_fork_choice()
+            .expect("should add fork choice to builder")
+            .build()
+            .expect("should build");
 
         Self {
+            spec: chain.spec.clone(),
             chain,
             keypairs,
-            spec,
         }
     }
 

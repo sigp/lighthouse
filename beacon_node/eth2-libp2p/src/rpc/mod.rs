@@ -69,8 +69,8 @@ pub struct RPC<TSubstream> {
 }
 
 impl<TSubstream> RPC<TSubstream> {
-    pub fn new(log: &slog::Logger) -> Self {
-        let log = log.new(o!("Service" => "Libp2p-RPC"));
+    pub fn new(log: slog::Logger) -> Self {
+        let log = log.new(o!("service" => "libp2p_rpc"));
         RPC {
             events: Vec::new(),
             marker: PhantomData,
