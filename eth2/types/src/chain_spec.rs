@@ -1,7 +1,7 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
-use utils::{u8_from_hex_str, u8_to_hex_str};
+use utils::{u32_from_hex_str, u32_to_hex_str, u8_from_hex_str, u8_to_hex_str};
 
 /// Each of the BLS signature domains.
 ///
@@ -270,4 +270,354 @@ mod tests {
         test_domain(Domain::VoluntaryExit, spec.domain_voluntary_exit, &spec);
         test_domain(Domain::Transfer, spec.domain_transfer, &spec);
     }
+}
+
+// Yaml Config is declared here in order to access domain fields of ChainSpec which are private fields.
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "UPPERCASE")]
+#[serde(default)]
+// #[serde(deny_unknown_fields)] is not applied because we're using #default for fields that are not found.
+/// Union of a ChainSpec struct and an EthSpec struct that holds constants used for the configs folder of the Ethereum 2 spec (https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
+/// Spec v0.8.1
+pub struct YamlConfig {
+    // ChainSpec
+    far_future_epoch: u64,
+    base_rewards_per_epoch: u64,
+    deposit_contract_tree_depth: u64,
+    seconds_per_day: u64,
+    target_committee_size: usize,
+    min_per_epoch_churn_limit: u64,
+    churn_limit_quotient: u64,
+    shuffle_round_count: u8,
+    min_genesis_active_validator_count: u64,
+    min_genesis_time: u64,
+    min_deposit_amount: u64,
+    max_effective_balance: u64,
+    ejection_balance: u64,
+    effective_balance_increment: u64,
+    genesis_slot: u64,
+    #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
+    bls_withdrawal_prefix: u8,
+    seconds_per_slot: u64,
+    min_attestation_inclusion_delay: u64,
+    min_seed_lookahead: u64,
+    activation_exit_delay: u64,
+    min_validator_withdrawability_delay: u64,
+    persistent_committee_period: u64,
+    max_epochs_per_crosslink: u64,
+    min_epochs_to_inactivity_penalty: u64,
+    base_reward_factor: u64,
+    whistleblower_reward_quotient: u64,
+    proposer_reward_quotient: u64,
+    inactivity_penalty_quotient: u64,
+    min_slashing_penalty_quotient: u64,
+    #[serde(
+        deserialize_with = "u32_from_hex_str",
+        serialize_with = "u32_to_hex_str"
+    )]
+    domain_beacon_proposer: u32,
+    #[serde(
+        deserialize_with = "u32_from_hex_str",
+        serialize_with = "u32_to_hex_str"
+    )]
+    domain_randao: u32,
+    #[serde(
+        deserialize_with = "u32_from_hex_str",
+        serialize_with = "u32_to_hex_str"
+    )]
+    domain_attestation: u32,
+    #[serde(
+        deserialize_with = "u32_from_hex_str",
+        serialize_with = "u32_to_hex_str"
+    )]
+    domain_deposit: u32,
+    #[serde(
+        deserialize_with = "u32_from_hex_str",
+        serialize_with = "u32_to_hex_str"
+    )]
+    domain_voluntary_exit: u32,
+    #[serde(
+        deserialize_with = "u32_from_hex_str",
+        serialize_with = "u32_to_hex_str"
+    )]
+    domain_transfer: u32,
+
+    // EthSpec
+    justification_bits_length: u32,
+    shard_count: usize,
+    max_validators_per_committee: u32,
+    genesis_epoch: Epoch,
+    slots_per_epoch: u64,
+    slots_per_eth1_voting_period: usize,
+    slots_per_historical_root: usize,
+    epochs_per_historical_vector: usize,
+    epochs_per_slashings_vector: usize,
+    historical_roots_limit: u64,
+    validator_registry_limit: u64,
+    max_proposer_slashings: u32,
+    max_attester_slashings: u32,
+    max_attestations: u32,
+    max_deposits: u32,
+    max_voluntary_exits: u32,
+    max_transfers: u32,
+
+    // Unused
+    #[serde(skip)]
+    early_derived_secret_penalty_max_future_epochs: u32,
+    #[serde(skip)]
+    max_seed_lookahead: u32,
+    #[serde(skip)]
+    deposit_contract_address: String,
+
+    // Phase 1
+    #[serde(skip)]
+    epochs_per_custody_period: u32,
+    #[serde(skip)]
+    custody_period_to_randao_padding: u32,
+    #[serde(skip)]
+    shard_slots_per_beacon_slot: u32,
+    #[serde(skip)]
+    epochs_per_shard_period: u32,
+    #[serde(skip)]
+    phase_1_fork_epoch: u32,
+    #[serde(skip)]
+    phase_1_fork_slot: u32,
+    #[serde(skip)]
+    domain_custody_bit_challenge: u32,
+    #[serde(skip)]
+    domain_shard_proposer: u32,
+    #[serde(skip)]
+    domain_shard_attester: u32,
+}
+
+impl Default for YamlConfig {
+    fn default() -> Self {
+        let chain_spec = MainnetEthSpec::default_spec();
+        YamlConfig::from_spec::<MainnetEthSpec>(&chain_spec)
+    }
+}
+
+/// Spec v0.8.1
+impl YamlConfig {
+    pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+        Self {
+            // ChainSpec
+            far_future_epoch: spec.far_future_epoch.into(),
+            base_rewards_per_epoch: spec.base_rewards_per_epoch,
+            deposit_contract_tree_depth: spec.deposit_contract_tree_depth,
+            seconds_per_day: spec.seconds_per_day,
+            target_committee_size: spec.target_committee_size,
+            min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
+            churn_limit_quotient: spec.churn_limit_quotient,
+            shuffle_round_count: spec.shuffle_round_count,
+            min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
+            min_genesis_time: spec.min_genesis_time,
+            min_deposit_amount: spec.min_deposit_amount,
+            max_effective_balance: spec.max_effective_balance,
+            ejection_balance: spec.ejection_balance,
+            effective_balance_increment: spec.effective_balance_increment,
+            genesis_slot: spec.genesis_slot.into(),
+            bls_withdrawal_prefix: spec.bls_withdrawal_prefix_byte,
+            seconds_per_slot: spec.milliseconds_per_slot / 1000,
+            min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
+            min_seed_lookahead: spec.min_seed_lookahead.into(),
+            activation_exit_delay: spec.activation_exit_delay,
+            min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay.into(),
+            persistent_committee_period: spec.persistent_committee_period,
+            max_epochs_per_crosslink: spec.max_epochs_per_crosslink,
+            min_epochs_to_inactivity_penalty: spec.min_epochs_to_inactivity_penalty,
+            base_reward_factor: spec.base_reward_factor,
+            whistleblower_reward_quotient: spec.whistleblower_reward_quotient,
+            proposer_reward_quotient: spec.proposer_reward_quotient,
+            inactivity_penalty_quotient: spec.inactivity_penalty_quotient,
+            min_slashing_penalty_quotient: spec.min_slashing_penalty_quotient,
+            domain_beacon_proposer: spec.domain_beacon_proposer,
+            domain_randao: spec.domain_randao,
+            domain_attestation: spec.domain_attestation,
+            domain_deposit: spec.domain_deposit,
+            domain_voluntary_exit: spec.domain_voluntary_exit,
+            domain_transfer: spec.domain_transfer,
+
+            // EthSpec
+            justification_bits_length: T::JustificationBitsLength::to_u32(),
+            shard_count: T::shard_count(),
+            max_validators_per_committee: T::MaxValidatorsPerCommittee::to_u32(),
+            genesis_epoch: T::genesis_epoch(),
+            slots_per_epoch: T::slots_per_epoch(),
+            slots_per_eth1_voting_period: T::slots_per_eth1_voting_period(),
+            slots_per_historical_root: T::slots_per_historical_root(),
+            epochs_per_historical_vector: T::epochs_per_historical_vector(),
+            epochs_per_slashings_vector: T::EpochsPerSlashingsVector::to_usize(),
+            historical_roots_limit: T::HistoricalRootsLimit::to_u64(),
+            validator_registry_limit: T::ValidatorRegistryLimit::to_u64(),
+            max_proposer_slashings: T::MaxProposerSlashings::to_u32(),
+            max_attester_slashings: T::MaxAttesterSlashings::to_u32(),
+            max_attestations: T::MaxAttestations::to_u32(),
+            max_deposits: T::MaxDeposits::to_u32(),
+            max_voluntary_exits: T::MaxVoluntaryExits::to_u32(),
+            max_transfers: T::MaxTransfers::to_u32(),
+
+            // Unused
+            early_derived_secret_penalty_max_future_epochs: 0,
+            max_seed_lookahead: 0,
+            deposit_contract_address: String::new(),
+
+            // Phase 1
+            epochs_per_custody_period: 0,
+            custody_period_to_randao_padding: 0,
+            shard_slots_per_beacon_slot: 0,
+            epochs_per_shard_period: 0,
+            phase_1_fork_epoch: 0,
+            phase_1_fork_slot: 0,
+            domain_custody_bit_challenge: 0,
+            domain_shard_proposer: 0,
+            domain_shard_attester: 0,
+        }
+    }
+
+    pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
+        // Checking for EthSpec constants
+        if self.justification_bits_length != T::JustificationBitsLength::to_u32()
+            || self.shard_count != T::shard_count()
+            || self.max_validators_per_committee != T::MaxValidatorsPerCommittee::to_u32()
+            || self.genesis_epoch != T::genesis_epoch()
+            || self.slots_per_epoch != T::slots_per_epoch()
+            || self.slots_per_eth1_voting_period != T::slots_per_eth1_voting_period()
+            || self.slots_per_historical_root != T::slots_per_historical_root()
+            || self.epochs_per_historical_vector != T::epochs_per_historical_vector()
+            || self.epochs_per_slashings_vector != T::EpochsPerSlashingsVector::to_usize()
+            || self.historical_roots_limit != T::HistoricalRootsLimit::to_u64()
+            || self.validator_registry_limit != T::ValidatorRegistryLimit::to_u64()
+            || self.max_proposer_slashings != T::MaxProposerSlashings::to_u32()
+            || self.max_attester_slashings != T::MaxAttesterSlashings::to_u32()
+            || self.max_attestations != T::MaxAttestations::to_u32()
+            || self.max_deposits != T::MaxDeposits::to_u32()
+            || self.max_voluntary_exits != T::MaxVoluntaryExits::to_u32()
+            || self.max_transfers != T::MaxTransfers::to_u32()
+        {
+            return None;
+        }
+
+        // Create a ChainSpec from the yaml config
+        Some(ChainSpec {
+            far_future_epoch: Epoch::from(self.far_future_epoch),
+            base_rewards_per_epoch: self.base_rewards_per_epoch,
+            deposit_contract_tree_depth: self.deposit_contract_tree_depth,
+            seconds_per_day: self.seconds_per_day,
+            target_committee_size: self.target_committee_size,
+            min_per_epoch_churn_limit: self.min_per_epoch_churn_limit,
+            churn_limit_quotient: self.churn_limit_quotient,
+            shuffle_round_count: self.shuffle_round_count,
+            min_genesis_active_validator_count: self.min_genesis_active_validator_count,
+            min_genesis_time: self.min_genesis_time,
+            min_deposit_amount: self.min_deposit_amount,
+            max_effective_balance: self.max_effective_balance,
+            ejection_balance: self.ejection_balance,
+            effective_balance_increment: self.effective_balance_increment,
+            genesis_slot: Slot::from(self.genesis_slot),
+            bls_withdrawal_prefix_byte: self.bls_withdrawal_prefix,
+            milliseconds_per_slot: self.seconds_per_slot * 1000,
+            min_attestation_inclusion_delay: self.min_attestation_inclusion_delay,
+            min_seed_lookahead: Epoch::from(self.min_seed_lookahead),
+            activation_exit_delay: self.activation_exit_delay,
+            min_validator_withdrawability_delay: Epoch::from(
+                self.min_validator_withdrawability_delay,
+            ),
+            persistent_committee_period: self.persistent_committee_period,
+            max_epochs_per_crosslink: self.max_epochs_per_crosslink,
+            min_epochs_to_inactivity_penalty: self.min_epochs_to_inactivity_penalty,
+            base_reward_factor: self.base_reward_factor,
+            whistleblower_reward_quotient: self.whistleblower_reward_quotient,
+            proposer_reward_quotient: self.proposer_reward_quotient,
+            inactivity_penalty_quotient: self.inactivity_penalty_quotient,
+            min_slashing_penalty_quotient: self.min_slashing_penalty_quotient,
+            domain_beacon_proposer: self.domain_beacon_proposer,
+            domain_randao: self.domain_randao,
+            domain_attestation: self.domain_attestation,
+            domain_deposit: self.domain_deposit,
+            domain_voluntary_exit: self.domain_voluntary_exit,
+            domain_transfer: self.domain_transfer,
+            boot_nodes: chain_spec.boot_nodes.clone(),
+            ..*chain_spec
+        })
+    }
+}
+
+#[cfg(test)]
+mod yaml_tests {
+    use super::*;
+    use std::fs::OpenOptions;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn minimal_round_trip() {
+        // create temp file
+        let tmp_file = NamedTempFile::new().expect("failed to create temp file");
+        let writer = OpenOptions::new()
+            .read(false)
+            .write(true)
+            .open(tmp_file.as_ref())
+            .expect("error opening file");
+        let minimal_spec = ChainSpec::minimal();
+
+        let yamlconfig = YamlConfig::from_spec::<MinimalEthSpec>(&minimal_spec);
+        // write fresh minimal config to file
+        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
+
+        let reader = OpenOptions::new()
+            .read(true)
+            .write(false)
+            .open(tmp_file.as_ref())
+            .expect("error while opening the file");
+        // deserialize minimal config from file
+        let from: YamlConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
+        assert_eq!(from, yamlconfig);
+    }
+
+    #[test]
+    fn mainnet_round_trip() {
+        let tmp_file = NamedTempFile::new().expect("failed to create temp file");
+        let writer = OpenOptions::new()
+            .read(false)
+            .write(true)
+            .open(tmp_file.as_ref())
+            .expect("error opening file");
+        let mainnet_spec = ChainSpec::mainnet();
+        let yamlconfig = YamlConfig::from_spec::<MainnetEthSpec>(&mainnet_spec);
+        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
+
+        let reader = OpenOptions::new()
+            .read(true)
+            .write(false)
+            .open(tmp_file.as_ref())
+            .expect("error while opening the file");
+        let from: YamlConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
+        assert_eq!(from, yamlconfig);
+    }
+
+    #[test]
+    fn apply_to_spec() {
+        let mut spec = ChainSpec::minimal();
+        let yamlconfig = YamlConfig::from_spec::<MinimalEthSpec>(&spec);
+
+        // modifying the original spec
+        spec.deposit_contract_tree_depth += 1;
+        // Applying a yaml config with incorrect EthSpec should fail
+        let res = yamlconfig.apply_to_chain_spec::<MainnetEthSpec>(&spec);
+        assert_eq!(res, None);
+
+        // Applying a yaml config with correct EthSpec should NOT fail
+        let new_spec = yamlconfig
+            .apply_to_chain_spec::<MinimalEthSpec>(&spec)
+            .expect("should have applied spec");
+        assert_eq!(new_spec, ChainSpec::minimal());
+    }
+
+    // Stub for testing deserializing
+    // fn minimal() {
+    // let path = "/path/to/minimal.yaml";
+    // let file = std::fs::File::open(path).unwrap();
+    // let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
+    // assert_eq!(yamlconfig, YamlConfig::from_spec::<MinimalEthSpec>(&ChainSpec::minimal()));
+    // }
 }
