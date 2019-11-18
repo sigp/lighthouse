@@ -84,6 +84,11 @@ pub struct ChainSpec {
     domain_deposit: u32,
     domain_voluntary_exit: u32,
 
+    /*
+     * Fork choice
+     */
+    pub safe_slots_to_update_justified: u64,
+
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
 }
@@ -183,6 +188,11 @@ impl ChainSpec {
             domain_randao: 2,
             domain_deposit: 3,
             domain_voluntary_exit: 4,
+
+            /*
+             * Fork choice
+             */
+            safe_slots_to_update_justified: 8,
 
             /*
              * Network specific
