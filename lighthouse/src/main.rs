@@ -31,7 +31,6 @@ fn main() {
                 .value_name("TITLE")
                 .help("Specifies the default eth2 spec type. Only effective when creating a new datadir.")
                 .takes_value(true)
-                .required(true)
                 .possible_values(&["mainnet", "minimal", "interop"])
                 .global(true)
                 .default_value("minimal")
@@ -124,7 +123,7 @@ fn run<E: EthSpec>(
     //
     // Creating a command which can run both might be useful future works.
 
-    if let Some(sub_matches) = matches.subcommand_matches("Account Manager") {
+    if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
         let runtime_context = environment.core_context();
 
         account_manager::run(sub_matches, runtime_context);

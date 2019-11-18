@@ -14,12 +14,16 @@ use types::{
 
 const VOTING_KEY_PREFIX: &str = "voting";
 const WITHDRAWAL_KEY_PREFIX: &str = "withdrawal";
-const ETH1_DEPOSIT_DATA_FILE: &str = "eth1_deposit_data_{}.rlp";
+const ETH1_DEPOSIT_DATA_FILE: &str = "eth1_deposit_data.rlp";
 
+/// Returns the filename of a keypair file.
 fn keypair_file(prefix: &str) -> String {
     format!("{}_keypair", prefix)
 }
 
+/// Represents the files/objects for each dedicated lighthouse validator directory.
+///
+/// Generally lives in `~/.lighthouse/validators/`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatorDirectory {
     pub directory: PathBuf,
@@ -51,6 +55,7 @@ impl ValidatorDirectory {
     }
 }
 
+/// Load a `Keypair` from a file.
 fn load_keypair(base_path: PathBuf, file_prefix: &str) -> Result<Keypair, String> {
     let path = base_path.join(keypair_file(file_prefix));
 
@@ -70,6 +75,7 @@ fn load_keypair(base_path: PathBuf, file_prefix: &str) -> Result<Keypair, String
         .map_err(|e| format!("Unable to decode keypair: {:?}", e))
 }
 
+/// Load eth1_deposit_data from file.
 fn load_eth1_deposit_data(base_path: PathBuf) -> Result<Vec<u8>, String> {
     let path = base_path.join(ETH1_DEPOSIT_DATA_FILE);
 
@@ -87,6 +93,7 @@ fn load_eth1_deposit_data(base_path: PathBuf) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// A helper struct to allow SSZ enc/dec for a `Keypair`.
 #[derive(Encode, Decode)]
 struct SszEncodableKeypair {
     pk: PublicKey,
@@ -111,6 +118,7 @@ impl From<Keypair> for SszEncodableKeypair {
     }
 }
 
+/// Builds a `ValidatorDirectory`, both in-memory and on-disk.
 #[derive(Default)]
 pub struct ValidatorDirectoryBuilder {
     directory: Option<PathBuf>,
@@ -141,13 +149,13 @@ impl ValidatorDirectoryBuilder {
         self
     }
 
-    pub fn random_keypairs(mut self) -> Self {
+    pub fn thread_random_keypairs(mut self) -> Self {
         self.voting_keypair = Some(Keypair::random());
         self.withdrawal_keypair = Some(Keypair::random());
         self
     }
 
-    pub fn deterministic_keypairs(mut self, index: usize) -> Self {
+    pub fn insecure_keypairs(mut self, index: usize) -> Self {
         let keypair = generate_deterministic_keypair(index);
         self.voting_keypair = Some(keypair.clone());
         self.withdrawal_keypair = Some(keypair);
@@ -292,7 +300,7 @@ mod tests {
     type E = MinimalEthSpec;
 
     #[test]
-    fn round_trip() {
+    fn random_keypairs_round_trip() {
         let spec = E::default_spec();
         let temp_dir = TempDir::new("acc_manager").expect("should create test dir");
 
@@ -300,7 +308,7 @@ mod tests {
             .spec(spec)
             .full_deposit_amount()
             .expect("should set full deposit amount")
-            .deterministic_keypairs(42)
+            .thread_random_keypairs()
             .create_directory(temp_dir.path().into())
             .expect("should create directory")
             .write_keypair_files()
@@ -309,6 +317,69 @@ mod tests {
             .expect("should write eth1 data file")
             .build()
             .expect("should build dir");
+
+        let loaded_dir = ValidatorDirectory::load_for_signing(created_dir.directory.clone())
+            .expect("should load directory");
+
+        assert_eq!(
+            created_dir, loaded_dir,
+            "the directory created should match the one loaded"
+        );
+    }
+
+    #[test]
+    fn deterministic_keypairs_round_trip() {
+        let spec = E::default_spec();
+        let temp_dir = TempDir::new("acc_manager").expect("should create test dir");
+        let index = 42;
+
+        let created_dir = ValidatorDirectoryBuilder::default()
+            .spec(spec)
+            .full_deposit_amount()
+            .expect("should set full deposit amount")
+            .insecure_keypairs(index)
+            .create_directory(temp_dir.path().into())
+            .expect("should create directory")
+            .write_keypair_files()
+            .expect("should write keypair files")
+            .write_eth1_data_file()
+            .expect("should write eth1 data file")
+            .build()
+            .expect("should build dir");
+
+        assert!(
+            created_dir.directory.exists(),
+            "should have created directory"
+        );
+
+        let mut parent = created_dir.directory.clone();
+        parent.pop();
+        assert_eq!(
+            parent,
+            PathBuf::from(temp_dir.path()),
+            "should have created directory ontop of base dir"
+        );
+
+        let expected_keypair = generate_deterministic_keypair(index);
+        assert_eq!(
+            created_dir.voting_keypair,
+            Some(expected_keypair.clone()),
+            "voting keypair should be as expected"
+        );
+        assert_eq!(
+            created_dir.withdrawal_keypair,
+            Some(expected_keypair),
+            "withdrawal keypair should be as expected"
+        );
+        assert!(
+            created_dir
+                .deposit_data
+                .clone()
+                .expect("should have data")
+                .len()
+                > 0,
+            "should have some deposit data"
+        );
 
         let loaded_dir = ValidatorDirectory::load_for_signing(created_dir.directory.clone())
             .expect("should load directory");
