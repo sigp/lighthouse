@@ -18,7 +18,8 @@ use crate::signer::Signer;
 use bls::Keypair;
 use eth2_config::Eth2Config;
 use grpcio::{ChannelBuilder, EnvBuilder};
-use parking_lot::{Mutex, Rwlock};
+use parking_lot::Mutex;
+use parking_lot::RwLock;
 use protos::services::Empty;
 use protos::services_grpc::{
     AttestationServiceClient, BeaconBlockServiceClient, BeaconNodeServiceClient,
@@ -31,6 +32,7 @@ use slog::{crit, error, info, trace, warn};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::marker::PhantomData;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{ChainSpec, Epoch, EthSpec, Fork, Slot};
@@ -57,6 +59,8 @@ pub struct Service<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpe
     attestation_client: Arc<AttestationServiceClient>,
     /// The validator client logger.
     log: slog::Logger,
+    // Account directory path
+    pub data_dir: PathBuf,
     _phantom: PhantomData<E>,
 }
 
@@ -199,6 +203,7 @@ impl<E: EthSpec> Service<ValidatorServiceClient, Keypair, E> {
             beacon_block_client,
             attestation_client,
             log,
+            data_dir: client_config.data_dir,
             _phantom: PhantomData,
         })
     }
@@ -282,7 +287,7 @@ impl<B: BeaconNodeDuties + 'static, S: Signer + 'static, E: EthSpec> Service<B, 
     }
 
     /// If there are any duties to process, spawn a separate thread and perform required actions.
-    fn process_duties(&mut self, data_dir: &Path) {
+    fn process_duties(&self, data_dir: &Path) {
         if let Some(work) = self.duties_manager.get_current_work(
             self.current_slot
                 .read()

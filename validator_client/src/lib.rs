@@ -115,7 +115,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     // wait for node to process
                     std::thread::sleep(TIME_DELAY_FROM_SLOT);
                     // if a non-fatal error occurs, proceed to the next slot.
-                    let _ignore_error = service.per_slot_execution();
+                    let _ignore_error = service.per_slot_execution(service.data_dir.as_path());
                     // completed a slot process
                     Ok(())
                 }),
