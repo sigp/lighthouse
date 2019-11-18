@@ -799,13 +799,11 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Note: whilst this function will preserve already-built caches, it will not build any.
     pub fn advance_caches(&mut self) {
-        let next = Self::committee_cache_index(RelativeEpoch::Previous);
-        let current = Self::committee_cache_index(RelativeEpoch::Current);
-
         let caches = &mut self.committee_caches[..];
         caches.rotate_left(1);
+
+        let next = Self::committee_cache_index(RelativeEpoch::Next);
         caches[next] = CommitteeCache::default();
-        caches[current] = CommitteeCache::default();
     }
 
     fn committee_cache_index(relative_epoch: RelativeEpoch) -> usize {
