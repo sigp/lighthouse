@@ -125,7 +125,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     ///
     /// Spec v0.8.1
     fn slots_per_eth1_voting_period() -> usize {
-        Self::EpochsPerHistoricalVector::to_usize()
+        Self::SlotsPerEth1VotingPeriod::to_usize()
     }
 }
 
