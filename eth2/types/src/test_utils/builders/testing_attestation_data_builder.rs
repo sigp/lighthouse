@@ -14,7 +14,7 @@ impl TestingAttestationDataBuilder {
     pub fn new<T: EthSpec>(
         test_task: AttestationTestTask,
         state: &BeaconState<T>,
-        mut index: u64,
+        index: u64,
         mut slot: Slot,
         spec: &ChainSpec,
     ) -> Self {

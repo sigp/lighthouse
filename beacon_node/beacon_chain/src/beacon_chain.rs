@@ -933,7 +933,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Beacon block imported";
                         "block_root" => format!("{:?}", block_root),
-                        "block_slot" => format!("{:?}", block_root),
+                        "block_slot" => format!("{:?}", block.slot.as_u64()),
                     );
                     let _ = self.event_handler.register(EventKind::BeaconBlockImported {
                         block_root: *block_root,
