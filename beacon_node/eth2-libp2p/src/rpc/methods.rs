@@ -139,13 +139,27 @@ pub enum RPCResponse {
     BlocksByRoot(Vec<u8>),
 }
 
+/// Indicates which response is being terminated by a stream termination response.
+#[derive(Debug)]
+pub enum ResponseTermination {
+    /// Blocks by range stream termination.
+    BlocksByRange,
+    /// Blocks by root stream termination.
+    BlocksByRoot,
+}
+
 #[derive(Debug)]
 pub enum RPCErrorResponse {
+    /// The response is a successful.
     Success(RPCResponse),
+    /// The response was invalid.
     InvalidRequest(ErrorMessage),
+    /// The response indicates a server error.
     ServerError(ErrorMessage),
+    /// There was an unknown response.
     Unknown(ErrorMessage),
-    StreamTermination,
+    /// Received a stream termination indicating which response is being terminated.
+    StreamTermination(ResponseTermination),
 }
 
 impl RPCErrorResponse {
@@ -156,7 +170,7 @@ impl RPCErrorResponse {
             RPCErrorResponse::InvalidRequest(_) => 1,
             RPCErrorResponse::ServerError(_) => 2,
             RPCErrorResponse::Unknown(_) => 255,
-            RPCErrorResponse::StreamTermination => 255, // should never occur
+            RPCErrorResponse::StreamTermination(_) => unreachable!(), // should never occur
         }
     }
 
@@ -188,7 +202,7 @@ impl RPCErrorResponse {
             RPCErrorResponse::InvalidRequest(_) => true,
             RPCErrorResponse::ServerError(_) => true,
             RPCErrorResponse::Unknown(_) => true,
-            RPCErrorResponse::StreamTermination => false, // should never occur
+            RPCErrorResponse::StreamTermination(_) => unreachable!(),
         }
     }
 
@@ -237,7 +251,7 @@ impl std::fmt::Display for RPCErrorResponse {
             RPCErrorResponse::InvalidRequest(err) => write!(f, "Invalid Request: {:?}", err),
             RPCErrorResponse::ServerError(err) => write!(f, "Server Error: {:?}", err),
             RPCErrorResponse::Unknown(err) => write!(f, "Unknown Error: {:?}", err),
-            RPCErrorResponse::StreamTermination => write!(f, "Stream Termination"),
+            RPCErrorResponse::StreamTermination(_) => write!(f, "Stream Termination"),
         }
     }
 }

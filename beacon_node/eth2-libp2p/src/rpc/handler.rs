@@ -282,7 +282,7 @@ where
                                 trace!(self.log, "Stream is waiting, adding message");
 
                                 // close the stream if there is no response
-                                if let RPCErrorResponse::StreamTermination = response {
+                                if let RPCErrorResponse::StreamTermination(_) = response {
                                     *substream_state = InboundSubstreamState::Closing(substream);
                                 } else {
                                     // send the response
@@ -498,7 +498,9 @@ where
                                     return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                                         RPCEvent::Response(
                                             request_id,
-                                            RPCErrorResponse::StreamTermination,
+                                            RPCErrorResponse::StreamTermination(
+                                                request.stream_termination(),
+                                            ),
                                         ),
                                     )));
                                 } // else we return an error, stream should not have closed early.
@@ -571,7 +573,7 @@ fn apply_queued_responses<TSubstream: AsyncRead + AsyncWrite>(
         Some(ref mut queue) if !queue.is_empty() => {
             // we have queued items
             match queue.remove(0) {
-                RPCErrorResponse::StreamTermination => {
+                RPCErrorResponse::StreamTermination(_) => {
                     // close the stream if this is a stream termination
                     dbg!("terminating stream");
                     InboundSubstreamState::Closing(raw_substream)

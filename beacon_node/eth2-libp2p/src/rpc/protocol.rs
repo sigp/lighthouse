@@ -1,8 +1,11 @@
 use super::methods::*;
-use crate::rpc::codec::{
-    base::{BaseInboundCodec, BaseOutboundCodec},
-    ssz::{SSZInboundCodec, SSZOutboundCodec},
-    InboundCodec, OutboundCodec,
+use crate::rpc::{
+    codec::{
+        base::{BaseInboundCodec, BaseOutboundCodec},
+        ssz::{SSZInboundCodec, SSZOutboundCodec},
+        InboundCodec, OutboundCodec,
+    },
+    methods::ResponseTermination,
 };
 use futures::{
     future::{self, FutureResult},
@@ -181,8 +184,10 @@ impl RPCRequest {
     /// A GOODBYE request has no response.
     pub fn expect_response(&self) -> bool {
         match self {
+            RPCRequest::Status(_) => true,
             RPCRequest::Goodbye(_) => false,
-            _ => true,
+            RPCRequest::BlocksByRange(_) => true,
+            RPCRequest::BlocksByRoot(_) => true,
         }
     }
 
@@ -194,6 +199,19 @@ impl RPCRequest {
             RPCRequest::Goodbye(_) => false,
             RPCRequest::BlocksByRange(_) => true,
             RPCRequest::BlocksByRoot(_) => true,
+        }
+    }
+
+    /// Returns the `ResponseTermination` type associated with the request if a stream gets
+    /// terminated.
+    pub fn stream_termination(&self) -> ResponseTermination {
+        match self {
+            // this only gets called after `multiple_responses()` returns true. Therefore, only
+            // variants that have `multiple_responses()` can have values.
+            RPCRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
+            RPCRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            RPCRequest::Status(_) => unreachable!(),
+            RPCRequest::Goodbye(_) => unreachable!(),
         }
     }
 }
