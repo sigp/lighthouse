@@ -26,4 +26,5 @@ matrix:
     - rust: beta
   fast_finish: true
 install:
+  - npm install -g ganache-cli
   - rustup component add rustfmt
