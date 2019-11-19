@@ -193,7 +193,7 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Returns a `Context` where the `service_name` is added to the logger output.
-    pub fn service_context(&mut self, service_name: &'static str) -> RuntimeContext<E> {
+    pub fn service_context(&mut self, service_name: String) -> RuntimeContext<E> {
         RuntimeContext {
             executor: self.runtime.executor(),
             log: self.log.new(o!("service" => service_name)),
