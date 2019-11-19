@@ -1,6 +1,5 @@
 use crate::chunked_vector::{
-    store_updated_vector, ActiveIndexRoots, BlockRoots, CompactCommitteesRoots, HistoricalRoots,
-    RandaoMixes, StateRoots,
+    store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
 use crate::iter::{ReverseStateRootIterator, StateRootsIterator};
 use crate::{leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, Store, StoreItem};
@@ -184,8 +183,6 @@ impl HotColdDB {
         store_updated_vector(StateRoots, db, state, &self.spec)?;
         store_updated_vector(HistoricalRoots, db, state, &self.spec)?;
         store_updated_vector(RandaoMixes, db, state, &self.spec)?;
-        store_updated_vector(ActiveIndexRoots, db, state, &self.spec)?;
-        store_updated_vector(CompactCommitteesRoots, db, state, &self.spec)?;
 
         Ok(())
     }
@@ -204,8 +201,6 @@ impl HotColdDB {
         partial_state.load_state_roots(&self.cold_db, &self.spec)?;
         partial_state.load_historical_roots(&self.cold_db, &self.spec)?;
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
-        partial_state.load_active_index_roots(&self.cold_db, &self.spec)?;
-        partial_state.load_compact_committees_roots(&self.cold_db, &self.spec)?;
 
         let state: BeaconState<E> = partial_state.try_into()?;
 

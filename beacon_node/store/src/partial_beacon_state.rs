@@ -1,6 +1,6 @@
 use crate::chunked_vector::{
-    load_variable_list_from_db, load_vector_from_db, ActiveIndexRoots, BlockRoots,
-    CompactCommitteesRoots, HistoricalRoots, RandaoMixes, StateRoots,
+    load_variable_list_from_db, load_vector_from_db, BlockRoots, HistoricalRoots, RandaoMixes,
+    StateRoots,
 };
 use crate::{Error, Store};
 use ssz_derive::{Decode, Encode};
@@ -11,7 +11,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct PartialBeaconState<T>
 where
@@ -46,19 +46,11 @@ where
     pub balances: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Shuffling
-    pub start_shard: u64,
-
     /// Randao value from the current slot, for patching into the per-epoch randao vector.
     pub latest_randao_value: Hash256,
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
     pub randao_mixes: Option<FixedVector<Hash256, T::EpochsPerHistoricalVector>>,
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
-    pub active_index_roots: Option<FixedVector<Hash256, T::EpochsPerHistoricalVector>>,
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
-    pub compact_committees_roots: Option<FixedVector<Hash256, T::EpochsPerHistoricalVector>>,
 
     // Slashings
     slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
@@ -66,10 +58,6 @@ where
     // Attestations
     pub previous_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
-
-    // Crosslinks
-    pub previous_crosslinks: FixedVector<Crosslink, T::ShardCount>,
-    pub current_crosslinks: FixedVector<Crosslink, T::ShardCount>,
 
     // Finality
     pub justification_bits: BitVector<T::JustificationBitsLength>,
@@ -108,13 +96,10 @@ impl<T: EthSpec> PartialBeaconState<T> {
             balances: s.balances.clone(),
 
             // Shuffling
-            start_shard: s.start_shard,
             latest_randao_value: *s
                 .get_randao_mix(s.current_epoch())
                 .expect("randao at current epoch is OK"),
             randao_mixes: None,
-            active_index_roots: None,
-            compact_committees_roots: None,
 
             // Slashings
             slashings: s.get_all_slashings().to_vec().into(),
@@ -122,10 +107,6 @@ impl<T: EthSpec> PartialBeaconState<T> {
             // Attestations
             previous_epoch_attestations: s.previous_epoch_attestations.clone(),
             current_epoch_attestations: s.current_epoch_attestations.clone(),
-
-            // Crosslinks
-            previous_crosslinks: s.previous_crosslinks.clone(),
-            current_crosslinks: s.current_crosslinks.clone(),
 
             // Finality
             justification_bits: s.justification_bits.clone(),
@@ -188,33 +169,6 @@ impl<T: EthSpec> PartialBeaconState<T> {
         }
         Ok(())
     }
-
-    pub fn load_active_index_roots<S: Store>(
-        &mut self,
-        store: &S,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        if self.active_index_roots.is_none() {
-            self.active_index_roots = Some(load_vector_from_db::<ActiveIndexRoots, T, _>(
-                store, self.slot, spec,
-            )?);
-        }
-        Ok(())
-    }
-
-    pub fn load_compact_committees_roots<S: Store>(
-        &mut self,
-        store: &S,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        if self.compact_committees_roots.is_none() {
-            self.compact_committees_roots =
-                Some(load_vector_from_db::<CompactCommitteesRoots, T, _>(
-                    store, self.slot, spec,
-                )?);
-        }
-        Ok(())
-    }
 }
 
 impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
@@ -246,10 +200,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
             balances: self.balances,
 
             // Shuffling
-            start_shard: self.start_shard,
             randao_mixes: unpack(self.randao_mixes)?,
-            active_index_roots: unpack(self.active_index_roots)?,
-            compact_committees_roots: unpack(self.compact_committees_roots)?,
 
             // Slashings
             slashings: self.slashings,
@@ -257,10 +208,6 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
             // Attestations
             previous_epoch_attestations: self.previous_epoch_attestations,
             current_epoch_attestations: self.current_epoch_attestations,
-
-            // Crosslinks
-            previous_crosslinks: self.previous_crosslinks,
-            current_crosslinks: self.current_crosslinks,
 
             // Finality
             justification_bits: self.justification_bits,
@@ -272,6 +219,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
             committee_caches: self.committee_caches,
             pubkey_cache: <_>::default(),
             exit_cache: <_>::default(),
+            tree_hash_cache: <_>::default(),
         })
     }
 }

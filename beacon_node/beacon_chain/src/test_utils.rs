@@ -12,7 +12,7 @@ use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::sync::Arc;
 use std::time::Duration;
-use store::MemoryStore;
+use store::{migrate::NullMigrator, MemoryStore};
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
     AggregateSignature, Attestation, BeaconBlock, BeaconState, BitList, ChainSpec, Domain, EthSpec,
@@ -26,6 +26,7 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690; // 4th September 2019
 
 pub type HarnessType<E> = Witness<
     MemoryStore,
+    NullMigrator,
     TestingSlotClock,
     ThreadSafeReducedTree<MemoryStore, E>,
     CachingEth1Backend<E, MemoryStore>,

@@ -293,7 +293,7 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
             .map_err(|e| Error::UnableToGetPreviousStateRoot(e))?;
 
         store
-            .get::<BeaconState<T>>(&prev_state_root)
+            .get_state::<T>(&prev_state_root, Some(slot))
             .map_err(|e| Error::StoreError(e))?
             .map(|state| state.eth1_data.block_hash)
             .ok_or_else(|| Error::PreviousStateNotInDB)

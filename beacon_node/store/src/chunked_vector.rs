@@ -244,30 +244,6 @@ field!(
     |state: &BeaconState<_>, index, _| state.get_randao_mix(Epoch::new(index)).map(|x| *x)
 );
 
-field!(
-    ActiveIndexRoots,
-    FixedLengthField,
-    Hash256,
-    T::EpochsPerHistoricalVector,
-    DBColumn::BeaconActiveIndexRoots,
-    |spec: &ChainSpec| OncePerEpoch {
-        offset: Lookahead(spec.activation_exit_delay)
-    },
-    |state: &BeaconState<_>, index, spec| state.get_active_index_root(Epoch::new(index), spec)
-);
-
-field!(
-    CompactCommitteesRoots,
-    FixedLengthField,
-    Hash256,
-    T::EpochsPerHistoricalVector,
-    DBColumn::BeaconCompactCommitteesRoots,
-    |_| OncePerEpoch {
-        offset: Lookahead(0)
-    },
-    |state: &BeaconState<_>, index, _| state.get_compact_committee_root(Epoch::new(index))
-);
-
 pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store>(
     field: F,
     store: &S,

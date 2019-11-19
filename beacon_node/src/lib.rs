@@ -19,16 +19,19 @@ use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
-use store::DiskStore;
+use store::{migrate::NullMigrator, SimpleDiskStore};
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
+// FIXME(sproul): switch to freezer DB
+// BackgroundMigrator<E>,
 pub type ProductionClient<E> = Client<
     Witness<
-        DiskStore,
+        SimpleDiskStore,
+        NullMigrator,
         SystemTimeSlotClock,
-        ThreadSafeReducedTree<DiskStore, E>,
-        CachingEth1Backend<E, DiskStore>,
+        ThreadSafeReducedTree<SimpleDiskStore, E>,
+        CachingEth1Backend<E, SimpleDiskStore>,
         E,
         WebSocketSender<E>,
     >,
@@ -87,7 +90,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .and_then(move |db_path| {
                 Ok(ClientBuilder::new(context.eth_spec_instance.clone())
                     .runtime_context(context)
-                    .disk_store(&db_path)?
+                    .simple_disk_store(&db_path)?
                     .chain_spec(spec))
             })
             .and_then(move |builder| {

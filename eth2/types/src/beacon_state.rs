@@ -63,22 +63,6 @@ pub enum Error {
     CachedTreeHashError(cached_tree_hash::Error),
 }
 
-/// Control whether an epoch-indexed field can be indexed at the next epoch or not.
-#[derive(Debug, PartialEq, Clone, Copy)]
-enum AllowNextEpoch {
-    True,
-    False,
-}
-
-impl AllowNextEpoch {
-    fn upper_bound_of(self, current_epoch: Epoch) -> Epoch {
-        match self {
-            AllowNextEpoch::True => current_epoch + 1,
-            AllowNextEpoch::False => current_epoch,
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct BeaconTreeHashCache {
     initialized: bool,

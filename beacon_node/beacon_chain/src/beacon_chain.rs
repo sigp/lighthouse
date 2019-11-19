@@ -109,7 +109,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
     pub store: Arc<T::Store>,
     /// Database migrator for running background maintenance on the store.
-    store_migrator: T::StoreMigrator,
+    pub store_migrator: T::StoreMigrator,
     /// Reports the current slot, typically based upon the system clock.
     pub slot_clock: T::SlotClock,
     /// Stores all operations (e.g., `Attestation`, `Deposit`, etc) that are candidates for
@@ -295,11 +295,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
+    // FIXME(sproul): consider deleting
     pub fn get_state(
         &self,
         state_root: &Hash256,
     ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
-        Ok(self.store.get(state_root)?)
+        Ok(self.store.get_state(state_root, None)?)
     }
 
     /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";
@@ -358,7 +359,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             Ok(self
                 .store
-                .get(&state_root)?
+                .get_state(&state_root, Some(slot))?
                 .ok_or_else(|| Error::NoStateForSlot(slot))?)
         }
     }

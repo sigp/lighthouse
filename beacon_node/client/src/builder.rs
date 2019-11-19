@@ -5,7 +5,7 @@ use beacon_chain::{
     eth1_chain::CachingEth1Backend,
     lmd_ghost::ThreadSafeReducedTree,
     slot_clock::{SlotClock, SystemTimeSlotClock},
-    store::{DiskStore, MemoryStore, Store},
+    store::{migrate::NullMigrator, DiskStore, MemoryStore, SimpleDiskStore, Store},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
 use environment::RuntimeContext;
@@ -53,6 +53,7 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 500;
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     store: Option<Arc<T::Store>>,
+    store_migrator: Option<T::StoreMigrator>,
     runtime_context: Option<RuntimeContext<T::EthSpec>>,
     chain_spec: Option<ChainSpec>,
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
@@ -67,10 +68,21 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
 }
 
-impl<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
-    ClientBuilder<Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>>
+impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+    ClientBuilder<
+        Witness<
+            TStore,
+            TStoreMigrator,
+            TSlotClock,
+            TLmdGhost,
+            TEth1Backend,
+            TEthSpec,
+            TEventHandler,
+        >,
+    >
 where
     TStore: Store + 'static,
+    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
@@ -84,6 +96,7 @@ where
         Self {
             slot_clock: None,
             store: None,
+            store_migrator: None,
             runtime_context: None,
             chain_spec: None,
             beacon_chain_builder: None,
@@ -119,6 +132,7 @@ where
         config: Eth1Config,
     ) -> impl Future<Item = Self, Error = String> {
         let store = self.store.clone();
+        let store_migrator = self.store_migrator.take();
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
@@ -127,6 +141,9 @@ where
             .and_then(move |()| {
                 let store = store
                     .ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
+                let store_migrator = store_migrator.ok_or_else(|| {
+                    "beacon_chain_start_method requires a store migrator".to_string()
+                })?;
                 let context = runtime_context
                     .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
                     .service_context("beacon");
@@ -136,6 +153,7 @@ where
                 let builder = BeaconChainBuilder::new(eth_spec_instance)
                     .logger(context.log.clone())
                     .store(store.clone())
+                    .store_migrator(store_migrator)
                     .custom_spec(spec.clone());
 
                 Ok((builder, spec, context))
@@ -450,7 +468,17 @@ where
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
     pub fn build(
         self,
-    ) -> Client<Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>> {
+    ) -> Client<
+        Witness<
+            TStore,
+            TStoreMigrator,
+            TSlotClock,
+            TLmdGhost,
+            TEth1Backend,
+            TEthSpec,
+            TEventHandler,
+        >,
+    > {
         Client {
             beacon_chain: self.beacon_chain,
             libp2p_network: self.libp2p_network,
@@ -461,10 +489,11 @@ where
     }
 }
 
-impl<TStore, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
             TStore,
+            TStoreMigrator,
             TSlotClock,
             ThreadSafeReducedTree<TStore, TEthSpec>,
             TEth1Backend,
@@ -474,6 +503,7 @@ impl<TStore, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store + 'static,
+    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -506,12 +536,21 @@ where
     }
 }
 
-impl<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec>
+impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec>
     ClientBuilder<
-        Witness<TStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, WebSocketSender<TEthSpec>>,
+        Witness<
+            TStore,
+            TStoreMigrator,
+            TSlotClock,
+            TLmdGhost,
+            TEth1Backend,
+            TEthSpec,
+            WebSocketSender<TEthSpec>,
+        >,
     >
 where
     TStore: Store + 'static,
+    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
@@ -547,18 +586,29 @@ where
     }
 }
 
-impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
-    ClientBuilder<Witness<DiskStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>>
+impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+    ClientBuilder<
+        Witness<
+            SimpleDiskStore,
+            TStoreMigrator,
+            TSlotClock,
+            TLmdGhost,
+            TEth1Backend,
+            TEthSpec,
+            TEventHandler,
+        >,
+    >
 where
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<DiskStore, TEthSpec> + 'static,
+    TStoreMigrator: store::Migrate<SimpleDiskStore, TEthSpec> + 'static,
+    TLmdGhost: LmdGhost<SimpleDiskStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Specifies that the `Client` should use a `DiskStore` database.
-    pub fn disk_store(mut self, path: &Path) -> Result<Self, String> {
-        let store = DiskStore::open(path)
+    pub fn simple_disk_store(mut self, path: &Path) -> Result<Self, String> {
+        let store = SimpleDiskStore::open(path)
             .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
         self.store = Some(Arc::new(store));
         Ok(self)
@@ -567,7 +617,15 @@ where
 
 impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
-        Witness<MemoryStore, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>,
+        Witness<
+            MemoryStore,
+            NullMigrator,
+            TSlotClock,
+            TLmdGhost,
+            TEth1Backend,
+            TEthSpec,
+            TEventHandler,
+        >,
     >
 where
     TSlotClock: SlotClock + 'static,
@@ -584,10 +642,11 @@ where
     }
 }
 
-impl<TStore, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
             TStore,
+            TStoreMigrator,
             TSlotClock,
             TLmdGhost,
             CachingEth1Backend<TEthSpec, TStore>,
@@ -597,6 +656,7 @@ impl<TStore, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
     >
 where
     TStore: Store + 'static,
+    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -673,12 +733,21 @@ where
     }
 }
 
-impl<TStore, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
-        Witness<TStore, SystemTimeSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>,
+        Witness<
+            TStore,
+            TStoreMigrator,
+            SystemTimeSlotClock,
+            TLmdGhost,
+            TEth1Backend,
+            TEthSpec,
+            TEventHandler,
+        >,
     >
 where
     TStore: Store + 'static,
+    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
