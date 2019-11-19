@@ -168,7 +168,7 @@ impl RPCRequest {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RPCRequest::Status(_) => vec![ProtocolId::new("hello", "1", "ssz")],
+            RPCRequest::Status(_) => vec![ProtocolId::new("status", "1", "ssz")],
             RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", "1", "ssz")],
             RPCRequest::BlocksByRange(_) => vec![ProtocolId::new("blocks_by_range", "1", "ssz")],
             RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new("blocks_by_root", "1", "ssz")],

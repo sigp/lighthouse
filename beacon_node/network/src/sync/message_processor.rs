@@ -285,7 +285,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ) {
         debug!(
             self.log,
-            "BlocksByRangeRequest";
+            "BlocksByRange Request";
             "peer" => format!("{:?}", peer_id),
             "count" => req.count,
             "start_slot" => req.start_slot,
@@ -316,7 +316,6 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                         "Block in the chain is not in the store";
                         "request_root" => format!("{:}", root),
                     );
-
                     None
                 }
             })
@@ -326,16 +325,28 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         blocks.reverse();
         blocks.dedup_by_key(|brs| brs.slot);
 
-        debug!(
-            self.log,
-            "BlocksByRangeRequest response";
-            "peer" => format!("{:?}", peer_id),
-            "msg" => "Failed to return all requested blocks",
-            "start_slot" => req.start_slot,
-            "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
-            "requested" => req.count,
-            "returned" => blocks.len(),
-        );
+        if blocks.len() < (req.count as usize) {
+            debug!(
+                self.log,
+                "BlocksByRange Response";
+                "peer" => format!("{:?}", peer_id),
+                "msg" => "Failed to return all requested blocks",
+                "start_slot" => req.start_slot,
+                "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
+                "requested" => req.count,
+                "returned" => blocks.len(),
+            );
+        } else {
+            trace!(
+                self.log,
+                "BlocksByRange Response";
+                "peer" => format!("{:?}", peer_id),
+                "start_slot" => req.start_slot,
+                "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
+                "requested" => req.count,
+                "returned" => blocks.len(),
+            );
+        }
 
         for block in blocks {
             self.network.send_rpc_response(

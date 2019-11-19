@@ -20,11 +20,10 @@ version = { path = "../version" }
 tokio = "0.1.22"
 futures = "0.1.29"
 error-chain = "0.12.1"
-tokio-timer = "0.2.11"
 dirs = "2.0.2"
 smallvec = "0.6.11"
 fnv = "1.0.6"
 unsigned-varint = "0.2.3"
-tokio-io-timeout = "0.3.1"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
+tokio-io-timeout = "0.3.1"

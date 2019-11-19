@@ -9,12 +9,14 @@ use handler::RPCHandler;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::{
     protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
+    SubstreamProtocol,
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{ErrorMessage, RPCErrorResponse, RPCResponse, RequestId, StatusMessage};
 pub use protocol::{RPCError, RPCProtocol, RPCRequest};
 use slog::o;
 use std::marker::PhantomData;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub(crate) mod codec;
@@ -50,7 +52,7 @@ impl std::fmt::Display for RPCEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCEvent::Request(id, req) => write!(f, "RPC Request(Id: {}, {})", id, req),
-            RPCEvent::Response(id, res) => write!(f, "RPC Response(Id: {}, {:?})", id, res),
+            RPCEvent::Response(id, res) => write!(f, "RPC Response(Id: {}, {})", id, res),
             RPCEvent::Error(id, err) => write!(f, "RPC Request(Id: {}, Error: {:?})", id, err),
         }
     }
@@ -64,7 +66,7 @@ pub struct RPC<TSubstream> {
     /// Pins the generic substream.
     marker: PhantomData<(TSubstream)>,
     /// Slog logger for RPC behaviour.
-    _log: slog::Logger,
+    log: slog::Logger,
 }
 
 impl<TSubstream> RPC<TSubstream> {
@@ -73,7 +75,7 @@ impl<TSubstream> RPC<TSubstream> {
         RPC {
             events: Vec::new(),
             marker: PhantomData,
-            _log: log,
+            log: log,
         }
     }
 
@@ -96,7 +98,11 @@ where
     type OutEvent = RPCMessage;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        Default::default()
+        RPCHandler::new(
+            SubstreamProtocol::new(RPCProtocol),
+            Duration::from_secs(30),
+            &self.log,
+        )
     }
 
     // handled by discovery

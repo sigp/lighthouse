@@ -18,7 +18,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_timer::Delay;
+use tokio::timer::Delay;
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 60;

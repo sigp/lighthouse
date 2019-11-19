@@ -155,7 +155,7 @@ fn network_service(
             match network_recv.poll() {
                 Ok(Async::Ready(Some(message))) => match message {
                     NetworkMessage::RPC(peer_id, rpc_event) => {
-                        trace!(log, "{}", rpc_event);
+                        trace!(log, "Sending RPC"; "RPC" => format!("{}", rpc_event));
                         libp2p_service.lock().swarm.send_rpc(peer_id, rpc_event);
                     }
                     NetworkMessage::Propagate {
@@ -191,7 +191,7 @@ fn network_service(
             match libp2p_service.lock().poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
-                        trace!(log, "{}", rpc_event);
+                        trace!(log, "Received RPC"; "RPC" => format!("{}", rpc_event));
                         message_handler_send
                             .try_send(HandlerMessage::RPC(peer_id, rpc_event))
                             .map_err(|_| "Failed to send RPC to handler")?;

@@ -134,9 +134,9 @@ pub enum RPCResponse {
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
     /// batch.
-    BlocksByRange(Option<Vec<u8>>),
+    BlocksByRange(Vec<u8>),
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Option<Vec<u8>>),
+    BlocksByRoot(Vec<u8>),
 }
 
 #[derive(Debug)]
@@ -145,16 +145,18 @@ pub enum RPCErrorResponse {
     InvalidRequest(ErrorMessage),
     ServerError(ErrorMessage),
     Unknown(ErrorMessage),
+    StreamTermination,
 }
 
 impl RPCErrorResponse {
-    /// Used to encode the response.
+    /// Used to encode the response in the codec.
     pub fn as_u8(&self) -> u8 {
         match self {
             RPCErrorResponse::Success(_) => 0,
             RPCErrorResponse::InvalidRequest(_) => 1,
             RPCErrorResponse::ServerError(_) => 2,
             RPCErrorResponse::Unknown(_) => 255,
+            RPCErrorResponse::StreamTermination => 255, // should never occur
         }
     }
 
@@ -183,19 +185,10 @@ impl RPCErrorResponse {
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
             },
-            _ => true,
-        }
-    }
-
-    /// Returns true if the response contains a `None` which signifies an end of stream.
-    pub fn is_none(&self) -> bool {
-        match self {
-            RPCErrorResponse::Success(resp) => match resp {
-                RPCResponse::BlocksByRange(None) => true,
-                RPCResponse::BlocksByRoot(None) => true,
-                _ => false,
-            },
-            _ => false,
+            RPCErrorResponse::InvalidRequest(_) => true,
+            RPCErrorResponse::ServerError(_) => true,
+            RPCErrorResponse::Unknown(_) => true,
+            RPCErrorResponse::StreamTermination => false, // should never occur
         }
     }
 
@@ -231,15 +224,8 @@ impl std::fmt::Display for RPCResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCResponse::Status(status) => write!(f, "{}", status),
-            RPCResponse::BlocksByRange(Some(data)) => {
-                write!(f, "<BlocksByRange>, len: {}", data.len())
-            }
-            RPCResponse::BlocksByRoot(Some(data)) => {
-                write!(f, "<BlocksByRoot>, len: {}", data.len())
-            }
-            RPCResponse::BlocksByRange(None) | RPCResponse::BlocksByRoot(None) => {
-                write!(f, "End of stream")
-            }
+            RPCResponse::BlocksByRange(_) => write!(f, "<BlocksByRange>"),
+            RPCResponse::BlocksByRoot(_) => write!(f, "<BlocksByRoot>"),
         }
     }
 }
@@ -251,6 +237,7 @@ impl std::fmt::Display for RPCErrorResponse {
             RPCErrorResponse::InvalidRequest(err) => write!(f, "Invalid Request: {:?}", err),
             RPCErrorResponse::ServerError(err) => write!(f, "Server Error: {:?}", err),
             RPCErrorResponse::Unknown(err) => write!(f, "Unknown Error: {:?}", err),
+            RPCErrorResponse::StreamTermination => write!(f, "Stream Termination"),
         }
     }
 }
