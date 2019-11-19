@@ -2,6 +2,7 @@ language: rust
 cache:
   directories:
     - /home/travis/.cargo
+    - tests/ef_tests/*.tar.gz
 before_install:
   - curl -OL https://github.com/google/protobuf/releases/download/v3.4.0/protoc-3.4.0-linux-x86_64.zip
   - unzip protoc-3.4.0-linux-x86_64.zip -d protoc3
@@ -9,16 +10,20 @@ before_install:
   - sudo mv protoc3/include/* /usr/local/include/
   - sudo chown $USER /usr/local/bin/protoc
   - sudo chown -R $USER /usr/local/include/google
+env:
+  - PARAMS=fmt --all -- --check
+  - PARAMS=test --all --release
+  - PARAMS=test --all --release --all-features --exclude ef_tests
+  - PARAMS=test --all --release --manifest-path tests/ef_tests/Cargo.toml --features ef_tests
+  - PARAMS=test --all --release --manifest-path tests/ef_tests/Cargo.toml --features fake_crypto,ef_tests
 script:
-  - cargo build --verbose --all --release
-  - cargo fmt --all -- --check
+  - cargo $PARAMS
 rust:
+  - stable
   - beta
-  - nightly
 matrix:
   allow_failures:
     - rust: beta
-    - rust: nightly
   fast_finish: true
 install:
   - rustup component add rustfmt
