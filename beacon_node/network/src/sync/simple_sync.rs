@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, oneshot};
 use tree_hash::SignedRoot;
 use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot, BeaconState, RelativeEpoch, Domain};
 use bls::SignatureSet;
-use state_processing::per_slot_processing;
+use state_processing::{per_slot_processing, common::get_indexed_attestation, per_block_processing::signature_sets::indexed_attestation_signature_set};
 
 //TODO: Put a maximum limit on the number of block that can be requested.
 //TODO: Rate limit requests
@@ -22,9 +22,6 @@ use state_processing::per_slot_processing;
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
-
-const SHOULD_FORWARD_GOSSIP_BLOCK: bool = true;
-const SHOULD_NOT_FORWARD_GOSSIP_BLOCK: bool = false;
 
 /// Keeps track of syncing information for known connected peers.
 #[derive(Clone, Copy, Debug)]
@@ -399,30 +396,19 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     /// If we don't know the block's parent, we don't know who is supposed to sign it, therefore we can
     /// not validate the signature.
     /// 1.) We can try to look up the block's parent using the syncing thread. (it's expensive not sure how to reprop from sync thread)
-    pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) -> bool {
+    pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) {
         match self.chain.process_block(block.clone()) {
             Ok(outcome) => match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
                     trace!(self.log, "Gossipsub block processed";
                             "peer_id" => format!("{:?}",peer_id));
-                    SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::ParentUnknown { parent: _ } => {
                     // Inform the sync manager to find parents for this block
                     trace!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
                     self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block.clone()));
-                    SHOULD_NOT_FORWARD_GOSSIP_BLOCK
                 }
-                BlockProcessingOutcome::FutureSlot {
-                    present_slot,
-                    block_slot,
-                } if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot => {
-                    self.should_forward_block(block)
-                }
-                BlockProcessingOutcome::BlockIsAlreadyKnown => {
-                    self.should_forward_block(block)
-                },
                 other => {
                     warn!(
                         self.log,
@@ -436,7 +422,6 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                         "Invalid gossip beacon block ssz";
                         "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
                     );
-                    SHOULD_NOT_FORWARD_GOSSIP_BLOCK //TODO: Decide if we want to forward these
                 }
             },
             Err(e) => {
@@ -451,84 +436,115 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     "Erroneous gossip beacon block ssz";
                     "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
                 );
-                SHOULD_NOT_FORWARD_GOSSIP_BLOCK
             }
         }
     }
 
-    fn should_forward_block(&mut self, block: BeaconBlock<T::EthSpec>) -> bool {
-        // Retrieve the parent block, if it exists.
-        if let Ok(Some(parent_block)) = self
+    pub fn should_forward_block(&mut self, block: BeaconBlock<T::EthSpec>) -> bool {
+        // Retrieve the parent block used to generate the signature.
+        // This will eventually return false if this operation fails or returns an empty option.
+        let parent_block_opt = if let Ok(Some(parent_block)) = self
             .chain
             .store
-            .get::<BeaconBlock<T::EthSpec>>(&block.parent_root)
-        {
-            // Check if the parent block's state is equal to the current state, if it is, then
-            // we can validate the block using the current chain.
-            let mut state =
-                match self.chain.head().beacon_state_root == parent_block.state_root {
-                    true => self.chain.head().beacon_state.clone(),
-                    false => self
-                        .chain
-                        .store
-                        .get::<BeaconState<T::EthSpec>>(&parent_block.state_root)
-                        .unwrap().unwrap() // should handle better
-                };
+            .get::<BeaconBlock<T::EthSpec>>(&block.parent_root) {
 
+            // Check if the parent block's state root is equal to the current state, if it is, then
+            // we can validate the block using the state in our chain head. This saves us from
+            // having to make an unecessary database read.
+            let state_res = if self.chain.head().beacon_state_root == parent_block.state_root {
+                Ok(Some(self.chain.head().beacon_state.clone()))
+            } else {
+                self.chain
+                    .store
+                    .get::<BeaconState<T::EthSpec>>(&parent_block.state_root)
+            };
+
+            // If we are unable to find a state for the block, we eventually return false. This
+            // should never be the case though.
+            match state_res {
+                Ok(Some(state)) => Some((parent_block, state)),
+                _ => None
+            }
+        } else {
+            None
+        };
+
+        // If we found a parent block and state to validate the signature with, we enter this
+        // section, otherwise, we return false.
+        if let Some((parent_block, mut state)) = parent_block_opt {
             // Determine the epochal relationship between the state used to validate the block and
             // the block itself.
-            let relative_epoch = RelativeEpoch::from_slot(
+            let relative_epoch = if let Ok(relative_epoch) = RelativeEpoch::from_slot(
                 parent_block.slot,
                 block.slot,
                 T::EthSpec::slots_per_epoch()
-            ).map_err(|_| -> Result<RelativeEpoch, String> {
+            ) {
+                relative_epoch
+            } else {
+                // This section is entered if the block being verified is to far from the parent to
+                // have a RelativeEpoch.
+
+                // We make sure the block being verified follows the parent's slot.
+                if state.slot.as_u64() > block.slot.as_u64() {
+                    return false;
+                }
+
                 // If the block is more than one epoch in the future, we must fast-forward to
                 // the state and compute the committee.
                 for _ in state.slot.as_u64()..block.slot.as_u64() {
-                    per_slot_processing(&mut state, &self.chain.spec);
+                    if per_slot_processing(&mut state, &self.chain.spec).is_err() {
+                        // Return false if something goes wrong.
+                        return false;
+                    }
                 }
 
-                // Note: this is expensive.
-                state.build_committee_cache(RelativeEpoch::Current, &self.chain.spec);
+                // Compute the committee cache so we can check the proposer.
+                // TODO: Downvote peer
+                if state.build_committee_cache(RelativeEpoch::Current, &self.chain.spec).is_err() {
+                    return false;
+                }
 
-                Ok(RelativeEpoch::Current)
-            }).unwrap();
+                // The relative epoch for the state is now Current.
+                RelativeEpoch::Current
+            };
 
             // Retrieve the block's designated proposer.
-            let proposer_index = state
+            let proposer_result = state
                 .get_beacon_proposer_index(
                     block.slot,
                     relative_epoch,
                     &self.chain.spec
-                ).unwrap();
-            let proposer = state.validators.get(proposer_index).unwrap();
+                ).map( |i| state.validators.get(i));
 
-            // Create a SignatureSet and validate it.
+            // Generate the domain that should have been used to create the signature.
             let domain = self.chain.spec.get_domain(
                 block.slot.epoch(T::EthSpec::slots_per_epoch()),
                 Domain::BeaconProposer,
                 &state.fork
             );
 
-            let set = SignatureSet::single(
-                &block.signature,
-                &proposer.pubkey,
-                block.signed_root(),
-                domain
-            );
+            // Verify the signature if we were able to get a proposer, otherwise, we eventually
+            // return false.
+            if let Ok(Some(proposer)) = proposer_result {
+                let signature = SignatureSet::single(
+                    &block.signature,
+                    &proposer.pubkey,
+                    block.signed_root(),
+                    domain
+                );
 
-            return set.is_valid();
+                // TODO: downvote if the signature is invalid.
+                return signature.is_valid();
+            }
         }
 
-        // The signature can not be verified without the parent's state, so in this case, we simply
-        // do not forward.
         false
     }
 
     /// Process a gossip message declaring a new attestation.
     ///
     /// Not currently implemented.
-    pub fn on_attestation_gossip(&mut self, _peer_id: PeerId, msg: Attestation<T::EthSpec>) -> bool {
+    pub fn on_attestation_gossip(&mut self, _peer_id: PeerId, msg: Attestation<T::EthSpec>) {
         match self.chain.process_attestation(msg.clone()) {
             Ok(outcome) => {
                 info!(
@@ -555,12 +571,58 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 error!(self.log, "Invalid gossip attestation"; "error" => format!("{:?}", e));
             }
         };
-
-        true
     }
 
-    fn should_forward_attestation(&self, attestation: Attestation<T::EthSpec>) -> bool {
-        true
+    pub fn should_forward_attestation(&self, attestation: Attestation<T::EthSpec>) -> bool {
+        // Attempt to validate the attestation's signature against the head state.
+        // In this case, we do not read anything from the database, which should be fast and will
+        // work for most attestations getting passed around the network.
+        let head_state = &self.chain.head().beacon_state;
+
+        // Convert the attestation to an indexed attestation.
+        if let Ok(indexed_attestation) = get_indexed_attestation(&head_state, &attestation) {
+            // Validate the signature and return true if it is valid. Otherwise, we move on and read
+            // the database to make certain we have the correct state.
+            if let Ok(signature) = indexed_attestation_signature_set(
+                &head_state,
+                &indexed_attestation.signature,
+                &indexed_attestation,
+                &self.chain.spec
+            ) {
+                // An invalid signature here does not necessarily mean the attestation is invalid.
+                // It could be the case that our head state does not have the same registry.
+                if signature.is_valid() {
+                    return true;
+                }
+            }
+        }
+
+        // Retrieve the block being attested to.
+        if let Ok(Some(block)) = self
+            .chain
+            .store
+            .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)
+        {
+            if let Ok(Some(state)) = self.chain.store.get::<BeaconState<T::EthSpec>>(&block.state_root) {
+                // Convert the attestation to an indexed attestation.
+                if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
+                    // Validate the indexed attestation against the state we retrieved using the
+                    // attestation's LMD Ghost vote.
+                    if let Ok(signature) = indexed_attestation_signature_set(
+                        &state,
+                        &indexed_attestation.signature,
+                        &indexed_attestation,
+                        &self.chain.spec
+                    ) {
+                        // TODO: Downvote peer if the signature is invalid.
+                        // Also maybe downvote the peer for getting here in the first place.
+                        return signature.is_valid();
+                    }
+                }
+            }
+        }
+
+        false
     }
 }
 

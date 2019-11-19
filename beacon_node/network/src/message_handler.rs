@@ -201,13 +201,10 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         match gossip_message {
             PubsubMessage::Block(message) => match self.decode_gossip_block(message) {
                 Ok(block) => {
-                    let should_forward_on = self
-                        .message_processor
-                        .on_block_gossip(peer_id.clone(), block);
-                    // TODO: Apply more sophisticated validation and decoding logic - 524 verify block
-                    if should_forward_on {
+                    if self.message_processor.should_forward_block(block.clone()) {
                         self.propagate_message(id, peer_id.clone());
                     }
+                    self.message_processor.on_block_gossip(peer_id.clone(), block);
                 }
                 Err(e) => {
                     debug!(self.log, "Invalid gossiped beacon block"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
@@ -215,10 +212,8 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             },
             PubsubMessage::Attestation(message) => match self.decode_gossip_attestation(message) {
                 Ok(attestation) => {
-                    // TODO: Apply more sophisticated validation and decoding logic - 524 verify attestation
-                    let should_forward_on = self.message_processor
-                        .on_attestation_gossip(peer_id.clone(), attestation);
-                    if should_forward_on {
+                    self.message_processor.on_attestation_gossip(peer_id.clone(), attestation.clone());
+                    if self.message_processor.should_forward_attestation(attestation) {
                         self.propagate_message(id, peer_id);
                     }
                 }
