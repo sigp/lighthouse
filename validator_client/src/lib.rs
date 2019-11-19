@@ -6,6 +6,7 @@ mod duties;
 mod error;
 mod service;
 mod signer;
+pub mod validator_directory;
 
 pub use cli::cli_app;
 pub use config::Config;

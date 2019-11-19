@@ -8,6 +8,9 @@ edition = "2018"
 name = "validator_client"
 path = "src/lib.rs"
 
+[dev-dependencies]
+tempdir = "0.3"
+
 [dependencies]
 eth2_ssz = "0.1.2"
 eth2_config = { path = "../eth2/utils/eth2_config" }
@@ -36,5 +39,8 @@ environment = { path = "../lighthouse/environment" }
 parking_lot = "0.7"
 exit-future = "0.1.4"
 libc = "0.2.65"
-account_manager = { path = "../account_manager" }
 lazy_static = "1.4.0"
+eth2_ssz_derive = { path = "../eth2/utils/ssz_derive" }
+hex = "0.4"
+deposit_contract = { path = "../eth2/utils/deposit_contract" }
+bls = { path = "../eth2/utils/bls" }

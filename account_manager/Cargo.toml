@@ -21,3 +21,4 @@ libc = "0.2.65"
 eth2_ssz = { path = "../eth2/utils/ssz" }
 eth2_ssz_derive = { path = "../eth2/utils/ssz_derive" }
 hex = "0.4"
+validator_client = { path = "../validator_client" }

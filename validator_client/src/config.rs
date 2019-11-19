@@ -1,4 +1,4 @@
-use account_manager::validator::ValidatorDirectory;
+use crate::validator_directory::ValidatorDirectory;
 use bincode;
 use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
