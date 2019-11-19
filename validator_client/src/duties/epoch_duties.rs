@@ -35,7 +35,7 @@ impl EpochDuty {
             _ => false,
         };
 
-        // if the validator is required to attest to a shard, create the data
+        // if the validator is required to attest to a index, create the data
         let mut attestation_duty = None;
         if self.attestation_duty.slot == slot {
             attestation_duty = Some(self.attestation_duty)
@@ -59,8 +59,8 @@ impl fmt::Display for EpochDuty {
         }
         write!(
             f,
-            "produce block slot: {}, attestation slot: {}, attestation shard: {}",
-            display_block, self.attestation_duty.slot, self.attestation_duty.shard
+            "produce block slot: {}, attestation slot: {}, attestation index: {}",
+            display_block, self.attestation_duty.slot, self.attestation_duty.index
         )
     }
 }
@@ -118,14 +118,14 @@ impl EpochDutiesMap {
         if let Some(epoch_duty) = epoch_duties.get(signer) {
             if let Some(duty) = epoch_duty {
                 // Retrieves the duty for a validator at a given slot
-                return Ok(duty.is_work_slot(slot));
+                Ok(duty.is_work_slot(slot))
             } else {
                 // the validator isn't active
-                return Ok(None);
+                Ok(None)
             }
         } else {
             // validator isn't known
-            return Err(EpochDutiesMapError::UnknownValidator);
+            Err(EpochDutiesMapError::UnknownValidator)
         }
     }
 }

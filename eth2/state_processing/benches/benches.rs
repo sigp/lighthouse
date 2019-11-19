@@ -2,6 +2,7 @@ extern crate env_logger;
 
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
+use ssz::Encode;
 use state_processing::{test_utils::BlockBuilder, BlockSignatureStrategy, VerifySignatures};
 use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, MainnetEthSpec, MinimalEthSpec, Slot};
 
@@ -70,6 +71,7 @@ fn get_worst_block<T: EthSpec>(
     builder.build(&spec)
 }
 
+#[allow(clippy::unit_arg)]
 fn bench_block<T: EthSpec>(
     c: &mut Criterion,
     block: BeaconBlock<T>,
@@ -388,6 +390,32 @@ fn bench_block<T: EthSpec>(
                         &attestation.aggregation_bits,
                     ))
                 },
+                criterion::BatchSize::SmallInput,
+            )
+        })
+        .sample_size(10),
+    );
+
+    let local_block = block.clone();
+    c.bench(
+        &title,
+        Benchmark::new("ssz_serialize_block", move |b| {
+            b.iter_batched_ref(
+                || (),
+                |_| black_box(local_block.as_ssz_bytes()),
+                criterion::BatchSize::SmallInput,
+            )
+        })
+        .sample_size(10),
+    );
+
+    let local_block = block.clone();
+    c.bench(
+        &title,
+        Benchmark::new("ssz_block_len", move |b| {
+            b.iter_batched_ref(
+                || (),
+                |_| black_box(local_block.ssz_bytes_len()),
                 criterion::BatchSize::SmallInput,
             )
         })

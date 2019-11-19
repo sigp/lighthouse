@@ -13,4 +13,4 @@ name = "ssz"
 eth2_ssz_derive = "0.1.0"
 
 [dependencies]
-ethereum-types = "0.6"
+ethereum-types = "0.8.0"

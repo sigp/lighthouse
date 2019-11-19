@@ -7,22 +7,25 @@ mod testing_slot_clock;
 
 use std::time::Duration;
 
-pub use crate::system_time_slot_clock::{Error as SystemTimeSlotClockError, SystemTimeSlotClock};
-pub use crate::testing_slot_clock::{Error as TestingSlotClockError, TestingSlotClock};
+pub use crate::system_time_slot_clock::SystemTimeSlotClock;
+pub use crate::testing_slot_clock::TestingSlotClock;
 pub use metrics::scrape_for_metrics;
 pub use types::Slot;
 
+/// A clock that reports the current slot.
+///
+/// The clock is not required to be monotonically increasing and may go backwards.
 pub trait SlotClock: Send + Sync + Sized {
-    type Error;
+    /// Creates a new slot clock where the first slot is `genesis_slot`, genesis occured
+    /// `genesis_duration` after the `UNIX_EPOCH` and each slot is `slot_duration` apart.
+    fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self;
 
-    /// Create a new `SlotClock`.
-    ///
-    /// Returns an Error if `slot_duration_seconds == 0`.
-    fn new(genesis_slot: Slot, genesis_seconds: u64, slot_duration_seconds: u64) -> Self;
+    /// Returns the slot at this present time.
+    fn now(&self) -> Option<Slot>;
 
-    fn present_slot(&self) -> Result<Option<Slot>, Self::Error>;
+    /// Returns the duration between slots
+    fn slot_duration(&self) -> Duration;
 
-    fn duration_to_next_slot(&self) -> Result<Option<Duration>, Self::Error>;
-
-    fn slot_duration_millis(&self) -> u64;
+    /// Returns the duration until the next slot.
+    fn duration_to_next_slot(&self) -> Option<Duration>;
 }

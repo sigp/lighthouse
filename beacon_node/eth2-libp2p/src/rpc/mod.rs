@@ -47,6 +47,16 @@ impl RPCEvent {
     }
 }
 
+impl std::fmt::Display for RPCEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RPCEvent::Request(id, req) => write!(f, "RPC Request(Id: {}, {})", id, req),
+            RPCEvent::Response(id, res) => write!(f, "RPC Response(Id: {}, {})", id, res),
+            RPCEvent::Error(id, err) => write!(f, "RPC Request(Id: {}, Error: {:?})", id, err),
+        }
+    }
+}
+
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<TSubstream> {
@@ -59,8 +69,8 @@ pub struct RPC<TSubstream> {
 }
 
 impl<TSubstream> RPC<TSubstream> {
-    pub fn new(log: &slog::Logger) -> Self {
-        let log = log.new(o!("Service" => "Libp2p-RPC"));
+    pub fn new(log: slog::Logger) -> Self {
+        let log = log.new(o!("service" => "libp2p_rpc"));
         RPC {
             events: Vec::new(),
             marker: PhantomData,

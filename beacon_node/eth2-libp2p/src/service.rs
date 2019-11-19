@@ -8,12 +8,8 @@ use crate::{Topic, TopicHash};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
-    identity::Keypair,
-    multiaddr::Multiaddr,
-    muxing::StreamMuxerBox,
-    nodes::Substream,
+    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, nodes::Substream,
     transport::boxed::Boxed,
-    upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
 use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{crit, debug, info, trace, warn};
@@ -42,16 +38,21 @@ impl Service {
     pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
         trace!(log, "Libp2p Service starting");
 
+        let local_keypair = if let Some(hex_bytes) = &config.secret_key_hex {
+            keypair_from_hex(hex_bytes)?
+        } else {
+            load_private_key(&config, &log)
+        };
+
         // load the private key from CLI flag, disk or generate a new one
-        let local_private_key = load_private_key(&config, &log);
-        let local_peer_id = PeerId::from(local_private_key.public());
+        let local_peer_id = PeerId::from(local_keypair.public());
         info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", local_peer_id));
 
         let mut swarm = {
             // Set up the transport - tcp/ws with secio and mplex/yamux
-            let transport = build_transport(local_private_key.clone());
+            let transport = build_transport(local_keypair.clone());
             // Lighthouse network behaviour
-            let behaviour = Behaviour::new(&local_private_key, &config, &log)?;
+            let behaviour = Behaviour::new(&local_keypair, &config, &log)?;
             Swarm::new(transport, behaviour, local_peer_id.clone())
         };
 
@@ -79,15 +80,32 @@ impl Service {
             }
         };
 
-        // attempt to connect to user-input libp2p nodes
-        for multiaddr in config.libp2p_nodes {
+        // helper closure for dialing peers
+        let mut dial_addr = |multiaddr: Multiaddr| {
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
                 Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => format!("{}", multiaddr)),
                 Err(err) => debug!(
                     log,
-                    "Could not connect to peer"; "address" => format!("{}", multiaddr), "Error" => format!("{:?}", err)
+                    "Could not connect to peer"; "address" => format!("{}", multiaddr), "error" => format!("{:?}", err)
                 ),
             };
+        };
+
+        // attempt to connect to user-input libp2p nodes
+        for multiaddr in config.libp2p_nodes {
+            dial_addr(multiaddr);
+        }
+
+        // attempt to connect to any specified boot-nodes
+        for bootnode_enr in config.boot_nodes {
+            for multiaddr in bootnode_enr.multiaddr() {
+                // ignore udp multiaddr if it exists
+                let components = multiaddr.iter().collect::<Vec<_>>();
+                if let Protocol::Udp(_) = components[1] {
+                    continue;
+                }
+                dial_addr(multiaddr);
+            }
         }
 
         // subscribe to default gossipsub topics
@@ -145,16 +163,16 @@ impl Stream for Service {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
             match self.swarm.poll() {
-                //Behaviour events
                 Ok(Async::Ready(Some(event))) => match event {
-                    // TODO: Stub here for debugging
                     BehaviourEvent::GossipMessage {
+                        id,
                         source,
                         topics,
                         message,
                     } => {
                         trace!(self.log, "Gossipsub message received"; "service" => "Swarm");
                         return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
+                            id,
                             source,
                             topics,
                             message,
@@ -184,7 +202,7 @@ impl Stream for Service {
 fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
     // TODO: The Wire protocol currently doesn't specify encryption and this will need to be customised
     // in the future.
-    let transport = libp2p::tcp::TcpConfig::new();
+    let transport = libp2p::tcp::TcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport);
     #[cfg(feature = "libp2p-websocket")]
     let transport = {
@@ -192,22 +210,15 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
         transport.or_transport(websocket::WsConfig::new(trans_clone))
     };
     transport
-        .with_upgrade(secio::SecioConfig::new(local_private_key))
-        .and_then(move |out, endpoint| {
-            let peer_id = out.remote_key.into_peer_id();
-            let peer_id2 = peer_id.clone();
-            let upgrade = core::upgrade::SelectUpgrade::new(
-                libp2p::yamux::Config::default(),
-                libp2p::mplex::MplexConfig::new(),
-            )
-            // TODO: use a single `.map` instead of two maps
-            .map_inbound(move |muxer| (peer_id, muxer))
-            .map_outbound(move |muxer| (peer_id2, muxer));
-
-            core::upgrade::apply(out.stream, upgrade, endpoint)
-                .map(|(id, muxer)| (id, core::muxing::StreamMuxerBox::new(muxer)))
-        })
-        .with_timeout(Duration::from_secs(20))
+        .upgrade(core::upgrade::Version::V1)
+        .authenticate(secio::SecioConfig::new(local_private_key))
+        .multiplex(core::upgrade::SelectUpgrade::new(
+            libp2p::yamux::Config::default(),
+            libp2p::mplex::MplexConfig::new(),
+        ))
+        .map(|(peer, muxer), _| (peer, core::muxing::StreamMuxerBox::new(muxer)))
+        .timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(20))
         .map_err(|err| Error::new(ErrorKind::Other, err))
         .boxed()
 }
@@ -222,10 +233,32 @@ pub enum Libp2pEvent {
     PeerDisconnected(PeerId),
     /// Received pubsub message.
     PubsubMessage {
+        id: String,
         source: PeerId,
         topics: Vec<TopicHash>,
         message: PubsubMessage,
     },
+}
+
+fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
+    let hex_bytes = if hex_bytes.starts_with("0x") {
+        hex_bytes[2..].to_string()
+    } else {
+        hex_bytes.to_string()
+    };
+
+    hex::decode(&hex_bytes)
+        .map_err(|e| format!("Failed to parse p2p secret key bytes: {:?}", e).into())
+        .and_then(keypair_from_bytes)
+}
+
+fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
+    libp2p::core::identity::secp256k1::SecretKey::from_bytes(&mut bytes)
+        .map(|secret| {
+            let keypair: libp2p::core::identity::secp256k1::Keypair = secret.into();
+            Keypair::Secp256k1(keypair)
+        })
+        .map_err(|e| format!("Unable to parse p2p secret key: {:?}", e).into())
 }
 
 /// Loads a private key from disk. If this fails, a new key is

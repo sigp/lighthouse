@@ -20,6 +20,10 @@ impl PublicKey {
         PublicKey(RawPublicKey::from_secret_key(secret_key.as_raw()))
     }
 
+    pub fn from_raw(raw: RawPublicKey) -> Self {
+        Self(raw)
+    }
+
     /// Returns the underlying signature.
     pub fn as_raw(&self) -> &RawPublicKey {
         &self.0
@@ -90,7 +94,7 @@ impl default::Default for PublicKey {
 
 impl_ssz!(PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE, "PublicKey");
 
-impl_tree_hash!(PublicKey, U48);
+impl_tree_hash!(PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE);
 
 impl Serialize for PublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

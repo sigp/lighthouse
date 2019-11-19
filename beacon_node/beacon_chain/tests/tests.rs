@@ -3,15 +3,21 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, CommonTypes, PersistedBeaconChain,
-    BEACON_CHAIN_DB_KEY,
-};
 use beacon_chain::AttestationProcessingOutcome;
-use lmd_ghost::ThreadSafeReducedTree;
+use beacon_chain::{
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, PersistedBeaconChain,
+        BEACON_CHAIN_DB_KEY,
+    },
+    BlockProcessingOutcome,
+};
 use rand::Rng;
+<<<<<<< HEAD
 use std::sync::Arc;
 use store::{MemoryStore, Store};
+=======
+use store::Store;
+>>>>>>> origin/v0.9
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use types::{Deposit, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 
@@ -23,6 +29,7 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
+<<<<<<< HEAD
 type TestForkChoice = ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>;
 
 fn get_harness(
@@ -30,6 +37,10 @@ fn get_harness(
 ) -> BeaconChainHarness<TestForkChoice, MinimalEthSpec, MemoryStore> {
     let store = Arc::new(MemoryStore::open());
     let harness = BeaconChainHarness::from_keypairs(KEYPAIRS[0..validator_count].to_vec(), store);
+=======
+fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<MinimalEthSpec>> {
+    let harness = BeaconChainHarness::new(MinimalEthSpec, KEYPAIRS[0..validator_count].to_vec());
+>>>>>>> origin/v0.9
 
     harness.advance_slot();
 
@@ -323,10 +334,16 @@ fn roundtrip_operation_pool() {
     harness.chain.persist().unwrap();
 
     let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
+<<<<<<< HEAD
     let p: PersistedBeaconChain<CommonTypes<TestForkChoice, MinimalEthSpec, MemoryStore>> =
+=======
+    let p: PersistedBeaconChain<HarnessType<MinimalEthSpec>> =
+>>>>>>> origin/v0.9
         harness.chain.store.get(&key).unwrap().unwrap();
 
-    let restored_op_pool = p.op_pool.into_operation_pool(&p.state, &harness.spec);
+    let restored_op_pool = p
+        .op_pool
+        .into_operation_pool(&p.canonical_head.beacon_state, &harness.spec);
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
 }
@@ -461,5 +478,50 @@ fn free_attestations_added_to_fork_choice_all_updated() {
                 "Latest message block root should be equal to block at slot."
             );
         }
+    }
+}
+
+fn run_skip_slot_test(skip_slots: u64) {
+    let num_validators = 8;
+    let harness_a = get_harness(num_validators);
+    let harness_b = get_harness(num_validators);
+
+    for _ in 0..skip_slots {
+        harness_a.advance_slot();
+        harness_b.advance_slot();
+    }
+
+    harness_a.extend_chain(
+        1,
+        BlockStrategy::OnCanonicalHead,
+        // No attestation required for test.
+        AttestationStrategy::SomeValidators(vec![]),
+    );
+
+    assert_eq!(
+        harness_a.chain.head().beacon_block.slot,
+        Slot::new(skip_slots + 1)
+    );
+    assert_eq!(harness_b.chain.head().beacon_block.slot, Slot::new(0));
+
+    assert_eq!(
+        harness_b
+            .chain
+            .process_block(harness_a.chain.head().beacon_block.clone()),
+        Ok(BlockProcessingOutcome::Processed {
+            block_root: harness_a.chain.head().beacon_block_root
+        })
+    );
+
+    assert_eq!(
+        harness_b.chain.head().beacon_block.slot,
+        Slot::new(skip_slots + 1)
+    );
+}
+
+#[test]
+fn produces_and_processes_with_genesis_skip_slots() {
+    for i in 0..MinimalEthSpec::slots_per_epoch() * 4 {
+        run_skip_slot_test(i)
     }
 }

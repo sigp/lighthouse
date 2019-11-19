@@ -1,9 +1,8 @@
 use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
-use hex::encode as hex_encode;
 use milagro_bls::Signature as RawSignature;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::HexVisitor;
+use serde_hex::{encode as hex_encode, HexVisitor};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 
 /// A single BLS signature.
@@ -109,7 +108,7 @@ impl Signature {
 
 impl_ssz!(Signature, BLS_SIG_BYTE_SIZE, "Signature");
 
-impl_tree_hash!(Signature, U96);
+impl_tree_hash!(Signature, BLS_SIG_BYTE_SIZE);
 
 impl Serialize for Signature {
     /// Serde serialization is compliant the Ethereum YAML test format.

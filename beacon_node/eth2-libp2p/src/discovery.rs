@@ -114,7 +114,7 @@ impl<TSubstream> Discovery<TSubstream> {
         self.find_peers();
     }
 
-    /// Add an Enr to the routing table of the discovery mechanism.
+    /// Add an ENR to the routing table of the discovery mechanism.
     pub fn add_enr(&mut self, enr: Enr) {
         self.discovery.add_enr(enr);
     }
@@ -169,6 +169,7 @@ where
 
     fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
         self.connected_peers.insert(peer_id);
+        // TODO: Drop peers if over max_peer limit
 
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
         metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
@@ -285,7 +286,7 @@ fn load_enr(
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers.
-    let mut local_enr = EnrBuilder::new()
+    let mut local_enr = EnrBuilder::new("v4")
         .ip(config.discovery_address)
         .tcp(config.libp2p_port)
         .udp(config.discovery_port)
@@ -301,7 +302,7 @@ fn load_enr(
                 match Enr::from_str(&enr_string) {
                     Ok(enr) => {
                         if enr.node_id() == local_enr.node_id() {
-                            if enr.ip() == config.discovery_address.into()
+                            if enr.ip().map(Into::into) == Some(config.discovery_address)
                                 && enr.tcp() == Some(config.libp2p_port)
                                 && enr.udp() == Some(config.discovery_port)
                             {

@@ -1,17 +1,39 @@
-use crate::{Bootstrapper, Eth2Config};
 use clap::ArgMatches;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
-use slog::{info, o, warn, Drain};
+use slog::{info, o, Drain};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 /// The number initial validators when starting the `Minimal`.
-const TESTNET_VALIDATOR_COUNT: usize = 16;
-
-/// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
+
+/// Defines how the client should initialize the `BeaconChain` and other components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ClientGenesis {
+    /// Reads the genesis state and other persisted data from the `Store`.
+    Resume,
+    /// Creates a genesis state as per the 2019 Canada interop specifications.
+    Interop {
+        validator_count: usize,
+        genesis_time: u64,
+    },
+    /// Connects to an eth1 node and waits until it can create the genesis state from the deposit
+    /// contract.
+    DepositContract,
+    /// Loads the genesis state from a SSZ-encoded `BeaconState` file.
+    SszFile { path: PathBuf },
+    /// Connects to another Lighthouse instance and reads the genesis state and other data via the
+    /// HTTP API.
+    RemoteNode { server: String, port: Option<u16> },
+}
+
+impl Default for ClientGenesis {
+    fn default() -> Self {
+        Self::DepositContract
+    }
+}
 
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,33 +44,20 @@ pub struct Config {
     freezer_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
     pub spec_constants: String,
-    pub genesis_state: GenesisState,
+    /// If true, the node will use co-ordinated junk for eth1 values.
+    ///
+    /// This is the method used for the 2019 client interop in Canada.
+    pub dummy_eth1_backend: bool,
+    pub sync_eth1_chain: bool,
+    #[serde(skip)]
+    /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
+    /// via the CLI at runtime, instead of from a configuration file saved to disk.
+    pub genesis: ClientGenesis,
     pub network: network::NetworkConfig,
-    pub rpc: rpc::RPCConfig,
-    pub rest_api: rest_api::ApiConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum GenesisState {
-    /// Use the mainnet genesis state.
-    ///
-    /// Mainnet genesis state is not presently known, so this is a place-holder.
-    Mainnet,
-    /// Generate a state with `validator_count` validators, all with well-known secret keys.
-    ///
-    /// Set the genesis time to be the start of the previous 30-minute window.
-    RecentGenesis { validator_count: usize },
-    /// Generate a state with `genesis_time` and `validator_count` validators, all with well-known
-    /// secret keys.
-    Generated {
-        validator_count: usize,
-        genesis_time: u64,
-    },
-    /// Load a YAML-encoded genesis state from a file.
-    Yaml { file: PathBuf },
-    /// Use a HTTP server (running our REST-API) to load genesis and finalized states and blocks.
-    HttpBootstrap { server: String },
+    pub rpc: rpc::Config,
+    pub rest_api: rest_api::Config,
+    pub websocket_server: websocket_server::Config,
+    pub eth1: eth1::Config,
 }
 
 impl Default for Config {
@@ -59,13 +68,15 @@ impl Default for Config {
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
+            genesis: <_>::default(),
             network: NetworkConfig::new(),
-            rpc: rpc::RPCConfig::default(),
-            rest_api: rest_api::ApiConfig::default(),
+            rpc: <_>::default(),
+            rest_api: <_>::default(),
+            websocket_server: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
-            genesis_state: GenesisState::RecentGenesis {
-                validator_count: TESTNET_VALIDATOR_COUNT,
-            },
+            dummy_eth1_backend: false,
+            sync_eth1_chain: false,
+            eth1: <_>::default(),
         }
     }
 }
@@ -82,6 +93,8 @@ impl Config {
     }
 
     /// Returns the core path for the client.
+    ///
+    /// Creates the directory if it does not exist.
     pub fn data_dir(&self) -> Option<PathBuf> {
         let path = dirs::home_dir()?.join(&self.data_dir);
         fs::create_dir_all(&path).ok()?;
@@ -133,6 +146,7 @@ impl Config {
             self.data_dir = PathBuf::from(dir);
         };
 
+        /* FIXME(sproul): rejig
         if let Some(default_spec) = args.value_of("default-spec") {
             match default_spec {
                 "mainnet" => self.spec_constants = Eth2Config::mainnet().spec_constants,
@@ -155,50 +169,34 @@ impl Config {
             }
             self.freezer_db_path = Some(PathBuf::from(freezer_db_path));
         }
+        */
+        if let Some(dir) = args.value_of("db") {
+            self.db_type = dir.to_string();
+        };
 
         self.network.apply_cli_args(args)?;
         self.rpc.apply_cli_args(args)?;
         self.rest_api.apply_cli_args(args)?;
+        self.websocket_server.apply_cli_args(args)?;
 
         if let Some(log_file) = args.value_of("logfile") {
             self.log_file = PathBuf::from(log_file);
             self.update_logger(log)?;
         };
 
-        // If the `--bootstrap` flag is provided, overwrite the default configuration.
-        if let Some(server) = args.value_of("bootstrap") {
-            do_bootstrapping(self, server.to_string(), &log)?;
-        }
-
         Ok(())
     }
 }
 
-/// Perform the HTTP bootstrapping procedure, reading an ENR and multiaddr from the HTTP server and
-/// adding them to the `config`.
-fn do_bootstrapping(config: &mut Config, server: String, log: &slog::Logger) -> Result<(), String> {
-    // Set the genesis state source.
-    config.genesis_state = GenesisState::HttpBootstrap {
-        server: server.to_string(),
-    };
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use toml;
 
-    let bootstrapper = Bootstrapper::from_server_string(server.to_string())?;
-
-    config.network.boot_nodes.push(bootstrapper.enr()?);
-
-    if let Some(server_multiaddr) = bootstrapper.best_effort_multiaddr() {
-        info!(
-            log,
-            "Estimated bootstrapper libp2p address";
-            "multiaddr" => format!("{:?}", server_multiaddr)
-        );
-        config.network.libp2p_nodes.push(server_multiaddr);
-    } else {
-        warn!(
-            log,
-            "Unable to estimate a bootstrapper libp2p address, this node may not find any peers."
-        );
+    #[test]
+    fn serde() {
+        let config = Config::default();
+        let serialized = toml::to_string(&config).expect("should serde encode default config");
+        toml::from_str::<Config>(&serialized).expect("should serde decode default config");
     }
-
-    Ok(())
 }

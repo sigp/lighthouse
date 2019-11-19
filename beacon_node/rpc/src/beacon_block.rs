@@ -44,8 +44,7 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
         trace!(self.log, "Generating a beacon block"; "req" => format!("{:?}", req));
 
         // decode the request
-        // TODO: requested slot currently unused, see: https://github.com/sigp/lighthouse/issues/336
-        let _requested_slot = Slot::from(req.get_slot());
+        let requested_slot = Slot::from(req.get_slot());
         let randao_reveal = match Signature::from_ssz_bytes(req.get_randao_reveal()) {
             Ok(reveal) => reveal,
             Err(_) => {
@@ -61,7 +60,7 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
             }
         };
 
-        let produced_block = match self.chain.produce_block(randao_reveal) {
+        let produced_block = match self.chain.produce_block(randao_reveal, requested_slot) {
             Ok((block, _state)) => block,
             Err(e) => {
                 // could not produce a block
@@ -76,6 +75,11 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                 return ctx.spawn(f);
             }
         };
+
+        assert_eq!(
+            produced_block.slot, requested_slot,
+            "should produce at the requested slot"
+        );
 
         let mut block = BeaconBlockProto::new();
         block.set_ssz(ssz_encode(&produced_block));
@@ -111,8 +115,8 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                             info!(
                                 self.log,
                                 "Valid block from RPC";
-                                "block_slot" => block.slot,
-                                "block_root" => format!("{}", block_root),
+                                "root" => format!("{}", block_root),
+                                "slot" => block.slot,
                             );
 
                             // create the network topic to send on
@@ -127,13 +131,12 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                             self.network_chan
                                 .try_send(NetworkMessage::Publish {
                                     topics: vec![topic],
-                                    message: message,
+                                    message,
                                 })
                                 .unwrap_or_else(|e| {
                                     error!(
                                         self.log,
-                                        "PublishBeaconBlock";
-                                        "type" => "failed to publish to gossipsub",
+                                        "Failed to gossip beacon block";
                                         "error" => format!("{:?}", e)
                                     );
                                 });
@@ -157,8 +160,7 @@ impl<T: BeaconChainTypes> BeaconBlockService for BeaconBlockServiceInstance<T> {
                         // Some failure during processing.
                         error!(
                             self.log,
-                            "PublishBeaconBlock";
-                            "type" => "failed_to_process",
+                            "Failed to process beacon block";
                             "error" => format!("{:?}", e)
                         );
 

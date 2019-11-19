@@ -208,6 +208,10 @@ where
         <Vec<T>>::ssz_fixed_len()
     }
 
+    fn ssz_bytes_len(&self) -> usize {
+        self.vec.ssz_bytes_len()
+    }
+
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         self.vec.ssz_append(buf)
     }
@@ -304,6 +308,7 @@ mod test {
 
     fn round_trip<T: Encode + Decode + std::fmt::Debug + PartialEq>(item: T) {
         let encoded = &item.as_ssz_bytes();
+        assert_eq!(item.ssz_bytes_len(), encoded.len());
         assert_eq!(T::from_ssz_bytes(&encoded), Ok(item));
     }
 

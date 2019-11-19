@@ -2,13 +2,7 @@ use ssz::{Decode, DecodeError, Encode};
 
 use super::{Signature, BLS_SIG_BYTE_SIZE};
 
-bytes_struct!(
-    SignatureBytes,
-    Signature,
-    BLS_SIG_BYTE_SIZE,
-    "signature",
-    U96
-);
+bytes_struct!(SignatureBytes, Signature, BLS_SIG_BYTE_SIZE, "signature");
 
 #[cfg(test)]
 mod tests {
@@ -32,6 +26,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "fake_crypto"))]
     pub fn test_invalid_signature() {
         let mut signature_bytes = [0; BLS_SIG_BYTE_SIZE];
         signature_bytes[0] = 255; //a_flag1 == b_flag1 == c_flag1 == 1 and x1 = 0 shouldn't be allowed

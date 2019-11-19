@@ -6,10 +6,10 @@ edition = "2018"
 
 [dependencies]
 bls = { path = "../eth2/utils/bls" }
-clap = "2.32.0"
-slog = "^2.2.3"
-slog-term = "^2.4.0"
-slog-async = "^2.3.0"
+clap = "2.33.0"
+slog = "2.5.2"
+slog-term = "2.4.2"
+slog-async = "2.3.0"
 validator_client = { path = "../validator_client" }
 types = { path = "../eth2/types" }
-dirs = "2.0.1"
+dirs = "2.0.2"

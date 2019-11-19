@@ -1,3 +1,5 @@
+#![cfg(not(feature = "fake_crypto"))]
+
 use state_processing::{
     per_block_processing, test_utils::BlockBuilder, BlockProcessingError, BlockSignatureStrategy,
 };
@@ -203,6 +205,4 @@ mod signatures_minimal {
             spec,
         );
     }
-
-    // Cannot test transfers because their length is zero.
 }

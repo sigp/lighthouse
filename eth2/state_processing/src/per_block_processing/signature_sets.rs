@@ -2,14 +2,13 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
-use bls::SignatureSet;
+use bls::{SignatureSet, SignedMessage};
 use std::convert::TryInto;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    AggregateSignature, AttestationDataAndCustodyBit, AttesterSlashing, BeaconBlock,
-    BeaconBlockHeader, BeaconState, BeaconStateError, ChainSpec, Deposit, Domain, EthSpec, Fork,
-    Hash256, IndexedAttestation, ProposerSlashing, PublicKey, RelativeEpoch, Signature, Transfer,
-    VoluntaryExit,
+    AggregateSignature, AttesterSlashing, BeaconBlock, BeaconBlockHeader, BeaconState,
+    BeaconStateError, ChainSpec, DepositData, Domain, EthSpec, Hash256, IndexedAttestation,
+    ProposerSlashing, PublicKey, Signature, VoluntaryExit,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -42,8 +41,11 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
     block_signed_root: Option<Hash256>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let block_proposer = &state.validators
-        [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
+    let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+    let block_proposer = &state
+        .validators
+        .get(proposer_index)
+        .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?;
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),
@@ -71,8 +73,7 @@ pub fn randao_signature_set<'a, T: EthSpec>(
     block: &'a BeaconBlock<T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let block_proposer = &state.validators
-        [state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?];
+    let block_proposer = &state.validators[state.get_beacon_proposer_index(block.slot, spec)?];
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),
@@ -137,31 +138,20 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
     indexed_attestation: &'b IndexedAttestation<T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let message_0 = AttestationDataAndCustodyBit {
-        data: indexed_attestation.data.clone(),
-        custody_bit: false,
-    }
-    .tree_hash_root();
-    let message_1 = AttestationDataAndCustodyBit {
-        data: indexed_attestation.data.clone(),
-        custody_bit: true,
-    }
-    .tree_hash_root();
+    let message = indexed_attestation.data.tree_hash_root();
+
+    let signed_message = SignedMessage::new(
+        get_pubkeys(state, &indexed_attestation.attesting_indices)?,
+        message,
+    );
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
-        Domain::Attestation,
+        Domain::BeaconAttester,
         &state.fork,
     );
 
-    Ok(SignatureSet::dual(
-        signature,
-        message_0,
-        get_pubkeys(state, &indexed_attestation.custody_bit_0_indices)?,
-        message_1,
-        get_pubkeys(state, &indexed_attestation.custody_bit_1_indices)?,
-        domain,
-    ))
+    Ok(SignatureSet::new(signature, vec![signed_message], domain))
 }
 
 /// Returns the signature set for the given `attester_slashing` and corresponding `pubkeys`.
@@ -190,18 +180,17 @@ pub fn attester_slashing_signature_sets<'a, T: EthSpec>(
 ///
 /// This method is separate to `deposit_signature_set` to satisfy lifetime requirements.
 pub fn deposit_pubkey_signature_message(
-    deposit: &Deposit,
+    deposit_data: &DepositData,
 ) -> Option<(PublicKey, Signature, Vec<u8>)> {
-    let pubkey = (&deposit.data.pubkey).try_into().ok()?;
-    let signature = (&deposit.data.signature).try_into().ok()?;
-    let message = deposit.data.signed_root();
+    let pubkey = (&deposit_data.pubkey).try_into().ok()?;
+    let signature = (&deposit_data.signature).try_into().ok()?;
+    let message = deposit_data.signed_root();
     Some((pubkey, signature, message))
 }
 
 /// Returns the signature set for some set of deposit signatures, made with
 /// `deposit_pubkey_signature_message`.
-pub fn deposit_signature_set<'a, T: EthSpec>(
-    state: &'a BeaconState<T>,
+pub fn deposit_signature_set<'a>(
     pubkey_signature_message: &'a (PublicKey, Signature, Vec<u8>),
     spec: &'a ChainSpec,
 ) -> SignatureSet<'a> {
@@ -209,9 +198,12 @@ pub fn deposit_signature_set<'a, T: EthSpec>(
 
     // Note: Deposits are valid across forks, thus the deposit domain is computed
     // with the fork zeroed.
-    let domain = spec.get_domain(state.current_epoch(), Domain::Deposit, &Fork::default());
-
-    SignatureSet::single(signature, pubkey, message.clone(), domain)
+    SignatureSet::single(
+        signature,
+        pubkey,
+        message.clone(),
+        spec.get_deposit_domain(),
+    )
 }
 
 /// Returns a signature set that is valid if the `VoluntaryExit` was signed by the indicated
@@ -233,28 +225,6 @@ pub fn exit_signature_set<'a, T: EthSpec>(
     Ok(SignatureSet::single(
         &exit.signature,
         &validator.pubkey,
-        message,
-        domain,
-    ))
-}
-
-/// Returns a signature set that is valid if the `Transfer` was signed by `transfer.pubkey`.
-pub fn transfer_signature_set<'a, T: EthSpec>(
-    state: &'a BeaconState<T>,
-    transfer: &'a Transfer,
-    spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>> {
-    let domain = spec.get_domain(
-        transfer.slot.epoch(T::slots_per_epoch()),
-        Domain::Transfer,
-        &state.fork,
-    );
-
-    let message = transfer.signed_root();
-
-    Ok(SignatureSet::single(
-        &transfer.signature,
-        &transfer.pubkey,
         message,
         domain,
     ))

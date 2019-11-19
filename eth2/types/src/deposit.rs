@@ -7,9 +7,11 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+pub const DEPOSIT_TREE_DEPTH: usize = 32;
+
 /// A deposit to potentially become a beacon chain validator.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct Deposit {
     pub proof: FixedVector<Hash256, U33>,
@@ -21,5 +23,4 @@ mod tests {
     use super::*;
 
     ssz_tests!(Deposit);
-
 }

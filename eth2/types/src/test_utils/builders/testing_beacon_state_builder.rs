@@ -1,5 +1,5 @@
 use super::super::{generate_deterministic_keypairs, KeypairsFile};
-use crate::test_utils::TestingPendingAttestationBuilder;
+use crate::test_utils::{AttestationTestTask, TestingPendingAttestationBuilder};
 use crate::*;
 use bls::get_withdrawal_credentials;
 use dirs;
@@ -94,7 +94,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     /// Creates the builder from an existing set of keypairs.
     pub fn from_keypairs(keypairs: Vec<Keypair>, spec: &ChainSpec) -> Self {
         let validator_count = keypairs.len();
-        let starting_balance = 32_000_000_000;
+        let starting_balance = spec.max_effective_balance;
 
         debug!(
             "Building {} Validator objects from keypairs...",
@@ -123,8 +123,10 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
             .collect::<Vec<_>>()
             .into();
 
+        let genesis_time = 1_567_052_589; // 29 August, 2019;
+
         let mut state = BeaconState::new(
-            spec.min_genesis_time,
+            genesis_time,
             Eth1Data {
                 deposit_root: Hash256::zero(),
                 deposit_count: 0,
@@ -179,8 +181,6 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
 
         state.slot = slot;
 
-        // NOTE: we could update the latest start shard here
-
         state.previous_justified_checkpoint.epoch = epoch - 3;
         state.current_justified_checkpoint.epoch = epoch - 2;
         state.justification_bits = BitVector::from_bytes(vec![0b0000_1111]).unwrap();
@@ -213,22 +213,23 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
         for slot in first_slot..=last_slot {
             let slot = Slot::from(slot);
 
-            let committees: Vec<OwnedCrosslinkCommittee> = state
-                .get_crosslink_committees_at_slot(slot)
+            let committees: Vec<OwnedBeaconCommittee> = state
+                .get_beacon_committees_at_slot(slot)
                 .unwrap()
                 .into_iter()
                 .map(|c| c.clone().into_owned())
                 .collect();
 
-            for crosslink_committee in committees {
+            for beacon_committee in committees {
                 let mut builder = TestingPendingAttestationBuilder::new(
+                    AttestationTestTask::Valid,
                     state,
-                    crosslink_committee.shard,
+                    beacon_committee.index,
                     slot,
                     spec,
                 );
                 // The entire committee should have signed the pending attestation.
-                let signers = vec![true; crosslink_committee.committee.len()];
+                let signers = vec![true; beacon_committee.committee.len()];
                 builder.add_committee_participation(signers);
                 let attestation = builder.build();
 

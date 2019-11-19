@@ -46,6 +46,7 @@ where
     Ok(array)
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
 pub fn fork_to_hex_str<S>(bytes: &[u8; FORK_BYTES_LEN], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
