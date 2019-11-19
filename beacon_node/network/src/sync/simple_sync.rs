@@ -472,8 +472,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         // If we found a parent block and state to validate the signature with, we enter this
         // section, otherwise, we return false.
         if let Some((parent_block, mut state)) = parent_block_opt {
-            // Determine the epochal relationship between the state used to validate the block and
-            // the block itself.
+            // Determine the epochal relationship between the parent block and the block being verified.
             let relative_epoch = if let Ok(relative_epoch) = RelativeEpoch::from_slot(
                 parent_block.slot,
                 block.slot,
@@ -481,7 +480,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             ) {
                 relative_epoch
             } else {
-                // This section is entered if the block being verified is to far from the parent to
+                // This section is entered if the block being verified is too far from the parent to
                 // have a RelativeEpoch.
 
                 // We make sure the block being verified follows the parent's slot.
