@@ -41,17 +41,17 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// block.
     pub fn new(
         store: Arc<T::Store>,
-        genesis_block: &BeaconBlock<T::EthSpec>,
+        backend: T::LmdGhost,
         genesis_block_root: Hash256,
+        genesis_slot: Slot,
     ) -> Self {
-        let genesis_slot = genesis_block.slot;
         let justified_checkpoint = Checkpoint {
             epoch: genesis_slot.epoch(T::EthSpec::slots_per_epoch()),
             root: genesis_block_root,
         };
         Self {
             store: store.clone(),
-            backend: T::LmdGhost::new(store, genesis_block, genesis_block_root),
+            backend,
             genesis_block_root,
             justified_checkpoint: RwLock::new(justified_checkpoint.clone()),
             best_justified_checkpoint: RwLock::new(justified_checkpoint),

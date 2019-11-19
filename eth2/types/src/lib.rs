@@ -50,7 +50,7 @@ pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{Error as BeaconStateError, *};
 pub use crate::chain_spec::{ChainSpec, Domain};
 pub use crate::checkpoint::Checkpoint;
-pub use crate::deposit::Deposit;
+pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::fork::Fork;

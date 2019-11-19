@@ -1,0 +1,19 @@
+[package]
+name = "eth1_test_rig"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+build = "build.rs"
+
+[build-dependencies]
+reqwest = "0.9.20"
+serde_json = "1.0"
+
+[dependencies]
+web3 = "0.8.0"
+tokio = "0.1.17"
+futures = "0.1.25"
+types = { path = "../../eth2/types"}
+eth2_ssz = { path = "../../eth2/utils/ssz"}
+serde_json = "1.0"

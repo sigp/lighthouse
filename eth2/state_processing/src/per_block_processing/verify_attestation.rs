@@ -57,6 +57,7 @@ pub fn verify_attestation_for_state<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<()> {
     let data = &attestation.data;
+
     verify!(
         data.index < state.get_committee_count_at_slot(data.slot)?,
         Invalid::BadCommitteeIndex

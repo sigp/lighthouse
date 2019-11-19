@@ -1,5 +1,5 @@
 use super::super::{generate_deterministic_keypairs, KeypairsFile};
-use crate::test_utils::TestingPendingAttestationBuilder;
+use crate::test_utils::{AttestationTestTask, TestingPendingAttestationBuilder};
 use crate::*;
 use bls::get_withdrawal_credentials;
 use dirs;
@@ -222,6 +222,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
 
             for beacon_committee in committees {
                 let mut builder = TestingPendingAttestationBuilder::new(
+                    AttestationTestTask::Valid,
                     state,
                     beacon_committee.index,
                     slot,

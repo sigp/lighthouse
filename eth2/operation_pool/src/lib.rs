@@ -554,7 +554,7 @@ mod tests {
 
         let mut state = BeaconState::random_for_test(rng);
 
-        state.fork = Fork::genesis(MainnetEthSpec::genesis_epoch());
+        state.fork = Fork::default();
 
         (spec, state)
     }
@@ -575,13 +575,27 @@ mod tests {
             spec: &ChainSpec,
             extra_signer: Option<usize>,
         ) -> Attestation<E> {
-            let mut builder = TestingAttestationBuilder::new(state, committee, slot, index);
+            let mut builder = TestingAttestationBuilder::new(
+                AttestationTestTask::Valid,
+                state,
+                committee,
+                slot,
+                index,
+                spec,
+            );
             let signers = &committee[signing_range];
             let committee_keys = signers.iter().map(|&i| &keypairs[i].sk).collect::<Vec<_>>();
-            builder.sign(signers, &committee_keys, &state.fork, spec);
+            builder.sign(
+                AttestationTestTask::Valid,
+                signers,
+                &committee_keys,
+                &state.fork,
+                spec,
+            );
             extra_signer.map(|c_idx| {
                 let validator_index = committee[c_idx];
                 builder.sign(
+                    AttestationTestTask::Valid,
                     &[validator_index],
                     &[&keypairs[validator_index].sk],
                     &state.fork,

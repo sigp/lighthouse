@@ -181,8 +181,6 @@ pub enum ProposerSlashingInvalid {
 
 #[derive(Debug, PartialEq)]
 pub enum AttesterSlashingInvalid {
-    /// The attestation data is identical, an attestation cannot conflict with itself.
-    AttestationDataIdentical,
     /// The attestations were not in conflict.
     NotSlashable,
     /// The first `IndexedAttestation` was invalid.
@@ -222,23 +220,14 @@ pub enum AttestationInvalid {
         attestation: Checkpoint,
         is_current: bool,
     },
-    /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
-    CustodyBitfieldHasSetBits,
     /// There are no set bits on the attestation -- an attestation must be signed by at least one
     /// validator.
     AggregationBitfieldIsEmpty,
-    /// The custody bitfield length is not the smallest possible size to represent the committee.
-    BadCustodyBitfieldLength {
-        committee_len: usize,
-        bitfield_len: usize,
-    },
     /// The aggregation bitfield length is not the smallest possible size to represent the committee.
     BadAggregationBitfieldLength {
         committee_len: usize,
         bitfield_len: usize,
     },
-    /// The bits set in the custody bitfield are not a subset of those set in the aggregation bits.
-    CustodyBitfieldNotSubset,
     /// The validator index was unknown.
     UnknownValidator(u64),
     /// The attestation signature verification failed.
@@ -264,14 +253,6 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
 
 #[derive(Debug, PartialEq)]
 pub enum IndexedAttestationInvalid {
-    /// The custody bit 0 validators intersect with the bit 1 validators.
-    CustodyBitValidatorsIntersect,
-    /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
-    CustodyBitfieldHasSetBits,
-    /// The custody bitfield violated a type-level bound.
-    CustodyBitfieldBoundsError(ssz_types::Error),
-    /// No validator indices were specified.
-    NoValidatorIndices,
     /// The number of indices exceeds the global maximum.
     ///
     /// (max_indices, indices_given)
@@ -291,8 +272,6 @@ pub enum IndexedAttestationInvalid {
 
 #[derive(Debug, PartialEq)]
 pub enum DepositInvalid {
-    /// The deposit index does not match the state index.
-    BadIndex { state: u64, deposit: u64 },
     /// The signature (proof-of-possession) does not match the given pubkey.
     BadSignature,
     /// The signature or pubkey does not represent a valid BLS point.
@@ -311,7 +290,7 @@ pub enum ExitInvalid {
     /// The specified validator has a non-maximum exit epoch.
     AlreadyExited(u64),
     /// The specified validator has already initiated exit.
-    AlreadyInitiatedExited(u64),
+    AlreadyInitiatedExit(u64),
     /// The exit is for a future epoch.
     FutureEpoch { state: Epoch, exit: Epoch },
     /// The validator has not been active for long enough.

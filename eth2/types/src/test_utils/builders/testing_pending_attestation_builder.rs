@@ -1,4 +1,4 @@
-use crate::test_utils::TestingAttestationDataBuilder;
+use crate::test_utils::{AttestationTestTask, TestingAttestationDataBuilder};
 use crate::*;
 
 /// Builds an `AttesterSlashing` to be used for testing purposes.
@@ -15,8 +15,14 @@ impl<T: EthSpec> TestingPendingAttestationBuilder<T> {
     ///
     /// * The aggregation and custody bitfields will all be empty, they need to be set with
     /// `Self::add_committee_participation`.
-    pub fn new(state: &BeaconState<T>, index: u64, slot: Slot, spec: &ChainSpec) -> Self {
-        let data_builder = TestingAttestationDataBuilder::new(state, index, slot);
+    pub fn new(
+        test_task: AttestationTestTask,
+        state: &BeaconState<T>,
+        index: u64,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Self {
+        let data_builder = TestingAttestationDataBuilder::new(test_task, state, index, slot, spec);
 
         let proposer_index = state.get_beacon_proposer_index(slot, spec).unwrap() as u64;
 

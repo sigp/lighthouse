@@ -29,7 +29,8 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
     // Check that indices are sorted
     let check_sorted = |list: &[u64]| -> Result<()> {
         list.windows(2).enumerate().try_for_each(|(i, pair)| {
-            if pair[0] >= pair[1] {
+            // The spec allows duplicates, so use strict comparison (>).
+            if pair[0] > pair[1] {
                 Err(error(Invalid::BadValidatorIndicesOrdering(i)))
             } else {
                 Ok(())
