@@ -337,8 +337,6 @@ fn discard_votes_before_justified_slot() {
 
     let (genesis_root, genesis_slot) = *harness.honest_roots.last().unwrap();
 
-    dbg!(&harness.honest_roots);
-
     // Add attestations from all validators for all honest blocks.
     for (root, slot) in harness.honest_roots.iter().rev() {
         for i in 0..VALIDATOR_COUNT {
@@ -353,6 +351,10 @@ fn discard_votes_before_justified_slot() {
             "Honest head should be selected"
         );
 
+        // Head from one slot after genesis should still be genesis, because the successor
+        // block of the genesis block has slot `genesis_slot + 1` which isn't greater than
+        // the slot we're starting from. This is a very artifical test, but one that's easy to
+        // describe.
         assert_eq!(
             lmd.find_head(
                 genesis_slot + 1,
@@ -362,13 +364,6 @@ fn discard_votes_before_justified_slot() {
             Ok(genesis_root)
         );
     }
-
-    let head = harness.harness.chain.head();
-
-    dbg!(&harness.honest_roots);
-    dbg!(head.beacon_state.current_justified_checkpoint);
-
-    // assert!(false);
 }
 
 /// Ensures that the finalized root can be set to all values in `roots`.

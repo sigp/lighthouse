@@ -856,7 +856,7 @@ fn invalid_attestation_bad_target_epoch() {
     );
 }
 
-/* FIXME(sproul)
+/* FIXME: needs updating for v0.9
 #[test]
 fn invalid_attestation_bad_shard() {
     let spec = MainnetEthSpec::default_spec();

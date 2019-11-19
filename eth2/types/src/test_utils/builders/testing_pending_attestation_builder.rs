@@ -13,7 +13,7 @@ impl<T: EthSpec> TestingPendingAttestationBuilder<T> {
     ///
     /// The `inclusion_delay` will be set to `MIN_ATTESTATION_INCLUSION_DELAY`.
     ///
-    /// * The aggregation and custody bitfields will all be empty, they need to be set with
+    /// * The aggregation bitfield will be empty, it needs to be set with
     /// `Self::add_committee_participation`.
     pub fn new(
         test_task: AttestationTestTask,
