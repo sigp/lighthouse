@@ -12,7 +12,9 @@ use libp2p::swarm::{
     SubstreamProtocol,
 };
 use libp2p::{Multiaddr, PeerId};
-pub use methods::{ErrorMessage, RPCErrorResponse, RPCResponse, RequestId, StatusMessage};
+pub use methods::{
+    ErrorMessage, RPCErrorResponse, RPCResponse, RequestId, ResponseTermination, StatusMessage,
+};
 pub use protocol::{RPCError, RPCProtocol, RPCRequest};
 use slog::o;
 use std::marker::PhantomData;

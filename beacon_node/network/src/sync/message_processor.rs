@@ -251,7 +251,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 self.network.send_rpc_response(
                     peer_id.clone(),
                     request_id,
-                    RPCResponse::BlocksByRoot(Some(block.as_ssz_bytes())),
+                    RPCResponse::BlocksByRoot(block.as_ssz_bytes()),
                 );
                 send_block_count += 1;
             } else {
@@ -272,8 +272,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         );
 
         // send stream termination
-        self.network
-            .send_rpc_response(peer_id, request_id, RPCResponse::BlocksByRoot(None));
+        self.network.send_rpc_error_response(
+            peer_id,
+            request_id,
+            RPCErrorResponse::StreamTermination(ResponseTermination::BlocksByRoot),
+        );
     }
 
     /// Handle a `BlocksByRange` request from the peer.
@@ -352,12 +355,15 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             self.network.send_rpc_response(
                 peer_id.clone(),
                 request_id,
-                RPCResponse::BlocksByRange(Some(block.as_ssz_bytes())),
+                RPCResponse::BlocksByRange(block.as_ssz_bytes()),
             );
         }
         // send the stream terminator
-        self.network
-            .send_rpc_response(peer_id, request_id, RPCResponse::BlocksByRange(None));
+        self.network.send_rpc_error_response(
+            peer_id,
+            request_id,
+            RPCErrorResponse::StreamTermination(ResponseTermination::BlocksByRange),
+        );
     }
 
     /// Handle a `BlocksByRange` response from the peer.
@@ -543,7 +549,7 @@ impl NetworkContext {
         self.send_rpc_event(peer_id, RPCEvent::Request(request_id, rpc_request));
     }
 
-    //TODO: Handle Error responses
+    /// Convenience function to wrap successful RPC Responses.
     pub fn send_rpc_response(
         &mut self,
         peer_id: PeerId,
@@ -554,6 +560,16 @@ impl NetworkContext {
             peer_id,
             RPCEvent::Response(request_id, RPCErrorResponse::Success(rpc_response)),
         );
+    }
+
+    /// Send an RPCErrorResponse. This handles errors and stream terminations.
+    pub fn send_rpc_error_response(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        rpc_error_response: RPCErrorResponse,
+    ) {
+        self.send_rpc_event(peer_id, RPCEvent::Response(request_id, rpc_error_response));
     }
 
     fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {

@@ -48,7 +48,7 @@ impl Encoder for SSZInboundCodec {
             RPCErrorResponse::InvalidRequest(err) => err.as_ssz_bytes(),
             RPCErrorResponse::ServerError(err) => err.as_ssz_bytes(),
             RPCErrorResponse::Unknown(err) => err.as_ssz_bytes(),
-            RPCErrorResponse::StreamTermination => {
+            RPCErrorResponse::StreamTermination(_) => {
                 unreachable!("Code error if attempting to encode a stream termination")
             }
         };

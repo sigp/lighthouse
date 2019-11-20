@@ -4,7 +4,7 @@ use crate::sync::MessageProcessor;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     behaviour::PubsubMessage,
-    rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId},
+    rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
     PeerId, RPCEvent,
 };
 use futures::future::Future;
@@ -167,7 +167,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                                 self.message_processor.on_blocks_by_range_response(
                                     peer_id,
                                     request_id,
-                                    beacon_block,
+                                    Some(beacon_block),
                                 );
                             }
                             Err(e) => {
@@ -182,7 +182,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                                 self.message_processor.on_blocks_by_root_response(
                                     peer_id,
                                     request_id,
-                                    beacon_block,
+                                    Some(beacon_block),
                                 );
                             }
                             Err(e) => {
@@ -190,6 +190,19 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                                 warn!(self.log, "Peer sent invalid BEACON_BLOCKS response";"peer" => format!("{:?}", peer_id), "error" => format!("{:?}", e));
                             }
                         }
+                    }
+                }
+            }
+            RPCErrorResponse::StreamTermination(response_type) => {
+                // have received a stream termination, notify the processing functions
+                match response_type {
+                    ResponseTermination::BlocksByRange => {
+                        self.message_processor
+                            .on_blocks_by_range_response(peer_id, request_id, None);
+                    }
+                    ResponseTermination::BlocksByRoot => {
+                        self.message_processor
+                            .on_blocks_by_root_response(peer_id, request_id, None);
                     }
                 }
             }
@@ -342,13 +355,9 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     /// stream termination.
     fn decode_beacon_block(
         &self,
-        beacon_blocks: Option<Vec<u8>>,
-    ) -> Result<Option<BeaconBlock<T::EthSpec>>, DecodeError> {
+        beacon_block: Vec<u8>,
+    ) -> Result<BeaconBlock<T::EthSpec>, DecodeError> {
         //TODO: Implement faster block verification before decoding entirely
-        if let Some(blocks) = beacon_blocks {
-            Ok(Some(BeaconBlock::from_ssz_bytes(&blocks)?))
-        } else {
-            Ok(None)
-        }
+        BeaconBlock::from_ssz_bytes(&beacon_block)
     }
 }
