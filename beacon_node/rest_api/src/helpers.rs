@@ -15,10 +15,10 @@ use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
 use types::{
-    Attestation, BeaconBlock, BeaconState, EthSpec, Hash256, RelativeEpoch, Signature, Slot,
+    Attestation, BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, RelativeEpoch, Signature, Slot,
 };
 
-/// Parse a slot from a `0x` preixed string.
+/// Parse a slot.
 ///
 /// E.g., `"1234"`
 pub fn parse_slot(string: &str) -> Result<Slot, ApiError> {
@@ -26,6 +26,16 @@ pub fn parse_slot(string: &str) -> Result<Slot, ApiError> {
         .parse::<u64>()
         .map(Slot::from)
         .map_err(|e| ApiError::BadRequest(format!("Unable to parse slot: {:?}", e)))
+}
+
+/// Parse an epoch.
+///
+/// E.g., `"13"`
+pub fn parse_epoch(string: &str) -> Result<Epoch, ApiError> {
+    string
+        .parse::<u64>()
+        .map(Epoch::from)
+        .map_err(|e| ApiError::BadRequest(format!("Unable to parse epoch: {:?}", e)))
 }
 
 /// Checks the provided request to ensure that the `content-type` header.
