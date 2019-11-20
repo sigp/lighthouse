@@ -1,4 +1,4 @@
-use beacon_node::{beacon_chain::BeaconChainTypes, Client, ClientGenesis, ProductionBeaconNode};
+use beacon_node::{beacon_chain::BeaconChainTypes, Client, ProductionBeaconNode};
 use environment::RuntimeContext;
 use futures::Future;
 use remote_beacon_node::RemoteBeaconNode;
@@ -8,7 +8,7 @@ use tempdir::TempDir;
 use types::EthSpec;
 use validator_client::{validator_directory::ValidatorDirectoryBuilder, ProductionValidatorClient};
 
-pub use beacon_node::{ClientConfig, ProductionClient};
+pub use beacon_node::{ClientConfig, ClientGenesis, ProductionClient};
 pub use environment;
 pub use validator_client::Config as ValidatorConfig;
 
@@ -59,6 +59,8 @@ pub fn testing_client_config() -> ClientConfig {
     client_config.rpc.port = 0;
     client_config.rest_api.port = 0;
     client_config.websocket_server.port = 0;
+
+    client_config.dummy_eth1_backend = true;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -120,6 +122,10 @@ impl<E: EthSpec> LocalValidatorClient<E> {
 
         let client =
             ProductionValidatorClient::new(context, config).expect("should start validator client");
+
+        client
+            .start_service()
+            .expect("should start validator client");
 
         Self { client, datadir }
     }

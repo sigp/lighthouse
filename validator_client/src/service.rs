@@ -169,10 +169,6 @@ impl<E: EthSpec> Service<ValidatorServiceClient, Keypair, E> {
 
         let slots_per_epoch = E::slots_per_epoch();
 
-        // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
-        // https://github.com/sigp/lighthouse/issues/160
-        //let keypairs = Arc::new(generate_deterministic_keypairs(8));
-
         // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
         // where EpochDuty contains slot numbers and attestation data that each validator needs to
         // produce work on.
