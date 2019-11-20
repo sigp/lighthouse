@@ -385,17 +385,6 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     /// Process a gossip message declaring a new block.
     ///
     /// Attempts to apply a block to the beacon chain. May queue the block for later processing.
-    ///
-    /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers. 524
-    /// Old blocks or blocks on a different fork. Will need to recalc proposer shuffle.
-    /// May need heuristics...
-    /// Cases:
-    /// Do we know the block's parent?
-    /// 1.) It's a recent block on the same chain. We can use the current cache in the BeaconChain. (cheap)
-    /// 2.) Old block on a different fork. (may have to recalc shuffling)
-    /// If we don't know the block's parent, we don't know who is supposed to sign it, therefore we can
-    /// not validate the signature.
-    /// 1.) We can try to look up the block's parent using the syncing thread. (it's expensive not sure how to reprop from sync thread)
     pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) {
         match self.chain.process_block(block.clone()) {
             Ok(outcome) => match outcome {
@@ -440,6 +429,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         }
     }
 
+    /// Determines whether or not a given block is fit to be forwarded to other peers.
     pub fn should_forward_block(&mut self, block: BeaconBlock<T::EthSpec>) -> bool {
         // Retrieve the parent block used to generate the signature.
         // This will eventually return false if this operation fails or returns an empty option.
@@ -470,7 +460,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         };
 
         // If we found a parent block and state to validate the signature with, we enter this
-        // section, otherwise, we return false.
+        // section and find the proposer for the block's slot, otherwise, we return false.
         if let Some((parent_block, mut state)) = parent_block_opt {
             // Determine the epochal relationship between the parent block and the block being verified.
             let relative_epoch = if let Ok(relative_epoch) = RelativeEpoch::from_slot(
@@ -488,8 +478,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     return false;
                 }
 
-                // If the block is more than one epoch in the future, we must fast-forward to
-                // the state and compute the committee.
+                // If the block is more than one epoch in the future, we must fast-forward to the
+                // state and compute the committee.
                 for _ in state.slot.as_u64()..block.slot.as_u64() {
                     if per_slot_processing(&mut state, &self.chain.spec).is_err() {
                         // Return false if something goes wrong.
@@ -507,7 +497,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 RelativeEpoch::Current
             };
 
-            // Retrieve the block's designated proposer.
+            // Compute the proposer for the block's slot.
             let proposer_result = state
                 .get_beacon_proposer_index(
                     block.slot,
@@ -532,7 +522,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     domain
                 );
 
-                // TODO: downvote if the signature is invalid.
+                // TODO: Downvote if the signature is invalid.
                 return signature.is_valid();
             }
         }
@@ -572,10 +562,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         };
     }
 
+    /// Determines whether or not a given attestation is fit to be forwarded to other peers.
     pub fn should_forward_attestation(&self, attestation: Attestation<T::EthSpec>) -> bool {
         // Attempt to validate the attestation's signature against the head state.
         // In this case, we do not read anything from the database, which should be fast and will
-        // work for most attestations getting passed around the network.
+        // work for most attestations that get passed around the network.
         let head_state = &self.chain.head().beacon_state;
 
         // Convert the attestation to an indexed attestation.
@@ -589,32 +580,32 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 &self.chain.spec
             ) {
                 // An invalid signature here does not necessarily mean the attestation is invalid.
-                // It could be the case that our head state does not have the same registry.
+                // It could be the case that our state has a different validator registry.
                 if signature.is_valid() {
                     return true;
                 }
             }
         }
 
-        // Retrieve the block being attested to.
+        // If the first check did not pass, we retrieve the block for the beacon_block_root in the
+        // attestation's data and use that to check the signature.
         if let Ok(Some(block)) = self
             .chain
             .store
             .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)
         {
+            // Retrieve the block's state.
             if let Ok(Some(state)) = self.chain.store.get::<BeaconState<T::EthSpec>>(&block.state_root) {
                 // Convert the attestation to an indexed attestation.
                 if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
-                    // Validate the indexed attestation against the state we retrieved using the
-                    // attestation's LMD Ghost vote.
+                    // Check if the signature is valid against the state we got from the database.
                     if let Ok(signature) = indexed_attestation_signature_set(
                         &state,
                         &indexed_attestation.signature,
                         &indexed_attestation,
                         &self.chain.spec
                     ) {
-                        // TODO: Downvote peer if the signature is invalid.
-                        // Also maybe downvote the peer for getting here in the first place.
+                        // TODO: Maybe downvote peer if the signature is invalid.
                         return signature.is_valid();
                     }
                 }

@@ -201,10 +201,10 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         match gossip_message {
             PubsubMessage::Block(message) => match self.decode_gossip_block(message) {
                 Ok(block) => {
-                    if self.message_processor.should_forward_block(block.clone()) {
+                    self.message_processor.on_block_gossip(peer_id.clone(), block.clone());
+                    if self.message_processor.should_forward_block(block) {
                         self.propagate_message(id, peer_id.clone());
                     }
-                    self.message_processor.on_block_gossip(peer_id.clone(), block);
                 }
                 Err(e) => {
                     debug!(self.log, "Invalid gossiped beacon block"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
@@ -294,7 +294,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         &self,
         beacon_block: Vec<u8>,
     ) -> Result<BeaconBlock<T::EthSpec>, DecodeError> {
-        //TODO: Apply verification before decoding. - 524
+        //TODO: Apply verification before decoding.
         BeaconBlock::from_ssz_bytes(&beacon_block)
     }
 
@@ -302,7 +302,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         &self,
         beacon_block: Vec<u8>,
     ) -> Result<Attestation<T::EthSpec>, DecodeError> {
-        //TODO: Apply verification before decoding. - 524
+        //TODO: Apply verification before decoding.
         Attestation::from_ssz_bytes(&beacon_block)
     }
 
