@@ -15,7 +15,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 ///
 /// Returns `Ok(())` if the `AttesterSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 pub fn verify_attester_slashing<T: EthSpec>(
     state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing<T>,
@@ -47,7 +47,7 @@ pub fn verify_attester_slashing<T: EthSpec>(
 ///
 /// Returns Ok(indices) if `indices.len() > 0`.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 pub fn get_slashable_indices<T: EthSpec>(
     state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing<T>,
@@ -71,15 +71,13 @@ where
     let attestation_2 = &attester_slashing.attestation_2;
 
     let attesting_indices_1 = attestation_1
-        .custody_bit_0_indices
+        .attesting_indices
         .iter()
-        .chain(&attestation_1.custody_bit_1_indices)
         .cloned()
         .collect::<BTreeSet<_>>();
     let attesting_indices_2 = attestation_2
-        .custody_bit_0_indices
+        .attesting_indices
         .iter()
-        .chain(&attestation_2.custody_bit_1_indices)
         .cloned()
         .collect::<BTreeSet<_>>();
 

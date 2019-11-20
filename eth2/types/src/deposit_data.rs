@@ -11,7 +11,7 @@ use tree_hash_derive::{SignedRoot, TreeHash};
 
 /// The data supplied by the user to the deposit contract.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 #[derive(
     Debug,
     PartialEq,
@@ -35,7 +35,7 @@ pub struct DepositData {
 impl DepositData {
     /// Generate the signature for a given DepositData details.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.9.1
     pub fn create_signature(&self, secret_key: &SecretKey, spec: &ChainSpec) -> SignatureBytes {
         let msg = self.signed_root();
         let domain = spec.get_deposit_domain();

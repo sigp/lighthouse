@@ -6,7 +6,6 @@ mod testing_beacon_state_builder;
 mod testing_deposit_builder;
 mod testing_pending_attestation_builder;
 mod testing_proposer_slashing_builder;
-mod testing_transfer_builder;
 mod testing_voluntary_exit_builder;
 
 pub use testing_attestation_builder::*;
@@ -17,5 +16,4 @@ pub use testing_beacon_state_builder::*;
 pub use testing_deposit_builder::*;
 pub use testing_pending_attestation_builder::*;
 pub use testing_proposer_slashing_builder::*;
-pub use testing_transfer_builder::*;
 pub use testing_voluntary_exit_builder::*;

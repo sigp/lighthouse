@@ -1,8 +1,8 @@
 use crate::*;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    Unsigned, U0, U1, U1024, U1099511627776, U128, U16, U16777216, U4, U4096, U64, U65536, U8,
-    U8192,
+    Unsigned, U0, U1, U1024, U1099511627776, U128, U16, U16777216, U2048, U32, U4, U4096, U64,
+    U65536, U8, U8192,
 };
 use std::fmt::Debug;
 
@@ -14,7 +14,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     /*
      * Misc
      */
-    type ShardCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxValidatorsPerCommittee: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Initial values
@@ -41,7 +40,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     type MaxAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxDeposits: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxVoluntaryExits: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type MaxTransfers: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -58,29 +56,21 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
         Epoch::new(Self::GenesisEpoch::to_u64())
     }
 
-    /// Return the number of committees in one epoch.
+    /// Return the number of committees per slot.
     ///
-    /// Spec v0.8.1
-    fn get_committee_count(active_validator_count: usize, target_committee_size: usize) -> usize {
-        let shard_count = Self::shard_count();
-        let slots_per_epoch = Self::slots_per_epoch() as usize;
+    /// Note: the number of committees per slot is constant in each epoch, and depends only on
+    /// the `active_validator_count` during the slot's epoch.
+    ///
+    /// Spec v0.9.1
+    fn get_committee_count_per_slot(active_validator_count: usize, spec: &ChainSpec) -> usize {
+        let slots_per_epoch = Self::SlotsPerEpoch::to_usize();
 
         std::cmp::max(
             1,
             std::cmp::min(
-                shard_count / slots_per_epoch,
-                active_validator_count / slots_per_epoch / target_committee_size,
+                spec.max_committees_per_slot,
+                active_validator_count / slots_per_epoch / spec.target_committee_size,
             ),
-        ) * slots_per_epoch
-    }
-
-    /// Return the number of shards to increment `state.start_shard` by in a given epoch.
-    ///
-    /// Spec v0.8.1
-    fn get_shard_delta(active_validator_count: usize, target_committee_size: usize) -> u64 {
-        std::cmp::min(
-            Self::get_committee_count(active_validator_count, target_committee_size) as u64,
-            Self::ShardCount::to_u64() - Self::ShardCount::to_u64() / Self::slots_per_epoch(),
         )
     }
 
@@ -95,37 +85,30 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 
     /// Returns the `SLOTS_PER_EPOCH` constant for this specification.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.9.1
     fn slots_per_epoch() -> u64 {
         Self::SlotsPerEpoch::to_u64()
     }
 
-    /// Returns the `SHARD_COUNT` constant for this specification.
-    ///
-    /// Spec v0.8.1
-    fn shard_count() -> usize {
-        Self::ShardCount::to_usize()
-    }
-
     /// Returns the `SLOTS_PER_HISTORICAL_ROOT` constant for this specification.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.9.1
     fn slots_per_historical_root() -> usize {
         Self::SlotsPerHistoricalRoot::to_usize()
     }
 
     /// Returns the `EPOCHS_PER_HISTORICAL_VECTOR` constant for this specification.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.9.1
     fn epochs_per_historical_vector() -> usize {
         Self::EpochsPerHistoricalVector::to_usize()
     }
 
     /// Returns the `SLOTS_PER_ETH1_VOTING_PERIOD` constant for this specification.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.9.1
     fn slots_per_eth1_voting_period() -> usize {
-        Self::EpochsPerHistoricalVector::to_usize()
+        Self::SlotsPerEth1VotingPeriod::to_usize()
     }
 }
 
@@ -139,16 +122,15 @@ macro_rules! params_from_eth_spec {
 
 /// Ethereum Foundation specifications.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
     type JustificationBitsLength = U4;
-    type ShardCount = U1024;
-    type MaxValidatorsPerCommittee = U4096;
+    type MaxValidatorsPerCommittee = U2048;
     type GenesisEpoch = U0;
-    type SlotsPerEpoch = U64;
+    type SlotsPerEpoch = U32;
     type SlotsPerEth1VotingPeriod = U1024;
     type SlotsPerHistoricalRoot = U8192;
     type EpochsPerHistoricalVector = U65536;
@@ -160,8 +142,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxAttestations = U128;
     type MaxDeposits = U16;
     type MaxVoluntaryExits = U16;
-    type MaxTransfers = U0;
-    type MaxPendingAttestations = U8192; // 128 max attestations * 64 slots per epoch
+    type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -174,12 +155,11 @@ pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.8.0/configs/constant_presets/minimal.yaml
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
-    type ShardCount = U8;
     type SlotsPerEpoch = U8;
     type SlotsPerEth1VotingPeriod = U16;
     type SlotsPerHistoricalRoot = U64;
@@ -197,8 +177,7 @@ impl EthSpec for MinimalEthSpec {
         MaxAttesterSlashings,
         MaxAttestations,
         MaxDeposits,
-        MaxVoluntaryExits,
-        MaxTransfers
+        MaxVoluntaryExits
     });
 
     fn default_spec() -> ChainSpec {
@@ -213,7 +192,6 @@ pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
 pub struct InteropEthSpec;
 
 impl EthSpec for InteropEthSpec {
-    type ShardCount = U8;
     type SlotsPerEpoch = U8;
     type SlotsPerHistoricalRoot = U64;
     type SlotsPerEth1VotingPeriod = U16;
@@ -231,8 +209,7 @@ impl EthSpec for InteropEthSpec {
         MaxAttesterSlashings,
         MaxAttestations,
         MaxDeposits,
-        MaxVoluntaryExits,
-        MaxTransfers
+        MaxVoluntaryExits
     });
 
     fn default_spec() -> ChainSpec {

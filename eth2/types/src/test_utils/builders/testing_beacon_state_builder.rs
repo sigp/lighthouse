@@ -181,8 +181,6 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
 
         state.slot = slot;
 
-        // NOTE: we could update the latest start shard here
-
         state.previous_justified_checkpoint.epoch = epoch - 3;
         state.current_justified_checkpoint.epoch = epoch - 2;
         state.justification_bits = BitVector::from_bytes(vec![0b0000_1111]).unwrap();
@@ -215,23 +213,23 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
         for slot in first_slot..=last_slot {
             let slot = Slot::from(slot);
 
-            let committees: Vec<OwnedCrosslinkCommittee> = state
-                .get_crosslink_committees_at_slot(slot)
+            let committees: Vec<OwnedBeaconCommittee> = state
+                .get_beacon_committees_at_slot(slot)
                 .unwrap()
                 .into_iter()
                 .map(|c| c.clone().into_owned())
                 .collect();
 
-            for crosslink_committee in committees {
+            for beacon_committee in committees {
                 let mut builder = TestingPendingAttestationBuilder::new(
-                    &AttestationTestTask::Valid,
+                    AttestationTestTask::Valid,
                     state,
-                    crosslink_committee.shard,
+                    beacon_committee.index,
                     slot,
                     spec,
                 );
                 // The entire committee should have signed the pending attestation.
-                let signers = vec![true; crosslink_committee.committee.len()];
+                let signers = vec![true; beacon_committee.committee.len()];
                 builder.add_committee_participation(signers);
                 let attestation = builder.build();
 

@@ -3,7 +3,7 @@ use types::{BeaconStateError as Error, *};
 
 /// Initiate the exit of the validator of the given `index`.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 pub fn initiate_validator_exit<T: EthSpec>(
     state: &mut BeaconState<T>,
     index: usize,

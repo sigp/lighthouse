@@ -13,35 +13,31 @@ pub struct TestingAttestationBuilder<T: EthSpec> {
 impl<T: EthSpec> TestingAttestationBuilder<T> {
     /// Create a new attestation builder.
     pub fn new(
-        test_task: &AttestationTestTask,
+        test_task: AttestationTestTask,
         state: &BeaconState<T>,
         committee: &[usize],
         slot: Slot,
-        shard: u64,
+        index: u64,
         spec: &ChainSpec,
     ) -> Self {
-        let data_builder = TestingAttestationDataBuilder::new(test_task, state, shard, slot, spec);
+        let data_builder = TestingAttestationDataBuilder::new(test_task, state, index, slot, spec);
 
         let mut aggregation_bits_len = committee.len();
-        let mut custody_bits_len = committee.len();
 
         match test_task {
             AttestationTestTask::BadAggregationBitfieldLen => aggregation_bits_len += 1,
-            AttestationTestTask::BadCustodyBitfieldLen => custody_bits_len += 1,
             _ => (),
         }
+
         let mut aggregation_bits = BitList::with_capacity(aggregation_bits_len).unwrap();
-        let mut custody_bits = BitList::with_capacity(custody_bits_len).unwrap();
 
         for i in 0..committee.len() {
-            custody_bits.set(i, false).unwrap();
             aggregation_bits.set(i, false).unwrap();
         }
 
         let attestation = Attestation {
             aggregation_bits,
             data: data_builder.build(),
-            custody_bits,
             signature: AggregateSignature::new(),
         };
 
@@ -57,12 +53,11 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
     /// keypair must be that of the first signing validator.
     pub fn sign(
         &mut self,
-        test_task: &AttestationTestTask,
+        test_task: AttestationTestTask,
         signing_validators: &[usize],
         secret_keys: &[&SecretKey],
         fork: &Fork,
         spec: &ChainSpec,
-        mut custody_bit: bool,
     ) -> &mut Self {
         assert_eq!(
             signing_validators.len(),
@@ -79,7 +74,6 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
 
             match test_task {
                 AttestationTestTask::BadIndexedAttestationBadSignature => (),
-                AttestationTestTask::CustodyBitfieldNotSubset => custody_bit = true,
                 _ => {
                     self.attestation
                         .aggregation_bits
@@ -87,29 +81,16 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
                         .unwrap();
                 }
             }
-            match (custody_bit, test_task) {
-                (true, _) | (_, AttestationTestTask::CustodyBitfieldHasSetBits) => {
-                    self.attestation
-                        .custody_bits
-                        .set(committee_index, true)
-                        .unwrap();
-                }
-                (false, _) => (),
-            }
 
-            let message = AttestationDataAndCustodyBit {
-                data: self.attestation.data.clone(),
-                custody_bit,
-            }
-            .tree_hash_root();
+            let message = self.attestation.data.tree_hash_root();
 
             let domain = spec.get_domain(
                 self.attestation.data.target.epoch,
-                Domain::Attestation,
+                Domain::BeaconAttester,
                 fork,
             );
 
-            let index = if *test_task == AttestationTestTask::BadSignature {
+            let index = if test_task == AttestationTestTask::BadSignature {
                 0
             } else {
                 key_index

@@ -7,24 +7,22 @@ pub use persistence::PersistedOperationPool;
 
 use attestation::{earliest_attestation_validators, AttMaxCover};
 use attestation_id::AttestationId;
-use itertools::Itertools;
 use max_cover::maximum_cover;
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
-    ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
+    ExitValidationError, ProposerSlashingValidationError,
 };
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation_for_block_inclusion,
     verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
-    verify_proposer_slashing, verify_transfer, verify_transfer_time_independent_only,
-    VerifySignatures,
+    verify_proposer_slashing, VerifySignatures,
 };
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, ChainSpec, Deposit, EthSpec,
-    ProposerSlashing, Transfer, Validator, VoluntaryExit,
+    ProposerSlashing, Validator, VoluntaryExit,
 };
 
 #[derive(Default, Debug)]
@@ -43,8 +41,6 @@ pub struct OperationPool<T: EthSpec + Default> {
     proposer_slashings: RwLock<HashMap<u64, ProposerSlashing>>,
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, VoluntaryExit>>,
-    /// Set of transfers.
-    transfers: RwLock<HashSet<Transfer>>,
     _phantom: PhantomData<T>,
 }
 
@@ -375,44 +371,6 @@ impl<T: EthSpec> OperationPool<T> {
         );
     }
 
-    /// Insert a transfer into the pool, checking it for validity in the process.
-    pub fn insert_transfer(
-        &self,
-        transfer: Transfer,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
-    ) -> Result<(), TransferValidationError> {
-        // The signature of the transfer isn't hashed, but because we check
-        // it before we insert into the HashSet, we can't end up with duplicate
-        // transactions.
-        verify_transfer_time_independent_only(state, &transfer, VerifySignatures::True, spec)?;
-        self.transfers.write().insert(transfer);
-        Ok(())
-    }
-
-    /// Get a list of transfers for inclusion in a block.
-    // TODO: improve the economic optimality of this function by accounting for
-    // dependencies between transfers in the same block e.g. A pays B, B pays C
-    pub fn get_transfers(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Vec<Transfer> {
-        self.transfers
-            .read()
-            .iter()
-            .filter(|transfer| {
-                verify_transfer(state, transfer, VerifySignatures::False, spec).is_ok()
-            })
-            .sorted_by_key(|transfer| std::cmp::Reverse(transfer.fee))
-            .take(T::MaxTransfers::to_usize())
-            .cloned()
-            .collect()
-    }
-
-    /// Prune the set of transfers by removing all those whose slot has already passed.
-    pub fn prune_transfers(&self, finalized_state: &BeaconState<T>) {
-        self.transfers
-            .write()
-            .retain(|transfer| transfer.slot > finalized_state.slot)
-    }
-
     /// Prune all types of transactions given the latest finalized state.
     pub fn prune_all(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         self.prune_attestations(finalized_state);
@@ -420,7 +378,6 @@ impl<T: EthSpec> OperationPool<T> {
         self.prune_proposer_slashings(finalized_state);
         self.prune_attester_slashings(finalized_state, spec);
         self.prune_voluntary_exits(finalized_state);
-        self.prune_transfers(finalized_state);
     }
 }
 
@@ -467,7 +424,6 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
             && *self.attester_slashings.read() == *other.attester_slashings.read()
             && *self.proposer_slashings.read() == *other.proposer_slashings.read()
             && *self.voluntary_exits.read() == *other.voluntary_exits.read()
-            && *self.transfers.read() == *other.transfers.read()
     }
 }
 
@@ -611,7 +567,7 @@ mod tests {
         /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
         fn signed_attestation<R: std::slice::SliceIndex<[usize], Output = [usize]>, E: EthSpec>(
             committee: &[usize],
-            shard: u64,
+            index: u64,
             keypairs: &[Keypair],
             signing_range: R,
             slot: Slot,
@@ -620,32 +576,30 @@ mod tests {
             extra_signer: Option<usize>,
         ) -> Attestation<E> {
             let mut builder = TestingAttestationBuilder::new(
-                &AttestationTestTask::Valid,
+                AttestationTestTask::Valid,
                 state,
                 committee,
                 slot,
-                shard,
+                index,
                 spec,
             );
             let signers = &committee[signing_range];
             let committee_keys = signers.iter().map(|&i| &keypairs[i].sk).collect::<Vec<_>>();
             builder.sign(
-                &AttestationTestTask::Valid,
+                AttestationTestTask::Valid,
                 signers,
                 &committee_keys,
                 &state.fork,
                 spec,
-                false,
             );
             extra_signer.map(|c_idx| {
                 let validator_index = committee[c_idx];
                 builder.sign(
-                    &AttestationTestTask::Valid,
+                    AttestationTestTask::Valid,
                     &[validator_index],
                     &[&keypairs[validator_index].sk],
                     &state.fork,
                     spec,
-                    false,
                 )
             });
             builder.build()
@@ -677,16 +631,16 @@ mod tests {
                 attestation_test_state::<MainnetEthSpec>(1);
             let slot = state.slot - 1;
             let committees = state
-                .get_crosslink_committees_at_slot(slot)
+                .get_beacon_committees_at_slot(slot)
                 .unwrap()
                 .into_iter()
-                .map(CrosslinkCommittee::into_owned)
+                .map(BeaconCommittee::into_owned)
                 .collect::<Vec<_>>();
 
-            for cc in committees {
+            for bc in committees {
                 let att1 = signed_attestation(
-                    &cc.committee,
-                    cc.shard,
+                    &bc.committee,
+                    bc.index,
                     keypairs,
                     ..2,
                     slot,
@@ -695,8 +649,8 @@ mod tests {
                     None,
                 );
                 let att2 = signed_attestation(
-                    &cc.committee,
-                    cc.shard,
+                    &bc.committee,
+                    bc.index,
                     keypairs,
                     ..,
                     slot,
@@ -720,7 +674,7 @@ mod tests {
                     .unwrap();
 
                 assert_eq!(
-                    cc.committee.len() - 2,
+                    bc.committee.len() - 2,
                     earliest_attestation_validators(&att2, state).num_set_bits()
                 );
             }
@@ -736,10 +690,10 @@ mod tests {
 
             let slot = state.slot - 1;
             let committees = state
-                .get_crosslink_committees_at_slot(slot)
+                .get_beacon_committees_at_slot(slot)
                 .unwrap()
                 .into_iter()
-                .map(CrosslinkCommittee::into_owned)
+                .map(BeaconCommittee::into_owned)
                 .collect::<Vec<_>>();
 
             assert_eq!(
@@ -748,12 +702,12 @@ mod tests {
                 "we expect just one committee with this many validators"
             );
 
-            for cc in &committees {
+            for bc in &committees {
                 let step_size = 2;
-                for i in (0..cc.committee.len()).step_by(step_size) {
+                for i in (0..bc.committee.len()).step_by(step_size) {
                     let att = signed_attestation(
-                        &cc.committee,
-                        cc.shard,
+                        &bc.committee,
+                        bc.index,
                         keypairs,
                         i..i + step_size,
                         slot,
@@ -805,16 +759,16 @@ mod tests {
 
             let slot = state.slot - 1;
             let committees = state
-                .get_crosslink_committees_at_slot(slot)
+                .get_beacon_committees_at_slot(slot)
                 .unwrap()
                 .into_iter()
-                .map(CrosslinkCommittee::into_owned)
+                .map(BeaconCommittee::into_owned)
                 .collect::<Vec<_>>();
 
-            for cc in &committees {
+            for bc in &committees {
                 let att = signed_attestation(
-                    &cc.committee,
-                    cc.shard,
+                    &bc.committee,
+                    bc.index,
                     keypairs,
                     ..,
                     slot,
@@ -842,20 +796,20 @@ mod tests {
 
             let slot = state.slot - 1;
             let committees = state
-                .get_crosslink_committees_at_slot(slot)
+                .get_beacon_committees_at_slot(slot)
                 .unwrap()
                 .into_iter()
-                .map(CrosslinkCommittee::into_owned)
+                .map(BeaconCommittee::into_owned)
                 .collect::<Vec<_>>();
 
             let step_size = 2;
-            for cc in &committees {
+            for bc in &committees {
                 // Create attestations that overlap on `step_size` validators, like:
                 // {0,1,2,3}, {2,3,4,5}, {4,5,6,7}, ...
-                for i in (0..cc.committee.len() - step_size).step_by(step_size) {
+                for i in (0..bc.committee.len() - step_size).step_by(step_size) {
                     let att = signed_attestation(
-                        &cc.committee,
-                        cc.shard,
+                        &bc.committee,
+                        bc.index,
                         keypairs,
                         i..i + 2 * step_size,
                         slot,
@@ -890,20 +844,20 @@ mod tests {
 
             let slot = state.slot - 1;
             let committees = state
-                .get_crosslink_committees_at_slot(slot)
+                .get_beacon_committees_at_slot(slot)
                 .unwrap()
                 .into_iter()
-                .map(CrosslinkCommittee::into_owned)
+                .map(BeaconCommittee::into_owned)
                 .collect::<Vec<_>>();
 
             let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
             let target_committee_size = spec.target_committee_size as usize;
 
-            let insert_attestations = |cc: &OwnedCrosslinkCommittee, step_size| {
+            let insert_attestations = |bc: &OwnedBeaconCommittee, step_size| {
                 for i in (0..target_committee_size).step_by(step_size) {
                     let att = signed_attestation(
-                        &cc.committee,
-                        cc.shard,
+                        &bc.committee,
+                        bc.index,
                         keypairs,
                         i..i + step_size,
                         slot,

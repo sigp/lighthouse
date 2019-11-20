@@ -19,7 +19,6 @@ macro_rules! easy_from_to {
 #[derive(Debug, PartialEq)]
 pub enum BeaconChainError {
     InsufficientValidators,
-    BadRecentBlockRoots,
     UnableToReadSlot,
     RevertedFinalizedEpoch {
         previous_epoch: Epoch,
@@ -42,13 +41,11 @@ pub enum BeaconChainError {
     AttestationValidationError(AttestationValidationError),
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
-    RelativeEpochError(RelativeEpochError),
     SszTypesError(SszTypesError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
-easy_from_to!(RelativeEpochError, BeaconChainError);
 easy_from_to!(SszTypesError, BeaconChainError);
 
 #[derive(Debug, PartialEq)]

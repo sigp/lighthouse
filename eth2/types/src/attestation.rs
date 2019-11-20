@@ -9,7 +9,7 @@ use tree_hash_derive::{SignedRoot, TreeHash};
 
 /// Details an attestation that can be slashable.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 #[derive(
     Debug,
     Clone,
@@ -26,7 +26,6 @@ use tree_hash_derive::{SignedRoot, TreeHash};
 pub struct Attestation<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
-    pub custody_bits: BitList<T::MaxValidatorsPerCommittee>,
     #[signed_root(skip_hashing)]
     pub signature: AggregateSignature,
 }
@@ -47,7 +46,6 @@ impl<T: EthSpec> Attestation<T> {
         debug_assert!(self.signers_disjoint_from(other));
 
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
-        self.custody_bits = self.custody_bits.union(&other.custody_bits);
         self.signature.add_aggregate(&other.signature);
     }
 }

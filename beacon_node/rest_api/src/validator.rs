@@ -1,6 +1,6 @@
 use crate::helpers::{
-    check_content_type_for_json, parse_epoch, parse_pubkey, parse_shard, parse_signature,
-    parse_slot, publish_attestation_to_network, publish_beacon_block_to_network,
+    check_content_type_for_json, parse_epoch, parse_pubkey, parse_signature,
+    publish_attestation_to_network, publish_beacon_block_to_network,
 };
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use slog::{info, trace, warn, Logger};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, BitList, RelativeEpoch, Shard, Slot};
+use types::{Attestation, BeaconBlock, BitList, CommitteeIndex, RelativeEpoch, Slot};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatorDuty {
@@ -23,8 +23,8 @@ pub struct ValidatorDuty {
     pub validator_pubkey: PublicKey,
     /// The slot at which the validator must attest.
     pub attestation_slot: Option<Slot>,
-    /// The shard in which the validator must attest.
-    pub attestation_shard: Option<Shard>,
+    /// The index of the committee within `slot` of which the validator is a member.
+    pub attestation_committee_index: Option<CommitteeIndex>,
     /// The slot in which a validator must propose a block, or `null` if block production is not required.
     pub block_proposal_slot: Option<Slot>,
 }
@@ -68,7 +68,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
         .slot_iter(T::EthSpec::slots_per_epoch())
         .map(|slot| {
             head_state
-                .get_beacon_proposer_index(slot, relative_epoch, &beacon_chain.spec)
+                .get_beacon_proposer_index(slot, &beacon_chain.spec)
                 .map(|i| (i, slot))
                 .map_err(|e| {
                     ApiError::ServerError(format!(
@@ -107,14 +107,14 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
                     Ok(ValidatorDuty {
                         validator_pubkey,
                         attestation_slot: duties.map(|d| d.slot),
-                        attestation_shard: duties.map(|d| d.shard),
+                        attestation_committee_index: duties.map(|d| d.index),
                         block_proposal_slot,
                     })
                 } else {
                     Ok(ValidatorDuty {
                         validator_pubkey,
                         attestation_slot: None,
-                        attestation_shard: None,
+                        attestation_committee_index: None,
                         block_proposal_slot: None,
                     })
                 }
@@ -278,7 +278,7 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(
     })?;
 
     aggregation_bits
-        .set(val_duty.committee_index, poc_bit)
+        .set(val_duty.committee_position, poc_bit)
         .map_err(|e| {
             ApiError::ServerError(format!(
                 "Unable to set aggregation bits for the attestation: {:?}",
@@ -301,21 +301,19 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(
         return Err(ApiError::BadRequest(format!("Attestation data can only be requested for the current slot ({:?}), not your requested slot ({:?})", current_slot, requested_slot)));
     }
 
-    let shard = query
-        .first_of(&["shard"])
+    let index = query
+        .first_of(&["index"])
         .map(|(_key, value)| value)?
         .parse::<u64>()
-        .map_err(|e| ApiError::BadRequest(format!("Shard is not a valid u64 value: {:?}", e)))?;
+        .map_err(|e| ApiError::BadRequest(format!("Index is not a valid u64 value: {:?}", e)))?;
 
     let attestation_data = beacon_chain
-        .produce_attestation_data(shard, current_slot.into())
+        .produce_attestation_data(current_slot.into(), index)
         .map_err(|e| ApiError::ServerError(format!("Could not produce an attestation: {:?}", e)))?;
 
     let attestation: Attestation<T::EthSpec> = Attestation {
         aggregation_bits,
         data: attestation_data,
-        custody_bits: BitList::with_capacity(val_duty.committee_len)
-            .expect("Should be able to create an empty BitList for the custody bits."),
         signature: AggregateSignature::new(),
     };
 
