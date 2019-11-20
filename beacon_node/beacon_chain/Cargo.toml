@@ -28,6 +28,7 @@ sloggers = "0.3.4"
 slot_clock = { path = "../../eth2/utils/slot_clock" }
 eth2_hashing = "0.1.0"
 eth2_ssz = "0.1.2"
+eth2_ssz_types = { path = "../../eth2/utils/ssz_types" }
 eth2_ssz_derive = "0.1.0"
 state_processing = { path = "../../eth2/state_processing" }
 tree_hash = "0.1.0"

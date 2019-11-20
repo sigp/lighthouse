@@ -38,6 +38,15 @@ pub fn parse_epoch(string: &str) -> Result<Epoch, ApiError> {
         .map_err(|e| ApiError::BadRequest(format!("Unable to parse epoch: {:?}", e)))
 }
 
+/// Parse an shard.
+///
+/// E.g., `"18"`
+pub fn parse_shard(string: &str) -> Result<u64, ApiError> {
+    string
+        .parse::<u64>()
+        .map_err(|e| ApiError::BadRequest(format!("Unable to parse shard: {:?}", e)))
+}
+
 /// Checks the provided request to ensure that the `content-type` header.
 ///
 /// The content-type header should either be omitted, in which case JSON is assumed, or it should

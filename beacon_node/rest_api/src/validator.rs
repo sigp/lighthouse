@@ -1,6 +1,6 @@
 use crate::helpers::{
-    check_content_type_for_json, parse_epoch, parse_pubkey, parse_signature,
-    publish_attestation_to_network, publish_beacon_block_to_network,
+    check_content_type_for_json, parse_epoch, parse_pubkey, parse_shard, parse_signature,
+    parse_slot, publish_attestation_to_network, publish_beacon_block_to_network,
 };
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
@@ -82,44 +82,43 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
     let duties = query
         .all_of("validator_pubkeys")?
         .iter()
-        .map(|string| parse_pubkey(string))
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(|validator_pubkey| {
-            if let Some(validator_index) = head_state
-                .get_validator_index(&validator_pubkey)
-                .map_err(|e| {
-                    ApiError::ServerError(format!("Unable to read pubkey cache: {:?}", e))
-                })?
-            {
-                let duties = head_state
-                    .get_attestation_duties(validator_index, relative_epoch)
+        .map(|validator_pubkey_str| {
+            parse_pubkey(validator_pubkey_str).and_then(|validator_pubkey| {
+                if let Some(validator_index) = head_state
+                    .get_validator_index(&validator_pubkey)
                     .map_err(|e| {
-                        ApiError::ServerError(format!(
-                            "Unable to obtain attestation duties: {:?}",
-                            e
-                        ))
-                    })?;
+                        ApiError::ServerError(format!("Unable to read pubkey cache: {:?}", e))
+                    })?
+                {
+                    let duties = head_state
+                        .get_attestation_duties(validator_index, relative_epoch)
+                        .map_err(|e| {
+                            ApiError::ServerError(format!(
+                                "Unable to obtain attestation duties: {:?}",
+                                e
+                            ))
+                        })?;
 
-                let block_proposal_slot = validator_proposers
-                    .iter()
-                    .find(|(i, _slot)| validator_index == *i)
-                    .map(|(_i, slot)| *slot);
+                    let block_proposal_slot = validator_proposers
+                        .iter()
+                        .find(|(i, _slot)| validator_index == *i)
+                        .map(|(_i, slot)| *slot);
 
-                Ok(ValidatorDuty {
-                    validator_pubkey,
-                    attestation_slot: duties.map(|d| d.slot),
-                    attestation_shard: duties.map(|d| d.shard),
-                    block_proposal_slot,
-                })
-            } else {
-                Ok(ValidatorDuty {
-                    validator_pubkey,
-                    attestation_slot: None,
-                    attestation_shard: None,
-                    block_proposal_slot: None,
-                })
-            }
+                    Ok(ValidatorDuty {
+                        validator_pubkey,
+                        attestation_slot: duties.map(|d| d.slot),
+                        attestation_shard: duties.map(|d| d.shard),
+                        block_proposal_slot,
+                    })
+                } else {
+                    Ok(ValidatorDuty {
+                        validator_pubkey,
+                        attestation_slot: None,
+                        attestation_shard: None,
+                        block_proposal_slot: None,
+                    })
+                }
+            })
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
 

@@ -1,5 +1,6 @@
 use crate::eth1_chain::Error as Eth1ChainError;
 use crate::fork_choice::Error as ForkChoiceError;
+use ssz_types::Error as SszTypesError;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
@@ -41,10 +42,14 @@ pub enum BeaconChainError {
     AttestationValidationError(AttestationValidationError),
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
+    RelativeEpochError(RelativeEpochError),
+    SszTypesError(SszTypesError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
+easy_from_to!(RelativeEpochError, BeaconChainError);
+easy_from_to!(SszTypesError, BeaconChainError);
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {

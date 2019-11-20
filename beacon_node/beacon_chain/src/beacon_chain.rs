@@ -444,6 +444,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Produce an `Attestation` that is valid for the given `slot` `shard`.
+    ///
+    /// Always attests to the canonical chain.
+    pub fn produce_attestation(
+        &self,
+        shard: u64,
+        slot: Slot,
+    ) -> Result<Attestation<T::EthSpec>, Error> {
+        let state = self.state_at_slot(slot)?;
+        let head = self.head();
+
+        let data = self.produce_attestation_data_for_block(
+            shard,
+            head.beacon_block_root,
+            head.beacon_block.slot,
+            &state,
+        )?;
+
+        let relative_epoch =
+            RelativeEpoch::from_slot(state.slot, slot, T::EthSpec::slots_per_epoch())?;
+
+        let committee_len = state
+            .get_crosslink_committee_for_shard(shard, relative_epoch)?
+            .committee
+            .len();
+
+        let empty_bitfield = BitList::with_capacity(committee_len)?;
+
+        Ok(Attestation {
+            aggregation_bits: empty_bitfield.clone(),
+            data,
+            custody_bits: empty_bitfield,
+            signature: AggregateSignature::new(),
+        })
+    }
+
     /// Produce an `AttestationData` that is valid for the given `slot` `shard`.
     ///
     /// Always attests to the canonical chain.
