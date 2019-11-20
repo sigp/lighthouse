@@ -43,20 +43,36 @@ pub struct ProductionValidatorClient<T: EthSpec> {
 impl<T: EthSpec> ProductionValidatorClient<T> {
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
-    pub fn new_from_cli(context: RuntimeContext<T>, matches: &ArgMatches) -> Result<Self, String> {
+    pub fn new_from_cli(
+        mut context: RuntimeContext<T>,
+        matches: &ArgMatches,
+    ) -> Result<Self, String> {
         let mut log = context.log.clone();
 
-        let (client_config, eth2_config) = get_configs(&matches, &mut log)
+        let (config, eth2_config) = get_configs(&matches, &mut log)
             .map_err(|e| format!("Unable to initialize config: {}", e))?;
+
+        // TODO: the eth2 config in the env is being completely ignored.
+        //
+        // See https://github.com/sigp/lighthouse/issues/602
+        context.eth2_config = eth2_config;
+
+        Self::new(context, config)
+    }
+
+    /// Instantiates the validator client, _without_ starting the timers to trigger block
+    /// and attestation production.
+    pub fn new(context: RuntimeContext<T>, config: Config) -> Result<Self, String> {
+        let log = context.log.clone();
 
         info!(
             log,
             "Starting validator client";
-            "datadir" => client_config.full_data_dir().expect("Unable to find datadir").to_str(),
+            "datadir" => config.full_data_dir().expect("Unable to find datadir").to_str(),
         );
 
         let service: Service<ValidatorServiceClient, Keypair, T> =
-            Service::initialize_service(client_config, eth2_config, log.clone())
+            Service::initialize_service(config, context.eth2_config.clone(), log.clone())
                 .map_err(|e| e.to_string())?;
 
         Ok(Self {

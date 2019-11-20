@@ -63,6 +63,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     libp2p_network: Option<Arc<NetworkService<T>>>,
     libp2p_network_send: Option<UnboundedSender<NetworkMessage>>,
     http_listen_addr: Option<SocketAddr>,
+    grpc_listen_addr: Option<(String, u16)>,
     websocket_listen_addr: Option<SocketAddr>,
     eth_spec_instance: T::EthSpec,
 }
@@ -94,6 +95,7 @@ where
             libp2p_network: None,
             libp2p_network_send: None,
             http_listen_addr: None,
+            grpc_listen_addr: None,
             websocket_listen_addr: None,
             eth_spec_instance,
         }
@@ -283,15 +285,17 @@ where
             .clone()
             .ok_or_else(|| "grpc_server requires a libp2p network")?;
 
-        let exit_signal = rpc::start_server(
+        let (exit_signal, listen_addr) = rpc::start_server(
             config,
             &context.executor,
             network_send,
             beacon_chain,
             context.log,
-        );
+        )
+        .map_err(|e| format!("Failed to start gRPC server: {}", e))?;
 
         self.exit_signals.push(exit_signal);
+        self.grpc_listen_addr = Some(listen_addr);
 
         Ok(self)
     }
@@ -455,6 +459,7 @@ where
             beacon_chain: self.beacon_chain,
             libp2p_network: self.libp2p_network,
             http_listen_addr: self.http_listen_addr,
+            grpc_listen_addr: self.grpc_listen_addr,
             websocket_listen_addr: self.websocket_listen_addr,
             _exit_signals: self.exit_signals,
         }

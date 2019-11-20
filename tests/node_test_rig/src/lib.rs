@@ -3,13 +3,17 @@ use environment::RuntimeContext;
 use futures::Future;
 use remote_beacon_node::RemoteBeaconNode;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tempdir::TempDir;
 use types::EthSpec;
+use validator_client::{validator_directory::ValidatorDirectoryBuilder, ProductionValidatorClient};
 
 pub use beacon_node::{ClientConfig, ProductionClient};
 pub use environment;
+pub use validator_client::Config as ValidatorConfig;
 
-/// Provides a beacon node that is running in the current process. Useful for testing purposes.
+/// Provides a beacon node that is running in the current process (i.e., local). Useful for testing
+/// purposes.
 pub struct LocalBeaconNode<T> {
     pub client: T,
     pub datadir: TempDir,
@@ -56,10 +60,67 @@ pub fn testing_client_config() -> ClientConfig {
     client_config.rest_api.port = 0;
     client_config.websocket_server.port = 0;
 
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("should get system time")
+        .as_secs();
+
     client_config.genesis = ClientGenesis::Interop {
         validator_count: 8,
-        genesis_time: 13_371_337,
+        genesis_time: now,
     };
 
     client_config
+}
+
+pub struct LocalValidatorClient<T: EthSpec> {
+    pub client: ProductionValidatorClient<T>,
+    pub datadir: TempDir,
+}
+
+impl<E: EthSpec> LocalValidatorClient<E> {
+    pub fn production_with_insecure_keypairs(
+        context: RuntimeContext<E>,
+        config: ValidatorConfig,
+        keypair_indices: &[usize],
+    ) -> Self {
+        // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
+        let datadir = TempDir::new("lighthouse-beacon-node")
+            .expect("should create temp directory for client datadir");
+
+        keypair_indices.iter().for_each(|i| {
+            ValidatorDirectoryBuilder::default()
+                .spec(context.eth2_config.spec.clone())
+                .full_deposit_amount()
+                .expect("should set full deposit amount")
+                .insecure_keypairs(*i)
+                .create_directory(PathBuf::from(datadir.path()))
+                .expect("should create directory")
+                .write_keypair_files()
+                .expect("should write keypair files")
+                .write_eth1_data_file()
+                .expect("should write eth1 data file")
+                .build()
+                .expect("should build dir");
+        });
+
+        Self::new(context, config, datadir)
+    }
+
+    pub fn production(context: RuntimeContext<E>, config: ValidatorConfig) -> Self {
+        // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
+        let datadir = TempDir::new("lighthouse-validator")
+            .expect("should create temp directory for client datadir");
+
+        Self::new(context, config, datadir)
+    }
+
+    fn new(context: RuntimeContext<E>, mut config: ValidatorConfig, datadir: TempDir) -> Self {
+        config.data_dir = datadir.path().into();
+
+        let client =
+            ProductionValidatorClient::new(context, config).expect("should start validator client");
+
+        Self { client, datadir }
+    }
 }

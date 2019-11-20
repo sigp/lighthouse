@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 node_test_rig = { path = "../node_test_rig" }
 types = { path = "../../eth2/types" }
+validator_client = { path = "../../validator_client" }

@@ -28,7 +28,7 @@ pub fn start_server<T: BeaconChainTypes>(
     network_chan: mpsc::UnboundedSender<NetworkMessage>,
     beacon_chain: Arc<BeaconChain<T>>,
     log: slog::Logger,
-) -> exit_future::Signal {
+) -> Result<(exit_future::Signal, (String, u16)), String> {
     let env = Arc::new(Environment::new(1));
 
     // build a channel to kill the rpc server
@@ -76,16 +76,24 @@ pub fn start_server<T: BeaconChainTypes>(
         .build()
         .unwrap();
 
+    server.start();
+
+    for &(ref host, port) in server.bind_addrs() {
+        info!(
+            log,
+            "gRPC API started";
+            "port" => port,
+            "host" => host,
+        );
+    }
+
+    let listen_addr = server
+        .bind_addrs()
+        .first()
+        .ok_or_else(|| "gRPC server is not listening on any ports".to_string())?
+        .clone();
+
     let spawn_rpc = {
-        server.start();
-        for &(ref host, port) in server.bind_addrs() {
-            info!(
-                log,
-                "gRPC API started";
-                "port" => port,
-                "host" => host,
-            );
-        }
         rpc_exit.and_then(move |_| {
             info!(log, "RPC Server shutting down");
             server
@@ -97,5 +105,6 @@ pub fn start_server<T: BeaconChainTypes>(
         })
     };
     executor.spawn(spawn_rpc);
-    rpc_exit_signal
+
+    Ok((rpc_exit_signal, listen_addr))
 }

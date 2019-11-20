@@ -161,6 +161,12 @@ impl<E: EthSpec> Service<ValidatorServiceClient, Keypair, E> {
         // Load generated keypairs
         let keypairs = Arc::new(client_config.fetch_keys(&log)?);
 
+        info!(
+            log,
+            "Keypairs loaded";
+            "local_validator_count" => keypairs.len()
+        );
+
         let slots_per_epoch = E::slots_per_epoch();
 
         // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
