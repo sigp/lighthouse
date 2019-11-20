@@ -2,13 +2,7 @@ use ssz::{Decode, DecodeError, Encode};
 
 use super::{Signature, BLS_SIG_BYTE_SIZE};
 
-bytes_struct!(
-    SignatureBytes,
-    Signature,
-    BLS_SIG_BYTE_SIZE,
-    "signature",
-    U96
-);
+bytes_struct!(SignatureBytes, Signature, BLS_SIG_BYTE_SIZE, "signature");
 
 #[cfg(test)]
 mod tests {

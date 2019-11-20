@@ -35,18 +35,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         process_deposit(&mut state, &deposit, spec, true)?;
     }
 
-    // Process activations
-    for (index, validator) in state.validators.iter_mut().enumerate() {
-        let balance = state.balances[index];
-        validator.effective_balance = std::cmp::min(
-            balance - balance % spec.effective_balance_increment,
-            spec.max_effective_balance,
-        );
-        if validator.effective_balance == spec.max_effective_balance {
-            validator.activation_eligibility_epoch = T::genesis_epoch();
-            validator.activation_epoch = T::genesis_epoch();
-        }
-    }
+    process_activations(&mut state, spec);
 
     // Now that we have our validators, initialize the caches (including the committees)
     state.build_all_caches(spec)?;
@@ -70,4 +59,21 @@ pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSp
     state.genesis_time >= spec.min_genesis_time
         && state.get_active_validator_indices(T::genesis_epoch()).len() as u64
             >= spec.min_genesis_active_validator_count
+}
+
+/// Activate genesis validators, if their balance is acceptable.
+///
+/// Spec v0.8.0
+pub fn process_activations<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) {
+    for (index, validator) in state.validators.iter_mut().enumerate() {
+        let balance = state.balances[index];
+        validator.effective_balance = std::cmp::min(
+            balance - balance % spec.effective_balance_increment,
+            spec.max_effective_balance,
+        );
+        if validator.effective_balance == spec.max_effective_balance {
+            validator.activation_eligibility_epoch = T::genesis_epoch();
+            validator.activation_epoch = T::genesis_epoch();
+        }
+    }
 }

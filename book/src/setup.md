@@ -19,6 +19,18 @@
 >   `target/release` directory.
 > - First-time compilation may take several minutes.
 
+### Installing to `PATH`
+
+Use `cargo install --path lighthouse` from the root of the repository to
+install the compiled binary to `CARGO_HOME` or `$HOME/.cargo`. If this
+directory is on your `PATH`, you can run `$ lighthouse ..` from anywhere.
+
+ See ["Configuring the `PATH` environment
+ variable" (rust-lang.org)](https://www.rust-lang.org/tools/install) for more information.
+
+ > If you _don't_ install `lighthouse` to the path, you'll need to run the
+ > binaries directly from the `target` directory or using `cargo run ...`.
+
 ### Windows
 
 Perl may also be required to build Lighthouse. You can install [Strawberry

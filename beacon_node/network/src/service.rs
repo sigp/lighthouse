@@ -10,7 +10,7 @@ use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
 use parking_lot::Mutex;
-use slog::{debug, info, o, trace};
+use slog::{debug, info, trace};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
@@ -29,15 +29,18 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: &TaskExecutor,
-        log: slog::Logger,
+        network_log: slog::Logger,
     ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage>)> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage>();
         // launch message handler thread
-        let message_handler_send =
-            MessageHandler::spawn(beacon_chain, network_send.clone(), executor, log.clone())?;
+        let message_handler_send = MessageHandler::spawn(
+            beacon_chain,
+            network_send.clone(),
+            executor,
+            network_log.clone(),
+        )?;
 
-        let network_log = log.new(o!("Service" => "Network"));
         // launch libp2p service
         let libp2p_service = Arc::new(Mutex::new(LibP2PService::new(
             config.clone(),

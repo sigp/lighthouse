@@ -3,10 +3,10 @@
 extern crate lazy_static;
 
 mod beacon_chain;
-mod beacon_chain_builder;
+pub mod builder;
 mod checkpoint;
 mod errors;
-mod eth1_chain;
+pub mod eth1_chain;
 pub mod events;
 mod fork_choice;
 mod iter;
@@ -19,8 +19,9 @@ pub use self::beacon_chain::{
 };
 pub use self::checkpoint::CheckPoint;
 pub use self::errors::{BeaconChainError, BlockProductionError};
-pub use beacon_chain_builder::BeaconChainBuilder;
-pub use eth1_chain::{Eth1ChainBackend, InteropEth1ChainBackend};
+pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
+pub use events::EventHandler;
+pub use fork_choice::ForkChoice;
 pub use lmd_ghost;
 pub use metrics::scrape_for_metrics;
 pub use parking_lot;

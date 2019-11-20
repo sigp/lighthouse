@@ -9,6 +9,32 @@ use std::sync::Mutex;
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 
+/// Defines how the client should initialize the `BeaconChain` and other components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ClientGenesis {
+    /// Reads the genesis state and other persisted data from the `Store`.
+    Resume,
+    /// Creates a genesis state as per the 2019 Canada interop specifications.
+    Interop {
+        validator_count: usize,
+        genesis_time: u64,
+    },
+    /// Connects to an eth1 node and waits until it can create the genesis state from the deposit
+    /// contract.
+    DepositContract,
+    /// Loads the genesis state from a SSZ-encoded `BeaconState` file.
+    SszFile { path: PathBuf },
+    /// Connects to another Lighthouse instance and reads the genesis state and other data via the
+    /// HTTP API.
+    RemoteNode { server: String, port: Option<u16> },
+}
+
+impl Default for ClientGenesis {
+    fn default() -> Self {
+        Self::DepositContract
+    }
+}
+
 /// The core configuration of a Lighthouse beacon node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -17,74 +43,20 @@ pub struct Config {
     db_name: String,
     pub log_file: PathBuf,
     pub spec_constants: String,
-    /// Defines how we should initialize a BeaconChain instances.
+    /// If true, the node will use co-ordinated junk for eth1 values.
     ///
-    /// This field is not serialized, there for it will not be written to (or loaded from) config
-    /// files. It can only be configured via the CLI.
+    /// This is the method used for the 2019 client interop in Canada.
+    pub dummy_eth1_backend: bool,
+    pub sync_eth1_chain: bool,
     #[serde(skip)]
-    pub beacon_chain_start_method: BeaconChainStartMethod,
-    pub eth1_backend_method: Eth1BackendMethod,
+    /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
+    /// via the CLI at runtime, instead of from a configuration file saved to disk.
+    pub genesis: ClientGenesis,
     pub network: network::NetworkConfig,
-    pub rpc: rpc::RPCConfig,
-    pub rest_api: rest_api::ApiConfig,
+    pub rpc: rpc::Config,
+    pub rest_api: rest_api::Config,
     pub websocket_server: websocket_server::Config,
-}
-
-/// Defines how the client should initialize a BeaconChain.
-///
-/// In general, there are two methods:
-///  - resuming a new chain, or
-///  - initializing a new one.
-#[derive(Debug, Clone)]
-pub enum BeaconChainStartMethod {
-    /// Resume from an existing BeaconChain, loaded from the existing local database.
-    Resume,
-    /// Resume from an existing BeaconChain, loaded from the existing local database.
-    Mainnet,
-    /// Create a new beacon chain that can connect to mainnet.
-    ///
-    /// Set the genesis time to be the start of the previous 30-minute window.
-    RecentGenesis {
-        validator_count: usize,
-        minutes: u64,
-    },
-    /// Create a new beacon chain with `genesis_time` and `validator_count` validators, all with well-known
-    /// secret keys.
-    Generated {
-        validator_count: usize,
-        genesis_time: u64,
-    },
-    /// Create a new beacon chain by loading a YAML-encoded genesis state from a file.
-    Yaml { file: PathBuf },
-    /// Create a new beacon chain by loading a SSZ-encoded genesis state from a file.
-    Ssz { file: PathBuf },
-    /// Create a new beacon chain by loading a JSON-encoded genesis state from a file.
-    Json { file: PathBuf },
-    /// Create a new beacon chain by using a HTTP server (running our REST-API) to load genesis and
-    /// finalized states and blocks.
-    HttpBootstrap { server: String, port: Option<u16> },
-}
-
-impl Default for BeaconChainStartMethod {
-    fn default() -> Self {
-        BeaconChainStartMethod::Resume
-    }
-}
-
-/// Defines which Eth1 backend the client should use.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum Eth1BackendMethod {
-    /// Use the mocked eth1 backend used in interop testing
-    Interop,
-    /// Use a web3 connection to a running Eth1 node.
-    Web3 { server: String },
-}
-
-impl Default for Eth1BackendMethod {
-    fn default() -> Self {
-        Eth1BackendMethod::Interop
-    }
+    pub eth1: eth1::Config,
 }
 
 impl Default for Config {
@@ -94,13 +66,15 @@ impl Default for Config {
             log_file: PathBuf::from(""),
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
+            genesis: <_>::default(),
             network: NetworkConfig::new(),
             rpc: <_>::default(),
             rest_api: <_>::default(),
             websocket_server: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
-            beacon_chain_start_method: <_>::default(),
-            eth1_backend_method: <_>::default(),
+            dummy_eth1_backend: false,
+            sync_eth1_chain: false,
+            eth1: <_>::default(),
         }
     }
 }
@@ -181,5 +155,18 @@ impl Config {
         };
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use toml;
+
+    #[test]
+    fn serde() {
+        let config = Config::default();
+        let serialized = toml::to_string(&config).expect("should serde encode default config");
+        toml::from_str::<Config>(&serialized).expect("should serde decode default config");
     }
 }

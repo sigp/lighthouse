@@ -91,8 +91,15 @@ pub struct ChainSpec {
     domain_voluntary_exit: u32,
     domain_transfer: u32,
 
+    /*
+     * Eth1
+     */
+    pub eth1_follow_distance: u64,
+
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
+
+    pub genesis_fork: Fork,
 }
 
 impl ChainSpec {
@@ -111,6 +118,22 @@ impl ChainSpec {
 
         let mut bytes: Vec<u8> = int_to_bytes4(domain_constant);
         bytes.append(&mut fork.get_fork_version(epoch).to_vec());
+
+        let mut fork_and_domain = [0; 8];
+        fork_and_domain.copy_from_slice(&bytes);
+
+        u64::from_le_bytes(fork_and_domain)
+    }
+
+    /// Get the domain for a deposit signature.
+    ///
+    /// Deposits are valid across forks, thus the deposit domain is computed
+    /// with the fork zeroed.
+    ///
+    /// Spec v0.8.1
+    pub fn get_deposit_domain(&self) -> u64 {
+        let mut bytes: Vec<u8> = int_to_bytes4(self.domain_deposit);
+        bytes.append(&mut vec![0; 4]);
 
         let mut fork_and_domain = [0; 8];
         fork_and_domain.copy_from_slice(&bytes);
@@ -187,6 +210,20 @@ impl ChainSpec {
             domain_transfer: 5,
 
             /*
+             * Eth1
+             */
+            eth1_follow_distance: 1_024,
+
+            /*
+             * Fork
+             */
+            genesis_fork: Fork {
+                previous_version: [0; 4],
+                current_version: [0; 4],
+                epoch: Epoch::new(0),
+            },
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -210,6 +247,7 @@ impl ChainSpec {
             max_epochs_per_crosslink: 4,
             network_id: 2, // lighthouse testnet network id
             boot_nodes,
+            eth1_follow_distance: 16,
             ..ChainSpec::mainnet()
         }
     }
@@ -248,7 +286,7 @@ mod tests {
     }
 
     fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
-        let fork = Fork::genesis(Epoch::new(0));
+        let fork = &spec.genesis_fork;
         let epoch = Epoch::new(0);
 
         let domain = spec.get_domain(epoch, domain_type, &fork);

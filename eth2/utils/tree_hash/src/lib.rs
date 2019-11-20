@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
-
 pub mod impls;
 mod merkleize_padded;
 mod merkleize_standard;
@@ -27,7 +24,7 @@ pub fn mix_in_length(root: &[u8], length: usize) -> Vec<u8> {
     let mut length_bytes = length.to_le_bytes().to_vec();
     length_bytes.resize(BYTES_PER_CHUNK, 0);
 
-    merkleize_padded::hash_concat(root, &length_bytes)
+    eth2_hashing::hash_concat(root, &length_bytes)
 }
 
 #[derive(Debug, PartialEq, Clone)]

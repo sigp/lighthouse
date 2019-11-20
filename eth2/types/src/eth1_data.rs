@@ -10,7 +10,18 @@ use tree_hash_derive::TreeHash;
 ///
 /// Spec v0.8.1
 #[derive(
-    Debug, PartialEq, Clone, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Debug,
+    PartialEq,
+    Clone,
+    Default,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
 )]
 pub struct Eth1Data {
     pub deposit_root: Hash256,

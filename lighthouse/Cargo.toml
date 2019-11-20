@@ -1,0 +1,20 @@
+[package]
+name = "lighthouse"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition = "2018"
+
+[dependencies]
+beacon_node = { "path" = "../beacon_node" }
+tokio = "0.1.15"
+slog = { version = "^2.2.3" , features = ["max_level_trace"] }
+sloggers = "0.3.4"
+types = { "path" = "../eth2/types" }
+clap = "2.32.0"
+env_logger = "0.6.1"
+logging = { path = "../eth2/utils/logging" }
+slog-term = "^2.4.0"
+slog-async = "^2.3.0"
+environment = { path = "./environment" }
+futures = "0.1.25"
+validator_client = { "path" = "../validator_client" }
