@@ -11,10 +11,14 @@ before_install:
   - sudo chown $USER /usr/local/bin/protoc
   - sudo chown -R $USER /usr/local/include/google
 env:
-  - PARAMS=test --all --release
-  - PARAMS=test --all --release --all-features --exclude ef_tests
-  - PARAMS=test --all --release --manifest-path tests/ef_tests/Cargo.toml --features ef_tests
-  - PARAMS=test --all --release --manifest-path tests/ef_tests/Cargo.toml --features fake_crypto,ef_tests
+  - PARAMS=test --all
+  - PARAMS=test --all --all-features --exclude ef_tests
+  - PARAMS=test --all --manifest-path tests/ef_tests/Cargo.toml --features ef_tests
+  - PARAMS=test --all --manifest-path tests/ef_tests/Cargo.toml --features fake_crypto,ef_tests
+  - PARAMS=test --release --all
+  - PARAMS=test --release --all --all-features --exclude ef_tests
+  - PARAMS=test --release --all --manifest-path tests/ef_tests/Cargo.toml --features ef_tests
+  - PARAMS=test --release --all --manifest-path tests/ef_tests/Cargo.toml --features fake_crypto,ef_tests
 script:
   - cargo $PARAMS
   - cargo fmt --all -- --check
@@ -26,4 +30,5 @@ matrix:
     - rust: beta
   fast_finish: true
 install:
+  - npm install -g ganache-cli
   - rustup component add rustfmt
