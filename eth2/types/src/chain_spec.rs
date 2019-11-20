@@ -241,7 +241,7 @@ impl ChainSpec {
 
     /// Ethereum Foundation minimal spec, as defined here:
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/configs/constant_presets/minimal.yaml
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.9.1/configs/minimal.yaml
     ///
     /// Spec v0.9.1
     pub fn minimal() -> Self {
@@ -249,9 +249,11 @@ impl ChainSpec {
         let boot_nodes = vec![];
 
         Self {
+            max_committees_per_slot: 4,
             target_committee_size: 4,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
+            milliseconds_per_slot: 6_000,
             network_id: 2, // lighthouse testnet network id
             boot_nodes,
             eth1_follow_distance: 16,

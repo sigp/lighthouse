@@ -1206,7 +1206,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .state_at_slot(slot - 1)
             .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
-        self.produce_block_on_state(state.clone(), slot, randao_reveal)
+        self.produce_block_on_state(state, slot, randao_reveal)
     }
 
     /// Produce a block for some `slot` upon the given `state`.

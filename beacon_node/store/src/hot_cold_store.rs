@@ -58,6 +58,7 @@ impl Store for HotColdDB {
         state_root: &Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
+        // FIXME(sproul): change back to <
         if state.slot <= self.get_split_slot() {
             self.store_archive_state(state_root, state)
         } else {
@@ -72,6 +73,7 @@ impl Store for HotColdDB {
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
         if let Some(slot) = slot {
+            // FIXME(sproul): change back to <
             if slot <= self.get_split_slot() {
                 self.load_archive_state(state_root)
             } else {

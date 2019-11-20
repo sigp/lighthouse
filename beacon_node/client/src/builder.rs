@@ -5,7 +5,10 @@ use beacon_chain::{
     eth1_chain::CachingEth1Backend,
     lmd_ghost::ThreadSafeReducedTree,
     slot_clock::{SlotClock, SystemTimeSlotClock},
-    store::{migrate::NullMigrator, DiskStore, MemoryStore, SimpleDiskStore, Store},
+    store::{
+        migrate::{BackgroundMigrator, Migrate, NullMigrator},
+        DiskStore, MemoryStore, SimpleDiskStore, Store,
+    },
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
 use environment::RuntimeContext;
@@ -589,6 +592,45 @@ where
 impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
+            DiskStore,
+            TStoreMigrator,
+            TSlotClock,
+            TLmdGhost,
+            TEth1Backend,
+            TEthSpec,
+            TEventHandler,
+        >,
+    >
+where
+    TSlotClock: SlotClock + 'static,
+    TStoreMigrator: store::Migrate<DiskStore, TEthSpec> + 'static,
+    TLmdGhost: LmdGhost<DiskStore, TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEthSpec: EthSpec + 'static,
+    TEventHandler: EventHandler<TEthSpec> + 'static,
+{
+    /// Specifies that the `Client` should use a `DiskStore` database.
+    pub fn disk_store(mut self, hot_path: &Path, cold_path: &Path) -> Result<Self, String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "disk_store requires a log".to_string())?
+            .service_context("freezer_db");
+        let spec = self
+            .chain_spec
+            .clone()
+            .ok_or_else(|| "disk_store requires a chain spec".to_string())?;
+
+        let store = DiskStore::open(hot_path, cold_path, spec, context.log)
+            .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
+        self.store = Some(Arc::new(store));
+        Ok(self)
+    }
+}
+
+impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+    ClientBuilder<
+        Witness<
             SimpleDiskStore,
             TStoreMigrator,
             TSlotClock,
@@ -615,6 +657,7 @@ where
     }
 }
 
+// FIXME(sproul): remove hardcoding of null migrator
 impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
@@ -639,6 +682,34 @@ where
         let store = MemoryStore::open();
         self.store = Some(Arc::new(store));
         self
+    }
+}
+
+impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+    ClientBuilder<
+        Witness<
+            DiskStore,
+            BackgroundMigrator<TEthSpec>,
+            TSlotClock,
+            TLmdGhost,
+            TEth1Backend,
+            TEthSpec,
+            TEventHandler,
+        >,
+    >
+where
+    TSlotClock: SlotClock + 'static,
+    TLmdGhost: LmdGhost<DiskStore, TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEthSpec: EthSpec + 'static,
+    TEventHandler: EventHandler<TEthSpec> + 'static,
+{
+    pub fn background_migrator(mut self) -> Result<Self, String> {
+        let store = self.store.clone().ok_or_else(|| {
+            "background_migrator requires the store to be initialized".to_string()
+        })?;
+        self.store_migrator = Some(BackgroundMigrator::new(store));
+        Ok(self)
     }
 }
 

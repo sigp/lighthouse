@@ -19,19 +19,17 @@ use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
-use store::{migrate::NullMigrator, SimpleDiskStore};
+use store::{migrate::BackgroundMigrator, DiskStore};
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
-// FIXME(sproul): switch to freezer DB
-// BackgroundMigrator<E>,
 pub type ProductionClient<E> = Client<
     Witness<
-        SimpleDiskStore,
-        NullMigrator,
+        DiskStore,
+        BackgroundMigrator<E>,
         SystemTimeSlotClock,
-        ThreadSafeReducedTree<SimpleDiskStore, E>,
-        CachingEth1Backend<E, SimpleDiskStore>,
+        ThreadSafeReducedTree<DiskStore, E>,
+        CachingEth1Backend<E, DiskStore>,
         E,
         WebSocketSender<E>,
     >,
@@ -88,10 +86,14 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .ok_or_else(|| "Unable to access database path".to_string())
             .into_future()
             .and_then(move |db_path| {
+                // FIXME(sproul): configurable
+                let hot_path = db_path.with_extension(".hot");
+                let cold_path = db_path.with_extension(".cold");
                 Ok(ClientBuilder::new(context.eth_spec_instance.clone())
                     .runtime_context(context)
-                    .simple_disk_store(&db_path)?
-                    .chain_spec(spec))
+                    .chain_spec(spec)
+                    .disk_store(&hot_path, &cold_path)?
+                    .background_migrator()?)
             })
             .and_then(move |builder| {
                 builder.beacon_chain_builder(client_genesis, genesis_eth1_config)
