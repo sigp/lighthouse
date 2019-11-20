@@ -16,31 +16,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("logfile")
-                .long("logfile")
-                .value_name("logfile")
-                .help("File path where output will be written.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("spec")
-                .long("spec")
-                .value_name("TITLE")
-                .help("Specifies the default eth2 spec type.")
-                .takes_value(true)
-                .possible_values(&["mainnet", "minimal", "interop"])
-                .conflicts_with("eth2-config")
-                .global(true)
-        )
-        .arg(
-            Arg::with_name("eth2-config")
-                .long("eth2-config")
-                .short("e")
-                .value_name("TOML_FILE")
-                .help("Path to Ethereum 2.0 config and specification file (e.g., eth2_spec.toml).")
-                .takes_value(true),
-        )
-        .arg(
             Arg::with_name("server")
                 .long("server")
                 .value_name("NETWORK_ADDRESS")
@@ -65,16 +40,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Port to use for HTTP API connection to the server.")
                 .default_value(DEFAULT_SERVER_HTTP_PORT)
                 .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("debug-level")
-                .long("debug-level")
-                .value_name("LEVEL")
-                .short("s")
-                .help("The title of the spec constants for chain config.")
-                .takes_value(true)
-                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
-                .default_value("trace"),
         )
         /*
          * The "testnet" sub-command.
