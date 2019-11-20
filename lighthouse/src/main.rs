@@ -30,7 +30,6 @@ fn main() {
                 .value_name("TITLE")
                 .help("Specifies the default eth2 spec type. Only effective when creating a new datadir.")
                 .takes_value(true)
-                .required(true)
                 .possible_values(&["mainnet", "minimal", "interop"])
                 .global(true)
                 .default_value("minimal")
