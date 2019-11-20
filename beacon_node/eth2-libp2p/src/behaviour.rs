@@ -222,6 +222,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn connected_peers(&self) -> usize {
         self.discovery.connected_peers()
     }
+
+    /// Informs the discovery behaviour if a new IP/Port is set at the application layer
+    pub fn update_local_enr_socket(&mut self, socket: std::net::SocketAddr, is_tcp: bool) {
+        self.discovery.update_local_enr(socket, is_tcp);
+    }
 }
 
 /// The types of events than can be obtained from polling the behaviour.
