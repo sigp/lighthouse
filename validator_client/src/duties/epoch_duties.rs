@@ -35,7 +35,7 @@ impl EpochDuty {
             _ => false,
         };
 
-        // if the validator is required to attest to a shard, create the data
+        // if the validator is required to attest to a index, create the data
         let mut attestation_duty = None;
         if self.attestation_duty.slot == slot {
             attestation_duty = Some(self.attestation_duty)
@@ -59,8 +59,8 @@ impl fmt::Display for EpochDuty {
         }
         write!(
             f,
-            "produce block slot: {}, attestation slot: {}, attestation shard: {}",
-            display_block, self.attestation_duty.slot, self.attestation_duty.shard
+            "produce block slot: {}, attestation slot: {}, attestation index: {}",
+            display_block, self.attestation_duty.slot, self.attestation_duty.index
         )
     }
 }

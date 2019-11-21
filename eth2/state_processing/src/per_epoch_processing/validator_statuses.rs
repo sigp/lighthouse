@@ -1,4 +1,3 @@
-use super::{winning_root::winning_root, WinningRootHashSet};
 use crate::common::get_attesting_indices;
 use types::*;
 
@@ -12,34 +11,21 @@ macro_rules! set_self_if_other_is_true {
     };
 }
 
-/// The information required to reward some validator for their participation in a "winning"
-/// crosslink root.
-#[derive(Default, Clone)]
-pub struct WinningRootInfo {
-    /// The total balance of the crosslink committee.
-    pub total_committee_balance: u64,
-    /// The total balance of the crosslink committee that attested for the "winning" root.
-    pub total_attesting_balance: u64,
-}
-
 /// The information required to reward a block producer for including an attestation in a block.
 #[derive(Clone, Copy)]
 pub struct InclusionInfo {
-    /// The earliest slot a validator had an attestation included in the previous epoch.
-    pub slot: Slot,
     /// The distance between the attestation slot and the slot that attestation was included in a
     /// block.
-    pub distance: u64,
+    pub delay: u64,
     /// The index of the proposer at the slot where the attestation was included.
     pub proposer_index: usize,
 }
 
 impl Default for InclusionInfo {
-    /// Defaults to `slot` and `distance` at their maximum values and `proposer_index` at zero.
+    /// Defaults to `delay` at its maximum value and `proposer_index` at zero.
     fn default() -> Self {
         Self {
-            slot: Slot::max_value(),
-            distance: u64::max_value(),
+            delay: u64::max_value(),
             proposer_index: 0,
         }
     }
@@ -49,9 +35,8 @@ impl InclusionInfo {
     /// Tests if some `other` `InclusionInfo` has a lower inclusion slot than `self`. If so,
     /// replaces `self` with `other`.
     pub fn update(&mut self, other: &Self) {
-        if other.slot < self.slot {
-            self.slot = other.slot;
-            self.distance = other.distance;
+        if other.delay < self.delay {
+            self.delay = other.delay;
             self.proposer_index = other.proposer_index;
         }
     }
@@ -88,9 +73,6 @@ pub struct ValidatorStatus {
     /// Information used to reward the block producer of this validators earliest-included
     /// attestation.
     pub inclusion_info: Option<InclusionInfo>,
-    /// Information used to reward/penalize the validator if they voted in the super-majority for
-    /// some shard block.
-    pub winning_root_info: Option<WinningRootInfo>,
 }
 
 impl ValidatorStatus {
@@ -162,7 +144,7 @@ impl ValidatorStatuses {
     /// - Active validators
     /// - Total balances for the current and previous epochs.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.9.1
     pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -202,7 +184,7 @@ impl ValidatorStatuses {
     /// Process some attestations from the given `state` updating the `statuses` and
     /// `total_balances` fields.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.9.1
     pub fn process_attestations<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
@@ -228,19 +210,11 @@ impl ValidatorStatuses {
             } else if a.data.target.epoch == state.previous_epoch() {
                 status.is_previous_epoch_attester = true;
 
-                // The inclusion slot and distance are only required for previous epoch attesters.
-                let attestation_slot = state.get_attestation_data_slot(&a.data)?;
-                let inclusion_slot = attestation_slot + a.inclusion_delay;
-                let relative_epoch =
-                    RelativeEpoch::from_slot(state.slot, inclusion_slot, T::slots_per_epoch())?;
+                // The inclusion delay and proposer index are only required for previous epoch
+                // attesters.
                 status.inclusion_info = Some(InclusionInfo {
-                    slot: inclusion_slot,
-                    distance: a.inclusion_delay,
-                    proposer_index: state.get_beacon_proposer_index(
-                        inclusion_slot,
-                        relative_epoch,
-                        spec,
-                    )?,
+                    delay: a.inclusion_delay,
+                    proposer_index: a.proposer_index as usize,
                 });
 
                 if target_matches_epoch_start_block(a, state, state.previous_epoch())? {
@@ -284,66 +258,12 @@ impl ValidatorStatuses {
 
         Ok(())
     }
-
-    /// Update the `statuses` for each validator based upon whether or not they attested to the
-    /// "winning" shard block root for the previous epoch.
-    ///
-    /// Spec v0.8.1
-    pub fn process_winning_roots<T: EthSpec>(
-        &mut self,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
-    ) -> Result<(), BeaconStateError> {
-        // We must re-calculate the winning roots here because it is possible that they have
-        // changed since the first time they were calculated.
-        //
-        // This is because we altered the state during the first time we calculated the winning
-        // roots.
-        let winning_root_for_shards = {
-            let mut winning_root_for_shards = WinningRootHashSet::new();
-            let relative_epoch = RelativeEpoch::Previous;
-
-            let epoch = relative_epoch.into_epoch(state.current_epoch());
-            for offset in 0..state.get_committee_count(relative_epoch)? {
-                let shard = (state.get_epoch_start_shard(relative_epoch)? + offset)
-                    % T::ShardCount::to_u64();
-                if let Some(winning_root) = winning_root(state, shard, epoch, spec)? {
-                    winning_root_for_shards.insert(shard, winning_root);
-                }
-            }
-
-            winning_root_for_shards
-        };
-
-        // Loop through each slot in the previous epoch.
-        for slot in state.previous_epoch().slot_iter(T::slots_per_epoch()) {
-            let crosslink_committees_at_slot = state.get_crosslink_committees_at_slot(slot)?;
-
-            // Loop through each committee in the slot.
-            for c in crosslink_committees_at_slot {
-                // If there was some winning crosslink root for the committee's shard.
-                if let Some(winning_root) = winning_root_for_shards.get(&c.shard) {
-                    let total_committee_balance = state.get_total_balance(&c.committee, spec)?;
-                    for &validator_index in &winning_root.attesting_validator_indices {
-                        // Take note of the balance information for the winning root, it will be
-                        // used later to calculate rewards for that validator.
-                        self.statuses[validator_index].winning_root_info = Some(WinningRootInfo {
-                            total_committee_balance,
-                            total_attesting_balance: winning_root.total_attesting_balance,
-                        })
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
 }
 
 /// Returns `true` if the attestation's FFG target is equal to the hash of the `state`'s first
 /// beacon block in the given `epoch`.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 fn target_matches_epoch_start_block<T: EthSpec>(
     a: &PendingAttestation<T>,
     state: &BeaconState<T>,
@@ -358,13 +278,12 @@ fn target_matches_epoch_start_block<T: EthSpec>(
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
 /// the current slot of the `PendingAttestation`.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 fn has_common_beacon_block_root<T: EthSpec>(
     a: &PendingAttestation<T>,
     state: &BeaconState<T>,
 ) -> Result<bool, BeaconStateError> {
-    let attestation_slot = state.get_attestation_data_slot(&a.data)?;
-    let state_block_root = *state.get_block_root(attestation_slot)?;
+    let state_block_root = *state.get_block_root(a.data.slot)?;
 
     Ok(a.data.beacon_block_root == state_block_root)
 }

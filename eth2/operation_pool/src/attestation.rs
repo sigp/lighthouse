@@ -35,16 +35,14 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
     /// Sneaky: we keep all the attestations together in one bucket, even though
     /// their aggregation bitfields refer to different committees. In order to avoid
     /// confusing committees when updating covering sets, we update only those attestations
-    /// whose shard and epoch match the attestation being included in the solution, by the logic
-    /// that a shard and epoch uniquely identify a committee.
+    /// whose slot and index match the attestation being included in the solution, by the logic
+    /// that a slot and index uniquely identify a committee.
     fn update_covering_set(
         &mut self,
         best_att: &Attestation<T>,
         covered_validators: &BitList<T::MaxValidatorsPerCommittee>,
     ) {
-        if self.att.data.crosslink.shard == best_att.data.crosslink.shard
-            && self.att.data.target.epoch == best_att.data.target.epoch
-        {
+        if self.att.data.slot == best_att.data.slot && self.att.data.index == best_att.data.index {
             self.fresh_validators.difference_inplace(covered_validators);
         }
     }
@@ -80,11 +78,12 @@ pub fn earliest_attestation_validators<T: EthSpec>(
 
     state_attestations
         .iter()
-        // In a single epoch, an attester should only be attesting for one shard.
+        // In a single epoch, an attester should only be attesting for one slot and index.
         // TODO: we avoid including slashable attestations in the state here,
         // but maybe we should do something else with them (like construct slashings).
         .filter(|existing_attestation| {
-            existing_attestation.data.crosslink.shard == attestation.data.crosslink.shard
+            existing_attestation.data.slot == attestation.data.slot
+                && existing_attestation.data.index == attestation.data.index
         })
         .for_each(|existing_attestation| {
             // Remove the validators who have signed the existing attestation (they are not new)

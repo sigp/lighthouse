@@ -2,9 +2,7 @@ use crate::common::{initiate_validator_exit, slash_validator};
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex};
 use rayon::prelude::*;
 use signature_sets::{block_proposal_signature_set, randao_signature_set};
-use std::collections::HashSet;
 use std::convert::TryInto;
-use std::iter::FromIterator;
 use tree_hash::SignedRoot;
 use types::*;
 
@@ -21,9 +19,6 @@ pub use verify_deposit::{
     get_existing_validator_index, verify_deposit_merkle_proof, verify_deposit_signature,
 };
 pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
-pub use verify_transfer::{
-    execute_transfer, verify_transfer, verify_transfer_time_independent_only,
-};
 
 pub mod block_processing_builder;
 mod block_signature_verifier;
@@ -36,7 +31,6 @@ mod verify_attester_slashing;
 mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
-mod verify_transfer;
 
 /// The strategy to be used when validating the block's signatures.
 #[derive(PartialEq, Clone, Copy)]
@@ -74,7 +68,7 @@ impl VerifySignatures {
 /// signature. If it is `None` the signed root is calculated here. This parameter only exists to
 /// avoid re-calculating the root when it is already known.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn per_block_processing<T: EthSpec>(
     mut state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
@@ -128,14 +122,13 @@ pub fn per_block_processing<T: EthSpec>(
         verify_signatures,
         spec,
     )?;
-    process_transfers(&mut state, &block.body.transfers, verify_signatures, spec)?;
 
     Ok(())
 }
 
 /// Processes the block header.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
@@ -158,7 +151,7 @@ pub fn process_block_header<T: EthSpec>(
     state.latest_block_header = block.temporary_block_header();
 
     // Verify proposer is not slashed
-    let proposer_idx = state.get_beacon_proposer_index(block.slot, RelativeEpoch::Current, spec)?;
+    let proposer_idx = state.get_beacon_proposer_index(block.slot, spec)?;
     let proposer = &state.validators[proposer_idx];
     verify!(
         !proposer.slashed,
@@ -174,7 +167,7 @@ pub fn process_block_header<T: EthSpec>(
 
 /// Verifies the signature of a block.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn verify_block_signature<T: EthSpec>(
     state: &BeaconState<T>,
     block: &BeaconBlock<T>,
@@ -192,7 +185,7 @@ pub fn verify_block_signature<T: EthSpec>(
 /// Verifies the `randao_reveal` against the block's proposer pubkey and updates
 /// `state.latest_randao_mixes`.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn process_randao<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
@@ -215,7 +208,7 @@ pub fn process_randao<T: EthSpec>(
 
 /// Update the `state.eth1_data_votes` based upon the `eth1_data` provided.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn process_eth1_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     eth1_data: &Eth1Data,
@@ -240,7 +233,7 @@ pub fn process_eth1_data<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn process_proposer_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     proposer_slashings: &[ProposerSlashing],
@@ -269,7 +262,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn process_attester_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     attester_slashings: &[AttesterSlashing<T>],
@@ -323,7 +316,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn process_attestations<T: EthSpec>(
     state: &mut BeaconState<T>,
     attestations: &[Attestation<T>],
@@ -343,14 +336,12 @@ pub fn process_attestations<T: EthSpec>(
         })?;
 
     // Update the state in series.
-    let proposer_index =
-        state.get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)? as u64;
+    let proposer_index = state.get_beacon_proposer_index(state.slot, spec)? as u64;
     for attestation in attestations {
-        let attestation_slot = state.get_attestation_data_slot(&attestation.data)?;
         let pending_attestation = PendingAttestation {
             aggregation_bits: attestation.aggregation_bits.clone(),
             data: attestation.data.clone(),
-            inclusion_delay: (state.slot - attestation_slot).as_u64(),
+            inclusion_delay: (state.slot - attestation.data.slot).as_u64(),
             proposer_index,
         };
 
@@ -371,7 +362,7 @@ pub fn process_attestations<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn process_deposits<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposits: &[Deposit],
@@ -408,7 +399,7 @@ pub fn process_deposits<T: EthSpec>(
 
 /// Process a single deposit, optionally verifying its merkle proof.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 pub fn process_deposit<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposit: &Deposit,
@@ -474,7 +465,7 @@ pub fn process_deposit<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn process_exits<T: EthSpec>(
     state: &mut BeaconState<T>,
     voluntary_exits: &[VoluntaryExit],
@@ -492,42 +483,6 @@ pub fn process_exits<T: EthSpec>(
     // Update the state in series.
     for exit in voluntary_exits {
         initiate_validator_exit(state, exit.validator_index as usize, spec)?;
-    }
-
-    Ok(())
-}
-
-/// Validates each `Transfer` and updates the state, short-circuiting on an invalid object.
-///
-/// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
-/// an `Err` describing the invalid object or cause of failure.
-///
-/// Spec v0.8.0
-pub fn process_transfers<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    transfers: &[Transfer],
-    verify_signatures: VerifySignatures,
-    spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
-    let expected_transfers = HashSet::<_>::from_iter(transfers).len();
-    // Verify that there are no duplicate transfers
-    block_verify!(
-        transfers.len() == expected_transfers,
-        BlockProcessingError::DuplicateTransfers {
-            duplicates: transfers.len().saturating_sub(expected_transfers)
-        }
-    );
-
-    transfers
-        .par_iter()
-        .enumerate()
-        .try_for_each(|(i, transfer)| {
-            verify_transfer(&state, transfer, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(i))
-        })?;
-
-    for (i, transfer) in transfers.iter().enumerate() {
-        execute_transfer(state, transfer, spec).map_err(|e| e.into_with_index(i))?;
     }
 
     Ok(())

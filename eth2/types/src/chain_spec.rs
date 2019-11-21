@@ -5,19 +5,18 @@ use utils::{u8_from_hex_str, u8_to_hex_str};
 
 /// Each of the BLS signature domains.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 pub enum Domain {
     BeaconProposer,
+    BeaconAttester,
     Randao,
-    Attestation,
     Deposit,
     VoluntaryExit,
-    Transfer,
 }
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
@@ -33,6 +32,7 @@ pub struct ChainSpec {
     /*
      * Misc
      */
+    pub max_committees_per_slot: usize,
     pub target_committee_size: usize,
     pub min_per_epoch_churn_limit: u64,
     pub churn_limit_quotient: u64,
@@ -61,10 +61,9 @@ pub struct ChainSpec {
     pub milliseconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
-    pub activation_exit_delay: u64,
+    pub max_seed_lookahead: Epoch,
     pub min_validator_withdrawability_delay: Epoch,
     pub persistent_committee_period: u64,
-    pub max_epochs_per_crosslink: u64,
     pub min_epochs_to_inactivity_penalty: u64,
 
     /*
@@ -78,18 +77,17 @@ pub struct ChainSpec {
 
     /*
      * Signature domains
-     *
-     * Fields should be private to prevent accessing a domain that hasn't been modified to suit
-     * some `Fork`.
-     *
-     * Use `ChainSpec::get_domain(..)` to access these values.
      */
     domain_beacon_proposer: u32,
+    domain_beacon_attester: u32,
     domain_randao: u32,
-    domain_attestation: u32,
     domain_deposit: u32,
     domain_voluntary_exit: u32,
-    domain_transfer: u32,
+
+    /*
+     * Fork choice
+     */
+    pub safe_slots_to_update_justified: u64,
 
     /*
      * Eth1
@@ -103,18 +101,24 @@ pub struct ChainSpec {
 }
 
 impl ChainSpec {
-    /// Get the domain number that represents the fork meta and signature domain.
+    /// Get the domain number, unmodified by the fork.
     ///
-    /// Spec v0.8.1
-    pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
-        let domain_constant = match domain {
+    /// Spec v0.9.1
+    pub fn get_domain_constant(&self, domain: Domain) -> u32 {
+        match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
+            Domain::BeaconAttester => self.domain_beacon_attester,
             Domain::Randao => self.domain_randao,
-            Domain::Attestation => self.domain_attestation,
             Domain::Deposit => self.domain_deposit,
             Domain::VoluntaryExit => self.domain_voluntary_exit,
-            Domain::Transfer => self.domain_transfer,
-        };
+        }
+    }
+
+    /// Get the domain number that represents the fork meta and signature domain.
+    ///
+    /// Spec v0.9.1
+    pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
+        let domain_constant = self.get_domain_constant(domain);
 
         let mut bytes: Vec<u8> = int_to_bytes4(domain_constant);
         bytes.append(&mut fork.get_fork_version(epoch).to_vec());
@@ -143,20 +147,21 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.9.1
     pub fn mainnet() -> Self {
         Self {
             /*
              * Constants
              */
             far_future_epoch: Epoch::new(u64::max_value()),
-            base_rewards_per_epoch: 5,
+            base_rewards_per_epoch: 4,
             deposit_contract_tree_depth: 32,
             seconds_per_day: 86400,
 
             /*
              * Misc
              */
+            max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
             churn_limit_quotient: 65_536,
@@ -181,13 +186,12 @@ impl ChainSpec {
             /*
              * Time parameters
              */
-            milliseconds_per_slot: 6_000,
+            milliseconds_per_slot: 12_000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
-            activation_exit_delay: 4,
+            max_seed_lookahead: Epoch::new(4),
             min_validator_withdrawability_delay: Epoch::new(256),
             persistent_committee_period: 2_048,
-            max_epochs_per_crosslink: 64,
             min_epochs_to_inactivity_penalty: 4,
 
             /*
@@ -203,11 +207,15 @@ impl ChainSpec {
              * Signature domains
              */
             domain_beacon_proposer: 0,
-            domain_randao: 1,
-            domain_attestation: 2,
+            domain_beacon_attester: 1,
+            domain_randao: 2,
             domain_deposit: 3,
             domain_voluntary_exit: 4,
-            domain_transfer: 5,
+
+            /*
+             * Fork choice
+             */
+            safe_slots_to_update_justified: 8,
 
             /*
              * Eth1
@@ -235,7 +243,7 @@ impl ChainSpec {
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/configs/constant_presets/minimal.yaml
     ///
-    /// Spec v0.8.1
+    /// Spec v0.9.1
     pub fn minimal() -> Self {
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];
@@ -244,7 +252,6 @@ impl ChainSpec {
             target_committee_size: 4,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
-            max_epochs_per_crosslink: 4,
             network_id: 2, // lighthouse testnet network id
             boot_nodes,
             eth1_follow_distance: 16,
@@ -302,10 +309,9 @@ mod tests {
         let spec = ChainSpec::mainnet();
 
         test_domain(Domain::BeaconProposer, spec.domain_beacon_proposer, &spec);
+        test_domain(Domain::BeaconAttester, spec.domain_beacon_attester, &spec);
         test_domain(Domain::Randao, spec.domain_randao, &spec);
-        test_domain(Domain::Attestation, spec.domain_attestation, &spec);
         test_domain(Domain::Deposit, spec.domain_deposit, &spec);
         test_domain(Domain::VoluntaryExit, spec.domain_voluntary_exit, &spec);
-        test_domain(Domain::Transfer, spec.domain_transfer, &spec);
     }
 }

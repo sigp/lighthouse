@@ -55,9 +55,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             )),
         }
 
-        let proposer_index = state
-            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
-            .unwrap();
+        let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
         match randao_sk {
@@ -99,9 +97,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             )),
         }
 
-        let proposer_index = state
-            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
-            .unwrap();
+        let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
         match randao_sk {
@@ -112,7 +108,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             ExitTestTask::AlreadyInitiated => {
                 for _ in 0..2 {
                     self.block_builder.insert_exit(
-                        &test_task,
+                        test_task,
                         &mut state,
                         (0 as usize).try_into().unwrap(),
                         &keypairs[0].sk,
@@ -123,7 +119,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             _ => {
                 for (i, keypair) in keypairs.iter().take(num_exits).enumerate() {
                     self.block_builder.insert_exit(
-                        &test_task,
+                        test_task,
                         &mut state,
                         (i as usize).try_into().unwrap(),
                         &keypair.sk,
@@ -140,7 +136,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
     pub fn build_with_n_attestations(
         mut self,
-        test_task: &AttestationTestTask,
+        test_task: AttestationTestTask,
         num_attestations: u64,
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
@@ -158,9 +154,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             )),
         }
 
-        let proposer_index = state
-            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
-            .unwrap();
+        let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
         match randao_sk {
@@ -185,7 +179,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
     pub fn build_with_attester_slashing(
         mut self,
-        test_task: &AttesterSlashingTestTask,
+        test_task: AttesterSlashingTestTask,
         num_attester_slashings: u64,
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
@@ -203,9 +197,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             )),
         }
 
-        let proposer_index = state
-            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
-            .unwrap();
+        let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
         match randao_sk {
@@ -236,7 +228,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
     pub fn build_with_proposer_slashing(
         mut self,
-        test_task: &ProposerSlashingTestTask,
+        test_task: ProposerSlashingTestTask,
         num_proposer_slashings: u64,
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
@@ -254,9 +246,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             )),
         }
 
-        let proposer_index = state
-            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
-            .unwrap();
+        let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
         match randao_sk {
@@ -298,9 +288,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             )),
         }
 
-        let proposer_index = state
-            .get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)
-            .unwrap();
+        let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
         match randao_sk {
