@@ -3,9 +3,9 @@
 //! This module provides logic for splitting the `FixedVector` fields of a `BeaconState` into
 //! chunks, and storing those chunks in contiguous ranges in the on-disk database.  The motiviation
 //! for doing this is avoiding massive duplication in every on-disk state.  For example, rather than
-//! storing the whole `active_index_roots` vector, which is updated once per epoch, at every slot,
-//! we instead store all the historical values as a chunked vector on-disk, and fetch only the slice
-//! we need when reconstructing the `active_index_roots` of a state.
+//! storing the whole `historical_roots` vector, which is updated once every couple of thousand
+//! slots, at every slot, we instead store all the historical values as a chunked vector on-disk,
+//! and fetch only the slice we need when reconstructing the `historical_roots` of a state.
 //!
 //! ## Terminology
 //!
@@ -47,6 +47,18 @@ impl EpochOffset {
     }
 }
 
+/// Map a chunk index to bytes that can be used to key the NoSQL database.
+///
+/// We shift chunks up by 1 to make room for a genesis chunk that is handled separately.
+fn chunk_key(cindex: u64) -> [u8; 8] {
+    (cindex + 1).to_be_bytes()
+}
+
+/// Return the database key for the genesis value.
+fn genesis_value_key() -> [u8; 8] {
+    0u64.to_be_bytes()
+}
+
 /// Trait for types representing fields of the `BeaconState`.
 ///
 /// All of the required methods are type-level, because we do most things with fields at the
@@ -83,6 +95,9 @@ pub trait Field<E: EthSpec>: Copy {
         vindex: u64,
         spec: &ChainSpec,
     ) -> Result<Self::Value, BeaconStateError>;
+
+    /// True if this is a `FixedLengthField`, false otherwise.
+    fn is_fixed_length() -> bool;
 
     /// Compute the start and end vector indices of the slice of history required at `current_slot`.
     ///
@@ -190,7 +205,11 @@ macro_rules! field {
                 vindex: u64,
                 spec: &ChainSpec,
             ) -> Result<Self::Value, BeaconStateError> {
-                $get_value(state, vindex, spec)
+                Ok($get_value(state, vindex, spec))
+            }
+
+            fn is_fixed_length() -> bool {
+                stringify!($marker_trait) == "FixedLengthField"
             }
         }
 
@@ -205,7 +224,8 @@ field!(
     T::SlotsPerHistoricalRoot,
     DBColumn::BeaconBlockRoots,
     |_| OncePerNSlots { n: 1 },
-    |state: &BeaconState<_>, index, _| state.get_block_root(Slot::new(index)).map(|x| *x)
+    // FIXME(sproul): use safe accessors, or otherwise avoid div by 0
+    |state: &BeaconState<_>, index, _| state.block_roots[index as usize % state.block_roots.len()]
 );
 
 field!(
@@ -215,7 +235,7 @@ field!(
     T::SlotsPerHistoricalRoot,
     DBColumn::BeaconStateRoots,
     |_| OncePerNSlots { n: 1 },
-    |state: &BeaconState<_>, index, _| state.get_state_root(Slot::new(index)).map(|x| *x)
+    |state: &BeaconState<_>, index, _| state.state_roots[index as usize % state.state_roots.len()]
 );
 
 field!(
@@ -227,11 +247,8 @@ field!(
     |_| OncePerNSlots {
         n: T::SlotsPerHistoricalRoot::to_u64()
     },
-    |state: &BeaconState<_>, vindex, _| state
-        .historical_roots
-        .get(vindex as usize)
-        .map(|x| *x)
-        .ok_or(BeaconStateError::SlotOutOfBounds)
+    |state: &BeaconState<_>, vindex, _| state.historical_roots
+        [vindex as usize % state.historical_roots.len()]
 );
 
 field!(
@@ -241,7 +258,8 @@ field!(
     T::EpochsPerHistoricalVector,
     DBColumn::BeaconRandaoMixes,
     |_| OncePerEpoch { offset: Lag(1) },
-    |state: &BeaconState<_>, index, _| state.get_randao_mix(Epoch::new(index)).map(|x| *x)
+    |state: &BeaconState<_>, index, _| state.randao_mixes
+        [index as usize % state.randao_mixes.len()]
 );
 
 pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store>(
@@ -254,6 +272,17 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store>(
     let (start_vindex, end_vindex) = F::start_and_end_vindex(state.slot, spec);
     let start_cindex = start_vindex / chunk_size;
     let end_cindex = end_vindex / chunk_size;
+
+    // Store the genesis value if we have access to it, and it hasn't been stored already.
+    if slot_needs_genesis_value::<F, _>(state.slot, spec) {
+        let genesis_value = extract_genesis_value::<F, _>(state, spec)?;
+        println!(
+            "from slot {}, storing genesis value {:?}",
+            state.slot.as_u64(),
+            genesis_value
+        );
+        store_genesis_value::<F, _, _>(store, genesis_value)?;
+    }
 
     // Start by iterating backwards from the last chunk, storing new chunks in the database.
     // Stop once a chunk in the database matches what we were about to store, this indicates
@@ -302,7 +331,7 @@ where
     I: Iterator<Item = usize>,
 {
     for chunk_index in range {
-        let chunk_key = &integer_key(chunk_index as u64)[..];
+        let chunk_key = &chunk_key(chunk_index as u64)[..];
 
         let existing_chunk =
             Chunk::<F::Value>::load(store, F::column(), chunk_key)?.unwrap_or_else(Chunk::default);
@@ -326,10 +355,6 @@ where
     Ok(true)
 }
 
-fn integer_key(index: u64) -> [u8; 8] {
-    index.to_be_bytes()
-}
-
 // Chunks at the end index are included.
 // TODO: could be more efficient with a real range query (perhaps RocksDB)
 fn range_query<S: Store, T: Decode + Encode>(
@@ -341,7 +366,7 @@ fn range_query<S: Store, T: Decode + Encode>(
     let mut result = vec![];
 
     for chunk_index in start_index..=end_index {
-        let key = &integer_key(chunk_index as u64)[..];
+        let key = &chunk_key(chunk_index as u64)[..];
         let chunk = Chunk::load(store, column, key)?.ok_or(ChunkError::Missing { chunk_index })?;
         result.push(chunk);
     }
@@ -349,12 +374,17 @@ fn range_query<S: Store, T: Decode + Encode>(
     Ok(result)
 }
 
+/// Combine chunks to form a list or vector of all values with vindex in `start_vindex..end_vindex`.
+///
+/// The `length` parameter is the length of the vec to construct, with entries set to `default` if
+/// they lie outside the vindex range.
 fn stitch<T: Default + Clone>(
     chunks: Vec<Chunk<T>>,
     start_vindex: usize,
     end_vindex: usize,
     chunk_size: usize,
     length: usize,
+    default: T,
 ) -> Result<Vec<T>, ChunkError> {
     if start_vindex + length < end_vindex {
         return Err(ChunkError::OversizedRange {
@@ -367,7 +397,7 @@ fn stitch<T: Default + Clone>(
     let start_cindex = start_vindex / chunk_size;
     let end_cindex = end_vindex / chunk_size;
 
-    let mut result = vec![T::default(); length];
+    let mut result = vec![default; length];
 
     for (chunk_index, chunk) in (start_cindex..=end_cindex).zip(chunks.into_iter()) {
         // All chunks but the last chunk must be full-sized
@@ -392,6 +422,49 @@ fn stitch<T: Default + Clone>(
     Ok(result)
 }
 
+/// Load the genesis value for a fixed length field from the 0th chunk in the store.
+///
+/// This genesis value should be used to fill the initial state of the vector.
+// FIXME(sproul): for middle-out sync we will have to ensure the genesis value is stored
+// ahead-of-time.
+pub fn load_genesis_value<F: FixedLengthField<E>, E: EthSpec, S: Store>(
+    store: &S,
+) -> Result<F::Value, Error> {
+    let key = &genesis_value_key()[..];
+    let chunk = Chunk::load(store, F::column(), key)?.ok_or(ChunkError::MissingGenesisValue)?;
+    chunk
+        .values
+        .first()
+        .cloned()
+        .ok_or(ChunkError::MissingGenesisValue.into())
+}
+
+pub fn store_genesis_value<F: Field<E>, E: EthSpec, S: Store>(
+    store: &S,
+    value: F::Value,
+) -> Result<(), Error> {
+    let chunk = Chunk::new(vec![value]);
+    chunk.store(store, F::column(), &genesis_value_key()[..])
+}
+
+fn slot_needs_genesis_value<F: Field<E>, E: EthSpec>(slot: Slot, spec: &ChainSpec) -> bool {
+    // If the end_vindex is less than the length of the vector, then the vector
+    // has not yet been completely filled with non-genesis values, and so the genesis
+    // value is still required.
+    let (_, end_vindex) = F::start_and_end_vindex(slot, spec);
+    F::is_fixed_length() && end_vindex < F::Length::to_usize()
+}
+
+fn extract_genesis_value<F: Field<E>, E: EthSpec>(
+    state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<F::Value, Error> {
+    // Genesis value is guaranteed to exist at `end_vindex`, as it won't yet have been updated
+    // (assuming `slot_needs_genesis_value` returned true).
+    let (_, end_vindex) = F::start_and_end_vindex(state.slot, spec);
+    Ok(F::get_value(state, end_vindex as u64, spec)?)
+}
+
 pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store>(
     store: &S,
     slot: Slot,
@@ -405,12 +478,20 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store>(
 
     let chunks = range_query(store, F::column(), start_cindex, end_cindex)?;
 
+    let default = if slot_needs_genesis_value::<F, _>(slot, spec) {
+        load_genesis_value::<F, _, _>(store)?
+    } else {
+        F::Value::default()
+    };
+    println!("load_vector_from_db: default = {:?}", default);
+
     let result = stitch(
         chunks,
         start_vindex,
         end_vindex,
         chunk_size,
         F::Length::to_usize(),
+        default,
     )?;
 
     Ok(result.into())
@@ -524,6 +605,7 @@ pub enum ChunkError {
     Missing {
         chunk_index: usize,
     },
+    MissingGenesisValue,
     Inconsistent {
         field: DBColumn,
         chunk_index: usize,
@@ -539,14 +621,31 @@ pub enum ChunkError {
 #[cfg(test)]
 mod test {
     use super::*;
+    use types::MainnetEthSpec as TestSpec;
+
+    fn v(i: u64) -> Hash256 {
+        Hash256::from_low_u64_be(i)
+    }
+
+    #[test]
+    fn stitch_default() {
+        let chunk_size = 4;
+
+        let chunks = vec![
+            Chunk::new(vec![0u64, 1, 2, 3]),
+            Chunk::new(vec![4, 5, 0, 0]),
+        ];
+
+        assert_eq!(
+            stitch(chunks.clone(), 2, 6, chunk_size, 12, 99).unwrap(),
+            vec![99, 99, 2, 3, 4, 5, 99, 99, 99, 99, 99, 99]
+        );
+    }
 
     #[test]
     fn stitch_basic() {
-        fn v(i: u64) -> Hash256 {
-            Hash256::from_low_u64_be(i)
-        }
-
         let chunk_size = 4;
+        let default = v(0);
 
         let chunks = vec![
             Chunk::new(vec![v(0), v(1), v(2), v(3)]),
@@ -555,13 +654,53 @@ mod test {
         ];
 
         assert_eq!(
-            stitch(chunks.clone(), 0, 12, chunk_size, 12).unwrap(),
+            stitch(chunks.clone(), 0, 12, chunk_size, 12, default).unwrap(),
             (0..12).map(v).collect::<Vec<_>>()
         );
 
         assert_eq!(
-            stitch(chunks.clone(), 2, 10, chunk_size, 8).unwrap(),
+            stitch(chunks.clone(), 2, 10, chunk_size, 8, default).unwrap(),
             vec![v(8), v(9), v(2), v(3), v(4), v(5), v(6), v(7)]
         );
+    }
+
+    #[test]
+    fn stitch_oversized_range() {
+        let chunk_size = 4;
+        let default = 0;
+
+        let chunks = vec![Chunk::new(vec![20u64, 21, 22, 23])];
+
+        // Args (start_vindex, end_vindex, length)
+        let args = vec![(0, 21, 20), (0, 2048, 1024), (0, 2, 1)];
+
+        for (start_vindex, end_vindex, length) in args {
+            assert_eq!(
+                stitch(
+                    chunks.clone(),
+                    start_vindex,
+                    end_vindex,
+                    chunk_size,
+                    length,
+                    default
+                ),
+                Err(ChunkError::OversizedRange {
+                    start_vindex,
+                    end_vindex,
+                    length,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn fixed_length_fields() {
+        fn test_fixed_length<F: Field<TestSpec>>(_: F, expected: bool) {
+            assert_eq!(F::is_fixed_length(), expected);
+        }
+        test_fixed_length(BlockRoots, true);
+        test_fixed_length(StateRoots, true);
+        test_fixed_length(HistoricalRoots, false);
+        test_fixed_length(RandaoMixes, true);
     }
 }

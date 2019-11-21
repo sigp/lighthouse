@@ -4,6 +4,7 @@ use crate::chunked_vector::{
 use crate::iter::{ReverseStateRootIterator, StateRootsIterator};
 use crate::{leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, Store, StoreItem};
 use parking_lot::RwLock;
+use slog::crit;
 use slog::{info, trace, Logger};
 use std::convert::TryInto;
 use std::path::Path;
@@ -175,6 +176,13 @@ impl HotColdDB {
         state_root: &Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
+        // FIXME(sproul) Change to trace
+        trace!(
+            self.log,
+            "Freezing state";
+            "slot" => state.slot.as_u64(),
+            "state_root" => format!("{:?}", state_root)
+        );
         // 1. Convert to PartialBeaconState and store that in the DB.
         let partial_state = PartialBeaconState::from_state_forgetful(state);
         partial_state.db_put(&self.cold_db, state_root)?;
@@ -205,6 +213,19 @@ impl HotColdDB {
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
 
         let state: BeaconState<E> = partial_state.try_into()?;
+
+        println!("Loaded archive state for {:?}\n{:#?}", state_root, state);
+
+        // #[cfg(paranoid)]
+        let db_state_root = state.canonical_root();
+        if &db_state_root != state_root {
+            crit!(
+                self.log,
+                "State from freezer has incorrect hash";
+                "expected" => format!("{:?}", state_root),
+                "observed" => format!("{:?}", db_state_root)
+            );
+        }
 
         Ok(Some(state))
     }
