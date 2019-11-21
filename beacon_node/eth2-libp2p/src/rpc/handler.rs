@@ -419,7 +419,6 @@ where
                                         // check for queued chunks and update the stream
                                         trace!(self.log, "Checking for queued items");
                                         entry.get_mut().0 = apply_queued_responses(
-                                            &self.log,
                                             raw_substream,
                                             &mut self.queued_outbound_items.get_mut(&request_id),
                                         );
@@ -444,7 +443,6 @@ where
                         InboundSubstreamState::ResponseIdle(substream) => {
                             trace!(self.log, "Idle stream searching queue");
                             entry.get_mut().0 = apply_queued_responses(
-                                &self.log,
                                 substream,
                                 &mut self.queued_outbound_items.get_mut(&request_id),
                             );
@@ -592,7 +590,6 @@ where
 
 // Check for new items to send to the peer and update the underlying stream
 fn apply_queued_responses<TSubstream: AsyncRead + AsyncWrite>(
-    log: &slog::Logger,
     raw_substream: InboundFramed<TSubstream>,
     queued_outbound_items: &mut Option<&mut Vec<RPCErrorResponse>>,
 ) -> InboundSubstreamState<TSubstream> {
@@ -604,13 +601,10 @@ fn apply_queued_responses<TSubstream: AsyncRead + AsyncWrite>(
                     // close the stream if this is a stream termination
                     InboundSubstreamState::Closing(raw_substream)
                 }
-                chunk => {
-                    trace!(log, "Adding message to send"; "message" => format!("{}", chunk));
-                    InboundSubstreamState::ResponsePendingSend {
-                        substream: raw_substream.send(chunk),
-                        closing: false,
-                    }
-                }
+                chunk => InboundSubstreamState::ResponsePendingSend {
+                    substream: raw_substream.send(chunk),
+                    closing: false,
+                },
             }
         }
         _ => {

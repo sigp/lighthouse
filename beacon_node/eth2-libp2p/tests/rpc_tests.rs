@@ -127,7 +127,7 @@ fn test_status_rpc() {
 fn test_blocks_by_range_chunked_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
-    let enable_logging = true;
+    let enable_logging = false;
 
     let messages_to_send = 10;
 
