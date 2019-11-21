@@ -1,7 +1,7 @@
-use beacon_chain::events::{EventHandler, EventKind};
 use futures::Future;
 use slog::{debug, error, info, warn, Logger};
 use std::marker::PhantomData;
+use std::net::SocketAddr;
 use std::thread;
 use tokio::runtime::TaskExecutor;
 use types::EthSpec;
@@ -36,31 +36,30 @@ impl<T: EthSpec> WebSocketSender<T> {
     }
 }
 
-impl<T: EthSpec> EventHandler<T> for WebSocketSender<T> {
-    fn register(&self, kind: EventKind<T>) -> Result<(), String> {
-        self.send_string(
-            serde_json::to_string(&kind)
-                .map_err(|e| format!("Unable to serialize event: {:?}", e))?,
-        )
-    }
-}
-
 pub fn start_server<T: EthSpec>(
     config: &Config,
     executor: &TaskExecutor,
     log: &Logger,
-) -> Result<(WebSocketSender<T>, exit_future::Signal), String> {
+) -> Result<(WebSocketSender<T>, exit_future::Signal, SocketAddr), String> {
     let server_string = format!("{}:{}", config.listen_address, config.port);
-
-    info!(
-        log,
-        "Websocket server starting";
-        "listen_address" => &server_string
-    );
 
     // Create a server that simply ignores any incoming messages.
     let server = WebSocket::new(|_| |_| Ok(()))
-        .map_err(|e| format!("Failed to initialize websocket server: {:?}", e))?;
+        .map_err(|e| format!("Failed to initialize websocket server: {:?}", e))?
+        .bind(server_string.clone())
+        .map_err(|e| {
+            format!(
+                "Failed to bind websocket server to {}: {:?}",
+                server_string, e
+            )
+        })?;
+
+    let actual_listen_addr = server.local_addr().map_err(|e| {
+        format!(
+            "Failed to read listening addr from websocket server: {:?}",
+            e
+        )
+    })?;
 
     let broadcaster = server.broadcaster();
 
@@ -91,7 +90,7 @@ pub fn start_server<T: EthSpec>(
     };
 
     let log_inner = log.clone();
-    let _handle = thread::spawn(move || match server.listen(server_string) {
+    let _handle = thread::spawn(move || match server.run() {
         Ok(_) => {
             debug!(
                 log_inner,
@@ -107,11 +106,19 @@ pub fn start_server<T: EthSpec>(
         }
     });
 
+    info!(
+        log,
+        "WebSocket server started";
+        "address" => format!("{}", actual_listen_addr.ip()),
+        "port" => actual_listen_addr.port(),
+    );
+
     Ok((
         WebSocketSender {
             sender: Some(broadcaster),
             _phantom: PhantomData,
         },
         exit_signal,
+        actual_listen_addr,
     ))
 }

@@ -15,7 +15,7 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 [Swagger Badge]: https://img.shields.io/badge/Open%20API-0.2.0-success
 [Swagger Link]: https://app.swaggerhub.com/apis-docs/spble/lighthouse_rest_api/0.2.0
 
-![terminalize](https://i.postimg.cc/Y0BQ0z3R/terminalize.gif)
+![terminalize](https://i.postimg.cc/kG11dpCW/lighthouse-cli-png.gif)
 
 ## Overview
 
@@ -47,7 +47,7 @@ Current development overview:
 
 - ~~**April 2019**: Inital single-client testnets.~~
 - ~~**September 2019**: Inter-operability with other Ethereum 2.0 clients.~~
-- **Early-October 2019**: `lighthouse-0.0.1` release: All major phase 0
+- **Q4 2019**: `lighthouse-0.0.1` release: All major phase 0
      features implemented.
 - **Q4 2019**: Public, multi-client testnet with user-facing functionality.
 - **Q4 2019**: Third-party security review.

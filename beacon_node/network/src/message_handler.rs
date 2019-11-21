@@ -51,7 +51,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<HandlerMessage>> {
-        let message_handler_log = log.new(o!("Service"=> "Message Handler"));
+        let message_handler_log = log.new(o!("service"=> "msg_handler"));
         trace!(message_handler_log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
@@ -146,9 +146,15 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     ) {
         // an error could have occurred.
         match error_response {
-            RPCErrorResponse::InvalidRequest(error) => warn!(self.log, "Peer indicated invalid request";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string()),
-            RPCErrorResponse::ServerError(error) => warn!(self.log, "Peer internal server error";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string()),
-            RPCErrorResponse::Unknown(error) => warn!(self.log, "Unknown peer error";"peer" => format!("{:?}", peer_id), "error" => error.as_string()),
+            RPCErrorResponse::InvalidRequest(error) => {
+                warn!(self.log, "Peer indicated invalid request";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string())
+            }
+            RPCErrorResponse::ServerError(error) => {
+                warn!(self.log, "Peer internal server error";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string())
+            }
+            RPCErrorResponse::Unknown(error) => {
+                warn!(self.log, "Unknown peer error";"peer" => format!("{:?}", peer_id), "error" => error.as_string())
+            }
             RPCErrorResponse::Success(response) => {
                 match response {
                     RPCResponse::Hello(hello_message) => {

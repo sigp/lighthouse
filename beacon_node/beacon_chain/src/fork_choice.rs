@@ -33,14 +33,10 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     ///
     /// "Genesis" does not necessarily need to be the absolute genesis, it can be some finalized
     /// block.
-    pub fn new(
-        store: Arc<T::Store>,
-        genesis_block: &BeaconBlock<T::EthSpec>,
-        genesis_block_root: Hash256,
-    ) -> Self {
+    pub fn new(store: Arc<T::Store>, backend: T::LmdGhost, genesis_block_root: Hash256) -> Self {
         Self {
             store: store.clone(),
-            backend: T::LmdGhost::new(store, genesis_block, genesis_block_root),
+            backend,
             genesis_block_root,
         }
     }

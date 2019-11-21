@@ -6,14 +6,13 @@ extern crate lazy_static;
 use beacon_chain::AttestationProcessingOutcome;
 use beacon_chain::{
     test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, CommonTypes, PersistedBeaconChain,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, PersistedBeaconChain,
         BEACON_CHAIN_DB_KEY,
     },
     BlockProcessingOutcome,
 };
-use lmd_ghost::ThreadSafeReducedTree;
 use rand::Rng;
-use store::{MemoryStore, Store};
+use store::Store;
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use types::{Deposit, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 
@@ -25,10 +24,8 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-type TestForkChoice = ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>;
-
-fn get_harness(validator_count: usize) -> BeaconChainHarness<TestForkChoice, MinimalEthSpec> {
-    let harness = BeaconChainHarness::new(KEYPAIRS[0..validator_count].to_vec());
+fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<MinimalEthSpec>> {
+    let harness = BeaconChainHarness::new(MinimalEthSpec, KEYPAIRS[0..validator_count].to_vec());
 
     harness.advance_slot();
 
@@ -322,7 +319,7 @@ fn roundtrip_operation_pool() {
     harness.chain.persist().unwrap();
 
     let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
-    let p: PersistedBeaconChain<CommonTypes<TestForkChoice, MinimalEthSpec>> =
+    let p: PersistedBeaconChain<HarnessType<MinimalEthSpec>> =
         harness.chain.store.get(&key).unwrap().unwrap();
 
     let restored_op_pool = p

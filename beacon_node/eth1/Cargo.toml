@@ -1,0 +1,29 @@
+[package]
+name = "eth1"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dev-dependencies]
+eth1_test_rig = { path = "../../tests/eth1_test_rig" }
+environment = { path = "../../lighthouse/environment" }
+toml = "^0.5"
+web3 = "0.8.0"
+
+[dependencies]
+reqwest = "0.9"
+futures = "0.1.25"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+hex = "0.4"
+types = { path = "../../eth2/types"}
+merkle_proof = { path = "../../eth2/utils/merkle_proof"}
+eth2_ssz = { path = "../../eth2/utils/ssz"}
+tree_hash = { path = "../../eth2/utils/tree_hash"}
+eth2_hashing = { path = "../../eth2/utils/eth2_hashing"}
+parking_lot = "0.7"
+slog = "^2.2.3"
+tokio = "0.1.17"
+state_processing = { path = "../../eth2/state_processing" }
+exit-future = "0.1.4"
+libflate = "0.1"

@@ -6,9 +6,9 @@ edition = "2018"
 description = "Google protobuf message and service definitions used in Lighthouse APIs."
 
 [dependencies]
-futures = "0.1"
-grpcio = { version = "0.4", default-features = false, features = ["protobuf-codec"] }
-protobuf = "~2.8.1"
+futures = "0.1.29"
+grpcio = { version = "0.4.6", default-features = false, features = ["protobuf-codec"] }
+protobuf = "2.8.1"
 
 [build-dependencies]
-protoc-grpcio = "0.3.1"
+protoc-grpcio = "1.1.0"

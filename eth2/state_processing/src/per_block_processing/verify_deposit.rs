@@ -15,16 +15,12 @@ fn error(reason: DepositInvalid) -> BlockOperationError<DepositInvalid> {
 /// Verify `Deposit.pubkey` signed `Deposit.signature`.
 ///
 /// Spec v0.8.0
-pub fn verify_deposit_signature<T: EthSpec>(
-    state: &BeaconState<T>,
-    deposit: &Deposit,
-    spec: &ChainSpec,
-) -> Result<()> {
-    let deposit_signature_message = deposit_pubkey_signature_message(deposit)
+pub fn verify_deposit_signature(deposit_data: &DepositData, spec: &ChainSpec) -> Result<()> {
+    let deposit_signature_message = deposit_pubkey_signature_message(&deposit_data)
         .ok_or_else(|| error(DepositInvalid::BadBlsBytes))?;
 
     verify!(
-        deposit_signature_set(state, &deposit_signature_message, spec).is_valid(),
+        deposit_signature_set(&deposit_signature_message, spec).is_valid(),
         DepositInvalid::BadSignature
     );
 

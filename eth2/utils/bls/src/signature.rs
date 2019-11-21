@@ -108,7 +108,7 @@ impl Signature {
 
 impl_ssz!(Signature, BLS_SIG_BYTE_SIZE, "Signature");
 
-impl_tree_hash!(Signature, U96);
+impl_tree_hash!(Signature, BLS_SIG_BYTE_SIZE);
 
 impl Serialize for Signature {
     /// Serde serialization is compliant the Ethereum YAML test format.

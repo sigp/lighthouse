@@ -75,7 +75,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         network_send: mpsc::UnboundedSender<NetworkMessage>,
         log: &slog::Logger,
     ) -> Self {
-        let sync_logger = log.new(o!("Service"=> "Sync"));
+        let sync_logger = log.new(o!("service"=> "sync"));
         let sync_network_context = NetworkContext::new(network_send.clone(), sync_logger.clone());
 
         // spawn the sync thread
