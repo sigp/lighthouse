@@ -128,7 +128,7 @@ pub struct BlocksByRootRequest {
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RPCResponse {
     /// A HELLO message.
     Status(StatusMessage),

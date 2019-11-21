@@ -30,3 +30,5 @@ tokio-io-timeout = "0.3.1"
 
 [dev-dependencies]
 slog-stdlog = "4.0.0"
+slog-term = "2.4.2"
+slog-async = "2.3.0"

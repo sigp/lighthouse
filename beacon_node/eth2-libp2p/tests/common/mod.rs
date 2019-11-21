@@ -4,11 +4,18 @@ use eth2_libp2p::Multiaddr;
 use eth2_libp2p::NetworkConfig;
 use eth2_libp2p::Service as LibP2PService;
 use slog::{debug, error, o, Drain};
-use slog_stdlog;
 use std::time::Duration;
 
-pub fn setup_log() -> slog::Logger {
-    slog::Logger::root(slog_stdlog::StdLog.fuse(), o!())
+pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
+
+    if enabled {
+        slog::Logger::root(drain.filter_level(level).fuse(), o!())
+    } else {
+        slog::Logger::root(drain.filter(|_| false).fuse(), o!())
+    }
 }
 
 pub fn build_config(
@@ -46,8 +53,7 @@ pub fn get_enr(node: &LibP2PService) -> Enr {
 }
 
 // Returns `n` libp2p peers in fully connected topology.
-pub fn build_full_mesh(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
-    let log = setup_log();
+pub fn build_full_mesh(log: slog::Logger, n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
     let base_port = start_port.unwrap_or(9000);
     let mut nodes: Vec<LibP2PService> = (base_port..base_port + n as u16)
         .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))
@@ -71,8 +77,7 @@ pub fn build_full_mesh(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> 
 }
 
 // Returns `n` peers in a linear topology
-pub fn build_linear(n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
-    let log = setup_log();
+pub fn build_linear(log: slog::Logger, n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
     let base_port = start_port.unwrap_or(9000);
     let mut nodes: Vec<LibP2PService> = (base_port..base_port + n as u16)
         .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))

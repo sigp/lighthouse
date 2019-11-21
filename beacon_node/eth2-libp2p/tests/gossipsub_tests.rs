@@ -1,7 +1,7 @@
 #![cfg(test)]
 use eth2_libp2p::*;
 use futures::prelude::*;
-use slog::debug;
+use slog::{debug, Level};
 
 mod common;
 
@@ -17,9 +17,11 @@ mod common;
 
 #[test]
 fn test_gossipsub_forward() {
-    let log = common::setup_log();
+    // set up the logging. The level and enabled or not
+    let log = common::build_log(Level::Info, false);
+
     let num_nodes = 20;
-    let mut nodes = common::build_linear(num_nodes, Some(19000));
+    let mut nodes = common::build_linear(log.clone(), num_nodes, Some(19000));
     let mut received_count = 0;
     let pubsub_message = PubsubMessage::Block(vec![0; 4]);
     let publishing_topic: String = "/eth2/beacon_block/ssz".into();
@@ -78,8 +80,11 @@ fn test_gossipsub_forward() {
 // Not very useful but this is the bare minimum functionality.
 #[test]
 fn test_gossipsub_full_mesh_publish() {
+    // set up the logging. The level and enabled or not
+    let log = common::build_log(Level::Info, false);
+
     let num_nodes = 20;
-    let mut nodes = common::build_full_mesh(num_nodes, None);
+    let mut nodes = common::build_full_mesh(log, num_nodes, None);
     let mut publishing_node = nodes.pop().unwrap();
     let pubsub_message = PubsubMessage::Block(vec![0; 4]);
     let publishing_topic: String = "/eth2/beacon_block/ssz".into();
