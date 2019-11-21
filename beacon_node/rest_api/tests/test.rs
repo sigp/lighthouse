@@ -5,7 +5,7 @@ use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     LocalBeaconNode,
 };
-use remote_beacon_node::BeaconBlockPublishStatus;
+use remote_beacon_node::PublishStatus;
 use std::sync::Arc;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
@@ -64,6 +64,8 @@ fn sign_block<T: BeaconChainTypes>(
 fn validator_produce_attestation() {
     let mut env = build_env();
 
+    let spec = &E::default_spec();
+
     let node = LocalBeaconNode::production(env.core_context());
     let remote_node = node.remote_node().expect("should produce remote node");
 
@@ -73,29 +75,118 @@ fn validator_produce_attestation() {
         .expect("client should have beacon chain");
     let state = beacon_chain.head().beacon_state.clone();
 
+    /*
+    // Publish a block so that we're not attesting to the genesis block.
+    {
+        let slot = Slot::new(1);
+        let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
+
+        let mut block = env
+            .runtime()
+            .block_on(
+                remote_node
+                    .http
+                    .validator()
+                    .produce_block(slot, randao_reveal.clone()),
+            )
+            .expect("should fetch block from http api");
+
+        sign_block(beacon_chain.clone(), &mut block, spec);
+
+        let publish_status = env
+            .runtime()
+            .block_on(remote_node.http.validator().publish_block(block.clone()))
+            .expect("should publish block");
+        assert_eq!(
+            publish_status,
+            PublishStatus::Valid,
+            "should have published block"
+        );
+    }
+    */
+
     let validator_index = 0;
-    let validator_pubkey = state.validators[validator_index].pubkey.clone();
     let duties = state
         .get_attestation_duties(validator_index, RelativeEpoch::Current)
         .expect("should have attestation duties cache")
         .expect("should have attestation duties");
 
-    let attestation = env
+    dbg!(&duties);
+
+    let mut attestation = env
         .runtime()
-        .block_on(remote_node.http.validator().produce_attestation(
-            duties.slot,
-            duties.shard,
-            &validator_pubkey,
-            false,
-        ))
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .produce_attestation(duties.slot, duties.index),
+        )
         .expect("should fetch attestation from http api");
 
     assert_eq!(
-        attestation.data.crosslink.shard, duties.shard,
-        "should have same shard"
+        attestation.data.index, duties.index,
+        "should have same index"
+    );
+    assert_eq!(attestation.data.slot, duties.slot, "should have same slot");
+    assert_eq!(
+        attestation.aggregation_bits.num_set_bits(),
+        0,
+        "should have empty aggregation bits"
     );
 
-    // TODO: try to push the attestation.
+    let keypair = generate_deterministic_keypair(validator_index);
+
+    // Fetch the duties again, but via HTTP for authenticity.
+    let duties = env
+        .runtime()
+        .block_on(remote_node.http.validator().get_duties(
+            attestation.data.slot.epoch(E::slots_per_epoch()),
+            &[keypair.pk.clone()],
+        ))
+        .expect("should fetch duties from http api");
+    let duties = &duties[0];
+
+    // Try publishing the attestation without a signature, ensure it is flagged as invalid.
+    let publish_status = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .publish_attestation(attestation.clone()),
+        )
+        .expect("should publish attestation");
+    assert!(
+        !publish_status.is_valid(),
+        "the unsigned published attestation should not be valid"
+    );
+
+    attestation
+        .sign(
+            &keypair.sk,
+            duties
+                .attestation_committee_position
+                .expect("should have committee position"),
+            &state.fork,
+            spec,
+        )
+        .expect("should sign attestation");
+
+    // Try publishing the valid attestation.
+    let publish_status = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .publish_attestation(attestation.clone()),
+        )
+        .expect("should publish attestation");
+    dbg!(publish_status.clone());
+    assert!(
+        publish_status.is_valid(),
+        "the signed published attestation should be valid"
+    );
 }
 
 #[test]
@@ -125,7 +216,7 @@ fn validator_duties() {
     let duties = env
         .runtime()
         .block_on(remote_node.http.validator().get_duties(epoch, &validators))
-        .expect("should fetch block from http api");
+        .expect("should fetch duties from http api");
 
     assert_eq!(
         validators.len(),
@@ -158,14 +249,14 @@ fn validator_duties() {
             );
 
             assert_eq!(
-                Some(attestation_duty.shard),
-                duty.attestation_shard,
-                "attestation shard should match"
+                Some(attestation_duty.index),
+                duty.attestation_committee_index,
+                "attestation index should match"
             );
 
             if let Some(slot) = duty.block_proposal_slot {
                 let expected_proposer = state
-                    .get_beacon_proposer_index(slot, RelativeEpoch::Current, spec)
+                    .get_beacon_proposer_index(slot, spec)
                     .expect("should know proposer");
                 assert_eq!(
                     expected_proposer, validator_index,
@@ -174,7 +265,7 @@ fn validator_duties() {
             } else {
                 epoch.slot_iter(E::slots_per_epoch()).for_each(|slot| {
                     let slot_proposer = state
-                        .get_beacon_proposer_index(slot, RelativeEpoch::Current, spec)
+                        .get_beacon_proposer_index(slot, spec)
                         .expect("should know proposer");
                     assert!(
                         slot_proposer != validator_index,
@@ -231,7 +322,7 @@ fn validator_block_post() {
         .expect("should publish block");
     assert_eq!(
         publish_status,
-        BeaconBlockPublishStatus::Valid,
+        PublishStatus::Valid,
         "the signed published block should be valid"
     );
 

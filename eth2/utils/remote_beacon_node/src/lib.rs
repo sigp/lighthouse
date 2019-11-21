@@ -14,7 +14,8 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::time::Duration;
 use types::{
-    Attestation, BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, PublicKey, Signature, Slot,
+    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, PublicKey,
+    Signature, Slot,
 };
 use url::Url;
 
@@ -134,20 +135,20 @@ fn error_for_status(
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum BeaconBlockPublishStatus {
-    /// The block was valid and has been published to the network.
+pub enum PublishStatus {
+    /// The object was valid and has been published to the network.
     Valid,
-    /// The block was not valid and may or may not have been published to the network.
+    /// The object was not valid and may or may not have been published to the network.
     Invalid(String),
-    /// The server responsed with an unknown status code. The block may or may not have been
+    /// The server responsed with an unknown status code. The object may or may not have been
     /// published to the network.
     Unknown,
 }
 
-impl BeaconBlockPublishStatus {
-    /// Returns `true` if `*self == BeaconBlockPublishStatus::Valid`.
+impl PublishStatus {
+    /// Returns `true` if `*self == PublishStatus::Valid`.
     pub fn is_valid(&self) -> bool {
-        *self == BeaconBlockPublishStatus::Valid
+        *self == PublishStatus::Valid
     }
 }
 
@@ -167,24 +168,42 @@ impl<E: EthSpec> Validator<E> {
     pub fn produce_attestation(
         &self,
         slot: Slot,
-        shard: u64,
-        validator_pubkey: &PublicKey,
-        poc_bit: bool,
+        committee_index: CommitteeIndex,
     ) -> impl Future<Item = Attestation<E>, Error = Error> {
         let query_params = vec![
             ("slot".into(), format!("{}", slot)),
-            ("shard".into(), format!("{}", shard)),
-            ("poc_bit".into(), format!("{}", poc_bit as u8)),
-            (
-                "validator_pubkey".into(),
-                pubkey_as_string(validator_pubkey),
-            ),
+            ("committee_index".into(), format!("{}", committee_index)),
         ];
 
         let client = self.0.clone();
         self.url("attestation")
             .into_future()
             .and_then(move |url| client.json_get(url, query_params))
+    }
+
+    /// Posts an attestation to the beacon node, expecting it to verify it and publish it to the network.
+    pub fn publish_attestation(
+        &self,
+        attestation: Attestation<E>,
+    ) -> impl Future<Item = PublishStatus, Error = Error> {
+        let client = self.0.clone();
+        self.url("attestation")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, attestation))
+            .and_then(|mut response| {
+                response
+                    .text()
+                    .map(|text| (response, text))
+                    .map_err(Error::from)
+            })
+            .and_then(|(response, text)| match response.status() {
+                StatusCode::OK => Ok(PublishStatus::Valid),
+                StatusCode::ACCEPTED => Ok(PublishStatus::Invalid(text)),
+                _ => response
+                    .error_for_status()
+                    .map_err(Error::from)
+                    .map(|_| PublishStatus::Unknown),
+            })
     }
 
     /// Returns the duties required of the given validator pubkeys in the given epoch.
@@ -213,7 +232,7 @@ impl<E: EthSpec> Validator<E> {
     pub fn publish_block(
         &self,
         block: BeaconBlock<E>,
-    ) -> impl Future<Item = BeaconBlockPublishStatus, Error = Error> {
+    ) -> impl Future<Item = PublishStatus, Error = Error> {
         let client = self.0.clone();
         self.url("block")
             .into_future()
@@ -225,12 +244,12 @@ impl<E: EthSpec> Validator<E> {
                     .map_err(Error::from)
             })
             .and_then(|(response, text)| match response.status() {
-                StatusCode::OK => Ok(BeaconBlockPublishStatus::Valid),
-                StatusCode::ACCEPTED => Ok(BeaconBlockPublishStatus::Invalid(text)),
+                StatusCode::OK => Ok(PublishStatus::Valid),
+                StatusCode::ACCEPTED => Ok(PublishStatus::Invalid(text)),
                 _ => response
                     .error_for_status()
                     .map_err(Error::from)
-                    .map(|_| BeaconBlockPublishStatus::Unknown),
+                    .map(|_| PublishStatus::Unknown),
             })
     }
 

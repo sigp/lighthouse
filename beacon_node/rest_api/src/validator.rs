@@ -1,13 +1,13 @@
 use crate::helpers::{
-    check_content_type_for_json, parse_epoch, parse_pubkey, parse_signature,
-    publish_attestation_to_network, publish_beacon_block_to_network,
+    check_content_type_for_json, parse_pubkey, publish_attestation_to_network,
+    publish_beacon_block_to_network,
 };
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
-use bls::{AggregateSignature, PublicKey};
+use bls::PublicKey;
 use futures::future::Future;
 use futures::stream::Stream;
 use hyper::{Body, Request};
@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 use slog::{info, trace, warn, Logger};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, BitList, CommitteeIndex, RelativeEpoch, Slot};
+use types::{Attestation, BeaconBlock, CommitteeIndex, RelativeEpoch, Slot};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorDuty {
     /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
     pub validator_pubkey: PublicKey,
@@ -25,6 +25,8 @@ pub struct ValidatorDuty {
     pub attestation_slot: Option<Slot>,
     /// The index of the committee within `slot` of which the validator is a member.
     pub attestation_committee_index: Option<CommitteeIndex>,
+    /// The position of the validator in the committee.
+    pub attestation_committee_position: Option<usize>,
     /// The slot in which a validator must propose a block, or `null` if block production is not required.
     pub block_proposal_slot: Option<Slot>,
 }
@@ -41,9 +43,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
 
     let query = UrlQuery::from_request(&req)?;
 
-    let epoch = query
-        .first_of(&["epoch"])
-        .and_then(|(_key, value)| parse_epoch(&value))?;
+    let epoch = query.epoch()?;
 
     let mut head_state = beacon_chain.head().beacon_state;
 
@@ -108,6 +108,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
                         validator_pubkey,
                         attestation_slot: duties.map(|d| d.slot),
                         attestation_committee_index: duties.map(|d| d.index),
+                        attestation_committee_position: duties.map(|d| d.committee_position),
                         block_proposal_slot,
                     })
                 } else {
@@ -115,6 +116,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
                         validator_pubkey,
                         attestation_slot: None,
                         attestation_committee_index: None,
+                        attestation_committee_position: None,
                         block_proposal_slot: None,
                     })
                 }
@@ -131,20 +133,9 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
     let query = UrlQuery::from_request(&req)?;
-    let slot = query
-        .first_of(&["slot"])
-        .map(|(_key, value)| value)?
-        .parse::<u64>()
-        .map(Slot::from)
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Invalid slot parameter, must be a u64. {:?}", e))
-        })?;
-    let randao_reveal = query
-        .first_of(&["randao_reveal"])
-        .and_then(|(_key, value)| parse_signature(&value))
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Invalid hex string for randao_reveal: {:?}", e))
-        })?;
+
+    let slot = query.slot()?;
+    let randao_reveal = query.randao_reveal()?;
 
     let (new_block, _state) = beacon_chain
         .produce_block(randao_reveal, slot)
@@ -212,110 +203,14 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
-    let mut head_state = beacon_chain.head().beacon_state;
-
     let query = UrlQuery::from_request(&req)?;
-    let val_pk_str = query
-        .first_of(&["validator_pubkey"])
-        .map(|(_key, value)| value)?;
-    let val_pk = parse_pubkey(val_pk_str.as_str())?;
 
-    head_state
-        .update_pubkey_cache()
-        .map_err(|e| ApiError::ServerError(format!("Unable to build pubkey cache: {:?}", e)))?;
-    // Get the validator index from the supplied public key
-    // If it does not exist in the index, we cannot continue.
-    let val_index = head_state
-        .get_validator_index(&val_pk)
-        .map_err(|e| {
-            ApiError::ServerError(format!("Unable to read validator index cache. {:?}", e))
-        })?
-        .ok_or_else(|| {
-            ApiError::BadRequest(
-                "The provided validator public key does not correspond to a validator index."
-                    .into(),
-            )
-        })?;
+    let slot = query.slot()?;
+    let index = query.committee_index()?;
 
-    // Build cache for the requested epoch
-    head_state
-        .build_committee_cache(RelativeEpoch::Current, &beacon_chain.spec)
-        .map_err(|e| ApiError::ServerError(format!("Unable to build committee cache: {:?}", e)))?;
-    // Get the duties of the validator, to make sure they match up.
-    // If they don't have duties this epoch, then return an error
-    let val_duty = head_state
-        .get_attestation_duties(val_index, RelativeEpoch::Current)
-        .map_err(|e| {
-            ApiError::ServerError(format!(
-                "unable to read cache for attestation duties: {:?}",
-                e
-            ))
-        })?
-        .ok_or_else(|| ApiError::BadRequest("No validator duties could be found for the requested validator. Cannot provide valid attestation.".into()))?;
-
-    // Check that we are requesting an attestation during the slot where it is relevant.
-    let present_slot = beacon_chain.slot().map_err(|e| ApiError::ServerError(
-        format!("Beacon node is unable to determine present slot, either the state isn't generated or the chain hasn't begun. {:?}", e)
-    ))?;
-
-    /*
-    if val_duty.slot != present_slot {
-        return Err(ApiError::BadRequest(format!("Validator is only able to request an attestation during the slot they are allocated. Current slot: {:?}, allocated slot: {:?}", head_state.slot, val_duty.slot)));
-    }
-    */
-
-    // Parse the POC bit and insert it into the aggregation bits
-    let poc_bit = query
-        .first_of(&["poc_bit"])
-        .map(|(_key, value)| value)?
-        .parse::<bool>()
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Invalid slot parameter, must be a u64. {:?}", e))
-        })?;
-
-    let mut aggregation_bits = BitList::with_capacity(val_duty.committee_len).map_err(|e| {
-        ApiError::ServerError(format!("Unable to create aggregation bitlist: {:?}", e))
-    })?;
-
-    aggregation_bits
-        .set(val_duty.committee_position, poc_bit)
-        .map_err(|e| {
-            ApiError::ServerError(format!(
-                "Unable to set aggregation bits for the attestation: {:?}",
-                e
-            ))
-        })?;
-
-    // Allow a provided slot parameter to check against the expected slot as a sanity check only.
-    // Presently, we don't support attestations at future or past slots.
-    let requested_slot = query
-        .first_of(&["slot"])
-        .map(|(_key, value)| value)?
-        .parse::<u64>()
-        .map(Slot::from)
-        .map_err(|e| {
-            ApiError::BadRequest(format!("Invalid slot parameter, must be a u64. {:?}", e))
-        })?;
-    let current_slot = beacon_chain.head().beacon_state.slot.as_u64();
-    if requested_slot != current_slot {
-        return Err(ApiError::BadRequest(format!("Attestation data can only be requested for the current slot ({:?}), not your requested slot ({:?})", current_slot, requested_slot)));
-    }
-
-    let index = query
-        .first_of(&["index"])
-        .map(|(_key, value)| value)?
-        .parse::<u64>()
-        .map_err(|e| ApiError::BadRequest(format!("Index is not a valid u64 value: {:?}", e)))?;
-
-    let attestation_data = beacon_chain
-        .produce_attestation_data(current_slot.into(), index)
-        .map_err(|e| ApiError::ServerError(format!("Could not produce an attestation: {:?}", e)))?;
-
-    let attestation: Attestation<T::EthSpec> = Attestation {
-        aggregation_bits,
-        data: attestation_data,
-        signature: AggregateSignature::new(),
-    };
+    let attestation = beacon_chain
+        .produce_attestation(slot, index)
+        .map_err(|e| ApiError::BadRequest(format!("Unable to produce attestation: {:?}", e)))?;
 
     ResponseBuilder::new(&req)?.body(&attestation)
 }
@@ -330,12 +225,8 @@ pub fn publish_attestation<T: BeaconChainTypes + 'static>(
     try_future!(check_content_type_for_json(&req));
     let response_builder = ResponseBuilder::new(&req);
 
-    let body = req.into_body();
-    trace!(
-        log,
-        "Got the request body, now going to parse it into an attesation."
-    );
-    Box::new(body
+    Box::new(req
+        .into_body()
         .concat2()
         .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}",e)))
         .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())

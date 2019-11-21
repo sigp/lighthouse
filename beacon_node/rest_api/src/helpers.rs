@@ -15,7 +15,8 @@ use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
 use types::{
-    Attestation, BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, RelativeEpoch, Signature, Slot,
+    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
+    Signature, Slot,
 };
 
 /// Parse a slot.
@@ -38,13 +39,13 @@ pub fn parse_epoch(string: &str) -> Result<Epoch, ApiError> {
         .map_err(|e| ApiError::BadRequest(format!("Unable to parse epoch: {:?}", e)))
 }
 
-/// Parse an shard.
+/// Parse a CommitteeIndex.
 ///
 /// E.g., `"18"`
-pub fn parse_shard(string: &str) -> Result<u64, ApiError> {
+pub fn parse_committee_index(string: &str) -> Result<CommitteeIndex, ApiError> {
     string
-        .parse::<u64>()
-        .map_err(|e| ApiError::BadRequest(format!("Unable to parse shard: {:?}", e)))
+        .parse::<CommitteeIndex>()
+        .map_err(|e| ApiError::BadRequest(format!("Unable to parse committee index: {:?}", e)))
 }
 
 /// Checks the provided request to ensure that the `content-type` header.
