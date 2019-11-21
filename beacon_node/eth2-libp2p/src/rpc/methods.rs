@@ -10,7 +10,7 @@ use types::{Epoch, Hash256, Slot};
 pub type RequestId = usize;
 
 /// The STATUS request/response handshake message.
-#[derive(Encode, Decode, Clone, Debug)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct StatusMessage {
     /// The fork version of the chain we are broadcasting.
     pub fork_version: [u8; 4],

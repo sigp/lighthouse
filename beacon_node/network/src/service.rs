@@ -221,6 +221,7 @@ fn network_service(
                             .try_send(HandlerMessage::PubsubMessage(id, source, message))
                             .map_err(|_| "Failed to send pubsub message to handler")?;
                     }
+                    Libp2pEvent::PeerSubscribed(_, _) => {}
                 },
                 Ok(Async::Ready(None)) => unreachable!("Stream never ends"),
                 Ok(Async::NotReady) => break,
