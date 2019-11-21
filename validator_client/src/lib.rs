@@ -1,3 +1,4 @@
+mod attestation_service;
 mod block_service;
 mod cli;
 mod config;

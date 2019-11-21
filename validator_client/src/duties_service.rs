@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
-use types::{ChainSpec, Epoch, EthSpec, PublicKey, Slot};
+use types::{ChainSpec, CommitteeIndex, Epoch, EthSpec, PublicKey, Slot};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
@@ -36,6 +36,8 @@ impl DutiesStore {
             // As long as a `HashMap` iterator does not return duplicate keys, neither will this
             // function.
             .filter(|(_validator_pubkey, validator_map)| {
+                // TODO: it would be more efficient to call the `validator_map` by key (epoch)
+                // instead of searching for slots.
                 validator_map.iter().any(|(_epoch, duties)| {
                     duties
                         .block_proposal_slot
@@ -44,6 +46,27 @@ impl DutiesStore {
                 })
             })
             .map(|(validator_pubkey, _validator_map)| validator_pubkey)
+            .cloned()
+            .collect()
+    }
+
+    fn attesters(&self, slot: Slot) -> Vec<ValidatorDuty> {
+        self.store
+            .read()
+            .iter()
+            .filter_map(|(_validator_pubkey, validator_map)| {
+                validator_map
+                    // TODO: it would be more efficient to call the `validator_map` by key (epoch)
+                    // instead of searching for slots.
+                    .iter()
+                    .find(|(_epoch, duties)| {
+                        duties
+                            .attestation_slot
+                            .map(|s| s == slot)
+                            .unwrap_or_else(|| false)
+                    })
+                    .map(|(_epoch, duties)| duties)
+            })
             .cloned()
             .collect()
     }
@@ -175,6 +198,11 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesService<T, E> {
     /// likely the result of heavy forking (lol) or inconsistent beacon node connections.
     pub fn block_producers(&self, slot: Slot) -> Vec<PublicKey> {
         self.store.block_producers(slot)
+    }
+
+    /// Returns all `ValidatorDuty` for the given `slot`.
+    pub fn attesters(&self, slot: Slot) -> Vec<ValidatorDuty> {
+        self.store.attesters(slot)
     }
 
     pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
