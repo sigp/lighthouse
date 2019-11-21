@@ -188,7 +188,7 @@ fn test_blocks_by_range_chunked_rpc() {
                     }
                     _ => panic!("Received invalid RPC message"),
                 },
-                Async::Ready(Some(_)) => warn!(sender_log, "Got something"),
+                Async::Ready(Some(_)) => {}
                 Async::Ready(None) | Async::NotReady => return Ok(Async::NotReady),
             };
         }
@@ -316,7 +316,7 @@ fn test_blocks_by_range_single_empty_rpc() {
                     }
                     m => panic!("Received invalid RPC message: {}", m),
                 },
-                Async::Ready(Some(_)) => warn!(sender_log, "Got something"),
+                Async::Ready(Some(_)) => {}
                 Async::Ready(None) | Async::NotReady => return Ok(Async::NotReady),
             };
         }
@@ -389,12 +389,12 @@ fn test_blocks_by_root_chunked_rpc() {
     // get sender/receiver
     let (mut sender, mut receiver) = common::build_node_pair(&log, 10515);
 
-    // BlocksByRange Request
+    // BlocksByRoot Request
     let rpc_request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
         block_roots: vec![Hash256::from_low_u64_be(0), Hash256::from_low_u64_be(0)],
     });
 
-    // BlocksByRange Response
+    // BlocksByRoot Response
     let rpc_response = RPCResponse::BlocksByRoot(vec![13, 13, 13]);
 
     let sender_request = rpc_request.clone();
@@ -408,7 +408,7 @@ fn test_blocks_by_root_chunked_rpc() {
         loop {
             match sender.poll().unwrap() {
                 Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))) => {
-                    // Send a BlocksByRange request
+                    // Send a BlocksByRoot request
                     warn!(sender_log, "Sender sending RPC request");
                     sender
                         .swarm
@@ -438,7 +438,7 @@ fn test_blocks_by_root_chunked_rpc() {
                     }
                     m => panic!("Received invalid RPC message: {}", m),
                 },
-                Async::Ready(Some(_)) => warn!(sender_log, "Got something"),
+                Async::Ready(Some(_)) => {}
                 Async::Ready(None) | Async::NotReady => return Ok(Async::NotReady),
             };
         }
@@ -476,6 +476,78 @@ fn test_blocks_by_root_chunked_rpc() {
                                 ),
                             ),
                         );
+                    }
+                    _ => panic!("Received invalid RPC message"),
+                },
+                Async::Ready(Some(_)) => (),
+                Async::Ready(None) | Async::NotReady => return Ok(Async::NotReady),
+            }
+        }
+    });
+
+    // execute the futures and check the result
+    let test_result = Arc::new(Mutex::new(false));
+    let error_result = test_result.clone();
+    let thread_result = test_result.clone();
+    tokio::run(
+        sender_future
+            .select(receiver_future)
+            .timeout(Duration::from_millis(1000))
+            .map_err(move |_| *error_result.lock().unwrap() = false)
+            .map(move |result| {
+                *thread_result.lock().unwrap() = result.0;
+                ()
+            }),
+    );
+    assert!(*test_result.lock().unwrap());
+}
+
+#[test]
+// Tests a Goodbye RPC message
+fn test_goodbye_rpc() {
+    // set up the logging. The level and enabled logging or not
+    let log_level = Level::Trace;
+    let enable_logging = false;
+
+    let log = common::build_log(log_level, enable_logging);
+
+    // get sender/receiver
+    let (mut sender, mut receiver) = common::build_node_pair(&log, 10520);
+
+    // Goodbye Request
+    let rpc_request = RPCRequest::Goodbye(GoodbyeReason::ClientShutdown);
+
+    let sender_request = rpc_request.clone();
+    let sender_log = log.clone();
+
+    // build the sender future
+    let sender_future = future::poll_fn(move || -> Poll<bool, ()> {
+        loop {
+            match sender.poll().unwrap() {
+                Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))) => {
+                    // Send a Goodbye request
+                    warn!(sender_log, "Sender sending RPC request");
+                    sender
+                        .swarm
+                        .send_rpc(peer_id, RPCEvent::Request(1, sender_request.clone()));
+                }
+                Async::Ready(Some(_)) => {}
+                Async::Ready(None) | Async::NotReady => return Ok(Async::NotReady),
+            };
+        }
+    });
+
+    // build the receiver future
+    let receiver_future = future::poll_fn(move || -> Poll<bool, ()> {
+        loop {
+            match receiver.poll().unwrap() {
+                Async::Ready(Some(Libp2pEvent::RPC(_, event))) => match event {
+                    // Should receive the sent RPC request
+                    RPCEvent::Request(id, request) => {
+                        assert_eq!(id, 0);
+                        assert_eq!(rpc_request.clone(), request);
+                        // receives the goodbye. Nothing left to do
+                        return Ok(Async::Ready(true));
                     }
                     _ => panic!("Received invalid RPC message"),
                 },
