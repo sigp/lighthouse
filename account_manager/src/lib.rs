@@ -1,5 +1,4 @@
 mod cli;
-pub mod validator;
 
 use clap::ArgMatches;
 use environment::RuntimeContext;
@@ -7,7 +6,7 @@ use slog::{crit, info};
 use std::fs;
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpec};
-use validator::{ValidatorDirectory, ValidatorDirectoryBuilder};
+use validator_client::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
 
 pub use cli::cli_app;
 

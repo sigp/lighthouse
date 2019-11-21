@@ -13,7 +13,6 @@ clap = "2.33.0"
 slog = "2.5.2"
 slog-term = "2.4.2"
 slog-async = "2.3.0"
-validator_client = { path = "../validator_client" }
 types = { path = "../eth2/types" }
 dirs = "2.0.2"
 environment = { path = "../lighthouse/environment" }
@@ -22,3 +21,4 @@ libc = "0.2.65"
 eth2_ssz = { path = "../eth2/utils/ssz" }
 eth2_ssz_derive = { path = "../eth2/utils/ssz_derive" }
 hex = "0.4"
+validator_client = { path = "../validator_client" }

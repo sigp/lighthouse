@@ -14,7 +14,6 @@ use crate::config::Config as ValidatorConfig;
 use crate::duties::{BeaconNodeDuties, DutiesManager, EpochDutiesMap};
 use crate::error as error_chain;
 use crate::signer::Signer;
-use bls::Keypair;
 use eth2_config::Eth2Config;
 use grpcio::{ChannelBuilder, EnvBuilder};
 use parking_lot::RwLock;
@@ -28,7 +27,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ChainSpec, Epoch, EthSpec, Fork, Slot};
+use types::{ChainSpec, Epoch, EthSpec, Fork, Keypair, Slot};
 
 /// The validator service. This is the main thread that executes and maintains validator
 /// duties.
@@ -162,11 +161,13 @@ impl<E: EthSpec> Service<ValidatorServiceClient, Keypair, E> {
         // Load generated keypairs
         let keypairs = Arc::new(client_config.fetch_keys(&log)?);
 
-        let slots_per_epoch = E::slots_per_epoch();
+        info!(
+            log,
+            "Keypairs loaded";
+            "local_validator_count" => keypairs.len()
+        );
 
-        // TODO: keypairs are randomly generated; they should be loaded from a file or generated.
-        // https://github.com/sigp/lighthouse/issues/160
-        //let keypairs = Arc::new(generate_deterministic_keypairs(8));
+        let slots_per_epoch = E::slots_per_epoch();
 
         // Builds a mapping of Epoch -> Map(PublicKey, EpochDuty)
         // where EpochDuty contains slot numbers and attestation data that each validator needs to

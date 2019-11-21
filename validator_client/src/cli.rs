@@ -1,5 +1,21 @@
-use crate::config::{DEFAULT_SERVER, DEFAULT_SERVER_GRPC_PORT, DEFAULT_SERVER_HTTP_PORT};
+use crate::config::Config;
 use clap::{App, Arg, SubCommand};
+use lazy_static::lazy_static;
+
+lazy_static! {
+    /// The default configuration. Is in lazy_static because clap requires references, therefore we
+    /// can't initialize the defaults in the `cli_app` function
+    static ref DEFAULTS: Config = {
+        Config::default()
+    };
+
+    static ref DEFAULT_SERVER_GRPC_PORT: String = {
+        format!("{}", DEFAULTS.server_grpc_port)
+    };
+    static ref DEFAULT_SERVER_HTTP_PORT: String = {
+        format!("{}", DEFAULTS.server_http_port)
+    };
+}
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("Validator Client")
@@ -35,7 +51,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("server")
                 .value_name("NETWORK_ADDRESS")
                 .help("Address to connect to BeaconNode.")
-                .default_value(DEFAULT_SERVER)
+                .default_value(&DEFAULTS.server)
                 .takes_value(true),
         )
         .arg(
@@ -44,7 +60,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .short("g")
                 .value_name("PORT")
                 .help("Port to use for gRPC API connection to the server.")
-                .default_value(DEFAULT_SERVER_GRPC_PORT)
+                .default_value(&DEFAULT_SERVER_GRPC_PORT)
                 .takes_value(true),
         )
         .arg(
@@ -53,7 +69,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .short("h")
                 .value_name("PORT")
                 .help("Port to use for HTTP API connection to the server.")
-                .default_value(DEFAULT_SERVER_HTTP_PORT)
+                .default_value(&DEFAULT_SERVER_HTTP_PORT)
                 .takes_value(true),
         )
         /*
