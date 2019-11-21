@@ -74,6 +74,7 @@ pub enum BlockProcessingOutcome {
 #[derive(Debug, PartialEq)]
 pub enum AttestationProcessingOutcome {
     Processed,
+    EmptyAggregationBitfield,
     UnknownHeadBlock {
         beacon_block_root: Hash256,
     },
@@ -691,6 +692,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AttestationProcessingOutcome, Error> {
         metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
         let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
+
+        if attestation.aggregation_bits.num_set_bits() == 0 {
+            return Ok(AttestationProcessingOutcome::EmptyAggregationBitfield);
+        }
 
         // From the store, load the attestation's "head block".
         //
