@@ -7,6 +7,7 @@ members = [
     "eth2/utils/bls",
     "eth2/utils/compare_fields",
     "eth2/utils/compare_fields_derive",
+    "eth2/utils/deposit_contract",
     "eth2/utils/eth2_config",
     "eth2/utils/eth2_interop_keypairs",
     "eth2/utils/logging",
