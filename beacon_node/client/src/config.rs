@@ -53,7 +53,6 @@ pub struct Config {
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
     pub genesis: ClientGenesis,
     pub network: network::NetworkConfig,
-    pub rpc: rpc::Config,
     pub rest_api: rest_api::Config,
     pub websocket_server: websocket_server::Config,
     pub eth1: eth1::Config,
@@ -68,7 +67,6 @@ impl Default for Config {
             db_name: "chain_db".to_string(),
             genesis: <_>::default(),
             network: NetworkConfig::new(),
-            rpc: <_>::default(),
             rest_api: <_>::default(),
             websocket_server: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
@@ -145,7 +143,6 @@ impl Config {
         };
 
         self.network.apply_cli_args(args)?;
-        self.rpc.apply_cli_args(args)?;
         self.rest_api.apply_cli_args(args)?;
         self.websocket_server.apply_cli_args(args)?;
 
