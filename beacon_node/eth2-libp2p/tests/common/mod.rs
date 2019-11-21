@@ -81,7 +81,7 @@ pub fn build_full_mesh(log: slog::Logger, n: usize, start_port: Option<u16>) -> 
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
 pub fn build_node_pair(log: &slog::Logger, start_port: u16) -> (LibP2PService, LibP2PService) {
-    let sender_log = log.new(o!("who" => "Sender"));
+    let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
     let mut sender = build_libp2p_instance(start_port, vec![], None, sender_log);

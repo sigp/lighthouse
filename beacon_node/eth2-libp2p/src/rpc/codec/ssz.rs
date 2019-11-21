@@ -31,7 +31,7 @@ impl SSZInboundCodec {
     }
 }
 
-// Encoder for inbound
+// Encoder for inbound streams: Encodes RPC Responses sent to peers.
 impl Encoder for SSZInboundCodec {
     type Item = RPCErrorResponse;
     type Error = RPCError;
@@ -49,10 +49,9 @@ impl Encoder for SSZInboundCodec {
             RPCErrorResponse::ServerError(err) => err.as_ssz_bytes(),
             RPCErrorResponse::Unknown(err) => err.as_ssz_bytes(),
             RPCErrorResponse::StreamTermination(_) => {
-                unreachable!("Code error if attempting to encode a stream termination")
+                unreachable!("Code error - attempting to encode a stream termination")
             }
         };
-
         if !bytes.is_empty() {
             // length-prefix and return
             return self
@@ -68,7 +67,7 @@ impl Encoder for SSZInboundCodec {
     }
 }
 
-// Decoder for inbound
+// Decoder for inbound streams: Decodes RPC requests from peers
 impl Decoder for SSZInboundCodec {
     type Item = RPCRequest;
     type Error = RPCError;
@@ -108,7 +107,7 @@ impl Decoder for SSZInboundCodec {
     }
 }
 
-/* Outbound Codec */
+/* Outbound Codec: Codec for initiating RPC requests */
 
 pub struct SSZOutboundCodec {
     inner: UviBytes,
@@ -130,7 +129,7 @@ impl SSZOutboundCodec {
     }
 }
 
-// Encoder for outbound
+// Encoder for outbound streams: Encodes RPC Requests to peers
 impl Encoder for SSZOutboundCodec {
     type Item = RPCRequest;
     type Error = RPCError;
@@ -149,7 +148,7 @@ impl Encoder for SSZOutboundCodec {
     }
 }
 
-// Decoder for outbound streams
+// Decoder for outbound streams: Decodes RPC responses from peers.
 //
 // The majority of the decoding has now been pushed upstream due to the changing specification.
 // We prefer to decode blocks and attestations with extra knowledge about the chain to perform

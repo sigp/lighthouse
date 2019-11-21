@@ -202,7 +202,8 @@ impl RPCErrorResponse {
             RPCErrorResponse::InvalidRequest(_) => true,
             RPCErrorResponse::ServerError(_) => true,
             RPCErrorResponse::Unknown(_) => true,
-            RPCErrorResponse::StreamTermination(_) => unreachable!(),
+            // Stream terminations are part of responses that have chunks
+            RPCErrorResponse::StreamTermination(_) => true,
         }
     }
 

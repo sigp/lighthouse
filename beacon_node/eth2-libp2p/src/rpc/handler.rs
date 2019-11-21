@@ -279,8 +279,7 @@ where
                     Some((substream_state, _)) => {
                         match std::mem::replace(substream_state, InboundSubstreamState::Poisoned) {
                             InboundSubstreamState::ResponseIdle(substream) => {
-                                trace!(self.log, "Stream is waiting, adding message");
-
+                                trace!(self.log, "Stream is idle, sending message"; "message" => format!("{}", response));
                                 // close the stream if there is no response
                                 if let RPCErrorResponse::StreamTermination(_) = response {
                                     trace!(self.log, "Stream termination sent. Ending the stream");
@@ -294,7 +293,7 @@ where
                                     };
                                 }
                             }
-                            InboundSubstreamState::ResponsePendingSend { .. }
+                            InboundSubstreamState::ResponsePendingSend { substream, closing }
                                 if res_is_multiple =>
                             {
                                 // the stream is in use, add the request to a pending queue
@@ -304,6 +303,12 @@ where
                                     .entry(rpc_id)
                                     .or_insert_with(Vec::new))
                                 .push(response);
+
+                                // return the state
+                                *substream_state = InboundSubstreamState::ResponsePendingSend {
+                                    substream,
+                                    closing,
+                                };
                             }
                             InboundSubstreamState::Closing(substream) => {
                                 *substream_state = InboundSubstreamState::Closing(substream);
@@ -395,18 +400,16 @@ where
         for request_id in self.inbound_substreams.keys().copied().collect::<Vec<_>>() {
             match self.inbound_substreams.entry(request_id) {
                 Entry::Occupied(mut entry) => {
-                    trace!(self.log, "checking substream"; "req_id" => request_id);
                     match std::mem::replace(&mut entry.get_mut().0, InboundSubstreamState::Poisoned)
                     {
                         InboundSubstreamState::ResponsePendingSend {
                             mut substream,
                             closing,
                         } => {
-                            trace!(self.log, "Stream still waiting to send");
                             match substream.poll() {
                                 Ok(Async::Ready(raw_substream)) => {
                                     // completed the send
-                                    trace!(self.log, "RPC sent message");
+                                    trace!(self.log, "RPC message sent");
 
                                     // close the stream if required
                                     if closing {
@@ -414,8 +417,9 @@ where
                                             InboundSubstreamState::Closing(raw_substream)
                                     } else {
                                         // check for queued chunks and update the stream
-                                        trace!(self.log, "Adding queued item to outbound stream");
+                                        trace!(self.log, "Checking for queued items");
                                         entry.get_mut().0 = apply_queued_responses(
+                                            &self.log,
                                             raw_substream,
                                             &mut self.queued_outbound_items.get_mut(&request_id),
                                         );
@@ -438,8 +442,9 @@ where
                             };
                         }
                         InboundSubstreamState::ResponseIdle(substream) => {
-                            trace!(self.log, "Idle stream processing message");
+                            trace!(self.log, "Idle stream searching queue");
                             entry.get_mut().0 = apply_queued_responses(
+                                &self.log,
                                 substream,
                                 &mut self.queued_outbound_items.get_mut(&request_id),
                             );
@@ -478,6 +483,7 @@ where
                             request,
                         } => match substream.poll() {
                             Ok(Async::Ready(Some(response))) => {
+                                trace!(self.log, "Message received"; "message" => format!("{}", response));
                                 if request.multiple_responses() {
                                     entry.get_mut().0 =
                                         OutboundSubstreamState::RequestPendingResponse {
@@ -491,10 +497,10 @@ where
                                     trace!(self.log, "Closing single stream request");
                                     // only expect a single response, close the stream
                                     entry.get_mut().0 = OutboundSubstreamState::Closing(substream);
-                                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                                        RPCEvent::Response(request_id, response),
-                                    )));
                                 }
+                                return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                                    RPCEvent::Response(request_id, response),
+                                )));
                             }
                             Ok(Async::Ready(None)) => {
                                 // stream closed
@@ -586,6 +592,7 @@ where
 
 // Check for new items to send to the peer and update the underlying stream
 fn apply_queued_responses<TSubstream: AsyncRead + AsyncWrite>(
+    log: &slog::Logger,
     raw_substream: InboundFramed<TSubstream>,
     queued_outbound_items: &mut Option<&mut Vec<RPCErrorResponse>>,
 ) -> InboundSubstreamState<TSubstream> {
@@ -597,10 +604,13 @@ fn apply_queued_responses<TSubstream: AsyncRead + AsyncWrite>(
                     // close the stream if this is a stream termination
                     InboundSubstreamState::Closing(raw_substream)
                 }
-                chunk => InboundSubstreamState::ResponsePendingSend {
-                    substream: raw_substream.send(chunk),
-                    closing: false,
-                },
+                chunk => {
+                    trace!(log, "Adding message to send"; "message" => format!("{}", chunk));
+                    InboundSubstreamState::ResponsePendingSend {
+                        substream: raw_substream.send(chunk),
+                        closing: false,
+                    }
+                }
             }
         }
         _ => {
