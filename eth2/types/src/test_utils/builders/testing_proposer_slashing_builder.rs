@@ -22,6 +22,7 @@ impl TestingProposerSlashingBuilder {
         test_task: ProposerSlashingTestTask,
         mut proposer_index: u64,
         signer: F,
+        state: &BeaconState<T>,
     ) -> ProposerSlashing
     where
         T: EthSpec,
@@ -30,7 +31,7 @@ impl TestingProposerSlashingBuilder {
         let slot = Slot::new(0);
         let hash_1 = Hash256::from([1; 32]);
         let hash_2 = if test_task == ProposerSlashingTestTask::ProposalsIdentical {
-            hash_1.clone()
+            hash_1
         } else {
             Hash256::from([2; 32])
         };
@@ -44,7 +45,7 @@ impl TestingProposerSlashingBuilder {
         };
 
         let slot_2 = if test_task == ProposerSlashingTestTask::ProposalEpochMismatch {
-            Slot::new(128)
+            Slot::new(1)
         } else {
             Slot::new(0)
         };
@@ -72,7 +73,7 @@ impl TestingProposerSlashingBuilder {
         }
 
         if test_task == ProposerSlashingTestTask::ProposerUnknown {
-            proposer_index = 3_141_592;
+            proposer_index = state.validators.len() as u64;
         }
 
         ProposerSlashing {

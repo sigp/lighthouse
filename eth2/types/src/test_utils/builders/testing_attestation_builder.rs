@@ -71,14 +71,11 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
                 .position(|v| *v == *validator_index)
                 .expect("Signing validator not in attestation committee");
 
-            match test_task {
-                AttestationTestTask::BadIndexedAttestationBadSignature => (),
-                _ => {
-                    self.attestation
-                        .aggregation_bits
-                        .set(committee_index, true)
-                        .unwrap();
-                }
+            if test_task != AttestationTestTask::BadIndexedAttestationBadSignature {
+                self.attestation
+                    .aggregation_bits
+                    .set(committee_index, true)
+                    .unwrap();
             }
 
             let message = self.attestation.data.tree_hash_root();

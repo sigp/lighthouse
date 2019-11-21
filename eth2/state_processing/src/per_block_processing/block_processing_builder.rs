@@ -268,6 +268,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
                 &secret_keys,
                 &state.fork,
                 spec,
+                &state,
             );
         }
         let block = self.block_builder.build(&keypair.sk, &state.fork, spec);

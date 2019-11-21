@@ -48,33 +48,33 @@ impl TestingAttestationDataBuilder {
         let beacon_block_root = *state.get_block_root(slot).unwrap();
 
         match test_task {
-            AttestationTestTask::NoCommittee => index += 2,
+            AttestationTestTask::NoCommittee => index = state.validators.len() as u64,
             AttestationTestTask::IncludedTooEarly => {
                 slot = state.slot - spec.min_attestation_inclusion_delay + 1
             }
             AttestationTestTask::IncludedTooLate => slot -= T::SlotsPerEpoch::to_u64(),
             AttestationTestTask::BadTargetEpoch => {
                 target = Checkpoint {
-                    epoch: Epoch::from(5 as u64),
-                    root: Hash256::zero(),
+                    epoch: target.epoch + 1,
+                    ..target
                 }
             }
             AttestationTestTask::WrongJustifiedCheckpoint => {
                 source = Checkpoint {
-                    epoch: Epoch::from(0 as u64),
-                    root: Hash256::zero(),
+                    epoch: T::genesis_epoch(),
+                    ..source
                 }
             }
             AttestationTestTask::BadTargetTooLow => {
                 target = Checkpoint {
-                    epoch: Epoch::from(0 as u64),
-                    root: Hash256::zero(),
+                    epoch: T::genesis_epoch(),
+                    ..target
                 }
             }
             AttestationTestTask::BadTargetTooHigh => {
                 target = Checkpoint {
-                    epoch: Epoch::from(10 as u64),
-                    root: Hash256::zero(),
+                    epoch: target.epoch + 2,
+                    ..target
                 }
             }
             _ => (),

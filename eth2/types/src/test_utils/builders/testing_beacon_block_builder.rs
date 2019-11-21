@@ -129,9 +129,10 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         secret_key: &SecretKey,
         fork: &Fork,
         spec: &ChainSpec,
+        state: &BeaconState<T>,
     ) {
         let proposer_slashing =
-            build_proposer_slashing::<T>(test_task, validator_index, secret_key, fork, spec);
+            build_proposer_slashing::<T>(test_task, validator_index, secret_key, fork, spec, state);
         self.block
             .body
             .proposer_slashings
@@ -350,9 +351,9 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
 
         match test_task {
             ExitTestTask::BadSignature => *sk = SecretKey::random(),
-            ExitTestTask::ValidatorUnknown => validator_index = 4242,
+            ExitTestTask::ValidatorUnknown => validator_index = state.validators.len() as u64,
             ExitTestTask::AlreadyExited => {
-                state.validators[validator_index as usize].exit_epoch = Epoch::from(314_159 as u64)
+                state.validators[validator_index as usize].exit_epoch = spec.far_future_epoch - 1
             }
             ExitTestTask::FutureEpoch => exit_epoch = spec.far_future_epoch,
             _ => (),
@@ -390,13 +391,14 @@ fn build_proposer_slashing<T: EthSpec>(
     secret_key: &SecretKey,
     fork: &Fork,
     spec: &ChainSpec,
+    state: &BeaconState<T>,
 ) -> ProposerSlashing {
     let signer = |_validator_index: u64, message: &[u8], epoch: Epoch, domain: Domain| {
         let domain = spec.get_domain(epoch, domain, fork);
         Signature::new(message, domain, secret_key)
     };
 
-    TestingProposerSlashingBuilder::double_vote::<T, _>(test_task, validator_index, signer)
+    TestingProposerSlashingBuilder::double_vote::<T, _>(test_task, validator_index, signer, state)
 }
 
 /// Builds an `AttesterSlashing` for some `validator_indices`.

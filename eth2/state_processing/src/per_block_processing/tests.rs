@@ -359,7 +359,7 @@ fn invalid_exit_validator_unknown() {
         result,
         Err(BlockProcessingError::ExitInvalid {
             index: 0,
-            reason: ExitInvalid::ValidatorUnknown(4242),
+            reason: ExitInvalid::ValidatorUnknown(state.validators.len() as u64),
         })
     );
 }
@@ -472,7 +472,7 @@ fn invalid_exit_future_epoch() {
         Err(BlockProcessingError::ExitInvalid {
             index: 0,
             reason: ExitInvalid::FutureEpoch {
-                state: Epoch::from(2048 as u64),
+                state: state.current_epoch(),
                 exit: spec.far_future_epoch
             }
         })
@@ -505,7 +505,7 @@ fn invalid_exit_too_young() {
             index: 0,
             reason: ExitInvalid::TooYoungToExit {
                 current_epoch: Epoch::from(SLOT_OFFSET),
-                earliest_exit_epoch: Epoch::from(2048 as u64)
+                earliest_exit_epoch: state.current_epoch()
             },
         })
     );
@@ -609,12 +609,9 @@ fn invalid_attestation_wrong_justified_checkpoint() {
         Err(BlockProcessingError::AttestationInvalid {
             index: 0,
             reason: AttestationInvalid::WrongJustifiedCheckpoint {
-                state: Checkpoint {
-                    epoch: Epoch::from(2 as u64),
-                    root: Hash256::zero(),
-                },
+                state: state.current_justified_checkpoint,
                 attestation: Checkpoint {
-                    epoch: Epoch::from(0 as u64),
+                    epoch: MainnetEthSpec::genesis_epoch(),
                     root: Hash256::zero(),
                 },
                 is_current: true,
@@ -834,19 +831,12 @@ fn invalid_attestation_bad_target_epoch() {
     );
 
     // Expecting BadTargetEpoch because the target epoch is bigger by one than the epoch expected
-    assert!(
-        result
-            == Err(BlockProcessingError::BeaconStateError(
-                BeaconStateError::NoCommittee {
-                    slot: Slot::new(0),
-                    index: 0
-                }
-            ))
-            || result
-                == Err(BlockProcessingError::AttestationInvalid {
-                    index: 0,
-                    reason: AttestationInvalid::BadTargetEpoch
-                })
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::BadTargetEpoch
+        })
     );
 }
 
@@ -986,7 +976,7 @@ fn invalid_proposer_slashing_proposals_identical() {
     assert_eq!(
         result,
         Err(BlockProcessingError::ProposerSlashingInvalid {
-            index: 0,
+            index: block.body.proposer_slashings[0].proposer_index as usize,
             reason: ProposerSlashingInvalid::ProposalsIdentical
         })
     );
@@ -1011,8 +1001,8 @@ fn invalid_proposer_slashing_proposer_unknown() {
     assert_eq!(
         result,
         Err(BlockProcessingError::ProposerSlashingInvalid {
-            index: 0,
-            reason: ProposerSlashingInvalid::ProposerUnknown(3_141_592)
+            index: block.body.proposer_slashings[0].proposer_index as usize,
+            reason: ProposerSlashingInvalid::ProposerUnknown(state.validators.len() as u64)
         })
     );
 }
@@ -1037,7 +1027,7 @@ fn invalid_proposer_slashing_not_slashable() {
     assert_eq!(
         result,
         Err(BlockProcessingError::ProposerSlashingInvalid {
-            index: 0,
+            index: block.body.proposer_slashings[0].proposer_index as usize,
             reason: ProposerSlashingInvalid::ProposerNotSlashable(0)
         })
     );
@@ -1062,7 +1052,7 @@ fn invalid_bad_proposal_1_signature() {
     assert_eq!(
         result,
         Err(BlockProcessingError::ProposerSlashingInvalid {
-            index: 0,
+            index: block.body.proposer_slashings[0].proposer_index as usize,
             reason: ProposerSlashingInvalid::BadProposal1Signature
         })
     );
@@ -1087,7 +1077,7 @@ fn invalid_bad_proposal_2_signature() {
     assert_eq!(
         result,
         Err(BlockProcessingError::ProposerSlashingInvalid {
-            index: 0,
+            index: block.body.proposer_slashings[0].proposer_index as usize,
             reason: ProposerSlashingInvalid::BadProposal2Signature
         })
     );
@@ -1112,10 +1102,10 @@ fn invalid_proposer_slashing_proposal_epoch_mismatch() {
     assert_eq!(
         result,
         Err(BlockProcessingError::ProposerSlashingInvalid {
-            index: 0,
+            index: block.body.proposer_slashings[0].proposer_index as usize,
             reason: ProposerSlashingInvalid::ProposalSlotMismatch(
-                Slot::from(0 as u64),
-                Slot::from(128 as u64)
+                block.body.proposer_slashings[0].header_1.slot,
+                block.body.proposer_slashings[0].header_2.slot,
             )
         })
     );

@@ -80,6 +80,7 @@ impl<T: EthSpec> BlockBuilder<T> {
                 &keypairs[validator_index as usize].sk,
                 &state.fork,
                 spec,
+                &state,
             );
         }
         info!(
