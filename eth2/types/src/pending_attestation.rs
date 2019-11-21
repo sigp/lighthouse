@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// An attestation that has been included in the state but not yet fully processed.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct PendingAttestation<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,

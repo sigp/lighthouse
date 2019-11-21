@@ -1,12 +1,14 @@
 use clap::ArgMatches;
-use client::{BeaconChainStartMethod, ClientConfig, Eth1BackendMethod, Eth2Config};
+use client::{ClientConfig, ClientGenesis, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
+use genesis::recent_genesis_time;
 use lighthouse_bootstrap::Bootstrapper;
 use rand::{distributions::Alphanumeric, Rng};
 use slog::{crit, info, warn, Logger};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
+use types::{Address, Epoch, Fork};
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
@@ -27,12 +29,33 @@ pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
 
     let mut builder = ConfigBuilder::new(cli_args, core_log)?;
 
-    if let Some(server) = cli_args.value_of("eth1-server") {
-        builder.set_eth1_backend_method(Eth1BackendMethod::Web3 {
-            server: server.into(),
-        })
-    } else {
-        builder.set_eth1_backend_method(Eth1BackendMethod::Interop)
+    if cli_args.is_present("dummy-eth1") {
+        builder.client_config.dummy_eth1_backend = true;
+    }
+
+    if let Some(val) = cli_args.value_of("eth1-endpoint") {
+        builder.set_eth1_endpoint(val)
+    }
+
+    if let Some(val) = cli_args.value_of("deposit-contract") {
+        builder.set_deposit_contract(
+            val.parse::<Address>()
+                .map_err(|e| format!("Unable to parse deposit-contract address: {:?}", e))?,
+        )
+    }
+
+    if let Some(val) = cli_args.value_of("deposit-contract-deploy") {
+        builder.set_deposit_contract_deploy_block(
+            val.parse::<u64>()
+                .map_err(|e| format!("Unable to parse deposit-contract-deploy: {:?}", e))?,
+        )
+    }
+
+    if let Some(val) = cli_args.value_of("eth1-follow") {
+        builder.set_eth1_follow(
+            val.parse::<u64>()
+                .map_err(|e| format!("Unable to parse follow distance: {:?}", e))?,
+        )
     }
 
     match cli_args.subcommand() {
@@ -49,7 +72,7 @@ pub fn get_configs(cli_args: &ArgMatches, core_log: Logger) -> Result<Config> {
 
             // If no primary subcommand was given, start the beacon chain from an existing
             // database.
-            builder.set_beacon_chain_start_method(BeaconChainStartMethod::Resume);
+            builder.set_genesis(ClientGenesis::Resume);
 
             // Whilst there is no large testnet or mainnet force the user to specify how they want
             // to start a new chain (e.g., from a genesis YAML file, another node, etc).
@@ -142,7 +165,7 @@ fn process_testnet_subcommand(
             builder.import_bootstrap_enr_address(server)?;
             builder.import_bootstrap_eth2_config(server)?;
 
-            builder.set_beacon_chain_start_method(BeaconChainStartMethod::HttpBootstrap {
+            builder.set_genesis(ClientGenesis::RemoteNode {
                 server: server.to_string(),
                 port,
             })
@@ -160,9 +183,11 @@ fn process_testnet_subcommand(
                 .parse::<u64>()
                 .map_err(|e| format!("Unable to parse minutes: {:?}", e))?;
 
-            builder.set_beacon_chain_start_method(BeaconChainStartMethod::RecentGenesis {
+            builder.client_config.dummy_eth1_backend = true;
+
+            builder.set_genesis(ClientGenesis::Interop {
                 validator_count,
-                minutes,
+                genesis_time: recent_genesis_time(minutes),
             })
         }
         ("quick", Some(cli_args)) => {
@@ -178,13 +203,15 @@ fn process_testnet_subcommand(
                 .parse::<u64>()
                 .map_err(|e| format!("Unable to parse genesis time: {:?}", e))?;
 
-            builder.set_beacon_chain_start_method(BeaconChainStartMethod::Generated {
+            builder.client_config.dummy_eth1_backend = true;
+
+            builder.set_genesis(ClientGenesis::Interop {
                 validator_count,
                 genesis_time,
             })
         }
         ("file", Some(cli_args)) => {
-            let file = cli_args
+            let path = cli_args
                 .value_of("file")
                 .ok_or_else(|| "No filename specified")?
                 .parse::<PathBuf>()
@@ -195,13 +222,34 @@ fn process_testnet_subcommand(
                 .ok_or_else(|| "No file format specified")?;
 
             let start_method = match format {
-                "yaml" => BeaconChainStartMethod::Yaml { file },
-                "ssz" => BeaconChainStartMethod::Ssz { file },
-                "json" => BeaconChainStartMethod::Json { file },
+                "ssz" => ClientGenesis::SszFile { path },
                 other => return Err(format!("Unknown genesis file format: {}", other)),
             };
 
-            builder.set_beacon_chain_start_method(start_method)
+            builder.set_genesis(start_method)
+        }
+        ("prysm", Some(_)) => {
+            let mut spec = &mut builder.eth2_config.spec;
+            let mut client_config = &mut builder.client_config;
+
+            spec.min_deposit_amount = 100;
+            spec.max_effective_balance = 3_200_000_000;
+            spec.ejection_balance = 1_600_000_000;
+            spec.effective_balance_increment = 100_000_000;
+            spec.min_genesis_time = 0;
+            spec.genesis_fork = Fork {
+                previous_version: [0; 4],
+                current_version: [0, 0, 0, 2],
+                epoch: Epoch::new(0),
+            };
+
+            client_config.eth1.deposit_contract_address =
+                "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();
+            client_config.eth1.deposit_contract_deploy_block = 1487270;
+            client_config.eth1.follow_distance = 16;
+            client_config.dummy_eth1_backend = false;
+
+            builder.set_genesis(ClientGenesis::DepositContract)
         }
         (cmd, Some(_)) => {
             return Err(format!(
@@ -220,8 +268,8 @@ fn process_testnet_subcommand(
 /// Allows for building a set of configurations based upon `clap` arguments.
 struct ConfigBuilder {
     log: Logger,
-    eth2_config: Eth2Config,
-    client_config: ClientConfig,
+    pub eth2_config: Eth2Config,
+    pub client_config: ClientConfig,
 }
 
 impl ConfigBuilder {
@@ -294,14 +342,24 @@ impl ConfigBuilder {
         Ok(())
     }
 
-    /// Sets the method for starting the beacon chain.
-    pub fn set_beacon_chain_start_method(&mut self, method: BeaconChainStartMethod) {
-        self.client_config.beacon_chain_start_method = method;
+    pub fn set_eth1_endpoint(&mut self, endpoint: &str) {
+        self.client_config.eth1.endpoint = endpoint.to_string();
     }
 
-    /// Sets the method for starting the beacon chain.
-    pub fn set_eth1_backend_method(&mut self, method: Eth1BackendMethod) {
-        self.client_config.eth1_backend_method = method;
+    pub fn set_deposit_contract(&mut self, deposit_contract: Address) {
+        self.client_config.eth1.deposit_contract_address = format!("{:?}", deposit_contract);
+    }
+
+    pub fn set_deposit_contract_deploy_block(&mut self, eth1_block_number: u64) {
+        self.client_config.eth1.deposit_contract_deploy_block = eth1_block_number;
+    }
+
+    pub fn set_eth1_follow(&mut self, distance: u64) {
+        self.client_config.eth1.follow_distance = distance;
+    }
+
+    pub fn set_genesis(&mut self, method: ClientGenesis) {
+        self.client_config.genesis = method;
     }
 
     /// Import the libp2p address for `server` into the list of libp2p nodes to connect with.
@@ -540,7 +598,6 @@ impl ConfigBuilder {
     /// The supplied `cli_args` should be the base-level `clap` cli_args (i.e., not a subcommand
     /// cli_args).
     pub fn build(mut self, cli_args: &ArgMatches) -> Result<Config> {
-        self.eth2_config.apply_cli_args(cli_args)?;
         self.client_config.apply_cli_args(cli_args, &mut self.log)?;
 
         if let Some(bump) = cli_args.value_of("port-bump") {

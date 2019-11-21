@@ -9,15 +9,26 @@ const TOTAL_SIZE: usize = SEED_SIZE + ROUND_SIZE + POSITION_WINDOW_SIZE;
 
 /// Shuffles an entire list in-place.
 ///
-/// Note: this is equivalent to the `get_permutated_index` function, except it shuffles an entire
+/// Note: this is equivalent to the `compute_shuffled_index` function, except it shuffles an entire
 /// list not just a single index. With large lists this function has been observed to be 250x
-/// faster than running `get_permutated_index` across an entire list.
+/// faster than running `compute_shuffled_index` across an entire list.
 ///
 /// Credits to [@protolambda](https://github.com/protolambda) for defining this algorithm.
 ///
 /// Shuffles if `forwards == true`, otherwise un-shuffles.
 /// It holds that: shuffle_list(shuffle_list(l, r, s, true), r, s, false) == l
 ///           and: shuffle_list(shuffle_list(l, r, s, false), r, s, true) == l
+///
+/// The Eth2.0 spec mostly uses shuffling with `forwards == false`, because backwards
+/// shuffled lists are slightly easier to specify, and slightly easier to compute.
+///
+/// The forwards shuffling of a list is equivalent to:
+///
+/// `[indices[x] for i in 0..n, where compute_shuffled_index(x) = i]`
+///
+/// Whereas the backwards shuffling of a list is:
+///
+/// `[indices[compute_shuffled_index(i)] for i in 0..n]`
 ///
 /// Returns `None` under any of the following conditions:
 ///  - `list_size == 0`

@@ -10,7 +10,7 @@ use tree_hash_derive::TreeHash;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct BeaconBlockBody<T: EthSpec> {
@@ -26,7 +26,6 @@ pub struct BeaconBlockBody<T: EthSpec> {
     pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<VoluntaryExit, T::MaxVoluntaryExits>,
-    pub transfers: VariableList<Transfer, T::MaxTransfers>,
 }
 
 #[cfg(test)]

@@ -103,6 +103,24 @@ impl<TSubstream> Discovery<TSubstream> {
         })
     }
 
+    /// Allows the application layer to update the `ip` and `port` of the local ENR. The second
+    /// parameter defines whether the port is a TPC port. If false, this is interpreted as a UDP
+    /// port.
+    pub fn update_local_enr(&mut self, socket: std::net::SocketAddr, is_tcp: bool) {
+        // discv5 checks to see if an update is necessary before performing it, so we do not
+        // need to check here
+        if self.discovery.update_local_enr_socket(socket, is_tcp) {
+            let enr = self.discovery.local_enr();
+            info!(
+            self.log,
+            "ENR Updated";
+            "enr" => enr.to_base64(), 
+            "seq" => enr.seq(),
+            "address" => format!("{:?}", socket));
+        }
+    }
+
+    /// Return the nodes local ENR.
     pub fn local_enr(&self) -> &Enr {
         self.discovery.local_enr()
     }
@@ -286,7 +304,7 @@ fn load_enr(
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers.
-    let mut local_enr = EnrBuilder::new()
+    let mut local_enr = EnrBuilder::new("v4")
         .ip(config.discovery_address)
         .tcp(config.libp2p_port)
         .udp(config.discovery_port)
@@ -302,7 +320,7 @@ fn load_enr(
                 match Enr::from_str(&enr_string) {
                     Ok(enr) => {
                         if enr.node_id() == local_enr.node_id() {
-                            if enr.ip() == config.discovery_address.into()
+                            if enr.ip().map(Into::into) == Some(config.discovery_address)
                                 && enr.tcp() == Some(config.libp2p_port)
                                 && enr.udp() == Some(config.discovery_port)
                             {

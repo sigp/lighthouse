@@ -172,8 +172,6 @@ lazy_static! {
         try_create_int_gauge("beacon_head_state_finalized_root", "Finalized root at the head of the chain");
     pub static ref HEAD_STATE_FINALIZED_EPOCH: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_finalized_epoch", "Finalized epoch at the head of the chain");
-    pub static ref HEAD_STATE_SHARDS: Result<IntGauge> =
-        try_create_int_gauge("beacon_head_state_shard_total", "Count of shards in the beacon chain");
     pub static ref HEAD_STATE_TOTAL_VALIDATORS: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_total_validators_total", "Count of validators at the head of the chain");
     pub static ref HEAD_STATE_ACTIVE_VALIDATORS: Result<IntGauge> =
@@ -226,7 +224,6 @@ fn scrape_head_state<T: BeaconChainTypes>(state: &BeaconState<T::EthSpec>, state
         &HEAD_STATE_FINALIZED_EPOCH,
         state.finalized_checkpoint.epoch,
     );
-    set_gauge_by_usize(&HEAD_STATE_SHARDS, state.previous_crosslinks.len());
     set_gauge_by_usize(&HEAD_STATE_TOTAL_VALIDATORS, state.validators.len());
     set_gauge_by_u64(&HEAD_STATE_VALIDATOR_BALANCES, state.balances.iter().sum());
     set_gauge_by_usize(

@@ -3,7 +3,7 @@ use crate::case_result::compare_result;
 use crate::decode::yaml_decode_file;
 use serde_derive::Deserialize;
 use std::marker::PhantomData;
-use swap_or_not_shuffle::{get_permutated_index, shuffle_list};
+use swap_or_not_shuffle::{compute_shuffled_index, shuffle_list};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Shuffling<T> {
@@ -29,10 +29,10 @@ impl<T: EthSpec> Case for Shuffling<T> {
             let seed = hex::decode(&self.seed[2..])
                 .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-            // Test get_permuted_index
+            // Test compute_shuffled_index
             let shuffling = (0..self.count)
                 .map(|i| {
-                    get_permutated_index(i, self.count, &seed, spec.shuffle_round_count).unwrap()
+                    compute_shuffled_index(i, self.count, &seed, spec.shuffle_round_count).unwrap()
                 })
                 .collect();
             compare_result::<_, Error>(&Ok(shuffling), &Some(self.mapping.clone()))?;

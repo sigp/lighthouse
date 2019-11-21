@@ -16,11 +16,21 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{Attestation, Slot};
 
-#[derive(Clone)]
 pub struct AttestationServiceInstance<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
     pub log: slog::Logger,
+}
+
+// NOTE: Deriving Clone puts bogus bounds on T, so we implement it manually.
+impl<T: BeaconChainTypes> Clone for AttestationServiceInstance<T> {
+    fn clone(&self) -> Self {
+        Self {
+            chain: self.chain.clone(),
+            network_chan: self.network_chan.clone(),
+            log: self.log.clone(),
+        }
+    }
 }
 
 impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
@@ -38,11 +48,12 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
         );
 
         // Then get the AttestationData from the beacon chain
+        // NOTE(v0.9): shard is incorrectly named, all this should be deleted
         let shard = req.get_shard();
         let slot_requested = req.get_slot();
         let attestation_data = match self
             .chain
-            .produce_attestation_data(shard, Slot::from(slot_requested))
+            .produce_attestation_data(Slot::from(slot_requested), shard)
         {
             Ok(v) => v,
             Err(e) => {
@@ -105,7 +116,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                     self.log,
                     "Valid attestation from RPC";
                     "target_epoch" => attestation.data.target.epoch,
-                    "shard" => attestation.data.crosslink.shard,
+                    "index" => attestation.data.index,
                 );
 
                 // valid attestation, propagate to the network

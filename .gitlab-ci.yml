@@ -4,7 +4,7 @@ default:
   image: 'sigp/lighthouse:latest'
   cache:
     paths:
-      - tests/ef_tests/*-v0.8.3.tar.gz
+      - tests/ef_tests/*-v0.9.1.tar.gz
 
 stages:
   - test
@@ -47,7 +47,7 @@ test-ef-fake-crypto:
     GIT_SUBMODULE_STRATEGY: normal
   script:
     - make make-ef-tests
-    - cargo test --manifest-path tests/ef_tests/Cargo.toml --release --features ef_tests fake_crypto
+    - cargo test --manifest-path tests/ef_tests/Cargo.toml --release --features ef_tests,fake_crypto
 
 documentation:
   stage: document

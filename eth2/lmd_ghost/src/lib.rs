@@ -49,7 +49,7 @@ pub trait LmdGhost<S: Store, E: EthSpec>: Send + Sync {
 
     /// Runs an integrity verification function on fork choice algorithm.
     ///
-    /// Returns `Ok(())` if the underlying fork choice has maintained it's integrity,
+    /// Returns `Ok(())` if the underlying fork choice has maintained its integrity,
     /// `Err(description)` otherwise.
     fn verify_integrity(&self) -> Result<()>;
 }

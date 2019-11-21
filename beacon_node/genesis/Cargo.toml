@@ -1,0 +1,28 @@
+[package]
+name = "genesis"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dev-dependencies]
+eth1_test_rig = { path = "../../tests/eth1_test_rig" }
+futures = "0.1.25"
+
+[dependencies]
+futures = "0.1.25"
+types = { path = "../../eth2/types"}
+environment = { path = "../../lighthouse/environment"}
+eth1 = { path = "../eth1"}
+rayon = "1.0"
+state_processing = { path = "../../eth2/state_processing" }
+merkle_proof = { path = "../../eth2/utils/merkle_proof" }
+eth2_ssz = "0.1"
+eth2_hashing = { path = "../../eth2/utils/eth2_hashing" }
+tree_hash = "0.1"
+tokio = "0.1.17"
+parking_lot = "0.7"
+slog = "^2.2.3"
+exit-future = "0.1.4"
+serde = "1.0"
+serde_derive = "1.0"
+int_to_bytes = { path = "../../eth2/utils/int_to_bytes" }

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio;
 use tokio::sync::mpsc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, BitList, Epoch, RelativeEpoch, Shard, Slot};
+use types::{Attestation, BeaconBlock, BitList, CommitteeIndex, Epoch, RelativeEpoch, Slot};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ValidatorDuty {
@@ -25,8 +25,8 @@ pub struct ValidatorDuty {
     pub validator_pubkey: String,
     /// The slot at which the validator must attest.
     pub attestation_slot: Option<Slot>,
-    /// The shard in which the validator must attest.
-    pub attestation_shard: Option<Shard>,
+    /// The index of the committee within `slot` of which the validator is a member.
+    pub attestation_committee_index: Option<CommitteeIndex>,
     /// The slot in which a validator must propose a block, or `null` if block production is not required.
     pub block_proposal_slot: Option<Slot>,
 }
@@ -36,7 +36,7 @@ impl ValidatorDuty {
         ValidatorDuty {
             validator_pubkey: "".to_string(),
             attestation_slot: None,
-            attestation_shard: None,
+            attestation_committee_index: None,
             block_proposal_slot: None,
         }
     }
@@ -90,7 +90,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         .slot_iter(T::EthSpec::slots_per_epoch())
         .map(|slot| {
             head_state
-                .get_beacon_proposer_index(slot, relative_epoch, &beacon_chain.spec)
+                .get_beacon_proposer_index(slot, &beacon_chain.spec)
                 .map_err(|e| {
                     ApiError::ServerError(format!(
                         "Unable to get proposer index for validator: {:?}",
@@ -125,7 +125,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(req: Request<Body>) -
         match head_state.get_attestation_duties(val_index, relative_epoch) {
             Ok(Some(d)) => {
                 duty.attestation_slot = Some(d.slot);
-                duty.attestation_shard = Some(d.shard);
+                duty.attestation_committee_index = Some(d.index);
             }
             Ok(None) => {}
             Err(e) => {
@@ -311,7 +311,7 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
     let mut aggregation_bits = BitList::with_capacity(val_duty.committee_len)
         .expect("An empty BitList should always be created, or we have bigger problems.");
     aggregation_bits
-        .set(val_duty.committee_index, poc_bit)
+        .set(val_duty.committee_position, poc_bit)
         .map_err(|e| {
             ApiError::ServerError(format!(
                 "Unable to set aggregation bits for the attestation: {:?}",
@@ -334,21 +334,19 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(req: Request<Body>) ->
         return Err(ApiError::BadRequest(format!("Attestation data can only be requested for the current slot ({:?}), not your requested slot ({:?})", current_slot, requested_slot)));
     }
 
-    let shard = query
-        .first_of(&["shard"])
+    let index = query
+        .first_of(&["index"])
         .map(|(_key, value)| value)?
         .parse::<u64>()
-        .map_err(|e| ApiError::BadRequest(format!("Shard is not a valid u64 value: {:?}", e)))?;
+        .map_err(|e| ApiError::BadRequest(format!("Index is not a valid u64 value: {:?}", e)))?;
 
     let attestation_data = beacon_chain
-        .produce_attestation_data(shard, current_slot.into())
+        .produce_attestation_data(current_slot.into(), index)
         .map_err(|e| ApiError::ServerError(format!("Could not produce an attestation: {:?}", e)))?;
 
     let attestation: Attestation<T::EthSpec> = Attestation {
         aggregation_bits,
         data: attestation_data,
-        custody_bits: BitList::with_capacity(val_duty.committee_len)
-            .expect("Should be able to create an empty BitList for the custody bits."),
         signature: AggregateSignature::new(),
     };
 
