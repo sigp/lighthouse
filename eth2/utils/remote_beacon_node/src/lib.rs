@@ -3,6 +3,7 @@
 //!
 //! Presently, this is only used for testing but it _could_ become a user-facing library.
 
+use eth2_config::Eth2Config;
 use futures::{future, Future, IntoFuture};
 use reqwest::{
     r#async::{Client, ClientBuilder, Response},
@@ -14,8 +15,8 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::time::Duration;
 use types::{
-    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, PublicKey,
-    Signature, Slot,
+    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork, Hash256,
+    PublicKey, Signature, Slot,
 };
 use url::Url;
 
@@ -23,6 +24,7 @@ pub use rest_api::{HeadResponse, ValidatorDuty};
 
 pub const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 
+#[derive(Clone)]
 /// Connects to a remote Lighthouse (or compatible) node via HTTP.
 pub struct RemoteBeaconNode<E: EthSpec> {
     pub http: HttpClient<E>,
@@ -79,6 +81,10 @@ impl<E: EthSpec> HttpClient<E> {
 
     pub fn validator(&self) -> Validator<E> {
         Validator(self.clone())
+    }
+
+    pub fn spec(&self) -> Spec<E> {
+        Spec(self.clone())
     }
 
     fn url(&self, path: &str) -> Result<Url, Error> {
@@ -284,6 +290,20 @@ impl<E: EthSpec> Beacon<E> {
             .map_err(Into::into)
     }
 
+    pub fn get_genesis_time(&self) -> impl Future<Item = u64, Error = Error> {
+        let client = self.0.clone();
+        self.url("genesis_time")
+            .into_future()
+            .and_then(move |url| client.json_get(url, vec![]))
+    }
+
+    pub fn get_fork(&self) -> impl Future<Item = Fork, Error = Error> {
+        let client = self.0.clone();
+        self.url("fork")
+            .into_future()
+            .and_then(move |url| client.json_get(url, vec![]))
+    }
+
     pub fn get_head(&self) -> impl Future<Item = HeadResponse, Error = Error> {
         let client = self.0.clone();
         self.url("head")
@@ -351,6 +371,26 @@ impl<E: EthSpec> Beacon<E> {
                 client.json_get::<StateResponse<E>>(url, vec![(query_key, query_param)])
             })
             .map(|response| (response.beacon_state, response.root))
+    }
+}
+
+/// Provides the functions on the `/spec` endpoint of the node.
+#[derive(Clone)]
+pub struct Spec<E>(HttpClient<E>);
+
+impl<E: EthSpec> Spec<E> {
+    fn url(&self, path: &str) -> Result<Url, Error> {
+        self.0
+            .url("spec/")
+            .and_then(move |url| url.join(path).map_err(Error::from))
+            .map_err(Into::into)
+    }
+
+    pub fn get_eth2_config(&self) -> impl Future<Item = Eth2Config, Error = Error> {
+        let client = self.0.clone();
+        self.url("eth2_config")
+            .into_future()
+            .and_then(move |url| client.json_get(url, vec![]))
     }
 }
 

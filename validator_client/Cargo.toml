@@ -42,3 +42,4 @@ eth2_ssz_derive = { path = "../eth2/utils/ssz_derive" }
 hex = "0.4"
 deposit_contract = { path = "../eth2/utils/deposit_contract" }
 bls = { path = "../eth2/utils/bls" }
+remote_beacon_node = { path = "../eth2/utils/remote_beacon_node" }

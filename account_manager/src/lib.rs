@@ -37,7 +37,7 @@ fn run_account_manager<T: EthSpec>(
                 }
             };
             default_dir.push(".lighthouse");
-            default_dir.push("validator");
+            default_dir.push("validators");
             default_dir
         });
 

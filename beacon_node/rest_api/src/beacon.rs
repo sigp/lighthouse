@@ -249,3 +249,11 @@ pub fn get_genesis_state<T: BeaconChainTypes + 'static>(
 
     ResponseBuilder::new(&req)?.body(&state)
 }
+
+/// Read the genesis time from the current beacon chain state.
+pub fn get_genesis_time<T: BeaconChainTypes + 'static>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    ResponseBuilder::new(&req)?.body(&beacon_chain.head().beacon_state.genesis_time)
+}

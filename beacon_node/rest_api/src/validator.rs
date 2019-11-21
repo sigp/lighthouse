@@ -17,7 +17,7 @@ use std::sync::Arc;
 use types::beacon_state::EthSpec;
 use types::{Attestation, BeaconBlock, CommitteeIndex, RelativeEpoch, Slot};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorDuty {
     /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
     pub validator_pubkey: PublicKey,
@@ -45,19 +45,23 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
 
     let epoch = query.epoch()?;
 
-    let mut head_state = beacon_chain.head().beacon_state;
+    let mut state = beacon_chain
+        .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+        .map_err(|e| {
+            ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
+        })?;
 
-    let current_epoch = head_state.current_epoch();
+    let current_epoch = state.current_epoch();
     let relative_epoch = RelativeEpoch::from_epoch(current_epoch, epoch).map_err(|_| {
         ApiError::BadRequest(format!(
             "Epoch must be within one epoch of the current epoch",
         ))
     })?;
 
-    head_state
+    state
         .build_committee_cache(relative_epoch, &beacon_chain.spec)
         .map_err(|e| ApiError::ServerError(format!("Unable to build committee cache: {:?}", e)))?;
-    head_state
+    state
         .update_pubkey_cache()
         .map_err(|e| ApiError::ServerError(format!("Unable to build pubkey cache: {:?}", e)))?;
 
@@ -67,7 +71,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
     let validator_proposers: Vec<(usize, Slot)> = epoch
         .slot_iter(T::EthSpec::slots_per_epoch())
         .map(|slot| {
-            head_state
+            state
                 .get_beacon_proposer_index(slot, &beacon_chain.spec)
                 .map(|i| (i, slot))
                 .map_err(|e| {
@@ -84,13 +88,12 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
         .iter()
         .map(|validator_pubkey_str| {
             parse_pubkey(validator_pubkey_str).and_then(|validator_pubkey| {
-                if let Some(validator_index) = head_state
-                    .get_validator_index(&validator_pubkey)
-                    .map_err(|e| {
+                if let Some(validator_index) =
+                    state.get_validator_index(&validator_pubkey).map_err(|e| {
                         ApiError::ServerError(format!("Unable to read pubkey cache: {:?}", e))
                     })?
                 {
-                    let duties = head_state
+                    let duties = state
                         .get_attestation_duties(validator_index, relative_epoch)
                         .map_err(|e| {
                             ApiError::ServerError(format!(

@@ -153,7 +153,12 @@ fn run<E: EthSpec>(
     {
         let runtime_context = environment.core_context();
 
-        let validator = ProductionValidatorClient::new_from_cli(runtime_context, sub_matches)
+        let validator = environment
+            .runtime()
+            .block_on(ProductionValidatorClient::new_from_cli(
+                runtime_context,
+                sub_matches,
+            ))
             .map_err(|e| format!("Failed to init validator client: {}", e))?;
 
         validator

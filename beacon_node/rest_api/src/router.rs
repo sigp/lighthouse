@@ -38,9 +38,6 @@ pub fn route<T: BeaconChainTypes>(
         match (req.method(), path.as_ref()) {
             // Methods for Client
             (&Method::GET, "/node/version") => into_boxfut(node::get_version(req)),
-            (&Method::GET, "/node/genesis_time") => {
-                into_boxfut(node::get_genesis_time::<T>(req, beacon_chain))
-            }
             (&Method::GET, "/node/syncing") => {
                 into_boxfut(helpers::implementation_pending_response(req))
             }
@@ -82,6 +79,9 @@ pub fn route<T: BeaconChainTypes>(
             }
             (&Method::GET, "/beacon/attestations/pending") => {
                 into_boxfut(helpers::implementation_pending_response(req))
+            }
+            (&Method::GET, "/beacon/genesis_time") => {
+                into_boxfut(beacon::get_genesis_time::<T>(req, beacon_chain))
             }
 
             (&Method::GET, "/beacon/validators") => {

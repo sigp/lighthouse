@@ -3,7 +3,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
-    LocalBeaconNode,
+    testing_client_config, ClientGenesis, LocalBeaconNode,
 };
 use remote_beacon_node::PublishStatus;
 use std::sync::Arc;
@@ -66,7 +66,7 @@ fn validator_produce_attestation() {
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context());
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -74,36 +74,6 @@ fn validator_produce_attestation() {
         .beacon_chain()
         .expect("client should have beacon chain");
     let state = beacon_chain.head().beacon_state.clone();
-
-    /*
-    // Publish a block so that we're not attesting to the genesis block.
-    {
-        let slot = Slot::new(1);
-        let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
-
-        let mut block = env
-            .runtime()
-            .block_on(
-                remote_node
-                    .http
-                    .validator()
-                    .produce_block(slot, randao_reveal.clone()),
-            )
-            .expect("should fetch block from http api");
-
-        sign_block(beacon_chain.clone(), &mut block, spec);
-
-        let publish_status = env
-            .runtime()
-            .block_on(remote_node.http.validator().publish_block(block.clone()))
-            .expect("should publish block");
-        assert_eq!(
-            publish_status,
-            PublishStatus::Valid,
-            "should have published block"
-        );
-    }
-    */
 
     let validator_index = 0;
     let duties = state
@@ -195,7 +165,7 @@ fn validator_duties() {
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context());
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -282,7 +252,13 @@ fn validator_block_post() {
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context());
+    let mut config = testing_client_config();
+    config.genesis = ClientGenesis::Interop {
+        validator_count: 8,
+        genesis_time: 13_371_337,
+    };
+
+    let node = LocalBeaconNode::production(env.core_context(), config);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -343,7 +319,7 @@ fn validator_block_get() {
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context());
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -381,7 +357,7 @@ fn validator_block_get() {
 fn beacon_state() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context());
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let (state_by_slot, root) = env
@@ -425,7 +401,7 @@ fn beacon_state() {
 fn beacon_block() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context());
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let (block_by_slot, root) = env
@@ -462,5 +438,77 @@ fn beacon_block() {
     assert_eq!(
         block_by_root, db_block,
         "genesis block by root from api should match that from the DB"
+    );
+}
+
+#[test]
+fn genesis_time() {
+    let mut env = build_env();
+
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let genesis_time = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_genesis_time())
+        .expect("should fetch genesis time from http api");
+
+    assert_eq!(
+        node.client
+            .beacon_chain()
+            .expect("should have beacon chain")
+            .head()
+            .beacon_state
+            .genesis_time,
+        genesis_time,
+        "should match genesis time from head state"
+    );
+}
+
+#[test]
+fn fork() {
+    let mut env = build_env();
+
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let fork = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_fork())
+        .expect("should fetch from http api");
+
+    assert_eq!(
+        node.client
+            .beacon_chain()
+            .expect("should have beacon chain")
+            .head()
+            .beacon_state
+            .fork,
+        fork,
+        "should match head state"
+    );
+}
+
+#[test]
+fn eth2_config() {
+    let mut env = build_env();
+
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let eth2_config = env
+        .runtime()
+        .block_on(remote_node.http.spec().get_eth2_config())
+        .expect("should fetch eth2 config from http api");
+
+    // TODO: check the entire eth2_config, not just the spec.
+
+    assert_eq!(
+        node.client
+            .beacon_chain()
+            .expect("should have beacon chain")
+            .spec,
+        eth2_config.spec,
+        "should match genesis time from head state"
     );
 }

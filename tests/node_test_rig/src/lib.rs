@@ -121,8 +121,9 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     fn new(context: RuntimeContext<E>, mut config: ValidatorConfig, datadir: TempDir) -> Self {
         config.data_dir = datadir.path().into();
 
-        let client =
-            ProductionValidatorClient::new(context, config).expect("should start validator client");
+        let client = ProductionValidatorClient::new(context, config)
+            .wait()
+            .expect("should start validator client");
 
         client
             .start_service()
