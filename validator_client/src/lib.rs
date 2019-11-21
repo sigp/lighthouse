@@ -2,9 +2,7 @@ mod block_service;
 mod cli;
 mod config;
 mod duties_service;
-mod error;
 mod fork_service;
-mod signer;
 mod validator_store;
 
 pub mod validator_directory;
