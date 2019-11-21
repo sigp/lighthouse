@@ -3,7 +3,7 @@ use types::EthSpec;
 pub use case_result::CaseResult;
 pub use cases::Case;
 pub use cases::{
-    Crosslinks, FinalUpdates, JustificationAndFinalization, RegistryUpdates, Slashings,
+    FinalUpdates, JustificationAndFinalization, RegistryUpdates, RewardsAndPenalties, Slashings,
 };
 pub use error::Error;
 pub use handler::*;

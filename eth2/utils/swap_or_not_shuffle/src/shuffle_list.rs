@@ -19,7 +19,17 @@ const TOTAL_SIZE: usize = SEED_SIZE + ROUND_SIZE + POSITION_WINDOW_SIZE;
 /// It holds that: shuffle_list(shuffle_list(l, r, s, true), r, s, false) == l
 ///           and: shuffle_list(shuffle_list(l, r, s, false), r, s, true) == l
 ///
-/// TODO forwards is around the wrong way - denote?
+/// The Eth2.0 spec mostly uses shuffling with `forwards == false`, because backwards
+/// shuffled lists are slightly easier to specify, and slightly easier to compute.
+///
+/// The forwards shuffling of a list is equivalent to:
+///
+/// `[indices[x] for i in 0..n, where compute_shuffled_index(x) = i]`
+///
+/// Whereas the backwards shuffling of a list is:
+///
+/// `[indices[compute_shuffled_index(i)] for i in 0..n]`
+///
 /// Returns `None` under any of the following conditions:
 ///  - `list_size == 0`
 ///  - `list_size > 2**24`

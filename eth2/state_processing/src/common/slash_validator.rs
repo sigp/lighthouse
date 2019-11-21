@@ -4,7 +4,7 @@ use types::{BeaconStateError as Error, *};
 
 /// Slash the validator with index ``index``.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn slash_validator<T: EthSpec>(
     state: &mut BeaconState<T>,
     slashed_index: usize,
@@ -35,8 +35,7 @@ pub fn slash_validator<T: EthSpec>(
     );
 
     // Apply proposer and whistleblower rewards
-    let proposer_index =
-        state.get_beacon_proposer_index(state.slot, RelativeEpoch::Current, spec)?;
+    let proposer_index = state.get_beacon_proposer_index(state.slot, spec)?;
     let whistleblower_index = opt_whistleblower_index.unwrap_or(proposer_index);
     let whistleblower_reward = validator_effective_balance / spec.whistleblower_reward_quotient;
     let proposer_reward = whistleblower_reward / spec.proposer_reward_quotient;

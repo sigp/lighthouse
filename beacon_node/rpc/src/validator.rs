@@ -66,9 +66,7 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
 
         let validator_proposers: Result<Vec<usize>, _> = epoch
             .slot_iter(T::EthSpec::slots_per_epoch())
-            .map(|slot| {
-                state.get_beacon_proposer_index(slot, RelativeEpoch::Current, &self.chain.spec)
-            })
+            .map(|slot| state.get_beacon_proposer_index(slot, &self.chain.spec))
             .collect();
         let validator_proposers = match validator_proposers {
             Ok(v) => v,
@@ -170,9 +168,9 @@ impl<T: BeaconChainTypes> ValidatorService for ValidatorServiceInstance<T> {
                 duty.set_none(false)
             }
 
-            duty.set_committee_index(attestation_duties.committee_index as u64);
+            duty.set_committee_index(attestation_duties.committee_position as u64);
             duty.set_attestation_slot(attestation_duties.slot.as_u64());
-            duty.set_attestation_shard(attestation_duties.shard);
+            duty.set_attestation_shard(attestation_duties.index);
             duty.set_committee_len(attestation_duties.committee_len as u64);
 
             active_validator.set_duty(duty);

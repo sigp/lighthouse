@@ -30,7 +30,7 @@ impl TestingDepositBuilder {
     /// - `pubkey` to the signing pubkey.
     /// - `withdrawal_credentials` to the signing pubkey.
     /// - `proof_of_possession`
-    pub fn sign(&mut self, test_task: &DepositTestTask, keypair: &Keypair, spec: &ChainSpec) {
+    pub fn sign(&mut self, test_task: DepositTestTask, keypair: &Keypair, spec: &ChainSpec) {
         let new_key = Keypair::random();
         let mut pubkeybytes = PublicKeyBytes::from(keypair.pk.clone());
         let mut secret_key = keypair.sk.clone();

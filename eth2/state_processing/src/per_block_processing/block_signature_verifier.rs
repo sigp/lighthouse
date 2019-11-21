@@ -86,7 +86,6 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
          * Deposits are not included because they can legally have invalid signatures.
          */
         verifier.include_exits()?;
-        verifier.include_transfers()?;
 
         verifier.verify()
     }
@@ -203,21 +202,6 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             .voluntary_exits
             .iter()
             .map(|exit| exit_signature_set(&self.state, exit, &self.spec))
-            .collect::<SignatureSetResult<_>>()?;
-
-        self.sets.append(&mut sets);
-
-        Ok(())
-    }
-
-    /// Includes all signatures in `self.block.body.transfers` for verification.
-    fn include_transfers(&mut self) -> Result<()> {
-        let mut sets = self
-            .block
-            .body
-            .transfers
-            .iter()
-            .map(|transfer| transfer_signature_set(&self.state, transfer, &self.spec))
             .collect::<SignatureSetResult<_>>()?;
 
         self.sets.append(&mut sets);

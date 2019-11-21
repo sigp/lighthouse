@@ -205,6 +205,4 @@ mod signatures_minimal {
             spec,
         );
     }
-
-    // Cannot test transfers because their length is zero.
 }

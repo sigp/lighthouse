@@ -7,7 +7,7 @@ use tree_hash_derive::TreeHash;
 
 /// Two conflicting attestations.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct AttesterSlashing<T: EthSpec> {

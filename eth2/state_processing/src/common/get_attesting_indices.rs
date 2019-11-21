@@ -3,19 +3,13 @@ use types::*;
 
 /// Returns validator indices which participated in the attestation, sorted by increasing index.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 pub fn get_attesting_indices<T: EthSpec>(
     state: &BeaconState<T>,
     attestation_data: &AttestationData,
     bitlist: &BitList<T::MaxValidatorsPerCommittee>,
 ) -> Result<BTreeSet<usize>, BeaconStateError> {
-    let target_relative_epoch =
-        RelativeEpoch::from_epoch(state.current_epoch(), attestation_data.target.epoch)?;
-
-    let committee = state.get_crosslink_committee_for_shard(
-        attestation_data.crosslink.shard,
-        target_relative_epoch,
-    )?;
+    let committee = state.get_beacon_committee(attestation_data.slot, attestation_data.index)?;
 
     if bitlist.len() != committee.committee.len() {
         return Err(BeaconStateError::InvalidBitfield);

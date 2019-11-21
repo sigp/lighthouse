@@ -10,10 +10,7 @@ use beacon_node_attestation::BeaconNodeAttestation;
 use core::marker::PhantomData;
 use slog::{error, info, warn};
 use tree_hash::TreeHash;
-use types::{
-    AggregateSignature, Attestation, AttestationData, AttestationDataAndCustodyBit,
-    AttestationDuty, BitList,
-};
+use types::{AggregateSignature, Attestation, AttestationData, AttestationDuty, BitList};
 
 //TODO: Group these errors at a crate level
 #[derive(Debug, PartialEq)]
@@ -90,9 +87,11 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
 
         let attestation = self
             .beacon_node
-            .produce_attestation_data(self.duty.slot, self.duty.shard)?;
+            .produce_attestation_data(self.duty.slot, self.duty.index)?;
         if self.safe_to_produce(&attestation) {
-            let domain = self.spec.get_domain(epoch, Domain::Attestation, &self.fork);
+            let domain = self
+                .spec
+                .get_domain(epoch, Domain::BeaconAttester, &self.fork);
             if let Some(attestation) = self.sign_attestation(attestation, self.duty, domain) {
                 match self.beacon_node.publish_attestation(attestation) {
                     Ok(PublishOutcome::InvalidAttestation(_string)) => {
@@ -127,11 +126,7 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
 
         // build the aggregate signature
         let aggregate_signature = {
-            let message = AttestationDataAndCustodyBit {
-                data: attestation.clone(),
-                custody_bit: false,
-            }
-            .tree_hash_root();
+            let message = attestation.tree_hash_root();
 
             let sig = self.signer.sign_message(&message, domain)?;
 
@@ -141,13 +136,11 @@ impl<'a, B: BeaconNodeAttestation, S: Signer, E: EthSpec> AttestationProducer<'a
         };
 
         let mut aggregation_bits = BitList::with_capacity(duties.committee_len).ok()?;
-        let custody_bits = BitList::with_capacity(duties.committee_len).ok()?;
-        aggregation_bits.set(duties.committee_index, true).ok()?;
+        aggregation_bits.set(duties.committee_position, true).ok()?;
 
         Some(Attestation {
             aggregation_bits,
             data: attestation,
-            custody_bits,
             signature: aggregate_signature,
         })
     }

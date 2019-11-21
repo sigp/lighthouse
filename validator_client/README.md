@@ -8,11 +8,11 @@ Node (BN) and fulfils the roles of a validator.
 The VC is responsible for the following tasks:
 
 - Requesting validator duties (a.k.a. shuffling) from the BN.
-- Prompting the BN to produce a new block, when a validators block production
+- Prompting the BN to produce a new block, when a validator's block production
 	duties require.
 - Completing all the fields on a new block (e.g., RANDAO reveal, signature) and
 	publishing the block to a BN.
-- Prompting the BN to produce a new shard attestation as per a validators
+- Prompting the BN to produce a new attestation as per a validator's
 	duties.
 - Ensuring that no slashable messages are signed by a validator private key.
 - Keeping track of the system clock and how it relates to slots/epochs.
