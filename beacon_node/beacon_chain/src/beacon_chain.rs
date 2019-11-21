@@ -852,13 +852,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             result
         };
 
-        if block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()) {
+        if block.slot > 0
+            && (block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()))
+        {
             // Ignore any attestation where the slot of `data.beacon_block_root` is equal to or
             // prior to the finalized epoch.
             //
             // For any valid attestation if the `beacon_block_root` is prior to finalization, then
             // all other parameters (source, target, etc) must all be prior to finalization and
             // therefore no longer interesting.
+            //
+            // We allow the case where the block is the genesis block. Without this, all
+            // attestations prior to the first block being produced would be invalid.
             Ok(AttestationProcessingOutcome::FinalizedSlot {
                 attestation: block.slot.epoch(T::EthSpec::slots_per_epoch()),
                 finalized: finalized_epoch,
