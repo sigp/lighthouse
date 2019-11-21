@@ -160,6 +160,8 @@ impl Decoder for SSZOutboundCodec {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.len() == 1 && src[0] == 0_u8 {
             // the object is empty. We return the empty object if this is the case
+            // clear the buffer and return an empty object
+            src.clear();
             match self.protocol.message_name.as_str() {
                 "status" => match self.protocol.version.as_str() {
                     "1" => Err(RPCError::Custom(
