@@ -355,11 +355,6 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             ExitTestTask::AlreadyExited => {
                 state.validators[validator_index as usize].exit_epoch = Epoch::from(314_159 as u64)
             }
-            // FIXME: disabled in v0.9
-            ExitTestTask::NotActive => {
-                state.validators[validator_index as usize].activation_epoch =
-                    Epoch::from(314_159 as u64)
-            }
             ExitTestTask::FutureEpoch => exit_epoch = spec.far_future_epoch,
             _ => (),
         }

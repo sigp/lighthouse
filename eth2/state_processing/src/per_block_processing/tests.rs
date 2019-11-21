@@ -393,7 +393,6 @@ fn invalid_exit_already_exited() {
     );
 }
 
-/* FIXME: needs updating for v0.9
 #[test]
 fn invalid_exit_not_active() {
     use std::cmp::max;
@@ -422,7 +421,6 @@ fn invalid_exit_not_active() {
         })
     );
 }
-*/
 
 #[test]
 fn invalid_exit_already_initiated() {

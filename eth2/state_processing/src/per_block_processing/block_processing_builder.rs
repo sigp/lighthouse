@@ -97,6 +97,11 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             )),
         }
 
+        // Modifying the activation_epoch here and not later as modifying it later would then change the proposer_index.
+        if test_task == ExitTestTask::NotActive {
+            // Selecting validator 0 as it should be the first one used in the iteration down below.
+            state.validators[0 as usize].activation_epoch = state.current_epoch() + 1
+        }
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
