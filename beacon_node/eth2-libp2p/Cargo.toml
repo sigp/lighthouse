@@ -27,3 +27,6 @@ unsigned-varint = "0.2.3"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
 tokio-io-timeout = "0.3.1"
+
+[dev-dependencies]
+slog-stdlog = "4.0.0"
