@@ -505,7 +505,8 @@ fn invalid_exit_too_young() {
             index: 0,
             reason: ExitInvalid::TooYoungToExit {
                 current_epoch: Epoch::from(SLOT_OFFSET),
-                earliest_exit_epoch: state.current_epoch()
+                earliest_exit_epoch: state.validators[0].activation_epoch
+                    + spec.persistent_committee_period,
             },
         })
     );
@@ -1001,7 +1002,7 @@ fn invalid_proposer_slashing_proposer_unknown() {
     assert_eq!(
         result,
         Err(BlockProcessingError::ProposerSlashingInvalid {
-            index: block.body.proposer_slashings[0].proposer_index as usize,
+            index: 0,
             reason: ProposerSlashingInvalid::ProposerUnknown(state.validators.len() as u64)
         })
     );
