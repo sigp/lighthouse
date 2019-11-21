@@ -30,6 +30,3 @@ bytes = "0.4.12"
 tokio-io-timeout = "0.3.1"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
-slog-stdlog ="3.0"
-slog-term = "^2.4.0"
-slog-async = "^2.3.0"
