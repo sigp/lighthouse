@@ -44,11 +44,10 @@ pub enum ExitTestTask {
 #[derive(PartialEq, Clone, Copy)]
 pub enum AttestationTestTask {
     Valid,
-    NoCommiteeForShard,
+    NoCommittee,
     WrongJustifiedCheckpoint,
     BadTargetTooLow,
     BadTargetTooHigh,
-    BadShard,
     BadIndexedAttestationBadSignature,
     BadAggregationBitfieldLen,
     BadSignature,

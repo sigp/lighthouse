@@ -14,7 +14,7 @@ impl TestingAttestationDataBuilder {
     pub fn new<T: EthSpec>(
         test_task: AttestationTestTask,
         state: &BeaconState<T>,
-        index: u64,
+        mut index: u64,
         mut slot: Slot,
         spec: &ChainSpec,
     ) -> Self {
@@ -48,9 +48,7 @@ impl TestingAttestationDataBuilder {
         let beacon_block_root = *state.get_block_root(slot).unwrap();
 
         match test_task {
-            // FIXME: re-enable the shard-like tests
-            // AttestationTestTask::NoCommiteeForShard => index += 2,
-            // AttestationTestTask::BadShard => index = T::ShardCount::to_u64(),
+            AttestationTestTask::NoCommittee => index += 2,
             AttestationTestTask::IncludedTooEarly => {
                 slot = state.slot - spec.min_attestation_inclusion_delay + 1
             }

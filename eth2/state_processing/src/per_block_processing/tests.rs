@@ -560,12 +560,11 @@ fn valid_attestations() {
     assert_eq!(result, Ok(()));
 }
 
-/* FIXME: needs updating for v0.9
 #[test]
 fn invalid_attestation_no_committee_for_shard() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::NoCommiteeForShard;
+    let test_task = AttestationTestTask::NoCommittee;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
 
@@ -577,18 +576,15 @@ fn invalid_attestation_no_committee_for_shard() {
         &spec,
     );
 
-    // Expecting NoCommiteeForShard because we manually set the crosslink's shard to be invalid
+    // Expecting NoCommittee because we manually set the crosslink's shard to be invalid
     assert_eq!(
         result,
-        Err(BlockProcessingError::BeaconStateError(
-            BeaconStateError::NoCommittee {
-                slot: Slot::new(0),
-                index: 0
-            }
-        ))
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::BadCommitteeIndex
+        })
     );
 }
-*/
 
 #[test]
 fn invalid_attestation_wrong_justified_checkpoint() {
@@ -853,41 +849,6 @@ fn invalid_attestation_bad_target_epoch() {
                 })
     );
 }
-
-/* FIXME: needs updating for v0.9
-#[test]
-fn invalid_attestation_bad_shard() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::BadShard;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting BadShard or NoCommittee because the shard number is higher than ShardCount
-    assert!(
-        result
-            == Err(BlockProcessingError::AttestationInvalid {
-                index: 0,
-                reason: AttestationInvalid::BadShard
-            })
-            || result
-                == Err(BlockProcessingError::BeaconStateError(
-                    BeaconStateError::NoCommittee {
-                        slot: Slot::new(0),
-                        index: 0
-                    }
-                ))
-    );
-}
-*/
 
 #[test]
 fn valid_insert_attester_slashing() {
