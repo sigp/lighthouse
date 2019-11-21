@@ -283,6 +283,7 @@ where
 
                                 // close the stream if there is no response
                                 if let RPCErrorResponse::StreamTermination(_) = response {
+                                    trace!(self.log, "Stream termination sent. Ending the stream");
                                     *substream_state = InboundSubstreamState::Closing(substream);
                                 } else {
                                     // send the response
@@ -371,20 +372,20 @@ where
         }
 
         // purge expired inbound substreams
-        while let Some(stream_id) = try_ready!(self
+        while let Async::Ready(Some(stream_id)) = self
             .inbound_substreams_delay
             .poll()
-            .map_err(|_| ProtocolsHandlerUpgrErr::Timer))
+            .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
         {
             trace!(self.log, "Closing expired inbound stream");
             self.inbound_substreams.remove(stream_id.get_ref());
         }
 
         // purge expired outbound substreams
-        while let Some(stream_id) = try_ready!(self
+        while let Async::Ready(Some(stream_id)) = self
             .outbound_substreams_delay
             .poll()
-            .map_err(|_| ProtocolsHandlerUpgrErr::Timer))
+            .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
         {
             trace!(self.log, "Closing expired outbound stream");
             self.outbound_substreams.remove(stream_id.get_ref());
@@ -394,12 +395,14 @@ where
         for request_id in self.inbound_substreams.keys().copied().collect::<Vec<_>>() {
             match self.inbound_substreams.entry(request_id) {
                 Entry::Occupied(mut entry) => {
+                    trace!(self.log, "checking substream"; "req_id" => request_id);
                     match std::mem::replace(&mut entry.get_mut().0, InboundSubstreamState::Poisoned)
                     {
                         InboundSubstreamState::ResponsePendingSend {
                             mut substream,
                             closing,
                         } => {
+                            trace!(self.log, "Stream still waiting to send");
                             match substream.poll() {
                                 Ok(Async::Ready(raw_substream)) => {
                                     // completed the send
@@ -418,7 +421,12 @@ where
                                         );
                                     }
                                 }
-                                Ok(Async::NotReady) => {}
+                                Ok(Async::NotReady) => {
+                                    entry.get_mut().0 = InboundSubstreamState::ResponsePendingSend {
+                                        substream,
+                                        closing,
+                                    }
+                                }
                                 Err(e) => {
                                     let delay_key = &entry.get().1;
                                     self.inbound_substreams_delay.remove(delay_key);
@@ -493,6 +501,11 @@ where
                                 // if we expected multiple streams send a stream termination,
                                 // else report the stream terminating only.
                                 trace!(self.log, "RPC Response - stream closed by remote");
+                                // drop the stream
+                                let delay_key = &entry.get().1;
+                                self.outbound_substreams_delay.remove(delay_key);
+                                entry.remove_entry();
+                                // notify the application error
                                 if request.multiple_responses() {
                                     // return an end of stream result
                                     return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
@@ -513,7 +526,12 @@ where
                                     ),
                                 )));
                             }
-                            Ok(Async::NotReady) => {}
+                            Ok(Async::NotReady) => {
+                                entry.get_mut().0 = OutboundSubstreamState::RequestPendingResponse {
+                                    substream,
+                                    request,
+                                }
+                            }
                             Err(e) => {
                                 // drop the stream
                                 let delay_key = &entry.get().1;
@@ -532,7 +550,9 @@ where
                                 self.outbound_substreams_delay.remove(delay_key);
                                 entry.remove_entry();
                             }
-                            Ok(Async::NotReady) => {}
+                            Ok(Async::NotReady) => {
+                                entry.get_mut().0 = OutboundSubstreamState::Closing(substream);
+                            }
                         },
                         OutboundSubstreamState::Poisoned => {
                             unreachable!("Coding Error: Outbound substream is poisoned")
@@ -575,20 +595,15 @@ fn apply_queued_responses<TSubstream: AsyncRead + AsyncWrite>(
             match queue.remove(0) {
                 RPCErrorResponse::StreamTermination(_) => {
                     // close the stream if this is a stream termination
-                    dbg!("terminating stream");
                     InboundSubstreamState::Closing(raw_substream)
                 }
-                chunk => {
-                    dbg!(&chunk);
-                    InboundSubstreamState::ResponsePendingSend {
-                        substream: raw_substream.send(chunk),
-                        closing: false,
-                    }
-                }
+                chunk => InboundSubstreamState::ResponsePendingSend {
+                    substream: raw_substream.send(chunk),
+                    closing: false,
+                },
             }
         }
         _ => {
-            dbg!("Idle");
             // no items queued set to idle
             InboundSubstreamState::ResponseIdle(raw_substream)
         }

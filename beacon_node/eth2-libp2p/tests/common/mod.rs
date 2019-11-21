@@ -42,17 +42,18 @@ pub fn build_libp2p_instance(
     log: slog::Logger,
 ) -> LibP2PService {
     let config = build_config(port, boot_nodes, secret_key);
-    let network_log = log.new(o!("Service" => "Libp2p"));
     // launch libp2p service
-    let libp2p_service = LibP2PService::new(config.clone(), network_log.clone()).unwrap();
+    let libp2p_service = LibP2PService::new(config.clone(), log.clone()).unwrap();
     libp2p_service
 }
 
+#[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService) -> Enr {
     node.swarm.discovery().local_enr().clone()
 }
 
 // Returns `n` libp2p peers in fully connected topology.
+#[allow(dead_code)]
 pub fn build_full_mesh(log: slog::Logger, n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
     let base_port = start_port.unwrap_or(9000);
     let mut nodes: Vec<LibP2PService> = (base_port..base_port + n as u16)
@@ -76,7 +77,26 @@ pub fn build_full_mesh(log: slog::Logger, n: usize, start_port: Option<u16>) -> 
     nodes
 }
 
+// Constructs a pair of nodes with seperate loggers. The sender dials the receiver.
+// This returns a (sender, receiver) pair.
+#[allow(dead_code)]
+pub fn build_node_pair(log: &slog::Logger, start_port: u16) -> (LibP2PService, LibP2PService) {
+    let sender_log = log.new(o!("who" => "Sender"));
+    let receiver_log = log.new(o!("who" => "receiver"));
+
+    let mut sender = build_libp2p_instance(start_port, vec![], None, sender_log);
+    let receiver = build_libp2p_instance(start_port + 1, vec![], None, receiver_log);
+
+    let receiver_multiaddr = receiver.swarm.discovery().local_enr().clone().multiaddr()[1].clone();
+    match libp2p::Swarm::dial_addr(&mut sender.swarm, receiver_multiaddr) {
+        Ok(()) => debug!(log, "Sender dialed receiver"),
+        Err(_) => error!(log, "Dialing failed"),
+    };
+    (sender, receiver)
+}
+
 // Returns `n` peers in a linear topology
+#[allow(dead_code)]
 pub fn build_linear(log: slog::Logger, n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
     let base_port = start_port.unwrap_or(9000);
     let mut nodes: Vec<LibP2PService> = (base_port..base_port + n as u16)
