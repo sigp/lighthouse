@@ -840,7 +840,7 @@ fn invalid_attestation_bad_target_epoch() {
             index: 0,
             reason: AttestationInvalid::BadTargetEpoch
         })
-      );
+    );
 }
 
 #[test]
