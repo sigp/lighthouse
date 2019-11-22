@@ -6,6 +6,8 @@
 use super::{LmdGhost, Result as SuperResult};
 use itertools::Itertools;
 use parking_lot::RwLock;
+use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
@@ -109,16 +111,74 @@ where
     fn verify_integrity(&self) -> std::result::Result<(), String> {
         self.core.read().verify_integrity()
     }
+
+    fn as_bytes(self) -> Vec<u8> {
+        let reduced_tree_ssz: ReducedTreeSsz = self.core.into_inner().into();
+        reduced_tree_ssz.as_ssz_bytes()
+    }
+
+    fn from_bytes(bytes: &[u8], store: Arc<T>) -> Self {
+        let reduced_tree_ssz = ReducedTreeSsz::from_ssz_bytes(bytes).unwrap();
+        ThreadSafeReducedTree {
+            core: RwLock::new(reduced_tree_ssz.to_reduced_tree(store)),
+        }
+    }
+}
+
+/// Intermediate representation of a `ReducedTree` `LmdGhost` fork choice.
+#[derive(Encode, Decode)]
+struct ReducedTreeSsz {
+    pub node_hashes: Vec<Hash256>,
+    pub nodes: Vec<Node>,
+    pub latest_votes: Vec<Option<Vote>>,
+    pub root_hash: Hash256,
+    pub root_slot: Slot,
+}
+
+impl<T, E> From<ReducedTree<T, E>> for ReducedTreeSsz {
+    fn from(tree: ReducedTree<T, E>) -> Self {
+        let mut node_hashes = vec![];
+        let mut nodes = vec![];
+        for (k, v) in tree.nodes.into_iter() {
+            node_hashes.push(k);
+            nodes.push(v);
+        }
+        ReducedTreeSsz {
+            node_hashes,
+            nodes,
+            latest_votes: tree.latest_votes.0,
+            root_hash: tree.root.0,
+            root_slot: tree.root.1,
+        }
+    }
+}
+
+impl ReducedTreeSsz {
+    pub fn to_reduced_tree<T, E>(self, store: Arc<T>) -> ReducedTree<T, E> {
+        let mut nodes = HashMap::new();
+        for (k, v) in self.node_hashes.into_iter().zip(self.nodes.into_iter()) {
+            nodes.insert(k, v);
+        }
+        let latest_votes = ElasticList(self.latest_votes);
+        let root = (self.root_hash, self.root_slot);
+        ReducedTree {
+            store,
+            nodes,
+            latest_votes,
+            root,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 struct ReducedTree<T, E> {
-    store: Arc<T>,
+    pub store: Arc<T>,
     /// Stores all nodes of the tree, keyed by the block hash contained in the node.
-    nodes: HashMap<Hash256, Node>,
+    pub nodes: HashMap<Hash256, Node>,
     /// Maps validator indices to their latest votes.
-    latest_votes: ElasticList<Option<Vote>>,
+    pub latest_votes: ElasticList<Option<Vote>>,
     /// Stores the root of the tree, used for pruning.
-    root: (Hash256, Slot),
+    pub root: (Hash256, Slot),
     _phantom: PhantomData<E>,
 }
 
@@ -765,7 +825,7 @@ where
     }
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, Encode, Decode)]
 pub struct Node {
     /// Hash of the parent node in the reduced tree (not necessarily parent block).
     pub parent_hash: Option<Hash256>,
@@ -775,7 +835,7 @@ pub struct Node {
     pub voters: Vec<usize>,
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, Encode, Decode)]
 pub struct ChildLink {
     /// Hash of the child block (may not be a direct descendant).
     pub hash: Hash256,
@@ -826,7 +886,7 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct Vote {
     hash: Hash256,
     slot: Slot,
