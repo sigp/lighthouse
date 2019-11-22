@@ -20,7 +20,7 @@ use types::{
 };
 use url::Url;
 
-pub use rest_api::{HeadResponse, ValidatorDuty};
+pub use rest_api::{BulkValidatorDutiesRequest, HeadResponse, ValidatorDuty};
 
 pub const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 
@@ -213,6 +213,11 @@ impl<E: EthSpec> Validator<E> {
     }
 
     /// Returns the duties required of the given validator pubkeys in the given epoch.
+    ///
+    /// ## Warning
+    ///
+    /// This method cannot request large amounts of validator duties because the query string fills
+    /// up the URL. I have seen requests of 1,024 fail. For large requests, use `get_duties_bulk`.
     pub fn get_duties(
         &self,
         epoch: Epoch,
@@ -232,6 +237,26 @@ impl<E: EthSpec> Validator<E> {
 
             client.json_get::<_>(url, query_params)
         })
+    }
+
+    /// Returns the duties required of the given validator pubkeys in the given epoch.
+    pub fn get_duties_bulk(
+        &self,
+        epoch: Epoch,
+        validator_pubkeys: &[PublicKey],
+    ) -> impl Future<Item = Vec<ValidatorDuty>, Error = Error> {
+        let client = self.0.clone();
+
+        let bulk_request = BulkValidatorDutiesRequest {
+            epoch,
+            pubkeys: validator_pubkeys.to_vec(),
+        };
+
+        self.url("duties")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, bulk_request))
+            .and_then(|response| error_for_status(response).map_err(Error::from))
+            .and_then(|mut success| success.json().map_err(Error::from))
     }
 
     /// Posts a block to the beacon node, expecting it to verify it and publish it to the network.
