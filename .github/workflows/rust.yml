@@ -13,6 +13,7 @@ jobs:
       run: cargo fmt --all -- --check
   release-tests-ubuntu:
     runs-on: ubuntu-latest
+    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
     - name: Install ganache-cli
@@ -21,6 +22,7 @@ jobs:
       run: cargo test --release --all
   debug-tests-ubuntu:
     runs-on: ubuntu-latest
+    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
     - name: Install ganache-cli
@@ -29,6 +31,7 @@ jobs:
       run: cargo test --all
   ef-tests-ubuntu:
     runs-on: ubuntu-latest
+    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
     - name: Download test vectors
