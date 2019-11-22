@@ -40,7 +40,7 @@ use url_query::UrlQuery;
 pub use crate::helpers::parse_pubkey;
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
 pub use config::Config;
-pub use validator::ValidatorDuty;
+pub use validator::{BulkValidatorDutiesRequest, ValidatorDuty};
 
 pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 pub type NetworkChannel = Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>;

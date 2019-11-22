@@ -5,12 +5,12 @@ use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     testing_client_config, ClientGenesis, LocalBeaconNode,
 };
-use remote_beacon_node::PublishStatus;
+use remote_beacon_node::{PublishStatus, ValidatorDuty};
 use std::sync::Arc;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec,
-    MinimalEthSpec, RelativeEpoch, Signature, Slot,
+    MinimalEthSpec, PublicKey, RelativeEpoch, Signature, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -160,6 +160,43 @@ fn validator_produce_attestation() {
 }
 
 #[test]
+fn validator_duties_bulk() {
+    let mut env = build_env();
+
+    let spec = &E::default_spec();
+
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let beacon_chain = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain");
+
+    let epoch = Epoch::new(0);
+
+    let validators = beacon_chain
+        .head()
+        .beacon_state
+        .validators
+        .iter()
+        .map(|v| v.pubkey.clone())
+        .collect::<Vec<_>>();
+
+    let duties = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .get_duties_bulk(epoch, &validators),
+        )
+        .expect("should fetch duties from http api");
+
+    check_duties(duties, epoch, validators, beacon_chain, spec);
+}
+
+#[test]
 fn validator_duties() {
     let mut env = build_env();
 
@@ -188,6 +225,16 @@ fn validator_duties() {
         .block_on(remote_node.http.validator().get_duties(epoch, &validators))
         .expect("should fetch duties from http api");
 
+    check_duties(duties, epoch, validators, beacon_chain, spec);
+}
+
+fn check_duties<T: BeaconChainTypes>(
+    duties: Vec<ValidatorDuty>,
+    epoch: Epoch,
+    validators: Vec<PublicKey>,
+    beacon_chain: Arc<BeaconChain<T>>,
+    spec: &ChainSpec,
+) {
     assert_eq!(
         validators.len(),
         duties.len(),

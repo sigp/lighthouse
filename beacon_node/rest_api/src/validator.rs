@@ -12,10 +12,11 @@ use futures::future::Future;
 use futures::stream::Stream;
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
-use slog::{info, trace, warn, Logger};
+use slog::{info, warn, Logger};
+use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, CommitteeIndex, RelativeEpoch, Slot};
+use types::{Attestation, BeaconBlock, CommitteeIndex, Epoch, RelativeEpoch, Slot};
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorDuty {
@@ -31,20 +32,67 @@ pub struct ValidatorDuty {
     pub block_proposal_slot: Option<Slot>,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
+pub struct BulkValidatorDutiesRequest {
+    pub epoch: Epoch,
+    pub pubkeys: Vec<PublicKey>,
+}
+
+/// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch. This
+/// method allows for collecting bulk sets of validator duties without risking exceeding the max
+/// URL length with query pairs.
+pub fn post_validator_duties<T: BeaconChainTypes + 'static>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> BoxFut {
+    let response_builder = ResponseBuilder::new(&req);
+
+    let future = req
+        .into_body()
+        .concat2()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+        .and_then(|chunks| {
+            serde_json::from_slice::<BulkValidatorDutiesRequest>(&chunks).map_err(|e| {
+                ApiError::BadRequest(format!(
+                    "Unable to parse JSON into BulkValidatorDutiesRequest: {:?}",
+                    e
+                ))
+            })
+        })
+        .and_then(|bulk_request| {
+            return_validator_duties(beacon_chain, bulk_request.epoch, bulk_request.pubkeys)
+        })
+        .and_then(|duties| response_builder?.body_no_ssz(&duties));
+
+    Box::new(future)
+}
+
 /// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch
 ///
 /// The given `epoch` must be within one epoch of the current epoch.
 pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-    log: Logger,
 ) -> ApiResult {
-    slog::trace!(log, "Validator duties requested of API: {:?}", &req);
-
     let query = UrlQuery::from_request(&req)?;
 
     let epoch = query.epoch()?;
+    let validator_pubkeys = query
+        .all_of("validator_pubkeys")?
+        .iter()
+        .map(|validator_pubkey_str| parse_pubkey(validator_pubkey_str))
+        .collect::<Result<_, _>>()?;
 
+    let duties = return_validator_duties(beacon_chain, epoch, validator_pubkeys)?;
+
+    ResponseBuilder::new(&req)?.body_no_ssz(&duties)
+}
+
+fn return_validator_duties<T: BeaconChainTypes + 'static>(
+    beacon_chain: Arc<BeaconChain<T>>,
+    epoch: Epoch,
+    validator_pubkeys: Vec<PublicKey>,
+) -> Result<Vec<ValidatorDuty>, ApiError> {
     let mut state = beacon_chain
         .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
         .map_err(|e| {
@@ -83,51 +131,46 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let duties = query
-        .all_of("validator_pubkeys")?
-        .iter()
-        .map(|validator_pubkey_str| {
-            parse_pubkey(validator_pubkey_str).and_then(|validator_pubkey| {
-                if let Some(validator_index) =
-                    state.get_validator_index(&validator_pubkey).map_err(|e| {
-                        ApiError::ServerError(format!("Unable to read pubkey cache: {:?}", e))
-                    })?
-                {
-                    let duties = state
-                        .get_attestation_duties(validator_index, relative_epoch)
-                        .map_err(|e| {
-                            ApiError::ServerError(format!(
-                                "Unable to obtain attestation duties: {:?}",
-                                e
-                            ))
-                        })?;
+    validator_pubkeys
+        .into_iter()
+        .map(|validator_pubkey| {
+            if let Some(validator_index) =
+                state.get_validator_index(&validator_pubkey).map_err(|e| {
+                    ApiError::ServerError(format!("Unable to read pubkey cache: {:?}", e))
+                })?
+            {
+                let duties = state
+                    .get_attestation_duties(validator_index, relative_epoch)
+                    .map_err(|e| {
+                        ApiError::ServerError(format!(
+                            "Unable to obtain attestation duties: {:?}",
+                            e
+                        ))
+                    })?;
 
-                    let block_proposal_slot = validator_proposers
-                        .iter()
-                        .find(|(i, _slot)| validator_index == *i)
-                        .map(|(_i, slot)| *slot);
+                let block_proposal_slot = validator_proposers
+                    .iter()
+                    .find(|(i, _slot)| validator_index == *i)
+                    .map(|(_i, slot)| *slot);
 
-                    Ok(ValidatorDuty {
-                        validator_pubkey,
-                        attestation_slot: duties.map(|d| d.slot),
-                        attestation_committee_index: duties.map(|d| d.index),
-                        attestation_committee_position: duties.map(|d| d.committee_position),
-                        block_proposal_slot,
-                    })
-                } else {
-                    Ok(ValidatorDuty {
-                        validator_pubkey,
-                        attestation_slot: None,
-                        attestation_committee_index: None,
-                        attestation_committee_position: None,
-                        block_proposal_slot: None,
-                    })
-                }
-            })
+                Ok(ValidatorDuty {
+                    validator_pubkey,
+                    attestation_slot: duties.map(|d| d.slot),
+                    attestation_committee_index: duties.map(|d| d.index),
+                    attestation_committee_position: duties.map(|d| d.committee_position),
+                    block_proposal_slot,
+                })
+            } else {
+                Ok(ValidatorDuty {
+                    validator_pubkey,
+                    attestation_slot: None,
+                    attestation_committee_index: None,
+                    attestation_committee_position: None,
+                    block_proposal_slot: None,
+                })
+            }
         })
-        .collect::<Result<Vec<_>, ApiError>>()?;
-
-    ResponseBuilder::new(&req)?.body_no_ssz(&duties)
+        .collect::<Result<Vec<_>, ApiError>>()
 }
 
 /// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
@@ -163,10 +206,6 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(
     let response_builder = ResponseBuilder::new(&req);
 
     let body = req.into_body();
-    trace!(
-        log,
-        "Got the request body, now going to parse it into a block."
-    );
     Box::new(body
         .concat2()
         .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}",e)))
