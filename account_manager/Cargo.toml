@@ -13,3 +13,4 @@ slog-async = "2.3.0"
 validator_client = { path = "../validator_client" }
 types = { path = "../eth2/types" }
 dirs = "2.0.2"
+environment = { path = "../lighthouse/environment" }
