@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
-use types::{ChainSpec, CommitteeIndex, Epoch, EthSpec, PublicKey, Slot};
+use types::{ChainSpec, Epoch, EthSpec, PublicKey, Slot};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
@@ -296,7 +296,7 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesService<T, E> {
             .beacon_node
             .http
             .validator()
-            .get_duties(epoch, pubkeys.as_slice())
+            .get_duties_bulk(epoch, pubkeys.as_slice())
             .map(move |all_duties| (epoch, all_duties))
             .map_err(move |e| format!("Failed to get duties for epoch {}: {:?}", epoch, e))
             .map(move |(epoch, all_duties)| {
