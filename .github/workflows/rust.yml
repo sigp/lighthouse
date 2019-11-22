@@ -8,7 +8,7 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Check formatting with cargo fmt
-      run: cargo fmt --all -- check
+      run: cargo fmt --all -- --check
   release-tests-ubuntu:
     runs-on: ubuntu-latest
     steps:
