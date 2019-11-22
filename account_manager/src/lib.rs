@@ -2,6 +2,7 @@ mod cli;
 
 use clap::ArgMatches;
 use environment::RuntimeContext;
+use rayon::prelude::*;
 use slog::{crit, info};
 use std::fs;
 use std::path::PathBuf;
@@ -128,7 +129,7 @@ fn make_validators(
     spec: ChainSpec,
 ) -> Result<Vec<ValidatorDirectory>, String> {
     methods
-        .iter()
+        .par_iter()
         .map(|method| {
             let mut builder = ValidatorDirectoryBuilder::default()
                 .spec(spec.clone())
