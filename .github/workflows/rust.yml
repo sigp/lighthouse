@@ -3,13 +3,19 @@ name: test-suite
 on: [push]
 
 jobs:
+  cargo-fmt-lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Check formatting with cargo fmt
+      run: cargo fmt --all -- check
   release-tests-ubuntu:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
-    - name: Run release tests
+    - name: Run tests in release
       run: cargo test --release --all
   debug-tests-ubuntu:
     runs-on: ubuntu-latest
@@ -17,10 +23,8 @@ jobs:
     - uses: actions/checkout@v1
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
-    - name: Run debug tests & check formatting
+    - name: Run tests in debug
       run: cargo test --all
-    - name: Check formatting with cargo fmt
-      run: cargo fmt --all -- check
   ef-tests-ubuntu:
     runs-on: ubuntu-latest
     steps:
