@@ -8,12 +8,12 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Run release tests with all features
-      run: cargo test --release --all --all-features
+      run: cargo test --release --all --all-features --exclude ef_tests
   debug-tests:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
     - name: Run debug tests with all features
-      run: cargo test --all --all-features
+      run: cargo test --all --all-features --exclude ef_tests
     - name: Check formatting with cargo fmt
-      run: cargo test --all --all-features
+      run: cargo fmt --all -- check
