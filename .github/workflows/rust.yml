@@ -1,19 +1,33 @@
-name: Test Suite
+name: test-suite
 
 on: [push]
 
 jobs:
-  release-tests:
+  release-tests-ubuntu:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
-    - name: Run release tests with all features
-      run: cargo test --release --all --all-features --exclude ef_tests
-  debug-tests:
+    - name: Install ganache-cli
+      run: npm install -g ganache-cli
+    - name: Run release tests
+      run: cargo test --release --all
+  debug-tests-ubuntu:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
-    - name: Run debug tests with all features
-      run: cargo test --all --all-features --exclude ef_tests
+    - name: Install ganache-cli
+      run: npm install -g ganache-cli
+    - name: Run debug tests & check formatting
+      run: cargo test --all
     - name: Check formatting with cargo fmt
       run: cargo fmt --all -- check
+  ef-tests-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Download test vectors
+      run: make make-ef-tests
+    - name: Run eth2.0-spec-tests without fake_crypto
+      run: cargo test --manifest-path tests/ef_tests/Cargo.toml --release --features ef_tests
+    - name: Run eth2.0-spec-tests with fake_crypto
+      run: cargo test --manifest-path tests/ef_tests/Cargo.toml --release --features ef_tests,fake_crypto
