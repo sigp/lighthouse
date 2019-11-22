@@ -1,15 +1,19 @@
-name: Rust
+name: Test Suite
 
 on: [push]
 
 jobs:
-  build:
-
+  release-tests:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v1
     - name: Run release tests with all features
       run: cargo test --release --all --all-features
+  debug-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Run debug tests with all features
+      run: cargo test --all --all-features
     - name: Check formatting with cargo fmt
-      run: cargo test --release --all --all-features
+      run: cargo test --all --all-features
