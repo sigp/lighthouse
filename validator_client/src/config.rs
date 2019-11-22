@@ -2,12 +2,11 @@ use bincode;
 use bls::Keypair;
 use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
-use slog::{error, info, o, warn, Drain};
-use std::fs::{self, File, OpenOptions};
+use slog::{error, warn};
+use std::fs::{self, File};
 use std::io::{Error, ErrorKind};
 use std::ops::Range;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use types::{
     test_utils::{generate_deterministic_keypair, load_keypairs_from_yaml},
     EthSpec, MainnetEthSpec,
@@ -94,52 +93,15 @@ impl Config {
     pub fn apply_cli_args(
         &mut self,
         args: &ArgMatches,
-        log: &mut slog::Logger,
+        _log: &slog::Logger,
     ) -> Result<(), &'static str> {
         if let Some(datadir) = args.value_of("datadir") {
             self.data_dir = PathBuf::from(datadir);
         };
 
-        if let Some(log_file) = args.value_of("logfile") {
-            self.log_file = PathBuf::from(log_file);
-            self.update_logger(log)?;
-        };
-
         if let Some(srv) = args.value_of("server") {
             self.server = srv.to_string();
         };
-
-        Ok(())
-    }
-
-    // Update the logger to output in JSON to specified file
-    fn update_logger(&mut self, log: &mut slog::Logger) -> Result<(), &'static str> {
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&self.log_file);
-
-        if file.is_err() {
-            return Err("Cannot open log file");
-        }
-        let file = file.unwrap();
-
-        if let Some(file) = self.log_file.to_str() {
-            info!(
-                *log,
-                "Log file specified, output will now be written to {} in json.", file
-            );
-        } else {
-            info!(
-                *log,
-                "Log file specified output will now be written in json"
-            );
-        }
-
-        let drain = Mutex::new(slog_json::Json::default(file)).fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-        *log = slog::Logger::root(drain, o!());
 
         Ok(())
     }
