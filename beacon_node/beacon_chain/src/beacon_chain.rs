@@ -1044,24 +1044,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Load the parent blocks state from the database, returning an error if it is not found.
         // It is an error because if we know the parent block we should also know the parent state.
-        println!(
-            "Process block: state root of parent block at slot {}: {:?}",
-            parent_block.slot.as_u64(),
-            parent_block.state_root
-        );
         let parent_state_root = parent_block.state_root;
         let parent_state = self
             .store
             .get_state(&parent_state_root, Some(parent_block.slot))?
             .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?;
-        println!(
-            "Process block: parent state latest block header state root: {:?}",
-            parent_state.latest_block_header.state_root
-        );
-        println!(
-            "Process block: parent state latest block header canonical root: {:?}",
-            parent_state.latest_block_header.canonical_root()
-        );
 
         metrics::stop_timer(db_read_timer);
 
@@ -1258,14 +1245,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             state.latest_block_header.canonical_root()
         };
-        println!(
-            "Produce block: latest block's state root: {:?}",
-            state.latest_block_header.state_root
-        );
-        println!(
-            "Produce block: latest block's canonical root: {:?}",
-            state.latest_block_header.canonical_root()
-        );
 
         let mut graffiti: [u8; 32] = [0; 32];
         graffiti.copy_from_slice(GRAFFITI.as_bytes());

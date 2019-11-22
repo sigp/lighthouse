@@ -676,7 +676,7 @@ mod test {
             );
 
             store
-                .put(
+                .put_state(
                     &state
                         .get_state_root(prev_state.slot)
                         .expect("should find state root"),
@@ -738,7 +738,7 @@ mod test {
             );
 
             store
-                .put(
+                .put_state(
                     &state
                         .get_state_root(Slot::new(0))
                         .expect("should find state root"),

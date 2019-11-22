@@ -12,12 +12,8 @@ use beacon_chain::{
     BlockProcessingOutcome,
 };
 use rand::Rng;
-<<<<<<< HEAD
 use std::sync::Arc;
 use store::{MemoryStore, Store};
-=======
-use store::Store;
->>>>>>> origin/v0.9
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use types::{Deposit, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 
@@ -29,18 +25,8 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-<<<<<<< HEAD
-type TestForkChoice = ThreadSafeReducedTree<MemoryStore, MinimalEthSpec>;
-
-fn get_harness(
-    validator_count: usize,
-) -> BeaconChainHarness<TestForkChoice, MinimalEthSpec, MemoryStore> {
-    let store = Arc::new(MemoryStore::open());
-    let harness = BeaconChainHarness::from_keypairs(KEYPAIRS[0..validator_count].to_vec(), store);
-=======
 fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::new(MinimalEthSpec, KEYPAIRS[0..validator_count].to_vec());
->>>>>>> origin/v0.9
 
     harness.advance_slot();
 
@@ -334,11 +320,7 @@ fn roundtrip_operation_pool() {
     harness.chain.persist().unwrap();
 
     let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
-<<<<<<< HEAD
-    let p: PersistedBeaconChain<CommonTypes<TestForkChoice, MinimalEthSpec, MemoryStore>> =
-=======
     let p: PersistedBeaconChain<HarnessType<MinimalEthSpec>> =
->>>>>>> origin/v0.9
         harness.chain.store.get(&key).unwrap().unwrap();
 
     let restored_op_pool = p

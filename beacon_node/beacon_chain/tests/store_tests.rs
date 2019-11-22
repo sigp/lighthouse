@@ -3,12 +3,16 @@
 #[macro_use]
 extern crate lazy_static;
 
+use beacon_chain::builder::Witness;
+use beacon_chain::eth1_chain::CachingEth1Backend;
+use beacon_chain::events::NullEventHandler;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use lmd_ghost::ThreadSafeReducedTree;
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
+use slot_clock::TestingSlotClock;
 use std::sync::Arc;
-use store::DiskStore;
+use store::{migrate::BlockingMigrator, DiskStore};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::test_utils::{SeedableRng, XorShiftRng};
@@ -23,8 +27,16 @@ lazy_static! {
 }
 
 type E = MinimalEthSpec;
-type TestForkChoice = ThreadSafeReducedTree<DiskStore, MinimalEthSpec>;
-type TestHarness = BeaconChainHarness<TestForkChoice, MinimalEthSpec, DiskStore>;
+type TestHarnessType = Witness<
+    DiskStore,
+    BlockingMigrator<DiskStore>,
+    TestingSlotClock,
+    ThreadSafeReducedTree<DiskStore, E>,
+    CachingEth1Backend<E, DiskStore>,
+    E,
+    NullEventHandler<E>,
+>;
+type TestHarness = BeaconChainHarness<TestHarnessType>;
 
 fn get_store(db_path: &TempDir) -> Arc<DiskStore> {
     let spec = MinimalEthSpec::default_spec();
@@ -35,7 +47,7 @@ fn get_store(db_path: &TempDir) -> Arc<DiskStore> {
 }
 
 fn get_harness(store: Arc<DiskStore>, validator_count: usize) -> TestHarness {
-    let harness = BeaconChainHarness::from_keypairs(KEYPAIRS[0..validator_count].to_vec(), store);
+    let harness = BeaconChainHarness::new(MinimalEthSpec, KEYPAIRS[0..validator_count].to_vec());
     harness.advance_slot();
     harness
 }

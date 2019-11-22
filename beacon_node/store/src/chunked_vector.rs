@@ -142,6 +142,7 @@ pub trait Field<E: EthSpec>: Copy {
         let chunk_size = Self::chunk_size();
         let mut new_chunk = Chunk::new(vec![Self::Value::default(); chunk_size]);
 
+        let mut inconsistent = false;
         for i in 0..chunk_size {
             let vindex = chunk_index * chunk_size + i;
             if vindex >= start_vindex && vindex < end_vindex {
@@ -150,11 +151,13 @@ pub trait Field<E: EthSpec>: Copy {
                 if let Some(existing_value) = existing_chunk.values.get(i) {
                     if *existing_value != vector_value && *existing_value != Self::Value::default()
                     {
-                        return Err(ChunkError::Inconsistent {
-                            field: Self::column(),
-                            chunk_index,
+                        if !inconsistent {
+                            println!(
+                                "INCONSISTENT: existing_chunk: {:#?}\nstate: {:#?}",
+                                existing_chunk.values, state
+                            );
+                            inconsistent = true;
                         }
-                        .into());
                     }
                 }
 
@@ -277,11 +280,12 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store>(
     if slot_needs_genesis_value::<F, _>(state.slot, spec) {
         let genesis_value = extract_genesis_value::<F, _>(state, spec)?;
         println!(
-            "from slot {}, storing genesis value {:?}",
+            "{:?}: from slot {}, storing genesis value {:?}",
+            F::column(),
             state.slot.as_u64(),
             genesis_value
         );
-        store_genesis_value::<F, _, _>(store, genesis_value)?;
+        check_and_store_genesis_value::<F, _, _>(store, genesis_value)?;
     }
 
     // Start by iterating backwards from the last chunk, storing new chunks in the database.
@@ -336,6 +340,14 @@ where
         let existing_chunk =
             Chunk::<F::Value>::load(store, F::column(), chunk_key)?.unwrap_or_else(Chunk::default);
 
+        println!(
+            "{:?}: get_updated_chunk at slot {}, cindex {}, {}..{}",
+            F::column(),
+            state.slot.as_u64(),
+            chunk_index,
+            start_vindex,
+            end_vindex
+        );
         let new_chunk = F::get_updated_chunk(
             &existing_chunk,
             chunk_index,
@@ -439,6 +451,21 @@ pub fn load_genesis_value<F: FixedLengthField<E>, E: EthSpec, S: Store>(
         .ok_or(ChunkError::MissingGenesisValue.into())
 }
 
+pub fn check_and_store_genesis_value<F: Field<E>, E: EthSpec, S: Store>(
+    store: &S,
+    value: F::Value,
+) -> Result<(), Error> {
+    let key = &genesis_value_key()[..];
+    if let Some(existing_chunk) = Chunk::<F::Value>::load(store, F::column(), key)? {
+        assert_eq!(existing_chunk.values.len(), 1);
+        assert_eq!(existing_chunk.values[0], value);
+        println!("Genesis value OK");
+        Ok(())
+    } else {
+        store_genesis_value::<F, E, S>(store, value)
+    }
+}
+
 pub fn store_genesis_value<F: Field<E>, E: EthSpec, S: Store>(
     store: &S,
     value: F::Value,
@@ -448,21 +475,33 @@ pub fn store_genesis_value<F: Field<E>, E: EthSpec, S: Store>(
 }
 
 fn slot_needs_genesis_value<F: Field<E>, E: EthSpec>(slot: Slot, spec: &ChainSpec) -> bool {
-    // If the end_vindex is less than the length of the vector, then the vector
-    // has not yet been completely filled with non-genesis values, and so the genesis
-    // value is still required.
     let (_, end_vindex) = F::start_and_end_vindex(slot, spec);
-    F::is_fixed_length() && end_vindex < F::Length::to_usize()
+    match F::update_pattern(spec) {
+        OncePerNSlots { .. } => {
+            // If the end_vindex is less than the length of the vector, then the vector
+            // has not yet been completely filled with non-genesis values, and so the genesis
+            // value is still required.
+            F::is_fixed_length() && end_vindex < F::Length::to_usize()
+        }
+        // FIXME(sproul): randao hacks, generalise
+        OncePerEpoch { .. } => F::is_fixed_length() && end_vindex + 1 < F::Length::to_usize(),
+    }
 }
 
 fn extract_genesis_value<F: Field<E>, E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<F::Value, Error> {
-    // Genesis value is guaranteed to exist at `end_vindex`, as it won't yet have been updated
-    // (assuming `slot_needs_genesis_value` returned true).
     let (_, end_vindex) = F::start_and_end_vindex(state.slot, spec);
-    Ok(F::get_value(state, end_vindex as u64, spec)?)
+    match F::update_pattern(spec) {
+        OncePerNSlots { .. } => {
+            // Genesis value is guaranteed to exist at `end_vindex`, as it won't yet have been updated
+            // (assuming `slot_needs_genesis_value` returned true).
+            Ok(F::get_value(state, end_vindex as u64, spec)?)
+        }
+        // FIXME(sproul): randao hacks, generalise
+        OncePerEpoch { .. } => Ok(F::get_value(state, end_vindex as u64 + 1, spec)?),
+    }
 }
 
 pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store>(
@@ -483,7 +522,6 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store>(
     } else {
         F::Value::default()
     };
-    println!("load_vector_from_db: default = {:?}", default);
 
     let result = stitch(
         chunks,
@@ -557,6 +595,7 @@ where
     }
 
     pub fn store<S: Store>(&self, store: &S, column: DBColumn, key: &[u8]) -> Result<(), Error> {
+        println!("storing chunk for {:?} at key {}", column, key[7]);
         store.put_bytes(column.into(), key, &self.encode()?)?;
         Ok(())
     }
@@ -621,7 +660,9 @@ pub enum ChunkError {
 #[cfg(test)]
 mod test {
     use super::*;
+    use types::test_utils::TestingBeaconStateBuilder;
     use types::MainnetEthSpec as TestSpec;
+    use types::*;
 
     fn v(i: u64) -> Hash256 {
         Hash256::from_low_u64_be(i)
@@ -703,4 +744,22 @@ mod test {
         test_fixed_length(HistoricalRoots, false);
         test_fixed_length(RandaoMixes, true);
     }
+
+    fn test_state(validator_count: usize) -> (BeaconState<TestSpec>, Vec<KeyPair>, ChainSpec) {
+        let spec = TestSpec::default_spec();
+        let builder =
+            TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, &spec);
+        let (state, keypairs) = builder.build();
+        (state, keypairs, spec)
+    }
+
+    /*
+    #[test]
+    fn roundtrip_beacon_state() {
+        let num_validators = 8;
+        let (mut state, keypairs, spec) = test_state(num_validators);
+
+
+    }
+    */
 }

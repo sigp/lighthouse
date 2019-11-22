@@ -93,7 +93,7 @@ impl Store for HotColdDB {
         frozen_head_root: Hash256,
         frozen_head: &BeaconState<E>,
     ) -> Result<(), Error> {
-        info!(
+        crit!(
             store.log,
             "Freezer migration started";
             "slot" => frozen_head.slot
@@ -214,7 +214,7 @@ impl HotColdDB {
 
         let state: BeaconState<E> = partial_state.try_into()?;
 
-        println!("Loaded archive state for {:?}\n{:#?}", state_root, state);
+        // println!("Loaded archive state for {:?}\n{:#?}", state_root, state);
 
         // #[cfg(paranoid)]
         let db_state_root = state.canonical_root();

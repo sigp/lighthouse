@@ -574,7 +574,7 @@ mod test {
     use sloggers::{null::NullLoggerBuilder, Build};
     use ssz::Encode;
     use std::time::Duration;
-    use store::MemoryStore;
+    use store::{migrate::NullMigrator, MemoryStore};
     use types::{EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
@@ -603,6 +603,7 @@ mod test {
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(store.clone())
+            .store_migrator(NullMigrator)
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
