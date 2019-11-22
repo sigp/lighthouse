@@ -37,7 +37,7 @@ impl From<StoreError> for Error {
 }
 
 pub struct ThreadSafeReducedTree<T, E> {
-    core: RwLock<ReducedTree<T, E>>,
+    pub(self) core: RwLock<ReducedTree<T, E>>,
 }
 
 impl<T, E> fmt::Debug for ThreadSafeReducedTree<T, E> {
@@ -113,20 +113,24 @@ where
     }
 
     fn as_bytes(self) -> Vec<u8> {
-        let reduced_tree_ssz: ReducedTreeSsz = self.core.into_inner().into();
-        reduced_tree_ssz.as_ssz_bytes()
+        self.core.into_inner().as_bytes()
     }
 
     fn from_bytes(bytes: &[u8], store: Arc<T>) -> Self {
-        let reduced_tree_ssz = ReducedTreeSsz::from_ssz_bytes(bytes).unwrap();
         ThreadSafeReducedTree {
-            core: RwLock::new(reduced_tree_ssz.to_reduced_tree(store)),
+            core: RwLock::new(ReducedTree::from_bytes(bytes, store)),
         }
     }
 }
 
+impl<T, E> From<ThreadSafeReducedTree<T, E>> for ReducedTreeSsz {
+    fn from(tree: ThreadSafeReducedTree<T, E>) -> Self {
+        tree.core.into_inner().into()
+    }
+}
+
 /// Intermediate representation of a `ReducedTree` `LmdGhost` fork choice.
-#[derive(Encode, Decode)]
+#[derive(Debug, PartialEq, Encode, Decode)]
 struct ReducedTreeSsz {
     pub node_hashes: Vec<Hash256>,
     pub nodes: Vec<Node>,
@@ -154,6 +158,22 @@ impl<T, E> From<ReducedTree<T, E>> for ReducedTreeSsz {
 }
 
 impl ReducedTreeSsz {
+    pub fn from_reduced_tree<T, E>(tree: &ReducedTree<T, E>) -> Self {
+        let mut node_hashes = vec![];
+        let mut nodes = vec![];
+        for (k, v) in tree.nodes.iter() {
+            node_hashes.push(k.clone());
+            nodes.push(v.clone());
+        }
+        ReducedTreeSsz {
+            node_hashes,
+            nodes,
+            latest_votes: tree.latest_votes.0.clone(),
+            root_hash: tree.root.0,
+            root_slot: tree.root.1,
+        }
+    }
+
     pub fn to_reduced_tree<T, E>(self, store: Arc<T>) -> ReducedTree<T, E> {
         let mut nodes = HashMap::new();
         for (k, v) in self.node_hashes.into_iter().zip(self.nodes.into_iter()) {
@@ -171,7 +191,7 @@ impl ReducedTreeSsz {
     }
 }
 
-struct ReducedTree<T, E> {
+pub(self) struct ReducedTree<T, E> {
     pub store: Arc<T>,
     /// Stores all nodes of the tree, keyed by the block hash contained in the node.
     pub nodes: HashMap<Hash256, Node>,
@@ -823,9 +843,19 @@ where
     fn root_slot(&self) -> Slot {
         self.root.1
     }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        let reduced_tree_ssz: ReducedTreeSsz = ReducedTreeSsz::from_reduced_tree(&self);
+        reduced_tree_ssz.as_ssz_bytes()
+    }
+
+    fn from_bytes(bytes: &[u8], store: Arc<T>) -> Self {
+        let reduced_tree_ssz = ReducedTreeSsz::from_ssz_bytes(bytes).unwrap();
+        reduced_tree_ssz.to_reduced_tree(store)
+    }
 }
 
-#[derive(Default, Clone, Debug, Encode, Decode)]
+#[derive(Default, Clone, Debug, PartialEq, Encode, Decode)]
 pub struct Node {
     /// Hash of the parent node in the reduced tree (not necessarily parent block).
     pub parent_hash: Option<Hash256>,
@@ -835,7 +865,7 @@ pub struct Node {
     pub voters: Vec<usize>,
 }
 
-#[derive(Default, Clone, Debug, Encode, Decode)]
+#[derive(Default, Clone, Debug, PartialEq, Encode, Decode)]
 pub struct ChildLink {
     /// Hash of the child block (may not be a direct descendant).
     pub hash: Hash256,
@@ -886,7 +916,7 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Encode, Decode)]
 pub struct Vote {
     hash: Hash256,
     slot: Slot,
@@ -927,5 +957,29 @@ where
 impl From<Error> for String {
     fn from(e: Error) -> String {
         format!("{:?}", e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use store::MemoryStore;
+    use types::eth_spec::MinimalEthSpec;
+
+    #[test]
+    fn test_reduced_tree_ssz() {
+        let store = Arc::new(MemoryStore::open());
+        let tree = ReducedTree::<MemoryStore, MinimalEthSpec>::new(
+            store.clone(),
+            &BeaconBlock::empty(&MinimalEthSpec::default_spec()),
+            Hash256::zero(),
+        );
+        let ssz_tree = ReducedTreeSsz::from_reduced_tree(&tree);
+        let bytes = tree.as_bytes();
+        let recovered_tree =
+            ReducedTree::<MemoryStore, MinimalEthSpec>::from_bytes(&bytes, store.clone());
+
+        let recovered_ssz = ReducedTreeSsz::from_reduced_tree(&recovered_tree);
+        assert_eq!(ssz_tree, recovered_ssz);
     }
 }
