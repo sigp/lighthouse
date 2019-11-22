@@ -220,31 +220,30 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesService<T, E> {
             )
         };
 
-        info!(
-            log,
-            "Waiting for next slot";
-            "seconds_to_wait" => duration_to_next_slot.as_secs()
-        );
-
         let (exit_signal, exit_fut) = exit_future::signal();
         let service = self.clone();
+        let log_1 = log.clone();
+        let log_2 = log.clone();
 
         // Run an immediate update before starting the updater service.
         self.context.executor.spawn(service.clone().do_update());
 
         self.context.executor.spawn(
-            interval
-                .map_err(move |e| {
-                    error! {
-                        log,
-                        "Timer thread failed";
-                        "error" => format!("{}", e)
-                    }
-                })
-                .and_then(move |_| if exit_fut.is_live() { Ok(()) } else { Err(()) })
-                .for_each(move |_| service.clone().do_update())
-                // Prevent any errors from escaping and stopping the interval.
-                .then(|_| Ok(())),
+            exit_fut
+                .until(
+                    interval
+                        .map_err(move |e| {
+                            error! {
+                                log_1,
+                                "Timer thread failed";
+                                "error" => format!("{}", e)
+                            }
+                        })
+                        .for_each(move |_| service.clone().do_update())
+                        // Prevent any errors from escaping and stopping the interval.
+                        .then(|_| Ok(())),
+                )
+                .map(move |_| info!(log_2, "Shutdown complete")),
         );
 
         Ok(exit_signal)
