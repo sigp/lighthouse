@@ -8,7 +8,7 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Install ganache-cli
-      run: npm install -g ganache-cli
+      run: sudo npm install -g ganache-cli
     - name: Run release tests
       run: cargo test --release --all
   debug-tests-ubuntu:
@@ -16,7 +16,7 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Install ganache-cli
-      run: npm install -g ganache-cli
+      run: sudo npm install -g ganache-cli
     - name: Run debug tests & check formatting
       run: cargo test --all
     - name: Check formatting with cargo fmt
