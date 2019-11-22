@@ -29,43 +29,42 @@ pub struct DutiesStore {
 }
 
 impl DutiesStore {
-    fn block_producers(&self, slot: Slot) -> Vec<PublicKey> {
+    fn block_producers(&self, slot: Slot, slots_per_epoch: u64) -> Vec<PublicKey> {
         self.store
             .read()
             .iter()
             // As long as a `HashMap` iterator does not return duplicate keys, neither will this
             // function.
-            .filter(|(_validator_pubkey, validator_map)| {
-                // TODO: it would be more efficient to call the `validator_map` by key (epoch)
-                // instead of searching for slots.
-                validator_map.iter().any(|(_epoch, duties)| {
-                    duties
-                        .block_proposal_slot
-                        .map(|proposal_slot| proposal_slot == slot)
-                        .unwrap_or_else(|| false)
+            .filter_map(|(_validator_pubkey, validator_map)| {
+                let epoch = slot.epoch(slots_per_epoch);
+
+                validator_map.get(&epoch).and_then(|duties| {
+                    if duties.block_proposal_slot == Some(slot) {
+                        Some(duties.validator_pubkey.clone())
+                    } else {
+                        None
+                    }
                 })
             })
-            .map(|(validator_pubkey, _validator_map)| validator_pubkey)
-            .cloned()
             .collect()
     }
 
-    fn attesters(&self, slot: Slot) -> Vec<ValidatorDuty> {
+    fn attesters(&self, slot: Slot, slots_per_epoch: u64) -> Vec<ValidatorDuty> {
         self.store
             .read()
             .iter()
+            // As long as a `HashMap` iterator does not return duplicate keys, neither will this
+            // function.
             .filter_map(|(_validator_pubkey, validator_map)| {
-                validator_map
-                    // TODO: it would be more efficient to call the `validator_map` by key (epoch)
-                    // instead of searching for slots.
-                    .iter()
-                    .find(|(_epoch, duties)| {
-                        duties
-                            .attestation_slot
-                            .map(|s| s == slot)
-                            .unwrap_or_else(|| false)
-                    })
-                    .map(|(_epoch, duties)| duties)
+                let epoch = slot.epoch(slots_per_epoch);
+
+                validator_map.get(&epoch).and_then(|duties| {
+                    if duties.attestation_slot == Some(slot) {
+                        Some(duties)
+                    } else {
+                        None
+                    }
+                })
             })
             .cloned()
             .collect()
@@ -197,12 +196,12 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesService<T, E> {
     /// It is possible that multiple validators have an identical proposal slot, however that is
     /// likely the result of heavy forking (lol) or inconsistent beacon node connections.
     pub fn block_producers(&self, slot: Slot) -> Vec<PublicKey> {
-        self.store.block_producers(slot)
+        self.store.block_producers(slot, E::slots_per_epoch())
     }
 
     /// Returns all `ValidatorDuty` for the given `slot`.
     pub fn attesters(&self, slot: Slot) -> Vec<ValidatorDuty> {
-        self.store.attesters(slot)
+        self.store.attesters(slot, E::slots_per_epoch())
     }
 
     pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
@@ -243,7 +242,9 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesService<T, E> {
                     }
                 })
                 .and_then(move |_| if exit_fut.is_live() { Ok(()) } else { Err(()) })
-                .for_each(move |_| service.clone().do_update()),
+                .for_each(move |_| service.clone().do_update())
+                // Prevent any errors from escaping and stopping the interval.
+                .then(|_| Ok(())),
         );
 
         Ok(exit_signal)
@@ -284,9 +285,6 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesService<T, E> {
                 })
             })
             .map(|_| ())
-            // Returning an error will stop the interval. This is not desired, a single failure
-            // should not stop all future attempts.
-            .then(|_| Ok(()))
     }
 
     fn update_epoch(self, epoch: Epoch) -> impl Future<Item = (), Error = String> {

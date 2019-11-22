@@ -11,6 +11,7 @@ pub mod validator_directory;
 pub use cli::cli_app;
 pub use config::Config;
 
+use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
 use config::{Config as ClientConfig, KeySource};
@@ -38,6 +39,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     duties_service: DutiesService<SystemTimeSlotClock, T>,
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
+    attestation_service: AttestationService<SystemTimeSlotClock, T>,
     exit_signals: Arc<RwLock<Vec<Signal>>>,
 }
 
@@ -160,10 +162,19 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             let block_service = BlockServiceBuilder::new()
                 .duties_service(duties_service.clone())
                 .fork_service(fork_service.clone())
+                .slot_clock(slot_clock.clone())
+                .validator_store(validator_store.clone())
+                .beacon_node(beacon_node.clone())
+                .runtime_context(context.service_context("block"))
+                .build()?;
+
+            let attestation_service = AttestationServiceBuilder::new()
+                .duties_service(duties_service.clone())
+                .fork_service(fork_service.clone())
                 .slot_clock(slot_clock)
                 .validator_store(validator_store)
                 .beacon_node(beacon_node)
-                .runtime_context(context.service_context("block"))
+                .runtime_context(context.service_context("attestation"))
                 .build()?;
 
             Ok(Self {
@@ -171,6 +182,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 duties_service,
                 fork_service,
                 block_service,
+                attestation_service,
                 exit_signals: Arc::new(RwLock::new(vec![])),
             })
         })
@@ -197,6 +209,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .map_err(|e| format!("Unable to start block service: {}", e))?;
 
         self.exit_signals.write().push(block_exit);
+
+        let attestation_exit = self
+            .attestation_service
+            .start_update_service(&self.context.eth2_config.spec)
+            .map_err(|e| format!("Unable to start attestation service: {}", e))?;
+
+        self.exit_signals.write().push(attestation_exit);
 
         Ok(())
     }

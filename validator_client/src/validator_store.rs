@@ -8,12 +8,15 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tree_hash::{SignedRoot, TreeHash};
-use types::{BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature};
+use types::{
+    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
+};
 
 #[derive(Clone)]
 pub struct ValidatorStore<E> {
     validators: Arc<RwLock<HashMap<PublicKey, ValidatorDirectory>>>,
     spec: Arc<ChainSpec>,
+    log: Logger,
     _phantom: PhantomData<E>,
 }
 
@@ -51,6 +54,7 @@ impl<E: EthSpec> ValidatorStore<E> {
         Ok(Self {
             validators: Arc::new(RwLock::new(HashMap::from_iter(validator_iter))),
             spec: Arc::new(spec),
+            log,
             _phantom: PhantomData,
         })
     }
@@ -104,6 +108,42 @@ impl<E: EthSpec> ValidatorStore<E> {
                     block.signature = Signature::new(&message, domain, &voting_keypair.sk);
                     block
                 })
+            })
+    }
+
+    pub fn sign_attestation(
+        &self,
+        validator_pubkey: &PublicKey,
+        validator_committee_position: usize,
+        mut attestation: Attestation<E>,
+        fork: &Fork,
+    ) -> Option<Attestation<E>> {
+        // TODO: check for slashing.
+        self.validators
+            .read()
+            .get(validator_pubkey)
+            .and_then(|validator_dir| {
+                validator_dir
+                    .voting_keypair
+                    .as_ref()
+                    .and_then(|voting_keypair| {
+                        attestation
+                            .sign(
+                                &voting_keypair.sk,
+                                validator_committee_position,
+                                fork,
+                                &self.spec,
+                            )
+                            .map_err(|e| {
+                                error!(
+                                    self.log,
+                                    "Error whilst signing attestation";
+                                    "error" => format!("{:?}", e)
+                                )
+                            })
+                            .map(|()| attestation)
+                            .ok()
+                    })
             })
     }
 }

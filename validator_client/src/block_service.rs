@@ -5,7 +5,7 @@ use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{stream, Future, IntoFuture, Stream};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
-use slog::{error, info, trace, warn};
+use slog::{error, info};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -139,7 +139,9 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockService<T, E> {
                     }
                 })
                 .and_then(move |_| if exit_fut.is_live() { Ok(()) } else { Err(()) })
-                .for_each(move |_| service.clone().do_update()),
+                .for_each(move |_| service.clone().do_update())
+                // Prevent any errors from escaping and stopping the interval.
+                .then(|_| Ok(())),
         );
 
         Ok(exit_signal)
@@ -207,7 +209,8 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockService<T, E> {
                                     .beacon_node
                                     .http
                                     .validator()
-                                    .publish_block(block)
+                                    .publish_block(block.clone())
+                                    .map(|publish_status| (block, publish_status))
                                     .map_err(|e| {
                                         format!(
                                             "Error from beacon node when publishing block: {:?}",
@@ -215,14 +218,19 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockService<T, E> {
                                         )
                                     })
                             })
-                            .map(move |publish_outcome| match publish_outcome {
-                                PublishStatus::Valid => {
-                                    info!(log_1, "Successfully published block")
-                                }
+                            .map(move |(block, publish_status)| match publish_status {
+                                PublishStatus::Valid => info!(
+                                    log_1,
+                                    "Successfully published block";
+                                    "deposits" => block.body.deposits.len(),
+                                    "attestations" => block.body.attestations.len(),
+                                    "slot" => block.slot.as_u64(),
+                                ),
                                 PublishStatus::Invalid(msg) => error!(
                                     log_1,
                                     "Published block was invalid";
-                                    "message" => msg
+                                    "message" => msg,
+                                    "slot" => block.slot.as_u64(),
                                 ),
                                 PublishStatus::Unknown => {
                                     info!(log_1, "Unknown condition when publishing block")

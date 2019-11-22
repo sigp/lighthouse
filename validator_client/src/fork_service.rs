@@ -125,7 +125,9 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> ForkService<T, E> {
                     }
                 })
                 .and_then(move |_| if exit_fut.is_live() { Ok(()) } else { Err(()) })
-                .for_each(move |_| service.clone().do_update()),
+                .for_each(move |_| service.clone().do_update())
+                // Prevent any errors from escaping and stopping the interval.
+                .then(|_| Ok(())),
         );
 
         Ok(exit_signal)
