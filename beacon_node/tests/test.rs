@@ -22,7 +22,7 @@ fn http_server_genesis_state() {
 
     let (api_state, _root) = env
         .runtime()
-        .block_on(remote_node.http.beacon().state_by_slot(Slot::new(0)))
+        .block_on(remote_node.http.beacon().get_state_by_slot(Slot::new(0)))
         .expect("should fetch state from http api");
 
     let mut db_state = node
