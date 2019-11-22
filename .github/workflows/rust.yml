@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Check formatting with cargo fmt
       run: cargo fmt --all -- --check
   release-tests-ubuntu:
