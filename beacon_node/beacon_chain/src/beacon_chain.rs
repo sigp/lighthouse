@@ -239,7 +239,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_block(&block_root)?
             .ok_or_else(|| Error::MissingBeaconBlock(block_root))?;
         let state = self
-            .get_state(&block.state_root)?
+            .store
+            .get_state(&block.state_root, Some(block.slot))?
             .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
         let iter = BlockRootsIterator::owned(self.store.clone(), state);
         Ok(ReverseBlockRootIterator::new(
@@ -288,19 +289,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
     ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
         Ok(self.store.get(block_root)?)
-    }
-
-    /// Returns the state at the given root, if any.
-    ///
-    /// ## Errors
-    ///
-    /// May return a database error.
-    // FIXME(sproul): consider deleting
-    pub fn get_state(
-        &self,
-        state_root: &Hash256,
-    ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
-        Ok(self.store.get_state(state_root, None)?)
     }
 
     /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";

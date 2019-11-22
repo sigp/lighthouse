@@ -14,11 +14,10 @@
 //!   of the vector being stored.
 //! * **Chunk index** (cindex): index into the keyspace of the on-disk database, identifying a chunk
 //!   of elements. To find the chunk index of a vector index: `cindex = vindex / chunk_size`.
+use self::UpdatePattern::*;
 use crate::*;
 use ssz::{Decode, Encode};
 use typenum::Unsigned;
-
-use self::{EpochOffset::*, UpdatePattern::*};
 
 /// Description of how a `BeaconState` field is updated during state processing.
 ///
@@ -28,23 +27,8 @@ use self::{EpochOffset::*, UpdatePattern::*};
 pub enum UpdatePattern {
     /// The value is updated once per `n` slots.
     OncePerNSlots { n: u64 },
-    /// The value is updated once per epoch, for the epoch `current_epoch +- offset`.
-    OncePerEpoch { offset: EpochOffset },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EpochOffset {
-    Lookahead(u64),
-    Lag(u64),
-}
-
-impl EpochOffset {
-    fn lookahead_and_lag(self) -> (u64, u64) {
-        match self {
-            Lookahead(n) => (n, 0),
-            Lag(n) => (0, n),
-        }
-    }
+    /// The value is updated once per epoch, for the epoch `current_epoch - lag`.
+    OncePerEpoch { lag: u64 },
 }
 
 /// Map a chunk index to bytes that can be used to key the NoSQL database.
@@ -118,12 +102,11 @@ pub trait Field<E: EthSpec>: Copy {
                 let start_vindex = end_vindex - Self::Length::to_u64();
                 (start_vindex.as_usize(), end_vindex.as_usize())
             }
-            OncePerEpoch { offset } => {
+            OncePerEpoch { lag } => {
                 // Per-epoch changes include the index for the current epoch, because it
                 // will have been set at the most recent epoch boundary.
-                let (lookahead, lag) = offset.lookahead_and_lag();
                 let current_epoch = current_slot.epoch(E::slots_per_epoch());
-                let end_epoch = current_epoch + 1 + lookahead - lag;
+                let end_epoch = current_epoch + 1 - lag;
                 let start_epoch = end_epoch + lag - Self::Length::to_u64();
                 (start_epoch.as_usize(), end_epoch.as_usize())
             }
@@ -142,7 +125,6 @@ pub trait Field<E: EthSpec>: Copy {
         let chunk_size = Self::chunk_size();
         let mut new_chunk = Chunk::new(vec![Self::Value::default(); chunk_size]);
 
-        let mut inconsistent = false;
         for i in 0..chunk_size {
             let vindex = chunk_index * chunk_size + i;
             if vindex >= start_vindex && vindex < end_vindex {
@@ -151,13 +133,13 @@ pub trait Field<E: EthSpec>: Copy {
                 if let Some(existing_value) = existing_chunk.values.get(i) {
                     if *existing_value != vector_value && *existing_value != Self::Value::default()
                     {
-                        if !inconsistent {
-                            println!(
-                                "INCONSISTENT: existing_chunk: {:#?}\nstate: {:#?}",
-                                existing_chunk.values, state
-                            );
-                            inconsistent = true;
+                        return Err(ChunkError::Inconsistent {
+                            field: Self::column(),
+                            chunk_index,
+                            existing_value: format!("{:?}", existing_value),
+                            new_value: format!("{:?}", vector_value),
                         }
+                        .into());
                     }
                 }
 
@@ -172,6 +154,86 @@ pub trait Field<E: EthSpec>: Copy {
         }
 
         Ok(new_chunk)
+    }
+
+    /// Determine whether a state at `slot` possesses (or requires) the genesis value.
+    fn slot_needs_genesis_value(slot: Slot, spec: &ChainSpec) -> bool {
+        let (_, end_vindex) = Self::start_and_end_vindex(slot, spec);
+        match Self::update_pattern(spec) {
+            // If the end_vindex is less than the length of the vector, then the vector
+            // has not yet been completely filled with non-genesis values, and so the genesis
+            // value is still required.
+            OncePerNSlots { .. } => {
+                Self::is_fixed_length() && end_vindex < Self::Length::to_usize()
+            }
+            // If the field has lag, then it takes an extra `lag` vindices beyond the
+            // `end_vindex` before the vector has been filled with non-genesis values.
+            OncePerEpoch { lag } => {
+                Self::is_fixed_length() && end_vindex + (lag as usize) < Self::Length::to_usize()
+            }
+        }
+    }
+
+    /// Load the genesis value for a fixed length field from the store.
+    ///
+    /// This genesis value should be used to fill the initial state of the vector.
+    fn load_genesis_value<S: Store>(store: &S) -> Result<Self::Value, Error> {
+        let key = &genesis_value_key()[..];
+        let chunk =
+            Chunk::load(store, Self::column(), key)?.ok_or(ChunkError::MissingGenesisValue)?;
+        chunk
+            .values
+            .first()
+            .cloned()
+            .ok_or(ChunkError::MissingGenesisValue.into())
+    }
+
+    /// Store the given `value` as the genesis value for this field, unless stored already.
+    ///
+    /// Check the existing value (if any) for consistency with the value we intend to store, and
+    /// return an error if they are inconsistent.
+    fn check_and_store_genesis_value<S: Store>(store: &S, value: Self::Value) -> Result<(), Error> {
+        let key = &genesis_value_key()[..];
+
+        if let Some(existing_chunk) = Chunk::<Self::Value>::load(store, Self::column(), key)? {
+            if existing_chunk.values.len() != 1 {
+                Err(ChunkError::InvalidGenesisChunk {
+                    field: Self::column(),
+                    expected_len: 1,
+                    observed_len: existing_chunk.values.len(),
+                }
+                .into())
+            } else if existing_chunk.values[0] != value {
+                Err(ChunkError::InconsistentGenesisValue {
+                    field: Self::column(),
+                    existing_value: format!("{:?}", existing_chunk.values[0]),
+                    new_value: format!("{:?}", value),
+                }
+                .into())
+            } else {
+                Ok(())
+            }
+        } else {
+            Chunk::new(vec![value]).store(store, Self::column(), &genesis_value_key()[..])
+        }
+    }
+
+    /// Extract the genesis value for a fixed length field from an
+    ///
+    /// Will only return a correct value if `slot_needs_genesis_value(state.slot, spec) == true`.
+    fn extract_genesis_value(
+        state: &BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> Result<Self::Value, Error> {
+        let (_, end_vindex) = Self::start_and_end_vindex(state.slot, spec);
+        match Self::update_pattern(spec) {
+            // Genesis value is guaranteed to exist at `end_vindex`, as it won't yet have been
+            // updated
+            OncePerNSlots { .. } => Ok(Self::get_value(state, end_vindex as u64, spec)?),
+            // If there's lag, the value of the field at the vindex *without the lag*
+            // should still be set to the genesis value.
+            OncePerEpoch { lag } => Ok(Self::get_value(state, end_vindex as u64 + lag, spec)?),
+        }
     }
 }
 
@@ -260,7 +322,7 @@ field!(
     Hash256,
     T::EpochsPerHistoricalVector,
     DBColumn::BeaconRandaoMixes,
-    |_| OncePerEpoch { offset: Lag(1) },
+    |_| OncePerEpoch { lag: 1 },
     |state: &BeaconState<_>, index, _| state.randao_mixes
         [index as usize % state.randao_mixes.len()]
 );
@@ -277,15 +339,9 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store>(
     let end_cindex = end_vindex / chunk_size;
 
     // Store the genesis value if we have access to it, and it hasn't been stored already.
-    if slot_needs_genesis_value::<F, _>(state.slot, spec) {
-        let genesis_value = extract_genesis_value::<F, _>(state, spec)?;
-        println!(
-            "{:?}: from slot {}, storing genesis value {:?}",
-            F::column(),
-            state.slot.as_u64(),
-            genesis_value
-        );
-        check_and_store_genesis_value::<F, _, _>(store, genesis_value)?;
+    if F::slot_needs_genesis_value(state.slot, spec) {
+        let genesis_value = F::extract_genesis_value(state, spec)?;
+        F::check_and_store_genesis_value(store, genesis_value)?;
     }
 
     // Start by iterating backwards from the last chunk, storing new chunks in the database.
@@ -340,14 +396,6 @@ where
         let existing_chunk =
             Chunk::<F::Value>::load(store, F::column(), chunk_key)?.unwrap_or_else(Chunk::default);
 
-        println!(
-            "{:?}: get_updated_chunk at slot {}, cindex {}, {}..{}",
-            F::column(),
-            state.slot.as_u64(),
-            chunk_index,
-            start_vindex,
-            end_vindex
-        );
         let new_chunk = F::get_updated_chunk(
             &existing_chunk,
             chunk_index,
@@ -434,76 +482,6 @@ fn stitch<T: Default + Clone>(
     Ok(result)
 }
 
-/// Load the genesis value for a fixed length field from the 0th chunk in the store.
-///
-/// This genesis value should be used to fill the initial state of the vector.
-// FIXME(sproul): for middle-out sync we will have to ensure the genesis value is stored
-// ahead-of-time.
-pub fn load_genesis_value<F: FixedLengthField<E>, E: EthSpec, S: Store>(
-    store: &S,
-) -> Result<F::Value, Error> {
-    let key = &genesis_value_key()[..];
-    let chunk = Chunk::load(store, F::column(), key)?.ok_or(ChunkError::MissingGenesisValue)?;
-    chunk
-        .values
-        .first()
-        .cloned()
-        .ok_or(ChunkError::MissingGenesisValue.into())
-}
-
-pub fn check_and_store_genesis_value<F: Field<E>, E: EthSpec, S: Store>(
-    store: &S,
-    value: F::Value,
-) -> Result<(), Error> {
-    let key = &genesis_value_key()[..];
-    if let Some(existing_chunk) = Chunk::<F::Value>::load(store, F::column(), key)? {
-        assert_eq!(existing_chunk.values.len(), 1);
-        assert_eq!(existing_chunk.values[0], value);
-        println!("Genesis value OK");
-        Ok(())
-    } else {
-        store_genesis_value::<F, E, S>(store, value)
-    }
-}
-
-pub fn store_genesis_value<F: Field<E>, E: EthSpec, S: Store>(
-    store: &S,
-    value: F::Value,
-) -> Result<(), Error> {
-    let chunk = Chunk::new(vec![value]);
-    chunk.store(store, F::column(), &genesis_value_key()[..])
-}
-
-fn slot_needs_genesis_value<F: Field<E>, E: EthSpec>(slot: Slot, spec: &ChainSpec) -> bool {
-    let (_, end_vindex) = F::start_and_end_vindex(slot, spec);
-    match F::update_pattern(spec) {
-        OncePerNSlots { .. } => {
-            // If the end_vindex is less than the length of the vector, then the vector
-            // has not yet been completely filled with non-genesis values, and so the genesis
-            // value is still required.
-            F::is_fixed_length() && end_vindex < F::Length::to_usize()
-        }
-        // FIXME(sproul): randao hacks, generalise
-        OncePerEpoch { .. } => F::is_fixed_length() && end_vindex + 1 < F::Length::to_usize(),
-    }
-}
-
-fn extract_genesis_value<F: Field<E>, E: EthSpec>(
-    state: &BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<F::Value, Error> {
-    let (_, end_vindex) = F::start_and_end_vindex(state.slot, spec);
-    match F::update_pattern(spec) {
-        OncePerNSlots { .. } => {
-            // Genesis value is guaranteed to exist at `end_vindex`, as it won't yet have been updated
-            // (assuming `slot_needs_genesis_value` returned true).
-            Ok(F::get_value(state, end_vindex as u64, spec)?)
-        }
-        // FIXME(sproul): randao hacks, generalise
-        OncePerEpoch { .. } => Ok(F::get_value(state, end_vindex as u64 + 1, spec)?),
-    }
-}
-
 pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store>(
     store: &S,
     slot: Slot,
@@ -517,8 +495,8 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store>(
 
     let chunks = range_query(store, F::column(), start_cindex, end_cindex)?;
 
-    let default = if slot_needs_genesis_value::<F, _>(slot, spec) {
-        load_genesis_value::<F, _, _>(store)?
+    let default = if F::slot_needs_genesis_value(slot, spec) {
+        F::load_genesis_value(store)?
     } else {
         F::Value::default()
     };
@@ -595,7 +573,6 @@ where
     }
 
     pub fn store<S: Store>(&self, store: &S, column: DBColumn, key: &[u8]) -> Result<(), Error> {
-        println!("storing chunk for {:?} at key {}", column, key[7]);
         store.put_bytes(column.into(), key, &self.encode()?)?;
         Ok(())
     }
@@ -648,6 +625,18 @@ pub enum ChunkError {
     Inconsistent {
         field: DBColumn,
         chunk_index: usize,
+        existing_value: String,
+        new_value: String,
+    },
+    InconsistentGenesisValue {
+        field: DBColumn,
+        existing_value: String,
+        new_value: String,
+    },
+    InvalidGenesisChunk {
+        field: DBColumn,
+        expected_len: usize,
+        observed_len: usize,
     },
     InvalidType,
     OversizedRange {
@@ -660,7 +649,6 @@ pub enum ChunkError {
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::test_utils::TestingBeaconStateBuilder;
     use types::MainnetEthSpec as TestSpec;
     use types::*;
 
@@ -745,21 +733,52 @@ mod test {
         test_fixed_length(RandaoMixes, true);
     }
 
-    fn test_state(validator_count: usize) -> (BeaconState<TestSpec>, Vec<KeyPair>, ChainSpec) {
-        let spec = TestSpec::default_spec();
-        let builder =
-            TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, &spec);
-        let (state, keypairs) = builder.build();
-        (state, keypairs, spec)
+    fn needs_genesis_value_once_per_slot<F: Field<TestSpec>>(_: F) {
+        let spec = &TestSpec::default_spec();
+        let max = F::Length::to_u64();
+        for i in 0..max {
+            assert!(
+                F::slot_needs_genesis_value(Slot::new(i), spec),
+                "slot {}",
+                i
+            );
+        }
+        assert!(!F::slot_needs_genesis_value(Slot::new(max), spec));
     }
 
-    /*
     #[test]
-    fn roundtrip_beacon_state() {
-        let num_validators = 8;
-        let (mut state, keypairs, spec) = test_state(num_validators);
-
-
+    fn needs_genesis_value_block_roots() {
+        needs_genesis_value_once_per_slot(BlockRoots);
     }
-    */
+
+    #[test]
+    fn needs_genesis_value_state_roots() {
+        needs_genesis_value_once_per_slot(StateRoots);
+    }
+
+    #[test]
+    fn needs_genesis_value_historical_roots() {
+        let spec = &TestSpec::default_spec();
+        assert!(
+            !<HistoricalRoots as Field<TestSpec>>::slot_needs_genesis_value(Slot::new(0), spec)
+        );
+    }
+
+    fn needs_genesis_value_test_randao<F: Field<TestSpec>>(_: F) {
+        let spec = &TestSpec::default_spec();
+        let max = TestSpec::slots_per_epoch() as u64 * (F::Length::to_u64() - 1);
+        for i in 0..max {
+            assert!(
+                F::slot_needs_genesis_value(Slot::new(i), spec),
+                "slot {}",
+                i
+            );
+        }
+        assert!(!F::slot_needs_genesis_value(Slot::new(max), spec));
+    }
+
+    #[test]
+    fn needs_genesis_value_randao() {
+        needs_genesis_value_test_randao(RandaoMixes);
+    }
 }

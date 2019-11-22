@@ -214,8 +214,7 @@ impl HotColdDB {
 
         let state: BeaconState<E> = partial_state.try_into()?;
 
-        // println!("Loaded archive state for {:?}\n{:#?}", state_root, state);
-
+        // FIXME(sproul): feature = paranoid
         // #[cfg(paranoid)]
         let db_state_root = state.canonical_root();
         if &db_state_root != state_root {

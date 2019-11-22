@@ -119,8 +119,6 @@ pub enum DBColumn {
     BeaconStateRoots,
     BeaconHistoricalRoots,
     BeaconRandaoMixes,
-    BeaconActiveIndexRoots,
-    BeaconCompactCommitteesRoots,
 }
 
 impl Into<&'static str> for DBColumn {
@@ -134,8 +132,6 @@ impl Into<&'static str> for DBColumn {
             DBColumn::BeaconStateRoots => "bsr",
             DBColumn::BeaconHistoricalRoots => "bhr",
             DBColumn::BeaconRandaoMixes => "brm",
-            DBColumn::BeaconActiveIndexRoots => "bai",
-            DBColumn::BeaconCompactCommitteesRoots => "bcc",
         }
     }
 }

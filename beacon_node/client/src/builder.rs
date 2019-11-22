@@ -657,7 +657,6 @@ where
     }
 }
 
-// FIXME(sproul): remove hardcoding of null migrator
 impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
@@ -678,9 +677,12 @@ where
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Specifies that the `Client` should use a `MemoryStore` database.
+    ///
+    /// Also sets the `store_migrator` to the `NullMigrator`, as that's the only viable choice.
     pub fn memory_store(mut self) -> Self {
         let store = MemoryStore::open();
         self.store = Some(Arc::new(store));
+        self.store_migrator = Some(NullMigrator);
         self
     }
 }
