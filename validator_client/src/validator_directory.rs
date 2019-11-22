@@ -22,6 +22,11 @@ fn keypair_file(prefix: &str) -> String {
     format!("{}_keypair", prefix)
 }
 
+/// Returns the name of the folder to be generated for a validator with the given voting key.
+fn dir_name(voting_pubkey: &PublicKey) -> String {
+    format!("0x{}", hex::encode(voting_pubkey.as_ssz_bytes()))
+}
+
 /// Represents the files/objects for each dedicated lighthouse validator directory.
 ///
 /// Generally lives in `~/.lighthouse/validators/`.
@@ -176,7 +181,7 @@ impl ValidatorDirectoryBuilder {
             .as_ref()
             .ok_or_else(|| "directory requires a voting_keypair")?;
 
-        let directory = base_path.join(voting_keypair.identifier());
+        let directory = base_path.join(dir_name(&voting_keypair.pk));
 
         if directory.exists() {
             return Err(format!(
