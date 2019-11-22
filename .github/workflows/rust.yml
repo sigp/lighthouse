@@ -1,0 +1,15 @@
+name: Rust
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Run release tests with all features
+      run: cargo test --release --all --all-features
+    - name: Check formatting with cargo fmt
+      run: cargo test --release --all --all-features
