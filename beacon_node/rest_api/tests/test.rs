@@ -12,6 +12,7 @@ use types::{
     test_utils::generate_deterministic_keypair, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec,
     MinimalEthSpec, PublicKey, RelativeEpoch, Signature, Slot,
 };
+use version;
 
 type E = MinimalEthSpec;
 
@@ -558,4 +559,19 @@ fn eth2_config() {
         eth2_config.spec,
         "should match genesis time from head state"
     );
+}
+
+#[test]
+fn get_version() {
+    let mut env = build_env();
+
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let version = env
+        .runtime()
+        .block_on(remote_node.http.node().get_version())
+        .expect("should fetch eth2 config from http api");
+
+    assert_eq!(version::version(), version, "result should be as expected");
 }

@@ -87,6 +87,10 @@ impl<E: EthSpec> HttpClient<E> {
         Spec(self.clone())
     }
 
+    pub fn node(&self) -> Node<E> {
+        Node(self.clone())
+    }
+
     fn url(&self, path: &str) -> Result<Url, Error> {
         self.url.join(path).map_err(|e| e.into())
     }
@@ -414,6 +418,26 @@ impl<E: EthSpec> Spec<E> {
     pub fn get_eth2_config(&self) -> impl Future<Item = Eth2Config, Error = Error> {
         let client = self.0.clone();
         self.url("eth2_config")
+            .into_future()
+            .and_then(move |url| client.json_get(url, vec![]))
+    }
+}
+
+/// Provides the functions on the `/node` endpoint of the node.
+#[derive(Clone)]
+pub struct Node<E>(HttpClient<E>);
+
+impl<E: EthSpec> Node<E> {
+    fn url(&self, path: &str) -> Result<Url, Error> {
+        self.0
+            .url("node/")
+            .and_then(move |url| url.join(path).map_err(Error::from))
+            .map_err(Into::into)
+    }
+
+    pub fn get_version(&self) -> impl Future<Item = String, Error = Error> {
+        let client = self.0.clone();
+        self.url("version")
             .into_future()
             .and_then(move |url| client.json_get(url, vec![]))
     }
