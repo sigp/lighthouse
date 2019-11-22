@@ -398,73 +398,89 @@ where
 
         // drive inbound streams that need to be processed
         for request_id in self.inbound_substreams.keys().copied().collect::<Vec<_>>() {
-            match self.inbound_substreams.entry(request_id) {
-                Entry::Occupied(mut entry) => {
-                    match std::mem::replace(&mut entry.get_mut().0, InboundSubstreamState::Poisoned)
-                    {
-                        InboundSubstreamState::ResponsePendingSend {
-                            mut substream,
-                            closing,
-                        } => {
-                            match substream.poll() {
-                                Ok(Async::Ready(raw_substream)) => {
-                                    // completed the send
-                                    trace!(self.log, "RPC message sent");
+            // Drain all queued items until all messages have been processed for this stream
+            // TODO Improve this code logic
+            let mut new_items_to_send = true;
+            while new_items_to_send == true {
+                new_items_to_send = false;
+                match self.inbound_substreams.entry(request_id) {
+                    Entry::Occupied(mut entry) => {
+                        match std::mem::replace(
+                            &mut entry.get_mut().0,
+                            InboundSubstreamState::Poisoned,
+                        ) {
+                            InboundSubstreamState::ResponsePendingSend {
+                                mut substream,
+                                closing,
+                            } => {
+                                match substream.poll() {
+                                    Ok(Async::Ready(raw_substream)) => {
+                                        // completed the send
+                                        trace!(self.log, "RPC message sent");
 
-                                    // close the stream if required
-                                    if closing {
+                                        // close the stream if required
+                                        if closing {
+                                            entry.get_mut().0 =
+                                                InboundSubstreamState::Closing(raw_substream)
+                                        } else {
+                                            // check for queued chunks and update the stream
+                                            trace!(self.log, "Checking for queued items");
+                                            entry.get_mut().0 = apply_queued_responses(
+                                                raw_substream,
+                                                &mut self
+                                                    .queued_outbound_items
+                                                    .get_mut(&request_id),
+                                                &mut new_items_to_send,
+                                            );
+                                        }
+                                    }
+                                    Ok(Async::NotReady) => {
                                         entry.get_mut().0 =
-                                            InboundSubstreamState::Closing(raw_substream)
-                                    } else {
-                                        // check for queued chunks and update the stream
-                                        trace!(self.log, "Checking for queued items");
-                                        entry.get_mut().0 = apply_queued_responses(
-                                            raw_substream,
-                                            &mut self.queued_outbound_items.get_mut(&request_id),
-                                        );
+                                            InboundSubstreamState::ResponsePendingSend {
+                                                substream,
+                                                closing,
+                                            };
                                     }
-                                }
-                                Ok(Async::NotReady) => {
-                                    entry.get_mut().0 = InboundSubstreamState::ResponsePendingSend {
-                                        substream,
-                                        closing,
+                                    Err(e) => {
+                                        let delay_key = &entry.get().1;
+                                        self.inbound_substreams_delay.remove(delay_key);
+                                        entry.remove_entry();
+                                        return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                                            RPCEvent::Error(0, e),
+                                        )));
                                     }
-                                }
-                                Err(e) => {
-                                    let delay_key = &entry.get().1;
-                                    self.inbound_substreams_delay.remove(delay_key);
-                                    entry.remove_entry();
-                                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                                        RPCEvent::Error(0, e),
-                                    )));
-                                }
-                            };
-                        }
-                        InboundSubstreamState::ResponseIdle(substream) => {
-                            trace!(self.log, "Idle stream searching queue");
-                            entry.get_mut().0 = apply_queued_responses(
-                                substream,
-                                &mut self.queued_outbound_items.get_mut(&request_id),
-                            );
-                        }
-                        InboundSubstreamState::Closing(mut substream) => match substream.close() {
-                            Ok(Async::Ready(())) | Err(_) => {
-                                trace!(self.log, "Inbound stream dropped");
-                                let delay_key = &entry.get().1;
-                                self.queued_outbound_items.remove(&request_id);
-                                self.inbound_substreams_delay.remove(delay_key);
-                                entry.remove();
-                            } // drop the stream
-                            Ok(Async::NotReady) => {
-                                entry.get_mut().0 = InboundSubstreamState::Closing(substream);
+                                };
                             }
-                        },
-                        InboundSubstreamState::Poisoned => {
-                            unreachable!("Coding Error: Inbound Substream is poisoned");
-                        }
-                    };
+                            InboundSubstreamState::ResponseIdle(substream) => {
+                                trace!(self.log, "Idle stream searching queue");
+                                entry.get_mut().0 = apply_queued_responses(
+                                    substream,
+                                    &mut self.queued_outbound_items.get_mut(&request_id),
+                                    &mut new_items_to_send,
+                                );
+                            }
+                            InboundSubstreamState::Closing(mut substream) => {
+                                match substream.close() {
+                                    Ok(Async::Ready(())) | Err(_) => {
+                                        trace!(self.log, "Inbound stream dropped");
+                                        let delay_key = &entry.get().1;
+                                        self.queued_outbound_items.remove(&request_id);
+                                        self.inbound_substreams_delay.remove(delay_key);
+                                        entry.remove();
+                                    } // drop the stream
+                                    Ok(Async::NotReady) => {
+                                        entry.get_mut().0 =
+                                            InboundSubstreamState::Closing(substream);
+                                    }
+                                }
+                            }
+                            InboundSubstreamState::Poisoned => {
+                                unreachable!("Coding Error: Inbound Substream is poisoned");
+                            }
+                        };
+                    }
+                    Entry::Vacant(_) => unreachable!(),
                 }
-                Entry::Vacant(_) => unreachable!(),
             }
         }
 
@@ -592,9 +608,11 @@ where
 fn apply_queued_responses<TSubstream: AsyncRead + AsyncWrite>(
     raw_substream: InboundFramed<TSubstream>,
     queued_outbound_items: &mut Option<&mut Vec<RPCErrorResponse>>,
+    new_items_to_send: &mut bool,
 ) -> InboundSubstreamState<TSubstream> {
     match queued_outbound_items {
         Some(ref mut queue) if !queue.is_empty() => {
+            *new_items_to_send = true;
             // we have queued items
             match queue.remove(0) {
                 RPCErrorResponse::StreamTermination(_) => {

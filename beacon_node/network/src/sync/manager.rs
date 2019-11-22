@@ -814,8 +814,8 @@ fn status_peer<T: BeaconChainTypes>(
 ) {
     trace!(
         log,
-        "RPC Request";
-        "method" => "HELLO",
+        "Sending Status Request";
+        "method" => "STATUS",
         "peer" => format!("{:?}", peer_id)
     );
     if let Some(chain) = chain.upgrade() {
@@ -832,7 +832,7 @@ fn request_blocks(
 ) {
     trace!(
         log,
-        "RPC Request";
+        "Sending BlocksByRange Request";
         "method" => "BlocksByRange",
         "id" => request_id,
         "count" => request.count,
@@ -854,7 +854,7 @@ fn recent_blocks_request(
 ) {
     trace!(
         log,
-        "RPC Request";
+        "Sending BlocksByRoot Request";
         "method" => "BlocksByRoot",
         "count" => request.block_roots.len(),
         "peer" => format!("{:?}", peer_id)

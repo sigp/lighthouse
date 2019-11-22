@@ -265,7 +265,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         }
         debug!(
             self.log,
-            "BlocksByRootRequest";
+            "Received BlocksByRoot Request";
             "peer" => format!("{:?}", peer_id),
             "requested" => request.block_roots.len(),
             "returned" => send_block_count,
@@ -288,7 +288,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ) {
         debug!(
             self.log,
-            "BlocksByRange Request";
+            "Received BlocksByRange Request";
             "peer" => format!("{:?}", peer_id),
             "count" => req.count,
             "start_slot" => req.start_slot,
@@ -331,7 +331,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         if blocks.len() < (req.count as usize) {
             debug!(
                 self.log,
-                "BlocksByRange Response";
+                "Sending BlocksByRange Response";
                 "peer" => format!("{:?}", peer_id),
                 "msg" => "Failed to return all requested blocks",
                 "start_slot" => req.start_slot,
@@ -342,7 +342,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         } else {
             trace!(
                 self.log,
-                "BlocksByRange Response";
+                "Sending BlocksByRange Response";
                 "peer" => format!("{:?}", peer_id),
                 "start_slot" => req.start_slot,
                 "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
@@ -376,7 +376,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ) {
         trace!(
             self.log,
-            "BlocksByRangeResponse";
+            "Received BlocksByRange Response";
             "peer" => format!("{:?}", peer_id),
         );
 
@@ -396,7 +396,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ) {
         trace!(
             self.log,
-            "BlocksByRootResponse";
+            "Received BlocksByRoot Response";
             "peer" => format!("{:?}", peer_id),
         );
 
