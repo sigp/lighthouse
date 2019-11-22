@@ -1,12 +1,15 @@
-use crate::validator_directory::ValidatorDirectory;
+use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
 use parking_lot::RwLock;
+use rayon::prelude::*;
 use slog::{error, Logger};
 use std::collections::HashMap;
 use std::fs::read_dir;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tempdir::TempDir;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
@@ -17,6 +20,7 @@ pub struct ValidatorStore<E> {
     validators: Arc<RwLock<HashMap<PublicKey, ValidatorDirectory>>>,
     spec: Arc<ChainSpec>,
     log: Logger,
+    temp_dir: Option<Arc<TempDir>>,
     _phantom: PhantomData<E>,
 }
 
@@ -55,6 +59,47 @@ impl<E: EthSpec> ValidatorStore<E> {
             validators: Arc::new(RwLock::new(HashMap::from_iter(validator_iter))),
             spec: Arc::new(spec),
             log,
+            temp_dir: None,
+            _phantom: PhantomData,
+        })
+    }
+
+    pub fn insecure_ephemeral_validators(
+        range: Range<usize>,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> Result<Self, String> {
+        let temp_dir = TempDir::new("insecure_validator")
+            .map_err(|e| format!("Unable to create temp dir: {:?}", e))?;
+        let data_dir = PathBuf::from(temp_dir.path());
+
+        let validators = range
+            .collect::<Vec<_>>()
+            .par_iter()
+            .map(|index| {
+                ValidatorDirectoryBuilder::default()
+                    .spec(spec.clone())
+                    .full_deposit_amount()?
+                    .insecure_keypairs(*index)
+                    .create_directory(data_dir.clone())?
+                    .write_keypair_files()?
+                    .write_eth1_data_file()?
+                    .build()
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter_map(|validator_directory| {
+                validator_directory
+                    .voting_keypair
+                    .clone()
+                    .map(|voting_keypair| (voting_keypair.pk, validator_directory))
+            });
+
+        Ok(Self {
+            validators: Arc::new(RwLock::new(HashMap::from_iter(validators))),
+            spec: Arc::new(spec),
+            log,
+            temp_dir: Some(Arc::new(temp_dir)),
             _phantom: PhantomData,
         })
     }

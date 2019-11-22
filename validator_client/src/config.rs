@@ -1,16 +1,8 @@
-use crate::validator_directory::ValidatorDirectory;
-use bincode;
 use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
-use slog::{error, warn};
-use std::fs::{self, File};
-use std::io::{Error, ErrorKind};
 use std::ops::Range;
 use std::path::PathBuf;
-use types::{
-    test_utils::{generate_deterministic_keypair, load_keypairs_from_yaml},
-    EthSpec, Keypair, MainnetEthSpec,
-};
+use types::{EthSpec, MainnetEthSpec};
 
 #[derive(Clone)]
 pub enum KeySource {
@@ -18,8 +10,6 @@ pub enum KeySource {
     Disk,
     /// Generate the keypairs (insecure, generates predictable keys).
     TestingKeypairRange(Range<usize>),
-    /// Load testing keypairs from YAML
-    YamlKeypairs(PathBuf),
 }
 
 impl Default for KeySource {
@@ -48,8 +38,6 @@ pub struct Config {
     pub slots_per_epoch: u64,
 }
 
-const DEFAULT_PRIVATE_KEY_FILENAME: &str = "private.key";
-
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
@@ -66,137 +54,74 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Returns the full path for the client data directory (not just the name of the directory).
-    pub fn full_data_dir(&self) -> Option<PathBuf> {
-        dirs::home_dir().map(|path| path.join(&self.data_dir))
-    }
+    /// Parses the CLI arguments and attempts to load the client configuration.
+    pub fn from_cli(cli_args: &ArgMatches) -> Result<Config, String> {
+        let mut client_config = Config::default();
 
-    /// Creates the data directory (and any non-existing parent directories).
-    pub fn create_data_dir(&self) -> Option<PathBuf> {
-        let path = dirs::home_dir()?.join(&self.data_dir);
-        fs::create_dir_all(&path).ok()?;
-        Some(path)
-    }
-
-    /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
-    ///
-    /// Returns an error if arguments are obviously invalid. May succeed even if some values are
-    /// invalid.
-    pub fn apply_cli_args(
-        &mut self,
-        args: &ArgMatches,
-        _log: &slog::Logger,
-    ) -> Result<(), &'static str> {
-        if let Some(datadir) = args.value_of("datadir") {
-            self.data_dir = PathBuf::from(datadir);
+        if let Some(datadir) = cli_args.value_of("datadir") {
+            client_config.data_dir = PathBuf::from(datadir);
         };
 
-        if let Some(srv) = args.value_of("server") {
-            self.server = srv.to_string();
-        };
-
-        Ok(())
-    }
-
-    /// Loads the validator keys from disk.
-    ///
-    /// ## Errors
-    ///
-    /// Returns an error if the base directory does not exist, however it does not return for any
-    /// invalid directories/files. Instead, it just filters out failures and logs errors. This
-    /// behaviour is intended to avoid the scenario where a single invalid file can stop all
-    /// validators.
-    pub fn fetch_keys_from_disk(&self, log: &slog::Logger) -> Result<Vec<Keypair>, String> {
-        let base_dir = self
-            .full_data_dir()
-            .ok_or_else(|| format!("Base directory does not exist: {:?}", self.full_data_dir()))?;
-
-        let keypairs = fs::read_dir(&base_dir)
-            .map_err(|e| format!("Failed to read base directory: {:?}", e))?
-            .filter_map(|validator_dir| {
-                let path = validator_dir.ok()?.path();
-
-                if path.is_dir() {
-                    match ValidatorDirectory::load_for_signing(path.clone()) {
-                        Ok(validator_directory) => validator_directory.voting_keypair,
-                        Err(e) => {
-                            error!(
-                                log,
-                                "Failed to load a validator directory";
-                                "error" => e,
-                                "path" => path.to_str(),
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Ok(keypairs)
-    }
-
-    pub fn fetch_testing_keypairs(
-        &self,
-        range: std::ops::Range<usize>,
-    ) -> Result<Vec<Keypair>, String> {
-        Ok(range.map(generate_deterministic_keypair).collect())
-    }
-
-    /// Loads the keypairs according to `self.key_source`. Will return one or more keypairs, or an
-    /// error.
-    #[allow(dead_code)]
-    pub fn fetch_keys(&self, log: &slog::Logger) -> Result<Vec<Keypair>, String> {
-        let keypairs = match &self.key_source {
-            KeySource::Disk => self.fetch_keys_from_disk(log)?,
-            KeySource::TestingKeypairRange(range) => {
-                warn!(
-                    log,
-                    "Using insecure interop private keys";
-                    "range" => format!("{:?}", range)
-                );
-                self.fetch_testing_keypairs(range.clone())?
-            }
-            KeySource::YamlKeypairs(path) => {
-                warn!(
-                    log,
-                    "Private keys are stored insecurely (plain text). Testing use only."
-                );
-
-                load_keypairs_from_yaml(path.to_path_buf())?
-            }
-        };
-
-        // Check if it's an empty vector, and return none.
-        if keypairs.is_empty() {
-            Err(
-                "No validator keypairs were found, unable to proceed. To generate \
-                 testing keypairs, see 'testnet range --help'."
-                    .into(),
-            )
-        } else {
-            Ok(keypairs)
+        if let Some(server) = cli_args.value_of("server") {
+            client_config.server = server.to_string();
         }
+
+        if let Some(port) = cli_args.value_of("server-http-port") {
+            client_config.server_http_port = port
+                .parse::<u16>()
+                .map_err(|e| format!("Unable to parse HTTP port: {:?}", e))?;
+        }
+
+        if let Some(port) = cli_args.value_of("server-grpc-port") {
+            client_config.server_grpc_port = port
+                .parse::<u16>()
+                .map_err(|e| format!("Unable to parse gRPC port: {:?}", e))?;
+        }
+
+        let client_config = match cli_args.subcommand() {
+            ("testnet", Some(sub_cli_args)) => {
+                if cli_args.is_present("eth2-config") && sub_cli_args.is_present("bootstrap") {
+                    return Err(
+                        "Cannot specify --eth2-config and --bootstrap as it may result \
+                         in ambiguity."
+                            .into(),
+                    );
+                }
+                process_testnet_subcommand(sub_cli_args, client_config)
+            }
+            _ => return Err("You must use the testnet command. See '--help'.".into()),
+        }?;
+
+        Ok(client_config)
     }
+}
 
-    /// Saves a keypair to a file inside the appropriate validator directory. Returns the saved path filename.
-    #[allow(dead_code)]
-    pub fn save_key(&self, key: &Keypair) -> Result<PathBuf, Error> {
-        use std::os::unix::fs::PermissionsExt;
-        let validator_config_path = self.data_dir.join(key.identifier());
-        let key_path = validator_config_path.join(DEFAULT_PRIVATE_KEY_FILENAME);
+/// Parses the `testnet` CLI subcommand.
+fn process_testnet_subcommand(
+    cli_args: &ArgMatches,
+    mut client_config: Config,
+) -> Result<Config, String> {
+    client_config.key_source = match cli_args.subcommand() {
+        ("insecure", Some(sub_cli_args)) => {
+            let first = sub_cli_args
+                .value_of("first_validator")
+                .ok_or_else(|| "No first validator supplied")?
+                .parse::<usize>()
+                .map_err(|e| format!("Unable to parse first validator: {:?}", e))?;
+            let last = sub_cli_args
+                .value_of("last_validator")
+                .ok_or_else(|| "No last validator supplied")?
+                .parse::<usize>()
+                .map_err(|e| format!("Unable to parse last validator: {:?}", e))?;
 
-        fs::create_dir_all(&validator_config_path)?;
+            if last < first {
+                return Err("Cannot supply a last validator less than the first".to_string());
+            }
 
-        let mut key_file = File::create(&key_path)?;
-        let mut perm = key_file.metadata()?.permissions();
-        perm.set_mode((libc::S_IWUSR | libc::S_IRUSR) as u32);
-        key_file.set_permissions(perm)?;
+            KeySource::TestingKeypairRange(first..last)
+        }
+        _ => KeySource::Disk,
+    };
 
-        bincode::serialize_into(&mut key_file, &key)
-            .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
-        Ok(key_path)
-    }
+    Ok(client_config)
 }

@@ -8,9 +8,6 @@ edition = "2018"
 name = "validator_client"
 path = "src/lib.rs"
 
-[dev-dependencies]
-tempdir = "0.3"
-
 [dependencies]
 eth2_ssz = "0.1.2"
 eth2_config = { path = "../eth2/utils/eth2_config" }
@@ -43,3 +40,5 @@ hex = "0.4"
 deposit_contract = { path = "../eth2/utils/deposit_contract" }
 bls = { path = "../eth2/utils/bls" }
 remote_beacon_node = { path = "../eth2/utils/remote_beacon_node" }
+tempdir = "0.3"
+rayon = "1.2.0"

@@ -93,10 +93,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .value_name("VALIDATOR_INDEX")
                     .required(true)
                     .help("The first validator public key to be generated for this client."))
-                .arg(Arg::with_name("validator_count")
-                    .value_name("COUNT")
+                .arg(Arg::with_name("last_validator")
+                    .value_name("VALIDATOR_INDEX")
                     .required(true)
-                    .help("The number of validators."))
+                    .help("The end of the range of keys to generate. This index is not generated."))
             )
             .subcommand(SubCommand::with_name("interop-yaml")
                 .about("Loads plain-text secret keys from YAML files. Expects the interop format defined
