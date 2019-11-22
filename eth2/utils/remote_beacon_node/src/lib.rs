@@ -22,6 +22,11 @@ use url::Url;
 
 pub use rest_api::{BulkValidatorDutiesRequest, HeadResponse, ValidatorDuty};
 
+// Setting a long timeout for debug ensures that crypto-heavy operations can still succeed.
+#[cfg(debug_assertions)]
+pub const REQUEST_TIMEOUT_SECONDS: u64 = 15;
+
+#[cfg(not(debug_assertions))]
 pub const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 
 #[derive(Clone)]
