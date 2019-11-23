@@ -39,8 +39,8 @@ See ["Configuring the `PATH` environment variable"
 If you get a build failure relating to OpenSSL, try installing `openssl-dev` or
 `libssl-dev` using your OS package manager.
 
-- Ubuntu: `$ apt-get install openssl-dev`.
-- Arch Linux: `$ pacman -S libssl-dev`.
+- Ubuntu: `$ apt-get install libssl-dev`.
+- Amazon Linux: `$ yum install openssl-devel`.
 
 ### Perl for Windows
 
