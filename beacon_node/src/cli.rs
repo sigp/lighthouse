@@ -1,22 +1,14 @@
 use clap::{App, Arg, SubCommand};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("Beacon Node")
-        .visible_aliases(&["b", "bn", "beacon", "beacon_node"])
+    App::new("beacon_node")
+        .visible_aliases(&["b", "bn", "beacon"])
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Client")
         /*
          * Configuration directory locations.
          */
-        .arg(
-            Arg::with_name("datadir")
-                .long("datadir")
-                .value_name("DIR")
-                .help("Data directory for keys and databases.")
-                .takes_value(true)
-                .global(true)
-        )
         .arg(
             Arg::with_name("network-dir")
                 .long("network-dir")
@@ -101,30 +93,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("p2p-priv-key")
                 .value_name("HEX")
                 .help("A secp256k1 secret key, represented as ASCII-encoded hex bytes (with or without 0x prefix).")
-                .takes_value(true),
-        )
-        /*
-         * gRPC parameters.
-         */
-        .arg(
-            Arg::with_name("no-grpc")
-                .long("no-grpc")
-                .help("Disable the gRPC server.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("rpc-address")
-                .long("rpc-address")
-                .value_name("ADDRESS")
-                .help("Listen address for RPC endpoint.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("rpc-port")
-                .long("rpc-port")
-                .value_name("PORT")
-                .help("Listen port for RPC endpoint.")
-                .conflicts_with("port-bump")
                 .takes_value(true),
         )
         /* REST API related arguments */
@@ -299,7 +267,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .short("m")
                     .value_name("MINUTES")
                     .required(true)
-                    .default_value("15")
+                    .default_value("0")
                     .help("The maximum number of minutes that will have elapsed before genesis"))
             )
             /*
