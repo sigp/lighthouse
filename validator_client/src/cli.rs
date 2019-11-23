@@ -21,12 +21,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(SubCommand::with_name("testnet")
             .about("Starts a testnet validator using INSECURE, predicatable private keys, based off the canonical \
                    validator index. ONLY USE FOR TESTING PURPOSES!")
-            .arg(
-                Arg::with_name("bootstrap")
-                    .short("b")
-                    .long("bootstrap")
-                    .help("Connect to the RPC server to download the eth2_config via the HTTP API.")
-            )
             .subcommand(SubCommand::with_name("insecure")
                 .about("Uses the standard, predicatable `interop` keygen method to produce a range \
                         of predicatable private keys and starts performing their validator duties.")
