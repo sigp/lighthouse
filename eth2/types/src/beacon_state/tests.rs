@@ -1,7 +1,6 @@
 #![cfg(test)]
 use super::*;
 use crate::test_utils::*;
-use std::ops::RangeInclusive;
 
 ssz_tests!(FoundationBeaconState);
 
@@ -19,106 +18,55 @@ fn test_beacon_proposer_index<T: EthSpec>() {
         state
     };
 
+    // Get the i'th candidate proposer for the given state and slot
+    let ith_candidate = |state: &BeaconState<T>, slot: Slot, i: usize| {
+        let epoch = slot.epoch(T::slots_per_epoch());
+        let seed = state.get_beacon_proposer_seed(slot, &spec).unwrap();
+        let active_validators = state.get_active_validator_indices(epoch);
+        active_validators[compute_shuffled_index(
+            i,
+            active_validators.len(),
+            &seed,
+            spec.shuffle_round_count,
+        )
+        .unwrap()]
+    };
+
     // Run a test on the state.
-    let test = |state: &BeaconState<T>, slot: Slot, shuffling_index: usize| {
-        let shuffling = state.get_shuffling(relative_epoch).unwrap();
+    let test = |state: &BeaconState<T>, slot: Slot, candidate_index: usize| {
         assert_eq!(
-            state.get_beacon_proposer_index(slot, relative_epoch, &spec),
-            Ok(shuffling[shuffling_index])
+            state.get_beacon_proposer_index(slot, &spec),
+            Ok(ith_candidate(state, slot, candidate_index))
         );
     };
 
-    // Test where we have one validator per slot
+    // Test where we have one validator per slot.
+    // 0th candidate should be chosen every time.
     let state = build_state(T::slots_per_epoch() as usize);
     for i in 0..T::slots_per_epoch() {
-        test(&state, Slot::from(i), i as usize);
+        test(&state, Slot::from(i), 0);
     }
 
-    // Test where we have two validators per slot
+    // Test where we have two validators per slot.
+    // 0th candidate should be chosen every time.
     let state = build_state(T::slots_per_epoch() as usize * 2);
     for i in 0..T::slots_per_epoch() {
-        test(&state, Slot::from(i), i as usize * 2);
+        test(&state, Slot::from(i), 0);
     }
 
     // Test with two validators per slot, first validator has zero balance.
     let mut state = build_state(T::slots_per_epoch() as usize * 2);
-    let shuffling = state.get_shuffling(relative_epoch).unwrap().to_vec();
-    state.validators[shuffling[0]].effective_balance = 0;
+    let slot0_candidate0 = ith_candidate(&state, Slot::new(0), 0);
+    state.validators[slot0_candidate0].effective_balance = 0;
     test(&state, Slot::new(0), 1);
     for i in 1..T::slots_per_epoch() {
-        test(&state, Slot::from(i), i as usize * 2);
+        test(&state, Slot::from(i), 0);
     }
 }
 
 #[test]
 fn beacon_proposer_index() {
     test_beacon_proposer_index::<MinimalEthSpec>();
-}
-
-/// Should produce (note the set notation brackets):
-///
-/// (current_epoch - LATEST_ACTIVE_INDEX_ROOTS_LENGTH + ACTIVATION_EXIT_DELAY, current_epoch +
-/// ACTIVATION_EXIT_DELAY]
-fn active_index_range<T: EthSpec>(current_epoch: Epoch) -> RangeInclusive<Epoch> {
-    let delay = T::default_spec().activation_exit_delay;
-
-    let start: i32 =
-        current_epoch.as_u64() as i32 - T::epochs_per_historical_vector() as i32 + delay as i32;
-    let end = current_epoch + delay;
-
-    let start: Epoch = if start < 0 {
-        Epoch::new(0)
-    } else {
-        Epoch::from(start as u64 + 1)
-    };
-
-    start..=end
-}
-
-/// Test getting an active index root at the start and end of the valid range, and one either side
-/// of that range.
-fn test_active_index<T: EthSpec>(state_slot: Slot) {
-    let spec = T::default_spec();
-    let builder: TestingBeaconStateBuilder<T> =
-        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
-    let (mut state, _keypairs) = builder.build();
-    state.slot = state_slot;
-
-    let range = active_index_range::<T>(state.current_epoch());
-
-    let modulo = |epoch: Epoch| epoch.as_usize() % T::epochs_per_historical_vector();
-
-    // Test the start and end of the range.
-    assert_eq!(
-        state.get_active_index_root_index(*range.start(), &spec, AllowNextEpoch::False),
-        Ok(modulo(*range.start()))
-    );
-    assert_eq!(
-        state.get_active_index_root_index(*range.end(), &spec, AllowNextEpoch::False),
-        Ok(modulo(*range.end()))
-    );
-
-    // One either side of the range.
-    if state.current_epoch() > 0 {
-        // Test is invalid on epoch zero, cannot subtract from zero.
-        assert_eq!(
-            state.get_active_index_root_index(*range.start() - 1, &spec, AllowNextEpoch::False),
-            Err(Error::EpochOutOfBounds)
-        );
-    }
-    assert_eq!(
-        state.get_active_index_root_index(*range.end() + 1, &spec, AllowNextEpoch::False),
-        Err(Error::EpochOutOfBounds)
-    );
-}
-
-#[test]
-fn get_active_index_root_index() {
-    test_active_index::<MainnetEthSpec>(Slot::new(0));
-
-    let epoch = Epoch::from(MainnetEthSpec::epochs_per_historical_vector() * 4);
-    let slot = epoch.start_slot(MainnetEthSpec::slots_per_epoch());
-    test_active_index::<MainnetEthSpec>(slot);
 }
 
 /// Test that
@@ -138,28 +86,26 @@ fn test_cache_initialization<'a, T: EthSpec>(
     // Assuming the cache isn't already built, assert that a call to a cache-using function fails.
     assert_eq!(
         state.get_attestation_duties(0, relative_epoch),
-        Err(BeaconStateError::CommitteeCacheUninitialized(
+        Err(BeaconStateError::CommitteeCacheUninitialized(Some(
             relative_epoch
-        ))
+        )))
     );
 
     // Build the cache.
     state.build_committee_cache(relative_epoch, spec).unwrap();
 
     // Assert a call to a cache-using function passes.
-    let _ = state
-        .get_beacon_proposer_index(slot, relative_epoch, spec)
-        .unwrap();
+    let _ = state.get_beacon_proposer_index(slot, spec).unwrap();
 
     // Drop the cache.
     state.drop_committee_cache(relative_epoch);
 
     // Assert a call to a cache-using function fail.
     assert_eq!(
-        state.get_beacon_proposer_index(slot, relative_epoch, spec),
-        Err(BeaconStateError::CommitteeCacheUninitialized(
+        state.get_beacon_committee(slot, 0),
+        Err(BeaconStateError::CommitteeCacheUninitialized(Some(
             relative_epoch
-        ))
+        )))
     );
 }
 
@@ -212,10 +158,8 @@ mod committees {
         spec: &ChainSpec,
     ) {
         let active_indices: Vec<usize> = (0..validator_count).collect();
-        let seed = state.get_seed(epoch, spec).unwrap();
+        let seed = state.get_seed(epoch, Domain::BeaconAttester, spec).unwrap();
         let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).unwrap();
-        let start_shard =
-            CommitteeCache::compute_start_shard(&state, relative_epoch, active_indices.len(), spec);
 
         let mut ordered_indices = state
             .get_cached_active_validator_indices(relative_epoch)
@@ -231,34 +175,27 @@ mod committees {
             shuffle_list(active_indices, spec.shuffle_round_count, &seed[..], false).unwrap();
 
         let mut expected_indices_iter = shuffling.iter();
-        let mut expected_shards_iter =
-            (0..T::ShardCount::to_u64()).map(|i| (start_shard + i) % T::ShardCount::to_u64());
 
         // Loop through all slots in the epoch being tested.
         for slot in epoch.slot_iter(T::slots_per_epoch()) {
-            let crosslink_committees = state.get_crosslink_committees_at_slot(slot).unwrap();
+            let beacon_committees = state.get_beacon_committees_at_slot(slot).unwrap();
 
             // Assert that the number of committees in this slot is consistent with the reported number
             // of committees in an epoch.
             assert_eq!(
-                crosslink_committees.len() as u64,
-                state.get_committee_count(relative_epoch).unwrap() / T::slots_per_epoch()
+                beacon_committees.len() as u64,
+                state.get_epoch_committee_count(relative_epoch).unwrap() / T::slots_per_epoch()
             );
 
-            for cc in crosslink_committees {
-                // Assert that shards are assigned contiguously across committees.
-                assert_eq!(expected_shards_iter.next().unwrap(), cc.shard);
+            for (committee_index, bc) in beacon_committees.iter().enumerate() {
+                // Assert that indices are assigned sequentially across committees.
+                assert_eq!(committee_index as u64, bc.index);
                 // Assert that a committee lookup via slot is identical to a committee lookup via
-                // shard.
-                assert_eq!(
-                    state
-                        .get_crosslink_committee_for_shard(cc.shard, relative_epoch)
-                        .unwrap(),
-                    cc
-                );
+                // index.
+                assert_eq!(state.get_beacon_committee(bc.slot, bc.index).unwrap(), *bc);
 
                 // Loop through each validator in the committee.
-                for (committee_i, validator_i) in cc.committee.iter().enumerate() {
+                for (committee_i, validator_i) in bc.committee.iter().enumerate() {
                     // Assert the validators are assigned contiguously across committees.
                     assert_eq!(
                         *validator_i,
@@ -266,24 +203,21 @@ mod committees {
                         "Non-sequential validators."
                     );
                     // Assert a call to `get_attestation_duties` is consistent with a call to
-                    // `get_crosslink_committees_at_slot`
+                    // `get_beacon_committees_at_slot`
                     let attestation_duty = state
                         .get_attestation_duties(*validator_i, relative_epoch)
                         .unwrap()
                         .unwrap();
                     assert_eq!(attestation_duty.slot, slot);
-                    assert_eq!(attestation_duty.shard, cc.shard);
-                    assert_eq!(attestation_duty.committee_index, committee_i);
-                    assert_eq!(attestation_duty.committee_len, cc.committee.len());
+                    assert_eq!(attestation_duty.index, bc.index);
+                    assert_eq!(attestation_duty.committee_position, committee_i);
+                    assert_eq!(attestation_duty.committee_len, bc.committee.len());
                 }
             }
         }
 
         // Assert that all validators were assigned to a committee.
         assert!(expected_indices_iter.next().is_none());
-
-        // Assert that all shards were assigned to a committee.
-        assert!(expected_shards_iter.next().is_none());
     }
 
     fn committee_consistency_test<T: EthSpec>(
@@ -327,7 +261,10 @@ mod committees {
     fn committee_consistency_test_suite<T: EthSpec>(cached_epoch: RelativeEpoch) {
         let spec = T::default_spec();
 
-        let validator_count = (T::shard_count() * spec.target_committee_size) + 1;
+        let validator_count = spec.max_committees_per_slot
+            * T::slots_per_epoch() as usize
+            * spec.target_committee_size
+            + 1;
 
         committee_consistency_test::<T>(validator_count as usize, Epoch::new(0), cached_epoch);
 

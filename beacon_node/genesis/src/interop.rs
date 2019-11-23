@@ -53,7 +53,7 @@ pub fn interop_genesis_state<T: EthSpec>(
     let mut state = initialize_beacon_state_from_eth1(
         eth1_block_hash,
         eth1_timestamp,
-        genesis_deposits(datas, spec),
+        genesis_deposits(datas, spec)?,
         spec,
     )
     .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;

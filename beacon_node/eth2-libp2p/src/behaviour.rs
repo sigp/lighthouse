@@ -153,8 +153,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
 {
     fn inject_event(&mut self, event: IdentifyEvent) {
         match event {
-            IdentifyEvent::Identified {
-                peer_id, mut info, ..
+            IdentifyEvent::Received {
+                peer_id,
+                mut info,
+                observed_addr,
             } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
                     debug!(
@@ -167,11 +169,12 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
                 "Protocol Version" => info.protocol_version,
                 "Agent Version" => info.agent_version,
                 "Listening Addresses" => format!("{:?}", info.listen_addrs),
+                "Observed Address" => format!("{:?}", observed_addr),
                 "Protocols" => format!("{:?}", info.protocols)
                 );
             }
+            IdentifyEvent::Sent { .. } => {}
             IdentifyEvent::Error { .. } => {}
-            IdentifyEvent::SendBack { .. } => {}
         }
     }
 }
@@ -218,6 +221,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     /* Discovery / Peer management functions */
     pub fn connected_peers(&self) -> usize {
         self.discovery.connected_peers()
+    }
+
+    /// Informs the discovery behaviour if a new IP/Port is set at the application layer
+    pub fn update_local_enr_socket(&mut self, socket: std::net::SocketAddr, is_tcp: bool) {
+        self.discovery.update_local_enr(socket, is_tcp);
     }
 }
 

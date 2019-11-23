@@ -1,3 +1,8 @@
+//! Provides a `RemoteBeaconNode` which interacts with a HTTP API on another Lighthouse (or
+//! compatible) instance.
+//!
+//! Presently, this is only used for testing but it _could_ become a user-facing library.
+
 use futures::{Future, IntoFuture};
 use reqwest::r#async::{Client, RequestBuilder};
 use serde::Deserialize;
@@ -7,6 +12,7 @@ use types::{BeaconBlock, BeaconState, EthSpec};
 use types::{Hash256, Slot};
 use url::Url;
 
+/// Connects to a remote Lighthouse (or compatible) node via HTTP.
 pub struct RemoteBeaconNode<E: EthSpec> {
     pub http: HttpClient<E>,
 }
@@ -34,6 +40,7 @@ pub struct HttpClient<E> {
 }
 
 impl<E: EthSpec> HttpClient<E> {
+    /// Creates a new instance (without connecting to the node).
     pub fn new(server_url: String) -> Result<Self, Error> {
         Ok(Self {
             client: Client::new(),
@@ -56,6 +63,7 @@ impl<E: EthSpec> HttpClient<E> {
     }
 }
 
+/// Provides the functions on the `/beacon` endpoint of the node.
 #[derive(Clone)]
 pub struct Beacon<E>(HttpClient<E>);
 
@@ -63,10 +71,11 @@ impl<E: EthSpec> Beacon<E> {
     fn url(&self, path: &str) -> Result<Url, Error> {
         self.0
             .url("beacon/")
-            .and_then(move |url| url.join(path).map_err(|e| Error::from(e)))
+            .and_then(move |url| url.join(path).map_err(Error::from))
             .map_err(Into::into)
     }
 
+    /// Returns the block and block root at the given slot.
     pub fn block_at_slot(
         &self,
         slot: Slot,
@@ -79,16 +88,13 @@ impl<E: EthSpec> Beacon<E> {
                     .append_pair("slot", &format!("{}", slot.as_u64()));
                 client.get(&url.to_string())
             })
-            .and_then(|builder| builder.send().map_err(|e| Error::from(e)))
-            .and_then(|response| response.error_for_status().map_err(|e| Error::from(e)))
-            .and_then(|mut success| {
-                success
-                    .json::<BlockResponse<E>>()
-                    .map_err(|e| Error::from(e))
-            })
+            .and_then(|builder| builder.send().map_err(Error::from))
+            .and_then(|response| response.error_for_status().map_err(Error::from))
+            .and_then(|mut success| success.json::<BlockResponse<E>>().map_err(Error::from))
             .map(|response| (response.beacon_block, response.root))
     }
 
+    /// Returns the state and state root at the given slot.
     pub fn state_at_slot(
         &self,
         slot: Slot,
@@ -101,13 +107,9 @@ impl<E: EthSpec> Beacon<E> {
                     .append_pair("slot", &format!("{}", slot.as_u64()));
                 client.get(&url.to_string())
             })
-            .and_then(|builder| builder.send().map_err(|e| Error::from(e)))
-            .and_then(|response| response.error_for_status().map_err(|e| Error::from(e)))
-            .and_then(|mut success| {
-                success
-                    .json::<StateResponse<E>>()
-                    .map_err(|e| Error::from(e))
-            })
+            .and_then(|builder| builder.send().map_err(Error::from))
+            .and_then(|response| response.error_for_status().map_err(Error::from))
+            .and_then(|mut success| success.json::<StateResponse<E>>().map_err(Error::from))
             .map(|response| (response.beacon_state, response.root))
     }
 }

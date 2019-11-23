@@ -48,11 +48,12 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
         );
 
         // Then get the AttestationData from the beacon chain
+        // NOTE(v0.9): shard is incorrectly named, all this should be deleted
         let shard = req.get_shard();
         let slot_requested = req.get_slot();
         let attestation_data = match self
             .chain
-            .produce_attestation_data(shard, Slot::from(slot_requested))
+            .produce_attestation_data(Slot::from(slot_requested), shard)
         {
             Ok(v) => v,
             Err(e) => {
@@ -113,8 +114,9 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 // Attestation was successfully processed.
                 info!(
                     self.log,
-                    "PublishAttestation";
-                    "type" => "valid_attestation",
+                    "Valid attestation from RPC";
+                    "target_epoch" => attestation.data.target.epoch,
+                    "index" => attestation.data.index,
                 );
 
                 // valid attestation, propagate to the network
@@ -133,8 +135,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                     .unwrap_or_else(|e| {
                         error!(
                             self.log,
-                            "PublishAttestation";
-                            "type" => "failed to publish attestation to gossipsub",
+                            "Failed to gossip attestation";
                             "error" => format!("{:?}", e)
                         );
                     });
@@ -145,8 +146,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 // Attestation was invalid
                 warn!(
                     self.log,
-                    "PublishAttestation";
-                    "type" => "invalid_attestation",
+                    "Invalid attestation from RPC";
                     "error" => format!("{:?}", e),
                 );
                 resp.set_success(false);
@@ -156,8 +156,7 @@ impl<T: BeaconChainTypes> AttestationService for AttestationServiceInstance<T> {
                 // Some other error
                 warn!(
                     self.log,
-                    "PublishAttestation";
-                    "type" => "beacon_chain_error",
+                    "Failed to process attestation from RPC";
                     "error" => format!("{:?}", e),
                 );
                 resp.set_success(false);

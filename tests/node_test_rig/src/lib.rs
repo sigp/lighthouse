@@ -10,17 +10,18 @@ use types::EthSpec;
 
 pub use environment;
 
+/// Provides a beacon node that is running in the current process. Useful for testing purposes.
 pub struct LocalBeaconNode<T> {
     pub client: T,
     pub datadir: TempDir,
 }
 
 impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
+    /// Starts a new, production beacon node.
     pub fn production(context: RuntimeContext<E>) -> Self {
         let (client_config, datadir) = testing_client_config();
-        let eth2_config = context.eth2_config().clone();
 
-        let client = ProductionBeaconNode::new(context, client_config, eth2_config)
+        let client = ProductionBeaconNode::new(context, client_config)
             .wait()
             .expect("should build production client")
             .into_inner();
@@ -30,6 +31,8 @@ impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
 }
 
 impl<T: BeaconChainTypes> LocalBeaconNode<Client<T>> {
+    /// Returns a `RemoteBeaconNode` that can connect to `self`. Useful for testing the node as if
+    /// it were external this process.
     pub fn remote_node(&self) -> Result<RemoteBeaconNode<T::EthSpec>, String> {
         Ok(RemoteBeaconNode::new(
             self.client
@@ -57,16 +60,8 @@ fn testing_client_config() -> (ClientConfig, TempDir) {
 
     client_config.genesis = ClientGenesis::Interop {
         validator_count: 8,
-        genesis_time: 13371337,
+        genesis_time: 13_371_337,
     };
 
     (client_config, tempdir)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
 }

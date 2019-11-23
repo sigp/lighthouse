@@ -10,13 +10,14 @@ pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::{
-    builder::Witness, eth1_chain::JsonRpcEth1Backend, events::WebSocketSender,
+    builder::Witness, eth1_chain::CachingEth1Backend, events::WebSocketSender,
     lmd_ghost::ThreadSafeReducedTree, slot_clock::SystemTimeSlotClock,
 };
 use clap::ArgMatches;
 use config::get_configs;
 use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
+use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use store::DiskStore;
 use types::EthSpec;
@@ -27,7 +28,7 @@ pub type ProductionClient<E> = Client<
         DiskStore,
         SystemTimeSlotClock,
         ThreadSafeReducedTree<DiskStore, E>,
-        JsonRpcEth1Backend<E>,
+        CachingEth1Backend<E, DiskStore>,
         E,
         WebSocketSender<E>,
     >,
@@ -50,15 +51,18 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// given `matches` and potentially configuration files on the local filesystem or other
     /// configurations hosted remotely.
     pub fn new_from_cli<'a, 'b>(
-        context: RuntimeContext<E>,
+        mut context: RuntimeContext<E>,
         matches: &ArgMatches<'b>,
     ) -> impl Future<Item = Self, Error = String> + 'a {
         let log = context.log.clone();
 
-        // FIXME: the eth2 config in the env is being completely ignored.
+        // TODO: the eth2 config in the env is being completely ignored.
+        //
+        // See https://github.com/sigp/lighthouse/issues/602
         get_configs(&matches, log).into_future().and_then(
             move |(client_config, eth2_config, _log)| {
-                Self::new(context, client_config, eth2_config)
+                context.eth2_config = eth2_config;
+                Self::new(context, client_config)
             },
         )
     }
@@ -69,11 +73,12 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     pub fn new(
         context: RuntimeContext<E>,
         client_config: ClientConfig,
-        eth2_config: Eth2Config,
     ) -> impl Future<Item = Self, Error = String> {
-        let http_eth2_config = eth2_config.clone();
+        let http_eth2_config = context.eth2_config().clone();
+        let spec = context.eth2_config().spec.clone();
         let genesis_eth1_config = client_config.eth1.clone();
         let client_genesis = client_config.genesis.clone();
+        let log = context.log.clone();
 
         client_config
             .db_path()
@@ -83,7 +88,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 Ok(ClientBuilder::new(context.eth_spec_instance.clone())
                     .runtime_context(context)
                     .disk_store(&db_path)?
-                    .chain_spec(eth2_config.spec.clone()))
+                    .chain_spec(spec))
             })
             .and_then(move |builder| {
                 builder.beacon_chain_builder(client_genesis, genesis_eth1_config)
@@ -91,10 +96,26 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .and_then(move |builder| {
                 let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend
                 {
-                    builder.json_rpc_eth1_backend(client_config.eth1.clone())?
+                    info!(
+                        log,
+                        "Block production enabled";
+                        "endpoint" => &client_config.eth1.endpoint,
+                        "method" => "json rpc via http"
+                    );
+                    builder.caching_eth1_backend(client_config.eth1.clone())?
                 } else if client_config.dummy_eth1_backend {
+                    warn!(
+                        log,
+                        "Block production impaired";
+                        "reason" => "dummy eth1 backend is enabled"
+                    );
                     builder.dummy_eth1_backend()?
                 } else {
+                    info!(
+                        log,
+                        "Block production disabled";
+                        "reason" => "no eth1 backend configured"
+                    );
                     builder.no_eth1_backend()?
                 };
 

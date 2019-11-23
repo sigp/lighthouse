@@ -111,7 +111,7 @@ impl Eth1GenesisService {
                     .and_then(move |()| {
                         let mut sync_blocks = service_2.sync_blocks.lock();
 
-                        if *sync_blocks == false {
+                        if !(*sync_blocks) {
                             if let Some(viable_eth1_block) = service_2.first_viable_eth1_block(
                                 min_genesis_active_validator_count as usize,
                             ) {
@@ -205,7 +205,7 @@ impl Eth1GenesisService {
             .filter(|block| {
                 self.highest_known_block()
                     .map(|n| block.number <= n)
-                    .unwrap_or_else(|| true)
+                    .unwrap_or_else(|| false)
             })
             .find(|block| {
                 let mut highest_processed_block = self.highest_processed_block.lock();
@@ -217,7 +217,7 @@ impl Eth1GenesisService {
                     return false;
                 }
 
-                self.is_valid_genesis_eth1_block::<E>(block.clone(), &spec)
+                self.is_valid_genesis_eth1_block::<E>(block, &spec)
                     .and_then(|val| {
                         *highest_processed_block = Some(block.number);
                         Ok(val)
@@ -252,7 +252,7 @@ impl Eth1GenesisService {
                 "validator_count" => genesis_state.validators.len(),
             );
 
-            return Ok(Some(genesis_state));
+            Ok(Some(genesis_state))
         } else {
             Ok(None)
         }
@@ -283,7 +283,7 @@ impl Eth1GenesisService {
         let genesis_state = initialize_beacon_state_from_eth1(
             eth1_block.hash,
             eth1_block.timestamp,
-            genesis_deposits(deposit_logs, &spec),
+            genesis_deposits(deposit_logs, &spec)?,
             &spec,
         )
         .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
@@ -329,14 +329,19 @@ impl Eth1GenesisService {
                     // No need to verify proofs in order to test if some block will trigger genesis.
                     const PROOF_VERIFICATION: bool = false;
 
-                    process_deposit(
-                        &mut local_state,
-                        &deposit,
-                        spec,
-                        PROOF_VERIFICATION,
-                        // TODO: disable signature verification
-                    )
-                    .map_err(|e| format!("Error whilst processing deposit: {:?}", e))
+                    // Note: presently all the signatures are verified each time this function is
+                    // run.
+                    //
+                    // It would be more efficient to pre-verify signatures, filter out the invalid
+                    // ones and disable verification for `process_deposit`.
+                    //
+                    // This is only more efficient in scenarios where `min_genesis_time` occurs
+                    // _before_ `min_validator_count` is met. We're unlikely to see this scenario
+                    // in testnets (`min_genesis_time` is usually `0`) and I'm not certain it will
+                    // happen for the real, production deposit contract.
+
+                    process_deposit(&mut local_state, &deposit, spec, PROOF_VERIFICATION)
+                        .map_err(|e| format!("Error whilst processing deposit: {:?}", e))
                 })?;
 
             process_activations(&mut local_state, spec);

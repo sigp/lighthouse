@@ -20,8 +20,14 @@ pub fn run_deposit_contract<T: EthSpec>(
         .value_of("delay")
         .ok_or_else(|| "Deposit count not specified")?
         .parse::<u64>()
-        .map(|millis| Duration::from_millis(millis))
+        .map(Duration::from_millis)
         .map_err(|e| format!("Failed to parse deposit count: {}", e))?;
+
+    let confirmations = matches
+        .value_of("confirmations")
+        .ok_or_else(|| "Confirmations not specified")?
+        .parse::<usize>()
+        .map_err(|e| format!("Failed to parse confirmations: {}", e))?;
 
     let endpoint = matches
         .value_of("endpoint")
@@ -37,10 +43,13 @@ pub fn run_deposit_contract<T: EthSpec>(
 
     let deposit_contract = env
         .runtime()
-        .block_on(DepositContract::deploy(web3))
+        .block_on(DepositContract::deploy(web3, confirmations))
         .map_err(|e| format!("Failed to deploy contract: {}", e))?;
 
-    info!("Deposit contract address: {}", deposit_contract.address());
+    info!(
+        "Deposit contract deployed. Address: {}",
+        deposit_contract.address()
+    );
 
     env.runtime()
         .block_on(do_deposits::<T>(deposit_contract, count, delay))
@@ -55,7 +64,6 @@ fn do_deposits<T: EthSpec>(
     delay: Duration,
 ) -> impl Future<Item = (), Error = String> {
     let deposits = (0..count)
-        .into_iter()
         .map(|i| DelayThenDeposit {
             deposit: deposit_contract.deposit_helper::<T>(
                 generate_deterministic_keypair(i),

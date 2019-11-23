@@ -1,10 +1,13 @@
 use crate::{
     test_utils::{
         TestingAttestationBuilder, TestingAttesterSlashingBuilder, TestingDepositBuilder,
-        TestingProposerSlashingBuilder, TestingTransferBuilder, TestingVoluntaryExitBuilder,
+        TestingProposerSlashingBuilder, TestingVoluntaryExitBuilder,
     },
+    typenum::U4294967296,
     *,
 };
+use int_to_bytes::int_to_bytes32;
+use merkle_proof::MerkleTree;
 use rayon::prelude::*;
 use tree_hash::{SignedRoot, TreeHash};
 
@@ -13,6 +16,67 @@ use tree_hash::{SignedRoot, TreeHash};
 /// This struct should **never be used for production purposes.**
 pub struct TestingBeaconBlockBuilder<T: EthSpec> {
     pub block: BeaconBlock<T>,
+}
+
+/// Enum used for passing test options to builder
+#[derive(PartialEq, Clone, Copy)]
+pub enum DepositTestTask {
+    Valid,
+    BadPubKey,
+    BadSig,
+    InvalidPubKey,
+    NoReset,
+}
+
+/// Enum used for passing test options to builder
+#[derive(PartialEq, Clone, Copy)]
+pub enum ExitTestTask {
+    AlreadyInitiated,
+    AlreadyExited,
+    BadSignature,
+    FutureEpoch,
+    NotActive,
+    Valid,
+    ValidatorUnknown,
+}
+
+/// Enum used for passing test options to builder
+#[derive(PartialEq, Clone, Copy)]
+pub enum AttestationTestTask {
+    Valid,
+    NoCommiteeForShard,
+    WrongJustifiedCheckpoint,
+    BadTargetTooLow,
+    BadTargetTooHigh,
+    BadShard,
+    BadIndexedAttestationBadSignature,
+    BadAggregationBitfieldLen,
+    BadSignature,
+    ValidatorUnknown,
+    IncludedTooEarly,
+    IncludedTooLate,
+    BadTargetEpoch,
+}
+
+/// Enum used for passing test options to builder
+#[derive(PartialEq, Clone, Copy)]
+pub enum AttesterSlashingTestTask {
+    Valid,
+    NotSlashable,
+    IndexedAttestation1Invalid,
+    IndexedAttestation2Invalid,
+}
+
+/// Enum used for passing test options to builder
+#[derive(PartialEq, Clone, Copy)]
+pub enum ProposerSlashingTestTask {
+    Valid,
+    ProposerUnknown,
+    ProposalEpochMismatch,
+    ProposalsIdentical,
+    ProposerNotSlashable,
+    BadProposal1Signature,
+    BadProposal2Signature,
 }
 
 impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
@@ -61,13 +125,14 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Inserts a signed, valid `ProposerSlashing` for the validator.
     pub fn insert_proposer_slashing(
         &mut self,
+        test_task: ProposerSlashingTestTask,
         validator_index: u64,
         secret_key: &SecretKey,
         fork: &Fork,
         spec: &ChainSpec,
     ) {
         let proposer_slashing =
-            build_proposer_slashing::<T>(validator_index, secret_key, fork, spec);
+            build_proposer_slashing::<T>(test_task, validator_index, secret_key, fork, spec);
         self.block
             .body
             .proposer_slashings
@@ -78,18 +143,20 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Inserts a signed, valid `AttesterSlashing` for each validator index in `validator_indices`.
     pub fn insert_attester_slashing(
         &mut self,
+        test_task: AttesterSlashingTestTask,
         validator_indices: &[u64],
         secret_keys: &[&SecretKey],
         fork: &Fork,
         spec: &ChainSpec,
     ) {
-        let attester_slashing =
-            build_double_vote_attester_slashing(validator_indices, secret_keys, fork, spec);
-        self.block
-            .body
-            .attester_slashings
-            .push(attester_slashing)
-            .unwrap();
+        let attester_slashing = build_double_vote_attester_slashing(
+            test_task,
+            validator_indices,
+            secret_keys,
+            fork,
+            spec,
+        );
+        let _ = self.block.body.attester_slashings.push(attester_slashing);
     }
 
     /// Fills the block with `num_attestations` attestations.
@@ -103,6 +170,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// to aggregate these split attestations.
     pub fn insert_attestations(
         &mut self,
+        test_task: AttestationTestTask,
         state: &BeaconState<T>,
         secret_keys: &[&SecretKey],
         num_attestations: usize,
@@ -116,7 +184,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         // - The slot of the committee.
         // - A list of all validators in the committee.
         // - A list of all validators in the committee that should sign the attestation.
-        // - The shard of the committee.
+        // - The index of the committee.
         let mut committees: Vec<(Slot, Vec<usize>, Vec<usize>, u64)> = vec![];
 
         if slot < T::slots_per_epoch() {
@@ -132,16 +200,16 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                 break;
             }
 
-            for crosslink_committee in state.get_crosslink_committees_at_slot(slot)? {
+            for beacon_committee in state.get_beacon_committees_at_slot(slot)? {
                 if attestations_added >= num_attestations {
                     break;
                 }
 
                 committees.push((
                     slot,
-                    crosslink_committee.committee.to_vec(),
-                    crosslink_committee.committee.to_vec(),
-                    crosslink_committee.shard,
+                    beacon_committee.committee.to_vec(),
+                    beacon_committee.committee.to_vec(),
+                    beacon_committee.index,
                 ));
 
                 attestations_added += 1;
@@ -157,37 +225,38 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                 break;
             }
 
-            for index in 0..committees.len() {
+            for i in 0..committees.len() {
                 if committees.len() >= num_attestations as usize {
                     break;
                 }
 
-                let (slot, committee, mut signing_validators, shard) = committees[index].clone();
+                let (slot, committee, mut signing_validators, index) = committees[i].clone();
 
                 let new_signing_validators =
                     signing_validators.split_off(signing_validators.len() / 2);
 
-                committees[index] = (slot, committee.clone(), signing_validators, shard);
-                committees.push((slot, committee, new_signing_validators, shard));
+                committees[i] = (slot, committee.clone(), signing_validators, index);
+                committees.push((slot, committee, new_signing_validators, index));
             }
         }
 
         let attestations: Vec<_> = committees
             .par_iter()
-            .map(|(slot, committee, signing_validators, shard)| {
-                let mut builder =
-                    TestingAttestationBuilder::new(state, committee, *slot, *shard, spec);
+            .map(|(slot, committee, signing_validators, index)| {
+                let mut builder = TestingAttestationBuilder::new(
+                    test_task, state, committee, *slot, *index, spec,
+                );
 
                 let signing_secret_keys: Vec<&SecretKey> = signing_validators
                     .iter()
                     .map(|validator_index| secret_keys[*validator_index])
                     .collect();
                 builder.sign(
+                    test_task,
                     signing_validators,
                     &signing_secret_keys,
                     &state.fork,
                     spec,
-                    false,
                 );
 
                 builder.build()
@@ -202,60 +271,108 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     }
 
     /// Insert a `Valid` deposit into the state.
-    pub fn insert_deposit(
+    pub fn insert_deposits(
         &mut self,
         amount: u64,
+        test_task: DepositTestTask,
         // TODO: deal with the fact deposits no longer have explicit indices
         _index: u64,
+        num_deposits: u64,
+        state: &mut BeaconState<T>,
         spec: &ChainSpec,
     ) {
-        let keypair = Keypair::random();
+        // Vector containing deposits' data
+        let mut datas = vec![];
+        for _ in 0..num_deposits {
+            let keypair = Keypair::random();
 
-        let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
-        builder.sign(&keypair, spec);
+            let mut builder = TestingDepositBuilder::new(keypair.pk.clone(), amount);
+            builder.sign(test_task, &keypair, spec);
+            datas.push(builder.build().data);
+        }
 
-        self.block.body.deposits.push(builder.build()).unwrap()
+        // Vector containing all leaves
+        let leaves = datas
+            .iter()
+            .map(|data| Hash256::from_slice(&data.tree_hash_root()))
+            .collect::<Vec<_>>();
+
+        // Building a VarList from leaves
+        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
+
+        // Setting the deposit_root to be the tree_hash_root of the VarList
+        state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
+
+        // Building the merkle tree used for generating proofs
+        let tree = MerkleTree::create(&leaves[..], spec.deposit_contract_tree_depth as usize);
+
+        // Building proofs
+        let mut proofs = vec![];
+        for i in 0..leaves.len() {
+            let (_, mut proof) = tree.generate_proof(i, spec.deposit_contract_tree_depth as usize);
+            proof.push(Hash256::from_slice(&int_to_bytes32(leaves.len() as u64)));
+            proofs.push(proof);
+        }
+
+        // Building deposits
+        let deposits = datas
+            .into_par_iter()
+            .zip(proofs.into_par_iter())
+            .map(|(data, proof)| (data, proof.into()))
+            .map(|(data, proof)| Deposit { proof, data })
+            .collect::<Vec<_>>();
+
+        // Pushing deposits to block body
+        for deposit in deposits {
+            let _ = self.block.body.deposits.push(deposit);
+        }
+
+        // Manually setting the deposit_count to process deposits
+        // This is for test purposes only
+        if test_task == DepositTestTask::NoReset {
+            state.eth1_data.deposit_count += num_deposits;
+        } else {
+            state.eth1_deposit_index = 0;
+            state.eth1_data.deposit_count = num_deposits;
+        }
     }
 
     /// Insert a `Valid` exit into the state.
     pub fn insert_exit(
         &mut self,
-        state: &BeaconState<T>,
-        validator_index: u64,
+        test_task: ExitTestTask,
+        state: &mut BeaconState<T>,
+        mut validator_index: u64,
         secret_key: &SecretKey,
         spec: &ChainSpec,
     ) {
-        let mut builder = TestingVoluntaryExitBuilder::new(
-            state.slot.epoch(T::slots_per_epoch()),
-            validator_index,
-        );
+        let sk = &mut secret_key.clone();
+        let mut exit_epoch = state.slot.epoch(T::slots_per_epoch());
 
-        builder.sign(secret_key, &state.fork, spec);
+        match test_task {
+            ExitTestTask::BadSignature => *sk = SecretKey::random(),
+            ExitTestTask::ValidatorUnknown => validator_index = 4242,
+            ExitTestTask::AlreadyExited => {
+                state.validators[validator_index as usize].exit_epoch = Epoch::from(314_159 as u64)
+            }
+            // FIXME: disabled in v0.9
+            ExitTestTask::NotActive => {
+                state.validators[validator_index as usize].activation_epoch =
+                    Epoch::from(314_159 as u64)
+            }
+            ExitTestTask::FutureEpoch => exit_epoch = spec.far_future_epoch,
+            _ => (),
+        }
+
+        let mut builder = TestingVoluntaryExitBuilder::new(exit_epoch, validator_index);
+
+        builder.sign(sk, &state.fork, spec);
 
         self.block
             .body
             .voluntary_exits
             .push(builder.build())
-            .unwrap()
-    }
-
-    /// Insert a `Valid` transfer into the state.
-    ///
-    /// Note: this will set the validator to be withdrawable by directly modifying the state
-    /// validator registry. This _may_ cause problems historic hashes, etc.
-    pub fn insert_transfer(
-        &mut self,
-        state: &BeaconState<T>,
-        from: u64,
-        to: u64,
-        amount: u64,
-        keypair: Keypair,
-        spec: &ChainSpec,
-    ) {
-        let mut builder = TestingTransferBuilder::new(from, to, amount, state.slot);
-        builder.sign::<T>(keypair, &state.fork, spec);
-
-        self.block.body.transfers.push(builder.build()).unwrap()
+            .unwrap();
     }
 
     /// Signs and returns the block, consuming the builder.
@@ -274,6 +391,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
 ///
 /// Signs the message using a `BeaconChainHarness`.
 fn build_proposer_slashing<T: EthSpec>(
+    test_task: ProposerSlashingTestTask,
     validator_index: u64,
     secret_key: &SecretKey,
     fork: &Fork,
@@ -284,13 +402,14 @@ fn build_proposer_slashing<T: EthSpec>(
         Signature::new(message, domain, secret_key)
     };
 
-    TestingProposerSlashingBuilder::double_vote::<T, _>(validator_index, signer)
+    TestingProposerSlashingBuilder::double_vote::<T, _>(test_task, validator_index, signer)
 }
 
 /// Builds an `AttesterSlashing` for some `validator_indices`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
 fn build_double_vote_attester_slashing<T: EthSpec>(
+    test_task: AttesterSlashingTestTask,
     validator_indices: &[u64],
     secret_keys: &[&SecretKey],
     fork: &Fork,
@@ -305,5 +424,5 @@ fn build_double_vote_attester_slashing<T: EthSpec>(
         Signature::new(message, domain, secret_keys[key_index])
     };
 
-    TestingAttesterSlashingBuilder::double_vote(validator_indices, signer)
+    TestingAttesterSlashingBuilder::double_vote(test_task, validator_indices, signer)
 }

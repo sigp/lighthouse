@@ -2,7 +2,7 @@ use clap::{App, Arg, SubCommand};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("Beacon Node")
-        .visible_aliases(&["bn", "beacon"])
+        .visible_aliases(&["b", "bn", "beacon", "beacon_node"])
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Eth 2.0 Client")
@@ -172,15 +172,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with_all(&["no-ws", "port-bump"])
                 .takes_value(true),
         )
-        .arg(
-            Arg::with_name("goerli")
-                .long("goerli")
-                .help("When set, uses the parameters for the Goerli testnet.")
-        )
 
         /*
          * Eth1 Integration
          */
+        .arg(
+            Arg::with_name("dummy-eth1")
+                .long("dummy-eth1")
+                .help("If present, uses an eth1 backend that generates static dummy data.\
+                      Identical to the method used at the 2019 Canada interop.")
+        )
         .arg(
             Arg::with_name("eth1-endpoint")
                 .long("eth1-endpoint")
@@ -335,6 +336,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .value_name("FILE")
                     .required(true)
                     .help("A file from which to read the state"))
+            )
+            /*
+             * `prysm`
+             *
+             * Connect to the Prysmatic Labs testnet.
+             */
+            .subcommand(SubCommand::with_name("prysm")
+                .about("Connect to the Prysmatic Labs testnet on Goerli.")
             )
         )
 }

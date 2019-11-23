@@ -6,8 +6,7 @@ bytes_struct!(
     PublicKeyBytes,
     PublicKey,
     BLS_PUBLIC_KEY_BYTE_SIZE,
-    "public key",
-    U48
+    "public key"
 );
 
 #[cfg(test)]

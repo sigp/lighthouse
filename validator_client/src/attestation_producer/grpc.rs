@@ -6,17 +6,17 @@ use ssz::{Decode, Encode};
 use protos::services::{
     Attestation as GrpcAttestation, ProduceAttestationDataRequest, PublishAttestationRequest,
 };
-use types::{Attestation, AttestationData, EthSpec, Slot};
+use types::{Attestation, AttestationData, CommitteeIndex, EthSpec, Slot};
 
 impl BeaconNodeAttestation for AttestationServiceClient {
     fn produce_attestation_data(
         &self,
         slot: Slot,
-        shard: u64,
+        index: CommitteeIndex,
     ) -> Result<AttestationData, BeaconNodeError> {
         let mut req = ProduceAttestationDataRequest::new();
         req.set_slot(slot.as_u64());
-        req.set_shard(shard);
+        req.set_shard(index);
 
         let reply = self
             .produce_attestation_data(&req)

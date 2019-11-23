@@ -74,9 +74,10 @@ do
     shift
 done
 
-./beacon_node \
-	--p2p-priv-key $IDENTITY \
+./lighthouse \
 	--logfile $BEACON_LOG_FILE \
+	beacon \
+	--p2p-priv-key $IDENTITY \
 	--libp2p-addresses $PEERS \
 	--port $PORT \
 	testnet \
@@ -86,8 +87,9 @@ done
 	$GEN_STATE \
 	& \
 
-./validator_client \
+./lighthouse \
 	--logfile $VALIDATOR_LOG_FILE \
+	validator \
 	testnet \
 	--bootstrap \
 	interop-yaml \

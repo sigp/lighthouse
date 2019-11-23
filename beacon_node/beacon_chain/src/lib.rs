@@ -28,7 +28,7 @@ pub use parking_lot;
 pub use slot_clock;
 pub use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
-    ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
+    ExitValidationError, ProposerSlashingValidationError,
 };
 pub use store;
 pub use types;

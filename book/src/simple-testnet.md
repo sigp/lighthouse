@@ -1,33 +1,25 @@
 # Simple Local Testnet
 
-You can setup a local, two-node testnet in **Only Three CLI Commands™**.
+With a functional [development environment](./setup.md), starting a local multi-node
+testnet is easy:
 
-Follow the [Quick instructions](#tldr) version if you're confident, or see
-[Detailed instructions](#detail) for more.
+1. Start the first node: `$ lighthouse bn testnet -f recent 8`
+1. Start a validator client: `$ lighthouse bn testnet -b insecure 0 8`
+1. Start more nodes with `$ lighthouse bn -b 10 testnet -f bootstrap
+   http://localhost:5052`
+   - Increment the `-b` value by `10` for each additional node.
 
-
-## Quick instructions
-
-Setup a development environment, build the project and navigate to the
-`target/release` directory.
-
-1. Start the first node: `$ ./beacon_node testnet -f recent 8`
-1. Start a validator client: `$ ./validator_client testnet -b insecure 0 8`
-1. Start another node `$ ./beacon_node -b 10 testnet -f bootstrap http://localhost:5052`
-
-_Repeat #3 to add more nodes._
-
-## Detailed instructions
+## Detailed Instructions
 
 First, setup a Lighthouse development environment and navigate to the
 `target/release` directory (this is where the binaries are located).
 
-## Starting the Beacon Node
+## Starting a beacon node
 
-Start a new node (creating a fresh database and configuration in `~/.lighthouse`), using:
+Start a new node (creating a fresh database and configuration in `$HOME/.lighthouse`), using:
 
-```
-$ ./beacon_node testnet -f recent 8
+```bash
+$ lighthouse bn testnet -f recent 8
 ```
 
 > Notes:
@@ -35,15 +27,15 @@ $ ./beacon_node testnet -f recent 8
 > - The `-f` flag ignores any existing database or configuration, backing them
 >   up before re-initializing.
 > - `8` is number of validators with deposits in the genesis state.
-> - See `$ ./beacon_node testnet recent --help` for more configuration options,
+> - See `$ lighthouse bn testnet recent --help` for more configuration options,
 >   including `minimal`/`mainnet` specification.
 
-## Starting the Validator Client
+## Starting a validator client
 
 In a new terminal window, start the validator client with:
 
-```
-$ ./validator_client testnet -b insecure 0 8
+```bash
+$ lighthouse vc testnet -b insecure 0 8
 ```
 
 > Notes:
@@ -57,16 +49,16 @@ $ ./validator_client testnet -b insecure 0 8
 > - The validator client will try to connect to the beacon node at `localhost`.
 >   See `--help` to configure that address and other features.
 
-## Adding another Beacon Node
+## Adding another beacon node
 
 You may connect another (non-validating) node to your local network using the
 lighthouse `bootstrap` command.
 
-In a new terminal terminal, run:
+In a new terminal window, run:
 
 
-```
-$ ./beacon_node -b 10 testnet -r bootstrap
+```bash
+$ lighthouse bn -b 10 testnet -r bootstrap
 ```
 
 > Notes:
@@ -78,4 +70,4 @@ $ ./beacon_node -b 10 testnet -r bootstrap
 >   (avoids data directory collisions between nodes).
 > - The default bootstrap HTTP address is `http://localhost:5052`. The new node
 >   will download configuration via HTTP before starting sync via libp2p.
-> - See `$ ./beacon_node testnet bootstrap --help` for more configuration.
+> - See `$ lighthouse bn testnet bootstrap --help` for more configuration.

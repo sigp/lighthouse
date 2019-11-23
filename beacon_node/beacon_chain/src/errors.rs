@@ -18,7 +18,6 @@ macro_rules! easy_from_to {
 #[derive(Debug, PartialEq)]
 pub enum BeaconChainError {
     InsufficientValidators,
-    BadRecentBlockRoots,
     UnableToReadSlot,
     RevertedFinalizedEpoch {
         previous_epoch: Epoch,
@@ -55,6 +54,8 @@ pub enum BlockProductionError {
     BlockProcessingError(BlockProcessingError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
+    /// The `BeaconChain` was explicitly configured _without_ a connection to eth1, therefore it
+    /// cannot produce blocks.
     NoEth1ChainConnection,
 }
 

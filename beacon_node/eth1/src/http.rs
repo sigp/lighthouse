@@ -12,11 +12,7 @@
 
 use futures::{Future, Stream};
 use libflate::gzip::Decoder;
-use reqwest::{
-    header::{ACCEPT_ENCODING, CONTENT_TYPE},
-    r#async::ClientBuilder,
-    StatusCode,
-};
+use reqwest::{header::CONTENT_TYPE, r#async::ClientBuilder, StatusCode};
 use serde_json::{json, Value};
 use std::io::prelude::*;
 use std::ops::Range;
@@ -109,7 +105,7 @@ pub fn get_block(
                     .ok_or_else(|| "Block number was not string")?,
             )?;
 
-            if number <= usize_max_size() {
+            if number <= usize::max_value() as u64 {
                 Ok(Block {
                     hash,
                     timestamp,
@@ -120,11 +116,6 @@ pub fn get_block(
             }
         })
         .map_err(|e| format!("Failed to get block number: {}", e))
-}
-
-/// The maximum allowable size of a usize.
-fn usize_max_size() -> u64 {
-    1 << (std::mem::size_of::<usize>() * 8) - 1
 }
 
 /// Returns the value of the `get_deposit_count()` call at the given `address` for the given
@@ -306,13 +297,16 @@ pub fn send_rpc_request(
     })
     .to_string();
 
+    // Note: it is not ideal to create a new client for each request.
+    //
+    // A better solution would be to create some struct that contains a built client and pass it
+    // around (similar to the `web3` crate's `Transport` structs).
     ClientBuilder::new()
         .timeout(timeout)
         .build()
         .expect("The builder should always build a client")
         .post(endpoint)
         .header(CONTENT_TYPE, "application/json")
-        .header(ACCEPT_ENCODING, "gzip")
         .body(body)
         .send()
         .map_err(|e| format!("Request failed: {:?}", e))
@@ -348,6 +342,14 @@ pub fn send_rpc_request(
                 .and_then(move |bytes| match encoding.as_str() {
                     "application/json" => Ok(bytes),
                     "application/json; charset=utf-8" => Ok(bytes),
+                    // Note: gzip is not presently working because we always seem to get an empty
+                    // response from the server.
+                    //
+                    // I expect this is some simple-to-solve issue for someone who is familiar with
+                    // the eth1 JSON RPC.
+                    //
+                    // Some public-facing web3 servers use gzip to compress their traffic, it would
+                    // be good to support this.
                     "application/x-gzip" => {
                         let mut decoder = Decoder::new(&bytes[..])
                             .map_err(|e| format!("Failed to create gzip decoder: {}", e))?;
@@ -371,7 +373,7 @@ fn response_result(response: &str) -> Result<Option<Value>, String> {
         .map_err(|e| format!("Failed to parse response: {:?}", e))?
         .get("result")
         .cloned()
-        .map(|v| Some(v))
+        .map(Some)
         .unwrap_or_else(|| None))
 }
 
@@ -382,20 +384,21 @@ fn response_result(response: &str) -> Result<Option<Value>, String> {
 ///
 /// E.g., `0x01 == 1`
 fn hex_to_u64_be(hex: &str) -> Result<u64, String> {
-    if hex.starts_with("0x") {
-        u64::from_str_radix(&hex[2..], 16)
-            .map_err(|e| format!("Failed to parse hex as u64: {:?}", e))
-    } else {
-        Err("Hex string did not start with `0x`".to_string())
-    }
+    u64::from_str_radix(strip_prefix(hex)?, 16)
+        .map_err(|e| format!("Failed to parse hex as u64: {:?}", e))
 }
 
 /// Parses a `0x`-prefixed, big-endian hex string as bytes.
 ///
 /// E.g., `0x0102 == vec![1, 2]`
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
+    hex::decode(strip_prefix(hex)?).map_err(|e| format!("Failed to parse hex as bytes: {:?}", e))
+}
+
+/// Removes the `0x` prefix from some bytes. Returns an error if the prefix is not present.
+fn strip_prefix(hex: &str) -> Result<&str, String> {
     if hex.starts_with("0x") {
-        hex::decode(&hex[2..]).map_err(|e| format!("Failed to parse hex as bytes: {:?}", e))
+        Ok(&hex[2..])
     } else {
         Err("Hex string did not start with `0x`".to_string())
     }
