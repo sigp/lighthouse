@@ -7,6 +7,7 @@ use remote_beacon_node::{RemoteBeaconNode, ValidatorDuty};
 use slog::{error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
@@ -121,20 +122,16 @@ impl DutiesStore {
     }
 }
 
-#[derive(Clone)]
-pub struct DutiesServiceBuilder<T: Clone, E: EthSpec> {
-    store: Option<Arc<DutiesStore>>,
+pub struct DutiesServiceBuilder<T, E: EthSpec> {
     validator_store: Option<ValidatorStore<T, E>>,
-    slot_clock: Option<Arc<T>>,
+    slot_clock: Option<T>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
 }
 
-// TODO: clean trait bounds.
-impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
+impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
     pub fn new() -> Self {
         Self {
-            store: None,
             validator_store: None,
             slot_clock: None,
             beacon_node: None,
@@ -148,7 +145,7 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
     }
 
     pub fn slot_clock(mut self, slot_clock: T) -> Self {
-        self.slot_clock = Some(Arc::new(slot_clock));
+        self.slot_clock = Some(slot_clock);
         self
     }
 
@@ -164,33 +161,54 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
 
     pub fn build(self) -> Result<DutiesService<T, E>, String> {
         Ok(DutiesService {
-            store: Arc::new(DutiesStore::default()),
-            validator_store: self
-                .validator_store
-                .ok_or_else(|| "Cannot build DutiesService without validator_store")?,
-            slot_clock: self
-                .slot_clock
-                .ok_or_else(|| "Cannot build DutiesService without slot_clock")?,
-            beacon_node: self
-                .beacon_node
-                .ok_or_else(|| "Cannot build DutiesService without beacon_node")?,
-            context: self
-                .context
-                .ok_or_else(|| "Cannot build DutiesService without runtime_context")?,
+            inner: Arc::new(Inner {
+                store: Arc::new(DutiesStore::default()),
+                validator_store: self
+                    .validator_store
+                    .ok_or_else(|| "Cannot build DutiesService without validator_store")?,
+                slot_clock: self
+                    .slot_clock
+                    .ok_or_else(|| "Cannot build DutiesService without slot_clock")?,
+                beacon_node: self
+                    .beacon_node
+                    .ok_or_else(|| "Cannot build DutiesService without beacon_node")?,
+                context: self
+                    .context
+                    .ok_or_else(|| "Cannot build DutiesService without runtime_context")?,
+            }),
         })
     }
 }
 
-#[derive(Clone)]
-pub struct DutiesService<T: Clone, E: EthSpec> {
+pub struct Inner<T, E: EthSpec> {
     store: Arc<DutiesStore>,
     validator_store: ValidatorStore<T, E>,
-    slot_clock: Arc<T>,
+    slot_clock: T,
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
 }
 
-impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesService<T, E> {
+pub struct DutiesService<T, E: EthSpec> {
+    inner: Arc<Inner<T, E>>,
+}
+
+impl<T, E: EthSpec> Clone for DutiesService<T, E> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<T, E: EthSpec> Deref for DutiesService<T, E> {
+    type Target = Inner<T, E>;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.deref()
+    }
+}
+
+impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     /// Returns the pubkeys of the validators which are assigned to propose in the given slot.
     ///
     /// In normal cases, there should be 0 or 1 validators returned. In extreme cases (i.e., deep forking)
@@ -251,7 +269,7 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesService<T, E> {
         Ok(exit_signal)
     }
 
-    fn do_update(self) -> impl Future<Item = (), Error = ()> {
+    fn do_update(&self) -> impl Future<Item = (), Error = ()> {
         let service_1 = self.clone();
         let service_2 = self.clone();
         let service_3 = self.clone();

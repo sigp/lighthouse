@@ -5,6 +5,7 @@ use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
 use slog::{error, info, trace};
 use slot_clock::SlotClock;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
@@ -13,16 +14,14 @@ use types::{ChainSpec, EthSpec, Fork};
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(80);
 
-#[derive(Clone)]
-pub struct ForkServiceBuilder<T: Clone, E: EthSpec> {
+pub struct ForkServiceBuilder<T, E: EthSpec> {
     fork: Option<Fork>,
     slot_clock: Option<T>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
 }
 
-// TODO: clean trait bounds.
-impl<T: SlotClock + Clone + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
+impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
     pub fn new() -> Self {
         Self {
             fork: None,
@@ -65,29 +64,42 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
     }
 }
 
-struct Inner<T, E: EthSpec> {
+pub struct Inner<T, E: EthSpec> {
     fork: RwLock<Option<Fork>>,
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
     slot_clock: T,
 }
 
-#[derive(Clone)]
 pub struct ForkService<T, E: EthSpec> {
     inner: Arc<Inner<T, E>>,
 }
 
-// TODO: clean trait bounds.
-impl<T: SlotClock + Clone + 'static, E: EthSpec> ForkService<T, E> {
+impl<T, E: EthSpec> Clone for ForkService<T, E> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<T, E: EthSpec> Deref for ForkService<T, E> {
+    type Target = Inner<T, E>;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.deref()
+    }
+}
+
+impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     pub fn fork(&self) -> Option<Fork> {
-        self.inner.fork.read().clone()
+        self.fork.read().clone()
     }
 
     pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
-        let log = self.inner.context.log.clone();
+        let log = self.context.log.clone();
 
         let duration_to_next_epoch = self
-            .inner
             .slot_clock
             .duration_to_next_epoch(E::slots_per_epoch())
             .ok_or_else(|| "Unable to determine duration to next epoch".to_string())?;
@@ -106,12 +118,9 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> ForkService<T, E> {
         let log_2 = log.clone();
 
         // Run an immediate update before starting the updater service.
-        self.inner
-            .context
-            .executor
-            .spawn(service.clone().do_update());
+        self.context.executor.spawn(service.clone().do_update());
 
-        self.inner.context.executor.spawn(
+        self.context.executor.spawn(
             exit_fut
                 .until(
                     interval
@@ -122,7 +131,7 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> ForkService<T, E> {
                                 "error" => format!("{}", e)
                             }
                         })
-                        .for_each(move |_| service.clone().do_update())
+                        .for_each(move |_| service.do_update())
                         // Prevent any errors from escaping and stopping the interval.
                         .then(|_| Ok(())),
                 )
@@ -132,8 +141,8 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> ForkService<T, E> {
         Ok(exit_signal)
     }
 
-    fn do_update(self) -> impl Future<Item = (), Error = ()> {
-        let service_1 = self.inner.clone();
+    fn do_update(&self) -> impl Future<Item = (), Error = ()> {
+        let service_1 = self.clone();
         let log_1 = service_1.context.log.clone();
         let log_2 = service_1.context.log.clone();
 

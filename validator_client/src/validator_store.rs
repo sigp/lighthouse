@@ -27,7 +27,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     _phantom: PhantomData<E>,
 }
 
-impl<T: SlotClock + Clone + 'static, E: EthSpec> ValidatorStore<T, E> {
+impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn load_from_disk(
         base_dir: PathBuf,
         spec: ChainSpec,
@@ -171,8 +171,8 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> ValidatorStore<T, E> {
         &self,
         validator_pubkey: &PublicKey,
         validator_committee_position: usize,
-        mut attestation: Attestation<E>,
-    ) -> Option<Attestation<E>> {
+        attestation: &mut Attestation<E>,
+    ) -> Option<()> {
         // TODO: check for slashing.
         self.validators
             .read()
@@ -196,7 +196,7 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> ValidatorStore<T, E> {
                     })
                     .ok()?;
 
-                Some(attestation)
+                Some(())
             })
     }
 }

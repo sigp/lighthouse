@@ -5,6 +5,7 @@ use futures::{stream, Future, IntoFuture, Stream};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use slog::{error, info};
 use slot_clock::SlotClock;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
@@ -13,8 +14,8 @@ use types::{ChainSpec, EthSpec};
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
 
-#[derive(Clone)]
-pub struct BlockServiceBuilder<T: Clone, E: EthSpec> {
+/// Builds a `BlockService`.
+pub struct BlockServiceBuilder<T, E: EthSpec> {
     duties_service: Option<DutiesService<T, E>>,
     validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<Arc<T>>,
@@ -22,8 +23,7 @@ pub struct BlockServiceBuilder<T: Clone, E: EthSpec> {
     context: Option<RuntimeContext<E>>,
 }
 
-// TODO: clean trait bounds.
-impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
+impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
     pub fn new() -> Self {
         Self {
             duties_service: None,
@@ -61,27 +61,28 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
-            duties_service: self
-                .duties_service
-                .ok_or_else(|| "Cannot build BlockService without duties_service")?,
-            validator_store: self
-                .validator_store
-                .ok_or_else(|| "Cannot build BlockService without validator_store")?,
-            slot_clock: self
-                .slot_clock
-                .ok_or_else(|| "Cannot build BlockService without slot_clock")?,
-            beacon_node: self
-                .beacon_node
-                .ok_or_else(|| "Cannot build BlockService without beacon_node")?,
-            context: self
-                .context
-                .ok_or_else(|| "Cannot build BlockService without runtime_context")?,
+            inner: Arc::new(Inner {
+                duties_service: self
+                    .duties_service
+                    .ok_or_else(|| "Cannot build BlockService without duties_service")?,
+                validator_store: self
+                    .validator_store
+                    .ok_or_else(|| "Cannot build BlockService without validator_store")?,
+                slot_clock: self
+                    .slot_clock
+                    .ok_or_else(|| "Cannot build BlockService without slot_clock")?,
+                beacon_node: self
+                    .beacon_node
+                    .ok_or_else(|| "Cannot build BlockService without beacon_node")?,
+                context: self
+                    .context
+                    .ok_or_else(|| "Cannot build BlockService without runtime_context")?,
+            }),
         })
     }
 }
 
-#[derive(Clone)]
-pub struct BlockService<T: Clone, E: EthSpec> {
+pub struct Inner<T, E: EthSpec> {
     duties_service: DutiesService<T, E>,
     validator_store: ValidatorStore<T, E>,
     slot_clock: Arc<T>,
@@ -89,8 +90,27 @@ pub struct BlockService<T: Clone, E: EthSpec> {
     context: RuntimeContext<E>,
 }
 
-// TODO: clean trait bounds.
-impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockService<T, E> {
+pub struct BlockService<T, E: EthSpec> {
+    inner: Arc<Inner<T, E>>,
+}
+
+impl<T, E: EthSpec> Clone for BlockService<T, E> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<T, E: EthSpec> Deref for BlockService<T, E> {
+    type Target = Inner<T, E>;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.deref()
+    }
+}
+
+impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
         let log = self.context.log.clone();
 
