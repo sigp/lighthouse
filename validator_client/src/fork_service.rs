@@ -3,7 +3,7 @@ use exit_future::Signal;
 use futures::{Future, Stream};
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
-use slog::{error, info, trace};
+use slog::{crit, info, trace};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -125,7 +125,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
                 .until(
                     interval
                         .map_err(move |e| {
-                            error! {
+                            crit! {
                                 log_1,
                                 "Timer thread failed";
                                 "error" => format!("{}", e)

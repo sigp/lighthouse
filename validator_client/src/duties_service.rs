@@ -4,7 +4,7 @@ use exit_future::Signal;
 use futures::{Future, IntoFuture, Stream};
 use parking_lot::RwLock;
 use remote_beacon_node::{RemoteBeaconNode, ValidatorDuty};
-use slog::{error, info, trace, warn};
+use slog::{crit, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -253,7 +253,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 .until(
                     interval
                         .map_err(move |e| {
-                            error! {
+                            crit! {
                                 log_1,
                                 "Timer thread failed";
                                 "error" => format!("{}", e)

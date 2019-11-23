@@ -3,7 +3,7 @@ use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{stream, Future, IntoFuture, Stream};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
-use slog::{error, info};
+use slog::{crit, info};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -137,7 +137,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 .until(
                     interval
                         .map_err(move |e| {
-                            error! {
+                            crit! {
                                 log_1,
                                 "Timer thread failed";
                                 "error" => format!("{}", e)
@@ -160,7 +160,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         self.slot_clock
             .now()
             .ok_or_else(move || {
-                error!(log, "Duties manager failed to read slot clock");
+                crit!(log, "Duties manager failed to read slot clock");
             })
             .into_future()
             .and_then(move |slot| {
@@ -220,18 +220,18 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     "attestations" => block.body.attestations.len(),
                                     "slot" => block.slot.as_u64(),
                                 ),
-                                PublishStatus::Invalid(msg) => error!(
+                                PublishStatus::Invalid(msg) => crit!(
                                     log_1,
                                     "Published block was invalid";
                                     "message" => msg,
                                     "slot" => block.slot.as_u64(),
                                 ),
                                 PublishStatus::Unknown => {
-                                    info!(log_1, "Unknown condition when publishing block")
+                                    crit!(log_1, "Unknown condition when publishing block")
                                 }
                             })
                             .map_err(move |e| {
-                                error!(
+                                crit!(
                                     log_2,
                                     "Error whilst producing block";
                                     "message" => e
