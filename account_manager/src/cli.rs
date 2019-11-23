@@ -2,7 +2,7 @@ use clap::{App, Arg, SubCommand};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("account_manager")
-        .visible_aliases(&["am", "account", "account_manager"])
+        .visible_aliases(&["a", "am", "account", "account_manager"])
         .about("Utilities for generating and managing Ethereum 2.0 accounts.")
         .subcommand(
             SubCommand::with_name("validator")

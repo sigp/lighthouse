@@ -1,18 +1,5 @@
-use crate::config::Config;
+use crate::config::DEFAULT_HTTP_SERVER;
 use clap::{App, Arg, SubCommand};
-use lazy_static::lazy_static;
-
-lazy_static! {
-    /// The default configuration. Is in lazy_static because clap requires references, therefore we
-    /// can't initialize the defaults in the `cli_app` function
-    static ref DEFAULTS: Config = {
-        Config::default()
-    };
-
-    static ref DEFAULT_SERVER_HTTP_PORT: String = {
-        format!("{}", DEFAULTS.server_http_port)
-    };
-}
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("validator_client")
@@ -23,16 +10,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("server")
                 .value_name("NETWORK_ADDRESS")
                 .help("Address to connect to BeaconNode.")
-                .default_value(&DEFAULTS.server)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("server-http-port")
-                .long("server-http-port")
-                .short("h")
-                .value_name("PORT")
-                .help("Port to use for HTTP API connection to the server.")
-                .default_value(&DEFAULT_SERVER_HTTP_PORT)
+                .default_value(&DEFAULT_HTTP_SERVER)
                 .takes_value(true),
         )
         /*

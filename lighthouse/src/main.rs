@@ -158,7 +158,7 @@ fn run<E: EthSpec>(
         None
     };
 
-    let validator_client = if let Some(sub_matches) = matches.subcommand_matches("Validator Client")
+    let validator_client = if let Some(sub_matches) = matches.subcommand_matches("validator_client")
     {
         let runtime_context = environment.core_context();
 

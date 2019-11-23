@@ -14,7 +14,7 @@ pub use config::Config;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use config::{Config as ClientConfig, KeySource};
+use config::KeySource;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
 use exit_future::Signal;
@@ -53,35 +53,30 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         context: RuntimeContext<T>,
         cli_args: &ArgMatches,
     ) -> impl Future<Item = Self, Error = String> {
-        ClientConfig::from_cli(&cli_args)
+        Config::from_cli(&cli_args)
             .into_future()
             .map_err(|e| format!("Unable to initialize config: {}", e))
-            .and_then(|client_config| Self::new(context, client_config))
+            .and_then(|config| Self::new(context, config))
     }
 
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
     pub fn new(
         mut context: RuntimeContext<T>,
-        client_config: ClientConfig,
+        config: Config,
     ) -> impl Future<Item = Self, Error = String> {
         let log_1 = context.log.clone();
         let log_2 = context.log.clone();
         let log_3 = context.log.clone();
 
-        let http_server_addr = format!(
-            "http://{}:{}",
-            client_config.server, client_config.server_http_port
-        );
-
         info!(
             log_1,
             "Starting validator client";
-            "beacon_node" => &http_server_addr,
-            "datadir" => format!("{:?}", client_config.data_dir),
+            "beacon_node" => &config.http_server,
+            "datadir" => format!("{:?}", config.data_dir),
         );
 
-        RemoteBeaconNode::new(http_server_addr)
+        RemoteBeaconNode::new(config.http_server.clone())
             .map_err(|e| format!("Unable to init beacon node http client: {}", e))
             .into_future()
             .and_then(move |beacon_node| wait_for_node(beacon_node, log_2))
@@ -125,12 +120,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot),
                 );
 
-                let validator_store: ValidatorStore<T> = match &client_config.key_source {
+                let validator_store: ValidatorStore<T> = match &config.key_source {
                     // Load pre-existing validators from the data dir.
                     //
                     // Use the `account_manager` to generate these files.
                     KeySource::Disk => ValidatorStore::load_from_disk(
-                        client_config.data_dir.clone(),
+                        config.data_dir.clone(),
                         context.eth2_config.spec.clone(),
                         log_3.clone(),
                     )?,

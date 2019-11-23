@@ -34,7 +34,6 @@ environment = { path = "../lighthouse/environment" }
 parking_lot = "0.7"
 exit-future = "0.1.4"
 libc = "0.2.65"
-lazy_static = "1.4.0"
 eth2_ssz_derive = { path = "../eth2/utils/ssz_derive" }
 hex = "0.4"
 deposit_contract = { path = "../eth2/utils/deposit_contract" }
