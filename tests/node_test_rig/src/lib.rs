@@ -42,11 +42,15 @@ impl<T: BeaconChainTypes> LocalBeaconNode<Client<T>> {
     /// Returns a `RemoteBeaconNode` that can connect to `self`. Useful for testing the node as if
     /// it were external this process.
     pub fn remote_node(&self) -> Result<RemoteBeaconNode<T::EthSpec>, String> {
-        Ok(RemoteBeaconNode::new(
-            self.client
-                .http_listen_addr()
-                .ok_or_else(|| "A remote beacon node must have a http server".to_string())?,
-        )?)
+        let socket_addr = self
+            .client
+            .http_listen_addr()
+            .ok_or_else(|| "A remote beacon node must have a http server".to_string())?;
+        Ok(RemoteBeaconNode::new(format!(
+            "http://{}:{}",
+            socket_addr.ip(),
+            socket_addr.port()
+        ))?)
     }
 }
 
