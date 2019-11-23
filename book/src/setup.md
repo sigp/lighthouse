@@ -6,6 +6,8 @@
 	- Use the `stable` toolchain (it's the default).
 1. Install build dependencies using your package manager.
     - `clang`, `protobuf`, `libssl-dev`, `cmake`
+1. Install `ganache-cli` to be able to run eth1 blockchain tests
+   - Run `npm install -g ganache-cli`
 1. Clone the [github.com/sigp/lighthouse](https://github.com/sigp/lighthouse)
    repository.
 1. Run `$ make` to build Lighthouse.
