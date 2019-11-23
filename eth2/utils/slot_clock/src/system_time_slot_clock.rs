@@ -74,14 +74,14 @@ impl SlotClock for SystemTimeSlotClock {
             genesis + slot * self.slot_duration
         };
 
-        let slot = self
+        let epoch_start_slot = self
             .now()
             .map(|slot| slot.epoch(slots_per_epoch))
             .map(|epoch| (epoch + 1).start_slot(slots_per_epoch))?;
 
         if now >= genesis {
             Some(
-                slot_start(self.now()? + 1)
+                slot_start(epoch_start_slot)
                     .checked_sub(now)
                     .expect("The next epoch cannot start before now"),
             )

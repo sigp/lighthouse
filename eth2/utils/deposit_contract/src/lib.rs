@@ -1,6 +1,6 @@
 use ethabi::{Contract, Token};
 use ssz::Encode;
-use types::{DepositData, SecretKey};
+use types::DepositData;
 
 pub use ethabi::Error;
 
