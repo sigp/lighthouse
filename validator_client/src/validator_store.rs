@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::fs::read_dir;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
-use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
@@ -74,7 +73,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     pub fn insecure_ephemeral_validators(
-        range: Range<usize>,
+        validator_indices: &[usize],
         spec: ChainSpec,
         fork_service: ForkService<T, E>,
         log: Logger,
@@ -83,8 +82,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .map_err(|e| format!("Unable to create temp dir: {:?}", e))?;
         let data_dir = PathBuf::from(temp_dir.path());
 
-        let validators = range
-            .collect::<Vec<_>>()
+        let validators = validator_indices
             .par_iter()
             .map(|index| {
                 ValidatorDirectoryBuilder::default()

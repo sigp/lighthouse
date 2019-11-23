@@ -9,12 +9,11 @@ mod validator_store;
 pub mod validator_directory;
 
 pub use cli::cli_app;
-pub use config::Config;
+pub use config::{Config, KeySource};
 
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use config::KeySource;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
 use exit_future::Signal;
@@ -37,7 +36,7 @@ use validator_store::ValidatorStore;
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 
-/// The global timeout for HTTP events.
+/// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 
 #[derive(Clone)]
@@ -144,9 +143,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         // Generate ephemeral insecure keypairs for testing purposes.
                         //
                         // Do not use in production.
-                        KeySource::TestingKeypairRange(range) => {
+                        KeySource::InsecureKeypairs(indices) => {
                             ValidatorStore::insecure_ephemeral_validators(
-                                range.clone(),
+                                &indices,
                                 context.eth2_config.spec.clone(),
                                 fork_service.clone(),
                                 log_3.clone(),
