@@ -138,12 +138,6 @@ where
     }
 }
 
-impl<T, E> From<ThreadSafeReducedTree<T, E>> for ReducedTreeSsz {
-    fn from(tree: ThreadSafeReducedTree<T, E>) -> Self {
-        tree.core.into_inner().into()
-    }
-}
-
 /// Intermediate representation of a `ReducedTree` `LmdGhost` fork choice.
 #[derive(Debug, PartialEq, Encode, Decode)]
 struct ReducedTreeSsz {
@@ -154,32 +148,9 @@ struct ReducedTreeSsz {
     pub root_slot: Slot,
 }
 
-impl<T, E> From<ReducedTree<T, E>> for ReducedTreeSsz {
-    fn from(tree: ReducedTree<T, E>) -> Self {
-        let mut node_hashes = vec![];
-        let mut nodes = vec![];
-        for (k, v) in tree.nodes.into_iter() {
-            node_hashes.push(k);
-            nodes.push(v);
-        }
-        ReducedTreeSsz {
-            node_hashes,
-            nodes,
-            latest_votes: tree.latest_votes.0,
-            root_hash: tree.root.0,
-            root_slot: tree.root.1,
-        }
-    }
-}
-
 impl ReducedTreeSsz {
     pub fn from_reduced_tree<T, E>(tree: &ReducedTree<T, E>) -> Self {
-        let mut node_hashes = vec![];
-        let mut nodes = vec![];
-        for (k, v) in tree.nodes.iter() {
-            node_hashes.push(k.clone());
-            nodes.push(v.clone());
-        }
+        let (node_hashes, nodes): (Vec<_>, Vec<_>) = tree.nodes.clone().into_iter().unzip();
         ReducedTreeSsz {
             node_hashes,
             nodes,
@@ -190,10 +161,11 @@ impl ReducedTreeSsz {
     }
 
     pub fn to_reduced_tree<T, E>(self, store: Arc<T>) -> ReducedTree<T, E> {
-        let mut nodes = HashMap::new();
-        for (k, v) in self.node_hashes.into_iter().zip(self.nodes.into_iter()) {
-            nodes.insert(k, v);
-        }
+        let nodes: HashMap<_, _> = self
+            .node_hashes
+            .into_iter()
+            .zip(self.nodes.into_iter())
+            .collect();
         let latest_votes = ElasticList(self.latest_votes);
         let root = (self.root_hash, self.root_slot);
         ReducedTree {
@@ -206,14 +178,14 @@ impl ReducedTreeSsz {
     }
 }
 
-pub(self) struct ReducedTree<T, E> {
-    pub store: Arc<T>,
+struct ReducedTree<T, E> {
+    pub(self) store: Arc<T>,
     /// Stores all nodes of the tree, keyed by the block hash contained in the node.
-    pub nodes: HashMap<Hash256, Node>,
+    pub(self) nodes: HashMap<Hash256, Node>,
     /// Maps validator indices to their latest votes.
-    pub latest_votes: ElasticList<Option<Vote>>,
+    pub(self) latest_votes: ElasticList<Option<Vote>>,
     /// Stores the root of the tree, used for pruning.
-    pub root: (Hash256, Slot),
+    pub(self) root: (Hash256, Slot),
     _phantom: PhantomData<E>,
 }
 
