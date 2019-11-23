@@ -10,7 +10,7 @@ use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use slog::{debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
@@ -44,6 +44,7 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
 const BLOCK_SKIPPING_LOGGING_THRESHOLD: u64 = 3;
+const BLOCK_SKIPPING_FAILURE_THRESHOLD: u64 = 128;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -349,7 +350,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if slot == head_state.slot {
             Ok(head_state)
         } else if slot > head_state.slot {
-            if slot > head_state.slot + BLOCK_SKIPPING_LOGGING_THRESHOLD {
+            // It is presently very resource intensive (lots of hashing) to skip slots.
+            //
+            // We log warnings or simply fail if there are too many skip slots. This is a
+            // protection against DoS attacks.
+            if slot > head_state.slot + BLOCK_SKIPPING_FAILURE_THRESHOLD {
+                crit!(
+                    self.log,
+                    "Refusing to skip more than {} blocks", BLOCK_SKIPPING_LOGGING_THRESHOLD;
+                    "head_slot" => head_state.slot,
+                    "request_slot" => slot
+                );
+
+                return Err(Error::StateSkipTooLarge {
+                    head_slot: head_state.slot,
+                    requested_slot: slot,
+                });
+            } else if slot > head_state.slot + BLOCK_SKIPPING_LOGGING_THRESHOLD {
                 warn!(
                     self.log,
                     "Skipping more than {} blocks", BLOCK_SKIPPING_LOGGING_THRESHOLD;
@@ -357,6 +374,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "request_slot" => slot
                 )
             }
+
             let head_state_slot = head_state.slot;
             let mut state = head_state;
             while state.slot < slot {

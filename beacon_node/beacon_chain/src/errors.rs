@@ -39,6 +39,10 @@ pub enum BeaconChainError {
         beacon_block_root: Hash256,
     },
     AttestationValidationError(AttestationValidationError),
+    StateSkipTooLarge {
+        head_slot: Slot,
+        requested_slot: Slot,
+    },
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
     SszTypesError(SszTypesError),
