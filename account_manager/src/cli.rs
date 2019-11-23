@@ -3,30 +3,13 @@ use clap::{App, Arg, SubCommand};
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("account_manager")
         .visible_aliases(&["am", "account", "account_manager"])
-        .about("Eth 2.0 Accounts Manager")
-        .arg(
-            Arg::with_name("logfile")
-                .long("logfile")
-                .value_name("logfile")
-                .help("File path where output will be written.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("datadir")
-                .long("datadir")
-                .short("d")
-                .value_name("DIR")
-                .help("Data directory for keys and databases.")
-                .takes_value(true),
-        )
+        .about("Utilities for generating and managing Ethereum 2.0 accounts.")
         .subcommand(
             SubCommand::with_name("validator")
-                .about("Eth2 validator managment commands.")
-                .version("0.0.1")
-                .author("Sigma Prime <contact@sigmaprime.io>")
+                .about("Generate or manage Etheruem 2.0 validators.")
                 .subcommand(
                     SubCommand::with_name("new")
-                        .about("Create a new validator.")
+                        .about("Create a new Ethereum 2.0 validator.")
                         .subcommand(
                             SubCommand::with_name("insecure")
                                 .about("Uses the insecure deterministic keypairs. Do not store value in these.")

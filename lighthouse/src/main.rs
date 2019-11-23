@@ -29,11 +29,11 @@ fn main() {
                 .short("s")
                 .long("spec")
                 .value_name("TITLE")
-                .help("Specifies the default eth2 spec type. Only effective when creating a new datadir.")
+                .help("Specifies the default eth2 spec type.")
                 .takes_value(true)
                 .possible_values(&["mainnet", "minimal", "interop"])
                 .global(true)
-                .default_value("minimal")
+                .default_value("minimal"),
         )
         .arg(
             Arg::with_name("logfile")
@@ -50,6 +50,15 @@ fn main() {
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .default_value("trace"),
+        )
+        .arg(
+            Arg::with_name("datadir")
+                .long("datadir")
+                .short("d")
+                .value_name("DIR")
+                .global(true)
+                .help("Data directory for keys and databases.")
+                .takes_value(true),
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(validator_client::cli_app())

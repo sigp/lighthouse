@@ -9,9 +9,6 @@ lazy_static! {
         Config::default()
     };
 
-    static ref DEFAULT_SERVER_GRPC_PORT: String = {
-        format!("{}", DEFAULTS.server_grpc_port)
-    };
     static ref DEFAULT_SERVER_HTTP_PORT: String = {
         format!("{}", DEFAULTS.server_http_port)
     };
@@ -52,15 +49,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("NETWORK_ADDRESS")
                 .help("Address to connect to BeaconNode.")
                 .default_value(&DEFAULTS.server)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("server-grpc-port")
-                .long("server-grpc-port")
-                .short("g")
-                .value_name("PORT")
-                .help("Port to use for gRPC API connection to the server.")
-                .default_value(&DEFAULT_SERVER_GRPC_PORT)
                 .takes_value(true),
         )
         .arg(

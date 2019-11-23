@@ -52,7 +52,7 @@ fn run_account_manager<T: EthSpec>(
 
     match matches.subcommand() {
         ("validator", Some(matches)) => match matches.subcommand() {
-            ("new", Some(matches)) => new_validator_subcommand(matches, datadir, context)?,
+            ("new", Some(matches)) => run_new_validator_subcommand(matches, datadir, context)?,
             _ => {
                 return Err("Invalid 'validator new' command. See --help.".to_string());
             }
@@ -74,7 +74,7 @@ enum KeygenMethod {
 }
 
 /// Process the subcommand for creating new validators.
-fn new_validator_subcommand<T: EthSpec>(
+fn run_new_validator_subcommand<T: EthSpec>(
     matches: &ArgMatches,
     datadir: PathBuf,
     context: RuntimeContext<T>,

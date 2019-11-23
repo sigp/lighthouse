@@ -62,7 +62,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     libp2p_network: Option<Arc<NetworkService<T>>>,
     libp2p_network_send: Option<UnboundedSender<NetworkMessage>>,
     http_listen_addr: Option<SocketAddr>,
-    grpc_listen_addr: Option<(String, u16)>,
     websocket_listen_addr: Option<SocketAddr>,
     eth_spec_instance: T::EthSpec,
 }
@@ -94,7 +93,6 @@ where
             libp2p_network: None,
             libp2p_network_send: None,
             http_listen_addr: None,
-            grpc_listen_addr: None,
             websocket_listen_addr: None,
             eth_spec_instance,
         }
@@ -427,7 +425,6 @@ where
             beacon_chain: self.beacon_chain,
             libp2p_network: self.libp2p_network,
             http_listen_addr: self.http_listen_addr,
-            grpc_listen_addr: self.grpc_listen_addr,
             websocket_listen_addr: self.websocket_listen_addr,
             _exit_signals: self.exit_signals,
         }

@@ -25,7 +25,6 @@ pub struct Client<T: BeaconChainTypes> {
     libp2p_network: Option<Arc<NetworkService<T>>>,
     http_listen_addr: Option<SocketAddr>,
     websocket_listen_addr: Option<SocketAddr>,
-    grpc_listen_addr: Option<(String, u16)>,
     /// Exit signals will "fire" when dropped, causing each service to exit gracefully.
     _exit_signals: Vec<Signal>,
 }
@@ -39,11 +38,6 @@ impl<T: BeaconChainTypes> Client<T> {
     /// Returns the address of the client's HTTP API server, if it was started.
     pub fn http_listen_addr(&self) -> Option<SocketAddr> {
         self.http_listen_addr
-    }
-
-    /// Returns the address of the client's gRPC API server, if it was started.
-    pub fn grpc_listen_addr(&self) -> Option<(String, u16)> {
-        self.grpc_listen_addr.clone()
     }
 
     /// Returns the address of the client's WebSocket API server, if it was started.

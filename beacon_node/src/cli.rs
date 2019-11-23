@@ -103,30 +103,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("A secp256k1 secret key, represented as ASCII-encoded hex bytes (with or without 0x prefix).")
                 .takes_value(true),
         )
-        /*
-         * gRPC parameters.
-         */
-        .arg(
-            Arg::with_name("no-grpc")
-                .long("no-grpc")
-                .help("Disable the gRPC server.")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("rpc-address")
-                .long("rpc-address")
-                .value_name("ADDRESS")
-                .help("Listen address for RPC endpoint.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("rpc-port")
-                .long("rpc-port")
-                .value_name("PORT")
-                .help("Listen port for RPC endpoint.")
-                .conflicts_with("port-bump")
-                .takes_value(true),
-        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("no-api")

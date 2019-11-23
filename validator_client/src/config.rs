@@ -30,8 +30,6 @@ pub struct Config {
     pub log_file: PathBuf,
     /// The server at which the Beacon Node can be contacted
     pub server: String,
-    /// The gRPC port on the server
-    pub server_grpc_port: u16,
     /// The HTTP port on the server, for the REST API.
     pub server_http_port: u16,
     /// The number of slots per epoch.
@@ -46,7 +44,6 @@ impl Default for Config {
             key_source: <_>::default(),
             log_file: PathBuf::from(""),
             server: "localhost".into(),
-            server_grpc_port: 5051,
             server_http_port: 5052,
             slots_per_epoch: MainnetEthSpec::slots_per_epoch(),
         }
@@ -70,12 +67,6 @@ impl Config {
             client_config.server_http_port = port
                 .parse::<u16>()
                 .map_err(|e| format!("Unable to parse HTTP port: {:?}", e))?;
-        }
-
-        if let Some(port) = cli_args.value_of("server-grpc-port") {
-            client_config.server_grpc_port = port
-                .parse::<u16>()
-                .map_err(|e| format!("Unable to parse gRPC port: {:?}", e))?;
         }
 
         let client_config = match cli_args.subcommand() {
