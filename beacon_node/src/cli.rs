@@ -10,14 +10,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          * Configuration directory locations.
          */
         .arg(
-            Arg::with_name("datadir")
-                .long("datadir")
-                .value_name("DIR")
-                .help("Data directory for keys and databases.")
-                .takes_value(true)
-                .global(true)
-        )
-        .arg(
             Arg::with_name("network-dir")
                 .long("network-dir")
                 .value_name("DIR")

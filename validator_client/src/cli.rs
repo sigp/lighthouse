@@ -15,34 +15,9 @@ lazy_static! {
 }
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("Validator Client")
-        .visible_aliases(&["v", "vc", "validator", "validator_client"])
-        .version("0.0.1")
-        .author("Sigma Prime <contact@sigmaprime.io>")
-        .about("Eth 2.0 Validator Client")
-        .arg(
-            Arg::with_name("datadir")
-                .long("datadir")
-                .short("d")
-                .value_name("DIR")
-                .help("Data directory for keys and databases.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("logfile")
-                .long("logfile")
-                .value_name("logfile")
-                .help("File path where output will be written.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("eth2-config")
-                .long("eth2-config")
-                .short("e")
-                .value_name("TOML_FILE")
-                .help("Path to Ethereum 2.0 config and specification file (e.g., eth2_spec.toml).")
-                .takes_value(true),
-        )
+    App::new("validator_client")
+        .visible_aliases(&["v", "vc", "validator"])
+        .about("Ethereum 2.0 Validator Client")
         .arg(
             Arg::with_name("server")
                 .long("server")

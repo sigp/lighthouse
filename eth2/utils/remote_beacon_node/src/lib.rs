@@ -12,7 +12,6 @@ use reqwest::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use ssz::Encode;
 use std::marker::PhantomData;
-use std::net::SocketAddr;
 use std::time::Duration;
 use types::{
     Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork, Hash256,
@@ -36,9 +35,9 @@ pub struct RemoteBeaconNode<E: EthSpec> {
 }
 
 impl<E: EthSpec> RemoteBeaconNode<E> {
-    pub fn new(http_endpoint: SocketAddr) -> Result<Self, String> {
+    pub fn new(http_endpoint: String) -> Result<Self, String> {
         Ok(Self {
-            http: HttpClient::new(format!("http://{}", http_endpoint.to_string()))
+            http: HttpClient::new(http_endpoint)
                 .map_err(|e| format!("Unable to create http client: {:?}", e))?,
         })
     }
