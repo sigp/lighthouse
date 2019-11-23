@@ -158,16 +158,20 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: &PublicKey,
         mut block: BeaconBlock<E>,
     ) -> Option<BeaconBlock<E>> {
+        // Retrieving the corresponding ValidatorDir
         let validator_dir = match self.validators.read().get(validator_pubkey) {
             Some(validator_dir) => validator_dir,
             None => return None,
         };
 
-        if validator_dir
+        // Checking for slashing conditions
+        let is_slashing_free = validator_dir
             .block_history
             .update_if_valid(&block.block_header())
-            .is_ok()
-        {
+            .is_ok();
+
+        if is_slashing_free {
+            // We can safely sign this block
             let voting_keypair = validator_dir.voting_keypair.as_ref()?;
             block.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
             Some(block)
@@ -182,16 +186,20 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_committee_position: usize,
         attestation: &mut Attestation<E>,
     ) -> Option<()> {
+        // Retrieving the corresponding ValidatorDir
         let validator_dir = match self.validators.read().get(validator_pubkey) {
             Some(validator_dir) => validator_dir,
             None => return None,
         };
 
-        if validator_dir
+        // Checking for slashing conditions
+        let is_slashing_free = validator_dir
             .attestation_history
             .update_if_valid(&attestation.data)
-            .is_ok()
-        {
+            .is_ok();
+
+        if is_slashing_free {
+            // We can safely sign attestation
             let voting_keypair = validator_dir.voting_keypair.as_ref()?;
 
             attestation
