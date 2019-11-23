@@ -267,7 +267,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .short("m")
                     .value_name("MINUTES")
                     .required(true)
-                    .default_value("15")
+                    .default_value("0")
                     .help("The maximum number of minutes that will have elapsed before genesis"))
             )
             /*
