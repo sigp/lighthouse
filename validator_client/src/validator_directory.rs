@@ -58,8 +58,11 @@ impl ValidatorDirectory {
 
         let attestation_history_file = directory.join(SIGNED_ATTESTATIONS_FILENAME);
         let block_history_file = directory.join(SIGNED_BLOCKS_FILENAME);
+        // Opening the connection to the attestation history
         let attestation_history =
             ValidatorHistory::open(&attestation_history_file).map_err(|e| e.to_string())?;
+
+        // Opening the connection to the block history
         let block_history =
             ValidatorHistory::open(&block_history_file).map_err(|e| e.to_string())?;
 
@@ -71,6 +74,8 @@ impl ValidatorDirectory {
             withdrawal_keypair: load_keypair(directory.clone(), WITHDRAWAL_KEY_PREFIX).ok(),
             deposit_data: load_eth1_deposit_data(directory.clone()).ok(),
             directory,
+            attestation_history,
+            block_history,
         })
     }
 }
@@ -312,8 +317,12 @@ impl ValidatorDirectoryBuilder {
 
         let attestation_history_file = directory.join(SIGNED_ATTESTATIONS_FILENAME);
         let block_history_file = directory.join(SIGNED_BLOCKS_FILENAME);
+
+        // Creating an empty attestation history
         let attestation_history =
             ValidatorHistory::empty(&attestation_history_file).map_err(|e| e.to_string())?;
+
+        // Creating an empty block history
         let block_history =
             ValidatorHistory::empty(&block_history_file).map_err(|e| e.to_string())?;
 
