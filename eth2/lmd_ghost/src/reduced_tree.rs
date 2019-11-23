@@ -28,11 +28,18 @@ pub enum Error {
     NoCommonAncestor((Hash256, Hash256)),
     StoreError(StoreError),
     ValidatorWeightUnknown(usize),
+    SszDecodingError(ssz::DecodeError),
 }
 
 impl From<StoreError> for Error {
     fn from(e: StoreError) -> Error {
         Error::StoreError(e)
+    }
+}
+
+impl From<ssz::DecodeError> for Error {
+    fn from(e: ssz::DecodeError) -> Error {
+        Error::SszDecodingError(e)
     }
 }
 
@@ -108,18 +115,26 @@ where
         self.core.read().latest_message(validator_index)
     }
 
-    fn verify_integrity(&self) -> std::result::Result<(), String> {
+    fn verify_integrity(&self) -> SuperResult<()> {
         self.core.read().verify_integrity()
     }
 
+    /// Consume the `ReducedTree` object and return its ssz encoded bytes representation.
     fn as_bytes(self) -> Vec<u8> {
         self.core.into_inner().as_bytes()
     }
 
-    fn from_bytes(bytes: &[u8], store: Arc<T>) -> Self {
-        ThreadSafeReducedTree {
-            core: RwLock::new(ReducedTree::from_bytes(bytes, store)),
-        }
+    /// Create a new `ThreadSafeReducedTree` instance from a `store` and the
+    /// encoded ssz bytes representation.
+    ///
+    /// Returns an error if ssz bytes are not a valid `ReducedTreeSsz` object.
+    fn from_bytes(bytes: &[u8], store: Arc<T>) -> SuperResult<Self> {
+        Ok(ThreadSafeReducedTree {
+            core: RwLock::new(
+                ReducedTree::from_bytes(bytes, store)
+                    .map_err(|e| format!("Cannot decode ssz bytes {:?}", e))?,
+            ),
+        })
     }
 }
 
@@ -849,9 +864,9 @@ where
         reduced_tree_ssz.as_ssz_bytes()
     }
 
-    fn from_bytes(bytes: &[u8], store: Arc<T>) -> Self {
-        let reduced_tree_ssz = ReducedTreeSsz::from_ssz_bytes(bytes).unwrap();
-        reduced_tree_ssz.to_reduced_tree(store)
+    fn from_bytes(bytes: &[u8], store: Arc<T>) -> Result<Self> {
+        let reduced_tree_ssz = ReducedTreeSsz::from_ssz_bytes(bytes)?;
+        Ok(reduced_tree_ssz.to_reduced_tree(store))
     }
 }
 
@@ -977,7 +992,7 @@ mod tests {
         let ssz_tree = ReducedTreeSsz::from_reduced_tree(&tree);
         let bytes = tree.as_bytes();
         let recovered_tree =
-            ReducedTree::<MemoryStore, MinimalEthSpec>::from_bytes(&bytes, store.clone());
+            ReducedTree::<MemoryStore, MinimalEthSpec>::from_bytes(&bytes, store.clone()).unwrap();
 
         let recovered_ssz = ReducedTreeSsz::from_reduced_tree(&recovered_tree);
         assert_eq!(ssz_tree, recovered_ssz);
