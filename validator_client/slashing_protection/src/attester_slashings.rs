@@ -197,7 +197,7 @@ impl ValidatorHistory<SignedAttestation> {
 #[cfg(test)]
 mod attestation_tests {
     use super::*;
-    use crate::slashing_protection::{ValidatorHistory, SlashingProtection};
+    use crate::slashing_protection::{SlashingProtection, ValidatorHistory};
     use tempfile::NamedTempFile;
     use types::{AttestationData, Checkpoint, Epoch, Hash256, Slot};
 

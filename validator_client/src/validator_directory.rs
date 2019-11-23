@@ -1,6 +1,9 @@
 use bls::get_withdrawal_credentials;
 use deposit_contract::eth1_tx_data;
 use hex;
+use slashing_protection::attester_slashings::SignedAttestation;
+use slashing_protection::proposer_slashings::SignedBlock;
+use slashing_protection::slashing_protection::{SlashingProtection, ValidatorHistory};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::fs;
@@ -16,6 +19,8 @@ use types::{
 const VOTING_KEY_PREFIX: &str = "voting";
 const WITHDRAWAL_KEY_PREFIX: &str = "withdrawal";
 const ETH1_DEPOSIT_DATA_FILE: &str = "eth1_deposit_data.rlp";
+const SIGNED_ATTESTATIONS_FILENAME: &str = "signed_attestations.db";
+const SIGNED_BLOCKS_FILENAME: &str = "signed_blocks.db";
 
 /// Returns the filename of a keypair file.
 fn keypair_file(prefix: &str) -> String {
@@ -36,6 +41,8 @@ pub struct ValidatorDirectory {
     pub voting_keypair: Option<Keypair>,
     pub withdrawal_keypair: Option<Keypair>,
     pub deposit_data: Option<Vec<u8>>,
+    pub attestation_history: ValidatorHistory<SignedAttestation>,
+    pub block_history: ValidatorHistory<SignedBlock>,
 }
 
 impl ValidatorDirectory {
@@ -48,6 +55,13 @@ impl ValidatorDirectory {
                 directory
             ));
         }
+
+        let attestation_history_file = directory.join(SIGNED_ATTESTATIONS_FILENAME);
+        let block_history_file = directory.join(SIGNED_BLOCKS_FILENAME);
+        let attestation_history =
+            ValidatorHistory::open(&attestation_history_file).map_err(|e| e.to_string())?;
+        let block_history =
+            ValidatorHistory::open(&block_history_file).map_err(|e| e.to_string())?;
 
         Ok(Self {
             voting_keypair: Some(
@@ -294,11 +308,22 @@ impl ValidatorDirectoryBuilder {
     }
 
     pub fn build(self) -> Result<ValidatorDirectory, String> {
+        let directory = self.directory.ok_or_else(|| "build requires a directory")?;
+
+        let attestation_history_file = directory.join(SIGNED_ATTESTATIONS_FILENAME);
+        let block_history_file = directory.join(SIGNED_BLOCKS_FILENAME);
+        let attestation_history =
+            ValidatorHistory::empty(&attestation_history_file).map_err(|e| e.to_string())?;
+        let block_history =
+            ValidatorHistory::empty(&block_history_file).map_err(|e| e.to_string())?;
+
         Ok(ValidatorDirectory {
-            directory: self.directory.ok_or_else(|| "build requires a directory")?,
+            directory,
             voting_keypair: self.voting_keypair,
             withdrawal_keypair: self.withdrawal_keypair,
             deposit_data: self.deposit_data,
+            attestation_history,
+            block_history,
         })
     }
 }

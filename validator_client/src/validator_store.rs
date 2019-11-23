@@ -2,6 +2,8 @@ use crate::fork_service::ForkService;
 use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
 use parking_lot::RwLock;
 use rayon::prelude::*;
+use slashing_protection::enums::{NotSafe, Safe};
+use slashing_protection::slashing_protection::{SlashingProtection, ValidatorHistory};
 use slog::{error, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -156,15 +158,22 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: &PublicKey,
         mut block: BeaconBlock<E>,
     ) -> Option<BeaconBlock<E>> {
-        // TODO: check for slashing.
-        self.validators
-            .read()
-            .get(validator_pubkey)
-            .and_then(|validator_dir| {
-                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                block.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
-                Some(block)
-            })
+        let validator_dir = match self.validators.read().get(validator_pubkey) {
+            Some(validator_dir) => validator_dir,
+            None => return None,
+        };
+
+        if validator_dir
+            .block_history
+            .update_if_valid(&block.block_header())
+            .is_ok()
+        {
+            let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+            block.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
+            Some(block)
+        } else {
+            None
+        }
     }
 
     pub fn sign_attestation(
@@ -173,11 +182,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_committee_position: usize,
         attestation: &mut Attestation<E>,
     ) -> Option<()> {
-        // TODO: check for slashing.
-        self.validators
-            .read()
-            .get(validator_pubkey)
-            .and_then(|validator_dir| {
+        let validator_dir = match self.validators.read().get(validator_pubkey) {
+            Some(validator_dir) => validator_dir,
+            None => return None,
+        };
+
+        if validator_dir
+            .attestation_history
+            .update_if_valid(&attestation.data)
+            .is_ok() {
                 let voting_keypair = validator_dir.voting_keypair.as_ref()?;
 
                 attestation
@@ -197,6 +210,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     .ok()?;
 
                 Some(())
-            })
+            } else {
+                None
+            }
     }
 }
