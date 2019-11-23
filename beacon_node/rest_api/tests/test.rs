@@ -7,7 +7,7 @@ use node_test_rig::{
 };
 use remote_beacon_node::{PublishStatus, ValidatorDuty};
 use std::sync::Arc;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::{TreeHash};
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec,
     MinimalEthSpec, PublicKey, RelativeEpoch, Signature, Slot,
