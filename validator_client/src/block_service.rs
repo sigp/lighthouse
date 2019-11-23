@@ -3,7 +3,7 @@ use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{stream, Future, IntoFuture, Stream};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
-use slog::{crit, info};
+use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -159,16 +159,33 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
     fn do_update(self) -> impl Future<Item = (), Error = ()> {
         let service = self.clone();
-        let log = self.context.log.clone();
+        let log_1 = self.context.log.clone();
+        let log_2 = self.context.log.clone();
 
         self.slot_clock
             .now()
             .ok_or_else(move || {
-                crit!(log, "Duties manager failed to read slot clock");
+                crit!(log_1, "Duties manager failed to read slot clock");
             })
             .into_future()
             .and_then(move |slot| {
                 let iter = service.duties_service.block_producers(slot).into_iter();
+
+                if iter.len() == 0 {
+                    trace!(
+                        log_2,
+                        "No local block proposers for this slot";
+                        "slot" => slot.as_u64()
+                    )
+                } else if iter.len() > 1 {
+                    error!(
+                        log_2,
+                        "Multiple block proposers for this slot";
+                        "action" => "producing blocks for all proposers",
+                        "num_proposers" => iter.len(),
+                        "slot" => slot.as_u64(),
+                    )
+                }
 
                 stream::unfold(iter, move |mut block_producers| {
                     let log_1 = service.context.log.clone();
