@@ -82,6 +82,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
     }
 }
 
+/// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
     duties_service: DutiesService<T, E>,
     validator_store: ValidatorStore<T, E>,
@@ -90,6 +91,7 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
 }
 
+/// Attempts to produce attestations for any block producer(s) at the start of the epoch.
 pub struct BlockService<T, E: EthSpec> {
     inner: Arc<Inner<T, E>>,
 }
@@ -111,6 +113,7 @@ impl<T, E: EthSpec> Deref for BlockService<T, E> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
+    /// Starts the service that periodically attempts to produce blocks.
     pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
         let log = self.context.log.clone();
 
@@ -153,6 +156,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         Ok(exit_signal)
     }
 
+    /// Attempt to produce a block for any block producers in the `ValidatorStore`.
     fn do_update(self) -> impl Future<Item = (), Error = ()> {
         let service = self.clone();
         let log = self.context.log.clone();
