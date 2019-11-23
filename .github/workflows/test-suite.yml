@@ -28,7 +28,7 @@ jobs:
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run tests in debug
-      run: cargo test --all
+      run: make test-debug
   ef-tests-ubuntu:
     runs-on: ubuntu-latest
     needs: cargo-fmt
