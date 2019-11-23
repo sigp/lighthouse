@@ -1,7 +1,9 @@
+use crate::fork_service::ForkService;
 use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use slog::{error, Logger};
+use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fs::read_dir;
 use std::iter::FromIterator;
@@ -10,22 +12,28 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::TreeHash;
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
 };
 
 #[derive(Clone)]
-pub struct ValidatorStore<E> {
+pub struct ValidatorStore<T, E: EthSpec> {
     validators: Arc<RwLock<HashMap<PublicKey, ValidatorDirectory>>>,
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
+    fork_service: ForkService<T, E>,
     _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> ValidatorStore<E> {
-    pub fn load_from_disk(base_dir: PathBuf, spec: ChainSpec, log: Logger) -> Result<Self, String> {
+impl<T: SlotClock + Clone + 'static, E: EthSpec> ValidatorStore<T, E> {
+    pub fn load_from_disk(
+        base_dir: PathBuf,
+        spec: ChainSpec,
+        fork_service: ForkService<T, E>,
+        log: Logger,
+    ) -> Result<Self, String> {
         let validator_iter = read_dir(&base_dir)
             .map_err(|e| format!("Failed to read base directory: {:?}", e))?
             .filter_map(|validator_dir| {
@@ -60,6 +68,7 @@ impl<E: EthSpec> ValidatorStore<E> {
             spec: Arc::new(spec),
             log,
             temp_dir: None,
+            fork_service,
             _phantom: PhantomData,
         })
     }
@@ -67,6 +76,7 @@ impl<E: EthSpec> ValidatorStore<E> {
     pub fn insecure_ephemeral_validators(
         range: Range<usize>,
         spec: ChainSpec,
+        fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
         let temp_dir = TempDir::new("insecure_validator")
@@ -100,6 +110,7 @@ impl<E: EthSpec> ValidatorStore<E> {
             spec: Arc::new(spec),
             log,
             temp_dir: Some(Arc::new(temp_dir)),
+            fork_service,
             _phantom: PhantomData,
         })
     }
@@ -116,22 +127,27 @@ impl<E: EthSpec> ValidatorStore<E> {
         self.validators.read().len()
     }
 
-    pub fn randao_reveal(
-        &self,
-        validator_pubkey: &PublicKey,
-        epoch: Epoch,
-        fork: &Fork,
-    ) -> Option<Signature> {
+    fn fork(&self) -> Option<Fork> {
+        if self.fork_service.fork().is_none() {
+            error!(
+                self.log,
+                "Unable to get Fork for signing";
+            );
+        }
+        self.fork_service.fork()
+    }
+
+    pub fn randao_reveal(&self, validator_pubkey: &PublicKey, epoch: Epoch) -> Option<Signature> {
         // TODO: check this against the slot clock to make sure it's not an early reveal?
         self.validators
             .read()
             .get(validator_pubkey)
             .and_then(|validator_dir| {
-                validator_dir.voting_keypair.as_ref().map(|voting_keypair| {
-                    let message = epoch.tree_hash_root();
-                    let domain = self.spec.get_domain(epoch, Domain::Randao, &fork);
-                    Signature::new(&message, domain, &voting_keypair.sk)
-                })
+                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+                let message = epoch.tree_hash_root();
+                let domain = self.spec.get_domain(epoch, Domain::Randao, &self.fork()?);
+
+                Some(Signature::new(&message, domain, &voting_keypair.sk))
             })
     }
 
@@ -139,20 +155,15 @@ impl<E: EthSpec> ValidatorStore<E> {
         &self,
         validator_pubkey: &PublicKey,
         mut block: BeaconBlock<E>,
-        fork: &Fork,
     ) -> Option<BeaconBlock<E>> {
         // TODO: check for slashing.
         self.validators
             .read()
             .get(validator_pubkey)
             .and_then(|validator_dir| {
-                validator_dir.voting_keypair.as_ref().map(|voting_keypair| {
-                    let epoch = block.slot.epoch(E::slots_per_epoch());
-                    let message = block.signed_root();
-                    let domain = self.spec.get_domain(epoch, Domain::BeaconProposer, &fork);
-                    block.signature = Signature::new(&message, domain, &voting_keypair.sk);
-                    block
-                })
+                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+                block.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
+                Some(block)
             })
     }
 
@@ -161,34 +172,31 @@ impl<E: EthSpec> ValidatorStore<E> {
         validator_pubkey: &PublicKey,
         validator_committee_position: usize,
         mut attestation: Attestation<E>,
-        fork: &Fork,
     ) -> Option<Attestation<E>> {
         // TODO: check for slashing.
         self.validators
             .read()
             .get(validator_pubkey)
             .and_then(|validator_dir| {
-                validator_dir
-                    .voting_keypair
-                    .as_ref()
-                    .and_then(|voting_keypair| {
-                        attestation
-                            .sign(
-                                &voting_keypair.sk,
-                                validator_committee_position,
-                                fork,
-                                &self.spec,
-                            )
-                            .map_err(|e| {
-                                error!(
-                                    self.log,
-                                    "Error whilst signing attestation";
-                                    "error" => format!("{:?}", e)
-                                )
-                            })
-                            .map(|()| attestation)
-                            .ok()
+                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+
+                attestation
+                    .sign(
+                        &voting_keypair.sk,
+                        validator_committee_position,
+                        &self.fork()?,
+                        &self.spec,
+                    )
+                    .map_err(|e| {
+                        error!(
+                            self.log,
+                            "Error whilst signing attestation";
+                            "error" => format!("{:?}", e)
+                        )
                     })
+                    .ok()?;
+
+                Some(attestation)
             })
     }
 }

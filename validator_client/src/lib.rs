@@ -120,26 +120,35 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot),
                 );
 
-                let validator_store: ValidatorStore<T> = match &config.key_source {
-                    // Load pre-existing validators from the data dir.
-                    //
-                    // Use the `account_manager` to generate these files.
-                    KeySource::Disk => ValidatorStore::load_from_disk(
-                        config.data_dir.clone(),
-                        context.eth2_config.spec.clone(),
-                        log_3.clone(),
-                    )?,
-                    // Generate ephemeral insecure keypairs for testing purposes.
-                    //
-                    // Do not use in production.
-                    KeySource::TestingKeypairRange(range) => {
-                        ValidatorStore::insecure_ephemeral_validators(
-                            range.clone(),
+                let fork_service = ForkServiceBuilder::new()
+                    .slot_clock(slot_clock.clone())
+                    .beacon_node(beacon_node.clone())
+                    .runtime_context(context.service_context("fork"))
+                    .build()?;
+
+                let validator_store: ValidatorStore<SystemTimeSlotClock, T> =
+                    match &config.key_source {
+                        // Load pre-existing validators from the data dir.
+                        //
+                        // Use the `account_manager` to generate these files.
+                        KeySource::Disk => ValidatorStore::load_from_disk(
+                            config.data_dir.clone(),
                             context.eth2_config.spec.clone(),
+                            fork_service.clone(),
                             log_3.clone(),
-                        )?
-                    }
-                };
+                        )?,
+                        // Generate ephemeral insecure keypairs for testing purposes.
+                        //
+                        // Do not use in production.
+                        KeySource::TestingKeypairRange(range) => {
+                            ValidatorStore::insecure_ephemeral_validators(
+                                range.clone(),
+                                context.eth2_config.spec.clone(),
+                                fork_service.clone(),
+                                log_3.clone(),
+                            )?
+                        }
+                    };
 
                 info!(
                     log_3,
@@ -154,15 +163,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     .runtime_context(context.service_context("duties"))
                     .build()?;
 
-                let fork_service = ForkServiceBuilder::new()
-                    .slot_clock(slot_clock.clone())
-                    .beacon_node(beacon_node.clone())
-                    .runtime_context(context.service_context("fork"))
-                    .build()?;
-
                 let block_service = BlockServiceBuilder::new()
                     .duties_service(duties_service.clone())
-                    .fork_service(fork_service.clone())
                     .slot_clock(slot_clock.clone())
                     .validator_store(validator_store.clone())
                     .beacon_node(beacon_node.clone())
@@ -171,7 +173,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
                 let attestation_service = AttestationServiceBuilder::new()
                     .duties_service(duties_service.clone())
-                    .fork_service(fork_service.clone())
                     .slot_clock(slot_clock)
                     .validator_store(validator_store)
                     .beacon_node(beacon_node)

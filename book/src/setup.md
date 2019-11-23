@@ -15,9 +15,8 @@ don't have `ganache-cli` available on your `PATH`.
 
 ## Testing
 
-Lighthouse uses `cargo test` for running the test suite. This is the
-recommended work-flow for testing during development. For example, test the
-`ssz` crate with:
+As with most other Rust projects, Lighthouse uses `cargo test` for unit and
+integration tests. For example, to test the `ssz` crate run:
 
 ```bash
 cd eth2/utils/ssz
@@ -45,6 +44,6 @@ repository contains a large set of tests that verify Lighthouse behaviour
 against the Ethereum Foundation specifications.
 
 These tests are quite large (100's of MB) so they're only downloaded if you run
-the `$ make test-ef` command (or anything that calls it). You may want to avoid
-these if you're on a slow or metered Internet connection, CI will
-require them to pass though.
+`$ make test-ef` (or anything that run it). You may want to avoid
+downloadingthese tests if you're on a slow or metered Internet connection. CI
+will require them to pass, though.

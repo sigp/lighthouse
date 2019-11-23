@@ -1,6 +1,4 @@
-use crate::{
-    duties_service::DutiesService, fork_service::ForkService, validator_store::ValidatorStore,
-};
+use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{Future, Stream};
@@ -11,16 +9,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
-use types::{ChainSpec, CommitteeIndex, EthSpec, Fork, Slot};
+use types::{ChainSpec, CommitteeIndex, EthSpec, Slot};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
 
 #[derive(Clone)]
 pub struct AttestationServiceBuilder<T: Clone, E: EthSpec> {
-    fork_service: Option<ForkService<T, E>>,
     duties_service: Option<DutiesService<T, E>>,
-    validator_store: Option<ValidatorStore<E>>,
+    validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<T>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
@@ -30,7 +27,6 @@ pub struct AttestationServiceBuilder<T: Clone, E: EthSpec> {
 impl<T: SlotClock + Clone + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
     pub fn new() -> Self {
         Self {
-            fork_service: None,
             duties_service: None,
             validator_store: None,
             slot_clock: None,
@@ -39,17 +35,12 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> AttestationServiceBuilder<T, E>
         }
     }
 
-    pub fn fork_service(mut self, service: ForkService<T, E>) -> Self {
-        self.fork_service = Some(service);
-        self
-    }
-
     pub fn duties_service(mut self, service: DutiesService<T, E>) -> Self {
         self.duties_service = Some(service);
         self
     }
 
-    pub fn validator_store(mut self, store: ValidatorStore<E>) -> Self {
+    pub fn validator_store(mut self, store: ValidatorStore<T, E>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -72,9 +63,6 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> AttestationServiceBuilder<T, E>
     pub fn build(self) -> Result<AttestationService<T, E>, String> {
         Ok(AttestationService {
             inner: Arc::new(Inner {
-                fork_service: self
-                    .fork_service
-                    .ok_or_else(|| "Cannot build AttestationService without fork_service")?,
                 duties_service: self
                     .duties_service
                     .ok_or_else(|| "Cannot build AttestationService without duties_service")?,
@@ -97,8 +85,7 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> AttestationServiceBuilder<T, E>
 
 pub struct Inner<T: Clone, E: EthSpec> {
     duties_service: DutiesService<T, E>,
-    fork_service: ForkService<T, E>,
-    validator_store: ValidatorStore<E>,
+    validator_store: ValidatorStore<T, E>,
     slot_clock: T,
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
@@ -178,10 +165,6 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> AttestationService<T, E> {
             .slot_clock
             .now()
             .ok_or_else(|| "Failed to read slot clock".to_string())?;
-        let fork = inner
-            .fork_service
-            .fork()
-            .ok_or_else(|| "Failed to get Fork".to_string())?;
 
         let mut committee_indices: HashMap<CommitteeIndex, Vec<ValidatorDuty>> = HashMap::new();
 
@@ -206,7 +189,6 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> AttestationService<T, E> {
                     slot,
                     committee_index,
                     validator_duties,
-                    fork.clone(),
                 ));
             });
 
@@ -218,7 +200,6 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> AttestationService<T, E> {
         slot: Slot,
         committee_index: CommitteeIndex,
         validator_duties: Vec<ValidatorDuty>,
-        fork: Fork,
     ) -> impl Future<Item = (), Error = ()> {
         let inner_1 = self.inner.clone();
         let inner_2 = self.inner.clone();
@@ -250,7 +231,6 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> AttestationService<T, E> {
                                         &duty.validator_pubkey,
                                         validator_committee_position,
                                         attestation,
-                                        &fork,
                                     )
                                     .ok_or_else(|| "Unable to sign attestation".to_string())
                             } else {

@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 
-/// Defines the encoding for the API
+/// Defines the encoding for the API.
 #[derive(Clone, Serialize, Deserialize, Copy)]
 pub enum ApiEncodingFormat {
     JSON,

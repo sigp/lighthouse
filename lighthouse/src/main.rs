@@ -137,12 +137,12 @@ fn run<E: EthSpec>(
 
         account_manager::run(sub_matches, runtime_context);
 
-        // Exit early if the account manager was run. It does not used the tokio executor, so no
-        // need to wait for it to shutdown.
+        // Exit early if the account manager was run. It does not use the tokio executor, no need
+        // to wait for it to shutdown.
         return Ok(());
     }
 
-    let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("Beacon Node") {
+    let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("beacon_node") {
         let runtime_context = environment.core_context();
 
         let beacon = environment

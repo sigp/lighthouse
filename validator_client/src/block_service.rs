@@ -1,6 +1,4 @@
-use crate::{
-    duties_service::DutiesService, fork_service::ForkService, validator_store::ValidatorStore,
-};
+use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{stream, Future, IntoFuture, Stream};
@@ -17,9 +15,8 @@ const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
 
 #[derive(Clone)]
 pub struct BlockServiceBuilder<T: Clone, E: EthSpec> {
-    fork_service: Option<ForkService<T, E>>,
     duties_service: Option<DutiesService<T, E>>,
-    validator_store: Option<ValidatorStore<E>>,
+    validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<Arc<T>>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
@@ -29,7 +26,6 @@ pub struct BlockServiceBuilder<T: Clone, E: EthSpec> {
 impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
     pub fn new() -> Self {
         Self {
-            fork_service: None,
             duties_service: None,
             validator_store: None,
             slot_clock: None,
@@ -38,17 +34,12 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         }
     }
 
-    pub fn fork_service(mut self, service: ForkService<T, E>) -> Self {
-        self.fork_service = Some(service);
-        self
-    }
-
     pub fn duties_service(mut self, service: DutiesService<T, E>) -> Self {
         self.duties_service = Some(service);
         self
     }
 
-    pub fn validator_store(mut self, store: ValidatorStore<E>) -> Self {
+    pub fn validator_store(mut self, store: ValidatorStore<T, E>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -70,9 +61,6 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
-            fork_service: self
-                .fork_service
-                .ok_or_else(|| "Cannot build BlockService without fork_service")?,
             duties_service: self
                 .duties_service
                 .ok_or_else(|| "Cannot build BlockService without duties_service")?,
@@ -95,8 +83,7 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 #[derive(Clone)]
 pub struct BlockService<T: Clone, E: EthSpec> {
     duties_service: DutiesService<T, E>,
-    fork_service: ForkService<T, E>,
-    validator_store: ValidatorStore<E>,
+    validator_store: ValidatorStore<T, E>,
     slot_clock: Arc<T>,
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
@@ -167,29 +154,17 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockService<T, E> {
                     let service_3 = service.clone();
 
                     block_producers.next().map(move |validator_pubkey| {
-                        service_2
-                            .fork_service
-                            .fork()
-                            .ok_or_else(|| "Fork is unknown, unable to sign".to_string())
-                            .and_then(|fork| {
-                                service_1
-                                    .validator_store
-                                    .randao_reveal(
-                                        &validator_pubkey,
-                                        slot.epoch(E::slots_per_epoch()),
-                                        &fork,
-                                    )
-                                    .map(|randao_reveal| (fork, randao_reveal))
-                                    .ok_or_else(|| "Unable to produce randao reveal".to_string())
-                            })
+                        service_1
+                            .validator_store
+                            .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
+                            .ok_or_else(|| "Unable to produce randao reveal".to_string())
                             .into_future()
-                            .and_then(move |(fork, randao_reveal)| {
+                            .and_then(move |randao_reveal| {
                                 service_1
                                     .beacon_node
                                     .http
                                     .validator()
                                     .produce_block(slot, randao_reveal)
-                                    .map(|block| (fork, block))
                                     .map_err(|e| {
                                         format!(
                                             "Error from beacon node when producing block: {:?}",
@@ -197,10 +172,10 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> BlockService<T, E> {
                                         )
                                     })
                             })
-                            .and_then(move |(fork, block)| {
+                            .and_then(move |block| {
                                 service_2
                                     .validator_store
-                                    .sign_block(&validator_pubkey, block, &fork)
+                                    .sign_block(&validator_pubkey, block)
                                     .ok_or_else(|| "Unable to sign block".to_string())
                             })
                             .and_then(move |block| {

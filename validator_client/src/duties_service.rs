@@ -124,7 +124,7 @@ impl DutiesStore {
 #[derive(Clone)]
 pub struct DutiesServiceBuilder<T: Clone, E: EthSpec> {
     store: Option<Arc<DutiesStore>>,
-    validator_store: Option<ValidatorStore<E>>,
+    validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<Arc<T>>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
@@ -142,7 +142,7 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
         }
     }
 
-    pub fn validator_store(mut self, store: ValidatorStore<E>) -> Self {
+    pub fn validator_store(mut self, store: ValidatorStore<T, E>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -184,7 +184,7 @@ impl<T: SlotClock + Clone + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
 #[derive(Clone)]
 pub struct DutiesService<T: Clone, E: EthSpec> {
     store: Arc<DutiesStore>,
-    validator_store: ValidatorStore<E>,
+    validator_store: ValidatorStore<T, E>,
     slot_clock: Arc<T>,
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,

@@ -12,7 +12,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .about("Create a new Ethereum 2.0 validator.")
                         .subcommand(
                             SubCommand::with_name("insecure")
-                                .about("Uses the insecure deterministic keypairs. Do not store value in these.")
+                                .about("Produce insecure, ephemeral validators. DO NOT USE TO STORE VALUE.")
                                 .arg(
                                     Arg::with_name("first")
                                         .index(1)
@@ -32,7 +32,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         )
                         .subcommand(
                             SubCommand::with_name("random")
-                                .about("Uses the Rust rand crate ThreadRandom to generate keys.")
+                                .about("Produces public keys using entropy from the Rust 'rand' library.")
                                 .arg(
                                     Arg::with_name("validator_count")
                                         .index(1)

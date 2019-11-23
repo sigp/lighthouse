@@ -55,10 +55,7 @@ fn sign_block<T: BeaconChainTypes>(
         .block_proposer(block.slot)
         .expect("should get proposer index");
     let keypair = generate_deterministic_keypair(proposer_index);
-    let epoch = block.slot.epoch(E::slots_per_epoch());
-    let message = block.signed_root();
-    let domain = spec.get_domain(epoch, Domain::BeaconProposer, &fork);
-    block.signature = Signature::new(&message, domain, &keypair.sk);
+    block.sign(&keypair.sk, &fork, spec);
 }
 
 #[test]

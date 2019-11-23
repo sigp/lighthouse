@@ -12,10 +12,10 @@ If this doesn't work or is not clear enough, see the [Detailed Instructions](#de
 ## Detailed Instructions
 
 1. Install Rust and Cargo with [rustup](https://rustup.rs/).
-	- Use the `stable` toolchain (it's the default).
+    - Use the `stable` toolchain (it's the default).
 1. Clone the Lighthouse repository.
     - Run `$ git clone https://github.com/sigp/lighthouse.git`
-	- Change into the newly created directory with `$ cd lighthouse`
+    - Change into the newly created directory with `$ cd lighthouse`
 1. Build Lighthouse with `$ make`.
 1. Installation was successful if `$ lighthouse --help` displays the
    command-line documentation.
