@@ -1,5 +1,5 @@
 use crate::enums::{NotSafe, Safe, ValidityReason};
-use crate::slashing_protection::HistoryInfo;
+use crate::slashing_protection::ValidatorHistory;
 use crate::utils::{i64_to_u64, u64_to_i64};
 use rusqlite::params;
 use std::convert::From;
@@ -75,7 +75,7 @@ fn check_surrounding(
 }
 
 /// Checks if the incoming attestation is surrounding a vote, is a surrounded by another vote, or if it is a double vote.
-impl HistoryInfo<SignedAttestation> {
+impl ValidatorHistory<SignedAttestation> {
     pub fn check_for_attester_slashing(
         &self,
         attestation_data: &AttestationData,
@@ -197,7 +197,7 @@ impl HistoryInfo<SignedAttestation> {
 #[cfg(test)]
 mod attestation_tests {
     use super::*;
-    use crate::slashing_protection::{HistoryInfo, SlashingProtection};
+    use crate::slashing_protection::{ValidatorHistory, SlashingProtection};
     use tempfile::NamedTempFile;
     use types::{AttestationData, Checkpoint, Epoch, Hash256, Slot};
 
@@ -223,12 +223,12 @@ mod attestation_tests {
         }
     }
 
-    fn create_tmp() -> (HistoryInfo<SignedAttestation>, NamedTempFile) {
+    fn create_tmp() -> (ValidatorHistory<SignedAttestation>, NamedTempFile) {
         let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = attestation_file.path();
 
-        let attestation_history: HistoryInfo<SignedAttestation> =
-            HistoryInfo::empty(filename).expect("IO error with file");
+        let attestation_history: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::empty(filename).expect("IO error with file");
 
         (attestation_history, attestation_file)
     }

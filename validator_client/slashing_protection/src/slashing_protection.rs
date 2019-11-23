@@ -12,7 +12,7 @@ use types::{AttestationData, BeaconBlockHeader, Hash256};
 
 /// Struct used for checking if attestations or blockheaders are safe from slashing.
 #[derive(Debug)]
-pub struct HistoryInfo<T> {
+pub struct ValidatorHistory<T> {
     // The connection to the database.
     pub conn: Connection,
 
@@ -30,7 +30,7 @@ trait CheckAndInsert<T> {
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
-impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
+impl CheckAndInsert<SignedAttestation> for ValidatorHistory<SignedAttestation> {
     type U = AttestationData;
 
     fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
@@ -51,7 +51,7 @@ impl CheckAndInsert<SignedAttestation> for HistoryInfo<SignedAttestation> {
     }
 }
 
-impl CheckAndInsert<SignedBlock> for HistoryInfo<SignedBlock> {
+impl CheckAndInsert<SignedBlock> for ValidatorHistory<SignedBlock> {
     type U = BeaconBlockHeader;
 
     fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
@@ -130,13 +130,13 @@ impl LoadData<SignedBlock> for Vec<SignedBlock> {
 pub trait SlashingProtection<T> {
     type U;
 
-    /// Creates an empty HistoryInfo, and an associated sqlite database with the name passed in as argument.
+    /// Creates an empty ValidatorHistory, and an associated sqlite database with the name passed in as argument.
     /// Returns an error if the database already exists.
-    fn empty(path: &Path) -> Result<HistoryInfo<T>, NotSafe>;
+    fn empty(path: &Path) -> Result<ValidatorHistory<T>, NotSafe>;
 
-    /// Creates a HistoryInfo<T> by connecting to an existing db file.
+    /// Creates a ValidatorHistory<T> by connecting to an existing db file.
     /// Returns an error if file doesn't exist.
-    fn open(path: &Path) -> Result<HistoryInfo<T>, NotSafe>;
+    fn open(path: &Path) -> Result<ValidatorHistory<T>, NotSafe>;
 
     /// Updates the sqlite db and the in-memory Vec if the incoming_data is safe from slashings.
     /// If incoming_data is not safe, returns the associated error.
@@ -146,7 +146,7 @@ pub trait SlashingProtection<T> {
     fn get_history(&self) -> Result<Vec<T>, SQLErr>;
 }
 
-impl SlashingProtection<SignedBlock> for HistoryInfo<SignedBlock> {
+impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
     type U = BeaconBlockHeader;
 
     fn empty(path: &Path) -> Result<Self, NotSafe> {
@@ -206,7 +206,7 @@ impl SlashingProtection<SignedBlock> for HistoryInfo<SignedBlock> {
     }
 }
 
-impl SlashingProtection<SignedAttestation> for HistoryInfo<SignedAttestation> {
+impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestation> {
     type U = AttestationData;
 
     fn empty(path: &Path) -> Result<Self, NotSafe> {
@@ -317,8 +317,8 @@ mod single_threaded_tests {
         let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = attestation_file.path();
 
-        let mut attestation_history: HistoryInfo<SignedAttestation> =
-            HistoryInfo::empty(filename).expect("IO error with file");
+        let mut attestation_history: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::empty(filename).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(1, 2);
         let attestation2 = attestation_data_builder(2, 3);
@@ -345,11 +345,11 @@ mod single_threaded_tests {
             .get_history()
             .expect("error with sql db");
 
-        // Dropping the HistoryInfo struct
+        // Dropping the ValidatorHistory struct
         drop(attestation_history);
 
-        let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::open(filename).expect("IO error with file");
+        let file_written_version: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::open(filename).expect("IO error with file");
         // Making sure that data in the file is correct
         assert_eq!(
             old_data,
@@ -367,8 +367,8 @@ mod single_threaded_tests {
     fn open_non_existing_db() {
         let filename = Path::new("this_file_does_not_exist.txt");
 
-        let attestation_history: Result<HistoryInfo<SignedAttestation>, NotSafe> =
-            HistoryInfo::open(filename);
+        let attestation_history: Result<ValidatorHistory<SignedAttestation>, NotSafe> =
+            ValidatorHistory::open(filename);
 
         assert!(attestation_history.is_err()); // SCOTT
     }
@@ -381,11 +381,11 @@ mod single_threaded_tests {
         let block_file = NamedTempFile::new().expect("couldn't create temporary file");
         let block_filename = block_file.path();
 
-        let mut attestation_history: HistoryInfo<SignedAttestation> =
-            HistoryInfo::open(attestation_filename).expect("IO error with file");
+        let mut attestation_history: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::open(attestation_filename).expect("IO error with file");
 
-        let mut block_history: HistoryInfo<SignedBlock> =
-            HistoryInfo::open(block_filename).expect("IO error with file");
+        let mut block_history: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::open(block_filename).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(5, 9);
         let invalid_attest = attestation_history.update_if_valid(&attestation1);
@@ -411,8 +411,8 @@ mod single_threaded_tests {
         let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = attestation_file.path();
 
-        let mut attestation_history: HistoryInfo<SignedAttestation> =
-            HistoryInfo::empty(filename).expect("IO error with file");
+        let mut attestation_history: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::empty(filename).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(5, 9);
         let attestation2 = attestation_data_builder(7, 12);
@@ -445,12 +445,12 @@ mod single_threaded_tests {
         let old_data = attestation_history
             .get_history()
             .expect("error with sql db");
-        // Dropping the HistoryInfo struct
+        // Dropping the ValidatorHistory struct
         drop(attestation_history);
 
         // Making sure that data in the file is correct
-        let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::open(filename).expect("IO error with file");
+        let file_written_version: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::open(filename).expect("IO error with file");
         assert_eq!(
             old_data,
             file_written_version
@@ -468,8 +468,8 @@ mod single_threaded_tests {
         let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = attestation_file.path();
 
-        let mut attestation_history: HistoryInfo<SignedAttestation> =
-            HistoryInfo::empty(filename).expect("IO error with file");
+        let mut attestation_history: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::empty(filename).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(1, 2);
         let attestation2 = attestation_data_builder(1, 2); // should not get added
@@ -500,12 +500,12 @@ mod single_threaded_tests {
         let old_data = attestation_history
             .get_history()
             .expect("error with sql db");
-        // Dropping the HistoryInfo struct
+        // Dropping the ValidatorHistory struct
         drop(attestation_history);
 
         // Making sure that data in the file is correct
-        let file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::open(filename).expect("IO error with file");
+        let file_written_version: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::open(filename).expect("IO error with file");
         assert_eq!(
             old_data,
             file_written_version
@@ -523,8 +523,8 @@ mod single_threaded_tests {
         let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = attestation_file.path();
 
-        let mut attestation_history: HistoryInfo<SignedAttestation> =
-            HistoryInfo::empty(filename).expect("IO error with file");
+        let mut attestation_history: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::empty(filename).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(1, 2);
         let attestation2 = attestation_data_builder(2, 3);
@@ -554,12 +554,12 @@ mod single_threaded_tests {
         let old_data = attestation_history
             .get_history()
             .expect("error with sql db");
-        // Dropping the HistoryInfo struct
+        // Dropping the ValidatorHistory struct
         drop(attestation_history);
 
         // Making sure that data in the file is correct
-        let mut file_written_version: HistoryInfo<SignedAttestation> =
-            HistoryInfo::open(filename).expect("IO error with file");
+        let mut file_written_version: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::open(filename).expect("IO error with file");
 
         assert_eq!(
             old_data,
@@ -599,8 +599,8 @@ mod single_threaded_tests {
         let block_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = block_file.path();
 
-        let mut block_history: HistoryInfo<SignedBlock> =
-            HistoryInfo::empty(filename).expect("IO error with file");
+        let mut block_history: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::empty(filename).expect("IO error with file");
 
         let block1 = block_builder(1);
         let block2 = block_builder(2);
@@ -623,12 +623,12 @@ mod single_threaded_tests {
 
         // Copying the current data
         let old_data = block_history.get_history().expect("error with sql db");
-        // Dropping the HistoryInfo struct
+        // Dropping the ValidatorHistory struct
         drop(block_history);
 
         // Making sure that data in the file is correct
-        let file_written_version: HistoryInfo<SignedBlock> =
-            HistoryInfo::open(filename).expect("IO error with file");
+        let file_written_version: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::open(filename).expect("IO error with file");
         assert_eq!(
             old_data,
             file_written_version
@@ -646,8 +646,8 @@ mod single_threaded_tests {
         let block_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = block_file.path();
 
-        let mut block_history: HistoryInfo<SignedBlock> =
-            HistoryInfo::empty(filename).expect("IO error with file");
+        let mut block_history: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::empty(filename).expect("IO error with file");
 
         let block1 = block_builder(1);
         let block2 = block_builder(1); // fails
@@ -674,12 +674,12 @@ mod single_threaded_tests {
 
         // Copying the current data
         let old_data = block_history.get_history().expect("error with sql db");
-        // Dropping the HistoryInfo struct
+        // Dropping the ValidatorHistory struct
         drop(block_history);
 
         // Making sure that data in the file is correct
-        let file_written_version: HistoryInfo<SignedBlock> =
-            HistoryInfo::open(filename).expect("IO error with file");
+        let file_written_version: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::open(filename).expect("IO error with file");
         assert_eq!(
             old_data,
             file_written_version

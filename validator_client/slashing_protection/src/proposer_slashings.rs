@@ -1,5 +1,5 @@
 use crate::enums::{NotSafe, Safe, ValidityReason};
-use crate::slashing_protection::HistoryInfo;
+use crate::slashing_protection::ValidatorHistory;
 use crate::utils::{i64_to_u64, u64_to_i64};
 use rusqlite::params;
 use std::convert::From;
@@ -35,7 +35,7 @@ impl From<&BeaconBlockHeader> for SignedBlock {
     }
 }
 
-impl HistoryInfo<SignedBlock> {
+impl ValidatorHistory<SignedBlock> {
     pub fn check_for_proposer_slashing(
         &self,
         block_header: &BeaconBlockHeader,
@@ -127,12 +127,12 @@ mod block_tests {
         }
     }
 
-    fn create_tmp() -> (HistoryInfo<SignedBlock>, NamedTempFile) {
+    fn create_tmp() -> (ValidatorHistory<SignedBlock>, NamedTempFile) {
         let block_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = block_file.path();
 
-        let block_history: HistoryInfo<SignedBlock> =
-            HistoryInfo::empty(filename).expect("IO error with file");
+        let block_history: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::empty(filename).expect("IO error with file");
 
         (block_history, block_file)
     }
