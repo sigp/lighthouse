@@ -22,9 +22,15 @@ const PRUNE_DEPTH: u64 = 4;
 type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, ValidatorDuty>>;
 
 enum InsertOutcome {
+    /// The duties were previously unknown and have been stored.
     New,
+    /// The duties were identical to some already in the store.
     Identical,
+    /// There were duties for this validator and epoch in the store that were different to the ones
+    /// provided. The existing duties were replaced.
     Replaced,
+    /// The given duties were invalid.
+    Invalid,
 }
 
 #[derive(Default)]
@@ -74,8 +80,12 @@ impl DutiesStore {
             .collect()
     }
 
-    fn insert(&self, epoch: Epoch, duties: ValidatorDuty) -> InsertOutcome {
+    fn insert(&self, epoch: Epoch, duties: ValidatorDuty, slots_per_epoch: u64) -> InsertOutcome {
         let mut store = self.store.write();
+
+        if !duties_match_epoch(&duties, epoch, slots_per_epoch) {
+            return InsertOutcome::Invalid;
+        }
 
         if store.contains_key(&duties.validator_pubkey) {
             let validator_map = store.get_mut(&duties.validator_pubkey).expect(
@@ -340,14 +350,25 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 let mut new = 0;
                 let mut identical = 0;
                 let mut replaced = 0;
+                let mut invalid = 0;
 
                 all_duties.into_iter().for_each(|duties| {
-                    match service_2.store.insert(epoch, duties) {
+                    match service_2.store.insert(epoch, duties, E::slots_per_epoch()) {
                         InsertOutcome::New => new += 1,
                         InsertOutcome::Identical => identical += 1,
                         InsertOutcome::Replaced => replaced += 1,
+                        InsertOutcome::Invalid => invalid += 1,
                     };
                 });
+
+                if invalid > 0 {
+                    error!(
+                        service_2.context.log,
+                        "Received invalid duties from beacon node";
+                        "bad_duty_count" => invalid,
+                        "info" => "Duties are from wrong epoch."
+                    )
+                }
 
                 trace!(
                     service_2.context.log,
@@ -367,4 +388,21 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 }
             })
     }
+}
+
+/// Returns `true` if the slots in the `duties` are from the given `epoch`
+fn duties_match_epoch(duties: &ValidatorDuty, epoch: Epoch, slots_per_epoch: u64) -> bool {
+    if let Some(attestation_slot) = duties.attestation_slot {
+        if attestation_slot.epoch(slots_per_epoch) != epoch {
+            return false;
+        }
+    }
+
+    if let Some(block_proposal_slot) = duties.block_proposal_slot {
+        if block_proposal_slot.epoch(slots_per_epoch) != epoch {
+            return false;
+        }
+    }
+
+    true
 }

@@ -14,6 +14,7 @@ use types::{ChainSpec, EthSpec, Fork};
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(80);
 
+/// Builds a `ForkService`.
 pub struct ForkServiceBuilder<T, E: EthSpec> {
     fork: Option<Fork>,
     slot_clock: Option<T>,
@@ -64,6 +65,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
     }
 }
 
+/// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
     fork: RwLock<Option<Fork>>,
     beacon_node: RemoteBeaconNode<E>,
@@ -71,6 +73,7 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: T,
 }
 
+/// Attempts to download the `Fork` struct from the beacon node at the start of each epoch.
 pub struct ForkService<T, E: EthSpec> {
     inner: Arc<Inner<T, E>>,
 }
@@ -92,10 +95,12 @@ impl<T, E: EthSpec> Deref for ForkService<T, E> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
+    /// Returns the last fork downloaded from the beacon node, if any.
     pub fn fork(&self) -> Option<Fork> {
         self.fork.read().clone()
     }
 
+    /// Starts the service that periodically polls for the `Fork`.
     pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
         let log = self.context.log.clone();
 
@@ -141,6 +146,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         Ok(exit_signal)
     }
 
+    /// Attempts to download the `Fork` from the server.
     fn do_update(&self) -> impl Future<Item = (), Error = ()> {
         let service_1 = self.clone();
         let log_1 = service_1.context.log.clone();
