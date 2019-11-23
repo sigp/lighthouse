@@ -202,35 +202,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.exit_signals.write().push(duties_exit);
 
-<<<<<<< HEAD
-        self.exit_signals.write().push(exit_signal);
-
-        /* kick off the core service */
-        self.context.executor.spawn(
-            interval
-                .map_err(move |e| {
-                    error! {
-                        log,
-                        "Timer thread failed";
-                        "error" => format!("{}", e)
-                    }
-                })
-                .and_then(move |_| if exit_fut.is_live() { Ok(()) } else { Err(()) })
-                .for_each(move |_| {
-                    // wait for node to process
-                    std::thread::sleep(TIME_DELAY_FROM_SLOT);
-                    // if a non-fatal error occurs, proceed to the next slot.
-                    let _ignore_error = service.per_slot_execution(service.data_dir.as_path());
-                    // completed a slot process
-                    Ok(())
-                }),
-        );
-=======
         let fork_exit = self
             .fork_service
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start fork service: {}", e))?;
->>>>>>> upstream/kill-grpc
 
         self.exit_signals.write().push(fork_exit);
 

@@ -277,19 +277,21 @@ impl SlashingProtection<SignedAttestation> for HistoryInfo<SignedAttestation> {
 mod single_threaded_tests {
     use super::*;
     use tempfile::NamedTempFile;
-    use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, Slot};
-    use types::{Checkpoint, Crosslink, Signature};
+    use types::{AttestationData, BeaconBlockHeader, Checkpoint, Epoch, Hash256, Slot};
+    use types::{Signature};
 
     fn attestation_data_builder(source: u64, target: u64) -> AttestationData {
         let source = build_checkpoint(source);
         let target = build_checkpoint(target);
-        let crosslink = Crosslink::default();
+        let slot = Slot::from(0u64);
+        let index = 0u64;
 
         AttestationData {
+            slot,
+            index,
             beacon_block_root: Hash256::zero(),
             source,
             target,
-            crosslink,
         }
     }
 

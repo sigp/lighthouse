@@ -199,8 +199,7 @@ mod attestation_tests {
     use super::*;
     use crate::slashing_protection::{HistoryInfo, SlashingProtection};
     use tempfile::NamedTempFile;
-    use types::{AttestationData, Epoch, Hash256};
-    use types::{Checkpoint, Crosslink};
+    use types::{AttestationData, Checkpoint, Epoch, Hash256, Slot};
 
     fn build_checkpoint(epoch_num: u64) -> Checkpoint {
         Checkpoint {
@@ -212,13 +211,15 @@ mod attestation_tests {
     fn attestation_data_builder(source: u64, target: u64) -> AttestationData {
         let source = build_checkpoint(source);
         let target = build_checkpoint(target);
-        let crosslink = Crosslink::default();
+        let index = 0u64;
+        let slot = Slot::from(0u64);
 
         AttestationData {
+            slot,
+            index,
             beacon_block_root: Hash256::zero(),
             source,
             target,
-            crosslink,
         }
     }
 
