@@ -3,11 +3,16 @@ mod cli;
 use bls::Keypair;
 use clap::ArgMatches;
 use environment::RuntimeContext;
+use keystore::{KeyType, Keystore};
+use rpassword::read_password;
 use slog::{crit, debug, info};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use types::{test_utils::generate_deterministic_keypair, EthSpec};
 use validator_client::Config as ValidatorClientConfig;
+mod deposit;
+pub mod keystore;
 
 pub use cli::cli_app;
 
@@ -74,6 +79,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches, context: RuntimeContext<T>) {
                 }
             }
         }
+        ("generate_deposit_keystores", Some(_)) => generate_deposit_keystores(&log),
         _ => {
             crit!(
                 log,
@@ -117,6 +123,44 @@ fn save_key(keypair: &Keypair, config: &ValidatorClientConfig, log: &slog::Logge
         log,
         "Keypair generated {:?}, saved to: {:?}",
         keypair.identifier(),
+        key_path.to_string_lossy()
+    );
+}
+
+/// Generate and store validator and withdrawal keystores.
+fn generate_deposit_keystores(log: &slog::Logger) {
+    // Get password from user
+    // TODO: fix the order of log and print
+    print!("Enter password: ");
+    std::io::stdout().flush().unwrap();
+    let password = read_password().expect("Unable to read password");
+
+    // Generate keypairs
+    let validator_keypair = Keypair::random();
+    let withdrawal_keypair = Keypair::random();
+
+    // Note: Validator and withdrawal keystores have same uuid
+    let validator_keystore =
+        Keystore::to_keystore(&validator_keypair, password.clone(), None, None, None);
+    let withdrawal_keystore = Keystore::to_keystore(
+        &withdrawal_keypair,
+        password,
+        None,
+        None,
+        Some(validator_keystore.uuid),
+    );
+    debug!(log, "Saving keys in keystores");
+    save_keystore(&validator_keystore, KeyType::Voting, log);
+    save_keystore(&withdrawal_keystore, KeyType::Withdrawal, log);
+}
+
+fn save_keystore(keystore: &Keystore, key_type: KeyType, log: &slog::Logger) {
+    let key_path: PathBuf = keystore
+        .save_keystore(PathBuf::from(DEFAULT_DATA_DIR), key_type)
+        .unwrap();
+    debug!(
+        log,
+        "Keystore file generated ,saved to: {:?}",
         key_path.to_string_lossy()
     );
 }
