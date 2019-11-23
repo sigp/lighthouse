@@ -44,7 +44,7 @@ impl From<ssz::DecodeError> for Error {
 }
 
 pub struct ThreadSafeReducedTree<T, E> {
-    pub(self) core: RwLock<ReducedTree<T, E>>,
+    core: RwLock<ReducedTree<T, E>>,
 }
 
 impl<T, E> fmt::Debug for ThreadSafeReducedTree<T, E> {
@@ -179,13 +179,13 @@ impl ReducedTreeSsz {
 }
 
 struct ReducedTree<T, E> {
-    pub(self) store: Arc<T>,
+    store: Arc<T>,
     /// Stores all nodes of the tree, keyed by the block hash contained in the node.
-    pub(self) nodes: HashMap<Hash256, Node>,
+    nodes: HashMap<Hash256, Node>,
     /// Maps validator indices to their latest votes.
-    pub(self) latest_votes: ElasticList<Option<Vote>>,
+    latest_votes: ElasticList<Option<Vote>>,
     /// Stores the root of the tree, used for pruning.
-    pub(self) root: (Hash256, Slot),
+    root: (Hash256, Slot),
     _phantom: PhantomData<E>,
 }
 
