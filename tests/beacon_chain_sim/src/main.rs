@@ -108,13 +108,12 @@ fn new_validator_client<E: EthSpec>(
 ) -> LocalValidatorClient<E> {
     let mut config = base_config;
 
-    let (grpc_endpoint, grpc_port) = beacon_node
+    let socket_addr = beacon_node
         .client
-        .grpc_listen_addr()
-        .expect("Must have gRPC started");
+        .http_listen_addr()
+        .expect("Must have http started");
 
-    config.server = grpc_endpoint;
-    config.server_grpc_port = grpc_port;
+    config.http_server = format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
 
     LocalValidatorClient::production_with_insecure_keypairs(context, config, keypair_indices)
 }

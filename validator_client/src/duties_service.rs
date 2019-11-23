@@ -21,6 +21,7 @@ const PRUNE_DEPTH: u64 = 4;
 
 type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, ValidatorDuty>>;
 
+/// The outcome of inserting some `ValidatorDuty` into the `DutiesStore`.
 enum InsertOutcome {
     /// The duties were previously unknown and have been stored.
     New,
@@ -91,8 +92,6 @@ impl DutiesStore {
             let validator_map = store.get_mut(&duties.validator_pubkey).expect(
                 "Store is exclusively locked and this path is guarded to ensure the key exists.",
             );
-
-            // TODO: validate that the slots in the duties are all in the given epoch.
 
             if validator_map.contains_key(&epoch) {
                 let known_duties = validator_map.get_mut(&epoch).expect(
@@ -190,6 +189,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
     }
 }
 
+/// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
     store: Arc<DutiesStore>,
     validator_store: ValidatorStore<T, E>,
@@ -198,6 +198,10 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
 }
 
+/// Maintains a store of the duties for all voting validators in the `validator_store`.
+///
+/// Polls the beacon node at the start of each epoch, collecting duties for the current and next
+/// epoch.
 pub struct DutiesService<T, E: EthSpec> {
     inner: Arc<Inner<T, E>>,
 }
@@ -234,6 +238,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         self.store.attesters(slot, E::slots_per_epoch())
     }
 
+    /// Start the service that periodically polls the beacon node for validator duties.
     pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
         let log = self.context.log.clone();
 
@@ -279,6 +284,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         Ok(exit_signal)
     }
 
+    /// Attempt to download the duties of all managed validators for this epoch and the next.
     fn do_update(&self) -> impl Future<Item = (), Error = ()> {
         let service_1 = self.clone();
         let service_2 = self.clone();
@@ -334,6 +340,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .map(|_| ())
     }
 
+    /// Attempt to download the duties of all managed validators for the given `epoch`.
     fn update_epoch(self, epoch: Epoch) -> impl Future<Item = (), Error = String> {
         let service_1 = self.clone();
         let service_2 = self.clone();
