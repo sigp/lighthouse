@@ -59,9 +59,10 @@ pub fn start_server<T: BeaconChainTypes>(
     eth2_config: Eth2Config,
     log: slog::Logger,
 ) -> Result<(exit_future::Signal, SocketAddr), hyper::Error> {
-    // Define the function that will build the request handler.
     let inner_log = log.clone();
     let eth2_config = Arc::new(eth2_config);
+
+    // Define the function that will build the request handler.
     let make_service = make_service_fn(move |_socket: &AddrStream| {
         let beacon_chain = beacon_chain.clone();
         let log = inner_log.clone();

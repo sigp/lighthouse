@@ -57,7 +57,7 @@ pub fn get_prometheus<T: BeaconChainTypes + 'static>(
     beacon_chain::scrape_for_metrics(&beacon_chain);
 
     encoder
-        .encode(&lighthouse_metrics::gather()[..], &mut buffer)
+        .encode(&lighthouse_metrics::gather(), &mut buffer)
         .unwrap();
 
     String::from_utf8(buffer)

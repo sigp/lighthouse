@@ -3,9 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 
 /// Defines the encoding for the API
-///
-/// The validator client can speak to the beacon node in a number of encodings. Currently both JSON
-/// and YAML are supported.
 #[derive(Clone, Serialize, Deserialize, Copy)]
 pub enum ApiEncodingFormat {
     JSON,
