@@ -190,28 +190,29 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         if validator_dir
             .attestation_history
             .update_if_valid(&attestation.data)
-            .is_ok() {
-                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+            .is_ok()
+        {
+            let voting_keypair = validator_dir.voting_keypair.as_ref()?;
 
-                attestation
-                    .sign(
-                        &voting_keypair.sk,
-                        validator_committee_position,
-                        &self.fork()?,
-                        &self.spec,
+            attestation
+                .sign(
+                    &voting_keypair.sk,
+                    validator_committee_position,
+                    &self.fork()?,
+                    &self.spec,
+                )
+                .map_err(|e| {
+                    error!(
+                        self.log,
+                        "Error whilst signing attestation";
+                        "error" => format!("{:?}", e)
                     )
-                    .map_err(|e| {
-                        error!(
-                            self.log,
-                            "Error whilst signing attestation";
-                            "error" => format!("{:?}", e)
-                        )
-                    })
-                    .ok()?;
+                })
+                .ok()?;
 
-                Some(())
-            } else {
-                None
-            }
+            Some(())
+        } else {
+            None
+        }
     }
 }

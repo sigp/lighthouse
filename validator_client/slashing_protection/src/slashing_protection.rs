@@ -277,8 +277,8 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
 mod single_threaded_tests {
     use super::*;
     use tempfile::NamedTempFile;
+    use types::Signature;
     use types::{AttestationData, BeaconBlockHeader, Checkpoint, Epoch, Hash256, Slot};
-    use types::{Signature};
 
     fn attestation_data_builder(source: u64, target: u64) -> AttestationData {
         let source = build_checkpoint(source);
