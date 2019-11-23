@@ -46,7 +46,8 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Parses the CLI arguments and attempts to load the client configuration.
+    /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
+    /// `cli_args`.
     pub fn from_cli(cli_args: &ArgMatches) -> Result<Config, String> {
         let mut config = Config::default();
 
@@ -72,7 +73,8 @@ impl Config {
     }
 }
 
-/// Parses the `testnet` CLI subcommand.
+/// Parses the `testnet` CLI subcommand, modifying the `config` based upon the parametes in
+/// `cli_args`.
 fn process_testnet_subcommand(cli_args: &ArgMatches, mut config: Config) -> Result<Config, String> {
     config.key_source = match cli_args.subcommand() {
         ("insecure", Some(sub_cli_args)) => {
