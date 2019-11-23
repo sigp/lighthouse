@@ -35,9 +35,14 @@ pub struct RemoteBeaconNode<E: EthSpec> {
 }
 
 impl<E: EthSpec> RemoteBeaconNode<E> {
+    /// Uses the default HTTP timeout.
     pub fn new(http_endpoint: String) -> Result<Self, String> {
+        Self::new_with_timeout(http_endpoint, Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+    }
+
+    pub fn new_with_timeout(http_endpoint: String, timeout: Duration) -> Result<Self, String> {
         Ok(Self {
-            http: HttpClient::new(http_endpoint)
+            http: HttpClient::new(http_endpoint, timeout)
                 .map_err(|e| format!("Unable to create http client: {:?}", e))?,
         })
     }
@@ -65,12 +70,10 @@ pub struct HttpClient<E> {
 
 impl<E: EthSpec> HttpClient<E> {
     /// Creates a new instance (without connecting to the node).
-    ///
-    /// The `timeout` is set to 15 seconds.
-    pub fn new(server_url: String) -> Result<Self, Error> {
+    pub fn new(server_url: String, timeout: Duration) -> Result<Self, Error> {
         Ok(Self {
             client: ClientBuilder::new()
-                .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+                .timeout(timeout)
                 .build()
                 .expect("should build from static configuration"),
             url: Url::parse(&server_url)?,

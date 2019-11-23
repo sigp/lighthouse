@@ -34,7 +34,11 @@ use tokio::timer::Delay;
 use types::EthSpec;
 use validator_store::ValidatorStore;
 
+/// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
+
+/// The global timeout for HTTP events.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 
 #[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
@@ -76,7 +80,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "datadir" => format!("{:?}", config.data_dir),
         );
 
-        RemoteBeaconNode::new(config.http_server.clone())
+        RemoteBeaconNode::new_with_timeout(config.http_server.clone(), HTTP_TIMEOUT)
             .map_err(|e| format!("Unable to init beacon node http client: {}", e))
             .into_future()
             .and_then(move |beacon_node| wait_for_node(beacon_node, log_2))
