@@ -487,7 +487,7 @@ mod test {
             let keypair = generate_deterministic_keypair(i as usize);
             let mut builder =
                 TestingDepositBuilder::new(keypair.pk.clone(), spec.max_effective_balance);
-            builder.sign(&DepositTestTask::Valid, &keypair, spec);
+            builder.sign(DepositTestTask::Valid, &keypair, spec);
             let deposit_data = builder.build().data;
 
             DepositLog {

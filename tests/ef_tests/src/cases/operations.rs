@@ -8,13 +8,13 @@ use ssz::Decode;
 use state_processing::per_block_processing::{
     errors::BlockProcessingError, process_attestations, process_attester_slashings,
     process_block_header, process_deposits, process_exits, process_proposer_slashings,
-    process_transfers, VerifySignatures,
+    VerifySignatures,
 };
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec,
-    ProposerSlashing, Transfer, VoluntaryExit,
+    ProposerSlashing, VoluntaryExit,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -92,16 +92,6 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         process_proposer_slashings(state, &[self.clone()], VerifySignatures::True, spec)
-    }
-}
-
-impl<E: EthSpec> Operation<E> for Transfer {
-    fn apply_to(
-        &self,
-        state: &mut BeaconState<E>,
-        spec: &ChainSpec,
-    ) -> Result<(), BlockProcessingError> {
-        process_transfers(state, &[self.clone()], VerifySignatures::True, spec)
     }
 }
 

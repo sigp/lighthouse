@@ -29,7 +29,7 @@ impl AttestationId {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Vec<u8> {
-        int_to_bytes8(spec.get_domain(epoch, Domain::Attestation, &state.fork))
+        int_to_bytes8(spec.get_domain(epoch, Domain::BeaconAttester, &state.fork))
     }
 
     pub fn domain_bytes_match(&self, domain_bytes: &[u8]) -> bool {

@@ -18,7 +18,6 @@ macro_rules! easy_from_to {
 #[derive(Debug, PartialEq)]
 pub enum BeaconChainError {
     InsufficientValidators,
-    BadRecentBlockRoots,
     UnableToReadSlot,
     RevertedFinalizedEpoch {
         previous_epoch: Epoch,

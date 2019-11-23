@@ -6,8 +6,8 @@ use crate::type_name;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
 use state_processing::per_epoch_processing::{
-    errors::EpochProcessingError, process_crosslinks, process_final_updates,
-    process_justification_and_finalization, process_registry_updates, process_slashings,
+    errors::EpochProcessingError, process_final_updates, process_justification_and_finalization,
+    process_registry_updates, process_rewards_and_penalties, process_slashings,
     validator_statuses::ValidatorStatuses,
 };
 use std::marker::PhantomData;
@@ -38,7 +38,7 @@ pub trait EpochTransition<E: EthSpec>: TypeName + Debug + Sync {
 #[derive(Debug)]
 pub struct JustificationAndFinalization;
 #[derive(Debug)]
-pub struct Crosslinks;
+pub struct RewardsAndPenalties;
 #[derive(Debug)]
 pub struct RegistryUpdates;
 #[derive(Debug)]
@@ -50,7 +50,7 @@ type_name!(
     JustificationAndFinalization,
     "justification_and_finalization"
 );
-type_name!(Crosslinks, "crosslinks");
+type_name!(RewardsAndPenalties, "rewards_and_penalties");
 type_name!(RegistryUpdates, "registry_updates");
 type_name!(Slashings, "slashings");
 type_name!(FinalUpdates, "final_updates");
@@ -63,10 +63,11 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
     }
 }
 
-impl<E: EthSpec> EpochTransition<E> for Crosslinks {
+impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_crosslinks(state, spec)?;
-        Ok(())
+        let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
+        validator_statuses.process_attestations(state, spec)?;
+        process_rewards_and_penalties(state, &mut validator_statuses, spec)
     }
 }
 

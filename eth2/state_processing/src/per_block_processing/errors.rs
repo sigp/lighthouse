@@ -16,9 +16,6 @@ pub enum BlockProcessingError {
         expected: usize,
         found: usize,
     },
-    DuplicateTransfers {
-        duplicates: usize,
-    },
     HeaderInvalid {
         reason: HeaderInvalid,
     },
@@ -45,10 +42,6 @@ pub enum BlockProcessingError {
     ExitInvalid {
         index: usize,
         reason: ExitInvalid,
-    },
-    TransferInvalid {
-        index: usize,
-        reason: TransferInvalid,
     },
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
@@ -119,8 +112,7 @@ impl_into_block_processing_error_with_index!(
     IndexedAttestationInvalid,
     AttestationInvalid,
     DepositInvalid,
-    ExitInvalid,
-    TransferInvalid
+    ExitInvalid
 );
 
 pub type HeaderValidationError = BlockOperationError<HeaderInvalid>;
@@ -129,7 +121,6 @@ pub type ProposerSlashingValidationError = BlockOperationError<ProposerSlashingI
 pub type AttestationValidationError = BlockOperationError<AttestationInvalid>;
 pub type DepositValidationError = BlockOperationError<DepositInvalid>;
 pub type ExitValidationError = BlockOperationError<ExitInvalid>;
-pub type TransferValidationError = BlockOperationError<TransferInvalid>;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockOperationError<T> {
@@ -174,10 +165,10 @@ pub enum HeaderInvalid {
 pub enum ProposerSlashingInvalid {
     /// The proposer index is not a known validator.
     ProposerUnknown(u64),
-    /// The two proposal have different epochs.
+    /// The two proposal have different slots.
     ///
     /// (proposal_1_slot, proposal_2_slot)
-    ProposalEpochMismatch(Slot, Slot),
+    ProposalSlotMismatch(Slot, Slot),
     /// The proposals are identical and therefore not slashable.
     ProposalsIdentical,
     /// The specified proposer cannot be slashed because they are already slashed, or not active.
@@ -207,8 +198,8 @@ pub enum AttesterSlashingInvalid {
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq)]
 pub enum AttestationInvalid {
-    /// Shard exceeds SHARD_COUNT.
-    BadShard,
+    /// Commmittee index exceeds number of committees in that slot.
+    BadCommitteeIndex,
     /// Attestation included before the inclusion delay.
     IncludedTooEarly {
         state: Slot,
@@ -229,36 +220,18 @@ pub enum AttestationInvalid {
         attestation: Checkpoint,
         is_current: bool,
     },
-    /// Attestation crosslink root does not match the state crosslink root for the attestations
-    /// slot.
-    BadParentCrosslinkHash,
-    /// Attestation crosslink start epoch does not match the end epoch of the state crosslink.
-    BadParentCrosslinkStartEpoch,
-    /// Attestation crosslink end epoch does not match the expected value.
-    BadParentCrosslinkEndEpoch,
-    /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
-    CustodyBitfieldHasSetBits,
     /// There are no set bits on the attestation -- an attestation must be signed by at least one
     /// validator.
     AggregationBitfieldIsEmpty,
-    /// The custody bitfield length is not the smallest possible size to represent the committee.
-    BadCustodyBitfieldLength {
-        committee_len: usize,
-        bitfield_len: usize,
-    },
     /// The aggregation bitfield length is not the smallest possible size to represent the committee.
     BadAggregationBitfieldLength {
         committee_len: usize,
         bitfield_len: usize,
     },
-    /// The bits set in the custody bitfield are not a subset of those set in the aggregation bits.
-    CustodyBitfieldNotSubset,
-    /// There was no known committee in this `epoch` for the given shard and slot.
-    NoCommitteeForShard { shard: u64, slot: Slot },
+    /// The validator index was unknown.
+    UnknownValidator(u64),
     /// The attestation signature verification failed.
     BadSignature,
-    /// The shard block root was not set to zero. This is a phase 0 requirement.
-    ShardBlockRootNotZero,
     /// The indexed attestation created from this attestation was found to be invalid.
     BadIndexedAttestation(IndexedAttestationInvalid),
 }
@@ -280,14 +253,6 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
 
 #[derive(Debug, PartialEq)]
 pub enum IndexedAttestationInvalid {
-    /// The custody bit 0 validators intersect with the bit 1 validators.
-    CustodyBitValidatorsIntersect,
-    /// The custody bitfield has some bits set `true`. This is not allowed in phase 0.
-    CustodyBitfieldHasSetBits,
-    /// The custody bitfield violated a type-level bound.
-    CustodyBitfieldBoundsError(ssz_types::Error),
-    /// No validator indices were specified.
-    NoValidatorIndices,
     /// The number of indices exceeds the global maximum.
     ///
     /// (max_indices, indices_given)
@@ -338,57 +303,4 @@ pub enum ExitInvalid {
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum TransferInvalid {
-    /// The validator indicated by `transfer.from` is unknown.
-    FromValidatorUnknown(u64),
-    /// The validator indicated by `transfer.to` is unknown.
-    ToValidatorUnknown(u64),
-    /// The balance of `transfer.from` is insufficient.
-    ///
-    /// (required, available)
-    FromBalanceInsufficient(u64, u64),
-    /// Adding `transfer.fee` to `transfer.amount` causes an overflow.
-    ///
-    /// (transfer_fee, transfer_amount)
-    FeeOverflow(u64, u64),
-    /// This transfer would result in the `transfer.from` account to have `0 < balance <
-    /// min_deposit_amount`
-    ///
-    /// (resulting_amount, min_deposit_amount)
-    SenderDust(u64, u64),
-    /// This transfer would result in the `transfer.to` account to have `0 < balance <
-    /// min_deposit_amount`
-    ///
-    /// (resulting_amount, min_deposit_amount)
-    RecipientDust(u64, u64),
-    /// The state slot does not match `transfer.slot`.
-    ///
-    /// (state_slot, transfer_slot)
-    StateSlotMismatch(Slot, Slot),
-    /// The `transfer.slot` is in the past relative to the state slot.
-    ///
-    ///
-    /// (state_slot, transfer_slot)
-    TransferSlotInPast(Slot, Slot),
-    /// The `transfer.from` validator has been activated and is not withdrawable.
-    ///
-    /// (from_validator)
-    FromValidatorIneligibleForTransfer(u64),
-    /// The validators withdrawal credentials do not match `transfer.pubkey`.
-    ///
-    /// (state_credentials, transfer_pubkey_credentials)
-    WithdrawalCredentialsMismatch(Hash256, Hash256),
-    /// The deposit was not signed by `deposit.pubkey`.
-    BadSignature,
-    /// Overflow when adding to `transfer.to` balance.
-    ///
-    /// (to_balance, transfer_amount)
-    ToBalanceOverflow(u64, u64),
-    /// Overflow when adding to beacon proposer balance.
-    ///
-    /// (proposer_balance, transfer_fee)
-    ProposerBalanceOverflow(u64, u64),
 }

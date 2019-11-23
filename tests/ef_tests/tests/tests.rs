@@ -16,12 +16,6 @@ fn operations_deposit() {
 }
 
 #[test]
-fn operations_transfer() {
-    OperationsHandler::<MinimalEthSpec, Transfer>::run();
-    // Note: there are no transfer tests for mainnet
-}
-
-#[test]
 fn operations_exit() {
     OperationsHandler::<MinimalEthSpec, VoluntaryExit>::run();
     OperationsHandler::<MainnetEthSpec, VoluntaryExit>::run();
@@ -139,10 +133,6 @@ mod ssz_static {
 
     ssz_static_test!(attestation, Attestation<_>, SR);
     ssz_static_test!(attestation_data, AttestationData);
-    ssz_static_test!(
-        attestation_data_and_custody_bit,
-        AttestationDataAndCustodyBit
-    );
     ssz_static_test!(attester_slashing, AttesterSlashing<_>);
     ssz_static_test!(beacon_block, BeaconBlock<_>, SR);
     ssz_static_test!(beacon_block_body, BeaconBlockBody<_>);
@@ -155,8 +145,6 @@ mod ssz_static {
         }
     );
     ssz_static_test!(checkpoint, Checkpoint);
-    ssz_static_test!(compact_committee, CompactCommittee<_>);
-    ssz_static_test!(crosslink, Crosslink);
     ssz_static_test!(deposit, Deposit);
     ssz_static_test!(deposit_data, DepositData, SR);
     ssz_static_test!(eth1_data, Eth1Data);
@@ -165,7 +153,6 @@ mod ssz_static {
     ssz_static_test!(indexed_attestation, IndexedAttestation<_>, SR);
     ssz_static_test!(pending_attestation, PendingAttestation<_>);
     ssz_static_test!(proposer_slashing, ProposerSlashing);
-    ssz_static_test!(transfer, Transfer, SR);
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit, SR);
 }
@@ -187,9 +174,9 @@ fn epoch_processing_justification_and_finalization() {
 }
 
 #[test]
-fn epoch_processing_crosslinks() {
-    EpochProcessingHandler::<MinimalEthSpec, Crosslinks>::run();
-    EpochProcessingHandler::<MainnetEthSpec, Crosslinks>::run();
+fn epoch_processing_rewards_and_penalties() {
+    EpochProcessingHandler::<MinimalEthSpec, RewardsAndPenalties>::run();
+    // Note: there are no reward and penalty tests for mainnet yet
 }
 
 #[test]
