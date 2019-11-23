@@ -8,6 +8,7 @@ pub mod enums {
     use crate::proposer_slashings::InvalidBlock;
     use rusqlite::Error as SQLError;
     use std::io::{Error as IOError, ErrorKind};
+    use std::string::ToString;
 
     impl From<IOError> for NotSafe {
         fn from(error: IOError) -> NotSafe {
@@ -18,6 +19,12 @@ pub mod enums {
     impl From<SQLError> for NotSafe {
         fn from(error: SQLError) -> NotSafe {
             NotSafe::SQLError(error.to_string())
+        }
+    }
+
+    impl ToString for NotSafe {
+        fn to_string(&self) -> String {
+            format!("{:?}", &self)
         }
     }
 
