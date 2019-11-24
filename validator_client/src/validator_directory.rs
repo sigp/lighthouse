@@ -21,8 +21,6 @@ use types::{
 const VOTING_KEY_PREFIX: &str = "voting";
 const WITHDRAWAL_KEY_PREFIX: &str = "withdrawal";
 const ETH1_DEPOSIT_DATA_FILE: &str = "eth1_deposit_data.rlp";
-const SIGNED_ATTESTATIONS_FILENAME: &str = "signed_attestations.db";
-const SIGNED_BLOCKS_FILENAME: &str = "signed_blocks.db";
 pub const ATTESTER_SLASHING_DB: &str = "attester_slashing_protection.sqlite";
 pub const BLOCK_PRODUCER_SLASHING_DB: &str = "block_producer_slashing_protection.sqlite";
 
@@ -60,8 +58,8 @@ impl ValidatorDirectory {
             ));
         }
 
-        let attestation_slashing_protection = directory.join(SIGNED_ATTESTATIONS_FILENAME);
-        let block_slashing_protection = directory.join(SIGNED_BLOCKS_FILENAME);
+        let attestation_slashing_protection = directory.join(ATTESTER_SLASHING_DB);
+        let block_slashing_protection = directory.join(BLOCK_PRODUCER_SLASHING_DB);
 
         if !(attestation_slashing_protection.exists() && block_slashing_protection.exists()) {
             return Err(format!(
@@ -346,7 +344,7 @@ impl ValidatorDirectoryBuilder {
 
         let _: ValidatorHistory<SignedBlock> = ValidatorHistory::empty(&path.join(&block_path))
             .map_err(|e| format!("Unable to create {:?}: {:?}", block_path, e))?;
-
+        
         self.attestation_slashing_protection = Some(attestation_path);
         self.block_slashing_protection = Some(block_path);
 

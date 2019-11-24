@@ -1,6 +1,6 @@
 use crate::fork_service::ForkService;
 use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
-use parking_lot::RwLock;
+use parking_lot::{RwLock, Mutex};
 use rayon::prelude::*;
 use slashing_protection::{
     signed_attestation::SignedAttestation,
@@ -26,8 +26,8 @@ use types::{
 
 struct VotingValidator {
     voting_keypair: Keypair,
-    attestation_history: Option<Arc<ValidatorHistory<SignedAttestation>>>,
-    block_history: Option<Arc<ValidatorHistory<SignedBlock>>>,
+    attestation_history: Option<Arc<Mutex<ValidatorHistory<SignedAttestation>>>>,
+    block_history: Option<Arc<Mutex<ValidatorHistory<SignedBlock>>>>,
 }
 
 impl TryFrom<ValidatorDirectory> for VotingValidator {
@@ -52,8 +52,8 @@ impl TryFrom<ValidatorDirectory> for VotingValidator {
             voting_keypair: dir
                 .voting_keypair
                 .ok_or_else(|| "Validator without voting keypair cannot vote".to_string())?,
-            attestation_history: attestation_history.map(|v| Arc::new(v)),
-            block_history: block_history.map(|v| Arc::new(v)),
+            attestation_history: attestation_history.map(|v| Arc::new(Mutex::new(v))),
+            block_history: block_history.map(|v| Arc::new(Mutex::new(v))),
         })
     }
 }
@@ -237,6 +237,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let is_slashing_free = validator
             .block_history
             .as_ref()?
+            .try_lock()? // TODO: deal with the try_lock failing? retry?
             .update_if_valid(&block.block_header())
             .is_ok();
 
@@ -277,6 +278,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let is_slashing_free = validator
             .attestation_history
             .as_ref()?
+            .try_lock()? // TODO: deal with the try_lock failing? retry?
             .update_if_valid(&attestation.data)
             .is_ok();
 
