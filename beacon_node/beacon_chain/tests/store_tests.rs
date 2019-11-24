@@ -3,16 +3,13 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::builder::Witness;
-use beacon_chain::eth1_chain::CachingEth1Backend;
-use beacon_chain::events::NullEventHandler;
-use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
-use lmd_ghost::ThreadSafeReducedTree;
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+};
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
-use slot_clock::TestingSlotClock;
 use std::sync::Arc;
-use store::{migrate::BlockingMigrator, DiskStore};
+use store::DiskStore;
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::test_utils::{SeedableRng, XorShiftRng};
@@ -27,27 +24,24 @@ lazy_static! {
 }
 
 type E = MinimalEthSpec;
-type TestHarnessType = Witness<
-    DiskStore,
-    BlockingMigrator<DiskStore>,
-    TestingSlotClock,
-    ThreadSafeReducedTree<DiskStore, E>,
-    CachingEth1Backend<E, DiskStore>,
-    E,
-    NullEventHandler<E>,
->;
-type TestHarness = BeaconChainHarness<TestHarnessType>;
+type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<DiskStore> {
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let log = NullLoggerBuilder.build().expect("logger should build");
-    Arc::new(DiskStore::open(&hot_path, &cold_path, spec, log).unwrap())
+    Arc::new(
+        DiskStore::open(&hot_path, &cold_path, spec, log).expect("disk store should initialize"),
+    )
 }
 
 fn get_harness(store: Arc<DiskStore>, validator_count: usize) -> TestHarness {
-    let harness = BeaconChainHarness::new(MinimalEthSpec, KEYPAIRS[0..validator_count].to_vec());
+    let harness = BeaconChainHarness::with_disk_store(
+        MinimalEthSpec,
+        store,
+        KEYPAIRS[0..validator_count].to_vec(),
+    );
     harness.advance_slot();
     harness
 }
@@ -146,6 +140,30 @@ fn long_skip() {
     check_finalization(&harness, initial_blocks + skip_slots + final_blocks);
     check_split_slot(&harness, store);
     check_chain_dump(&harness, initial_blocks + final_blocks + 1);
+}
+
+/// Go forward to the point where the genesis randao value is no longer part of the vector.
+///
+/// This implicitly checks that:
+/// 1. The chunked vector scheme doesn't attempt to store an incorrect genesis value
+/// 2. We correctly load the genesis value for all required slots
+#[test]
+fn randao_genesis_storage() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), VALIDATOR_COUNT);
+
+    let num_slots = E::slots_per_epoch() * E::epochs_per_historical_vector() as u64;
+
+    harness.extend_chain(
+        num_slots as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    check_finalization(&harness, num_slots);
+    check_split_slot(&harness, store);
+    check_chain_dump(&harness, num_slots + 1);
 }
 
 /// Check that the head state's slot matches `expected_slot`.
