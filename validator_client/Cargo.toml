@@ -15,7 +15,7 @@ tree_hash = "0.1.0"
 clap = "2.33.0"
 lighthouse_bootstrap = { path = "../eth2/utils/lighthouse_bootstrap" }
 eth2_interop_keypairs = { path = "../eth2/utils/eth2_interop_keypairs" }
-slashing_protection = { path = "./slashing_protection" }
+sqlite_slashing_protection = { path = "./sqlite_slashing_protection" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
 types = { path = "../eth2/types" }
 serde = "1.0.102"
