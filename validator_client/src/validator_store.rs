@@ -41,7 +41,7 @@ impl TryFrom<ValidatorDirectory> for VotingValidator {
             .block_slashing_protection
             .and_then(|path| ValidatorHistory::open(&path).ok());
 
-        if attestation_history.is_none() && block_history.is_none() {
+        if attestation_history.is_none() || block_history.is_none() {
             return Err(
                 "Validator cannot vote without attestation or block slashing protection"
                     .to_string(),
