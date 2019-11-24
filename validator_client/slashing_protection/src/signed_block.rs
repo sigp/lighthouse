@@ -113,7 +113,7 @@ impl ValidatorHistory<SignedBlock> {
 #[cfg(test)]
 mod block_tests {
     use super::*;
-    use crate::slashing_protection::SlashingProtection;
+    use crate::validator_history::SlashingProtection;
     use tempfile::NamedTempFile;
     use types::{BeaconBlockHeader, Signature};
 
