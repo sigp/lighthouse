@@ -374,19 +374,6 @@ mod tests {
 
     type E = MinimalEthSpec;
 
-    pub fn compare_dirs(a: &ValidatorDirectory, b: &ValidatorDirectory) {
-        assert_eq!(a.directory, b.directory, "directory not equal");
-        assert_eq!(
-            a.voting_keypair, b.voting_keypair,
-            "voting_keypair not equal"
-        );
-        assert_eq!(
-            a.withdrawal_keypair, b.withdrawal_keypair,
-            "withdrawal_keypair not equal"
-        );
-        assert_eq!(a.deposit_data, b.deposit_data, "deposit_data not equal");
-    }
-
     #[test]
     fn random_keypairs_round_trip() {
         let spec = E::default_spec();
