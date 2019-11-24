@@ -34,3 +34,4 @@ logging = { path = "../eth2/utils/logging" }
 futures = "0.1.29"
 environment = { path = "../lighthouse/environment" }
 genesis = { path = "genesis" }
+eth2_testnet = { path = "../eth2/utils/eth2_testnet" }

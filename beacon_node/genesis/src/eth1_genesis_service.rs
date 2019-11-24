@@ -8,7 +8,7 @@ use futures::{
     Future,
 };
 use parking_lot::Mutex;
-use slog::{debug, error, info, Logger};
+use slog::{debug, error, info, trace, Logger};
 use state_processing::{
     initialize_beacon_state_from_eth1, is_valid_genesis_state,
     per_block_processing::process_deposit, process_activations,
@@ -158,7 +158,7 @@ impl Eth1GenesisService {
                         {
                             Ok(Loop::Break((spec, genesis_state)))
                         } else {
-                            debug!(
+                            trace!(
                                 service_4.core.log,
                                 "No eth1 genesis block found";
                                 "cached_blocks" => service_4.core.block_cache_len(),
@@ -205,15 +205,16 @@ impl Eth1GenesisService {
             .filter(|block| {
                 self.highest_known_block()
                     .map(|n| block.number <= n)
-                    .unwrap_or_else(|| false)
+                    .unwrap_or_else(|| true)
             })
             .find(|block| {
                 let mut highest_processed_block = self.highest_processed_block.lock();
+                let block_number = block.number;
 
                 let next_new_block_number =
                     highest_processed_block.map(|n| n + 1).unwrap_or_else(|| 0);
 
-                if block.number < next_new_block_number {
+                if block_number < next_new_block_number {
                     return false;
                 }
 
@@ -221,6 +222,17 @@ impl Eth1GenesisService {
                     .and_then(|val| {
                         *highest_processed_block = Some(block.number);
                         Ok(val)
+                    })
+                    .map(|is_valid| {
+                        if !is_valid {
+                            info!(
+                                self.core.log,
+                                "Inspected new eth1 block";
+                                "msg" => "did not trigger genesis",
+                                "block_number" => block_number
+                            );
+                        };
+                        is_valid
                     })
                     .unwrap_or_else(|_| {
                         error!(

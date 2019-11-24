@@ -1,6 +1,7 @@
 use clap::ArgMatches;
 use client::{ClientConfig, ClientGenesis, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
+use eth2_testnet::Eth2TestnetDir;
 use genesis::recent_genesis_time;
 use lighthouse_bootstrap::Bootstrapper;
 use rand::{distributions::Alphanumeric, Rng};
@@ -246,6 +247,37 @@ fn process_testnet_subcommand(
             client_config.eth1.deposit_contract_address =
                 "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();
             client_config.eth1.deposit_contract_deploy_block = 1487270;
+            client_config.eth1.follow_distance = 16;
+            client_config.dummy_eth1_backend = false;
+
+            builder.set_genesis(ClientGenesis::DepositContract)
+        }
+        ("eth1", Some(_)) => {
+            let mut spec = &mut builder.eth2_config.spec;
+            let mut client_config = &mut builder.client_config;
+
+            let directory: PathBuf = cli_args
+                .value_of("datadir")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| client_config.data_dir.join("testnet"));
+
+            let eth2_testnet_dir = Eth2TestnetDir::load(directory)
+                .map_err(|e| format!("Unable to open testnet dir: {}", e))?;
+
+            spec.min_deposit_amount = 100;
+            spec.max_effective_balance = 3_200_000_000;
+            spec.ejection_balance = 1_600_000_000;
+            spec.effective_balance_increment = 100_000_000;
+            spec.min_genesis_time = 0;
+            spec.genesis_fork = Fork {
+                previous_version: [0; 4],
+                current_version: [0, 0, 0, 42],
+                epoch: Epoch::new(0),
+            };
+
+            client_config.eth1.deposit_contract_address = eth2_testnet_dir.deposit_contract_address;
+            client_config.eth1.deposit_contract_deploy_block =
+                eth2_testnet_dir.deposit_contract_deploy_block;
             client_config.eth1.follow_distance = 16;
             client_config.dummy_eth1_backend = false;
 

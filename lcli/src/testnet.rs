@@ -86,7 +86,7 @@ pub fn new_testnet<T: EthSpec>(
 
     Eth2TestnetDir::new(
         output_dir,
-        format!("0x{}", deposit_contract.address()),
+        format!("{}", deposit_contract.address()),
         deploy_block.as_u64(),
         min_genesis_time,
     )?;
