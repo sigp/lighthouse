@@ -1,7 +1,7 @@
-use crate::attester_slashings::SignedAttestation;
-use crate::enums::{NotSafe, Safe, ValidityReason};
-use crate::proposer_slashings::SignedBlock;
+use crate::signed_attestation::SignedAttestation;
+use crate::signed_block::SignedBlock;
 use crate::utils::{i64_to_u64, u64_to_i64};
+use crate::{NotSafe, Safe, ValidityReason};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OpenFlags};
 use std::fs::OpenOptions;

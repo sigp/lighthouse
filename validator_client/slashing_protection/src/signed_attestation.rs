@@ -1,6 +1,6 @@
-use crate::enums::{NotSafe, Safe, ValidityReason};
-use crate::slashing_protection::ValidatorHistory;
 use crate::utils::{i64_to_u64, u64_to_i64};
+use crate::validator_history::ValidatorHistory;
+use crate::{NotSafe, Safe, ValidityReason};
 use rusqlite::params;
 use std::convert::From;
 use tree_hash::TreeHash;
