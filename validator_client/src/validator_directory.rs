@@ -406,7 +406,7 @@ mod tests {
             .write_eth1_data_file()
             .expect("should write eth1 data file")
             .create_sqlite_slashing_dbs()
-            .expect("should write create slashing dbs")
+            .expect("should create slashing dbs")
             .build()
             .expect("should build dir");
 
@@ -437,7 +437,7 @@ mod tests {
             .write_eth1_data_file()
             .expect("should write eth1 data file")
             .create_sqlite_slashing_dbs()
-            .expect("should write create slashing dbs")
+            .expect("should create slashing dbs")
             .build()
             .expect("should build dir");
 
