@@ -23,7 +23,7 @@ use types::Hash256;
 pub const DEPOSIT_EVENT_TOPIC: &str =
     "0x649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5";
 /// `keccak("get_deposit_root()")[0..4]`
-pub const DEPOSIT_ROOT_FN_SIGNATURE: &str = "0x863a311b";
+pub const DEPOSIT_ROOT_FN_SIGNATURE: &str = "0xc5f2892f";
 /// `keccak("get_deposit_count()")[0..4]`
 pub const DEPOSIT_COUNT_FN_SIGNATURE: &str = "0x621fd130";
 
