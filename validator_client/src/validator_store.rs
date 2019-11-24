@@ -1,6 +1,6 @@
 use crate::fork_service::ForkService;
 use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
-use parking_lot::{RwLock, Mutex};
+use parking_lot::{Mutex, RwLock};
 use rayon::prelude::*;
 use slashing_protection::{
     signed_attestation::SignedAttestation,

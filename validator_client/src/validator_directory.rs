@@ -344,7 +344,7 @@ impl ValidatorDirectoryBuilder {
 
         let _: ValidatorHistory<SignedBlock> = ValidatorHistory::empty(&path.join(&block_path))
             .map_err(|e| format!("Unable to create {:?}: {:?}", block_path, e))?;
-        
+
         self.attestation_slashing_protection = Some(attestation_path);
         self.block_slashing_protection = Some(block_path);
 
