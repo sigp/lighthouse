@@ -22,12 +22,10 @@ use futures::{
     future::{self, loop_fn, Loop},
     Future, IntoFuture,
 };
-use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
 use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Delay;
 use types::EthSpec;
@@ -39,14 +37,13 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 
-#[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
     context: RuntimeContext<T>,
     duties_service: DutiesService<SystemTimeSlotClock, T>,
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
-    exit_signals: Arc<RwLock<Vec<Signal>>>,
+    exit_signals: Vec<Signal>,
 }
 
 impl<T: EthSpec> ProductionValidatorClient<T> {
@@ -188,39 +185,33 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     fork_service,
                     block_service,
                     attestation_service,
-                    exit_signals: Arc::new(RwLock::new(vec![])),
+                    exit_signals: vec![],
                 })
             })
     }
 
-    pub fn start_service(&self) -> Result<(), String> {
+    pub fn start_service(&mut self) -> Result<(), String> {
         let duties_exit = self
             .duties_service
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start duties service: {}", e))?;
-
-        self.exit_signals.write().push(duties_exit);
 
         let fork_exit = self
             .fork_service
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start fork service: {}", e))?;
 
-        self.exit_signals.write().push(fork_exit);
-
         let block_exit = self
             .block_service
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start block service: {}", e))?;
-
-        self.exit_signals.write().push(block_exit);
 
         let attestation_exit = self
             .attestation_service
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
-        self.exit_signals.write().push(attestation_exit);
+        self.exit_signals = vec![duties_exit, fork_exit, block_exit, attestation_exit];
 
         Ok(())
     }

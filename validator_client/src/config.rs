@@ -72,7 +72,7 @@ impl Config {
     }
 }
 
-/// Parses the `testnet` CLI subcommand, modifying the `config` based upon the parametes in
+/// Parses the `testnet` CLI subcommand, modifying the `config` based upon the parameters in
 /// `cli_args`.
 fn process_testnet_subcommand(cli_args: &ArgMatches, mut config: Config) -> Result<Config, String> {
     config.key_source = match cli_args.subcommand() {

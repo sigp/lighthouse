@@ -106,7 +106,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         context: RuntimeContext<E>,
         mut config: ValidatorConfig,
         keypair_indices: &[usize],
-    ) -> Self {
+    ) -> impl Future<Item = Self, Error = String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempDir::new("lighthouse-beacon-node")
             .expect("should create temp directory for client datadir");
@@ -120,7 +120,10 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     ///
     /// - The validator created is using the same types as the node we use in production.
     /// - It is recommended to use `production_with_insecure_keypairs` for testing.
-    pub fn production(context: RuntimeContext<E>, config: ValidatorConfig) -> Self {
+    pub fn production(
+        context: RuntimeContext<E>,
+        config: ValidatorConfig,
+    ) -> impl Future<Item = Self, Error = String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempDir::new("lighthouse-validator")
             .expect("should create temp directory for client datadir");
@@ -128,17 +131,18 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         Self::new(context, config, datadir)
     }
 
-    fn new(context: RuntimeContext<E>, mut config: ValidatorConfig, datadir: TempDir) -> Self {
+    fn new(
+        context: RuntimeContext<E>,
+        mut config: ValidatorConfig,
+        datadir: TempDir,
+    ) -> impl Future<Item = Self, Error = String> {
         config.data_dir = datadir.path().into();
 
-        let client = ProductionValidatorClient::new(context, config)
-            .wait()
-            .expect("should start validator client");
-
-        client
-            .start_service()
-            .expect("should start validator client");
-
-        Self { client, datadir }
+        ProductionValidatorClient::new(context, config).map(move |mut client| {
+            client
+                .start_service()
+                .expect("should start validator services");
+            Self { client, datadir }
+        })
     }
 }
