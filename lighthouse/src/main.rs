@@ -133,10 +133,12 @@ fn run<E: EthSpec>(
     // Creating a command which can run both might be useful future works.
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
-        let runtime_context = environment.core_context();
+        // Pass the entire `environment` to the account manager so it can run blocking operations.
+        account_manager::run(sub_matches, environment);
 
-        account_manager::run(sub_matches, runtime_context);
-    }
+        // Exit as soon as account manager returns control.
+        return Ok(());
+    };
 
     let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("beacon_node") {
         let runtime_context = environment.core_context();

@@ -2,11 +2,11 @@ mod cli;
 
 use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
-use environment::RuntimeContext;
+use environment::{Environment, RuntimeContext};
 use eth2_testnet::Eth2TestnetDir;
 use futures::{stream::unfold, Future, IntoFuture, Stream};
 use rayon::prelude::*;
-use slog::{crit, error, info};
+use slog::{crit, error, info, Logger};
 use std::fs;
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpec};
@@ -20,9 +20,9 @@ use web3::{
 pub use cli::cli_app;
 
 /// Run the account manager, logging an error if the operation did not succeed.
-pub fn run<T: EthSpec>(matches: &ArgMatches, context: RuntimeContext<T>) {
-    let log = context.log.clone();
-    match run_account_manager(matches, context) {
+pub fn run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) {
+    let log = env.core_context().log.clone();
+    match run_account_manager(matches, env) {
         Ok(()) => (),
         Err(e) => crit!(log, "Account manager failed"; "error" => e),
     }
@@ -31,8 +31,9 @@ pub fn run<T: EthSpec>(matches: &ArgMatches, context: RuntimeContext<T>) {
 /// Run the account manager, returning an error if the operation did not succeed.
 fn run_account_manager<T: EthSpec>(
     matches: &ArgMatches,
-    context: RuntimeContext<T>,
+    mut env: Environment<T>,
 ) -> Result<(), String> {
+    let context = env.core_context();
     let log = context.log.clone();
 
     let datadir = matches
@@ -60,7 +61,7 @@ fn run_account_manager<T: EthSpec>(
 
     match matches.subcommand() {
         ("validator", Some(matches)) => match matches.subcommand() {
-            ("new", Some(matches)) => run_new_validator_subcommand(matches, datadir, context)?,
+            ("new", Some(matches)) => run_new_validator_subcommand(matches, datadir, env)?,
             _ => {
                 return Err("Invalid 'validator new' command. See --help.".to_string());
             }
@@ -85,8 +86,9 @@ enum KeygenMethod {
 fn run_new_validator_subcommand<T: EthSpec>(
     matches: &ArgMatches,
     datadir: PathBuf,
-    context: RuntimeContext<T>,
+    mut env: Environment<T>,
 ) -> Result<(), String> {
+    let context = env.core_context();
     let log = context.log.clone();
 
     let methods: Vec<KeygenMethod> = match matches.subcommand() {
@@ -130,6 +132,12 @@ fn run_new_validator_subcommand<T: EthSpec>(
             .parse::<usize>()
             .map_err(|e| format!("Unable to parse account-index: {}", e))?;
 
+        info!(
+            log,
+            "Submitting validator deposits";
+            "eth1_node_http_endpoint" => eth1_endpoint
+        );
+
         let deposit_contract = if let Some(testnet_dir_str) = matches.value_of("testnet-dir") {
             let testnet_dir = testnet_dir_str
                 .parse::<PathBuf>()
@@ -152,13 +160,23 @@ fn run_new_validator_subcommand<T: EthSpec>(
                 .map_err(|e| format!("Unable to parse deposit-contract: {}", e))?
         };
 
-        context.executor.spawn(deposit_validators(
+        if let Err(()) = env.runtime().block_on(deposit_validators(
             context.clone(),
             eth1_endpoint.to_string(),
             deposit_contract,
             validators.clone(),
             account_index,
-        ));
+        )) {
+            error!(
+                log,
+                "Failed to deposit validators";
+            )
+        } else {
+            info!(
+                log,
+                "Validator deposits complete";
+            );
+        }
     }
 
     info!(
@@ -179,16 +197,24 @@ fn deposit_validators<E: EthSpec>(
     account_index: usize,
 ) -> impl Future<Item = (), Error = ()> {
     let deposit_amount = context.eth2_config.spec.max_effective_balance;
-    let log = context.log.clone();
+    let log_1 = context.log.clone();
+    let log_2 = context.log.clone();
 
     Http::new(&eth1_endpoint)
-        .map_err(|e| format!("Failed to start web3 HTTP transport: {:?}", e))
+        .map_err(move |e| {
+            error!(
+                log_1,
+                "Failed to start web3 HTTP transport";
+                "error" => format!("{:?}", e)
+            )
+        })
         .into_future()
-        .and_then(move |(_event_loop, transport)| {
+        .and_then(move |(event_loop, transport)| {
             let web3 = Web3::new(transport);
 
             unfold(validators.into_iter(), move |mut validators| {
                 let web3 = web3.clone();
+                let log = log_2.clone();
 
                 validators.next().map(move |validator| {
                     deposit_validator(
@@ -197,14 +223,16 @@ fn deposit_validators<E: EthSpec>(
                         &validator,
                         deposit_amount,
                         account_index,
+                        log,
                     )
                     .map(|()| ((), validators))
                 })
             })
             .collect()
+            .map(|_| event_loop)
         })
-        .map_err(move |e| error!(log, "Error whilst depositing validator"; "error" => e))
-        .map(|_| ())
+        // Web3 gives errors if the event loop is dropped whilst performing requests.
+        .map(|event_loop| drop(event_loop))
 }
 
 fn deposit_validator(
@@ -213,8 +241,19 @@ fn deposit_validator(
     validator: &ValidatorDirectory,
     deposit_amount: u64,
     account_index: usize,
-) -> impl Future<Item = (), Error = String> {
+    log: Logger,
+) -> impl Future<Item = (), Error = ()> {
     let web3_1 = web3.clone();
+
+    let log_1 = log.clone();
+    let log_2 = log.clone();
+
+    let validator_voting_pubkey_1 = validator
+        .voting_keypair
+        .clone()
+        .expect("Validators must have a voting public key")
+        .pk;
+    let validator_voting_pubkey_2 = validator_voting_pubkey_1.clone();
 
     let deposit_data = validator
         .deposit_data
@@ -236,7 +275,7 @@ fn deposit_validator(
                 to: Some(deposit_contract),
                 gas: Some(U256::from(DEPOSIT_GAS)),
                 gas_price: None,
-                value: Some(U256::from(deposit_amount)),
+                value: Some(U256::from(from_gwei(deposit_amount))),
                 data: Some(deposit_data.into()),
                 nonce: None,
                 condition: None,
@@ -247,7 +286,26 @@ fn deposit_validator(
                 .send_transaction(tx_request)
                 .map_err(|e| format!("Failed to call deposit fn: {:?}", e))
         })
-        .map(|_| ())
+        .map(move |tx| {
+            info!(
+                log_1,
+                "Validator deposit successful";
+                "eth1_tx_hash" => format!("{:?}", tx),
+                "validator_voting_pubkey" => format!("{:?}", validator_voting_pubkey_1)
+            )
+        })
+        .map_err(move |e| {
+            error!(
+                log_2,
+                "Validator deposit_failed";
+                "error" => e,
+                "validator_voting_pubkey" => format!("{:?}", validator_voting_pubkey_2)
+            )
+        })
+}
+
+fn from_gwei(gwei: u64) -> U256 {
+    U256::from(gwei) * U256::exp10(9)
 }
 
 /// Produces a validator directory for each of the key generation methods provided in `methods`.

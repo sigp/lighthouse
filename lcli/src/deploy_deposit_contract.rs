@@ -8,10 +8,7 @@ use web3::{transports::Http, Web3};
 
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse/testnet";
 
-pub fn new_testnet<T: EthSpec>(
-    mut env: Environment<T>,
-    matches: &ArgMatches,
-) -> Result<(), String> {
+pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let min_genesis_time = matches
         .value_of("min_genesis_time")
         .ok_or_else(|| "min_genesis_time not specified")?
@@ -64,6 +61,8 @@ pub fn new_testnet<T: EthSpec>(
         .map_err(|e| format!("Failed to get block number: {}", e))?;
 
     info!("Present eth1 block number is {}", deploy_block);
+
+    info!("Deploying the bytecode at https://github.com/sigp/unsafe-eth2-deposit-contract",);
 
     info!(
         "Submitting deployment transaction, waiting for {} confirmations",
