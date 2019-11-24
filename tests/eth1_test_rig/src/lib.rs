@@ -7,7 +7,7 @@
 //! some initial issues.
 mod ganache;
 
-use deposit_contract::{eth1_tx_data, ABI, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS};
+use deposit_contract::{eth1_tx_data, testnet, ABI, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS};
 use futures::{stream, Future, IntoFuture, Stream};
 use ganache::GanacheInstance;
 use std::time::{Duration, Instant};
@@ -59,9 +59,25 @@ impl DepositContract {
         web3: Web3<Http>,
         confirmations: usize,
     ) -> impl Future<Item = Self, Error = String> {
+        Self::deploy_bytecode(web3, confirmations, BYTECODE, ABI)
+    }
+
+    pub fn deploy_testnet(
+        web3: Web3<Http>,
+        confirmations: usize,
+    ) -> impl Future<Item = Self, Error = String> {
+        Self::deploy_bytecode(web3, confirmations, testnet::BYTECODE, testnet::ABI)
+    }
+
+    fn deploy_bytecode(
+        web3: Web3<Http>,
+        confirmations: usize,
+        bytecode: &[u8],
+        abi: &[u8],
+    ) -> impl Future<Item = Self, Error = String> {
         let web3_1 = web3.clone();
 
-        deploy_deposit_contract(web3.clone(), confirmations)
+        deploy_deposit_contract(web3.clone(), confirmations, bytecode.to_vec(), abi.to_vec())
             .map_err(|e| {
                 format!(
                     "Failed to deploy contract: {}. Is scripts/ganache_tests_node.sh running?.",
@@ -211,8 +227,10 @@ fn from_gwei(gwei: u64) -> U256 {
 fn deploy_deposit_contract<T: Transport>(
     web3: Web3<T>,
     confirmations: usize,
+    bytecode: Vec<u8>,
+    abi: Vec<u8>,
 ) -> impl Future<Item = Address, Error = String> {
-    let bytecode = String::from_utf8_lossy(&BYTECODE);
+    let bytecode = String::from_utf8(bytecode).expect("bytecode must be valid utf8");
 
     web3.eth()
         .accounts()
@@ -224,7 +242,7 @@ fn deploy_deposit_contract<T: Transport>(
                 .ok_or_else(|| "Insufficient accounts for deployer".to_string())
         })
         .and_then(move |deploy_address| {
-            Contract::deploy(web3.eth(), &ABI)
+            Contract::deploy(web3.eth(), &abi)
                 .map_err(|e| format!("Unable to build contract deployer: {:?}", e))?
                 .confirmations(confirmations)
                 .options(Options {

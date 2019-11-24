@@ -25,7 +25,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                     Arg::with_name("last")
                                         .index(2)
                                         .value_name("INDEX")
-                                        .help("Index of the first validator")
+                                        .help("Index of the last validator")
                                         .takes_value(true)
                                         .required(true),
                                 ),

@@ -306,6 +306,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .help("A file from which to read the state"))
             )
             /*
+             * `sigp`
+             *
+             * Connect to a Sigma Prime testnet.
+             */
+            .subcommand(SubCommand::with_name("sigp")
+                .about("Connect to a Sigma Prime testnet on Goerli.")
+                .arg(Arg::with_name("file")
+                    .value_name("JSON_FILE")
+                    .required(true)
+                    .help("A sigma_prime_testnet.json file"))
+            )
+            /*
              * `prysm`
              *
              * Connect to the Prysmatic Labs testnet.

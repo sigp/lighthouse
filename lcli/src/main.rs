@@ -4,6 +4,7 @@ extern crate log;
 mod deposit_contract;
 mod parse_hex;
 mod pycli;
+mod testnet;
 mod transition_blocks;
 
 use clap::{App, Arg, SubCommand};
@@ -24,8 +25,6 @@ fn main() {
     simple_logger::init_with_level(Level::Info).expect("logger should initialize");
 
     let matches = App::new("Lighthouse CLI Tool")
-        .version("0.1.0")
-        .author("Paul Hauner <paul@sigmaprime.io>")
         .about(
             "Performs various testing-related tasks, modelled after zcli. \
              by @protolambda.",
@@ -33,8 +32,6 @@ fn main() {
         .subcommand(
             SubCommand::with_name("genesis_yaml")
                 .about("Generates a genesis YAML file")
-                .version("0.1.0")
-                .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
                     Arg::with_name("num_validators")
                         .short("n")
@@ -73,8 +70,6 @@ fn main() {
         .subcommand(
             SubCommand::with_name("transition-blocks")
                 .about("Performs a state transition given a pre-state and block")
-                .version("0.1.0")
-                .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
                     Arg::with_name("pre-state")
                         .value_name("BEACON_STATE")
@@ -101,8 +96,6 @@ fn main() {
         .subcommand(
             SubCommand::with_name("pretty-hex")
                 .about("Parses SSZ encoded as ASCII 0x-prefixed hex")
-                .version("0.1.0")
-                .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
                     Arg::with_name("type")
                         .value_name("TYPE")
@@ -124,8 +117,6 @@ fn main() {
                 .about(
                     "Uses an eth1 test rpc (e.g., ganache-cli) to simulate the deposit contract.",
                 )
-                .version("0.1.0")
-                .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
                     Arg::with_name("count")
                         .short("c")
@@ -159,10 +150,45 @@ fn main() {
                 )
         )
         .subcommand(
+            SubCommand::with_name("testnet")
+                .about(
+                    "Deploy an eth1 deposit contract and create files with testnet details.",
+                )
+                .arg(
+                    Arg::with_name("output")
+                        .short("o")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .default_value("~/.lighthouse/testnet")
+                        .help("The output directory."),
+                )
+                .arg(
+                    Arg::with_name("min_genesis_time")
+                        .short("t")
+                        .value_name("UNIX_EPOCH_SECONDS")
+                        .takes_value(true)
+                        .default_value("0")
+                        .help("The MIN_GENESIS_TIME constant."),
+                )
+                .arg(
+                    Arg::with_name("endpoint")
+                        .short("e")
+                        .value_name("HTTP_SERVER")
+                        .takes_value(true)
+                        .default_value("http://localhost:8545")
+                        .help("The URL to the eth1 JSON-RPC http API."),
+                )
+                .arg(
+                    Arg::with_name("confirmations")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("3")
+                        .help("The number of block confirmations before declaring the contract deployed."),
+                )
+        )
+        .subcommand(
             SubCommand::with_name("pycli")
                 .about("TODO")
-                .version("0.1.0")
-                .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
                     Arg::with_name("pycli-path")
                         .long("pycli-path")
@@ -231,6 +257,8 @@ fn main() {
             .unwrap_or_else(|e| error!("Failed to run pycli: {}", e)),
         ("deposit-contract", Some(matches)) => run_deposit_contract::<LocalEthSpec>(env, matches)
             .unwrap_or_else(|e| error!("Failed to run deposit contract sim: {}", e)),
+        ("testnet", Some(matches)) => testnet::new_testnet::<LocalEthSpec>(env, matches)
+            .unwrap_or_else(|e| error!("Failed to run testnet commmand: {}", e)),
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
 }
