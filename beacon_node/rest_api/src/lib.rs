@@ -7,7 +7,7 @@ extern crate network as client_network;
 mod beacon;
 pub mod config;
 mod error;
-pub mod helpers;
+mod helpers;
 mod metrics;
 mod network;
 mod node;
