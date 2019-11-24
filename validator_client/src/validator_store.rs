@@ -3,9 +3,9 @@ use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use slashing_protection::{
-    attester_slashings::SignedAttestation,
-    proposer_slashings::SignedBlock,
-    slashing_protection::{SlashingProtection as SlashingProtectionTrait, ValidatorHistory},
+    signed_attestation::SignedAttestation,
+    signed_block::SignedBlock,
+    validator_history::{SlashingProtection as SlashingProtectionTrait, ValidatorHistory},
 };
 use slog::{error, Logger};
 use slot_clock::SlotClock;

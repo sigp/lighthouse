@@ -2,9 +2,9 @@ use bls::get_withdrawal_credentials;
 use deposit_contract::eth1_tx_data;
 use hex;
 use slashing_protection::{
-    attester_slashings::SignedAttestation,
-    proposer_slashings::SignedBlock,
-    slashing_protection::{SlashingProtection as SlashingProtectionTrait, ValidatorHistory},
+    signed_attestation::SignedAttestation,
+    signed_block::SignedBlock,
+    validator_history::{SlashingProtection as SlashingProtectionTrait, ValidatorHistory},
 };
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
