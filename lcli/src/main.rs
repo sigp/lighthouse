@@ -159,8 +159,7 @@ fn main() {
                         .short("o")
                         .value_name("PATH")
                         .takes_value(true)
-                        .default_value("~/.lighthouse/testnet")
-                        .help("The output directory."),
+                        .help("The output directory. Defaults to ~/.lighthouse/testnet"),
                 )
                 .arg(
                     Arg::with_name("min_genesis_time")

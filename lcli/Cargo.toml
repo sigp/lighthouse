@@ -23,3 +23,4 @@ futures = "0.1.25"
 environment = { path = "../lighthouse/environment" }
 web3 = "0.8.0"
 eth2_testnet = { path = "../eth2/utils/eth2_testnet" }
+dirs = "2.0"

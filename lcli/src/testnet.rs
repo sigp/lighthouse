@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use types::EthSpec;
 use web3::{transports::Http, Web3};
 
+pub const DEFAULT_DATA_DIR: &str = ".lighthouse/testnet";
+
 pub fn new_testnet<T: EthSpec>(
     mut env: Environment<T>,
     matches: &ArgMatches,
@@ -24,9 +26,16 @@ pub fn new_testnet<T: EthSpec>(
 
     let output_dir = matches
         .value_of("output")
-        .ok_or_else(|| "Output directory not specified")?
-        .parse::<PathBuf>()
-        .map_err(|e| format!("Failed to parse output directory: {}", e))?;
+        .ok_or_else(|| ())
+        .and_then(|output| output.parse::<PathBuf>().map_err(|_| ()))
+        .unwrap_or_else(|_| {
+            dirs::home_dir()
+                .map(|mut home| {
+                    home.push(DEFAULT_DATA_DIR);
+                    home
+                })
+                .expect("should locate home directory")
+        });
 
     let endpoint = matches
         .value_of("endpoint")
@@ -72,6 +81,8 @@ pub fn new_testnet<T: EthSpec>(
         min_genesis_time,
         deploy_block
     );
+
+    info!("Writing config to {:?}", output_dir);
 
     Eth2TestnetDir::new(
         output_dir,
