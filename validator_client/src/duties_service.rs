@@ -81,6 +81,7 @@ impl DutiesStore {
             .collect()
     }
 
+    #[allow(clippy::map_entry)]
     fn insert(&self, epoch: Epoch, duties: ValidatorDuty, slots_per_epoch: u64) -> InsertOutcome {
         let mut store = self.store.write();
 

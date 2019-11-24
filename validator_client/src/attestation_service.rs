@@ -194,7 +194,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .for_each(|duty| {
                 if let Some(committee_index) = duty.attestation_committee_index {
                     let validator_duties =
-                        committee_indices.entry(committee_index).or_insert(vec![]);
+                        committee_indices.entry(committee_index).or_insert_with(|| vec![]);
 
                     validator_duties.push(duty);
                 }

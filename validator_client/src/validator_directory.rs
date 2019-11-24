@@ -472,12 +472,11 @@ mod tests {
             "block slashing db file should exist"
         );
         assert!(
-            created_dir
+            !created_dir
                 .deposit_data
                 .clone()
                 .expect("should have data")
-                .len()
-                > 0,
+                .is_empty(),
             "should have some deposit data"
         );
 
