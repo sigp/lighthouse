@@ -11,3 +11,5 @@ tempfile = "3.1.0"
 types = { path = "../../eth2/types" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
 rusqlite = "0.20.0"
+r2d2 = "0.8"
+r2d2_sqlite = "0.12"

@@ -1,7 +1,7 @@
 use bls::get_withdrawal_credentials;
 use deposit_contract::eth1_tx_data;
 use hex;
-use sqlite_slashing_protection::{
+use slashing_protection::{
     attester_slashings::SignedAttestation,
     proposer_slashings::SignedBlock,
     slashing_protection::{SlashingProtection as SlashingProtectionTrait, ValidatorHistory},
@@ -332,7 +332,7 @@ impl ValidatorDirectoryBuilder {
 
     /// Creates two sqlite slashing protection databases (blocks and attestations) and stores the
     /// paths.
-    pub fn create_sqlite_slashing_dbs(self) -> Result<Self, String> {
+    pub fn create_sqlite_slashing_dbs(mut self) -> Result<Self, String> {
         let path = self
             .directory
             .as_ref()
@@ -341,13 +341,11 @@ impl ValidatorDirectoryBuilder {
         let attestation_path = path.join(ATTESTER_SLASHING_DB);
         let block_path = path.join(BLOCK_PRODUCER_SLASHING_DB);
 
-        let attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(&attestation_path)
-                .map_err(|e| format!("Unable to create {:?}: {:?}", attestation_path, e))?;
+        let _: ValidatorHistory<SignedAttestation> = ValidatorHistory::empty(&attestation_path)
+            .map_err(|e| format!("Unable to create {:?}: {:?}", attestation_path, e))?;
 
-        let block_history: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(&path.join(&block_path))
-                .map_err(|e| format!("Unable to create {:?}: {:?}", block_path, e))?;
+        let _: ValidatorHistory<SignedBlock> = ValidatorHistory::empty(&path.join(&block_path))
+            .map_err(|e| format!("Unable to create {:?}: {:?}", block_path, e))?;
 
         self.attestation_slashing_protection = Some(attestation_path);
         self.block_slashing_protection = Some(block_path);
@@ -358,9 +356,6 @@ impl ValidatorDirectoryBuilder {
     /// Consumes self, returning a `ValidatorDirectory` on success.
     pub fn build(self) -> Result<ValidatorDirectory, String> {
         let directory = self.directory.ok_or_else(|| "build requires a directory")?;
-
-        let attestation_history_file = directory.join(SIGNED_ATTESTATIONS_FILENAME);
-        let block_history_file = directory.join(SIGNED_BLOCKS_FILENAME);
 
         Ok(ValidatorDirectory {
             directory,

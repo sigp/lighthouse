@@ -2,13 +2,13 @@ use crate::fork_service::ForkService;
 use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
 use parking_lot::RwLock;
 use rayon::prelude::*;
-use slog::{error, Logger};
-use slot_clock::SlotClock;
-use sqlite_slashing_protection::{
+use slashing_protection::{
     attester_slashings::SignedAttestation,
     proposer_slashings::SignedBlock,
     slashing_protection::{SlashingProtection as SlashingProtectionTrait, ValidatorHistory},
 };
+use slog::{error, Logger};
+use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fs::read_dir;
@@ -104,6 +104,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                         error!(
                             log,
                             "Unable to load validator from disk";
+                            "error" => e,
                             "path" => format!("{:?}", validator_directory.directory)
                         );
                         None
@@ -155,6 +156,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                         error!(
                             log,
                             "Unable to load insecure validator";
+                            "error" => e,
                             "path" => format!("{:?}", validator_directory.directory)
                         );
                         None
@@ -200,8 +202,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators
             .read()
             .get(validator_pubkey)
-            .and_then(|validator_dir| {
-                let voting_keypair = validator_dir.voting_keypair;
+            .and_then(|validator| {
+                let voting_keypair = &validator.voting_keypair;
                 let message = epoch.tree_hash_root();
                 let domain = self.spec.get_domain(epoch, Domain::Randao, &self.fork()?);
 
@@ -214,30 +216,33 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: &PublicKey,
         mut block: BeaconBlock<E>,
     ) -> Option<BeaconBlock<E>> {
+        let validators = self.validators.read();
+
         // Retrieving the corresponding ValidatorDir
-        let validator_dir = match self.validators.read().get(validator_pubkey) {
-            Some(validator_dir) => validator_dir,
+        let validator = match validators.get(validator_pubkey) {
+            Some(validator) => validator,
             None => return None,
         };
 
-        if validator_dir.block_history.is_none() {
+        if validator.block_history.is_none() {
             error!(
                 self.log,
                 "Validator does not have block slashing protection";
                 "action" => "refused to produce block",
-                "pubkey" => format!("{:?}", &validator_dir.voting_keypair.pk),
+                "pubkey" => format!("{:?}", &validator.voting_keypair.pk),
             )
         }
 
         // Checking for slashing conditions
-        let is_slashing_free = validator_dir
-            .block_history?
+        let is_slashing_free = validator
+            .block_history
+            .as_ref()?
             .update_if_valid(&block.block_header())
             .is_ok();
 
         if is_slashing_free {
             // We can safely sign this block
-            let voting_keypair = validator_dir.voting_keypair;
+            let voting_keypair = &validator.voting_keypair;
             block.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
             Some(block)
         } else {
@@ -251,30 +256,33 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_committee_position: usize,
         attestation: &mut Attestation<E>,
     ) -> Option<()> {
+        let validators = self.validators.read();
+
         // Retrieving the corresponding ValidatorDir
-        let validator_dir = match self.validators.read().get(validator_pubkey) {
-            Some(validator_dir) => validator_dir,
+        let validator = match validators.get(validator_pubkey) {
+            Some(validator) => validator,
             None => return None,
         };
 
-        if validator_dir.attestation_history.is_none() {
+        if validator.attestation_history.is_none() {
             error!(
                 self.log,
                 "Validator does not have attestation slashing protection";
                 "action" => "refused to produce attestation",
-                "pubkey" => format!("{:?}", &validator_dir.voting_keypair.pk),
+                "pubkey" => format!("{:?}", &validator.voting_keypair.pk),
             )
         }
 
         // Checking for slashing conditions
-        let is_slashing_free = validator_dir
-            .attestation_history?
+        let is_slashing_free = validator
+            .attestation_history
+            .as_ref()?
             .update_if_valid(&attestation.data)
             .is_ok();
 
         if is_slashing_free {
             // We can safely sign attestation
-            let voting_keypair = validator_dir.voting_keypair;
+            let voting_keypair = &validator.voting_keypair;
 
             attestation
                 .sign(

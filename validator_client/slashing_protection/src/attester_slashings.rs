@@ -80,10 +80,10 @@ impl ValidatorHistory<SignedAttestation> {
         &self,
         attestation_data: &AttestationData,
     ) -> Result<Safe, NotSafe> {
+        let conn = self.conn_pool.get()?;
+
         // Checking if history is empty
-        let mut empty_select = self
-            .conn
-            .prepare("select 1 from signed_attestations limit 1")?;
+        let mut empty_select = conn.prepare("select 1 from signed_attestations limit 1")?;
         if !empty_select.exists(params![])? {
             return Ok(Safe {
                 reason: ValidityReason::EmptyHistory,
@@ -97,9 +97,8 @@ impl ValidatorHistory<SignedAttestation> {
         let i64_source_epoch = u64_to_i64(source_epoch);
 
         // Checking if the attestation_data signing_root is already present in the db
-        let mut same_hash_select = self
-            .conn
-            .prepare("select signing_root from signed_attestations where target_epoch = ?")?;
+        let mut same_hash_select =
+            conn.prepare("select signing_root from signed_attestations where target_epoch = ?")?;
         let same_hash_select = same_hash_select.query_row(params![i64_target_epoch], |row| {
             let root: Vec<u8> = row.get(0)?;
             let signing_root = Hash256::from_slice(&root[..]);
@@ -111,7 +110,7 @@ impl ValidatorHistory<SignedAttestation> {
                     reason: ValidityReason::SameVote,
                 });
             } else {
-                let mut double_vote_select = self.conn.prepare(
+                let mut double_vote_select = conn.prepare(
                 "select target_epoch, source_epoch from signed_attestations where target_epoch = ?",
             )?;
 
@@ -134,9 +133,7 @@ impl ValidatorHistory<SignedAttestation> {
         }
 
         // Checking for PruningError (where attestation_data's target is smaller than the minimum target epoch in db)
-        let mut min_select = self
-            .conn
-            .prepare("select min(target_epoch) from signed_attestations")?;
+        let mut min_select = conn.prepare("select min(target_epoch) from signed_attestations")?;
         let min_query = min_select.query_row(params![], |row| {
             let int: i64 = row.get(0)?;
             let int = i64_to_u64(int);
@@ -147,7 +144,7 @@ impl ValidatorHistory<SignedAttestation> {
         }
 
         // Checking if attestation_data is not surrounded by any previous votes
-        let mut surrounded_select = self.conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? order by target_epoch desc")?;
+        let mut surrounded_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? order by target_epoch desc")?;
         let surrounded_query = surrounded_select.query_map(params![i64_target_epoch], |row| {
             let target: i64 = row.get(0)?;
             let source: i64 = row.get(1)?;
@@ -167,7 +164,7 @@ impl ValidatorHistory<SignedAttestation> {
         check_surrounded(attestation_data, &surrounded_vec[..])?;
 
         // Checking if attestation_Data is not surrounding any previous votes
-        let mut surrounding_select = self.conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? and target_epoch < ? order by target_epoch desc")?;
+        let mut surrounding_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? and target_epoch < ? order by target_epoch desc")?;
         let surrounding_query =
             surrounding_select.query_map(params![i64_source_epoch, i64_target_epoch], |row| {
                 let target: i64 = row.get(0)?;

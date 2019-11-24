@@ -42,7 +42,7 @@ members = [
     "tests/node_test_rig",
     "lcli",
     "validator_client",
-    "validator_client/sqlite_slashing_protection",
+    "validator_client/slashing_protection",
     "account_manager",
     "lighthouse",
     "lighthouse/environment"

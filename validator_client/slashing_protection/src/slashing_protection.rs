@@ -2,7 +2,8 @@ use crate::attester_slashings::SignedAttestation;
 use crate::enums::{NotSafe, Safe, ValidityReason};
 use crate::proposer_slashings::SignedBlock;
 use crate::utils::{i64_to_u64, u64_to_i64};
-use rusqlite::{params, Connection, Error as SQLErr, OpenFlags};
+use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::{params, OpenFlags};
 use std::fs::OpenOptions;
 use std::marker::PhantomData;
 use std::os::unix::fs::PermissionsExt;
@@ -10,11 +11,13 @@ use std::path::Path;
 use tree_hash::TreeHash;
 use types::{AttestationData, BeaconBlockHeader, Hash256};
 
+type Pool = r2d2::Pool<SqliteConnectionManager>;
+
 /// Struct used for checking if attestations or blockheaders are safe from slashing.
 #[derive(Debug)]
 pub struct ValidatorHistory<T> {
     // The connection to the database.
-    pub conn: Connection,
+    pub conn_pool: Pool,
 
     // Marker for T
     phantom: PhantomData<T>,
@@ -42,7 +45,7 @@ impl CheckAndInsert<SignedAttestation> for ValidatorHistory<SignedAttestation> {
         let source: u64 = incoming_data.source.epoch.into();
         let target = u64_to_i64(target);
         let source = u64_to_i64(source);
-        self.conn.execute(
+        self.conn_pool.get()?.execute(
             "INSERT INTO signed_attestations (target_epoch, source_epoch, signing_root)
         VALUES (?1, ?2, ?3)",
             params![target, source, incoming_data.tree_hash_root()],
@@ -61,7 +64,7 @@ impl CheckAndInsert<SignedBlock> for ValidatorHistory<SignedBlock> {
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
         let slot: u64 = incoming_data.slot.into();
         let slot = u64_to_i64(slot);
-        self.conn.execute(
+        self.conn_pool.get()?.execute(
             "INSERT INTO signed_blocks (slot, signing_root)
                 VALUES (?1, ?2)",
             params![slot, incoming_data.canonical_root().as_bytes()],
@@ -72,11 +75,13 @@ impl CheckAndInsert<SignedBlock> for ValidatorHistory<SignedBlock> {
 
 /// Function to load_data from an sqlite db, and store it as a sorted vector.
 trait LoadData<T> {
-    fn load_data(conn: &Connection) -> Result<Vec<T>, SQLErr>;
+    fn load_data(conn_pool: &Pool) -> Result<Vec<T>, NotSafe>;
 }
 
 impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
-    fn load_data(conn: &Connection) -> Result<Vec<SignedAttestation>, SQLErr> {
+    fn load_data(conn_pool: &Pool) -> Result<Vec<SignedAttestation>, NotSafe> {
+        let conn = conn_pool.get()?;
+
         let mut attestation_history_select = conn
                 .prepare("select target_epoch, source_epoch, signing_root from signed_attestations order by target_epoch asc")?;
         let history = attestation_history_select.query_map(params![], |row| {
@@ -105,7 +110,9 @@ impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
 }
 
 impl LoadData<SignedBlock> for Vec<SignedBlock> {
-    fn load_data(conn: &Connection) -> Result<Vec<SignedBlock>, SQLErr> {
+    fn load_data(conn_pool: &Pool) -> Result<Vec<SignedBlock>, NotSafe> {
+        let conn = conn_pool.get()?;
+
         let mut block_history_select = conn
             .prepare("select slot, signing_root from signed_blocks where slot order by slot asc")?;
         let history = block_history_select.query_map(params![], |row| {
@@ -143,7 +150,7 @@ pub trait SlashingProtection<T> {
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 
     /// Returns a sorted vector containing all the previously signed Ts (i.e. attestations or blocks)
-    fn get_history(&self) -> Result<Vec<T>, SQLErr>;
+    fn get_history(&self) -> Result<Vec<T>, NotSafe>;
 }
 
 impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
@@ -159,7 +166,12 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
         let mut perm = file.metadata()?.permissions();
         perm.set_mode(0o600);
         file.set_permissions(perm)?;
-        let conn = Connection::open(path)?;
+
+        let manager = SqliteConnectionManager::file(path);
+        let conn_pool = Pool::new(manager)
+            .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {}", e)))?;
+
+        let conn = conn_pool.get()?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS signed_blocks (
@@ -176,16 +188,19 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
         )?;
 
         Ok(Self {
-            conn,
+            conn_pool,
             phantom: PhantomData,
         })
     }
 
     fn open(path: &Path) -> Result<Self, NotSafe> {
-        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        let manager =
+            SqliteConnectionManager::file(path).with_flags(OpenFlags::SQLITE_OPEN_READ_WRITE);
+        let conn_pool = Pool::new(manager)
+            .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {}", e)))?;
 
         Ok(Self {
-            conn,
+            conn_pool,
             phantom: PhantomData,
         })
     }
@@ -201,8 +216,8 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
         }
     }
 
-    fn get_history(&self) -> Result<Vec<SignedBlock>, SQLErr> {
-        <Vec<_> as LoadData<SignedBlock>>::load_data(&self.conn)
+    fn get_history(&self) -> Result<Vec<SignedBlock>, NotSafe> {
+        <Vec<_> as LoadData<SignedBlock>>::load_data(&self.conn_pool)
     }
 }
 
@@ -219,7 +234,12 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
         let mut perm = file.metadata()?.permissions();
         perm.set_mode(0o600);
         file.set_permissions(perm)?;
-        let conn = Connection::open(path)?;
+
+        let manager = SqliteConnectionManager::file(path);
+        let conn_pool = Pool::new(manager)
+            .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {}", e)))?;
+
+        let conn = conn_pool.get()?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS signed_attestations (
@@ -243,16 +263,19 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
         )?;
 
         Ok(Self {
-            conn,
+            conn_pool,
             phantom: PhantomData,
         })
     }
 
     fn open(path: &Path) -> Result<Self, NotSafe> {
-        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        let manager =
+            SqliteConnectionManager::file(path).with_flags(OpenFlags::SQLITE_OPEN_READ_WRITE);
+        let conn_pool = Pool::new(manager)
+            .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {}", e)))?;
 
         Ok(Self {
-            conn,
+            conn_pool,
             phantom: PhantomData,
         })
     }
@@ -268,8 +291,8 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
         }
     }
 
-    fn get_history(&self) -> Result<Vec<SignedAttestation>, SQLErr> {
-        <Vec<_> as LoadData<SignedAttestation>>::load_data(&self.conn)
+    fn get_history(&self) -> Result<Vec<SignedAttestation>, NotSafe> {
+        <Vec<_> as LoadData<SignedAttestation>>::load_data(&self.conn_pool)
     }
 }
 

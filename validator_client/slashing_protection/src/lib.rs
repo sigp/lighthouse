@@ -22,6 +22,12 @@ pub mod enums {
         }
     }
 
+    impl From<r2d2::Error> for NotSafe {
+        fn from(error: r2d2::Error) -> Self {
+            NotSafe::SQLPoolError(format!("{:?}", error))
+        }
+    }
+
     impl ToString for NotSafe {
         fn to_string(&self) -> String {
             format!("{:?}", &self)
@@ -35,6 +41,7 @@ pub mod enums {
         PruningError,
         IOError(ErrorKind),
         SQLError(String),
+        SQLPoolError(String),
     }
 
     #[derive(PartialEq, Debug)]

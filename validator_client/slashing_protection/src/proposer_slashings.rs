@@ -40,8 +40,10 @@ impl ValidatorHistory<SignedBlock> {
         &self,
         block_header: &BeaconBlockHeader,
     ) -> Result<Safe, NotSafe> {
+        let conn = self.conn_pool.get()?;
+
         // Checking if history is empty
-        let mut empty_select = self.conn.prepare("select 1 from signed_blocks limit 1")?;
+        let mut empty_select = conn.prepare("select 1 from signed_blocks limit 1")?;
         if !empty_select.exists(params![])? {
             return Ok(Safe {
                 reason: ValidityReason::EmptyHistory,
@@ -49,9 +51,8 @@ impl ValidatorHistory<SignedBlock> {
         }
 
         // Short-circuit: checking if the incoming block has a higher slot than the maximum slot in the db.
-        let mut latest_block_select = self
-            .conn
-            .prepare("select max(slot), signing_root from signed_blocks")?;
+        let mut latest_block_select =
+            conn.prepare("select max(slot), signing_root from signed_blocks")?;
         let latest_block = latest_block_select.query_row(params![], |row| {
             let i64_slot: i64 = row.get(0)?;
             let u64_slot = i64_to_u64(i64_slot);
@@ -66,7 +67,7 @@ impl ValidatorHistory<SignedBlock> {
         }
 
         // Checking for Pruning Error i.e the incoming block slot is smaller than the minimum slot signed in the db.
-        let mut min_select = self.conn.prepare("select min(slot) from signed_blocks")?;
+        let mut min_select = conn.prepare("select min(slot) from signed_blocks")?;
         let oldest_slot = min_select.query_row(params![], |row| {
             let i64_slot: i64 = row.get(0)?;
             let u64_slot = i64_to_u64(i64_slot);
@@ -77,9 +78,8 @@ impl ValidatorHistory<SignedBlock> {
         }
 
         // Checking if there's an existing entry in the db that has a slot equal to the block_header's slot.
-        let mut same_slot_select = self
-            .conn
-            .prepare("select slot, signing_root from signed_blocks where slot = ?")?;
+        let mut same_slot_select =
+            conn.prepare("select slot, signing_root from signed_blocks where slot = ?")?;
         let block_header_slot = u64_to_i64(block_header.slot.into());
         let same_slot_query = same_slot_select.query_row(params![block_header_slot], |row| {
             let i64_slot: i64 = row.get(0)?;
