@@ -275,7 +275,8 @@ fn process_testnet_subcommand(
                 epoch: Epoch::new(0),
             };
 
-            client_config.eth1.deposit_contract_address = eth2_testnet_dir.deposit_contract_address;
+            client_config.eth1.deposit_contract_address =
+                format!("{}", eth2_testnet_dir.deposit_contract_address()?);
             client_config.eth1.deposit_contract_deploy_block =
                 eth2_testnet_dir.deposit_contract_deploy_block;
             client_config.eth1.follow_distance = 16;

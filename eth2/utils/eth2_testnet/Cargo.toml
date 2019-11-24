@@ -12,3 +12,4 @@ tempdir = "0.3"
 [dependencies]
 serde = "1.0"
 serde_json = "^1.0"
+types = { path = "../../types"}

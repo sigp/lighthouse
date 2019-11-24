@@ -9,6 +9,7 @@
 
 use std::fs::{create_dir_all, File};
 use std::path::PathBuf;
+use types::Address;
 
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
@@ -16,7 +17,7 @@ pub const MIN_GENESIS_TIME_FILE: &str = "min_genesis_time.txt";
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Eth2TestnetDir {
-    pub deposit_contract_address: String,
+    deposit_contract_address: String,
     pub deposit_contract_deploy_block: u64,
     pub min_genesis_time: u64,
 }
@@ -90,6 +91,16 @@ impl Eth2TestnetDir {
             deposit_contract_deploy_block,
             min_genesis_time,
         })
+    }
+
+    pub fn deposit_contract_address(&self) -> Result<Address, String> {
+        if self.deposit_contract_address.starts_with("0x") {
+            self.deposit_contract_address[2..]
+                .parse()
+                .map_err(|e| format!("Corrupted address, unable to parse: {:?}", e))
+        } else {
+            Err("Corrupted address, must start with 0x".to_string())
+        }
     }
 }
 

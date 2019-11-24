@@ -1,13 +1,21 @@
 mod cli;
 
 use clap::ArgMatches;
+use deposit_contract::DEPOSIT_GAS;
 use environment::RuntimeContext;
+use eth2_testnet::Eth2TestnetDir;
+use futures::{stream::unfold, Future, IntoFuture, Stream};
 use rayon::prelude::*;
-use slog::{crit, info};
+use slog::{crit, error, info};
 use std::fs;
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpec};
 use validator_client::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
+use web3::{
+    transports::Http,
+    types::{Address, TransactionRequest, U256},
+    Web3,
+};
 
 pub use cli::cli_app;
 
@@ -110,7 +118,48 @@ fn run_new_validator_subcommand<T: EthSpec>(
         }
     };
 
-    let validators = make_validators(datadir.clone(), &methods, context.eth2_config.spec)?;
+    let validators = make_validators(datadir.clone(), &methods, &context.eth2_config.spec)?;
+
+    if matches.is_present("send-deposits") {
+        let eth1_endpoint = matches
+            .value_of("eth1-endpoint")
+            .ok_or_else(|| "No eth1-endpoint".to_string())?;
+        let account_index = matches
+            .value_of("account-index")
+            .ok_or_else(|| "No account-index".to_string())?
+            .parse::<usize>()
+            .map_err(|e| format!("Unable to parse account-index: {}", e))?;
+
+        let deposit_contract = if let Some(testnet_dir_str) = matches.value_of("testnet-dir") {
+            let testnet_dir = testnet_dir_str
+                .parse::<PathBuf>()
+                .map_err(|e| format!("Unable to parse testnet-dir: {}", e))?;
+
+            let eth2_testnet_dir = Eth2TestnetDir::load(testnet_dir)
+                .map_err(|e| format!("Failed to load testnet dir: {}", e))?;
+
+            // Convert from `types::Address` to `web3::types::Address`.
+            Address::from_slice(
+                eth2_testnet_dir
+                    .deposit_contract_address()?
+                    .as_fixed_bytes(),
+            )
+        } else {
+            matches
+                .value_of("deposit-contract")
+                .ok_or_else(|| "No deposit-contract".to_string())?
+                .parse::<Address>()
+                .map_err(|e| format!("Unable to parse deposit-contract: {}", e))?
+        };
+
+        context.executor.spawn(deposit_validators(
+            context.clone(),
+            eth1_endpoint.to_string(),
+            deposit_contract,
+            validators.clone(),
+            account_index,
+        ));
+    }
 
     info!(
         log,
@@ -122,11 +171,90 @@ fn run_new_validator_subcommand<T: EthSpec>(
     Ok(())
 }
 
+fn deposit_validators<E: EthSpec>(
+    context: RuntimeContext<E>,
+    eth1_endpoint: String,
+    deposit_contract: Address,
+    validators: Vec<ValidatorDirectory>,
+    account_index: usize,
+) -> impl Future<Item = (), Error = ()> {
+    let deposit_amount = context.eth2_config.spec.max_effective_balance;
+    let log = context.log.clone();
+
+    Http::new(&eth1_endpoint)
+        .map_err(|e| format!("Failed to start web3 HTTP transport: {:?}", e))
+        .into_future()
+        .and_then(move |(_event_loop, transport)| {
+            let web3 = Web3::new(transport);
+
+            unfold(validators.into_iter(), move |mut validators| {
+                let web3 = web3.clone();
+
+                validators.next().map(move |validator| {
+                    deposit_validator(
+                        web3,
+                        deposit_contract,
+                        &validator,
+                        deposit_amount,
+                        account_index,
+                    )
+                    .map(|()| ((), validators))
+                })
+            })
+            .collect()
+        })
+        .map_err(move |e| error!(log, "Error whilst depositing validator"; "error" => e))
+        .map(|_| ())
+}
+
+fn deposit_validator(
+    web3: Web3<Http>,
+    deposit_contract: Address,
+    validator: &ValidatorDirectory,
+    deposit_amount: u64,
+    account_index: usize,
+) -> impl Future<Item = (), Error = String> {
+    let web3_1 = web3.clone();
+
+    let deposit_data = validator
+        .deposit_data
+        .clone()
+        .expect("Validators must have a deposit data");
+
+    web3.eth()
+        .accounts()
+        .map_err(|e| format!("Failed to get accounts: {:?}", e))
+        .and_then(move |accounts| {
+            accounts
+                .get(account_index)
+                .cloned()
+                .ok_or_else(|| "Insufficient accounts for deposit".to_string())
+        })
+        .and_then(move |from| {
+            let tx_request = TransactionRequest {
+                from,
+                to: Some(deposit_contract),
+                gas: Some(U256::from(DEPOSIT_GAS)),
+                gas_price: None,
+                value: Some(U256::from(deposit_amount)),
+                data: Some(deposit_data.into()),
+                nonce: None,
+                condition: None,
+            };
+
+            web3_1
+                .eth()
+                .send_transaction(tx_request)
+                .map_err(|e| format!("Failed to call deposit fn: {:?}", e))
+        })
+        .map(|_| ())
+}
+
 /// Produces a validator directory for each of the key generation methods provided in `methods`.
 fn make_validators(
     datadir: PathBuf,
     methods: &[KeygenMethod],
-    spec: ChainSpec,
+    spec: &ChainSpec,
 ) -> Result<Vec<ValidatorDirectory>, String> {
     methods
         .par_iter()

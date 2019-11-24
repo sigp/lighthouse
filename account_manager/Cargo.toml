@@ -24,3 +24,5 @@ hex = "0.4"
 validator_client = { path = "../validator_client" }
 rayon = "1.2.0"
 eth2_testnet = { path = "../eth2/utils/eth2_testnet" }
+web3 = "0.8.0"
+futures = "0.1.25"

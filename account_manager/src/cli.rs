@@ -10,6 +10,47 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .subcommand(
                     SubCommand::with_name("new")
                         .about("Create a new Ethereum 2.0 validator.")
+                        .arg(
+                            Arg::with_name("send-deposits")
+                                .long("send-deposits")
+                                .help("If present, submit validator deposits to an eth1 endpoint")
+                        )
+                        .arg(
+                            Arg::with_name("eth1-endpoint")
+                                .short("e")
+                                .value_name("HTTP_SERVER")
+                                .takes_value(true)
+                                .requires("send-deposits")
+                                .default_value("http://localhost:8545")
+                                .help("The URL to the eth1 JSON-RPC http API."),
+                        )
+                        .arg(
+                            Arg::with_name("deposit-contract")
+                                .short("c")
+                                .value_name("ADDRESS")
+                                .takes_value(true)
+                                .requires("send-deposits")
+                                .conflicts_with("testnet-dir")
+                                .help("The deposit contract for submitting deposits."),
+                        )
+                        .arg(
+                            Arg::with_name("account-index")
+                                .short("i")
+                                .value_name("INDEX")
+                                .takes_value(true)
+                                .requires("send-deposits")
+                                .default_value("0")
+                                .help("The eth1 accounts[] index which will send the transaction"),
+                        )
+                        .arg(
+                            Arg::with_name("testnet-dir")
+                                .long("testnet-dir")
+                                .value_name("DIRECTORY")
+                                .takes_value(true)
+                                .requires("send-deposits")
+                                .default_value("0")
+                                .help("The directory from which to read the deposit contract address."),
+                        )
                         .subcommand(
                             SubCommand::with_name("insecure")
                                 .about("Produce insecure, ephemeral validators. DO NOT USE TO STORE VALUE.")
