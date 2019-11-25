@@ -87,7 +87,7 @@ impl Store for HotColdDB {
 
     fn freeze_to_state<E: EthSpec>(
         store: Arc<Self>,
-        frozen_head_root: Hash256,
+        _frozen_head_root: Hash256,
         frozen_head: &BeaconState<E>,
     ) -> Result<(), Error> {
         info!(
@@ -107,10 +107,7 @@ impl Store for HotColdDB {
             })?;
         }
 
-        let state_root_iter = {
-            let iter = StateRootsIterator::new(store.clone(), frozen_head);
-            ReverseStateRootIterator::new((frozen_head_root, frozen_head.slot), iter)
-        };
+        let state_root_iter = StateRootsIterator::new(store.clone(), frozen_head);
 
         let mut to_delete = vec![];
         for (state_root, slot) in

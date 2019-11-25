@@ -1120,7 +1120,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_state = self
             .store
             .get_state(&parent_state_root, Some(parent_block.slot))?
-            .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?;
+            .ok_or_else(|| {
+                Error::DBInconsistent(format!("Missing state {:?}", parent_state_root))
+            })?;
 
         metrics::stop_timer(db_read_timer);
 
@@ -1576,7 +1578,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .store
                 .get_state(&beacon_state_root, Some(beacon_block.slot))?
                 .ok_or_else(|| {
-                    Error::DBInconsistent(format!("Missing state {}", beacon_state_root))
+                    Error::DBInconsistent(format!("Missing state {:?}", beacon_state_root))
                 })?;
 
             let slot = CheckPoint {
