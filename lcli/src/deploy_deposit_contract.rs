@@ -2,6 +2,8 @@ use clap::ArgMatches;
 use environment::Environment;
 use eth1_test_rig::DepositContract;
 use eth2_testnet::Eth2TestnetDir;
+use std::fs::File;
+use std::io::Read;
 use std::path::PathBuf;
 use types::EthSpec;
 use web3::{transports::Http, Web3};
@@ -33,6 +35,29 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 })
                 .expect("should locate home directory")
         });
+
+    let password = if let Some(password_path) = matches.value_of("password") {
+        Some(
+            File::open(password_path)
+                .map_err(|e| format!("Unable to open password file: {:?}", e))
+                .and_then(|mut file| {
+                    let mut password = String::new();
+                    file.read_to_string(&mut password)
+                        .map_err(|e| format!("Unable to read password file to string: {:?}", e))
+                        .map(|_| password)
+                })
+                .map(|password| {
+                    // Trim the linefeed from the end.
+                    if password.ends_with("\n") {
+                        password[0..password.len() - 1].to_string()
+                    } else {
+                        password
+                    }
+                })?,
+        )
+    } else {
+        None
+    };
 
     let endpoint = matches
         .value_of("endpoint")
@@ -71,7 +96,11 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     let deposit_contract = env
         .runtime()
-        .block_on(DepositContract::deploy_testnet(web3, confirmations))
+        .block_on(DepositContract::deploy_testnet(
+            web3,
+            confirmations,
+            password,
+        ))
         .map_err(|e| format!("Failed to deploy contract: {}", e))?;
 
     info!(

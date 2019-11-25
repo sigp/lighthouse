@@ -150,6 +150,13 @@ fn main() {
                         .default_value("3")
                         .help("The number of block confirmations before declaring the contract deployed."),
                 )
+                .arg(
+                    Arg::with_name("password")
+                        .long("password")
+                        .value_name("FILE")
+                        .takes_value(true)
+                        .help("The password file to unlock the eth1 account (see --index)"),
+                )
         )
         .subcommand(
             SubCommand::with_name("pycli")

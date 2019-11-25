@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use slog::{crit, error, info, Logger};
 use std::fs;
 use std::fs::File;
-use std::io::prelude::*;
+use std::io::Read;
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpec};
 use validator_client::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
