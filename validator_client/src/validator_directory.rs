@@ -202,11 +202,11 @@ impl ValidatorDirectoryBuilder {
         let voting_keypair = self
             .voting_keypair
             .clone()
-            .ok_or_else(|| "build requires a voting_keypair")?;
+            .ok_or_else(|| "write_keypair_files requires a voting_keypair")?;
         let withdrawal_keypair = self
             .withdrawal_keypair
             .clone()
-            .ok_or_else(|| "build requires a withdrawal_keypair")?;
+            .ok_or_else(|| "write_keypair_files requires a withdrawal_keypair")?;
 
         self.save_keypair(voting_keypair, VOTING_KEY_PREFIX)?;
         self.save_keypair(withdrawal_keypair, WITHDRAWAL_KEY_PREFIX)?;

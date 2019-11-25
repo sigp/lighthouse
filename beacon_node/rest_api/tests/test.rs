@@ -7,7 +7,7 @@ use node_test_rig::{
 };
 use remote_beacon_node::{PublishStatus, ValidatorDuty};
 use std::sync::Arc;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec,
     MinimalEthSpec, PublicKey, RelativeEpoch, Signature, Slot,
@@ -79,8 +79,6 @@ fn validator_produce_attestation() {
         .expect("should have attestation duties cache")
         .expect("should have attestation duties");
 
-    dbg!(&duties);
-
     let mut attestation = env
         .runtime()
         .block_on(
@@ -150,7 +148,6 @@ fn validator_produce_attestation() {
                 .publish_attestation(attestation.clone()),
         )
         .expect("should publish attestation");
-    dbg!(publish_status.clone());
     assert!(
         publish_status.is_valid(),
         "the signed published attestation should be valid"

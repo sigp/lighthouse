@@ -23,7 +23,7 @@ pub struct HeadResponse {
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
-pub fn get_head<T: BeaconChainTypes + 'static>(
+pub fn get_head<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -64,7 +64,7 @@ pub struct BlockResponse<T: EthSpec> {
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
-pub fn get_block<T: BeaconChainTypes + 'static>(
+pub fn get_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -102,7 +102,7 @@ pub fn get_block<T: BeaconChainTypes + 'static>(
 }
 
 /// HTTP handler to return a `BeaconBlock` root at a given `slot`.
-pub fn get_block_root<T: BeaconChainTypes + 'static>(
+pub fn get_block_root<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -117,7 +117,7 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(
 }
 
 /// HTTP handler to return the `Fork` of the current head.
-pub fn get_fork<T: BeaconChainTypes + 'static>(
+pub fn get_fork<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -128,7 +128,7 @@ pub fn get_fork<T: BeaconChainTypes + 'static>(
 ///
 /// The `Epoch` parameter can be any epoch number. If it is not specified,
 /// the current epoch is assumed.
-pub fn get_validators<T: BeaconChainTypes + 'static>(
+pub fn get_validators<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -168,7 +168,7 @@ pub struct StateResponse<T: EthSpec> {
 ///
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
-pub fn get_state<T: BeaconChainTypes + 'static>(
+pub fn get_state<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -216,7 +216,7 @@ pub fn get_state<T: BeaconChainTypes + 'static>(
 ///
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
-pub fn get_state_root<T: BeaconChainTypes + 'static>(
+pub fn get_state_root<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -229,7 +229,7 @@ pub fn get_state_root<T: BeaconChainTypes + 'static>(
 }
 
 /// HTTP handler to return the highest finalized slot.
-pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
+pub fn get_current_finalized_checkpoint<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -241,7 +241,7 @@ pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
 }
 
 /// HTTP handler to return a `BeaconState` at the genesis block.
-pub fn get_genesis_state<T: BeaconChainTypes + 'static>(
+pub fn get_genesis_state<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -251,7 +251,7 @@ pub fn get_genesis_state<T: BeaconChainTypes + 'static>(
 }
 
 /// Read the genesis time from the current beacon chain state.
-pub fn get_genesis_time<T: BeaconChainTypes + 'static>(
+pub fn get_genesis_time<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
