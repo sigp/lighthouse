@@ -6,6 +6,7 @@ pub mod builder;
 pub mod error;
 
 use beacon_chain::BeaconChain;
+use eth2_libp2p::{Enr, Multiaddr};
 use exit_future::Signal;
 use network::Service as NetworkService;
 use std::net::SocketAddr;
@@ -47,6 +48,16 @@ impl<T: BeaconChainTypes> Client<T> {
     /// Returns the port of the client's libp2p stack, if it was started.
     pub fn libp2p_listen_port(&self) -> Option<u16> {
         self.libp2p_network.as_ref().map(|n| n.listen_port())
+    }
+
+    /// Returns the list of libp2p addresses the client is listening to.
+    pub fn libp2p_listen_addresses(&self) -> Option<Vec<Multiaddr>> {
+        self.libp2p_network.as_ref().map(|n| n.listen_multiaddrs())
+    }
+
+    /// Returns the local libp2p ENR of this node, for network discovery.
+    pub fn enr(&self) -> Option<Enr> {
+        self.libp2p_network.as_ref().map(|n| n.local_enr())
     }
 }
 

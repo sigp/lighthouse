@@ -1,41 +1,49 @@
-# Development Environment Setup
+# Development Environment
 
-## Linux, MacOS & Windows
+Most Lighthouse developers work on Linux or MacOS, however Windows should still
+be suitable.
 
-1. Install Rust and Cargo with [rustup](https://rustup.rs/).
-	- Use the `stable` toolchain (it's the default).
-1. Install build dependencies using your package manager.
-    - `clang`, `protobuf`, `libssl-dev`, `cmake`
-1. Clone the [github.com/sigp/lighthouse](https://github.com/sigp/lighthouse)
-   repository.
-1. Run `$ make` to build Lighthouse.
-1. Run `$ make test` to run the test suite
-	- If you experience any failures, please reach out on
-		[discord](https://discord.gg/cyAszAh).
-	- Developers use `$ make test-full` to ensure you have the full set of
-		test vectors.
+First, follow the [`Installation Guide`](./installation.md) to install
+Lighthouse. This will install Lighthouse to your `PATH`, which is not
+particularly useful for development but still a good way to ensure you have the
+base dependencies.
 
-> - The `beacon_node`, `validator_client` and other binaries are created in
->   `target/release` directory.
-> - First-time compilation may take several minutes.
+The only additional requirement for developers is
+[`ganache-cli`](https://github.com/trufflesuite/ganache-cli). This is used to
+simulate the Eth1 chain during tests. You'll get failures during tests if you
+don't have `ganache-cli` available on your `PATH`.
 
-### Installing to `PATH`
+## Testing
 
-Use `cargo install --path lighthouse` from the root of the repository to
-install the compiled binary to `CARGO_HOME` or `$HOME/.cargo`. If this
-directory is on your `PATH`, you can run `$ lighthouse ..` from anywhere.
+As with most other Rust projects, Lighthouse uses `cargo test` for unit and
+integration tests. For example, to test the `ssz` crate run:
 
- See ["Configuring the `PATH` environment
- variable" (rust-lang.org)](https://www.rust-lang.org/tools/install) for more information.
+```bash
+cd eth2/utils/ssz
+cargo test
+```
 
- > If you _don't_ install `lighthouse` to the path, you'll need to run the
- > binaries directly from the `target` directory or using `cargo run ...`.
+We also wrap some of these commands and expose them via the `Makefile` in the
+project root for the benefit of CI/CD. We list some of these commands below so
+you can run them locally and avoid CI failures:
 
-### Windows
+- `$ make cargo-fmt`: (fast) runs a Rust code linter.
+- `$ make test`: (medium) runs unit tests across the whole project.
+- `$ make test-ef`: (medium) runs the Ethereum Foundation test vectors.
+- `$ make test-full`: (slow) runs the full test suite (including all previous
+  commands). This is approximately everything
+	that is required to pass CI.
 
-Perl may also be required to build Lighthouse. You can install [Strawberry
-Perl](http://strawberryperl.com/), or alternatively if you're using the [Chocolatey](https://chocolatey.org/) package manager for Windows, use the following choco install command: `choco install strawberryperl`.
+_The lighthouse test suite is quite extensive, running the whole suite may take 30+ minutes._
 
-Additionally, the dependency `protoc-grpcio v0.3.1` is reported to have issues
-compiling in Windows. You can specify a known working version by editing
-version in `protos/Cargo.toml`  section to `protoc-grpcio = "<=0.3.0"`.
+### Ethereum 2.0 Spec Tests
+
+The
+[ethereum/eth2.0-spec-tests](https://github.com/ethereum/eth2.0-spec-tests/)
+repository contains a large set of tests that verify Lighthouse behaviour
+against the Ethereum Foundation specifications.
+
+These tests are quite large (100's of MB) so they're only downloaded if you run
+`$ make test-ef` (or anything that run it). You may want to avoid
+downloading these tests if you're on a slow or metered Internet connection. CI
+will require them to pass, though.

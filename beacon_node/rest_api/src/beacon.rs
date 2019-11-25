@@ -3,13 +3,13 @@ use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use hyper::{Body, Request};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ssz_derive::Encode;
 use std::sync::Arc;
 use store::Store;
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot, Validator};
 
-#[derive(Serialize, Encode)]
+#[derive(Serialize, Deserialize, Encode)]
 pub struct HeadResponse {
     pub slot: Slot,
     pub block_root: Hash256,
@@ -23,12 +23,10 @@ pub struct HeadResponse {
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
-pub fn get_head<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
-
+pub fn get_head<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
     let chain_head = beacon_chain.head();
 
     let head = HeadResponse {
@@ -66,12 +64,10 @@ pub struct BlockResponse<T: EthSpec> {
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
-pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".to_string()))?;
-
+pub fn get_block<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
     let query_params = ["root", "slot"];
     let (key, value) = UrlQuery::from_request(&req)?.first_of(&query_params)?;
 
@@ -106,9 +102,10 @@ pub fn get_block<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
 }
 
 /// HTTP handler to return a `BeaconBlock` root at a given `slot`.
-pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-
+pub fn get_block_root<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let target = parse_slot(&slot_string)?;
 
@@ -120,8 +117,10 @@ pub fn get_block_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 }
 
 /// HTTP handler to return the `Fork` of the current head.
-pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+pub fn get_fork<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
     ResponseBuilder::new(&req)?.body(&beacon_chain.head().beacon_state.fork)
 }
 
@@ -129,9 +128,10 @@ pub fn get_fork<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult 
 ///
 /// The `Epoch` parameter can be any epoch number. If it is not specified,
 /// the current epoch is assumed.
-pub fn get_validators<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-
+pub fn get_validators<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
     let epoch = match UrlQuery::from_request(&req) {
         // We have some parameters, so make sure it's the epoch one and parse it
         Ok(query) => query
@@ -168,8 +168,10 @@ pub struct StateResponse<T: EthSpec> {
 ///
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
-pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
+pub fn get_state<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
     let head_state = beacon_chain.head().beacon_state;
 
     let (key, value) = match UrlQuery::from_request(&req) {
@@ -214,9 +216,10 @@ pub fn get_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult
 ///
 /// Will not return a state if the request slot is in the future. Will return states higher than
 /// the current head by skipping slots.
-pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-
+pub fn get_state_root<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let slot = parse_slot(&slot_string)?;
 
@@ -226,10 +229,10 @@ pub fn get_state_root<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiR
 }
 
 /// HTTP handler to return the highest finalized slot.
-pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
+pub fn get_current_finalized_checkpoint<T: BeaconChainTypes>(
     req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
     let head_state = beacon_chain.head().beacon_state;
 
     let checkpoint = head_state.finalized_checkpoint.clone();
@@ -238,10 +241,19 @@ pub fn get_current_finalized_checkpoint<T: BeaconChainTypes + 'static>(
 }
 
 /// HTTP handler to return a `BeaconState` at the genesis block.
-pub fn get_genesis_state<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-
+pub fn get_genesis_state<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
     let (_root, state) = state_at_slot(&beacon_chain, Slot::new(0))?;
 
     ResponseBuilder::new(&req)?.body(&state)
+}
+
+/// Read the genesis time from the current beacon chain state.
+pub fn get_genesis_time<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    ResponseBuilder::new(&req)?.body(&beacon_chain.head().beacon_state.genesis_time)
 }

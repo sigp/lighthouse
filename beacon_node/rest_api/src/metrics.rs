@@ -1,9 +1,10 @@
-use crate::helpers::get_beacon_chain_from_request;
 use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, DBPath};
-use beacon_chain::BeaconChainTypes;
+use crate::{ApiError, ApiResult};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use hyper::{Body, Request};
-use prometheus::{Encoder, TextEncoder};
+use lighthouse_metrics::{Encoder, TextEncoder};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 pub use lighthouse_metrics::*;
 
@@ -27,15 +28,13 @@ lazy_static! {
 /// # Note
 ///
 /// This is a HTTP handler method.
-pub fn get_prometheus<T: BeaconChainTypes + 'static>(req: Request<Body>) -> ApiResult {
+pub fn get_prometheus<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+    db_path: PathBuf,
+) -> ApiResult {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
-
-    let beacon_chain = get_beacon_chain_from_request::<T>(&req)?;
-    let db_path = req
-        .extensions()
-        .get::<DBPath>()
-        .ok_or_else(|| ApiError::ServerError("DBPath extension missing".to_string()))?;
 
     // There are two categories of metrics:
     //

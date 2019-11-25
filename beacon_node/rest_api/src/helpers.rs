@@ -10,13 +10,16 @@ use http::header;
 use hyper::{Body, Request};
 use network::NetworkMessage;
 use parking_lot::RwLock;
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
-use types::{Attestation, BeaconBlock, BeaconState, EthSpec, Hash256, RelativeEpoch, Slot};
+use types::{
+    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
+    Signature, Slot,
+};
 
-/// Parse a slot from a `0x` preixed string.
+/// Parse a slot.
 ///
 /// E.g., `"1234"`
 pub fn parse_slot(string: &str) -> Result<Slot, ApiError> {
@@ -24,6 +27,25 @@ pub fn parse_slot(string: &str) -> Result<Slot, ApiError> {
         .parse::<u64>()
         .map(Slot::from)
         .map_err(|e| ApiError::BadRequest(format!("Unable to parse slot: {:?}", e)))
+}
+
+/// Parse an epoch.
+///
+/// E.g., `"13"`
+pub fn parse_epoch(string: &str) -> Result<Epoch, ApiError> {
+    string
+        .parse::<u64>()
+        .map(Epoch::from)
+        .map_err(|e| ApiError::BadRequest(format!("Unable to parse epoch: {:?}", e)))
+}
+
+/// Parse a CommitteeIndex.
+///
+/// E.g., `"18"`
+pub fn parse_committee_index(string: &str) -> Result<CommitteeIndex, ApiError> {
+    string
+        .parse::<CommitteeIndex>()
+        .map_err(|e| ApiError::BadRequest(format!("Unable to parse committee index: {:?}", e)))
 }
 
 /// Checks the provided request to ensure that the `content-type` header.
@@ -41,6 +63,23 @@ pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> 
     }
 }
 
+/// Parse a signature from a `0x` preixed string.
+pub fn parse_signature(string: &str) -> Result<Signature, ApiError> {
+    const PREFIX: &str = "0x";
+
+    if string.starts_with(PREFIX) {
+        let trimmed = string.trim_start_matches(PREFIX);
+        let bytes = hex::decode(trimmed)
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature hex: {:?}", e)))?;
+        Signature::from_ssz_bytes(&bytes)
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature bytes: {:?}", e)))
+    } else {
+        Err(ApiError::BadRequest(
+            "Signature must have a 0x prefix".to_string(),
+        ))
+    }
+}
+
 /// Parse a root from a `0x` preixed string.
 ///
 /// E.g., `"0x0000000000000000000000000000000000000000000000000000000000000000"`
@@ -54,7 +93,7 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
             .map_err(|e| ApiError::BadRequest(format!("Unable to parse root: {:?}", e)))
     } else {
         Err(ApiError::BadRequest(
-            "Root must have a  '0x' prefix".to_string(),
+            "Root must have a 0x prefix".to_string(),
         ))
     }
 }
@@ -71,7 +110,7 @@ pub fn parse_pubkey(string: &str) -> Result<PublicKey, ApiError> {
         Ok(pubkey)
     } else {
         Err(ApiError::BadRequest(
-            "Public key must have a  '0x' prefix".to_string(),
+            "Public key must have a 0x prefix".to_string(),
         ))
     }
 }
@@ -192,26 +231,6 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
     Err(ApiError::NotImplemented(
         "API endpoint has not yet been implemented, but is planned to be soon.".to_owned(),
     ))
-}
-
-pub fn get_beacon_chain_from_request<T: BeaconChainTypes + 'static>(
-    req: &Request<Body>,
-) -> Result<(Arc<BeaconChain<T>>), ApiError> {
-    // Get beacon state
-    let beacon_chain = req
-        .extensions()
-        .get::<Arc<BeaconChain<T>>>()
-        .ok_or_else(|| ApiError::ServerError("Beacon chain extension missing".into()))?;
-
-    Ok(beacon_chain.clone())
-}
-
-pub fn get_logger_from_request(req: &Request<Body>) -> slog::Logger {
-    let log = req
-        .extensions()
-        .get::<slog::Logger>()
-        .expect("Should always get the logger from the request, since we put it in there.");
-    log.to_owned()
 }
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
