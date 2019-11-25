@@ -162,7 +162,7 @@ fn run<E: EthSpec>(
     {
         let runtime_context = environment.core_context();
 
-        let validator = environment
+        let mut validator = environment
             .runtime()
             .block_on(ProductionValidatorClient::new_from_cli(
                 runtime_context,

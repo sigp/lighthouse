@@ -14,7 +14,6 @@ use std::convert::TryFrom;
 use std::fs::read_dir;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
-use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
@@ -26,22 +25,22 @@ use types::{
 
 struct VotingValidator {
     voting_keypair: Keypair,
-    attestation_history: Option<Arc<Mutex<ValidatorHistory<SignedAttestation>>>>,
-    block_history: Option<Arc<Mutex<ValidatorHistory<SignedBlock>>>>,
+    attestation_slashing_protection: Option<Arc<Mutex<ValidatorHistory<SignedAttestation>>>>,
+    block_slashing_protection: Option<Arc<Mutex<ValidatorHistory<SignedBlock>>>>,
 }
 
 impl TryFrom<ValidatorDirectory> for VotingValidator {
     type Error = String;
 
     fn try_from(dir: ValidatorDirectory) -> Result<Self, Self::Error> {
-        let attestation_history = dir
+        let attestation_slashing_protection = dir
             .attestation_slashing_protection
             .and_then(|path| ValidatorHistory::open(&path).ok());
-        let block_history = dir
+        let block_slashing_protection = dir
             .block_slashing_protection
             .and_then(|path| ValidatorHistory::open(&path).ok());
 
-        if attestation_history.is_none() || block_history.is_none() {
+        if attestation_slashing_protection.is_none() || block_slashing_protection.is_none() {
             return Err(
                 "Validator cannot vote without attestation or block slashing protection"
                     .to_string(),
@@ -52,8 +51,9 @@ impl TryFrom<ValidatorDirectory> for VotingValidator {
             voting_keypair: dir
                 .voting_keypair
                 .ok_or_else(|| "Validator without voting keypair cannot vote".to_string())?,
-            attestation_history: attestation_history.map(|v| Arc::new(Mutex::new(v))),
-            block_history: block_history.map(|v| Arc::new(Mutex::new(v))),
+            attestation_slashing_protection: attestation_slashing_protection
+                .map(|v| Arc::new(Mutex::new(v))),
+            block_slashing_protection: block_slashing_protection.map(|v| Arc::new(Mutex::new(v))),
         })
     }
 }
@@ -102,6 +102,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     Ok(voting_validator) => Some(voting_validator),
                     Err(e) => {
                         error!(
+
                             log,
                             "Unable to load validator from disk";
                             "error" => e,
@@ -124,7 +125,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     pub fn insecure_ephemeral_validators(
-        range: Range<usize>,
+        validator_indices: &[usize],
         spec: ChainSpec,
         fork_service: ForkService<T, E>,
         log: Logger,
@@ -133,8 +134,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .map_err(|e| format!("Unable to create temp dir: {:?}", e))?;
         let data_dir = PathBuf::from(temp_dir.path());
 
-        let validators = range
-            .collect::<Vec<_>>()
+        let validators = validator_indices
             .par_iter()
             .map(|index| {
                 ValidatorDirectoryBuilder::default()
@@ -154,8 +154,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     Ok(voting_validator) => Some(voting_validator),
                     Err(e) => {
                         error!(
+
                             log,
-                            "Unable to load insecure validator";
+                            "Unable to load insecure validator from disk";
                             "error" => e,
                             "path" => format!("{:?}", validator_directory.directory)
                         );
@@ -202,8 +203,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators
             .read()
             .get(validator_pubkey)
-            .and_then(|validator| {
-                let voting_keypair = &validator.voting_keypair;
+            .and_then(|validator_dir| {
+                let voting_keypair = &validator_dir.voting_keypair;
                 let message = epoch.tree_hash_root();
                 let domain = self.spec.get_domain(epoch, Domain::Randao, &self.fork()?);
 
@@ -221,10 +222,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // Retrieving the corresponding ValidatorDir
         let validator = match validators.get(validator_pubkey) {
             Some(validator) => validator,
-            None => return None,
+            None => return None, // SCOTT maybe log that validator was not found?
         };
 
-        if validator.block_history.is_none() {
+        if validator.block_slashing_protection.is_none() {
             error!(
                 self.log,
                 "Validator does not have block slashing protection";
@@ -235,9 +236,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         // Checking for slashing conditions
         let is_slashing_free = validator
-            .block_history
+            .block_slashing_protection
             .as_ref()?
-            .try_lock()? // TODO: deal with the try_lock failing? retry?
+            .try_lock()? // SCOTT TODO: deal with the try_lock failing? retry?
             .update_if_valid(&block.block_header())
             .is_ok();
 
@@ -265,7 +266,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             None => return None,
         };
 
-        if validator.attestation_history.is_none() {
+        if validator.attestation_slashing_protection.is_none() {
             error!(
                 self.log,
                 "Validator does not have attestation slashing protection";
@@ -276,7 +277,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         // Checking for slashing conditions
         let is_slashing_free = validator
-            .attestation_history
+            .attestation_slashing_protection
             .as_ref()?
             .try_lock()? // TODO: deal with the try_lock failing? retry?
             .update_if_valid(&attestation.data)

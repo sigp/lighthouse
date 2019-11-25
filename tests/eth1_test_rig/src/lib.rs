@@ -10,7 +10,6 @@ mod ganache;
 use deposit_contract::{eth1_tx_data, ABI, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS};
 use futures::{stream, Future, IntoFuture, Stream};
 use ganache::GanacheInstance;
-use ssz::Encode;
 use std::time::{Duration, Instant};
 use tokio::{runtime::Runtime, timer::Delay};
 use types::DepositData;

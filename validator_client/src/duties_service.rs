@@ -23,8 +23,10 @@ type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, ValidatorDuty>>;
 
 /// The outcome of inserting some `ValidatorDuty` into the `DutiesStore`.
 enum InsertOutcome {
-    /// The duties were previously unknown and have been stored.
-    New,
+    /// These are the first duties received for this validator.
+    NewValidator,
+    /// The duties for this given epoch were previously unknown and have been stored.
+    NewEpoch,
     /// The duties were identical to some already in the store.
     Identical,
     /// There were duties for this validator and epoch in the store that were different to the ones
@@ -81,7 +83,6 @@ impl DutiesStore {
             .collect()
     }
 
-    #[allow(clippy::map_entry)]
     fn insert(&self, epoch: Epoch, duties: ValidatorDuty, slots_per_epoch: u64) -> InsertOutcome {
         let mut store = self.store.write();
 
@@ -89,16 +90,8 @@ impl DutiesStore {
             return InsertOutcome::Invalid;
         }
 
-        if store.contains_key(&duties.validator_pubkey) {
-            let validator_map = store.get_mut(&duties.validator_pubkey).expect(
-                "Store is exclusively locked and this path is guarded to ensure the key exists.",
-            );
-
-            if validator_map.contains_key(&epoch) {
-                let known_duties = validator_map.get_mut(&epoch).expect(
-                    "Validator map is exclusively mutable and this path is guarded to ensure the key exists.",
-                );
-
+        if let Some(validator_map) = store.get_mut(&duties.validator_pubkey) {
+            if let Some(known_duties) = validator_map.get_mut(&epoch) {
                 if *known_duties == duties {
                     InsertOutcome::Identical
                 } else {
@@ -108,7 +101,7 @@ impl DutiesStore {
             } else {
                 validator_map.insert(epoch, duties);
 
-                InsertOutcome::New
+                InsertOutcome::NewEpoch
             }
         } else {
             let validator_pubkey = duties.validator_pubkey.clone();
@@ -118,7 +111,7 @@ impl DutiesStore {
 
             store.insert(validator_pubkey, validator_map);
 
-            InsertOutcome::New
+            InsertOutcome::NewValidator
         }
     }
 
@@ -355,14 +348,30 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .map(move |all_duties| (epoch, all_duties))
             .map_err(move |e| format!("Failed to get duties for epoch {}: {:?}", epoch, e))
             .map(move |(epoch, all_duties)| {
-                let mut new = 0;
+                let log = service_2.context.log.clone();
+
+                let mut new_validator = 0;
+                let mut new_epoch = 0;
                 let mut identical = 0;
                 let mut replaced = 0;
                 let mut invalid = 0;
 
                 all_duties.into_iter().for_each(|duties| {
-                    match service_2.store.insert(epoch, duties, E::slots_per_epoch()) {
-                        InsertOutcome::New => new += 1,
+                    match service_2
+                        .store
+                        .insert(epoch, duties.clone(), E::slots_per_epoch())
+                    {
+                        InsertOutcome::NewValidator => {
+                            info!(
+                                log,
+                                "First duty assignment for validator";
+                                "proposal_slot" => format!("{:?}", &duties.block_proposal_slot),
+                                "attestation_slot" => format!("{:?}", &duties.attestation_slot),
+                                "validator" => format!("{:?}", &duties.validator_pubkey)
+                            );
+                            new_validator += 1
+                        }
+                        InsertOutcome::NewEpoch => new_epoch += 1,
                         InsertOutcome::Identical => identical += 1,
                         InsertOutcome::Replaced => replaced += 1,
                         InsertOutcome::Invalid => invalid += 1,
@@ -371,7 +380,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
                 if invalid > 0 {
                     error!(
-                        service_2.context.log,
+                        log,
                         "Received invalid duties from beacon node";
                         "bad_duty_count" => invalid,
                         "info" => "Duties are from wrong epoch."
@@ -379,17 +388,18 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 }
 
                 trace!(
-                    service_2.context.log,
+                    log,
                     "Performed duties update";
-                    "replaced_duties" => replaced,
-                    "identical_duties" => identical,
-                    "new_duties" => new,
+                    "identical" => identical,
+                    "new_epoch" => new_epoch,
+                    "new_validator" => new_validator,
+                    "replaced" => replaced,
                     "epoch" => format!("{}", epoch)
                 );
 
                 if replaced > 0 {
                     warn!(
-                        service_2.context.log,
+                        log,
                         "Duties changed during routine update";
                         "info" => "Chain re-org likely occurred."
                     )

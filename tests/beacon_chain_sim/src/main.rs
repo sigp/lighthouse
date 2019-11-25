@@ -1,5 +1,5 @@
 use node_test_rig::{
-    environment::{EnvironmentBuilder, RuntimeContext},
+    environment::{Environment, EnvironmentBuilder, RuntimeContext},
     testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode, LocalValidatorClient,
     ProductionClient, ValidatorConfig,
 };
@@ -64,10 +64,13 @@ fn simulation(num_nodes: usize, validators_per_node: usize) -> Result<(), String
                 .spec
                 .clone();
 
+            let context = env.service_context(format!("validator_{}", i));
+
             let indices =
                 (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
             new_validator_client(
-                env.service_context(format!("validator_{}", i)),
+                &mut env,
+                context,
                 node,
                 ValidatorConfig::default(),
                 &indices,
@@ -100,7 +103,10 @@ fn new_with_bootnode_via_enr<E: EthSpec>(
     BeaconNode::production(context, config)
 }
 
+// Note: this function will block until the validator can connect to the beaco node. It is
+// recommended to ensure that the beacon node is running first.
 fn new_validator_client<E: EthSpec>(
+    env: &mut Environment<E>,
     context: RuntimeContext<E>,
     beacon_node: &BeaconNode<E>,
     base_config: ValidatorConfig,
@@ -115,5 +121,11 @@ fn new_validator_client<E: EthSpec>(
 
     config.http_server = format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
 
-    LocalValidatorClient::production_with_insecure_keypairs(context, config, keypair_indices)
+    env.runtime()
+        .block_on(LocalValidatorClient::production_with_insecure_keypairs(
+            context,
+            config,
+            keypair_indices,
+        ))
+        .expect("should start validator")
 }

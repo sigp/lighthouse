@@ -1,6 +1,5 @@
 use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
-use std::ops::Range;
 use std::path::PathBuf;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
@@ -11,7 +10,7 @@ pub enum KeySource {
     /// Load the keypairs from disk.
     Disk,
     /// Generate the keypairs (insecure, generates predictable keys).
-    TestingKeypairRange(Range<usize>),
+    InsecureKeypairs(Vec<usize>),
 }
 
 impl Default for KeySource {
@@ -73,7 +72,7 @@ impl Config {
     }
 }
 
-/// Parses the `testnet` CLI subcommand, modifying the `config` based upon the parametes in
+/// Parses the `testnet` CLI subcommand, modifying the `config` based upon the parameters in
 /// `cli_args`.
 fn process_testnet_subcommand(cli_args: &ArgMatches, mut config: Config) -> Result<Config, String> {
     config.key_source = match cli_args.subcommand() {
@@ -93,7 +92,7 @@ fn process_testnet_subcommand(cli_args: &ArgMatches, mut config: Config) -> Resu
                 return Err("Cannot supply a last validator less than the first".to_string());
             }
 
-            KeySource::TestingKeypairRange(first..last)
+            KeySource::InsecureKeypairs((first..last).collect())
         }
         _ => KeySource::Disk,
     };
