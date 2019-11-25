@@ -321,7 +321,7 @@ mod tests {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
-// #[serde(deny_unknown_fields)] is not applied because we're using #default for fields that are not found.
+#[serde(deny_unknown_fields)]
 /// Union of a ChainSpec struct and an EthSpec struct that holds constants used for the configs folder of the Ethereum 2 spec (https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
 /// Spec v0.9.1
 pub struct YamlConfig {
@@ -330,6 +330,7 @@ pub struct YamlConfig {
     base_rewards_per_epoch: u64,
     deposit_contract_tree_depth: u64,
     seconds_per_day: u64,
+    max_committees_per_slot: usize,
     target_committee_size: usize,
     min_per_epoch_churn_limit: u64,
     churn_limit_quotient: u64,
@@ -368,6 +369,11 @@ pub struct YamlConfig {
         deserialize_with = "u32_from_hex_str",
         serialize_with = "u32_to_hex_str"
     )]
+    domain_beacon_attester: u32,
+    #[serde(
+        deserialize_with = "u32_from_hex_str",
+        serialize_with = "u32_to_hex_str"
+    )]
     domain_randao: u32,
     #[serde(
         deserialize_with = "u32_from_hex_str",
@@ -401,31 +407,33 @@ pub struct YamlConfig {
     max_voluntary_exits: u32,
 
     // Unused
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     early_derived_secret_penalty_max_future_epochs: u32,
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     max_seed_lookahead: u32,
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     deposit_contract_address: String,
+    #[serde(skip_serializing)]
+    max_epochs_per_crosslink: u64,
 
     // Phase 1
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     epochs_per_custody_period: u32,
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     custody_period_to_randao_padding: u32,
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     shard_slots_per_beacon_slot: u32,
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     epochs_per_shard_period: u32,
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     phase_1_fork_epoch: u32,
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     phase_1_fork_slot: u32,
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     domain_custody_bit_challenge: u32,
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     domain_shard_proposer: u32,
-    #[serde(skip)]
+    #[serde(skip_serializing)]
     domain_shard_attester: u32,
 }
 
@@ -445,6 +453,7 @@ impl YamlConfig {
             base_rewards_per_epoch: spec.base_rewards_per_epoch,
             deposit_contract_tree_depth: spec.deposit_contract_tree_depth,
             seconds_per_day: spec.seconds_per_day,
+            max_committees_per_slot: spec.max_committees_per_slot,
             target_committee_size: spec.target_committee_size,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
             churn_limit_quotient: spec.churn_limit_quotient,
@@ -471,6 +480,7 @@ impl YamlConfig {
             genesis_fork: spec.genesis_fork.clone(),
             safe_slots_to_update_justified: spec.safe_slots_to_update_justified,
             domain_beacon_proposer: spec.domain_beacon_proposer,
+            domain_beacon_attester: spec.domain_beacon_attester,
             domain_randao: spec.domain_randao,
             domain_deposit: spec.domain_deposit,
             domain_voluntary_exit: spec.domain_voluntary_exit,
@@ -496,6 +506,7 @@ impl YamlConfig {
             early_derived_secret_penalty_max_future_epochs: 0,
             max_seed_lookahead: 0,
             deposit_contract_address: String::new(),
+            max_epochs_per_crosslink: 0,
 
             // Phase 1
             epochs_per_custody_period: 0,
@@ -646,9 +657,10 @@ mod yaml_tests {
     // Stub for testing deserializing
     // #[test]
     // fn minimal() {
-    //     let path = "/path/to/minimal.yaml";
+    //     let path = "/tmp/minimal.yaml";
     //     let file = std::fs::File::open(path).unwrap();
     //     let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
+    //     will fail due to unused fields
     //     assert_eq!(
     //         yamlconfig,
     //         YamlConfig::from_spec::<MinimalEthSpec>(&ChainSpec::minimal())
@@ -657,9 +669,10 @@ mod yaml_tests {
 
     // #[test]
     // fn mainnet() {
-    //     let path = "/path/to/mainnet.yaml";
+    //     let path = "/tmp/mainnet.yaml";
     //     let file = std::fs::File::open(path).unwrap();
     //     let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
+    //     will fail due to unused fields
     //     assert_eq!(
     //         yamlconfig,
     //         YamlConfig::from_spec::<MainnetEthSpec>(&ChainSpec::mainnet())
