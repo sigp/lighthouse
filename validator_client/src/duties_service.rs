@@ -130,15 +130,17 @@ pub struct DutiesServiceBuilder<T, E: EthSpec> {
     slot_clock: Option<T>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
+    slots_per_epoch: u64,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
-    pub fn new() -> Self {
+    pub fn new(slots_per_epoch: u64) -> Self {
         Self {
             validator_store: None,
             slot_clock: None,
             beacon_node: None,
             context: None,
+            slots_per_epoch,
         }
     }
 
@@ -179,6 +181,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
                     .context
                     .ok_or_else(|| "Cannot build DutiesService without runtime_context")?,
             }),
+            slots_per_epoch: self.slots_per_epoch,
         })
     }
 }
@@ -198,12 +201,14 @@ pub struct Inner<T, E: EthSpec> {
 /// epoch.
 pub struct DutiesService<T, E: EthSpec> {
     inner: Arc<Inner<T, E>>,
+    slots_per_epoch: u64,
 }
 
 impl<T, E: EthSpec> Clone for DutiesService<T, E> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            slots_per_epoch: self.slots_per_epoch,
         }
     }
 }
@@ -224,12 +229,12 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     /// It is possible that multiple validators have an identical proposal slot, however that is
     /// likely the result of heavy forking (lol) or inconsistent beacon node connections.
     pub fn block_producers(&self, slot: Slot) -> Vec<PublicKey> {
-        self.store.block_producers(slot, E::slots_per_epoch())
+        self.store.block_producers(slot, self.slots_per_epoch)
     }
 
     /// Returns all `ValidatorDuty` for the given `slot`.
     pub fn attesters(&self, slot: Slot) -> Vec<ValidatorDuty> {
-        self.store.attesters(slot, E::slots_per_epoch())
+        self.store.attesters(slot, self.slots_per_epoch)
     }
 
     /// Start the service that periodically polls the beacon node for validator duties.
@@ -285,6 +290,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let service_3 = self.clone();
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
+        let slots_per_epoch = self.slots_per_epoch;
 
         self.slot_clock
             .now()
@@ -293,9 +299,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             })
             .into_future()
             .map(move |slot| {
-                let epoch = slot.epoch(E::slots_per_epoch());
+                let epoch = slot.epoch(slots_per_epoch);
 
-                if slot % E::slots_per_epoch() == 0 {
+                if slot % slots_per_epoch == 0 {
                     let prune_below = epoch - PRUNE_DEPTH;
 
                     trace!(
@@ -359,7 +365,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 all_duties.into_iter().for_each(|duties| {
                     match service_2
                         .store
-                        .insert(epoch, duties.clone(), E::slots_per_epoch())
+                        .insert(epoch, duties.clone(), self.slots_per_epoch)
                     {
                         InsertOutcome::NewValidator => {
                             info!(

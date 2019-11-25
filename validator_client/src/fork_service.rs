@@ -20,15 +20,17 @@ pub struct ForkServiceBuilder<T, E: EthSpec> {
     slot_clock: Option<T>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
+    slots_per_epoch: u64,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
-    pub fn new() -> Self {
+    pub fn new(slots_per_epoch: u64) -> Self {
         Self {
             fork: None,
             slot_clock: None,
             beacon_node: None,
             context: None,
+            slots_per_epoch,
         }
     }
 
@@ -60,6 +62,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or_else(|| "Cannot build ForkService without runtime_context")?,
+                slots_per_epoch: self.slots_per_epoch,
             }),
         })
     }
@@ -71,6 +74,7 @@ pub struct Inner<T, E: EthSpec> {
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
     slot_clock: T,
+    slots_per_epoch: u64,
 }
 
 /// Attempts to download the `Fork` struct from the beacon node at the start of each epoch.
@@ -106,14 +110,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
 
         let duration_to_next_epoch = self
             .slot_clock
-            .duration_to_next_epoch(E::slots_per_epoch())
+            .duration_to_next_epoch(self.slots_per_epoch)
             .ok_or_else(|| "Unable to determine duration to next epoch".to_string())?;
 
         let interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
             Interval::new(
                 Instant::now() + duration_to_next_epoch + TIME_DELAY_FROM_SLOT,
-                slot_duration * E::slots_per_epoch() as u32,
+                slot_duration * self.slots_per_epoch as u32,
             )
         };
 

@@ -120,7 +120,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot),
                 );
 
-                let fork_service = ForkServiceBuilder::new()
+                let fork_service = ForkServiceBuilder::new(T::slots_per_epoch())
                     .slot_clock(slot_clock.clone())
                     .beacon_node(beacon_node.clone())
                     .runtime_context(context.service_context("fork"))
@@ -156,14 +156,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     "voting_validators" => validator_store.num_voting_validators()
                 );
 
-                let duties_service = DutiesServiceBuilder::new()
+                let duties_service = DutiesServiceBuilder::new(T::slots_per_epoch())
                     .slot_clock(slot_clock.clone())
                     .validator_store(validator_store.clone())
                     .beacon_node(beacon_node.clone())
                     .runtime_context(context.service_context("duties"))
                     .build()?;
 
-                let block_service = BlockServiceBuilder::new()
+                let block_service = BlockServiceBuilder::new(T::slots_per_epoch())
                     .duties_service(duties_service.clone())
                     .slot_clock(slot_clock.clone())
                     .validator_store(validator_store.clone())

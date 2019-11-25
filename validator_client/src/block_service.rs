@@ -21,16 +21,18 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     slot_clock: Option<Arc<T>>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
+    slots_per_epoch: u64,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
-    pub fn new() -> Self {
+    pub fn new(slots_per_epoch: u64) -> Self {
         Self {
             duties_service: None,
             validator_store: None,
             slot_clock: None,
             beacon_node: None,
             context: None,
+            slots_per_epoch,
         }
     }
 
@@ -77,6 +79,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or_else(|| "Cannot build BlockService without runtime_context")?,
+                slots_per_epoch: self.slots_per_epoch,
             }),
         })
     }
@@ -89,6 +92,7 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: Arc<T>,
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
+    slots_per_epoch: u64,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -193,11 +197,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     let service_1 = service.clone();
                     let service_2 = service.clone();
                     let service_3 = service.clone();
+                    let slots_per_epoch = self.inner.slots_per_epoch;
 
                     block_producers.next().map(move |validator_pubkey| {
                         service_1
                             .validator_store
-                            .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
+                            .randao_reveal(&validator_pubkey, slot.epoch(slots_per_epoch))
                             .ok_or_else(|| "Unable to produce randao reveal".to_string())
                             .into_future()
                             .and_then(move |randao_reveal| {
