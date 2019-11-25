@@ -205,20 +205,31 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
 
         let blocks = self.core.blocks().read();
 
-        let eth1_data = eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec)
-            .map(|(new_eth1_data, all_eth1_data)| {
-                collect_valid_votes(state, new_eth1_data, all_eth1_data)
-            })
-            .and_then(find_winning_vote)
-            .unwrap_or_else(|| {
+        let (new_eth1_data, all_eth1_data) =
+            if let Some(sets) = eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec) {
+                sets
+            } else {
                 crit!(
                     self.log,
-                    "Unable to cast valid vote for Eth1Data";
-                    "hint" => "check connection to eth1 node",
-                    "reason" => "no votes",
+                    "Unable to find eth1 data sets";
+                    "outcome" => "casting random eth1 vote"
                 );
-                random_eth1_data()
-            });
+                return Ok(random_eth1_data());
+            };
+
+        let valid_votes = collect_valid_votes(state, new_eth1_data, all_eth1_data);
+
+        let eth1_data = if let Some(eth1_data) = find_winning_vote(valid_votes) {
+            eth1_data
+        } else {
+            crit!(
+                self.log,
+                "Unable to find a winning eth1 vote";
+                "outcome" => "casting random eth1 vote"
+            );
+
+            return Ok(random_eth1_data());
+        };
 
         Ok(eth1_data)
     }

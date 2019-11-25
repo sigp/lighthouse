@@ -220,6 +220,8 @@ impl Service {
     {
         let log_a = self.log.clone();
         let log_b = self.log.clone();
+        let inner_1 = self.inner.clone();
+        let inner_2 = self.inner.clone();
 
         let deposit_future = self
             .update_deposit_cache()
@@ -229,6 +231,7 @@ impl Service {
                     Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => trace!(
                         log_a,
                         "Updated eth1 deposit cache";
+                        "cached_deposits" => inner_1.deposit_cache.read().cache.len(),
                         "logs_imported" => logs_imported,
                     ),
                     Err(e) => error!(
@@ -252,6 +255,7 @@ impl Service {
                     }) => trace!(
                         log_b,
                         "Updated eth1 block cache";
+                        "cached_blocks" => inner_2.block_cache.read().len(),
                         "blocks_imported" => blocks_imported,
                         "head_block" => head_block_number,
                     ),

@@ -154,7 +154,7 @@ pub fn route<T: BeaconChainTypes>(
     // (e.g., a response with a 404 or 500 status).
     request_result.then(move |result| match result {
         Ok(response) => {
-            debug!(local_log, "Request successful: {:?}", path);
+            debug!(local_log, "HTTP API request successful"; "path" => path);
             metrics::inc_counter(&metrics::SUCCESS_COUNT);
             metrics::stop_timer(timer);
 
@@ -163,7 +163,7 @@ pub fn route<T: BeaconChainTypes>(
         Err(e) => {
             let error_response = e.into();
 
-            debug!(local_log, "Request failure: {:?}", path);
+            debug!(local_log, "HTTP API request failure"; "path" => path);
             metrics::stop_timer(timer);
 
             Ok(error_response)
