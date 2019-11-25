@@ -122,7 +122,18 @@ fn run_new_validator_subcommand<T: EthSpec>(
         }
     };
 
-    let validators = make_validators(datadir.clone(), &methods, &context.eth2_config.spec)?;
+    let deposit_value = matches
+        .value_of("deposit-value")
+        .ok_or_else(|| "No deposit-value".to_string())?
+        .parse::<u64>()
+        .map_err(|e| format!("Unable to parse deposit-value: {}", e))?;
+
+    let validators = make_validators(
+        datadir.clone(),
+        &methods,
+        deposit_value,
+        &context.eth2_config.spec,
+    )?;
 
     if matches.is_present("send-deposits") {
         let eth1_endpoint = matches
@@ -191,6 +202,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
             deposit_contract,
             validators.clone(),
             account_index,
+            deposit_value,
             password,
         )) {
             error!(
@@ -215,15 +227,43 @@ fn run_new_validator_subcommand<T: EthSpec>(
     Ok(())
 }
 
+/// Produces a validator directory for each of the key generation methods provided in `methods`.
+fn make_validators(
+    datadir: PathBuf,
+    methods: &[KeygenMethod],
+    deposit_value: u64,
+    spec: &ChainSpec,
+) -> Result<Vec<ValidatorDirectory>, String> {
+    methods
+        .par_iter()
+        .map(|method| {
+            let mut builder = ValidatorDirectoryBuilder::default()
+                .spec(spec.clone())
+                .custom_deposit_amount(deposit_value);
+
+            builder = match method {
+                KeygenMethod::Insecure(index) => builder.insecure_keypairs(*index),
+                KeygenMethod::ThreadRandom => builder.thread_random_keypairs(),
+            };
+
+            builder
+                .create_directory(datadir.clone())?
+                .write_keypair_files()?
+                .write_eth1_data_file()?
+                .build()
+        })
+        .collect()
+}
+
 fn deposit_validators<E: EthSpec>(
     context: RuntimeContext<E>,
     eth1_endpoint: String,
     deposit_contract: Address,
     validators: Vec<ValidatorDirectory>,
     account_index: usize,
+    deposit_value: u64,
     password: Option<String>,
 ) -> impl Future<Item = (), Error = ()> {
-    let deposit_amount = context.eth2_config.spec.max_effective_balance;
     let log_1 = context.log.clone();
     let log_2 = context.log.clone();
 
@@ -249,7 +289,7 @@ fn deposit_validators<E: EthSpec>(
                         web3,
                         deposit_contract,
                         &validator,
-                        deposit_amount,
+                        deposit_value,
                         account_index,
                         password,
                         log,
@@ -359,31 +399,4 @@ fn deposit_validator(
 
 fn from_gwei(gwei: u64) -> U256 {
     U256::from(gwei) * U256::exp10(9)
-}
-
-/// Produces a validator directory for each of the key generation methods provided in `methods`.
-fn make_validators(
-    datadir: PathBuf,
-    methods: &[KeygenMethod],
-    spec: &ChainSpec,
-) -> Result<Vec<ValidatorDirectory>, String> {
-    methods
-        .par_iter()
-        .map(|method| {
-            let mut builder = ValidatorDirectoryBuilder::default()
-                .spec(spec.clone())
-                .full_deposit_amount()?;
-
-            builder = match method {
-                KeygenMethod::Insecure(index) => builder.insecure_keypairs(*index),
-                KeygenMethod::ThreadRandom => builder.thread_random_keypairs(),
-            };
-
-            builder
-                .create_directory(datadir.clone())?
-                .write_keypair_files()?
-                .write_eth1_data_file()?
-                .build()
-        })
-        .collect()
 }

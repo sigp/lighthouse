@@ -11,6 +11,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     SubCommand::with_name("new")
                         .about("Create a new Ethereum 2.0 validator.")
                         .arg(
+                            Arg::with_name("deposit-value")
+                                .short("v")
+                                .long("deposit-value")
+                                .value_name("GWEI")
+                                .takes_value(true)
+                                .default_value("32000000000")
+                                .help("The deposit amount in Gwei (not wei). Default is 32 eth."),
+                        )
+                        .arg(
                             Arg::with_name("send-deposits")
                                 .long("send-deposits")
                                 .help("If present, submit validator deposits to an eth1 endpoint")
