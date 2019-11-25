@@ -1,54 +1,47 @@
 use clap::{App, Arg, SubCommand};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("Account Manager")
-        .visible_aliases(&["am", "accounts", "accounts_manager"])
-        .version("0.0.1")
-        .author("Sigma Prime <contact@sigmaprime.io>")
-        .about("Eth 2.0 Accounts Manager")
-        .arg(
-            Arg::with_name("logfile")
-                .long("logfile")
-                .value_name("logfile")
-                .help("File path where output will be written.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("datadir")
-                .long("datadir")
-                .short("d")
-                .value_name("DIR")
-                .help("Data directory for keys and databases.")
-                .takes_value(true),
-        )
+    App::new("account_manager")
+        .visible_aliases(&["a", "am", "account", "account_manager"])
+        .about("Utilities for generating and managing Ethereum 2.0 accounts.")
         .subcommand(
-            SubCommand::with_name("generate")
-                .about("Generates a new validator private key")
-                .version("0.0.1")
-                .author("Sigma Prime <contact@sigmaprime.io>"),
-        )
-        .subcommand(
-            SubCommand::with_name("generate_deterministic")
-                .about("Generates a deterministic validator private key FOR TESTING")
-                .version("0.0.1")
-                .author("Sigma Prime <contact@sigmaprime.io>")
-                .arg(
-                    Arg::with_name("validator index")
-                        .long("index")
-                        .short("i")
-                        .value_name("index")
-                        .help("The index of the validator, for which the test key is generated")
-                        .takes_value(true)
-                        .required(true),
+            SubCommand::with_name("validator")
+                .about("Generate or manage Etheruem 2.0 validators.")
+                .subcommand(
+                    SubCommand::with_name("new")
+                        .about("Create a new Ethereum 2.0 validator.")
+                        .subcommand(
+                            SubCommand::with_name("insecure")
+                                .about("Produce insecure, ephemeral validators. DO NOT USE TO STORE VALUE.")
+                                .arg(
+                                    Arg::with_name("first")
+                                        .index(1)
+                                        .value_name("INDEX")
+                                        .help("Index of the first validator")
+                                        .takes_value(true)
+                                        .required(true),
+                                )
+                                .arg(
+                                    Arg::with_name("last")
+                                        .index(2)
+                                        .value_name("INDEX")
+                                        .help("Index of the first validator")
+                                        .takes_value(true)
+                                        .required(true),
+                                ),
+                        )
+                        .subcommand(
+                            SubCommand::with_name("random")
+                                .about("Produces public keys using entropy from the Rust 'rand' library.")
+                                .arg(
+                                    Arg::with_name("validator_count")
+                                        .index(1)
+                                        .value_name("INTEGER")
+                                        .help("The number of new validators to generate.")
+                                        .takes_value(true)
+                                        .default_value("1"),
+                                ),
+                        )
                 )
-                .arg(
-                    Arg::with_name("validator count")
-                        .long("validator_count")
-                        .short("n")
-                        .value_name("validator_count")
-                        .help("If supplied along with `index`, generates keys `i..i + n`.")
-                        .takes_value(true)
-                        .default_value("1"),
-                ),
         )
 }

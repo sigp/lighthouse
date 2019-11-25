@@ -39,7 +39,7 @@ pub mod validator;
 
 use ethereum_types::{H160, H256};
 
-pub use crate::attestation::Attestation;
+pub use crate::attestation::{Attestation, Error as AttestationError};
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
