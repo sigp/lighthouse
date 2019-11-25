@@ -121,7 +121,7 @@ impl Default for Config {
             lowest_cached_block_number: 0,
             follow_distance: 128,
             block_cache_truncation: Some(4_096),
-            auto_update_interval_millis: 500,
+            auto_update_interval_millis: 7_000,
             blocks_per_log_query: 1_000,
             max_log_requests_per_update: None,
             max_blocks_per_update: None,

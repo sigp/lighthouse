@@ -34,7 +34,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         log: Logger,
     ) -> Result<Self, String> {
         let validator_iter = read_dir(&base_dir)
-            .map_err(|e| format!("Failed to read base directory: {:?}", e))?
+            .map_err(|e| format!("Failed to read base directory {:?}: {:?}", base_dir, e))?
             .filter_map(|validator_dir| {
                 let path = validator_dir.ok()?.path();
 

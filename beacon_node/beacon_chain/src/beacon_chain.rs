@@ -10,7 +10,7 @@ use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
@@ -355,9 +355,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // We log warnings or simply fail if there are too many skip slots. This is a
             // protection against DoS attacks.
             if slot > head_state.slot + BLOCK_SKIPPING_FAILURE_THRESHOLD {
-                crit!(
+                error!(
                     self.log,
-                    "Refusing to skip more than {} blocks", BLOCK_SKIPPING_LOGGING_THRESHOLD;
+                    "Refusing to skip more than {} blocks", BLOCK_SKIPPING_FAILURE_THRESHOLD;
                     "head_slot" => head_state.slot,
                     "request_slot" => slot
                 );
