@@ -4,6 +4,7 @@ extern crate log;
 mod deploy_deposit_contract;
 mod parse_hex;
 mod pycli;
+mod refund_deposit_contract;
 mod transition_blocks;
 
 use clap::{App, Arg, SubCommand};
@@ -159,6 +160,45 @@ fn main() {
                 )
         )
         .subcommand(
+            SubCommand::with_name("refund-deposit-contract")
+                .about(
+                    "Calls the steal() function on a testnet eth1 contract.",
+                )
+                .arg(
+                    Arg::with_name("testnet-dir")
+                        .short("d")
+                        .long("testnet-dir")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
+                )
+                .arg(
+                    Arg::with_name("endpoint")
+                        .short("e")
+                        .long("endpoint")
+                        .value_name("HTTP_SERVER")
+                        .takes_value(true)
+                        .default_value("http://localhost:8545")
+                        .help("The URL to the eth1 JSON-RPC http API."),
+                )
+                .arg(
+                    Arg::with_name("password")
+                        .long("password")
+                        .value_name("FILE")
+                        .takes_value(true)
+                        .help("The password file to unlock the eth1 account (see --index)"),
+                )
+                .arg(
+                    Arg::with_name("account-index")
+                        .short("i")
+                        .long("account-index")
+                        .value_name("INDEX")
+                        .takes_value(true)
+                        .default_value("0")
+                        .help("The eth1 accounts[] index which will send the transaction"),
+                )
+        )
+        .subcommand(
             SubCommand::with_name("pycli")
                 .about("TODO")
                 .arg(
@@ -229,7 +269,11 @@ fn main() {
             .unwrap_or_else(|e| error!("Failed to run pycli: {}", e)),
         ("deploy-deposit-contract", Some(matches)) => {
             deploy_deposit_contract::run::<LocalEthSpec>(env, matches)
-                .unwrap_or_else(|e| error!("Failed to run deploy-deposit-contract commmand: {}", e))
+                .unwrap_or_else(|e| error!("Failed to run deploy-deposit-contract command: {}", e))
+        }
+        ("refund-deposit-contract", Some(matches)) => {
+            refund_deposit_contract::run::<LocalEthSpec>(env, matches)
+                .unwrap_or_else(|e| error!("Failed to run refund-deposit-contract command: {}", e))
         }
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }

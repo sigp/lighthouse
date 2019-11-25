@@ -36,28 +36,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 .expect("should locate home directory")
         });
 
-    let password = if let Some(password_path) = matches.value_of("password") {
-        Some(
-            File::open(password_path)
-                .map_err(|e| format!("Unable to open password file: {:?}", e))
-                .and_then(|mut file| {
-                    let mut password = String::new();
-                    file.read_to_string(&mut password)
-                        .map_err(|e| format!("Unable to read password file to string: {:?}", e))
-                        .map(|_| password)
-                })
-                .map(|password| {
-                    // Trim the linefeed from the end.
-                    if password.ends_with("\n") {
-                        password[0..password.len() - 1].to_string()
-                    } else {
-                        password
-                    }
-                })?,
-        )
-    } else {
-        None
-    };
+    let password = parse_password(matches)?;
 
     let endpoint = matches
         .value_of("endpoint")
@@ -120,4 +99,29 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     )?;
 
     Ok(())
+}
+
+pub fn parse_password(matches: &ArgMatches) -> Result<Option<String>, String> {
+    if let Some(password_path) = matches.value_of("password") {
+        Ok(Some(
+            File::open(password_path)
+                .map_err(|e| format!("Unable to open password file: {:?}", e))
+                .and_then(|mut file| {
+                    let mut password = String::new();
+                    file.read_to_string(&mut password)
+                        .map_err(|e| format!("Unable to read password file to string: {:?}", e))
+                        .map(|_| password)
+                })
+                .map(|password| {
+                    // Trim the linefeed from the end.
+                    if password.ends_with("\n") {
+                        password[0..password.len() - 1].to_string()
+                    } else {
+                        password
+                    }
+                })?,
+        ))
+    } else {
+        Ok(None)
+    }
 }
