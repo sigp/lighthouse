@@ -3,18 +3,23 @@ use crate::service::NetworkMessage;
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
+use bls::SignatureSet;
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, info, o, trace, warn};
 use ssz::Encode;
+use state_processing::{
+    common::get_indexed_attestation,
+    per_block_processing::signature_sets::indexed_attestation_signature_set, per_slot_processing,
+};
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::{mpsc, oneshot};
 use tree_hash::SignedRoot;
-use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot, BeaconState, RelativeEpoch, Domain};
-use bls::SignatureSet;
-use state_processing::{per_slot_processing, common::get_indexed_attestation, per_block_processing::signature_sets::indexed_attestation_signature_set};
+use types::{
+    Attestation, BeaconBlock, BeaconState, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, Slot,
+};
 
 //TODO: Put a maximum limit on the number of block that can be requested.
 //TODO: Rate limit requests
@@ -433,11 +438,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     pub fn should_forward_block(&mut self, block: BeaconBlock<T::EthSpec>) -> bool {
         // Retrieve the parent block used to generate the signature.
         // This will eventually return false if this operation fails or returns an empty option.
-        let parent_block_opt = if let Ok(Some(parent_block)) = self
-            .chain
-            .store
-            .get::<BeaconBlock<T::EthSpec>>(&block.parent_root) {
-
+        let parent_block_opt = if let Ok(Some(parent_block)) =
+            self.chain
+                .store
+                .get::<BeaconBlock<T::EthSpec>>(&block.parent_root)
+        {
             // Check if the parent block's state root is equal to the current state, if it is, then
             // we can validate the block using the state in our chain head. This saves us from
             // having to make an unecessary database read.
@@ -453,7 +458,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             // should never be the case though.
             match state_res {
                 Ok(Some(state)) => Some((parent_block, state)),
-                _ => None
+                _ => None,
             }
         } else {
             None
@@ -466,7 +471,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             let relative_epoch = if let Ok(relative_epoch) = RelativeEpoch::from_slot(
                 parent_block.slot,
                 block.slot,
-                T::EthSpec::slots_per_epoch()
+                T::EthSpec::slots_per_epoch(),
             ) {
                 relative_epoch
             } else {
@@ -489,7 +494,10 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
 
                 // Compute the committee cache so we can check the proposer.
                 // TODO: Downvote peer
-                if state.build_committee_cache(RelativeEpoch::Current, &self.chain.spec).is_err() {
+                if state
+                    .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
+                    .is_err()
+                {
                     return false;
                 }
 
@@ -499,17 +507,14 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
 
             // Compute the proposer for the block's slot.
             let proposer_result = state
-                .get_beacon_proposer_index(
-                    block.slot,
-                    relative_epoch,
-                    &self.chain.spec
-                ).map( |i| state.validators.get(i));
+                .get_beacon_proposer_index(block.slot, relative_epoch, &self.chain.spec)
+                .map(|i| state.validators.get(i));
 
             // Generate the domain that should have been used to create the signature.
             let domain = self.chain.spec.get_domain(
                 block.slot.epoch(T::EthSpec::slots_per_epoch()),
                 Domain::BeaconProposer,
-                &state.fork
+                &state.fork,
             );
 
             // Verify the signature if we were able to get a proposer, otherwise, we eventually
@@ -519,7 +524,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     &block.signature,
                     &proposer.pubkey,
                     block.signed_root(),
-                    domain
+                    domain,
                 );
 
                 // TODO: Downvote if the signature is invalid.
@@ -577,7 +582,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 &head_state,
                 &indexed_attestation.signature,
                 &indexed_attestation,
-                &self.chain.spec
+                &self.chain.spec,
             ) {
                 // An invalid signature here does not necessarily mean the attestation is invalid.
                 // It could be the case that our state has a different validator registry.
@@ -595,7 +600,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)
         {
             // Retrieve the block's state.
-            if let Ok(Some(state)) = self.chain.store.get::<BeaconState<T::EthSpec>>(&block.state_root) {
+            if let Ok(Some(state)) = self
+                .chain
+                .store
+                .get::<BeaconState<T::EthSpec>>(&block.state_root)
+            {
                 // Convert the attestation to an indexed attestation.
                 if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
                     // Check if the signature is valid against the state we got from the database.
@@ -603,7 +612,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                         &state,
                         &indexed_attestation.signature,
                         &indexed_attestation,
-                        &self.chain.spec
+                        &self.chain.spec,
                     ) {
                         // TODO: Maybe downvote peer if the signature is invalid.
                         return signature.is_valid();
