@@ -279,12 +279,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let is_slashing_free = validator
             .attestation_slashing_protection
             .as_ref()?
-            .try_lock()? // TODO: deal with the try_lock failing? retry?
+            .try_lock()? // SCOTT TODO: deal with the try_lock failing? retry?
             .update_if_valid(&attestation.data)
             .is_ok();
 
         if is_slashing_free {
-            // We can safely sign attestation
+            // We can safely sign this attestation
             let voting_keypair = &validator.voting_keypair;
 
             attestation
