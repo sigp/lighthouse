@@ -168,6 +168,11 @@ impl Service {
         *(self.inner.block_cache.write()) = BlockCache::default();
     }
 
+    /// Returns the timestamp of the earliest block in the cache (if any).
+    pub fn earliest_block_timestamp(&self) -> Option<u64> {
+        self.inner.block_cache.read().earliest_block_timestamp()
+    }
+
     /// Returns the number of currently cached blocks.
     pub fn block_cache_len(&self) -> usize {
         self.blocks().read().len()

@@ -54,6 +54,11 @@ impl BlockCache {
         self.blocks.is_empty()
     }
 
+    /// Returns the timestamp of the earliest block in the cache (if any).
+    pub fn earliest_block_timestamp(&self) -> Option<u64> {
+        self.blocks.first().map(|block| block.timestamp)
+    }
+
     /// Returns the highest block number stored.
     pub fn highest_block_number(&self) -> Option<u64> {
         self.blocks.last().map(|block| block.number)

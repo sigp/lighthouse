@@ -4,7 +4,7 @@ use exit_future::Exit;
 use futures::Future;
 use integer_sqrt::IntegerSquareRoot;
 use rand::prelude::*;
-use slog::{crit, Logger};
+use slog::{crit, trace, Logger};
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::iter::FromIterator;
@@ -33,7 +33,7 @@ pub enum Error {
     /// voting period.
     UnableToGetPreviousStateRoot(BeaconStateError),
     /// The state required to find the previous eth1 block was not found in the store.
-    PreviousStateNotInDB,
+    PreviousStateNotInDB(Hash256),
     /// There was an error accessing an object in the database.
     StoreError(StoreError),
     /// The eth1 head block at the start of the eth1 voting period is unknown.
@@ -212,10 +212,19 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 crit!(
                     self.log,
                     "Unable to find eth1 data sets";
+                    "earliest_cached_block" => self.core.earliest_block_timestamp(),
+                    "genesis_time" => state.genesis_time,
                     "outcome" => "casting random eth1 vote"
                 );
                 return Ok(random_eth1_data());
             };
+
+        trace!(
+            self.log,
+            "Found eth1 data sets";
+            "all_eth1_data" => all_eth1_data.len(),
+            "new_eth1_data" => new_eth1_data.len(),
+        );
 
         let valid_votes = collect_valid_votes(state, new_eth1_data, all_eth1_data);
 
@@ -307,7 +316,7 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
             .get::<BeaconState<T>>(&prev_state_root)
             .map_err(|e| Error::StoreError(e))?
             .map(|state| state.eth1_data.block_hash)
-            .ok_or_else(|| Error::PreviousStateNotInDB)
+            .ok_or_else(|| Error::PreviousStateNotInDB(*prev_state_root))
     }
 }
 
