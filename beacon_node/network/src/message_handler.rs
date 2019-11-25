@@ -27,6 +27,9 @@ pub struct MessageHandler<T: BeaconChainTypes> {
     message_processor: MessageProcessor<T>,
     /// The `MessageHandler` logger.
     log: slog::Logger,
+    /// Randomizes message propagation if set.
+    // TODO: Remove this for mainnet
+    propagation_percentage: Option<u8>,
 }
 
 /// Types of messages the handler can receive.
@@ -50,6 +53,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         network_send: mpsc::UnboundedSender<NetworkMessage>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
+        propagation_percentage: Option<u8>,
     ) -> error::Result<mpsc::UnboundedSender<HandlerMessage>> {
         let message_handler_log = log.new(o!("service"=> "msg_handler"));
         trace!(message_handler_log, "Service starting");
@@ -65,6 +69,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             network_send,
             message_processor,
             log: message_handler_log,
+            propagation_percentage,
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
@@ -289,6 +294,17 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 
     /// Informs the network service that the message should be forwarded to other peers.
     fn propagate_message(&mut self, message_id: String, propagation_source: PeerId) {
+        // TODO: Remove this for mainnet
+        // randomly prevents propagation
+        if let Some(percentage) = self.propagation_percentage {
+            // not exact percentage but close enough
+            let rand = rand::random::<u8>() % 100;
+            if rand > percentage {
+                // don't propagate
+                return;
+            }
+        }
+
         self.network_send
             .try_send(NetworkMessage::Propagate {
                 propagation_source,

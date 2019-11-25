@@ -39,6 +39,7 @@ impl<T: BeaconChainTypes + 'static> Service<T> {
             network_send.clone(),
             executor,
             network_log.clone(),
+            config.propagation_percentage,
         )?;
 
         // launch libp2p service
