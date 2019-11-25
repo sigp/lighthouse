@@ -351,7 +351,9 @@ where
             &context.executor,
             beacon_chain.clone(),
             network_info,
-            client_config.db_path().expect("unable to read datadir"),
+            client_config
+                .create_db_path()
+                .expect("unable to read datadir"),
             eth2_config.clone(),
             context.log,
         )

@@ -81,18 +81,16 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let client_genesis = client_config.genesis.clone();
         let log = context.log.clone();
 
-        client_config
-            .db_path()
-            .ok_or_else(|| "Unable to access database path".to_string())
+        let db_path_res = client_config.create_db_path();
+        let freezer_db_path_res = client_config.create_freezer_db_path();
+
+        db_path_res
             .into_future()
             .and_then(move |db_path| {
-                // FIXME(sproul): configurable
-                let hot_path = db_path.with_extension(".hot");
-                let cold_path = db_path.with_extension(".cold");
                 Ok(ClientBuilder::new(context.eth_spec_instance.clone())
                     .runtime_context(context)
                     .chain_spec(spec)
-                    .disk_store(&hot_path, &cold_path)?
+                    .disk_store(&db_path, &freezer_db_path_res?)?
                     .background_migrator()?)
             })
             .and_then(move |builder| {

@@ -59,8 +59,7 @@ impl Store for HotColdDB {
         state_root: &Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
-        // FIXME(sproul): change back to <
-        if state.slot <= self.get_split_slot() {
+        if state.slot < self.get_split_slot() {
             self.store_archive_state(state_root, state)
         } else {
             self.hot_db.put_state(state_root, state)
@@ -74,8 +73,7 @@ impl Store for HotColdDB {
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
         if let Some(slot) = slot {
-            // FIXME(sproul): change back to <
-            if slot <= self.get_split_slot() {
+            if slot < self.get_split_slot() {
                 self.load_archive_state(state_root)
             } else {
                 self.hot_db.get_state(state_root, None)
@@ -93,7 +91,7 @@ impl Store for HotColdDB {
         frozen_head_root: Hash256,
         frozen_head: &BeaconState<E>,
     ) -> Result<(), Error> {
-        crit!(
+        info!(
             store.log,
             "Freezer migration started";
             "slot" => frozen_head.slot
@@ -176,7 +174,6 @@ impl HotColdDB {
         state_root: &Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
-        // FIXME(sproul) Change to trace
         trace!(
             self.log,
             "Freezing state";
@@ -213,18 +210,6 @@ impl HotColdDB {
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
 
         let state: BeaconState<E> = partial_state.try_into()?;
-
-        // FIXME(sproul): feature = paranoid
-        // #[cfg(paranoid)]
-        let db_state_root = state.canonical_root();
-        if &db_state_root != state_root {
-            crit!(
-                self.log,
-                "State from freezer has incorrect hash";
-                "expected" => format!("{:?}", state_root),
-                "observed" => format!("{:?}", db_state_root)
-            );
-        }
 
         Ok(Some(state))
     }
