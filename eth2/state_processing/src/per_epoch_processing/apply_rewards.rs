@@ -32,7 +32,7 @@ impl std::ops::AddAssign for Delta {
 
 /// Apply attester and proposer rewards.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
@@ -53,11 +53,6 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 
     get_attestation_deltas(&mut deltas, state, &validator_statuses, spec)?;
 
-    // Update statuses with the information from winning roots.
-    validator_statuses.process_winning_roots(state, spec)?;
-
-    get_crosslink_deltas(&mut deltas, state, &validator_statuses, spec)?;
-
     get_proposer_deltas(&mut deltas, state, validator_statuses, spec)?;
 
     // Apply the deltas, over-flowing but not under-flowing (saturating at 0 instead).
@@ -71,7 +66,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 
 /// For each attesting validator, reward the proposer who was first to include their attestation.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 fn get_proposer_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -79,10 +74,10 @@ fn get_proposer_deltas<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
-        if validator.is_previous_epoch_attester {
+        if validator.is_previous_epoch_attester && !validator.is_slashed {
             let inclusion = validator
                 .inclusion_info
-                .expect("It is a logic error for an attester not to have an inclusion distance.");
+                .expect("It is a logic error for an attester not to have an inclusion delay.");
 
             let base_reward = get_base_reward(
                 state,
@@ -104,7 +99,7 @@ fn get_proposer_deltas<T: EthSpec>(
 
 /// Apply rewards for participation in attestations during the previous epoch.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 fn get_attestation_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -137,7 +132,7 @@ fn get_attestation_deltas<T: EthSpec>(
 
 /// Determine the delta for a single validator, sans proposer rewards.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 fn get_attestation_delta<T: EthSpec>(
     validator: &ValidatorStatus,
     total_balances: &TotalBalances,
@@ -171,13 +166,8 @@ fn get_attestation_delta<T: EthSpec>(
         let max_attester_reward = base_reward - proposer_reward;
         let inclusion = validator
             .inclusion_info
-            .expect("It is a logic error for an attester not to have an inclusion distance.");
-        delta.reward(
-            max_attester_reward
-                * (T::SlotsPerEpoch::to_u64() + spec.min_attestation_inclusion_delay
-                    - inclusion.distance)
-                / T::SlotsPerEpoch::to_u64(),
-        );
+            .expect("It is a logic error for an attester not to have an inclusion delay.");
+        delta.reward(max_attester_reward / inclusion.delay);
     } else {
         delta.penalize(base_reward);
     }
@@ -222,43 +212,9 @@ fn get_attestation_delta<T: EthSpec>(
     delta
 }
 
-/// Calculate the deltas based upon the winning roots for attestations during the previous epoch.
-///
-/// Spec v0.8.0
-fn get_crosslink_deltas<T: EthSpec>(
-    deltas: &mut Vec<Delta>,
-    state: &BeaconState<T>,
-    validator_statuses: &ValidatorStatuses,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    for (index, validator) in validator_statuses.statuses.iter().enumerate() {
-        let mut delta = Delta::default();
-
-        let base_reward = get_base_reward(
-            state,
-            index,
-            validator_statuses.total_balances.current_epoch,
-            spec,
-        )?;
-
-        if let Some(ref winning_root) = validator.winning_root_info {
-            delta.reward(
-                base_reward * winning_root.total_attesting_balance
-                    / winning_root.total_committee_balance,
-            );
-        } else {
-            delta.penalize(base_reward);
-        }
-
-        deltas[index] += delta;
-    }
-
-    Ok(())
-}
-
 /// Returns the base reward for some validator.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 fn get_base_reward<T: EthSpec>(
     state: &BeaconState<T>,
     index: usize,

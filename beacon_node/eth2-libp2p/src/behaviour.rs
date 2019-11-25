@@ -69,7 +69,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         );
 
         Ok(Behaviour {
-            eth2_rpc: RPC::new(log),
+            eth2_rpc: RPC::new(log.clone()),
             gossipsub: Gossipsub::new(local_peer_id.clone(), net_conf.gs_config.clone()),
             discovery: Discovery::new(local_key, net_conf, log)?,
             ping: Ping::new(ping_config),
@@ -221,6 +221,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     /* Discovery / Peer management functions */
     pub fn connected_peers(&self) -> usize {
         self.discovery.connected_peers()
+    }
+
+    /// Informs the discovery behaviour if a new IP/Port is set at the application layer
+    pub fn update_local_enr_socket(&mut self, socket: std::net::SocketAddr, is_tcp: bool) {
+        self.discovery.update_local_enr(socket, is_tcp);
     }
 }
 

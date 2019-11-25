@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
-/// Spec v0.8.1
+/// Spec v0.9.1
 #[derive(
     Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
@@ -28,20 +28,9 @@ pub struct Fork {
 }
 
 impl Fork {
-    /// Initialize the `Fork` from the genesis parameters in the `spec`.
-    ///
-    /// Spec v0.8.1
-    pub fn genesis(genesis_epoch: Epoch) -> Self {
-        Self {
-            previous_version: [0; 4],
-            current_version: [0; 4],
-            epoch: genesis_epoch,
-        }
-    }
-
     /// Return the fork version of the given ``epoch``.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.9.1
     pub fn get_fork_version(&self, epoch: Epoch) -> [u8; 4] {
         if epoch < self.epoch {
             return self.previous_version;
@@ -55,24 +44,6 @@ mod tests {
     use super::*;
 
     ssz_tests!(Fork);
-
-    fn test_genesis(epoch: Epoch) {
-        let fork = Fork::genesis(epoch);
-
-        assert_eq!(fork.epoch, epoch, "epoch incorrect");
-        assert_eq!(
-            fork.previous_version, fork.current_version,
-            "previous and current are not identical"
-        );
-    }
-
-    #[test]
-    fn genesis() {
-        test_genesis(Epoch::new(0));
-        test_genesis(Epoch::new(11));
-        test_genesis(Epoch::new(2_u64.pow(63)));
-        test_genesis(Epoch::max_value());
-    }
 
     #[test]
     fn get_fork_version() {

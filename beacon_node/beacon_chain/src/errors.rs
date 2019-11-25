@@ -1,5 +1,6 @@
 use crate::eth1_chain::Error as Eth1ChainError;
 use crate::fork_choice::Error as ForkChoiceError;
+use ssz_types::Error as SszTypesError;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
@@ -18,7 +19,6 @@ macro_rules! easy_from_to {
 #[derive(Debug, PartialEq)]
 pub enum BeaconChainError {
     InsufficientValidators,
-    BadRecentBlockRoots,
     UnableToReadSlot,
     RevertedFinalizedEpoch {
         previous_epoch: Epoch,
@@ -39,12 +39,18 @@ pub enum BeaconChainError {
         beacon_block_root: Hash256,
     },
     AttestationValidationError(AttestationValidationError),
+    StateSkipTooLarge {
+        head_slot: Slot,
+        requested_slot: Slot,
+    },
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
+    SszTypesError(SszTypesError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
+easy_from_to!(SszTypesError, BeaconChainError);
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {
@@ -55,6 +61,9 @@ pub enum BlockProductionError {
     BlockProcessingError(BlockProcessingError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
+    /// The `BeaconChain` was explicitly configured _without_ a connection to eth1, therefore it
+    /// cannot produce blocks.
+    NoEth1ChainConnection,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

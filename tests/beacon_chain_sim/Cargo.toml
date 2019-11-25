@@ -1,0 +1,12 @@
+[package]
+name = "beacon_chain_sim"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+node_test_rig = { path = "../node_test_rig" }
+types = { path = "../../eth2/types" }
+validator_client = { path = "../../validator_client" }
