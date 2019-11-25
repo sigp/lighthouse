@@ -119,13 +119,15 @@ fn main() {
                 .arg(
                     Arg::with_name("output")
                         .short("o")
+                        .long("output")
                         .value_name("PATH")
                         .takes_value(true)
                         .help("The output directory. Defaults to ~/.lighthouse/testnet"),
                 )
                 .arg(
-                    Arg::with_name("min_genesis_time")
+                    Arg::with_name("min-genesis-time")
                         .short("t")
+                        .long("min-genesis-time")
                         .value_name("UNIX_EPOCH_SECONDS")
                         .takes_value(true)
                         .default_value("0")
@@ -134,6 +136,7 @@ fn main() {
                 .arg(
                     Arg::with_name("endpoint")
                         .short("e")
+                        .long("endpoint")
                         .value_name("HTTP_SERVER")
                         .takes_value(true)
                         .default_value("http://localhost:8545")
@@ -142,6 +145,7 @@ fn main() {
                 .arg(
                     Arg::with_name("confirmations")
                         .value_name("INTEGER")
+                        .long("confirmations")
                         .takes_value(true)
                         .default_value("3")
                         .help("The number of block confirmations before declaring the contract deployed."),

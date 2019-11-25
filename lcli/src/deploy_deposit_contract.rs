@@ -10,7 +10,7 @@ pub const DEFAULT_DATA_DIR: &str = ".lighthouse/testnet";
 
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let min_genesis_time = matches
-        .value_of("min_genesis_time")
+        .value_of("min-genesis-time")
         .ok_or_else(|| "min_genesis_time not specified")?
         .parse::<u64>()
         .map_err(|e| format!("Failed to parse min_genesis_time: {}", e))?;
