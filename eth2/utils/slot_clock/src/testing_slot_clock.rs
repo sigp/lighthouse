@@ -37,6 +37,11 @@ impl SlotClock for TestingSlotClock {
         Some(Duration::from_secs(1))
     }
 
+    /// Always returns a duration of `1 * slots_per_epoch` second.
+    fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration> {
+        Some(Duration::from_secs(slots_per_epoch))
+    }
+
     /// Always returns a slot duration of 0 seconds.
     fn slot_duration(&self) -> Duration {
         Duration::from_secs(0)

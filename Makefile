@@ -5,24 +5,37 @@ EF_TESTS = "tests/ef_tests"
 # Builds the entire workspace in release (optimized).
 #
 # Binaries will most likely be found in `./target/release`
-release:
-	cargo build --release --all
+install:
+	cargo install --path lighthouse --force
 
-# Runs the full workspace tests, without downloading any additional test
+# Runs the full workspace tests in **release**, without downloading any additional
+# test vectors.
+test-release:
+	cargo test --all --release --exclude ef_tests
+
+# Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
-test:
-	cargo test --all --all-features --release --exclude ef_tests
+test-debug:
+	cargo test --all --exclude ef_tests
 
+# Runs cargo-fmt (linter).
+cargo-fmt:
+	cargo fmt --all -- --check
 
-# only run the ef-test vectors
-run-ef-tests: 
+# Runs only the ef-test vectors.
+run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
+	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,fake_crypto"
 
+# Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
 
-# Runs the entire test suite, downloading test vectors if required.
-test-full: test test-ef
+# Runs the full workspace tests in release, without downloading any additional
+# test vectors.
+test: test-release
 
+# Runs the entire test suite, downloading test vectors if required.
+test-full: cargo-fmt test-release test-debug test-ef
 
 # Runs the makefile in the `ef_tests` repo.
 #

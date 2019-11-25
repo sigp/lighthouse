@@ -1,10 +1,8 @@
 use clap::ArgMatches;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
-use slog::{info, o, Drain};
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
@@ -53,7 +51,6 @@ pub struct Config {
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
     pub genesis: ClientGenesis,
     pub network: network::NetworkConfig,
-    pub rpc: rpc::Config,
     pub rest_api: rest_api::Config,
     pub websocket_server: websocket_server::Config,
     pub eth1: eth1::Config,
@@ -68,7 +65,6 @@ impl Default for Config {
             db_name: "chain_db".to_string(),
             genesis: <_>::default(),
             network: NetworkConfig::new(),
-            rpc: <_>::default(),
             rest_api: <_>::default(),
             websocket_server: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
@@ -95,47 +91,11 @@ impl Config {
         Some(path)
     }
 
-    // Update the logger to output in JSON to specified file
-    fn update_logger(&mut self, log: &mut slog::Logger) -> Result<(), &'static str> {
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&self.log_file);
-
-        if file.is_err() {
-            return Err("Cannot open log file");
-        }
-        let file = file.unwrap();
-
-        if let Some(file) = self.log_file.to_str() {
-            info!(
-                *log,
-                "Log file specified, output will now be written to {} in json.", file
-            );
-        } else {
-            info!(
-                *log,
-                "Log file specified output will now be written in json"
-            );
-        }
-
-        let drain = Mutex::new(slog_json::Json::default(file)).fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-        *log = slog::Logger::root(drain, o!());
-
-        Ok(())
-    }
-
     /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
     ///
     /// Returns an error if arguments are obviously invalid. May succeed even if some values are
     /// invalid.
-    pub fn apply_cli_args(
-        &mut self,
-        args: &ArgMatches,
-        log: &mut slog::Logger,
-    ) -> Result<(), String> {
+    pub fn apply_cli_args(&mut self, args: &ArgMatches, _log: &slog::Logger) -> Result<(), String> {
         if let Some(dir) = args.value_of("datadir") {
             self.data_dir = PathBuf::from(dir);
         };
@@ -145,14 +105,8 @@ impl Config {
         };
 
         self.network.apply_cli_args(args)?;
-        self.rpc.apply_cli_args(args)?;
         self.rest_api.apply_cli_args(args)?;
         self.websocket_server.apply_cli_args(args)?;
-
-        if let Some(log_file) = args.value_of("logfile") {
-            self.log_file = PathBuf::from(log_file);
-            self.update_logger(log)?;
-        };
 
         Ok(())
     }

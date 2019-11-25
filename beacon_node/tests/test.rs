@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use node_test_rig::{environment::EnvironmentBuilder, LocalBeaconNode};
+use node_test_rig::{environment::EnvironmentBuilder, testing_client_config, LocalBeaconNode};
 use types::{MinimalEthSpec, Slot};
 
 fn env_builder() -> EnvironmentBuilder<MinimalEthSpec> {
@@ -17,12 +17,12 @@ fn http_server_genesis_state() {
         .build()
         .expect("environment should build");
 
-    let node = LocalBeaconNode::production(env.core_context());
+    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let (api_state, _root) = env
         .runtime()
-        .block_on(remote_node.http.beacon().state_at_slot(Slot::new(0)))
+        .block_on(remote_node.http.beacon().get_state_by_slot(Slot::new(0)))
         .expect("should fetch state from http api");
 
     let mut db_state = node

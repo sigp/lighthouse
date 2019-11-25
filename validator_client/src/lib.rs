@@ -1,258 +1,266 @@
-mod attestation_producer;
-mod block_producer;
+mod attestation_service;
+mod block_service;
 mod cli;
 mod config;
-mod duties;
-mod error;
-mod service;
-mod signer;
+mod duties_service;
+mod fork_service;
+mod validator_store;
+
+pub mod validator_directory;
 
 pub use cli::cli_app;
-pub use config::Config;
+pub use config::{Config, KeySource};
 
+use attestation_service::{AttestationService, AttestationServiceBuilder};
+use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use config::{Config as ClientConfig, KeySource};
+use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
-use eth2_config::Eth2Config;
 use exit_future::Signal;
-use futures::Stream;
-use lighthouse_bootstrap::Bootstrapper;
-use parking_lot::RwLock;
-use protos::services_grpc::ValidatorServiceClient;
-use service::Service;
-use slog::{error, info, warn, Logger};
+use fork_service::{ForkService, ForkServiceBuilder};
+use futures::{
+    future::{self, loop_fn, Loop},
+    Future, IntoFuture,
+};
+use remote_beacon_node::RemoteBeaconNode;
+use slog::{error, info, Logger};
 use slot_clock::SlotClock;
-use std::path::PathBuf;
-use std::sync::Arc;
+use slot_clock::SystemTimeSlotClock;
 use std::time::{Duration, Instant};
-use tokio::timer::Interval;
-use types::{EthSpec, Keypair};
+use tokio::timer::Delay;
+use types::EthSpec;
+use validator_store::ValidatorStore;
 
-/// A fixed amount of time after a slot to perform operations. This gives the node time to complete
-/// per-slot processes.
-const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
+/// The interval between attempts to contact the beacon node during startup.
+const RETRY_DELAY: Duration = Duration::from_secs(2);
 
-#[derive(Clone)]
+/// The global timeout for HTTP requests to the beacon node.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
+
 pub struct ProductionValidatorClient<T: EthSpec> {
     context: RuntimeContext<T>,
-    service: Arc<Service<ValidatorServiceClient, Keypair, T>>,
-    exit_signals: Arc<RwLock<Vec<Signal>>>,
+    duties_service: DutiesService<SystemTimeSlotClock, T>,
+    fork_service: ForkService<SystemTimeSlotClock, T>,
+    block_service: BlockService<SystemTimeSlotClock, T>,
+    attestation_service: AttestationService<SystemTimeSlotClock, T>,
+    exit_signals: Vec<Signal>,
 }
 
 impl<T: EthSpec> ProductionValidatorClient<T> {
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
-    pub fn new_from_cli(context: RuntimeContext<T>, matches: &ArgMatches) -> Result<Self, String> {
-        let mut log = context.log.clone();
-
-        let (client_config, eth2_config) = get_configs(&matches, &mut log)
-            .map_err(|e| format!("Unable to initialize config: {}", e))?;
-
-        info!(
-            log,
-            "Starting validator client";
-            "datadir" => client_config.full_data_dir().expect("Unable to find datadir").to_str(),
-        );
-
-        let service: Service<ValidatorServiceClient, Keypair, T> =
-            Service::initialize_service(client_config, eth2_config, log.clone())
-                .map_err(|e| e.to_string())?;
-
-        Ok(Self {
-            context,
-            service: Arc::new(service),
-            exit_signals: Arc::new(RwLock::new(vec![])),
-        })
+    pub fn new_from_cli(
+        context: RuntimeContext<T>,
+        cli_args: &ArgMatches,
+    ) -> impl Future<Item = Self, Error = String> {
+        Config::from_cli(&cli_args)
+            .into_future()
+            .map_err(|e| format!("Unable to initialize config: {}", e))
+            .and_then(|config| Self::new(context, config))
     }
 
-    /// Starts the timers to trigger block and attestation production.
-    pub fn start_service(&self) -> Result<(), String> {
-        let service = self.clone().service;
-        let log = self.context.log.clone();
-
-        let duration_to_next_slot = service
-            .slot_clock
-            .duration_to_next_slot()
-            .ok_or_else(|| "Unable to determine duration to next slot. Exiting.".to_string())?;
-
-        // set up the validator work interval - start at next slot and proceed every slot
-        let interval = {
-            // Set the interval to start at the next slot, and every slot after
-            let slot_duration = Duration::from_millis(service.spec.milliseconds_per_slot);
-            //TODO: Handle checked add correctly
-            Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
-        };
-
-        if service.slot_clock.now().is_none() {
-            warn!(
-                log,
-                "Starting node prior to genesis";
-            );
-        }
+    /// Instantiates the validator client, _without_ starting the timers to trigger block
+    /// and attestation production.
+    pub fn new(
+        mut context: RuntimeContext<T>,
+        config: Config,
+    ) -> impl Future<Item = Self, Error = String> {
+        let log_1 = context.log.clone();
+        let log_2 = context.log.clone();
+        let log_3 = context.log.clone();
 
         info!(
-            log,
-            "Waiting for next slot";
-            "seconds_to_wait" => duration_to_next_slot.as_secs()
+            log_1,
+            "Starting validator client";
+            "beacon_node" => &config.http_server,
+            "datadir" => format!("{:?}", config.data_dir),
         );
 
-        let (exit_signal, exit_fut) = exit_future::signal();
+        RemoteBeaconNode::new_with_timeout(config.http_server.clone(), HTTP_TIMEOUT)
+            .map_err(|e| format!("Unable to init beacon node http client: {}", e))
+            .into_future()
+            .and_then(move |beacon_node| wait_for_node(beacon_node, log_2))
+            .and_then(|beacon_node| {
+                beacon_node
+                    .http
+                    .spec()
+                    .get_eth2_config()
+                    .map(|eth2_config| (beacon_node, eth2_config))
+                    .map_err(|e| format!("Unable to read eth2 config from beacon node: {:?}", e))
+            })
+            .and_then(|(beacon_node, eth2_config)| {
+                beacon_node
+                    .http
+                    .beacon()
+                    .get_genesis_time()
+                    .map(|genesis_time| (beacon_node, eth2_config, genesis_time))
+                    .map_err(|e| format!("Unable to read genesis time from beacon node: {:?}", e))
+            })
+            .and_then(move |(beacon_node, remote_eth2_config, genesis_time)| {
+                // Do not permit a connection to a beacon node using different spec constants.
+                if context.eth2_config.spec_constants != remote_eth2_config.spec_constants {
+                    return Err(format!(
+                        "Beacon node is using an incompatible spec. Got {}, expected {}",
+                        remote_eth2_config.spec_constants, context.eth2_config.spec_constants
+                    ));
+                }
 
-        self.exit_signals.write().push(exit_signal);
+                // Note: here we just assume the spec variables of the remote node. This is very useful
+                // for testnets, but perhaps a security issue when it comes to mainnet.
+                //
+                // A damaging attack would be for a beacon node to convince the validator client of a
+                // different `SLOTS_PER_EPOCH` variable. This could result in slashable messages being
+                // produced. We are safe from this because `SLOTS_PER_EPOCH` is a type-level constant
+                // for Lighthouse.
+                context.eth2_config = remote_eth2_config;
 
-        /* kick off the core service */
-        self.context.executor.spawn(
-            interval
-                .map_err(move |e| {
-                    error! {
-                        log,
-                        "Timer thread failed";
-                        "error" => format!("{}", e)
-                    }
+                let slot_clock = SystemTimeSlotClock::new(
+                    context.eth2_config.spec.genesis_slot,
+                    Duration::from_secs(genesis_time),
+                    Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot),
+                );
+
+                let fork_service = ForkServiceBuilder::new()
+                    .slot_clock(slot_clock.clone())
+                    .beacon_node(beacon_node.clone())
+                    .runtime_context(context.service_context("fork"))
+                    .build()?;
+
+                let validator_store: ValidatorStore<SystemTimeSlotClock, T> =
+                    match &config.key_source {
+                        // Load pre-existing validators from the data dir.
+                        //
+                        // Use the `account_manager` to generate these files.
+                        KeySource::Disk => ValidatorStore::load_from_disk(
+                            config.data_dir.clone(),
+                            context.eth2_config.spec.clone(),
+                            fork_service.clone(),
+                            log_3.clone(),
+                        )?,
+                        // Generate ephemeral insecure keypairs for testing purposes.
+                        //
+                        // Do not use in production.
+                        KeySource::InsecureKeypairs(indices) => {
+                            ValidatorStore::insecure_ephemeral_validators(
+                                &indices,
+                                context.eth2_config.spec.clone(),
+                                fork_service.clone(),
+                                log_3.clone(),
+                            )?
+                        }
+                    };
+
+                info!(
+                    log_3,
+                    "Loaded validator keypair store";
+                    "voting_validators" => validator_store.num_voting_validators()
+                );
+
+                let duties_service = DutiesServiceBuilder::new()
+                    .slot_clock(slot_clock.clone())
+                    .validator_store(validator_store.clone())
+                    .beacon_node(beacon_node.clone())
+                    .runtime_context(context.service_context("duties"))
+                    .build()?;
+
+                let block_service = BlockServiceBuilder::new()
+                    .duties_service(duties_service.clone())
+                    .slot_clock(slot_clock.clone())
+                    .validator_store(validator_store.clone())
+                    .beacon_node(beacon_node.clone())
+                    .runtime_context(context.service_context("block"))
+                    .build()?;
+
+                let attestation_service = AttestationServiceBuilder::new()
+                    .duties_service(duties_service.clone())
+                    .slot_clock(slot_clock)
+                    .validator_store(validator_store)
+                    .beacon_node(beacon_node)
+                    .runtime_context(context.service_context("attestation"))
+                    .build()?;
+
+                Ok(Self {
+                    context,
+                    duties_service,
+                    fork_service,
+                    block_service,
+                    attestation_service,
+                    exit_signals: vec![],
                 })
-                .and_then(move |_| if exit_fut.is_live() { Ok(()) } else { Err(()) })
-                .for_each(move |_| {
-                    // wait for node to process
-                    std::thread::sleep(TIME_DELAY_FROM_SLOT);
-                    // if a non-fatal error occurs, proceed to the next slot.
-                    let _ignore_error = service.per_slot_execution();
-                    // completed a slot process
-                    Ok(())
-                }),
-        );
+            })
+    }
+
+    pub fn start_service(&mut self) -> Result<(), String> {
+        let duties_exit = self
+            .duties_service
+            .start_update_service(&self.context.eth2_config.spec)
+            .map_err(|e| format!("Unable to start duties service: {}", e))?;
+
+        let fork_exit = self
+            .fork_service
+            .start_update_service(&self.context.eth2_config.spec)
+            .map_err(|e| format!("Unable to start fork service: {}", e))?;
+
+        let block_exit = self
+            .block_service
+            .start_update_service(&self.context.eth2_config.spec)
+            .map_err(|e| format!("Unable to start block service: {}", e))?;
+
+        let attestation_exit = self
+            .attestation_service
+            .start_update_service(&self.context.eth2_config.spec)
+            .map_err(|e| format!("Unable to start attestation service: {}", e))?;
+
+        self.exit_signals = vec![duties_exit, fork_exit, block_exit, attestation_exit];
 
         Ok(())
     }
 }
 
-/// Parses the CLI arguments and attempts to load the client and eth2 configuration.
-///
-/// This is not a pure function, it reads from disk and may contact network servers.
-fn get_configs(
-    cli_args: &ArgMatches,
-    mut log: &mut Logger,
-) -> Result<(ClientConfig, Eth2Config), String> {
-    let mut client_config = ClientConfig::default();
+/// Request the version from the node, looping back and trying again on failure. Exit once the node
+/// has been contacted.
+fn wait_for_node<E: EthSpec>(
+    beacon_node: RemoteBeaconNode<E>,
+    log: Logger,
+) -> impl Future<Item = RemoteBeaconNode<E>, Error = String> {
+    // Try to get the version string from the node, looping until success is returned.
+    loop_fn(beacon_node.clone(), move |beacon_node| {
+        let log = log.clone();
+        beacon_node
+            .clone()
+            .http
+            .node()
+            .get_version()
+            .map_err(|e| format!("{:?}", e))
+            .then(move |result| {
+                let future: Box<dyn Future<Item = Loop<_, _>, Error = String> + Send> = match result
+                {
+                    Ok(version) => {
+                        info!(
+                            log,
+                            "Connected to beacon node";
+                            "version" => version,
+                        );
 
-    client_config.apply_cli_args(&cli_args, &mut log)?;
+                        Box::new(future::ok(Loop::Break(beacon_node)))
+                    }
+                    Err(e) => {
+                        error!(
+                            log,
+                            "Unable to connect to beacon node";
+                            "error" => format!("{:?}", e),
+                        );
 
-    if let Some(server) = cli_args.value_of("server") {
-        client_config.server = server.to_string();
-    }
+                        Box::new(
+                            Delay::new(Instant::now() + RETRY_DELAY)
+                                .map_err(|e| format!("Failed to trigger delay: {:?}", e))
+                                .and_then(|_| future::ok(Loop::Continue(beacon_node))),
+                        )
+                    }
+                };
 
-    if let Some(port) = cli_args.value_of("server-http-port") {
-        client_config.server_http_port = port
-            .parse::<u16>()
-            .map_err(|e| format!("Unable to parse HTTP port: {:?}", e))?;
-    }
-
-    if let Some(port) = cli_args.value_of("server-grpc-port") {
-        client_config.server_grpc_port = port
-            .parse::<u16>()
-            .map_err(|e| format!("Unable to parse gRPC port: {:?}", e))?;
-    }
-
-    info!(
-        *log,
-        "Beacon node connection info";
-        "grpc_port" => client_config.server_grpc_port,
-        "http_port" => client_config.server_http_port,
-        "server" => &client_config.server,
-    );
-
-    let (client_config, eth2_config) = match cli_args.subcommand() {
-        ("testnet", Some(sub_cli_args)) => {
-            if cli_args.is_present("eth2-config") && sub_cli_args.is_present("bootstrap") {
-                return Err(
-                    "Cannot specify --eth2-config and --bootstrap as it may result \
-                     in ambiguity."
-                        .into(),
-                );
-            }
-            process_testnet_subcommand(sub_cli_args, client_config, log)
-        }
-        _ => return Err("You must use the testnet command. See '--help'.".into()),
-    }?;
-
-    Ok((client_config, eth2_config))
-}
-
-/// Parses the `testnet` CLI subcommand.
-///
-/// This is not a pure function, it reads from disk and may contact network servers.
-fn process_testnet_subcommand(
-    cli_args: &ArgMatches,
-    mut client_config: ClientConfig,
-    log: &Logger,
-) -> Result<(ClientConfig, Eth2Config), String> {
-    let eth2_config = if cli_args.is_present("bootstrap") {
-        info!(log, "Connecting to bootstrap server");
-        let bootstrapper = Bootstrapper::connect(
-            format!(
-                "http://{}:{}",
-                client_config.server, client_config.server_http_port
-            ),
-            &log,
-        )?;
-
-        let eth2_config = bootstrapper.eth2_config()?;
-
-        info!(
-            log,
-            "Bootstrapped eth2 config via HTTP";
-            "slot_time_millis" => eth2_config.spec.milliseconds_per_slot,
-            "spec" => &eth2_config.spec_constants,
-        );
-
-        eth2_config
-    } else {
-        match cli_args.value_of("spec") {
-            Some("mainnet") => Eth2Config::mainnet(),
-            Some("minimal") => Eth2Config::minimal(),
-            Some("interop") => Eth2Config::interop(),
-            _ => return Err("No --spec flag provided. See '--help'.".into()),
-        }
-    };
-
-    client_config.key_source = match cli_args.subcommand() {
-        ("insecure", Some(sub_cli_args)) => {
-            let first = sub_cli_args
-                .value_of("first_validator")
-                .ok_or_else(|| "No first validator supplied")?
-                .parse::<usize>()
-                .map_err(|e| format!("Unable to parse first validator: {:?}", e))?;
-            let count = sub_cli_args
-                .value_of("validator_count")
-                .ok_or_else(|| "No validator count supplied")?
-                .parse::<usize>()
-                .map_err(|e| format!("Unable to parse validator count: {:?}", e))?;
-
-            info!(
-                log,
-                "Generating unsafe testing keys";
-                "first_validator" => first,
-                "count" => count
-            );
-
-            KeySource::TestingKeypairRange(first..first + count)
-        }
-        ("interop-yaml", Some(sub_cli_args)) => {
-            let path = sub_cli_args
-                .value_of("path")
-                .ok_or_else(|| "No yaml path supplied")?
-                .parse::<PathBuf>()
-                .map_err(|e| format!("Unable to parse yaml path: {:?}", e))?;
-
-            info!(
-                log,
-                "Loading keypairs from interop YAML format";
-                "path" => format!("{:?}", path),
-            );
-
-            KeySource::YamlKeypairs(path)
-        }
-        _ => KeySource::Disk,
-    };
-
-    Ok((client_config, eth2_config))
+                future
+            })
+    })
+    .map(|_| beacon_node)
 }

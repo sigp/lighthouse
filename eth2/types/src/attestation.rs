@@ -1,4 +1,7 @@
-use super::{AggregateSignature, AttestationData, BitList, EthSpec};
+use super::{
+    AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
+    Signature,
+};
 use crate::test_utils::TestRandom;
 
 use serde_derive::{Deserialize, Serialize};
@@ -6,6 +9,12 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::{SignedRoot, TreeHash};
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    SszTypesError(ssz_types::Error),
+    AlreadySigned(usize),
+}
 
 /// Details an attestation that can be slashable.
 ///
@@ -47,6 +56,37 @@ impl<T: EthSpec> Attestation<T> {
 
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_aggregate(&other.signature);
+    }
+
+    /// Signs `self`, setting the `committee_position`'th bit of `aggregation_bits` to `true`.
+    ///
+    /// Returns an `AlreadySigned` error if the `committee_position`'th bit is already `true`.
+    pub fn sign(
+        &mut self,
+        secret_key: &SecretKey,
+        committee_position: usize,
+        fork: &Fork,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        if self
+            .aggregation_bits
+            .get(committee_position)
+            .map_err(|e| Error::SszTypesError(e))?
+        {
+            Err(Error::AlreadySigned(committee_position))
+        } else {
+            self.aggregation_bits
+                .set(committee_position, true)
+                .map_err(|e| Error::SszTypesError(e))?;
+
+            let message = self.data.tree_hash_root();
+            let domain = spec.get_domain(self.data.target.epoch, Domain::BeaconAttester, fork);
+
+            self.signature
+                .add(&Signature::new(&message, domain, secret_key));
+
+            Ok(())
+        }
     }
 }
 
