@@ -146,9 +146,15 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
     ) {
         // an error could have occurred.
         match error_response {
-            RPCErrorResponse::InvalidRequest(error) => warn!(self.log, "Peer indicated invalid request";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string()),
-            RPCErrorResponse::ServerError(error) => warn!(self.log, "Peer internal server error";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string()),
-            RPCErrorResponse::Unknown(error) => warn!(self.log, "Unknown peer error";"peer" => format!("{:?}", peer_id), "error" => error.as_string()),
+            RPCErrorResponse::InvalidRequest(error) => {
+                warn!(self.log, "Peer indicated invalid request";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string())
+            }
+            RPCErrorResponse::ServerError(error) => {
+                warn!(self.log, "Peer internal server error";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string())
+            }
+            RPCErrorResponse::Unknown(error) => {
+                warn!(self.log, "Unknown peer error";"peer" => format!("{:?}", peer_id), "error" => error.as_string())
+            }
             RPCErrorResponse::Success(response) => {
                 match response {
                     RPCResponse::Hello(hello_message) => {
@@ -201,8 +207,7 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         match gossip_message {
             PubsubMessage::Block(message) => match self.decode_gossip_block(message) {
                 Ok(block) => {
-                    self.message_processor
-                        .on_block_gossip(peer_id.clone(), block.clone());
+                    self.message_processor.on_block_gossip(peer_id.clone(), block.clone());
                     if self.message_processor.should_forward_block(block) {
                         self.propagate_message(id, peer_id.clone());
                     }
@@ -213,12 +218,8 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
             },
             PubsubMessage::Attestation(message) => match self.decode_gossip_attestation(message) {
                 Ok(attestation) => {
-                    self.message_processor
-                        .on_attestation_gossip(peer_id.clone(), attestation.clone());
-                    if self
-                        .message_processor
-                        .should_forward_attestation(attestation)
-                    {
+                    self.message_processor.on_attestation_gossip(peer_id.clone(), attestation.clone());
+                    if self.message_processor.should_forward_attestation(attestation) {
                         self.propagate_message(id, peer_id);
                     }
                 }
