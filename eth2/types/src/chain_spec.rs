@@ -354,6 +354,7 @@ pub struct YamlConfig {
     proposer_reward_quotient: u64,
     inactivity_penalty_quotient: u64,
     min_slashing_penalty_quotient: u64,
+    safe_slots_to_update_justified: u64,
 
     #[serde(skip_serializing)]
     genesis_fork: Fork,
@@ -468,6 +469,7 @@ impl YamlConfig {
             inactivity_penalty_quotient: spec.inactivity_penalty_quotient,
             min_slashing_penalty_quotient: spec.min_slashing_penalty_quotient,
             genesis_fork: spec.genesis_fork.clone(),
+            safe_slots_to_update_justified: spec.safe_slots_to_update_justified,
             domain_beacon_proposer: spec.domain_beacon_proposer,
             domain_randao: spec.domain_randao,
             domain_deposit: spec.domain_deposit,
