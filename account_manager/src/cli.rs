@@ -18,6 +18,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .arg(
                             Arg::with_name("eth1-endpoint")
                                 .short("e")
+                                .long("eth1-endpoint")
                                 .value_name("HTTP_SERVER")
                                 .takes_value(true)
                                 .requires("send-deposits")
@@ -27,6 +28,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .arg(
                             Arg::with_name("deposit-contract")
                                 .short("c")
+                                .long("deposit-contract")
                                 .value_name("ADDRESS")
                                 .takes_value(true)
                                 .requires("send-deposits")
@@ -36,11 +38,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .arg(
                             Arg::with_name("account-index")
                                 .short("i")
+                                .long("account-index")
                                 .value_name("INDEX")
                                 .takes_value(true)
                                 .requires("send-deposits")
                                 .default_value("0")
                                 .help("The eth1 accounts[] index which will send the transaction"),
+                        )
+                        .arg(
+                            Arg::with_name("password")
+                                .short("p")
+                                .long("password")
+                                .value_name("FILE")
+                                .takes_value(true)
+                                .requires("send-deposits")
+                                .help("The password file to unlock the eth1 account (see --index)"),
                         )
                         .arg(
                             Arg::with_name("testnet-dir")

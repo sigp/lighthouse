@@ -4,10 +4,12 @@ use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
 use environment::{Environment, RuntimeContext};
 use eth2_testnet::Eth2TestnetDir;
-use futures::{stream::unfold, Future, IntoFuture, Stream};
+use futures::{future, stream::unfold, Future, IntoFuture, Stream};
 use rayon::prelude::*;
 use slog::{crit, error, info, Logger};
 use std::fs;
+use std::fs::File;
+use std::io::prelude::*;
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpec};
 use validator_client::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
@@ -132,6 +134,29 @@ fn run_new_validator_subcommand<T: EthSpec>(
             .parse::<usize>()
             .map_err(|e| format!("Unable to parse account-index: {}", e))?;
 
+        let password = if let Some(password_path) = matches.value_of("password") {
+            Some(
+                File::open(password_path)
+                    .map_err(|e| format!("Unable to open password file: {:?}", e))
+                    .and_then(|mut file| {
+                        let mut password = String::new();
+                        file.read_to_string(&mut password)
+                            .map_err(|e| format!("Unable to read password file to string: {:?}", e))
+                            .map(|_| password)
+                    })
+                    .map(|password| {
+                        // Trim the linefeed from the end.
+                        if password.ends_with("\n") {
+                            password[0..password.len() - 1].to_string()
+                        } else {
+                            password
+                        }
+                    })?,
+            )
+        } else {
+            None
+        };
+
         info!(
             log,
             "Submitting validator deposits";
@@ -166,10 +191,11 @@ fn run_new_validator_subcommand<T: EthSpec>(
             deposit_contract,
             validators.clone(),
             account_index,
+            password,
         )) {
             error!(
                 log,
-                "Failed to deposit validators";
+                "Created validators but could not submit deposits";
             )
         } else {
             info!(
@@ -195,6 +221,7 @@ fn deposit_validators<E: EthSpec>(
     deposit_contract: Address,
     validators: Vec<ValidatorDirectory>,
     account_index: usize,
+    password: Option<String>,
 ) -> impl Future<Item = (), Error = ()> {
     let deposit_amount = context.eth2_config.spec.max_effective_balance;
     let log_1 = context.log.clone();
@@ -215,6 +242,7 @@ fn deposit_validators<E: EthSpec>(
             unfold(validators.into_iter(), move |mut validators| {
                 let web3 = web3.clone();
                 let log = log_2.clone();
+                let password = password.clone();
 
                 validators.next().map(move |validator| {
                     deposit_validator(
@@ -223,6 +251,7 @@ fn deposit_validators<E: EthSpec>(
                         &validator,
                         deposit_amount,
                         account_index,
+                        password,
                         log,
                     )
                     .map(|()| ((), validators))
@@ -241,9 +270,11 @@ fn deposit_validator(
     validator: &ValidatorDirectory,
     deposit_amount: u64,
     account_index: usize,
+    password_opt: Option<String>,
     log: Logger,
 ) -> impl Future<Item = (), Error = ()> {
     let web3_1 = web3.clone();
+    let web3_2 = web3.clone();
 
     let log_1 = log.clone();
     let log_2 = log.clone();
@@ -269,6 +300,28 @@ fn deposit_validator(
                 .cloned()
                 .ok_or_else(|| "Insufficient accounts for deposit".to_string())
         })
+        .and_then(move |from_address| {
+            let future: Box<dyn Future<Item = Address, Error = String> + Send> =
+                if let Some(password) = password_opt {
+                    // Unlock for only a single transaction.
+                    let duration = None;
+
+                    let future = web3_1
+                        .personal()
+                        .unlock_account(from_address, &password, duration)
+                        .then(move |result| match result {
+                            Ok(true) => Ok(from_address),
+                            Ok(false) => Err("Eth1 node refused to unlock account".to_string()),
+                            Err(e) => Err(format!("Eth1 unlock request failed: {:?}", e)),
+                        });
+
+                    Box::new(future)
+                } else {
+                    Box::new(future::ok(from_address))
+                };
+
+            future
+        })
         .and_then(move |from| {
             let tx_request = TransactionRequest {
                 from,
@@ -281,7 +334,7 @@ fn deposit_validator(
                 condition: None,
             };
 
-            web3_1
+            web3_2
                 .eth()
                 .send_transaction(tx_request)
                 .map_err(|e| format!("Failed to call deposit fn: {:?}", e))
