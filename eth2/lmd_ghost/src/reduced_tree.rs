@@ -29,6 +29,7 @@ pub enum Error {
     StoreError(StoreError),
     ValidatorWeightUnknown(usize),
     SszDecodingError(ssz::DecodeError),
+    InvalidReducedTreeSsz(String),
 }
 
 impl From<StoreError> for Error {
@@ -160,7 +161,10 @@ impl ReducedTreeSsz {
         }
     }
 
-    pub fn to_reduced_tree<T, E>(self, store: Arc<T>) -> ReducedTree<T, E> {
+    pub fn to_reduced_tree<T, E>(self, store: Arc<T>) -> Result<ReducedTree<T, E>> {
+        if self.node_hashes.len() != self.nodes.len() {
+            Error::InvalidReducedTreeSsz("node_hashes and nodes should have equal length".into());
+        }
         let nodes: HashMap<_, _> = self
             .node_hashes
             .into_iter()
@@ -168,16 +172,17 @@ impl ReducedTreeSsz {
             .collect();
         let latest_votes = ElasticList(self.latest_votes);
         let root = (self.root_hash, self.root_slot);
-        ReducedTree {
+        Ok(ReducedTree {
             store,
             nodes,
             latest_votes,
             root,
             _phantom: PhantomData,
-        }
+        })
     }
 }
 
+#[derive(Clone)]
 struct ReducedTree<T, E> {
     store: Arc<T>,
     /// Stores all nodes of the tree, keyed by the block hash contained in the node.
@@ -838,7 +843,7 @@ where
 
     fn from_bytes(bytes: &[u8], store: Arc<T>) -> Result<Self> {
         let reduced_tree_ssz = ReducedTreeSsz::from_ssz_bytes(bytes)?;
-        Ok(reduced_tree_ssz.to_reduced_tree(store))
+        Ok(reduced_tree_ssz.to_reduced_tree(store)?)
     }
 }
 
