@@ -12,8 +12,7 @@ use beacon_chain::{
     BlockProcessingOutcome,
 };
 use rand::Rng;
-use std::sync::Arc;
-use store::{MemoryStore, Store};
+use store::Store;
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use types::{Deposit, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 

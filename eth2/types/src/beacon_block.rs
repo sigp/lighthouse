@@ -100,6 +100,13 @@ impl<T: EthSpec> BeaconBlock<T> {
             ..self.block_header()
         }
     }
+
+    /// Signs `self`.
+    pub fn sign(&mut self, secret_key: &SecretKey, fork: &Fork, spec: &ChainSpec) {
+        let message = self.signed_root();
+        let domain = spec.get_domain(self.epoch(), Domain::BeaconProposer, &fork);
+        self.signature = Signature::new(&message, domain, &secret_key);
+    }
 }
 
 #[cfg(test)]

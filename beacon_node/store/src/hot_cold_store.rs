@@ -4,7 +4,6 @@ use crate::chunked_vector::{
 use crate::iter::{ReverseStateRootIterator, StateRootsIterator};
 use crate::{leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, Store, StoreItem};
 use parking_lot::RwLock;
-use slog::crit;
 use slog::{info, trace, Logger};
 use std::convert::TryInto;
 use std::path::Path;
