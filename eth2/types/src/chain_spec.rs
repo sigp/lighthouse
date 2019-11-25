@@ -641,25 +641,25 @@ mod yaml_tests {
     }
 
     // Stub for testing deserializing
-    #[test]
-    fn minimal() {
-        let path = "/tmp/minimal.yaml";
-        let file = std::fs::File::open(path).unwrap();
-        let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
-        assert_eq!(
-            yamlconfig,
-            YamlConfig::from_spec::<MinimalEthSpec>(&ChainSpec::minimal())
-        );
-    }
+    // #[test]
+    // fn minimal() {
+    //     let path = "/path/to/minimal.yaml";
+    //     let file = std::fs::File::open(path).unwrap();
+    //     let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
+    //     assert_eq!(
+    //         yamlconfig,
+    //         YamlConfig::from_spec::<MinimalEthSpec>(&ChainSpec::minimal())
+    //     );
+    // }
 
-    #[test]
-    fn mainnet() {
-        let path = "/tmp/mainnet.yaml";
-        let file = std::fs::File::open(path).unwrap();
-        let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
-        assert_eq!(
-            yamlconfig,
-            YamlConfig::from_spec::<MainnetEthSpec>(&ChainSpec::mainnet())
-        );
-    }
+    // #[test]
+    // fn mainnet() {
+    //     let path = "/path/to/mainnet.yaml";
+    //     let file = std::fs::File::open(path).unwrap();
+    //     let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
+    //     assert_eq!(
+    //         yamlconfig,
+    //         YamlConfig::from_spec::<MainnetEthSpec>(&ChainSpec::mainnet())
+    //     );
+    // }
 }
