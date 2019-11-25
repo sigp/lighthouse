@@ -1,7 +1,7 @@
 use crate::chunked_vector::{
     store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
-use crate::iter::{ReverseStateRootIterator, StateRootsIterator};
+use crate::iter::StateRootsIterator;
 use crate::{leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, Store, StoreItem};
 use parking_lot::RwLock;
 use slog::{info, trace, Logger};
