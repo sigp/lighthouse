@@ -29,7 +29,7 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
 }
 
 fn timeout() -> Duration {
-    Duration::from_secs(1)
+    Duration::from_secs(2)
 }
 
 fn random_deposit_data() -> DepositData {
