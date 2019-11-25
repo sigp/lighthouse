@@ -10,7 +10,7 @@ use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use slog::{debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
@@ -44,6 +44,7 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
 const BLOCK_SKIPPING_LOGGING_THRESHOLD: u64 = 3;
+const BLOCK_SKIPPING_FAILURE_THRESHOLD: u64 = 128;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -74,6 +75,7 @@ pub enum BlockProcessingOutcome {
 #[derive(Debug, PartialEq)]
 pub enum AttestationProcessingOutcome {
     Processed,
+    EmptyAggregationBitfield,
     UnknownHeadBlock {
         beacon_block_root: Hash256,
     },
@@ -175,7 +177,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Vec<BeaconBlockBody<T::EthSpec>>, Error> {
         let bodies: Result<Vec<_>, _> = roots
             .iter()
-            .map(|root| match self.get_block(root)? {
+            .map(|root| match self.block_at_root(*root)? {
                 Some(block) => Ok(block.body),
                 None => Err(Error::DBInconsistent(format!("Missing block: {}", root))),
             })
@@ -190,7 +192,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_block_headers(&self, roots: &[Hash256]) -> Result<Vec<BeaconBlockHeader>, Error> {
         let headers: Result<Vec<BeaconBlockHeader>, _> = roots
             .iter()
-            .map(|root| match self.get_block(root)? {
+            .map(|root| match self.block_at_root(*root)? {
                 Some(block) => Ok(block.block_header()),
                 None => Err(Error::DBInconsistent("Missing block".into())),
             })
@@ -279,6 +281,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
+    pub fn block_at_root(
+        &self,
+        block_root: Hash256,
+    ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
+        Ok(self.store.get(&block_root)?)
+    }
+
+    /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn block_at_slot(&self, slot: Slot) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
+        let root = self
+            .rev_iter_block_roots()
+            .find(|(_, this_slot)| *this_slot == slot)
+            .map(|(root, _)| root);
+
+        if let Some(block_root) = root {
+            Ok(self.store.get(&block_root)?)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns the block at the given root, if any.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
     pub fn get_block(
         &self,
         block_root: &Hash256,
@@ -318,7 +350,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if slot == head_state.slot {
             Ok(head_state)
         } else if slot > head_state.slot {
-            if slot > head_state.slot + BLOCK_SKIPPING_LOGGING_THRESHOLD {
+            // It is presently very resource intensive (lots of hashing) to skip slots.
+            //
+            // We log warnings or simply fail if there are too many skip slots. This is a
+            // protection against DoS attacks.
+            if slot > head_state.slot + BLOCK_SKIPPING_FAILURE_THRESHOLD {
+                crit!(
+                    self.log,
+                    "Refusing to skip more than {} blocks", BLOCK_SKIPPING_LOGGING_THRESHOLD;
+                    "head_slot" => head_state.slot,
+                    "request_slot" => slot
+                );
+
+                return Err(Error::StateSkipTooLarge {
+                    head_slot: head_state.slot,
+                    requested_slot: slot,
+                });
+            } else if slot > head_state.slot + BLOCK_SKIPPING_LOGGING_THRESHOLD {
                 warn!(
                     self.log,
                     "Skipping more than {} blocks", BLOCK_SKIPPING_LOGGING_THRESHOLD;
@@ -326,6 +374,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "request_slot" => slot
                 )
             }
+
             let head_state_slot = head_state.slot;
             let mut state = head_state;
             while state.slot < slot {
@@ -474,6 +523,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             Ok(None)
         }
+    }
+
+    /// Produce an `Attestation` that is valid for the given `slot` and `index`.
+    ///
+    /// Always attests to the canonical chain.
+    pub fn produce_attestation(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+    ) -> Result<Attestation<T::EthSpec>, Error> {
+        let state = self.state_at_slot(slot)?;
+        let head = self.head();
+
+        let data = self.produce_attestation_data_for_block(
+            index,
+            head.beacon_block_root,
+            head.beacon_block.slot,
+            &state,
+        )?;
+
+        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+
+        Ok(Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)?,
+            data,
+            signature: AggregateSignature::new(),
+        })
     }
 
     /// Produce an `AttestationData` that is valid for the given `slot`, `index`.
@@ -635,6 +711,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
         let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
 
+        if attestation.aggregation_bits.num_set_bits() == 0 {
+            return Ok(AttestationProcessingOutcome::EmptyAggregationBitfield);
+        }
+
         // From the store, load the attestation's "head block".
         //
         // An honest validator would have set this block to be the head of the chain (i.e., the
@@ -790,13 +870,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             result
         };
 
-        if block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()) {
+        if block.slot > 0 && block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch())
+        {
             // Ignore any attestation where the slot of `data.beacon_block_root` is equal to or
             // prior to the finalized epoch.
             //
             // For any valid attestation if the `beacon_block_root` is prior to finalization, then
             // all other parameters (source, target, etc) must all be prior to finalization and
             // therefore no longer interesting.
+            //
+            // We allow the case where the block is the genesis block. Without this, all
+            // attestations prior to the first block being produced would be invalid.
             Ok(AttestationProcessingOutcome::FinalizedSlot {
                 attestation: block.slot.epoch(T::EthSpec::slots_per_epoch()),
                 finalized: finalized_epoch,

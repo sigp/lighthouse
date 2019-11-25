@@ -19,7 +19,6 @@ use genesis::{
 use lighthouse_bootstrap::Bootstrapper;
 use lmd_ghost::LmdGhost;
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
-use rpc::Config as RpcConfig;
 use slog::{debug, error, info, warn};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -267,35 +266,6 @@ where
         Ok(self)
     }
 
-    /// Immediately starts the gRPC server (gRPC is soon to be deprecated).
-    pub fn grpc_server(mut self, config: &RpcConfig) -> Result<Self, String> {
-        let beacon_chain = self
-            .beacon_chain
-            .clone()
-            .ok_or_else(|| "grpc_server requires a beacon chain")?;
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or_else(|| "grpc_server requires a runtime_context")?
-            .service_context("grpc");
-        let network_send = self
-            .libp2p_network_send
-            .clone()
-            .ok_or_else(|| "grpc_server requires a libp2p network")?;
-
-        let exit_signal = rpc::start_server(
-            config,
-            &context.executor,
-            network_send,
-            beacon_chain,
-            context.log,
-        );
-
-        self.exit_signals.push(exit_signal);
-
-        Ok(self)
-    }
-
     /// Immediately starts the beacon node REST API http server.
     pub fn http_server(
         mut self,
@@ -305,7 +275,7 @@ where
         let beacon_chain = self
             .beacon_chain
             .clone()
-            .ok_or_else(|| "grpc_server requires a beacon chain")?;
+            .ok_or_else(|| "http_server requires a beacon chain")?;
         let context = self
             .runtime_context
             .as_ref()
@@ -314,11 +284,11 @@ where
         let network = self
             .libp2p_network
             .clone()
-            .ok_or_else(|| "grpc_server requires a libp2p network")?;
+            .ok_or_else(|| "http_server requires a libp2p network")?;
         let network_send = self
             .libp2p_network_send
             .clone()
-            .ok_or_else(|| "grpc_server requires a libp2p network sender")?;
+            .ok_or_else(|| "http_server requires a libp2p network sender")?;
 
         let network_info = rest_api::NetworkInfo {
             network_service: network.clone(),

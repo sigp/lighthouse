@@ -125,7 +125,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                     .build_beacon_chain()?
                     .libp2p_network(&client_config.network)?
                     .http_server(&client_config, &http_eth2_config)?
-                    .grpc_server(&client_config.rpc)?
                     .peer_count_notifier()?
                     .slot_notifier()?;
 

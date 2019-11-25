@@ -6,6 +6,7 @@ use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use slog::{crit, info, warn};
+use std::path::PathBuf;
 use std::process::exit;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
@@ -28,11 +29,11 @@ fn main() {
                 .short("s")
                 .long("spec")
                 .value_name("TITLE")
-                .help("Specifies the default eth2 spec type. Only effective when creating a new datadir.")
+                .help("Specifies the default eth2 spec type.")
                 .takes_value(true)
                 .possible_values(&["mainnet", "minimal", "interop"])
                 .global(true)
-                .default_value("minimal")
+                .default_value("minimal"),
         )
         .arg(
             Arg::with_name("logfile")
@@ -50,8 +51,18 @@ fn main() {
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .default_value("trace"),
         )
+        .arg(
+            Arg::with_name("datadir")
+                .long("datadir")
+                .short("d")
+                .value_name("DIR")
+                .global(true)
+                .help("Data directory for keys and databases.")
+                .takes_value(true),
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(validator_client::cli_app())
+        .subcommand(account_manager::cli_app())
         .get_matches();
 
     macro_rules! run_with_spec {
@@ -92,6 +103,13 @@ fn run<E: EthSpec>(
 
     let log = environment.core_context().log;
 
+    if let Some(log_path) = matches.value_of("logfile") {
+        let path = log_path
+            .parse::<PathBuf>()
+            .map_err(|e| format!("Failed to parse log path: {:?}", e))?;
+        environment.log_to_json_file(path)?;
+    }
+
     if std::mem::size_of::<usize>() != 8 {
         crit!(
             log,
@@ -114,7 +132,17 @@ fn run<E: EthSpec>(
     //
     // Creating a command which can run both might be useful future works.
 
-    let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("Beacon Node") {
+    if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
+        let runtime_context = environment.core_context();
+
+        account_manager::run(sub_matches, runtime_context);
+
+        // Exit early if the account manager was run. It does not use the tokio executor, no need
+        // to wait for it to shutdown.
+        return Ok(());
+    }
+
+    let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("beacon_node") {
         let runtime_context = environment.core_context();
 
         let beacon = environment
@@ -130,11 +158,16 @@ fn run<E: EthSpec>(
         None
     };
 
-    let validator_client = if let Some(sub_matches) = matches.subcommand_matches("Validator Client")
+    let validator_client = if let Some(sub_matches) = matches.subcommand_matches("validator_client")
     {
         let runtime_context = environment.core_context();
 
-        let validator = ProductionValidatorClient::new_from_cli(runtime_context, sub_matches)
+        let mut validator = environment
+            .runtime()
+            .block_on(ProductionValidatorClient::new_from_cli(
+                runtime_context,
+                sub_matches,
+            ))
             .map_err(|e| format!("Failed to init validator client: {}", e))?;
 
         validator
