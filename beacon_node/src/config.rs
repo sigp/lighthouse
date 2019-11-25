@@ -282,12 +282,16 @@ fn process_testnet_subcommand(
 
             // Note: these constants _should_ only be used during genesis to determine the genesis
             // time. This allows the testnet to start shortly after the time + validator count
-            // conditions are satisified, not 1-2 days.
-            spec.seconds_per_day = 60;
+            // conditions are satisfied, not 1-2 days.
+            spec.seconds_per_day = 1800;
 
             client_config.eth1.follow_distance = 16;
             client_config.dummy_eth1_backend = false;
             client_config.sync_eth1_chain = true;
+            client_config.eth1.lowest_cached_block_number = client_config
+                .eth1
+                .deposit_contract_deploy_block
+                .saturating_sub(client_config.eth1.follow_distance * 2);
 
             builder.set_genesis(ClientGenesis::DepositContract)
         }
