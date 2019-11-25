@@ -26,6 +26,7 @@ use state_processing::{
 use std::fs;
 use std::io::prelude::*;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, StateRootsIterator};
 use store::{Error as DBError, Store};
 use tree_hash::TreeHash;
@@ -42,9 +43,6 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 ///
 /// Only useful for testing.
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
-
-const BLOCK_SKIPPING_LOGGING_THRESHOLD: u64 = 3;
-const BLOCK_SKIPPING_FAILURE_THRESHOLD: u64 = 128;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -350,34 +348,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if slot == head_state.slot {
             Ok(head_state)
         } else if slot > head_state.slot {
-            // It is presently very resource intensive (lots of hashing) to skip slots.
-            //
-            // We log warnings or simply fail if there are too many skip slots. This is a
-            // protection against DoS attacks.
-            if slot > head_state.slot + BLOCK_SKIPPING_FAILURE_THRESHOLD {
-                error!(
-                    self.log,
-                    "Refusing to skip more than {} blocks", BLOCK_SKIPPING_FAILURE_THRESHOLD;
-                    "head_slot" => head_state.slot,
-                    "request_slot" => slot
-                );
-
-                return Err(Error::StateSkipTooLarge {
-                    head_slot: head_state.slot,
-                    requested_slot: slot,
-                });
-            } else if slot > head_state.slot + BLOCK_SKIPPING_LOGGING_THRESHOLD {
+            if slot > head_state.slot + T::EthSpec::slots_per_epoch() {
                 warn!(
                     self.log,
-                    "Skipping more than {} blocks", BLOCK_SKIPPING_LOGGING_THRESHOLD;
+                    "Skipping more than an epoch";
                     "head_slot" => head_state.slot,
                     "request_slot" => slot
                 )
             }
 
+            let start_slot = head_state.slot;
+            let task_start = Instant::now();
+            let max_task_runtime = Duration::from_millis(self.spec.milliseconds_per_slot);
+
             let head_state_slot = head_state.slot;
             let mut state = head_state;
             while state.slot < slot {
+                // Do not allow and forward state skip that takes longer than the maximum task duration.
+                //
+                // This is a protection against nodes doing too much work when they're not synced
+                // to a chain.
+                if task_start + max_task_runtime < Instant::now() {
+                    return Err(Error::StateSkipTooLarge {
+                        start_slot,
+                        requested_slot: slot,
+                        max_task_runtime,
+                    });
+                }
+
                 match per_slot_processing(&mut state, &self.spec) {
                     Ok(()) => (),
                     Err(e) => {
