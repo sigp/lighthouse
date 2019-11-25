@@ -248,7 +248,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             .arg(
                 Arg::with_name("random-propagation")
                     .long("random-propagation")
-                    .short("rp")
                     .value_name("INTEGER")
                     .takes_value(true)
                     .help("Specifies (as a percentage) the likelihood of propagating blocks and attestations. This should only be used for testing networking elements. The value must like in the range 1-100.")

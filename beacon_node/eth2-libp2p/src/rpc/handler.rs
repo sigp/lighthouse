@@ -208,6 +208,7 @@ where
         // drop the stream and return a 0 id for goodbye "requests"
         if let r @ RPCRequest::Goodbye(_) = req {
             self.events_out.push(RPCEvent::Request(0, r));
+            warn!(self.log, "Goodbye Received");
             return;
         }
 

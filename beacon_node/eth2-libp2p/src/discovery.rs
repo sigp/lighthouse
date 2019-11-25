@@ -33,6 +33,9 @@ pub struct Discovery<TSubstream> {
     /// The peers currently connected to libp2p streams.
     connected_peers: HashSet<PeerId>,
 
+    /// The currently banned peers.
+    banned_peers: HashSet<PeerId>,
+
     /// The target number of connected peers on the libp2p interface.
     max_peers: usize,
 
@@ -96,6 +99,7 @@ impl<TSubstream> Discovery<TSubstream> {
 
         Ok(Self {
             connected_peers: HashSet::new(),
+            banned_peers: HashSet::new(),
             max_peers: config.max_peers,
             peer_discovery_delay: Delay::new(Instant::now()),
             past_discovery_delay: INITIAL_SEARCH_DELAY,
@@ -148,6 +152,14 @@ impl<TSubstream> Discovery<TSubstream> {
     /// The current number of connected libp2p peers.
     pub fn connected_peer_set(&self) -> &HashSet<PeerId> {
         &self.connected_peers
+    }
+
+    /// The peer has been banned. Add this peer to the banned list to prevent any future
+    /// re-connections.
+    // TODO: Remove the peer from the DHT if present
+    // TODO: Implement a timeout, after which we unban the peer
+    pub fn peer_banned(&mut self, peer_id: PeerId) {
+        self.banned_peers.insert(peer_id);
     }
 
     /// Search for new peers using the underlying discovery mechanism.
@@ -274,6 +286,7 @@ where
                                 // if we need more peers, attempt a connection
                                 if self.connected_peers.len() < self.max_peers
                                     && self.connected_peers.get(&peer_id).is_none()
+                                    && !self.banned_peers.contains(&peer_id)
                                 {
                                     debug!(self.log, "Peer discovered"; "peer_id"=> format!("{:?}", peer_id));
                                     return Async::Ready(NetworkBehaviourAction::DialPeer {

@@ -107,7 +107,7 @@ fn process_testnet_subcommand(
         builder.clean_datadir()?;
     }
 
-    if let Some(propagation_percentage_string) = cli_args.value_of("random_propagation") {
+    if let Some(propagation_percentage_string) = cli_args.value_of("random-propagation") {
         let percentage = propagation_percentage_string
             .parse::<u8>()
             .map_err(|_| format!("Unable to parse the propagation percentage"))?;

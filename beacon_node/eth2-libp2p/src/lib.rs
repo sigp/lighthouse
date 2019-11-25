@@ -22,6 +22,7 @@ pub use libp2p::enr::Enr;
 pub use libp2p::gossipsub::{Topic, TopicHash};
 pub use libp2p::multiaddr;
 pub use libp2p::Multiaddr;
+pub use libp2p::{core::ConnectedPoint, swarm::NetworkBehaviour};
 pub use libp2p::{
     gossipsub::{GossipsubConfig, GossipsubConfigBuilder},
     PeerId, Swarm,

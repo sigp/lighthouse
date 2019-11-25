@@ -534,8 +534,15 @@ impl NetworkContext {
             "reason" => format!("{:?}", reason),
             "peer_id" => format!("{:?}", peer_id),
         );
-        self.send_rpc_request(None, peer_id, RPCRequest::Goodbye(reason))
-        // TODO: disconnect peers.
+        self.send_rpc_request(None, peer_id.clone(), RPCRequest::Goodbye(reason));
+        self.network_send
+            .try_send(NetworkMessage::Disconnect { peer_id })
+            .unwrap_or_else(|_| {
+                warn!(
+                    self.log,
+                    "Could not send a Disconnect to the network service"
+                )
+            });
     }
 
     pub fn send_rpc_request(

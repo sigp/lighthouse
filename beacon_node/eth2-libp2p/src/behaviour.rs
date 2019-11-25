@@ -231,8 +231,14 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     }
 
     /* Discovery / Peer management functions */
+    /// Return the list of currently connected peers.
     pub fn connected_peers(&self) -> usize {
         self.discovery.connected_peers()
+    }
+
+    /// Notify discovery that the peer has been banned.
+    pub fn peer_banned(&mut self, peer_id: PeerId) {
+        self.discovery.peer_banned(peer_id);
     }
 
     /// Informs the discovery behaviour if a new IP/Port is set at the application layer
