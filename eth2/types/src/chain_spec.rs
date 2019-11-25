@@ -322,7 +322,7 @@ mod tests {
 #[serde(default)]
 // #[serde(deny_unknown_fields)] is not applied because we're using #default for fields that are not found.
 /// Union of a ChainSpec struct and an EthSpec struct that holds constants used for the configs folder of the Ethereum 2 spec (https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
-/// Spec v0.8.1
+/// Spec v0.9.1
 pub struct YamlConfig {
     // ChainSpec
     far_future_epoch: u64,
@@ -345,16 +345,18 @@ pub struct YamlConfig {
     seconds_per_slot: u64,
     min_attestation_inclusion_delay: u64,
     min_seed_lookahead: u64,
-    activation_exit_delay: u64,
     min_validator_withdrawability_delay: u64,
     persistent_committee_period: u64,
-    max_epochs_per_crosslink: u64,
     min_epochs_to_inactivity_penalty: u64,
     base_reward_factor: u64,
     whistleblower_reward_quotient: u64,
     proposer_reward_quotient: u64,
     inactivity_penalty_quotient: u64,
     min_slashing_penalty_quotient: u64,
+
+    #[serde(skip_serializing)]
+    genesis_fork: Fork,
+
     #[serde(
         deserialize_with = "u32_from_hex_str",
         serialize_with = "u32_to_hex_str"
@@ -369,11 +371,6 @@ pub struct YamlConfig {
         deserialize_with = "u32_from_hex_str",
         serialize_with = "u32_to_hex_str"
     )]
-    domain_attestation: u32,
-    #[serde(
-        deserialize_with = "u32_from_hex_str",
-        serialize_with = "u32_to_hex_str"
-    )]
     domain_deposit: u32,
     #[serde(
         deserialize_with = "u32_from_hex_str",
@@ -384,11 +381,8 @@ pub struct YamlConfig {
         deserialize_with = "u32_from_hex_str",
         serialize_with = "u32_to_hex_str"
     )]
-    domain_transfer: u32,
-
     // EthSpec
     justification_bits_length: u32,
-    shard_count: usize,
     max_validators_per_committee: u32,
     genesis_epoch: Epoch,
     slots_per_epoch: u64,
@@ -403,7 +397,6 @@ pub struct YamlConfig {
     max_attestations: u32,
     max_deposits: u32,
     max_voluntary_exits: u32,
-    max_transfers: u32,
 
     // Unused
     #[serde(skip)]
@@ -465,26 +458,22 @@ impl YamlConfig {
             seconds_per_slot: spec.milliseconds_per_slot / 1000,
             min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
             min_seed_lookahead: spec.min_seed_lookahead.into(),
-            activation_exit_delay: spec.activation_exit_delay,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay.into(),
             persistent_committee_period: spec.persistent_committee_period,
-            max_epochs_per_crosslink: spec.max_epochs_per_crosslink,
             min_epochs_to_inactivity_penalty: spec.min_epochs_to_inactivity_penalty,
             base_reward_factor: spec.base_reward_factor,
             whistleblower_reward_quotient: spec.whistleblower_reward_quotient,
             proposer_reward_quotient: spec.proposer_reward_quotient,
             inactivity_penalty_quotient: spec.inactivity_penalty_quotient,
             min_slashing_penalty_quotient: spec.min_slashing_penalty_quotient,
+            genesis_fork: spec.genesis_fork.clone(),
             domain_beacon_proposer: spec.domain_beacon_proposer,
             domain_randao: spec.domain_randao,
-            domain_attestation: spec.domain_attestation,
             domain_deposit: spec.domain_deposit,
             domain_voluntary_exit: spec.domain_voluntary_exit,
-            domain_transfer: spec.domain_transfer,
 
             // EthSpec
             justification_bits_length: T::JustificationBitsLength::to_u32(),
-            shard_count: T::shard_count(),
             max_validators_per_committee: T::MaxValidatorsPerCommittee::to_u32(),
             genesis_epoch: T::genesis_epoch(),
             slots_per_epoch: T::slots_per_epoch(),
@@ -499,7 +488,6 @@ impl YamlConfig {
             max_attestations: T::MaxAttestations::to_u32(),
             max_deposits: T::MaxDeposits::to_u32(),
             max_voluntary_exits: T::MaxVoluntaryExits::to_u32(),
-            max_transfers: T::MaxTransfers::to_u32(),
 
             // Unused
             early_derived_secret_penalty_max_future_epochs: 0,
@@ -522,7 +510,6 @@ impl YamlConfig {
     pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
         // Checking for EthSpec constants
         if self.justification_bits_length != T::JustificationBitsLength::to_u32()
-            || self.shard_count != T::shard_count()
             || self.max_validators_per_committee != T::MaxValidatorsPerCommittee::to_u32()
             || self.genesis_epoch != T::genesis_epoch()
             || self.slots_per_epoch != T::slots_per_epoch()
@@ -537,7 +524,6 @@ impl YamlConfig {
             || self.max_attestations != T::MaxAttestations::to_u32()
             || self.max_deposits != T::MaxDeposits::to_u32()
             || self.max_voluntary_exits != T::MaxVoluntaryExits::to_u32()
-            || self.max_transfers != T::MaxTransfers::to_u32()
         {
             return None;
         }
@@ -563,12 +549,10 @@ impl YamlConfig {
             milliseconds_per_slot: self.seconds_per_slot * 1000,
             min_attestation_inclusion_delay: self.min_attestation_inclusion_delay,
             min_seed_lookahead: Epoch::from(self.min_seed_lookahead),
-            activation_exit_delay: self.activation_exit_delay,
             min_validator_withdrawability_delay: Epoch::from(
                 self.min_validator_withdrawability_delay,
             ),
             persistent_committee_period: self.persistent_committee_period,
-            max_epochs_per_crosslink: self.max_epochs_per_crosslink,
             min_epochs_to_inactivity_penalty: self.min_epochs_to_inactivity_penalty,
             base_reward_factor: self.base_reward_factor,
             whistleblower_reward_quotient: self.whistleblower_reward_quotient,
@@ -577,11 +561,10 @@ impl YamlConfig {
             min_slashing_penalty_quotient: self.min_slashing_penalty_quotient,
             domain_beacon_proposer: self.domain_beacon_proposer,
             domain_randao: self.domain_randao,
-            domain_attestation: self.domain_attestation,
             domain_deposit: self.domain_deposit,
             domain_voluntary_exit: self.domain_voluntary_exit,
-            domain_transfer: self.domain_transfer,
             boot_nodes: chain_spec.boot_nodes.clone(),
+            genesis_fork: chain_spec.genesis_fork.clone(),
             ..*chain_spec
         })
     }
@@ -658,10 +641,25 @@ mod yaml_tests {
     }
 
     // Stub for testing deserializing
-    // fn minimal() {
-    // let path = "/path/to/minimal.yaml";
-    // let file = std::fs::File::open(path).unwrap();
-    // let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
-    // assert_eq!(yamlconfig, YamlConfig::from_spec::<MinimalEthSpec>(&ChainSpec::minimal()));
-    // }
+    #[test]
+    fn minimal() {
+        let path = "/tmp/minimal.yaml";
+        let file = std::fs::File::open(path).unwrap();
+        let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
+        assert_eq!(
+            yamlconfig,
+            YamlConfig::from_spec::<MinimalEthSpec>(&ChainSpec::minimal())
+        );
+    }
+
+    #[test]
+    fn mainnet() {
+        let path = "/tmp/mainnet.yaml";
+        let file = std::fs::File::open(path).unwrap();
+        let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
+        assert_eq!(
+            yamlconfig,
+            YamlConfig::from_spec::<MainnetEthSpec>(&ChainSpec::mainnet())
+        );
+    }
 }
