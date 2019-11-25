@@ -147,19 +147,56 @@ fn long_skip() {
 /// This implicitly checks that:
 /// 1. The chunked vector scheme doesn't attempt to store an incorrect genesis value
 /// 2. We correctly load the genesis value for all required slots
+// FIXME(sproul): this test takes about 53s, is that too long?
 #[test]
 fn randao_genesis_storage() {
+    let validator_count = 8;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), VALIDATOR_COUNT);
+    let harness = get_harness(store.clone(), validator_count);
 
-    let num_slots = E::slots_per_epoch() * E::epochs_per_historical_vector() as u64;
+    let num_slots = E::slots_per_epoch() * (E::epochs_per_historical_vector() - 1) as u64;
+
+    // Check we have a non-trivial genesis value
+    let genesis_value = *harness
+        .chain
+        .head()
+        .beacon_state
+        .get_randao_mix(Epoch::new(0))
+        .expect("randao mix ok");
+    assert!(!genesis_value.is_zero());
 
     harness.extend_chain(
-        num_slots as usize,
+        num_slots as usize - 1,
         BlockStrategy::OnCanonicalHead,
         AttestationStrategy::AllValidators,
     );
+
+    // Check that genesis value is still present
+    assert!(harness
+        .chain
+        .head()
+        .beacon_state
+        .randao_mixes
+        .iter()
+        .find(|x| **x == genesis_value)
+        .is_some());
+
+    // Then upon adding one more block, it isn't
+    harness.advance_slot();
+    harness.extend_chain(
+        1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+    assert!(harness
+        .chain
+        .head()
+        .beacon_state
+        .randao_mixes
+        .iter()
+        .find(|x| **x == genesis_value)
+        .is_none());
 
     check_finalization(&harness, num_slots);
     check_split_slot(&harness, store);
