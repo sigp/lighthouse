@@ -79,8 +79,6 @@ fn validator_produce_attestation() {
         .expect("should have attestation duties cache")
         .expect("should have attestation duties");
 
-    dbg!(&duties);
-
     let mut attestation = env
         .runtime()
         .block_on(
@@ -150,7 +148,6 @@ fn validator_produce_attestation() {
                 .publish_attestation(attestation.clone()),
         )
         .expect("should publish attestation");
-    dbg!(publish_status.clone());
     assert!(
         publish_status.is_valid(),
         "the signed published attestation should be valid"

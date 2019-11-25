@@ -28,7 +28,7 @@ lazy_static! {
 /// # Note
 ///
 /// This is a HTTP handler method.
-pub fn get_prometheus<T: BeaconChainTypes + 'static>(
+pub fn get_prometheus<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
     db_path: PathBuf,

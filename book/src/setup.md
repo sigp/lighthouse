@@ -45,5 +45,5 @@ against the Ethereum Foundation specifications.
 
 These tests are quite large (100's of MB) so they're only downloaded if you run
 `$ make test-ef` (or anything that run it). You may want to avoid
-downloadingthese tests if you're on a slow or metered Internet connection. CI
+downloading these tests if you're on a slow or metered Internet connection. CI
 will require them to pass, though.

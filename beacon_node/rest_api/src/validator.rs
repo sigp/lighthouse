@@ -41,7 +41,7 @@ pub struct BulkValidatorDutiesRequest {
 /// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch. This
 /// method allows for collecting bulk sets of validator duties without risking exceeding the max
 /// URL length with query pairs.
-pub fn post_validator_duties<T: BeaconChainTypes + 'static>(
+pub fn post_validator_duties<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> BoxFut {
@@ -70,7 +70,7 @@ pub fn post_validator_duties<T: BeaconChainTypes + 'static>(
 /// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch
 ///
 /// The given `epoch` must be within one epoch of the current epoch.
-pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
+pub fn get_validator_duties<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -88,7 +88,7 @@ pub fn get_validator_duties<T: BeaconChainTypes + 'static>(
     ResponseBuilder::new(&req)?.body_no_ssz(&duties)
 }
 
-fn return_validator_duties<T: BeaconChainTypes + 'static>(
+fn return_validator_duties<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     epoch: Epoch,
     validator_pubkeys: Vec<PublicKey>,
@@ -174,7 +174,7 @@ fn return_validator_duties<T: BeaconChainTypes + 'static>(
 }
 
 /// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
-pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(
+pub fn get_new_beacon_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -196,7 +196,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes + 'static>(
 }
 
 /// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
-pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(
+pub fn publish_beacon_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
     network_chan: NetworkChannel,
@@ -241,7 +241,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes + 'static>(
 }
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
-pub fn get_new_attestation<T: BeaconChainTypes + 'static>(
+pub fn get_new_attestation<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
@@ -258,7 +258,7 @@ pub fn get_new_attestation<T: BeaconChainTypes + 'static>(
 }
 
 /// HTTP Handler to publish an Attestation, which has been signed by a validator.
-pub fn publish_attestation<T: BeaconChainTypes + 'static>(
+pub fn publish_attestation<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
     network_chan: NetworkChannel,

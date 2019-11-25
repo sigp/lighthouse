@@ -525,7 +525,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Produce an `Attestation` that is valid for the given `slot` `shard`.
+    /// Produce an `Attestation` that is valid for the given `slot` and `index`.
     ///
     /// Always attests to the canonical chain.
     pub fn produce_attestation(
@@ -870,8 +870,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             result
         };
 
-        if block.slot > 0
-            && (block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()))
+        if block.slot > 0 && block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch())
         {
             // Ignore any attestation where the slot of `data.beacon_block_root` is equal to or
             // prior to the finalized epoch.

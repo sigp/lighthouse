@@ -90,16 +90,8 @@ impl DutiesStore {
             return InsertOutcome::Invalid;
         }
 
-        if store.contains_key(&duties.validator_pubkey) {
-            let validator_map = store.get_mut(&duties.validator_pubkey).expect(
-                "Store is exclusively locked and this path is guarded to ensure the key exists.",
-            );
-
-            if validator_map.contains_key(&epoch) {
-                let known_duties = validator_map.get_mut(&epoch).expect(
-                    "Validator map is exclusively mutable and this path is guarded to ensure the key exists.",
-                );
-
+        if let Some(validator_map) = store.get_mut(&duties.validator_pubkey) {
+            if let Some(known_duties) = validator_map.get_mut(&epoch) {
                 if *known_duties == duties {
                     InsertOutcome::Identical
                 } else {
