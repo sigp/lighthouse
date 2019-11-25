@@ -255,6 +255,7 @@ impl ChainSpec {
             network_id: 2, // lighthouse testnet network id
             boot_nodes,
             eth1_follow_distance: 16,
+            milliseconds_per_slot: 6_000,
             ..ChainSpec::mainnet()
         }
     }
