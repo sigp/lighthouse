@@ -77,7 +77,10 @@ impl<TSubstream> Discovery<TSubstream> {
         info!(log, "ENR Initialised"; "ENR" => local_enr.to_base64(), "Seq" => local_enr.seq());
         debug!(log, "Discv5 Node ID Initialised"; "node_id" => format!("{}",local_enr.node_id()));
 
-        let mut discovery = Discv5::new(local_enr, local_key.clone(), config.listen_address)
+        // the last parameter enables IP limiting. 2 Nodes on the same /24 subnet per bucket and 10
+        // nodes on the same /24 subnet per table.
+        // TODO: IP filtering is currently disabled for the DHT. Enable for production
+        let mut discovery = Discv5::new(local_enr, local_key.clone(), config.listen_address, false)
             .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
