@@ -27,6 +27,7 @@ use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::timer::Delay;
 use types::EthSpec;
 use validator_store::ValidatorStore;
@@ -68,6 +69,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let log_1 = context.log.clone();
         let log_2 = context.log.clone();
         let log_3 = context.log.clone();
+        let log_4 = context.log.clone();
 
         info!(
             log_1,
@@ -97,6 +99,51 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     .map_err(|e| format!("Unable to read genesis time from beacon node: {:?}", e))
             })
             .and_then(move |(beacon_node, remote_eth2_config, genesis_time)| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .into_future()
+                    .map_err(|e| format!("Unable to read system time: {:?}", e))
+                    .and_then(move |now| {
+                        let log = log_3.clone();
+                        let genesis = Duration::from_secs(genesis_time);
+
+                        // If the time now is less than (prior to) genesis, then delay until the
+                        // genesis instant.
+                        //
+                        // If the validator client starts before genesis, it will get errors from
+                        // the slot clock.
+                        let box_future: Box<dyn Future<Item = _, Error = _> + Send> = if now
+                            < genesis
+                        {
+                            info!(
+                                log,
+                                "Starting node prior to genesis";
+                                "seconds_to_wait" => (genesis - now).as_secs()
+                            );
+
+                            Box::new(
+                                Delay::new(Instant::now() + (genesis - now))
+                                    .map_err(|e| {
+                                        format!("Unable to create genesis wait delay: {:?}", e)
+                                    })
+                                    .map(move |_| (beacon_node, remote_eth2_config, genesis_time)),
+                            )
+                        } else {
+                            info!(
+                                log,
+                                "Genesis has already occurred";
+                                "seconds_ago" => (now - genesis).as_secs()
+                            );
+
+                            Box::new(future::ok((beacon_node, remote_eth2_config, genesis_time)))
+                        };
+
+                        box_future
+                    })
+            })
+            .and_then(move |(beacon_node, remote_eth2_config, genesis_time)| {
+                let log = log_4.clone();
+
                 // Do not permit a connection to a beacon node using different spec constants.
                 if context.eth2_config.spec_constants != remote_eth2_config.spec_constants {
                     return Err(format!(
@@ -135,7 +182,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                             config.data_dir.clone(),
                             context.eth2_config.spec.clone(),
                             fork_service.clone(),
-                            log_3.clone(),
+                            log.clone(),
                         )?,
                         // Generate ephemeral insecure keypairs for testing purposes.
                         //
@@ -145,13 +192,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                                 &indices,
                                 context.eth2_config.spec.clone(),
                                 fork_service.clone(),
-                                log_3.clone(),
+                                log.clone(),
                             )?
                         }
                     };
 
                 info!(
-                    log_3,
+                    log,
                     "Loaded validator keypair store";
                     "voting_validators" => validator_store.num_voting_validators()
                 );
