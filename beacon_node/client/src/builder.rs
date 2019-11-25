@@ -591,6 +591,17 @@ where
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config.clone())?;
+
+            // This cache is not useful because it's first (earliest) block likely the block that
+            // triggered genesis.
+            //
+            // In order to vote we need to be able to go back at least 2 * `ETH1_FOLLOW_DISTANCE`
+            // from the genesis-triggering block.  Presently the block cache does not support
+            // importing blocks with decreasing block numbers, it only accepts them in increasing
+            // order. If this turns out to be a bottleneck we can update the block cache to allow
+            // adding earlier blocks too.
+            eth1_service_from_genesis.drop_block_cache();
+
             CachingEth1Backend::from_service(eth1_service_from_genesis, store)
         } else {
             CachingEth1Backend::new(config, context.log, store)

@@ -163,6 +163,11 @@ impl Service {
         &self.inner.deposit_cache
     }
 
+    /// Drop the block cache, replacing it with an empty one.
+    pub fn drop_block_cache(&self) {
+        *(self.inner.block_cache.write()) = BlockCache::default();
+    }
+
     /// Returns the number of currently cached blocks.
     pub fn block_cache_len(&self) -> usize {
         self.blocks().read().len()
