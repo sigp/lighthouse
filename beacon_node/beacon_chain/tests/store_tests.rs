@@ -147,7 +147,7 @@ fn long_skip() {
 /// This implicitly checks that:
 /// 1. The chunked vector scheme doesn't attempt to store an incorrect genesis value
 /// 2. We correctly load the genesis value for all required slots
-// FIXME(sproul): this test takes about 53s, is that too long?
+/// NOTE: this test takes about a minute to run
 #[test]
 fn randao_genesis_storage() {
     let validator_count = 8;
