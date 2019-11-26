@@ -42,21 +42,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                         .default_value("1"),
                                 ),
                         )
-                )
-        )
-        .subcommand(
-            SubCommand::with_name("generate_deposit_keystores")
-                .about("Generates and saves validator and withdrawal keystores and generates deposit parameters from them")
-                .version("0.0.1")
-                .author("Sigma Prime <contact@sigmaprime.io>")
-                .arg(
-                    Arg::with_name("deposit_amount")
-                        .long("deposit_amount")
-                        .short("d")
-                        .value_name("deposit_amount")
-                        .help("The amount being deposited in GWEI")
-                        .takes_value(true)
-                        .required(true),
+                        .subcommand(
+                            SubCommand::with_name("keystore")
+                                .about("Generates and saves validator and withdrawal keystores")
+                                .arg(
+                                    Arg::with_name("validator_count")
+                                        .index(1)
+                                        .value_name("INTEGER")
+                                        .help("The number of new validators to generate.")
+                                        .takes_value(true)
+                                        .default_value("1"),
+                                ),
+                        )
                 )
         )
 }
