@@ -78,7 +78,7 @@ pub trait Field<E: EthSpec>: Copy {
         state: &BeaconState<E>,
         vindex: u64,
         spec: &ChainSpec,
-    ) -> Result<Self::Value, BeaconStateError>;
+    ) -> Result<Self::Value, ChunkError>;
 
     /// True if this is a `FixedLengthField`, false otherwise.
     fn is_fixed_length() -> bool;
@@ -269,8 +269,8 @@ macro_rules! field {
                 state: &BeaconState<T>,
                 vindex: u64,
                 spec: &ChainSpec,
-            ) -> Result<Self::Value, BeaconStateError> {
-                Ok($get_value(state, vindex, spec))
+            ) -> Result<Self::Value, ChunkError> {
+                $get_value(state, vindex, spec)
             }
 
             fn is_fixed_length() -> bool {
@@ -289,8 +289,7 @@ field!(
     T::SlotsPerHistoricalRoot,
     DBColumn::BeaconBlockRoots,
     |_| OncePerNSlots { n: 1 },
-    // FIXME(sproul): use safe accessors, or otherwise avoid div by 0
-    |state: &BeaconState<_>, index, _| state.block_roots[index as usize % state.block_roots.len()]
+    |state: &BeaconState<_>, index, _| safe_modulo_index(&state.block_roots, index)
 );
 
 field!(
@@ -300,7 +299,7 @@ field!(
     T::SlotsPerHistoricalRoot,
     DBColumn::BeaconStateRoots,
     |_| OncePerNSlots { n: 1 },
-    |state: &BeaconState<_>, index, _| state.state_roots[index as usize % state.state_roots.len()]
+    |state: &BeaconState<_>, index, _| safe_modulo_index(&state.state_roots, index)
 );
 
 field!(
@@ -312,8 +311,7 @@ field!(
     |_| OncePerNSlots {
         n: T::SlotsPerHistoricalRoot::to_u64()
     },
-    |state: &BeaconState<_>, vindex, _| state.historical_roots
-        [vindex as usize % state.historical_roots.len()]
+    |state: &BeaconState<_>, index, _| safe_modulo_index(&state.historical_roots, index)
 );
 
 field!(
@@ -323,8 +321,7 @@ field!(
     T::EpochsPerHistoricalVector,
     DBColumn::BeaconRandaoMixes,
     |_| OncePerEpoch { lag: 1 },
-    |state: &BeaconState<_>, index, _| state.randao_mixes
-        [index as usize % state.randao_mixes.len()]
+    |state: &BeaconState<_>, index, _| safe_modulo_index(&state.randao_mixes, index)
 );
 
 pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store>(
@@ -541,6 +538,15 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: Stor
     Ok(result.into())
 }
 
+/// Index into a field of the state, avoiding out of bounds and division by 0.
+fn safe_modulo_index<T: Copy>(values: &[T], index: u64) -> Result<T, ChunkError> {
+    if values.is_empty() {
+        Err(ChunkError::ZeroLengthVector)
+    } else {
+        Ok(values[index as usize % values.len()])
+    }
+}
+
 /// A chunk of a fixed-size vector from the `BeaconState`, stored in the database.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chunk<T> {
@@ -613,6 +619,7 @@ where
 
 #[derive(Debug, PartialEq)]
 pub enum ChunkError {
+    ZeroLengthVector,
     InvalidSize {
         chunk_index: usize,
         expected: usize,
