@@ -147,13 +147,16 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
         // an error could have occurred.
         match error_response {
             RPCErrorResponse::InvalidRequest(error) => {
-                warn!(self.log, "Peer indicated invalid request";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string())
+                warn!(self.log, "Peer indicated invalid request";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string());
+                self.handle_rpc_error(peer_id, request_id, RPCError::RPCErrorResponse);
             }
             RPCErrorResponse::ServerError(error) => {
-                warn!(self.log, "Peer internal server error";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string())
+                warn!(self.log, "Peer internal server error";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string());
+                self.handle_rpc_error(peer_id, request_id, RPCError::RPCErrorResponse);
             }
             RPCErrorResponse::Unknown(error) => {
-                warn!(self.log, "Unknown peer error";"peer" => format!("{:?}", peer_id), "error" => error.as_string())
+                warn!(self.log, "Unknown peer error";"peer" => format!("{:?}", peer_id), "error" => error.as_string());
+                self.handle_rpc_error(peer_id, request_id, RPCError::RPCErrorResponse);
             }
             RPCErrorResponse::Success(response) => {
                 match response {
@@ -214,8 +217,8 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
 
     /// Handle various RPC errors
     fn handle_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
-        //TODO: Handle error correctly
         warn!(self.log, "RPC Error"; "Peer" => format!("{:?}", peer_id), "request_id" => format!("{}", request_id), "Error" => format!("{:?}", error));
+        self.message_processor.on_rpc_error(peer_id, request_id);
     }
 
     /// Handle RPC messages

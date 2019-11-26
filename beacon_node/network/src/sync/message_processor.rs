@@ -110,6 +110,12 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         self.send_to_sync(SyncMessage::Disconnect(peer_id));
     }
 
+    /// An error occurred during an RPC request. The state is maintained by the sync manager, so
+    /// this function notifies the sync manager of the error.
+    pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId) {
+        self.send_to_sync(SyncMessage::RPCError(peer_id, request_id));
+    }
+
     /// Handle the connection of a new peer.
     ///
     /// Sends a `Status` message to the peer.

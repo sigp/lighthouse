@@ -258,6 +258,8 @@ pub enum RPCError {
     IoError(io::Error),
     /// Waiting for a request/response timed out, or timer error'd.
     StreamTimeout,
+    /// The peer returned a valid RPCErrorResponse but the response was an error.
+    RPCErrorResponse,
     /// Custom message.
     Custom(String),
 }
@@ -305,6 +307,7 @@ impl std::fmt::Display for RPCError {
             RPCError::SSZDecodeError(ref err) => write!(f, "Error while decoding ssz: {:?}", err),
             RPCError::InvalidProtocol(ref err) => write!(f, "Invalid Protocol: {}", err),
             RPCError::IoError(ref err) => write!(f, "IO Error: {}", err),
+            RPCError::RPCErrorResponse => write!(f, "RPC Response Error"),
             RPCError::StreamTimeout => write!(f, "Stream Timeout"),
             RPCError::Custom(ref err) => write!(f, "{}", err),
         }
@@ -319,6 +322,7 @@ impl std::error::Error for RPCError {
             RPCError::InvalidProtocol(_) => None,
             RPCError::IoError(ref err) => Some(err),
             RPCError::StreamTimeout => None,
+            RPCError::RPCErrorResponse => None,
             RPCError::Custom(_) => None,
         }
     }
