@@ -21,8 +21,6 @@ pub struct PersistedOperationPool<T: EthSpec> {
     proposer_slashings: Vec<ProposerSlashing>,
     /// Voluntary exits.
     voluntary_exits: Vec<VoluntaryExit>,
-    /// Transfers.
-    transfers: Vec<Transfer>,
 }
 
 impl<T: EthSpec> PersistedOperationPool<T> {
@@ -63,15 +61,12 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             .map(|(_, exit)| exit.clone())
             .collect();
 
-        let transfers = operation_pool.transfers.read().iter().cloned().collect();
-
         Self {
             attestations,
             deposits,
             attester_slashings,
             proposer_slashings,
             voluntary_exits,
-            transfers,
         }
     }
 
@@ -102,7 +97,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
                 .map(|exit| (exit.validator_index, exit))
                 .collect(),
         );
-        let transfers = RwLock::new(self.transfers.into_iter().collect());
 
         OperationPool {
             attestations,
@@ -110,7 +104,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             attester_slashings,
             proposer_slashings,
             voluntary_exits,
-            transfers,
             _phantom: Default::default(),
         }
     }

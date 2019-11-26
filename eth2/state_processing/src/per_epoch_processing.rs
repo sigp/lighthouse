@@ -1,10 +1,7 @@
-use crate::common::get_compact_committees_root;
 use errors::EpochProcessingError as Error;
-use std::collections::HashMap;
 use tree_hash::TreeHash;
 use types::*;
 use validator_statuses::{TotalBalances, ValidatorStatuses};
-use winning_root::{winning_root, WinningRoot};
 
 pub mod apply_rewards;
 pub mod errors;
@@ -12,23 +9,17 @@ pub mod process_slashings;
 pub mod registry_updates;
 pub mod tests;
 pub mod validator_statuses;
-pub mod winning_root;
 
 pub use apply_rewards::process_rewards_and_penalties;
 pub use process_slashings::process_slashings;
 pub use registry_updates::process_registry_updates;
-
-/// Maps a shard to a winning root.
-///
-/// It is generated during crosslink processing and later used to reward/penalize validators.
-pub type WinningRootHashSet = HashMap<u64, WinningRoot>;
 
 /// Performs per-epoch processing on some BeaconState.
 ///
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
 /// returned, a state might be "half-processed" and therefore in an invalid state.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn per_epoch_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -46,9 +37,6 @@ pub fn per_epoch_processing<T: EthSpec>(
 
     // Justification and finalization.
     process_justification_and_finalization(state, &validator_statuses.total_balances)?;
-
-    // Crosslinks.
-    process_crosslinks(state, spec)?;
 
     // Rewards and Penalties.
     process_rewards_and_penalties(state, &mut validator_statuses, spec)?;
@@ -78,7 +66,7 @@ pub fn per_epoch_processing<T: EthSpec>(
 /// - `finalized_epoch`
 /// - `finalized_root`
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 #[allow(clippy::if_same_then_else)] // For readability and consistency with spec.
 pub fn process_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -144,47 +132,9 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     Ok(())
 }
 
-/// Updates the following fields on the `BeaconState`:
-///
-/// - `previous_crosslinks`
-/// - `current_crosslinks`
-///
-/// Also returns a `WinningRootHashSet` for later use during epoch processing.
-///
-/// Spec v0.8.0
-pub fn process_crosslinks<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    state.previous_crosslinks = state.current_crosslinks.clone();
-
-    for &relative_epoch in &[RelativeEpoch::Previous, RelativeEpoch::Current] {
-        let epoch = relative_epoch.into_epoch(state.current_epoch());
-        for offset in 0..state.get_committee_count(relative_epoch)? {
-            let shard =
-                (state.get_epoch_start_shard(relative_epoch)? + offset) % T::ShardCount::to_u64();
-            let crosslink_committee =
-                state.get_crosslink_committee_for_shard(shard, relative_epoch)?;
-
-            let winning_root = winning_root(state, shard, epoch, spec)?;
-
-            if let Some(winning_root) = winning_root {
-                let total_committee_balance =
-                    state.get_total_balance(&crosslink_committee.committee, spec)?;
-
-                if 3 * winning_root.total_attesting_balance >= 2 * total_committee_balance {
-                    state.current_crosslinks[shard as usize] = winning_root.crosslink.clone();
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
 /// Finish up an epoch update.
 ///
-/// Spec v0.8.0
+/// Spec v0.9.1
 pub fn process_final_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -211,23 +161,6 @@ pub fn process_final_updates<T: EthSpec>(
         }
     }
 
-    // Set active index root
-    let index_epoch = next_epoch + spec.activation_exit_delay;
-    let indices_list = VariableList::<usize, T::ValidatorRegistryLimit>::from(
-        state.get_active_validator_indices(index_epoch),
-    );
-    state.set_active_index_root(
-        index_epoch,
-        Hash256::from_slice(&indices_list.tree_hash_root()),
-        spec,
-    )?;
-
-    // Set committees root
-    state.set_compact_committee_root(
-        next_epoch,
-        get_compact_committees_root(state, RelativeEpoch::Next, spec)?,
-    )?;
-
     // Reset slashings
     state.set_slashings(next_epoch, 0)?;
 
@@ -241,9 +174,6 @@ pub fn process_final_updates<T: EthSpec>(
             .historical_roots
             .push(Hash256::from_slice(&historical_batch.tree_hash_root()))?;
     }
-
-    // Update start shard.
-    state.start_shard = state.get_epoch_start_shard(RelativeEpoch::Next)?;
 
     // Rotate current/previous epoch attestations
     state.previous_epoch_attestations =

@@ -516,8 +516,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     self.send_to_sync(SyncMessage::UnknownBlockHash(peer_id, beacon_block_root));
                 }
                 AttestationProcessingOutcome::AttestsToFutureState { .. }
-                | AttestationProcessingOutcome::FinalizedSlot { .. } => {} // ignore the attestion
-                AttestationProcessingOutcome::Invalid { .. } => {
+                | AttestationProcessingOutcome::FinalizedSlot { .. } => {} // ignore the attestation
+                AttestationProcessingOutcome::Invalid { .. }
+                | AttestationProcessingOutcome::EmptyAggregationBitfield { .. } => {
                     // the peer has sent a bad attestation. Remove them.
                     self.network.disconnect(peer_id, GoodbyeReason::Fault);
                 }

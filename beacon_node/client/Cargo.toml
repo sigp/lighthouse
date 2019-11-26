@@ -13,7 +13,6 @@ beacon_chain = { path = "../beacon_chain" }
 store = { path = "../store" }
 network = { path = "../network" }
 eth2-libp2p = { path = "../eth2-libp2p" }
-rpc = { path = "../rpc" }
 rest_api = { path = "../rest_api" }
 websocket_server = { path = "../websocket_server" }
 prometheus = "0.7.0"
@@ -27,7 +26,6 @@ error-chain = "0.12.1"
 serde_yaml = "0.8.11"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 slog-async = "2.3.0"
-slog-json = "2.3.0"
 tokio = "0.1.22"
 clap = "2.33.0"
 dirs = "2.0.2"

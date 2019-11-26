@@ -35,7 +35,7 @@ $ lighthouse bn testnet -f recent 8
 In a new terminal window, start the validator client with:
 
 ```bash
-$ lighthouse bn testnet -b insecure 0 8
+$ lighthouse vc testnet -b insecure 0 8
 ```
 
 > Notes:

@@ -13,23 +13,18 @@ impl<T: EthSpec> TestingPendingAttestationBuilder<T> {
     ///
     /// The `inclusion_delay` will be set to `MIN_ATTESTATION_INCLUSION_DELAY`.
     ///
-    /// * The aggregation and custody bitfields will all be empty, they need to be set with
+    /// * The aggregation bitfield will be empty, it needs to be set with
     /// `Self::add_committee_participation`.
     pub fn new(
-        test_task: &AttestationTestTask,
+        test_task: AttestationTestTask,
         state: &BeaconState<T>,
-        shard: u64,
+        index: u64,
         slot: Slot,
         spec: &ChainSpec,
     ) -> Self {
-        let data_builder = TestingAttestationDataBuilder::new(test_task, state, shard, slot, spec);
+        let data_builder = TestingAttestationDataBuilder::new(test_task, state, index, slot, spec);
 
-        let relative_epoch =
-            RelativeEpoch::from_epoch(state.current_epoch(), slot.epoch(T::slots_per_epoch()))
-                .expect("epoch out of bounds");
-        let proposer_index = state
-            .get_beacon_proposer_index(slot, relative_epoch, spec)
-            .unwrap() as u64;
+        let proposer_index = state.get_beacon_proposer_index(slot, spec).unwrap() as u64;
 
         let pending_attestation = PendingAttestation {
             aggregation_bits: BitList::with_capacity(T::MaxValidatorsPerCommittee::to_usize())

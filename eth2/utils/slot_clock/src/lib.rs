@@ -28,4 +28,7 @@ pub trait SlotClock: Send + Sync + Sized {
 
     /// Returns the duration until the next slot.
     fn duration_to_next_slot(&self) -> Option<Duration>;
+
+    /// Returns the duration until the first slot of the next epoch.
+    fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration>;
 }

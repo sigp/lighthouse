@@ -231,7 +231,12 @@ where
             .genesis_block_root
             .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
 
-        self.fork_choice = Some(ForkChoice::new(store, backend, genesis_block_root));
+        self.fork_choice = Some(ForkChoice::new(
+            store,
+            backend,
+            genesis_block_root,
+            self.spec.genesis_slot,
+        ));
 
         Ok(self)
     }

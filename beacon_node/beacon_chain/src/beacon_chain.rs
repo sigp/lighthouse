@@ -10,13 +10,13 @@ use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use slog::{debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
     errors::{
         AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
-        ExitValidationError, ProposerSlashingValidationError, TransferValidationError,
+        ExitValidationError, ProposerSlashingValidationError,
     },
     verify_attestation_for_state, VerifySignatures,
 };
@@ -44,6 +44,7 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
 const BLOCK_SKIPPING_LOGGING_THRESHOLD: u64 = 3;
+const BLOCK_SKIPPING_FAILURE_THRESHOLD: u64 = 128;
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -74,6 +75,7 @@ pub enum BlockProcessingOutcome {
 #[derive(Debug, PartialEq)]
 pub enum AttestationProcessingOutcome {
     Processed,
+    EmptyAggregationBitfield,
     UnknownHeadBlock {
         beacon_block_root: Hash256,
     },
@@ -175,7 +177,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Vec<BeaconBlockBody<T::EthSpec>>, Error> {
         let bodies: Result<Vec<_>, _> = roots
             .iter()
-            .map(|root| match self.get_block(root)? {
+            .map(|root| match self.block_at_root(*root)? {
                 Some(block) => Ok(block.body),
                 None => Err(Error::DBInconsistent(format!("Missing block: {}", root))),
             })
@@ -190,7 +192,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_block_headers(&self, roots: &[Hash256]) -> Result<Vec<BeaconBlockHeader>, Error> {
         let headers: Result<Vec<BeaconBlockHeader>, _> = roots
             .iter()
-            .map(|root| match self.get_block(root)? {
+            .map(|root| match self.block_at_root(*root)? {
                 Some(block) => Ok(block.block_header()),
                 None => Err(Error::DBInconsistent("Missing block".into())),
             })
@@ -218,6 +220,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ReverseBlockRootIterator::new((head.beacon_block_root, head.beacon_block.slot), iter)
     }
 
+    /// Traverse backwards from `block_root` to find the block roots of its ancestors.
+    ///
+    /// ## Notes
+    ///
+    /// `slot` always decreases by `1`.
+    /// - Skipped slots contain the root of the closest prior
+    ///     non-skipped slot (identical to the way they are stored in `state.block_roots`) .
+    /// - Iterator returns `(Hash256, Slot)`.
+    /// - The provided `block_root` is included as the first item in the iterator.
+    pub fn rev_iter_block_roots_from(
+        &self,
+        block_root: Hash256,
+    ) -> Result<ReverseBlockRootIterator<T::EthSpec, T::Store>, Error> {
+        let block = self
+            .get_block(&block_root)?
+            .ok_or_else(|| Error::MissingBeaconBlock(block_root))?;
+        let state = self
+            .get_state(&block.state_root)?
+            .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
+        let iter = BlockRootsIterator::owned(self.store.clone(), state);
+        Ok(ReverseBlockRootIterator::new(
+            (block_root, block.slot),
+            iter,
+        ))
+    }
+
+    /// Traverse backwards from `block_root` to find the root of the ancestor block at `slot`.
+    pub fn get_ancestor_block_root(
+        &self,
+        block_root: Hash256,
+        slot: Slot,
+    ) -> Result<Option<Hash256>, Error> {
+        Ok(self
+            .rev_iter_block_roots_from(block_root)?
+            .find(|(_, ancestor_slot)| *ancestor_slot == slot)
+            .map(|(ancestor_block_root, _)| ancestor_block_root))
+    }
+
     /// Iterates across all `(state_root, slot)` pairs from the head of the chain (inclusive) to
     /// the earliest reachable ancestor (may or may not be genesis).
     ///
@@ -241,11 +281,53 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
+    pub fn block_at_root(
+        &self,
+        block_root: Hash256,
+    ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
+        Ok(self.store.get(&block_root)?)
+    }
+
+    /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn block_at_slot(&self, slot: Slot) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
+        let root = self
+            .rev_iter_block_roots()
+            .find(|(_, this_slot)| *this_slot == slot)
+            .map(|(root, _)| root);
+
+        if let Some(block_root) = root {
+            Ok(self.store.get(&block_root)?)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns the block at the given root, if any.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
     pub fn get_block(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
         Ok(self.store.get(block_root)?)
+    }
+
+    /// Returns the state at the given root, if any.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn get_state(
+        &self,
+        state_root: &Hash256,
+    ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
+        Ok(self.store.get(state_root)?)
     }
 
     /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";
@@ -268,7 +350,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if slot == head_state.slot {
             Ok(head_state)
         } else if slot > head_state.slot {
-            if slot > head_state.slot + BLOCK_SKIPPING_LOGGING_THRESHOLD {
+            // It is presently very resource intensive (lots of hashing) to skip slots.
+            //
+            // We log warnings or simply fail if there are too many skip slots. This is a
+            // protection against DoS attacks.
+            if slot > head_state.slot + BLOCK_SKIPPING_FAILURE_THRESHOLD {
+                crit!(
+                    self.log,
+                    "Refusing to skip more than {} blocks", BLOCK_SKIPPING_LOGGING_THRESHOLD;
+                    "head_slot" => head_state.slot,
+                    "request_slot" => slot
+                );
+
+                return Err(Error::StateSkipTooLarge {
+                    head_slot: head_state.slot,
+                    requested_slot: slot,
+                });
+            } else if slot > head_state.slot + BLOCK_SKIPPING_LOGGING_THRESHOLD {
                 warn!(
                     self.log,
                     "Skipping more than {} blocks", BLOCK_SKIPPING_LOGGING_THRESHOLD;
@@ -276,6 +374,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "request_slot" => slot
                 )
             }
+
             let head_state_slot = head_state.slot;
             let mut state = head_state;
             while state.slot < slot {
@@ -385,15 +484,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         state
-            .get_beacon_proposer_index(slot, RelativeEpoch::Current, &self.spec)
+            .get_beacon_proposer_index(slot, &self.spec)
             .map_err(Into::into)
     }
 
-    /// Returns the attestation slot and shard for a given validator index.
+    /// Returns the attestation slot and committee index for a given validator index.
     ///
     /// Information is read from the current state, so only information from the present and prior
     /// epoch is available.
-    pub fn validator_attestation_slot_and_shard(
+    pub fn validator_attestation_slot_and_index(
         &self,
         validator_index: usize,
         epoch: Epoch,
@@ -420,25 +519,52 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(attestation_duty) =
             state.get_attestation_duties(validator_index, RelativeEpoch::Current)?
         {
-            Ok(Some((attestation_duty.slot, attestation_duty.shard)))
+            Ok(Some((attestation_duty.slot, attestation_duty.index)))
         } else {
             Ok(None)
         }
     }
 
-    /// Produce an `AttestationData` that is valid for the given `slot` `shard`.
+    /// Produce an `Attestation` that is valid for the given `slot` and `index`.
+    ///
+    /// Always attests to the canonical chain.
+    pub fn produce_attestation(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+    ) -> Result<Attestation<T::EthSpec>, Error> {
+        let state = self.state_at_slot(slot)?;
+        let head = self.head();
+
+        let data = self.produce_attestation_data_for_block(
+            index,
+            head.beacon_block_root,
+            head.beacon_block.slot,
+            &state,
+        )?;
+
+        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+
+        Ok(Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)?,
+            data,
+            signature: AggregateSignature::new(),
+        })
+    }
+
+    /// Produce an `AttestationData` that is valid for the given `slot`, `index`.
     ///
     /// Always attests to the canonical chain.
     pub fn produce_attestation_data(
         &self,
-        shard: u64,
         slot: Slot,
+        index: CommitteeIndex,
     ) -> Result<AttestationData, Error> {
         let state = self.state_at_slot(slot)?;
         let head = self.head();
 
         self.produce_attestation_data_for_block(
-            shard,
+            index,
             head.beacon_block_root,
             head.beacon_block.slot,
             &state,
@@ -451,7 +577,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// function should be used as it attests to the canonical chain.
     pub fn produce_attestation_data_for_block(
         &self,
-        shard: u64,
+        index: CommitteeIndex,
         head_block_root: Hash256,
         head_block_slot: Slot,
         state: &BeaconState<T::EthSpec>,
@@ -492,18 +618,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             root: target_root,
         };
 
-        let parent_crosslink = state.get_current_crosslink(shard)?;
-        let crosslink = Crosslink {
-            shard,
-            parent_root: Hash256::from_slice(&parent_crosslink.tree_hash_root()),
-            start_epoch: parent_crosslink.end_epoch,
-            end_epoch: std::cmp::min(
-                target.epoch,
-                parent_crosslink.end_epoch + self.spec.max_epochs_per_crosslink,
-            ),
-            data_root: Hash256::zero(),
-        };
-
         // Collect some metrics.
         metrics::inc_counter(&metrics::ATTESTATION_PRODUCTION_SUCCESSES);
         metrics::stop_timer(timer);
@@ -512,15 +626,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.log,
             "Produced beacon attestation data";
             "beacon_block_root" => format!("{}", head_block_root),
-            "shard" => shard,
-            "slot" => state.slot
+            "slot" => state.slot,
+            "index" => index
         );
 
         Ok(AttestationData {
+            slot: state.slot,
+            index,
             beacon_block_root: head_block_root,
             source: state.current_justified_checkpoint.clone(),
             target,
-            crosslink,
         })
     }
 
@@ -549,7 +664,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Beacon attestation imported";
                         "target_epoch" => attestation.data.target.epoch,
-                        "shard" => attestation.data.crosslink.shard,
+                        "index" => attestation.data.index,
                     );
                     let _ = self
                         .event_handler
@@ -595,6 +710,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AttestationProcessingOutcome, Error> {
         metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
         let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
+
+        if attestation.aggregation_bits.num_set_bits() == 0 {
+            return Ok(AttestationProcessingOutcome::EmptyAggregationBitfield);
+        }
 
         // From the store, load the attestation's "head block".
         //
@@ -668,16 +787,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
-            let attestation_slot = state.get_attestation_data_slot(&attestation.data)?;
-
             // Reject any attestation where the `state` loaded from `data.beacon_block_root`
             // has a higher slot than the attestation.
             //
             // Permitting this would allow for attesters to vote on _future_ slots.
-            if state.slot > attestation_slot {
+            if state.slot > attestation.data.slot {
                 Ok(AttestationProcessingOutcome::AttestsToFutureState {
                     state: state.slot,
-                    attestation: attestation_slot,
+                    attestation: attestation.data.slot,
                 })
             } else {
                 self.process_attestation_for_state_and_block(
@@ -753,13 +870,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             result
         };
 
-        if block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()) {
+        if block.slot > 0 && block.slot <= finalized_epoch.start_slot(T::EthSpec::slots_per_epoch())
+        {
             // Ignore any attestation where the slot of `data.beacon_block_root` is equal to or
             // prior to the finalized epoch.
             //
             // For any valid attestation if the `beacon_block_root` is prior to finalization, then
             // all other parameters (source, target, etc) must all be prior to finalization and
             // therefore no longer interesting.
+            //
+            // We allow the case where the block is the genesis block. Without this, all
+            // attestations prior to the first block being produced would be invalid.
             Ok(AttestationProcessingOutcome::FinalizedSlot {
                 attestation: block.slot.epoch(T::EthSpec::slots_per_epoch()),
                 finalized: finalized_epoch,
@@ -776,20 +897,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             Ok(AttestationProcessingOutcome::Invalid(e))
         } else {
-            // Provide the attestation to fork choice, updating the validator latest messages but
-            // _without_ finding and updating the head.
-            if let Err(e) = self
-                .fork_choice
-                .process_attestation(&state, &attestation, block)
+            // If the attestation is from the current or previous epoch, supply it to the fork
+            // choice. This is FMD GHOST.
+            let current_epoch = self.epoch()?;
+            if attestation.data.target.epoch == current_epoch
+                || attestation.data.target.epoch == current_epoch - 1
             {
-                error!(
-                    self.log,
-                    "Add attestation to fork choice failed";
-                    "fork_choice_integrity" => format!("{:?}", self.fork_choice.verify_integrity()),
-                    "beacon_block_root" =>  format!("{}", attestation.data.beacon_block_root),
-                    "error" => format!("{:?}", e)
-                );
-                return Err(e.into());
+                // Provide the attestation to fork choice, updating the validator latest messages but
+                // _without_ finding and updating the head.
+                if let Err(e) = self
+                    .fork_choice
+                    .process_attestation(&state, &attestation, block)
+                {
+                    error!(
+                        self.log,
+                        "Add attestation to fork choice failed";
+                        "fork_choice_integrity" => format!("{:?}", self.fork_choice.verify_integrity()),
+                        "beacon_block_root" =>  format!("{}", attestation.data.beacon_block_root),
+                        "error" => format!("{:?}", e)
+                    );
+                    return Err(e.into());
+                }
             }
 
             // Provide the valid attestation to op pool, which may choose to retain the
@@ -821,22 +949,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error!(
                     &self.log,
                     "Unable to process voluntary exit";
-                    "error" => format!("{:?}", e),
-                    "reason" => "no state"
-                );
-                Ok(())
-            }
-        }
-    }
-
-    /// Accept some transfer and queue it for inclusion in an appropriate block.
-    pub fn process_transfer(&self, transfer: Transfer) -> Result<(), TransferValidationError> {
-        match self.wall_clock_state() {
-            Ok(state) => self.op_pool.insert_transfer(transfer, &state, &self.spec),
-            Err(e) => {
-                error!(
-                    &self.log,
-                    "Unable to process transfer";
                     "error" => format!("{:?}", e),
                     "reason" => "no state"
                 );
@@ -905,7 +1017,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Beacon block imported";
                         "block_root" => format!("{:?}", block_root),
-                        "block_slot" => format!("{:?}", block_root),
+                        "block_slot" => format!("{:?}", block.slot.as_u64()),
                     );
                     let _ = self.event_handler.register(EventKind::BeaconBlockImported {
                         block_root: *block_root,
@@ -1115,7 +1227,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
 
         // Register the new block with the fork choice service.
-        if let Err(e) = self.fork_choice.process_block(&state, &block, block_root) {
+        if let Err(e) = self
+            .fork_choice
+            .process_block(self, &state, &block, block_root)
+        {
             error!(
                 self.log,
                 "Add block to fork choice failed";
@@ -1230,7 +1345,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .deposits_for_block_inclusion(&state, &self.spec)?
                     .into(),
                 voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec).into(),
-                transfers: self.op_pool.get_transfers(&state, &self.spec).into(),
             },
         };
 
