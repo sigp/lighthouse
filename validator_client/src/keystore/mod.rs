@@ -10,11 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_repr::*;
 use std::fs::File;
 use std::path::PathBuf;
-use time;
 use uuid::Uuid;
 
 const PRIVATE_KEY_BYTES: usize = 48;
-const VALIDATOR_FOLDER_NAME: &str = "validators";
 
 /// Version for `Keystore`.
 #[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
@@ -101,30 +99,6 @@ impl Keystore {
         debug_assert_eq!(pk.as_hex_string()[2..].to_string(), self.pubkey);
         Ok(Keypair { sk, pk })
     }
-
-    /// Save keystore into appropriate file and directory.
-    /// Return the path of the keystore file.
-    pub fn save_keystore(&self, base_path: PathBuf, key_type: KeyType) -> Result<PathBuf, String> {
-        let validator_path = base_path.join(VALIDATOR_FOLDER_NAME);
-        validator_path.join(self.uuid.to_string());
-
-        let mut file_name = match key_type {
-            KeyType::Voting => "voting-".to_string(),
-            KeyType::Withdrawal => "withdrawal-".to_string(),
-        };
-        file_name.push_str(&get_utc_time());
-        file_name.push_str(&self.uuid.to_string());
-
-        let keystore_path = validator_path.join(file_name);
-        std::fs::create_dir_all(&validator_path)
-            .map_err(|e| format!("Cannot create directory: {}", e))?;
-
-        let keystore_file = File::create(&keystore_path)
-            .map_err(|e| format!("Cannot create keystore file: {}", e))?;
-        serde_json::to_writer_pretty(keystore_file, &self)
-            .map_err(|e| format!("Error writing keystore into file: {}", e))?;
-        Ok(keystore_path)
-    }
 }
 
 /// Pad 0's to a 32 bytes BLS secret key to make it compatible with the Milagro library
@@ -133,19 +107,6 @@ fn pad_secret_key(sk: &[u8]) -> [u8; PRIVATE_KEY_BYTES] {
     let mut bytes = [0; PRIVATE_KEY_BYTES];
     bytes[PRIVATE_KEY_BYTES - sk.len()..].copy_from_slice(sk);
     bytes
-}
-
-/// Return UTC time.
-fn get_utc_time() -> String {
-    let timestamp = time::strftime("%Y-%m-%dT%H-%M-%S", &time::now_utc())
-        .expect("Time-format string is valid.");
-    format!("UTC--{}--", timestamp)
-}
-
-#[derive(PartialEq)]
-pub enum KeyType {
-    Voting,
-    Withdrawal,
 }
 
 #[cfg(test)]
