@@ -4,7 +4,7 @@ use exit_future::Exit;
 use futures::Future;
 use integer_sqrt::IntegerSquareRoot;
 use rand::prelude::*;
-use slog::{crit, error, trace, Logger};
+use slog::{crit, debug, error, trace, Logger};
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::iter::FromIterator;
@@ -254,6 +254,16 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 .take(1)
                 .collect::<Vec<_>>()
                 .first()
+                .map(|block| {
+                    trace!(
+                        self.log,
+                        "Choosing default eth1_data";
+                        "eth1_block_number" =>  block.number,
+                        "eth1_block_hash" => format!("{:?}", block.hash),
+                    );
+
+                    block
+                })
                 .and_then(|&block| block.clone().eth1_data())
                 .unwrap_or_else(|| {
                     crit!(
@@ -265,6 +275,15 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                     random_eth1_data()
                 })
         };
+
+        debug!(
+            self.log,
+            "Produced vote for eth1 chain";
+            "is_period_tail" => is_period_tail(state),
+            "deposit_root" => format!("{:?}", eth1_data.deposit_root),
+            "deposit_count" => eth1_data.deposit_count,
+            "block_hash" => format!("{:?}", eth1_data.block_hash),
+        );
 
         Ok(eth1_data)
     }
@@ -403,8 +422,6 @@ fn collect_valid_votes<T: EthSpec>(
     new_eth1_data: Eth1DataBlockNumber,
     all_eth1_data: Eth1DataBlockNumber,
 ) -> Eth1DataVoteCount {
-    let slots_per_eth1_voting_period = T::SlotsPerEth1VotingPeriod::to_u64();
-
     let mut valid_votes = HashMap::new();
 
     state
@@ -415,10 +432,7 @@ fn collect_valid_votes<T: EthSpec>(
                 .get(vote)
                 .map(|block_number| (vote.clone(), *block_number))
                 .or_else(|| {
-                    let slot = state.slot % slots_per_eth1_voting_period;
-                    let period_tail = slot >= slots_per_eth1_voting_period.integer_sqrt();
-
-                    if period_tail {
+                    if is_period_tail(state) {
                         all_eth1_data
                             .get(vote)
                             .map(|block_number| (vote.clone(), *block_number))
@@ -435,6 +449,15 @@ fn collect_valid_votes<T: EthSpec>(
         });
 
     valid_votes
+}
+
+/// Indicates if the given `state` is in the tail of it's eth1 voting period (i.e., the later
+/// slots).
+fn is_period_tail<E: EthSpec>(state: &BeaconState<E>) -> bool {
+    let slots_per_eth1_voting_period = E::SlotsPerEth1VotingPeriod::to_u64();
+    let slot = state.slot % slots_per_eth1_voting_period;
+
+    slot >= slots_per_eth1_voting_period.integer_sqrt()
 }
 
 /// Selects the winning vote from `valid_votes`.
