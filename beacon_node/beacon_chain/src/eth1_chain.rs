@@ -4,7 +4,7 @@ use exit_future::Exit;
 use futures::Future;
 use integer_sqrt::IntegerSquareRoot;
 use rand::prelude::*;
-use slog::{crit, trace, Logger};
+use slog::{crit, error, trace, Logger};
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::iter::FromIterator;
@@ -205,19 +205,21 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
 
         let blocks = self.core.blocks().read();
 
-        let (new_eth1_data, all_eth1_data) =
-            if let Some(sets) = eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec) {
-                sets
-            } else {
-                crit!(
-                    self.log,
-                    "Unable to find eth1 data sets";
-                    "earliest_cached_block" => self.core.earliest_block_timestamp(),
-                    "genesis_time" => state.genesis_time,
-                    "outcome" => "casting random eth1 vote"
-                );
-                return Ok(random_eth1_data());
-            };
+        let (new_eth1_data, all_eth1_data) = if let Some(sets) =
+            eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec, &self.log)
+        {
+            sets
+        } else {
+            crit!(
+                self.log,
+                "Unable to find eth1 data sets";
+                "lowest_block_number" => self.core.lowest_block_number(),
+                "earliest_block_timestamp" => self.core.earliest_block_timestamp(),
+                "genesis_time" => state.genesis_time,
+                "outcome" => "casting random eth1 vote"
+            );
+            return Ok(random_eth1_data());
+        };
 
         trace!(
             self.log,
@@ -332,6 +334,7 @@ fn eth1_data_sets<'a, T: EthSpec, I>(
     state: &BeaconState<T>,
     prev_eth1_hash: Hash256,
     spec: &ChainSpec,
+    log: &Logger,
 ) -> Option<(Eth1DataBlockNumber, Eth1DataBlockNumber)>
 where
     T: EthSpec,
@@ -367,6 +370,12 @@ where
             HashMap::from_iter(all_eth1_data),
         ))
     } else {
+        error!(
+            log,
+            "The previous eth1 hash is not in cache";
+            "previous_hash" => format!("{:?}", prev_eth1_hash)
+        );
+
         None
     }
 }
@@ -439,6 +448,7 @@ fn slot_start_seconds<T: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use environment::null_logger;
     use types::{test_utils::DepositTestTask, MinimalEthSpec};
 
     type E = MinimalEthSpec;
@@ -490,7 +500,6 @@ mod test {
 
     mod eth1_chain_json_backend {
         use super::*;
-        use environment::null_logger;
         use eth1::DepositLog;
         use store::MemoryStore;
         use types::test_utils::{generate_deterministic_keypair, TestingDepositBuilder};
@@ -781,6 +790,8 @@ mod test {
 
         #[test]
         fn empty_cache() {
+            let log = null_logger().unwrap();
+
             let spec = &E::default_spec();
             let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
             let prev_eth1_hash = Hash256::zero();
@@ -788,13 +799,15 @@ mod test {
             let blocks = vec![];
 
             assert_eq!(
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec),
+                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec, &log),
                 None
             );
         }
 
         #[test]
         fn no_known_block_hash() {
+            let log = null_logger().unwrap();
+
             let mut spec = E::default_spec();
             spec.milliseconds_per_slot = 1_000;
 
@@ -804,13 +817,15 @@ mod test {
             let blocks = vec![get_eth1_block(0, 0)];
 
             assert_eq!(
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec),
+                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec, &log),
                 None
             );
         }
 
         #[test]
         fn ideal_scenario() {
+            let log = null_logger().unwrap();
+
             let mut spec = E::default_spec();
             spec.milliseconds_per_slot = 1_000;
 
@@ -828,7 +843,7 @@ mod test {
                 .collect::<Vec<_>>();
 
             let (new_eth1_data, all_eth1_data) =
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec)
+                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec, &log)
                     .expect("should find data");
 
             assert_eq!(

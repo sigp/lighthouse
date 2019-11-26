@@ -173,6 +173,11 @@ impl Service {
         self.inner.block_cache.read().earliest_block_timestamp()
     }
 
+    /// Returns the lowest block number stored.
+    pub fn lowest_block_number(&self) -> Option<u64> {
+        self.inner.block_cache.read().lowest_block_number()
+    }
+
     /// Returns the number of currently cached blocks.
     pub fn block_cache_len(&self) -> usize {
         self.blocks().read().len()
