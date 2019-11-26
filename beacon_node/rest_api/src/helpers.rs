@@ -154,7 +154,7 @@ pub fn state_at_slot<T: BeaconChainTypes>(
 
         let state: BeaconState<T::EthSpec> = beacon_chain
             .store
-            .get(&root)?
+            .get_state(&root, Some(slot))?
             .ok_or_else(|| ApiError::NotFound(format!("Unable to find state at root {}", root)))?;
 
         Ok((root, state))

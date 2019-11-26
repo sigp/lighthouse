@@ -12,7 +12,10 @@ use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::sync::Arc;
 use std::time::Duration;
-use store::MemoryStore;
+use store::{
+    migrate::{BlockingMigrator, NullMigrator},
+    DiskStore, MemoryStore, Migrate, Store,
+};
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
     AggregateSignature, Attestation, BeaconBlock, BeaconState, BitList, ChainSpec, Domain, EthSpec,
@@ -24,14 +27,18 @@ pub use types::test_utils::generate_deterministic_keypairs;
 
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690; // 4th September 2019
 
-pub type HarnessType<E> = Witness<
-    MemoryStore,
+pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec> = Witness<
+    TStore,
+    TStoreMigrator,
     TestingSlotClock,
-    ThreadSafeReducedTree<MemoryStore, E>,
-    CachingEth1Backend<E, MemoryStore>,
-    E,
-    NullEventHandler<E>,
+    ThreadSafeReducedTree<TStore, TEthSpec>,
+    CachingEth1Backend<TEthSpec, TStore>,
+    TEthSpec,
+    NullEventHandler<TEthSpec>,
 >;
+
+pub type HarnessType<E> = BaseHarnessType<MemoryStore, NullMigrator, E>;
+pub type DiskHarnessType<E> = BaseHarnessType<DiskStore, BlockingMigrator<DiskStore>, E>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -82,6 +89,7 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(Arc::new(MemoryStore::open()))
+            .store_migrator(NullMigrator)
             .genesis_state(
                 interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec)
                     .expect("should generate interop state"),
@@ -103,7 +111,56 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
             keypairs,
         }
     }
+}
 
+impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
+    /// Instantiate a new harness with `validator_count` initial validators.
+    pub fn with_disk_store(
+        eth_spec_instance: E,
+        store: Arc<DiskStore>,
+        keypairs: Vec<Keypair>,
+    ) -> Self {
+        let spec = E::default_spec();
+
+        let log = TerminalLoggerBuilder::new()
+            .level(Severity::Warning)
+            .build()
+            .expect("logger should build");
+
+        let chain = BeaconChainBuilder::new(eth_spec_instance)
+            .logger(log.clone())
+            .custom_spec(spec.clone())
+            .store(store.clone())
+            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
+            .genesis_state(
+                interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec)
+                    .expect("should generate interop state"),
+            )
+            .expect("should build state using recent genesis")
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
+            .null_event_handler()
+            .testing_slot_clock(Duration::from_secs(1))
+            .expect("should configure testing slot clock")
+            .empty_reduced_tree_fork_choice()
+            .expect("should add fork choice to builder")
+            .build()
+            .expect("should build");
+
+        Self {
+            spec: chain.spec.clone(),
+            chain,
+            keypairs,
+        }
+    }
+}
+
+impl<S, M, E> BeaconChainHarness<BaseHarnessType<S, M, E>>
+where
+    S: Store,
+    M: Migrate<S, E>,
+    E: EthSpec,
+{
     /// Advance the slot of the `BeaconChain`.
     ///
     /// Does not produce blocks or attestations.

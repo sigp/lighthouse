@@ -1,4 +1,5 @@
 use super::*;
+use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::metrics;
 use db_key::Key;
 use leveldb::database::kv::KV;
@@ -6,14 +7,10 @@ use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use std::path::Path;
-use std::sync::Arc;
 
 /// A wrapped leveldb database.
-#[derive(Clone)]
 pub struct LevelDB {
-    // Note: this `Arc` is only included because of an artificial constraint by gRPC. Hopefully we
-    // can remove this one day.
-    db: Arc<Database<BytesKey>>,
+    db: Database<BytesKey>,
 }
 
 impl LevelDB {
@@ -23,7 +20,7 @@ impl LevelDB {
 
         options.create_if_missing = true;
 
-        let db = Arc::new(Database::open(path, options)?);
+        let db = Database::open(path, options)?;
 
         Ok(Self { db })
     }
@@ -110,6 +107,24 @@ impl Store for LevelDB {
         self.db
             .delete(self.write_options(), column_key)
             .map_err(Into::into)
+    }
+
+    /// Store a state in the store.
+    fn put_state<E: EthSpec>(
+        &self,
+        state_root: &Hash256,
+        state: &BeaconState<E>,
+    ) -> Result<(), Error> {
+        store_full_state(self, state_root, state)
+    }
+
+    /// Fetch a state from the store.
+    fn get_state<E: EthSpec>(
+        &self,
+        state_root: &Hash256,
+        _: Option<Slot>,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        get_full_state(self, state_root)
     }
 }
 

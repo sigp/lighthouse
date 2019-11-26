@@ -43,7 +43,7 @@ pub enum HandlerMessage {
     PubsubMessage(String, PeerId, PubsubMessage),
 }
 
-impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
+impl<T: BeaconChainTypes> MessageHandler<T> {
     /// Initializes and runs the MessageHandler.
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,

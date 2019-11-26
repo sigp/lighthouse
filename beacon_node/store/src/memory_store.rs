@@ -1,23 +1,29 @@
 use super::{Error, Store};
+use crate::impls::beacon_state::{get_full_state, store_full_state};
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::Arc;
+use types::*;
 
 type DBHashMap = HashMap<Vec<u8>, Vec<u8>>;
 
 /// A thread-safe `HashMap` wrapper.
-#[derive(Clone)]
 pub struct MemoryStore {
-    // Note: this `Arc` is only included because of an artificial constraint by gRPC. Hopefully we
-    // can remove this one day.
-    db: Arc<RwLock<DBHashMap>>,
+    db: RwLock<DBHashMap>,
+}
+
+impl Clone for MemoryStore {
+    fn clone(&self) -> Self {
+        Self {
+            db: RwLock::new(self.db.read().clone()),
+        }
+    }
 }
 
 impl MemoryStore {
     /// Create a new, empty database.
     pub fn open() -> Self {
         Self {
-            db: Arc::new(RwLock::new(HashMap::new())),
+            db: RwLock::new(HashMap::new()),
         }
     }
 
@@ -63,5 +69,23 @@ impl Store for MemoryStore {
         self.db.write().remove(&column_key);
 
         Ok(())
+    }
+
+    /// Store a state in the store.
+    fn put_state<E: EthSpec>(
+        &self,
+        state_root: &Hash256,
+        state: &BeaconState<E>,
+    ) -> Result<(), Error> {
+        store_full_state(self, state_root, state)
+    }
+
+    /// Fetch a state from the store.
+    fn get_state<E: EthSpec>(
+        &self,
+        state_root: &Hash256,
+        _: Option<Slot>,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        get_full_state(self, state_root)
     }
 }

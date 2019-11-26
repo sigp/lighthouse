@@ -196,7 +196,7 @@ pub fn get_state<T: BeaconChainTypes>(
 
             let state = beacon_chain
                 .store
-                .get(root)?
+                .get_state(root, None)?
                 .ok_or_else(|| ApiError::NotFound(format!("No state for root: {:?}", root)))?;
 
             (*root, state)

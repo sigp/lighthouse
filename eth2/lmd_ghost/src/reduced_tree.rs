@@ -667,7 +667,7 @@ where
 
     fn iter_ancestors(&self, child: Hash256) -> Result<BlockRootsIterator<E, T>> {
         let block = self.get_block(child)?;
-        let state = self.get_state(block.state_root)?;
+        let state = self.get_state(block.state_root, block.slot)?;
 
         Ok(BlockRootsIterator::owned(self.store.clone(), state))
     }
@@ -754,9 +754,9 @@ where
             .ok_or_else(|| Error::MissingBlock(block_root))
     }
 
-    fn get_state(&self, state_root: Hash256) -> Result<BeaconState<E>> {
+    fn get_state(&self, state_root: Hash256, slot: Slot) -> Result<BeaconState<E>> {
         self.store
-            .get::<BeaconState<E>>(&state_root)?
+            .get_state(&state_root, Some(slot))?
             .ok_or_else(|| Error::MissingState(state_root))
     }
 
