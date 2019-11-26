@@ -138,7 +138,7 @@ pub fn get_deposit_count(
         timeout,
     )
     .and_then(|result| match result {
-        None => Ok(None),
+        None => Err(format!("Deposit root response was none")),
         Some(bytes) => {
             if bytes.is_empty() {
                 Ok(None)
@@ -175,7 +175,7 @@ pub fn get_deposit_root(
         timeout,
     )
     .and_then(|result| match result {
-        None => Ok(None),
+        None => Err(format!("Deposit root response was none")),
         Some(bytes) => {
             if bytes.is_empty() {
                 Ok(None)
@@ -373,12 +373,18 @@ pub fn send_rpc_request(
 
 /// Accepts an entire HTTP body (as a string) and returns the `result` field, as a serde `Value`.
 fn response_result(response: &str) -> Result<Option<Value>, String> {
-    Ok(serde_json::from_str::<Value>(&response)
-        .map_err(|e| format!("Failed to parse response: {:?}", e))?
-        .get("result")
-        .cloned()
-        .map(Some)
-        .unwrap_or_else(|| None))
+    let json = serde_json::from_str::<Value>(&response)
+        .map_err(|e| format!("Failed to parse response: {:?}", e))?;
+
+    if let Some(error) = json.get("error") {
+        Err(format!("Eth1 node returned error: {}", error))
+    } else {
+        Ok(json
+            .get("result")
+            .cloned()
+            .map(Some)
+            .unwrap_or_else(|| None))
+    }
 }
 
 /// Parses a `0x`-prefixed, **big-endian** hex string as a u64.
