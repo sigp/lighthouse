@@ -306,7 +306,7 @@ impl ConfigBuilder {
     ///
     /// - Client config
     /// - Eth2 config
-    /// - The entire database directory
+    /// - All database directories
     pub fn clean_datadir(&mut self) -> Result<()> {
         let backup_dir = {
             let mut s = String::from("backup_");
@@ -334,10 +334,8 @@ impl ConfigBuilder {
 
         move_to_backup_dir(&self.client_config.data_dir.join(CLIENT_CONFIG_FILENAME))?;
         move_to_backup_dir(&self.client_config.data_dir.join(ETH2_CONFIG_FILENAME))?;
-
-        if let Some(db_path) = self.client_config.db_path() {
-            move_to_backup_dir(&db_path)?;
-        }
+        move_to_backup_dir(&self.client_config.create_db_path()?)?;
+        move_to_backup_dir(&self.client_config.create_freezer_db_path()?)?;
 
         Ok(())
     }
@@ -475,7 +473,7 @@ impl ConfigBuilder {
     pub fn write_configs_to_new_datadir(&mut self) -> Result<()> {
         let db_exists = self
             .client_config
-            .db_path()
+            .get_db_path()
             .map(|d| d.exists())
             .unwrap_or_else(|| false);
 
@@ -531,19 +529,22 @@ impl ConfigBuilder {
         //
         // For now we return an error. In the future we may decide to boot a default (e.g.,
         // public testnet or mainnet).
-        if !self.client_config.data_dir.exists() {
+        if !self
+            .client_config
+            .get_data_dir()
+            .map_or(false, |d| d.exists())
+        {
             return Err(
                 "No datadir found. Either create a new testnet or specify a different `--datadir`."
                     .into(),
             );
         }
 
-        // If there is a path to a databse in the config, ensure it exists.
+        // If there is a path to a database in the config, ensure it exists.
         if !self
             .client_config
-            .db_path()
-            .map(|path| path.exists())
-            .unwrap_or_else(|| true)
+            .get_db_path()
+            .map_or(false, |path| path.exists())
         {
             return Err(
                 "No database found in datadir. Use 'testnet -f' to overwrite the existing \

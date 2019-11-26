@@ -17,6 +17,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .global(true)
         )
+        .arg(
+            Arg::with_name("freezer-dir")
+                .long("freezer-dir")
+                .value_name("DIR")
+                .help("Data directory for the freezer database.")
+                .takes_value(true)
+                .global(true)
+        )
         /*
          * Network parameters.
          */
