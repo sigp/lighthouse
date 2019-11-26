@@ -653,29 +653,4 @@ mod yaml_tests {
             .expect("should have applied spec");
         assert_eq!(new_spec, ChainSpec::minimal());
     }
-
-    // Stub for testing deserializing
-    // #[test]
-    // fn minimal() {
-    //     let path = "/tmp/minimal.yaml";
-    //     let file = std::fs::File::open(path).unwrap();
-    //     let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
-    //     will fail due to unused fields
-    //     assert_eq!(
-    //         yamlconfig,
-    //         YamlConfig::from_spec::<MinimalEthSpec>(&ChainSpec::minimal())
-    //     );
-    // }
-
-    // #[test]
-    // fn mainnet() {
-    //     let path = "/tmp/mainnet.yaml";
-    //     let file = std::fs::File::open(path).unwrap();
-    //     let yamlconfig: YamlConfig = serde_yaml::from_reader(file).unwrap();
-    //     will fail due to unused fields
-    //     assert_eq!(
-    //         yamlconfig,
-    //         YamlConfig::from_spec::<MainnetEthSpec>(&ChainSpec::mainnet())
-    //     );
-    // }
 }
