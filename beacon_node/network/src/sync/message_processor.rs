@@ -505,6 +505,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     );
                 }
                 AttestationProcessingOutcome::UnknownHeadBlock { beacon_block_root } => {
+                    // TODO: Maintain this attestation and re-process once sync completes
                     debug!(
                     self.log,
                     "Attestation for unknown block";

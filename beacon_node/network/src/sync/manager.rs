@@ -891,7 +891,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // remove the head block
                 let _ = completed_request.downloaded_blocks.pop();
                 completed_request.state = BlockRequestsState::Queued;
-                //TODO: Potentially downvote the peer
                 let peer = completed_request.last_submitted_peer.clone();
                 debug!(self.log, "Peer sent invalid parent.";
                 "peer_id" => format!("{:?}",peer),
@@ -919,7 +918,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             re_run_poll = true;
                             break;
                         }
-                        Ok(BlockProcessingOutcome::Processed { block_root: _ }) => {}
+                        Ok(BlockProcessingOutcome::Processed { block_root: _ })
+                        | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {}
                         Ok(outcome) => {
                             // it's a future slot or an invalid block, remove it and try again
                             completed_request.failed_attempts += 1;
