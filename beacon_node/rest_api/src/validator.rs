@@ -93,17 +93,30 @@ fn return_validator_duties<T: BeaconChainTypes>(
     epoch: Epoch,
     validator_pubkeys: Vec<PublicKey>,
 ) -> Result<Vec<ValidatorDuty>, ApiError> {
-    let mut state = beacon_chain
-        .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-        .map_err(|e| {
-            ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
-        })?;
+    let head_state = beacon_chain.head().beacon_state;
+    let head_epoch = head_state.current_epoch();
 
-    let current_epoch = state.current_epoch();
-    let relative_epoch = RelativeEpoch::from_epoch(current_epoch, epoch).map_err(|_| {
-        ApiError::BadRequest(format!(
-            "Epoch must be within one epoch of the current epoch",
-        ))
+    let relative_epoch = RelativeEpoch::from_epoch(head_epoch, epoch);
+    let mut state = if relative_epoch.is_err() {
+        head_state
+    } else {
+        match beacon_chain.state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch())) {
+            Ok(state) => state,
+            Err(e) => {
+                return Err(ApiError::ServerError(format!(
+                    "Unable to load state for epoch {}: {:?}",
+                    epoch, e
+                )))
+            }
+        }
+    };
+
+    let relative_epoch = relative_epoch.or_else(|_| {
+        RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(|_| {
+            ApiError::BadRequest(String::from(
+                "Epoch must be within one epoch of the current epoch",
+            ))
+        })
     })?;
 
     state
