@@ -34,10 +34,10 @@ where
     D: Deserializer<'de>,
 {
     let s: String = Deserialize::deserialize(deserializer)?;
-    let start = match s.as_str().get(2..) {
-        Some(start) => start,
-        None => return Err(D::Error::custom("string length too small")),
-    };
+    let start = s
+        .as_str()
+        .get(2..)
+        .ok_or_else(|| D::Error::custom("string length too small"))?;
 
     u32::from_str_radix(&start, 16)
         .map_err(D::Error::custom)
@@ -63,10 +63,10 @@ where
     let s: String = Deserialize::deserialize(deserializer)?;
     let mut array = [0 as u8; FORK_BYTES_LEN];
 
-    let start = match s.as_str().get(2..) {
-        Some(start) => start,
-        None => return Err(D::Error::custom("string length too small")),
-    };
+    let start = s
+        .as_str()
+        .get(2..)
+        .ok_or_else(|| D::Error::custom("string length too small"))?;
     let decoded: Vec<u8> = hex::decode(&start).map_err(D::Error::custom)?;
 
     if decoded.len() != FORK_BYTES_LEN {
@@ -113,10 +113,10 @@ where
     let s: String = Deserialize::deserialize(deserializer)?;
     let mut array = [0 as u8; GRAFFITI_BYTES_LEN];
 
-    let start = match s.as_str().get(2..) {
-        Some(start) => start,
-        None => return Err(D::Error::custom("string length too small")),
-    };
+    let start = s
+        .as_str()
+        .get(2..)
+        .ok_or_else(|| D::Error::custom("string length too small"))?;
     let decoded: Vec<u8> = hex::decode(&start).map_err(D::Error::custom)?;
 
     if decoded.len() > GRAFFITI_BYTES_LEN {
