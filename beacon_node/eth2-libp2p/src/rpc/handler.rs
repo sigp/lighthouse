@@ -1,4 +1,4 @@
-use super::methods::{RPCErrorResponse, RequestId};
+use super::methods::{RPCErrorResponse, RPCResponse, RequestId};
 use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
@@ -244,8 +244,16 @@ where
         }
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
-        if let RPCEvent::Request(id, request) = rpc_event {
-            if request.expect_response() {
+        match rpc_event {
+            RPCEvent::Request(id, RPCRequest::Goodbye(_)) => {
+                // notify the application layer, that a goodbye has been sent, so the application can
+                // drop and remove the peer
+                self.events_out.push(RPCEvent::Response(
+                    id,
+                    RPCErrorResponse::Success(RPCResponse::Goodbye),
+                ));
+            }
+            RPCEvent::Request(id, request) if request.expect_response() => {
                 // new outbound request. Store the stream and tag the output.
                 let delay_key = self
                     .outbound_substreams_delay
@@ -254,9 +262,10 @@ where
                     substream: out,
                     request,
                 };
-
                 self.outbound_substreams
                     .insert(id, (awaiting_stream, delay_key));
+            }
+            _ => { // a response is not expected, drop the stream for all other requests
             }
         }
     }

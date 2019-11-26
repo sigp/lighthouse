@@ -132,11 +132,16 @@ pub struct BlocksByRootRequest {
 pub enum RPCResponse {
     /// A HELLO message.
     Status(StatusMessage),
+
     /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
     /// batch.
     BlocksByRange(Vec<u8>),
+
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Vec<u8>),
+
+    /// A Goodbye message has been sent
+    Goodbye,
 }
 
 /// Indicates which response is being terminated by a stream termination response.
@@ -144,6 +149,7 @@ pub enum RPCResponse {
 pub enum ResponseTermination {
     /// Blocks by range stream termination.
     BlocksByRange,
+
     /// Blocks by root stream termination.
     BlocksByRoot,
 }
@@ -152,12 +158,16 @@ pub enum ResponseTermination {
 pub enum RPCErrorResponse {
     /// The response is a successful.
     Success(RPCResponse),
+
     /// The response was invalid.
     InvalidRequest(ErrorMessage),
+
     /// The response indicates a server error.
     ServerError(ErrorMessage),
+
     /// There was an unknown response.
     Unknown(ErrorMessage),
+
     /// Received a stream termination indicating which response is being terminated.
     StreamTermination(ResponseTermination),
 }
@@ -198,6 +208,7 @@ impl RPCErrorResponse {
                 RPCResponse::Status(_) => false,
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
+                RPCResponse::Goodbye => false,
             },
             RPCErrorResponse::InvalidRequest(_) => true,
             RPCErrorResponse::ServerError(_) => true,
@@ -241,6 +252,7 @@ impl std::fmt::Display for RPCResponse {
             RPCResponse::Status(status) => write!(f, "{}", status),
             RPCResponse::BlocksByRange(_) => write!(f, "<BlocksByRange>"),
             RPCResponse::BlocksByRoot(_) => write!(f, "<BlocksByRoot>"),
+            RPCResponse::Goodbye => write!(f, "Goodbye Sent"),
         }
     }
 }

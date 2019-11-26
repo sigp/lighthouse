@@ -163,11 +163,27 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         if local.fork_version != remote.fork_version {
             // The node is on a different network/fork, disconnect them.
             debug!(
-                self.log, "HandshakeFailure";
+                self.log, "Handshake Failure";
                 "peer" => format!("{:?}", peer_id),
                 "reason" => "network_id"
             );
 
+            self.network
+                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+        } else if remote.head_slot
+            > self.chain.slot().unwrap_or_else(|_| Slot::from(0u64)) + FUTURE_SLOT_TOLERANCE
+        {
+            // Note: If the slot_clock cannot be read, this will not error. Other system
+            // components will deal with an invalid slock clock error.
+
+            // The remotes head is on a slot that is significantly ahead of ours. This could be
+            // because they are using a different genesis time, or that theirs or our system
+            // clock is incorrect.
+            debug!(
+            self.log, "Handshake Failure";
+            "peer" => format!("{:?}", peer_id),
+            "reason" => "different system clocks or genesis time"
+            );
             self.network
                 .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
         } else if remote.finalized_epoch <= local.finalized_epoch
@@ -181,7 +197,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             //
             // Therefore, the node is on a different chain and we should not communicate with them.
             debug!(
-                self.log, "HandshakeFailure";
+                self.log, "Handshake Failure";
                 "peer" => format!("{:?}", peer_id),
                 "reason" => "different finalized chain"
             );
@@ -471,24 +487,34 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     /// Process a gossip message declaring a new attestation.
     ///
     /// Not currently implemented.
-    pub fn on_attestation_gossip(&mut self, _peer_id: PeerId, msg: Attestation<T::EthSpec>) {
+    pub fn on_attestation_gossip(&mut self, peer_id: PeerId, msg: Attestation<T::EthSpec>) {
         match self.chain.process_attestation(msg.clone()) {
-            Ok(outcome) => {
-                info!(
-                    self.log,
-                    "Processed attestation";
-                    "source" => "gossip",
-                    "outcome" => format!("{:?}", outcome)
-                );
-
-                if outcome != AttestationProcessingOutcome::Processed {
-                    trace!(
+            Ok(outcome) => match outcome {
+                AttestationProcessingOutcome::Processed => {
+                    info!(
                         self.log,
-                        "Invalid gossip attestation ssz";
-                        "ssz" => format!("0x{}", hex::encode(msg.as_ssz_bytes())),
+                        "Processed attestation";
+                        "source" => "gossip",
+                        "outcome" => format!("{:?}", outcome)
                     );
                 }
-            }
+                AttestationProcessingOutcome::UnknownHeadBlock { beacon_block_root } => {
+                    debug!(
+                    self.log,
+                    "Attestation for unknown block";
+                    "peer_id" => format!("{:?}", peer_id),
+                    "block" => format!("{}", beacon_block_root)
+                    );
+                    // we don't know the block, get the sync manager to handle the block lookup
+                    self.send_to_sync(SyncMessage::UnknownBlockHash(peer_id, beacon_block_root));
+                }
+                AttestationProcessingOutcome::AttestsToFutureState { .. }
+                | AttestationProcessingOutcome::FinalizedSlot { .. } => {} // ignore the attestion
+                AttestationProcessingOutcome::Invalid { .. } => {
+                    // the peer has sent a bad attestation. Remove them.
+                    self.network.disconnect(peer_id, GoodbyeReason::Fault);
+                }
+            },
             Err(e) => {
                 trace!(
                     self.log,

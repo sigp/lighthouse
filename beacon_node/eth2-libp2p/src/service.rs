@@ -9,9 +9,9 @@ use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
     identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, nodes::Substream,
-    transport::boxed::Boxed, ConnectedPoint,
+    transport::boxed::Boxed,
 };
-use libp2p::{core, secio, swarm::NetworkBehaviour, PeerId, Swarm, Transport};
+use libp2p::{core, secio, PeerId, Swarm, Transport};
 use slog::{crit, debug, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
@@ -31,10 +31,6 @@ pub struct Service {
 
     /// This node's PeerId.
     pub local_peer_id: PeerId,
-
-    /// A list of peers to be banned. This is stored to enable a `Goodbye` RPC request to be sent
-    /// before kicking the peer.
-    pub to_ban_peers: smallvec::SmallVec<[PeerId; 2]>,
 
     /// Indicates if the listening address have been verified and compared to the expected ENR.
     pub verified_listen_address: bool,
@@ -161,7 +157,6 @@ impl Service {
             local_peer_id,
             swarm,
             verified_listen_address: false,
-            to_ban_peers: smallvec::SmallVec::new(),
             log,
         })
     }
@@ -216,23 +211,6 @@ impl Stream for Service {
                         }
                     }
 
-                    // if there are peers to ban, ban them
-                    while !self.to_ban_peers.is_empty() {
-                        let peer_id = self.to_ban_peers.remove(0);
-                        warn!(self.log, "Disconnecting and banning peer"; "peer_id" => format!("{:?}", peer_id));
-                        //Swarm::ban_peer_id(&mut self.swarm, peer_id.clone());
-                        // TODO: Correctly notify protocols of the disconnect
-                        // TOOD: Also remove peer from the DHT: https://github.com/sigp/lighthouse/issues/629
-                        let dummy_connected_point = ConnectedPoint::Dialer {
-                            address: "/ip4/0.0.0.0"
-                                .parse::<Multiaddr>()
-                                .expect("valid multiaddr"),
-                        };
-                        //self.swarm
-                        //    .inject_disconnected(&peer_id, dummy_connected_point);
-                        // inform the behaviour that the peer has been banned
-                        self.swarm.peer_banned(peer_id);
-                    }
                     break;
                 }
                 _ => break,

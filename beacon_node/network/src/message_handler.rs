@@ -191,6 +191,9 @@ impl<T: BeaconChainTypes + 'static> MessageHandler<T> {
                             }
                         }
                     }
+                    RPCResponse::Goodbye => {
+                        // A goodbye was successfully sent, ignore it
+                    }
                 }
             }
             RPCErrorResponse::StreamTermination(response_type) => {
