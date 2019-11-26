@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
+mod keystore;
 mod validator_store;
 
 pub mod validator_directory;
