@@ -11,7 +11,11 @@ where
 {
     let s: String = Deserialize::deserialize(deserializer)?;
 
-    u8::from_str_radix(&s.as_str()[2..], 16).map_err(D::Error::custom)
+    let start = match s.as_str().get(2..) {
+        Some(start) => start,
+        None => return Err(D::Error::custom("string length too small")),
+    };
+    u8::from_str_radix(&start, 16).map_err(D::Error::custom)
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // Serde requires the `byte` to be a ref.
@@ -30,8 +34,12 @@ where
     D: Deserializer<'de>,
 {
     let s: String = Deserialize::deserialize(deserializer)?;
+    let start = match s.as_str().get(2..) {
+        Some(start) => start,
+        None => return Err(D::Error::custom("string length too small")),
+    };
 
-    u32::from_str_radix(&s.as_str()[2..], 16)
+    u32::from_str_radix(&start, 16)
         .map_err(D::Error::custom)
         .map(u32::from_be)
 }
@@ -54,7 +62,12 @@ where
 {
     let s: String = Deserialize::deserialize(deserializer)?;
     let mut array = [0 as u8; FORK_BYTES_LEN];
-    let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
+
+    let start = match s.as_str().get(2..) {
+        Some(start) => start,
+        None => return Err(D::Error::custom("string length too small")),
+    };
+    let decoded: Vec<u8> = hex::decode(&start).map_err(D::Error::custom)?;
 
     if decoded.len() != FORK_BYTES_LEN {
         return Err(D::Error::custom("Fork length too long"));
@@ -99,7 +112,12 @@ where
 {
     let s: String = Deserialize::deserialize(deserializer)?;
     let mut array = [0 as u8; GRAFFITI_BYTES_LEN];
-    let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
+
+    let start = match s.as_str().get(2..) {
+        Some(start) => start,
+        None => return Err(D::Error::custom("string length too small")),
+    };
+    let decoded: Vec<u8> = hex::decode(&start).map_err(D::Error::custom)?;
 
     if decoded.len() > GRAFFITI_BYTES_LEN {
         return Err(D::Error::custom("Fork length too long"));
