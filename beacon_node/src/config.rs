@@ -299,7 +299,7 @@ fn process_testnet_subcommand(
             // https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/validator/0_beacon-chain-validator.md#eth1-data
             const SECONDS_PER_ETH1_BLOCK: u64 = 15;
             // TODO: set from 10 back to 2
-            spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 10;
+            spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2;
 
             builder.set_genesis(ClientGenesis::DepositContract)
         }
