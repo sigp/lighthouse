@@ -413,8 +413,6 @@ pub struct YamlConfig {
     max_seed_lookahead: u32,
     #[serde(skip_serializing)]
     deposit_contract_address: String,
-    #[serde(skip_serializing)]
-    max_epochs_per_crosslink: u64,
 
     // Phase 1
     #[serde(skip_serializing)]
@@ -435,6 +433,8 @@ pub struct YamlConfig {
     domain_shard_proposer: u32,
     #[serde(skip_serializing)]
     domain_shard_attester: u32,
+    #[serde(skip_serializing)]
+    max_epochs_per_crosslink: u64,
 }
 
 impl Default for YamlConfig {
@@ -506,7 +506,6 @@ impl YamlConfig {
             early_derived_secret_penalty_max_future_epochs: 0,
             max_seed_lookahead: 0,
             deposit_contract_address: String::new(),
-            max_epochs_per_crosslink: 0,
 
             // Phase 1
             epochs_per_custody_period: 0,
@@ -518,6 +517,7 @@ impl YamlConfig {
             domain_custody_bit_challenge: 0,
             domain_shard_proposer: 0,
             domain_shard_attester: 0,
+            max_epochs_per_crosslink: 0,
         }
     }
 
