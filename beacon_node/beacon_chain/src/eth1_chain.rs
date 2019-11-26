@@ -301,12 +301,14 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
 ) -> Result<Hash256, Error> {
     let period = T::SlotsPerEth1VotingPeriod::to_u64();
 
-    // Find `state.eth1_data.block_hash` for the state at the start of the voting period.
-    if state.slot % period < period / 2 {
-        // When the state is less than half way through the period we can safely assume that
-        // the eth1_data has not changed since the start of the period.
+    if (state.eth1_data_votes.len() as u64) < period / 2 {
+        // If there are less than 50% of the votes in the current state, it's impossible that the
+        // `eth1_data.block_hash` has changed from the value at `state.eth1_data.block_hash`.
         Ok(state.eth1_data.block_hash)
     } else {
+        // If there have been more than 50% of votes in this period it's possible (but not
+        // necessary) that the `state.eth1_data.block_hash` has been changed since the start of the
+        // voting period.
         let slot = (state.slot / period) * period;
         let prev_state_root = state
             .get_state_root(slot)
