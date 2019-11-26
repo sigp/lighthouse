@@ -280,11 +280,6 @@ fn process_testnet_subcommand(
                 eth2_testnet_dir.deposit_contract_deploy_block;
             spec.min_genesis_time = eth2_testnet_dir.min_genesis_time;
 
-            // Note: these constants _should_ only be used during genesis to determine the genesis
-            // time. This allows the testnet to start shortly after the time + validator count
-            // conditions are satisfied, not 1-2 days.
-            spec.seconds_per_day = 60;
-
             client_config.eth1.follow_distance = 16;
             client_config.dummy_eth1_backend = false;
             client_config.sync_eth1_chain = true;
@@ -292,6 +287,19 @@ fn process_testnet_subcommand(
                 .eth1
                 .deposit_contract_deploy_block
                 .saturating_sub(client_config.eth1.follow_distance * 2);
+
+            // Note: these constants _should_ only be used during genesis to determine the genesis
+            // time. This allows the testnet to start shortly after the time + validator count
+            // conditions are satisfied, not 1-2 days.
+            //
+            // This value must be at least 2x the `ETH1_FOLLOW_DISTANCE` otherwise `all_eth1_data`
+            // can become a subset of `new_eth1_data`.
+            //
+            // See:
+            // https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/validator/0_beacon-chain-validator.md#eth1-data
+            const SECONDS_PER_ETH1_BLOCK: u64 = 15;
+            // TODO: set from 10 back to 2
+            spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 10;
 
             builder.set_genesis(ClientGenesis::DepositContract)
         }
