@@ -112,6 +112,8 @@ pub trait Store: Sync + Send + Sized + 'static {
 /// A unique column identifier.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DBColumn {
+    /// For data related to the database itself.
+    BeaconMeta,
     BeaconBlock,
     BeaconState,
     BeaconChain,
@@ -125,6 +127,7 @@ impl Into<&'static str> for DBColumn {
     /// Returns a `&str` that can be used for keying a key-value data base.
     fn into(self) -> &'static str {
         match self {
+            DBColumn::BeaconMeta => "bma",
             DBColumn::BeaconBlock => "blk",
             DBColumn::BeaconState => "ste",
             DBColumn::BeaconChain => "bch",

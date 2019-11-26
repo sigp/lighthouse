@@ -2,13 +2,19 @@ use crate::chunked_vector::{
     store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
 use crate::iter::StateRootsIterator;
-use crate::{leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, Store, StoreItem};
+use crate::{
+    leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, SimpleStoreItem, Store, StoreItem,
+};
 use parking_lot::RwLock;
 use slog::{info, trace, Logger};
+use ssz::{Decode, Encode};
 use std::convert::TryInto;
 use std::path::Path;
 use std::sync::Arc;
 use types::*;
+
+/// 32-byte key for accessing the `split_slot` of the freezer DB.
+pub const SPLIT_SLOT_DB_KEY: &str = "FREEZERDBSPLITSLOTFREEZERDBSPLIT";
 
 pub struct HotColdDB {
     /// The slot before which all data is stored in the cold database.
@@ -131,6 +137,7 @@ impl Store for HotColdDB {
 
         // 2. Update the split slot
         *store.split_slot.write() = frozen_head.slot;
+        store.store_split_slot()?;
 
         // 3. Delete from the hot DB
         for state_root in to_delete {
@@ -156,13 +163,19 @@ impl HotColdDB {
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Self, Error> {
-        Ok(HotColdDB {
+        let db = HotColdDB {
             split_slot: RwLock::new(Slot::new(0)),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             spec,
             log,
-        })
+        };
+        // Load the previous split slot from the database (if any). This ensures we can
+        // stop and restart correctly.
+        if let Some(split_slot) = db.load_split_slot()? {
+            *db.split_slot.write() = split_slot;
+        }
+        Ok(db)
     }
 
     pub fn store_archive_state<E: EthSpec>(
@@ -212,5 +225,36 @@ impl HotColdDB {
 
     pub fn get_split_slot(&self) -> Slot {
         *self.split_slot.read()
+    }
+
+    fn load_split_slot(&self) -> Result<Option<Slot>, Error> {
+        let key = Hash256::from_slice(SPLIT_SLOT_DB_KEY.as_bytes());
+        let split_slot: Option<SplitSlot> = self.hot_db.get(&key)?;
+        Ok(split_slot.map(|s| Slot::new(s.0)))
+    }
+
+    fn store_split_slot(&self) -> Result<(), Error> {
+        let key = Hash256::from_slice(SPLIT_SLOT_DB_KEY.as_bytes());
+        self.hot_db
+            .put(&key, &SplitSlot(self.get_split_slot().as_u64()))?;
+        Ok(())
+    }
+}
+
+/// Struct for storing the split slot in the database.
+#[derive(Clone, Copy)]
+struct SplitSlot(u64);
+
+impl SimpleStoreItem for SplitSlot {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconMeta
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.0.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(SplitSlot(u64::from_ssz_bytes(bytes)?))
     }
 }

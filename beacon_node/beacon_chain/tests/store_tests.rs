@@ -203,6 +203,33 @@ fn randao_genesis_storage() {
     check_chain_dump(&harness, num_slots + 1);
 }
 
+// Check that closing and reopening a freezer DB restores the split slot to its correct value.
+#[test]
+fn split_slot_restore() {
+    let db_path = tempdir().unwrap();
+
+    let split_slot = {
+        let store = get_store(&db_path);
+        let harness = get_harness(store.clone(), VALIDATOR_COUNT);
+
+        let num_blocks = 4 * E::slots_per_epoch();
+
+        harness.extend_chain(
+            num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        );
+
+        store.get_split_slot()
+    };
+    assert_ne!(split_slot, Slot::new(0));
+
+    // Re-open the store
+    let store = get_store(&db_path);
+
+    assert_eq!(store.get_split_slot(), split_slot);
+}
+
 /// Check that the head state's slot matches `expected_slot`.
 fn check_slot(harness: &TestHarness, expected_slot: u64) {
     let state = &harness.chain.head().beacon_state;
