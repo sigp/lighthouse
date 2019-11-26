@@ -587,7 +587,6 @@ impl ConfigBuilder {
             .map_err(|e| format!("Unable to parse default listen address: {:?}", e))?;
 
         self.client_config.network.listen_address = addr.into();
-        self.client_config.rpc.listen_address = addr;
         self.client_config.rest_api.listen_address = addr;
 
         Ok(())
@@ -607,7 +606,6 @@ impl ConfigBuilder {
 
             self.client_config.network.libp2p_port += bump;
             self.client_config.network.discovery_port += bump;
-            self.client_config.rpc.port += bump;
             self.client_config.rest_api.port += bump;
             self.client_config.websocket_server.port += bump;
         }

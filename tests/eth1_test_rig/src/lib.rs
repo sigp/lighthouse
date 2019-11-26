@@ -7,27 +7,20 @@
 //! some initial issues.
 mod ganache;
 
+use deposit_contract::{eth1_tx_data, ABI, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS};
 use futures::{stream, Future, IntoFuture, Stream};
 use ganache::GanacheInstance;
-use ssz::Encode;
 use std::time::{Duration, Instant};
 use tokio::{runtime::Runtime, timer::Delay};
 use types::DepositData;
 use types::{EthSpec, Hash256, Keypair, Signature};
 use web3::contract::{Contract, Options};
 use web3::transports::Http;
-use web3::types::{Address, U256};
+use web3::types::{Address, TransactionRequest, U256};
 use web3::{Transport, Web3};
 
 pub const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
 pub const DEPOSIT_ACCOUNTS_INDEX: usize = 0;
-
-const CONTRACT_DEPLOY_GAS: usize = 4_000_000;
-const DEPOSIT_GAS: usize = 4_000_000;
-
-// Deposit contract
-pub const ABI: &[u8] = include_bytes!("../contract/v0.8.3_validator_registration.json");
-pub const BYTECODE: &[u8] = include_bytes!("../contract/v0.8.3_validator_registration.bytecode");
 
 /// Provides a dedicated ganache-cli instance with the deposit contract already deployed.
 pub struct GanacheEth1Instance {
@@ -138,6 +131,7 @@ impl DepositContract {
         deposit_data: DepositData,
     ) -> impl Future<Item = (), Error = String> {
         let contract = self.contract.clone();
+        let web3_1 = self.web3.clone();
 
         self.web3
             .eth()
@@ -149,19 +143,27 @@ impl DepositContract {
                     .cloned()
                     .ok_or_else(|| "Insufficient accounts for deposit".to_string())
             })
-            .and_then(move |from_address| {
-                let params = (
-                    deposit_data.pubkey.as_ssz_bytes(),
-                    deposit_data.withdrawal_credentials.as_ssz_bytes(),
-                    deposit_data.signature.as_ssz_bytes(),
-                );
-                let options = Options {
+            .and_then(move |from| {
+                let tx_request = TransactionRequest {
+                    from,
+                    to: Some(contract.address()),
                     gas: Some(U256::from(DEPOSIT_GAS)),
+                    gas_price: None,
                     value: Some(from_gwei(deposit_data.amount)),
-                    ..Options::default()
+                    // Note: the reason we use this `TransactionRequest` instead of just using the
+                    // function in `self.contract` is so that the `eth1_tx_data` function gets used
+                    // during testing.
+                    //
+                    // It's important that `eth1_tx_data` stays correct and does not suffer from
+                    // code-rot.
+                    data: eth1_tx_data(&deposit_data).map(Into::into).ok(),
+                    nonce: None,
+                    condition: None,
                 };
-                contract
-                    .call("deposit", params, from_address, options)
+
+                web3_1
+                    .eth()
+                    .send_transaction(tx_request)
                     .map_err(|e| format!("Failed to call deposit fn: {:?}", e))
             })
             .map(|_| ())

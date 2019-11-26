@@ -65,6 +65,35 @@ impl SlotClock for SystemTimeSlotClock {
         }
     }
 
+    fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration> {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+        let genesis = self.genesis_duration;
+
+        let slot_start = |slot: Slot| -> Duration {
+            let slot = slot.as_u64() as u32;
+            genesis + slot * self.slot_duration
+        };
+
+        let epoch_start_slot = self
+            .now()
+            .map(|slot| slot.epoch(slots_per_epoch))
+            .map(|epoch| (epoch + 1).start_slot(slots_per_epoch))?;
+
+        if now >= genesis {
+            Some(
+                slot_start(epoch_start_slot)
+                    .checked_sub(now)
+                    .expect("The next epoch cannot start before now"),
+            )
+        } else {
+            Some(
+                genesis
+                    .checked_sub(now)
+                    .expect("Control flow ensures genesis is greater than or equal to now"),
+            )
+        }
+    }
+
     fn slot_duration(&self) -> Duration {
         self.slot_duration
     }

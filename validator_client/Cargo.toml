@@ -9,15 +9,12 @@ name = "validator_client"
 path = "src/lib.rs"
 
 [dependencies]
-bls = { path = "../eth2/utils/bls" }
 eth2_ssz = "0.1.2"
 eth2_config = { path = "../eth2/utils/eth2_config" }
 tree_hash = "0.1.0"
 clap = "2.33.0"
 lighthouse_bootstrap = { path = "../eth2/utils/lighthouse_bootstrap" }
 eth2_interop_keypairs = { path = "../eth2/utils/eth2_interop_keypairs" }
-grpcio = { version = "0.4.6", default-features = false, features = ["protobuf-codec"] }
-protos = { path = "../protos" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
 types = { path = "../eth2/types" }
 serde = "1.0.102"
@@ -37,3 +34,10 @@ environment = { path = "../lighthouse/environment" }
 parking_lot = "0.7"
 exit-future = "0.1.4"
 libc = "0.2.65"
+eth2_ssz_derive = { path = "../eth2/utils/ssz_derive" }
+hex = "0.4"
+deposit_contract = { path = "../eth2/utils/deposit_contract" }
+bls = { path = "../eth2/utils/bls" }
+remote_beacon_node = { path = "../eth2/utils/remote_beacon_node" }
+tempdir = "0.3"
+rayon = "1.2.0"
