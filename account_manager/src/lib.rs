@@ -5,7 +5,6 @@ use environment::RuntimeContext;
 use rayon::prelude::*;
 use slog::{crit, info};
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpec};
 use validator_client::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
@@ -72,6 +71,8 @@ enum KeygenMethod {
     Insecure(usize),
     /// Generate a new key from the `rand` thread random RNG.
     ThreadRandom,
+    /// Generate a BLS12-381 format keystore from the `rand` thread random RNG.
+    KeystoreRandom,
 }
 
 /// Process the subcommand for creating new validators.
@@ -106,6 +107,15 @@ fn run_new_validator_subcommand<T: EthSpec>(
 
             (0..count).map(|_| KeygenMethod::ThreadRandom).collect()
         }
+        ("keystore", Some(matches)) => {
+            let count = matches
+                .value_of("validator_count")
+                .ok_or_else(|| "No validator count".to_string())?
+                .parse::<usize>()
+                .map_err(|e| format!("Unable to parse validator count: {}", e))?;
+
+            (0..count).map(|_| KeygenMethod::KeystoreRandom).collect()
+        }
         _ => {
             return Err("Invalid 'validator' command. See --help.".to_string());
         }
@@ -139,6 +149,7 @@ fn make_validators(
             builder = match method {
                 KeygenMethod::Insecure(index) => builder.insecure_keypairs(*index),
                 KeygenMethod::ThreadRandom => builder.thread_random_keypairs(),
+                KeygenMethod::KeystoreRandom => unimplemented!(),
             };
 
             builder
@@ -148,42 +159,4 @@ fn make_validators(
                 .build()
         })
         .collect()
-}
-
-/// Generate and store validator and withdrawal keystores.
-fn generate_deposit_keystores(log: &slog::Logger) {
-    // Get password from user
-    // TODO: fix the order of log and print
-    print!("Enter password: ");
-    std::io::stdout().flush().unwrap();
-    let password = read_password().expect("Unable to read password");
-
-    // Generate keypairs
-    let validator_keypair = Keypair::random();
-    let withdrawal_keypair = Keypair::random();
-
-    // Note: Validator and withdrawal keystores have same uuid
-    let validator_keystore =
-        Keystore::to_keystore(&validator_keypair, password.clone(), None, None, None);
-    let withdrawal_keystore = Keystore::to_keystore(
-        &withdrawal_keypair,
-        password,
-        None,
-        None,
-        Some(validator_keystore.uuid),
-    );
-    debug!(log, "Saving keys in keystores");
-    save_keystore(&validator_keystore, KeyType::Voting, log);
-    save_keystore(&withdrawal_keystore, KeyType::Withdrawal, log);
-}
-
-fn save_keystore(keystore: &Keystore, key_type: KeyType, log: &slog::Logger) {
-    let key_path: PathBuf = keystore
-        .save_keystore(PathBuf::from(DEFAULT_DATA_DIR), key_type)
-        .unwrap();
-    debug!(
-        log,
-        "Keystore file generated ,saved to: {:?}",
-        key_path.to_string_lossy()
-    );
 }
