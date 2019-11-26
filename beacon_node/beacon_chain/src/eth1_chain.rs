@@ -205,9 +205,22 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
 
         let blocks = self.core.blocks().read();
 
-        let (new_eth1_data, all_eth1_data) = if let Some(sets) =
-            eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec, &self.log)
-        {
+        let period = T::SlotsPerEth1VotingPeriod::to_u64();
+        let eth1_follow_distance = spec.eth1_follow_distance;
+        let voting_period_start_slot = (state.slot / period) * period;
+        let voting_period_start_seconds = slot_start_seconds::<T>(
+            state.genesis_time,
+            spec.milliseconds_per_slot,
+            voting_period_start_slot,
+        );
+
+        let (new_eth1_data, all_eth1_data) = if let Some(sets) = eth1_data_sets(
+            blocks.iter(),
+            prev_eth1_hash,
+            voting_period_start_seconds,
+            spec,
+            &self.log,
+        ) {
             sets
         } else {
             crit!(
@@ -233,13 +246,24 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
         let eth1_data = if let Some(eth1_data) = find_winning_vote(valid_votes) {
             eth1_data
         } else {
-            crit!(
-                self.log,
-                "Unable to find a winning eth1 vote";
-                "outcome" => "casting random eth1 vote"
-            );
+            blocks
+                .iter()
+                .rev()
+                .skip_while(|eth1_block| eth1_block.timestamp > voting_period_start_seconds)
+                .skip(eth1_follow_distance as usize)
+                .take(1)
+                .collect::<Vec<_>>()
+                .first()
+                .and_then(|&block| block.clone().eth1_data())
+                .unwrap_or_else(|| {
+                    crit!(
+                        self.log,
+                        "Unable to find a winning eth1 vote";
+                        "outcome" => "casting random eth1 vote"
+                    );
 
-            return Ok(random_eth1_data());
+                    random_eth1_data()
+                })
         };
 
         Ok(eth1_data)
@@ -329,25 +353,17 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
 ///
 /// `prev_eth1_hash` is the `eth1_data.block_hash` at the start of the voting period defined by
 /// `state.slot`.
-fn eth1_data_sets<'a, T: EthSpec, I>(
+fn eth1_data_sets<'a, I>(
     blocks: I,
-    state: &BeaconState<T>,
     prev_eth1_hash: Hash256,
+    voting_period_start_seconds: u64,
     spec: &ChainSpec,
     log: &Logger,
 ) -> Option<(Eth1DataBlockNumber, Eth1DataBlockNumber)>
 where
-    T: EthSpec,
     I: DoubleEndedIterator<Item = &'a Eth1Block> + Clone,
 {
-    let period = T::SlotsPerEth1VotingPeriod::to_u64();
     let eth1_follow_distance = spec.eth1_follow_distance;
-    let voting_period_start_slot = (state.slot / period) * period;
-    let voting_period_start_seconds = slot_start_seconds::<T>(
-        state.genesis_time,
-        spec.milliseconds_per_slot,
-        voting_period_start_slot,
-    );
 
     let in_scope_eth1_data = blocks
         .rev()
@@ -788,6 +804,16 @@ mod test {
     mod eth1_data_sets {
         use super::*;
 
+        fn get_voting_period_start_seconds(state: &BeaconState<E>, spec: &ChainSpec) -> u64 {
+            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+            let voting_period_start_slot = (state.slot / period) * period;
+            slot_start_seconds::<E>(
+                state.genesis_time,
+                spec.milliseconds_per_slot,
+                voting_period_start_slot,
+            )
+        }
+
         #[test]
         fn empty_cache() {
             let log = null_logger().unwrap();
@@ -799,7 +825,13 @@ mod test {
             let blocks = vec![];
 
             assert_eq!(
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec, &log),
+                eth1_data_sets(
+                    blocks.iter(),
+                    prev_eth1_hash,
+                    get_voting_period_start_seconds(&state, spec),
+                    &spec,
+                    &log
+                ),
                 None
             );
         }
@@ -817,7 +849,13 @@ mod test {
             let blocks = vec![get_eth1_block(0, 0)];
 
             assert_eq!(
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec, &log),
+                eth1_data_sets(
+                    blocks.iter(),
+                    prev_eth1_hash,
+                    get_voting_period_start_seconds(&state, &spec),
+                    &spec,
+                    &log
+                ),
                 None
             );
         }
@@ -842,9 +880,14 @@ mod test {
                 .map(|i| get_eth1_block(i, i))
                 .collect::<Vec<_>>();
 
-            let (new_eth1_data, all_eth1_data) =
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec, &log)
-                    .expect("should find data");
+            let (new_eth1_data, all_eth1_data) = eth1_data_sets(
+                blocks.iter(),
+                prev_eth1_hash,
+                get_voting_period_start_seconds(&state, &spec),
+                &spec,
+                &log,
+            )
+            .expect("should find data");
 
             assert_eq!(
                 all_eth1_data.len(),
