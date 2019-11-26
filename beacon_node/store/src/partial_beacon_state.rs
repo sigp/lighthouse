@@ -64,11 +64,6 @@ where
     pub previous_justified_checkpoint: Checkpoint,
     pub current_justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
-
-    // Caching (not in the spec)
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
-    pub committee_caches: [CommitteeCache; CACHED_EPOCHS],
 }
 
 impl<T: EthSpec> PartialBeaconState<T> {
@@ -113,9 +108,6 @@ impl<T: EthSpec> PartialBeaconState<T> {
             previous_justified_checkpoint: s.previous_justified_checkpoint.clone(),
             current_justified_checkpoint: s.current_justified_checkpoint.clone(),
             finalized_checkpoint: s.finalized_checkpoint.clone(),
-
-            // Caching
-            committee_caches: s.committee_caches.clone(),
         }
     }
 
@@ -216,7 +208,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
             finalized_checkpoint: self.finalized_checkpoint,
 
             // Caching
-            committee_caches: self.committee_caches,
+            committee_caches: <_>::default(),
             pubkey_cache: <_>::default(),
             exit_cache: <_>::default(),
             tree_hash_cache: <_>::default(),
