@@ -105,6 +105,19 @@ fn load_keypair(base_path: PathBuf, file_prefix: &str) -> Result<Keypair, String
         .map_err(|e| format!("Unable to decode keypair: {:?}", e))
 }
 
+/// Load a `Keystore` from a file.
+fn load_keystore(path: PathBuf, password: String) -> Result<Keystore, String> {
+    if !path.exists() {
+        return Err(format!("Keypair file does not exist: {:?}", path));
+    }
+
+    let mut key_file =
+        File::open(path.clone()).map_err(|e| format!("Unable to open keystore file: {}", e))?;
+    let keystore: Keystore = serde_json::from_reader(&mut key_file)
+        .map_err(|e| format!("Invalid keystore format: {:?}", e))?;
+    Ok(keystore)
+}
+
 /// Load eth1_deposit_data from file.
 fn load_eth1_deposit_data(base_path: PathBuf) -> Result<Vec<u8>, String> {
     let path = base_path.join(ETH1_DEPOSIT_DATA_FILE);

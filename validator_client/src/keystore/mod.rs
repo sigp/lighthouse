@@ -8,8 +8,6 @@ use crate::keystore::kdf::Kdf;
 use bls::{Keypair, PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
-use std::fs::File;
-use std::path::PathBuf;
 use uuid::Uuid;
 
 const PRIVATE_KEY_BYTES: usize = 48;
@@ -42,7 +40,7 @@ pub struct Keystore {
 impl Keystore {
     /// Generate `Keystore` object for a BLS12-381 secret key from a
     /// keypair and password. Optionally, provide params for kdf, cipher and a uuid.
-    pub fn to_keystore(
+    pub fn new(
         keypair: &Keypair,
         password: String,
         kdf: Option<Kdf>,
@@ -67,27 +65,13 @@ impl Keystore {
         }
     }
 
-    /// Regenerate a BLS12-381 `Keypair` given path to the keystore file and
-    /// the correct password.
-    ///
-    /// An error is returned if the secret in the file does not contain a valid
-    /// `Keystore` or if the secret contained is not a
-    /// BLS12-381 secret key or if the password provided is incorrect.
-    pub fn read_keystore_file(keystore_path: PathBuf, password: String) -> Result<Keypair, String> {
-        let mut key_file = File::open(keystore_path.clone())
-            .map_err(|e| format!("Unable to open keystore file: {}", e))?;
-        let keystore: Keystore = serde_json::from_reader(&mut key_file)
-            .map_err(|e| format!("Invalid keystore format: {:?}", e))?;
-        return keystore.from_keystore(password);
-    }
-
     /// Regenerate a BLS12-381 `Keypair` from given the `Keystore` object and
     /// the correct password.
     ///
     /// An error is returned if the password provided is incorrect or if
     /// keystore does not contain valid hex strings or if the secret contained is not a
     /// BLS12-381 secret key.
-    fn from_keystore(&self, password: String) -> Result<Keypair, String> {
+    fn to_keypair(&self, password: String) -> Result<Keypair, String> {
         let sk_bytes = self.crypto.decrypt(password)?;
         if sk_bytes.len() != 32 {
             return Err(format!("Invalid secret key size: {:?}", sk_bytes));
@@ -96,7 +80,9 @@ impl Keystore {
         let sk = SecretKey::from_bytes(&padded_sk_bytes)
             .map_err(|e| format!("Invalid secret key in keystore {:?}", e))?;
         let pk = PublicKey::from_secret_key(&sk);
-        debug_assert_eq!(pk.as_hex_string()[2..].to_string(), self.pubkey);
+        if pk.as_hex_string()[2..].to_string() != self.pubkey {
+            return Err(format!("Decoded pubkey doesn't match keystore pubkey"));
+        }
         Ok(Keypair { sk, pk })
     }
 }
@@ -185,7 +171,7 @@ mod tests {
         let test_vectors = vec![scrypt_test_vector, pbkdf2_test_vector];
         for test in test_vectors {
             let keystore: Keystore = serde_json::from_str(test).unwrap();
-            let keypair = keystore.from_keystore(password.clone()).unwrap();
+            let keypair = keystore.to_keypair(password.clone()).unwrap();
             let expected_sk = pad_secret_key(&hex::decode(expected_secret).unwrap());
             assert_eq!(keypair.sk.as_raw().as_bytes(), expected_sk.to_vec())
         }
