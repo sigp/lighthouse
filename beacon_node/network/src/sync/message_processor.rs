@@ -180,7 +180,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             > self.chain.slot().unwrap_or_else(|_| Slot::from(0u64)) + FUTURE_SLOT_TOLERANCE
         {
             // Note: If the slot_clock cannot be read, this will not error. Other system
-            // components will deal with an invalid slock clock error.
+            // components will deal with an invalid slot clock error.
 
             // The remotes head is on a slot that is significantly ahead of ours. This could be
             // because they are using a different genesis time, or that theirs or our system

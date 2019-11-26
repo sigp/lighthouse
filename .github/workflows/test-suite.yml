@@ -16,6 +16,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run tests in release
@@ -25,6 +27,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run tests in debug
@@ -34,6 +38,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Run eth2.0-spec-tests with and without fake_crypto
       run: make test-ef
   dockerfile-ubuntu:
