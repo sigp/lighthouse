@@ -243,8 +243,6 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
     }
 
     fn open(path: &Path, curr_slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
-        let curr_slots_per_epoch =
-            curr_slots_per_epoch.ok_or_else(|| NotSafe::NoSlotsPerEpochProvided)?;
         let manager =
             SqliteConnectionManager::file(path).with_flags(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let conn_pool = Pool::new(manager)
@@ -273,6 +271,7 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
             Ok(u64_slot)
         })?;
 
+        let curr_slots_per_epoch = curr_slots_per_epoch.unwrap_or(slots_per_epoch);
         // check that the slots_per_epoch provided is the same one as the one stored in db
         if curr_slots_per_epoch != slots_per_epoch {
             return Err(NotSafe::SQLError(format!(
@@ -574,6 +573,27 @@ mod single_threaded_tests {
 
         assert!(block_history.is_err(), "should have resulted in an error");
         assert_eq!(block_history.unwrap_err(), NotSafe::NoSlotsPerEpochProvided);
+    }
+
+    #[test]
+    fn open_with_no_slots_per_epoch() {
+        let block_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let block_filename = block_file.path();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+
+        let _: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::empty(block_filename, Some(slots_per_epoch))
+                .expect("IO error with file");
+
+        let second_open: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::open(block_filename, None).expect("IO error with file");
+        let db_slots_per_epoch = second_open
+            .slots_per_epoch()
+            .expect("should have retrieved a valid slots_per_epoch");
+        assert_eq!(
+            db_slots_per_epoch, slots_per_epoch,
+            "slots epoch should be the same"
+        );
     }
 
     #[test]

@@ -34,15 +34,6 @@ impl SignedBlock {
     }
 }
 
-// impl From<&BeaconBlockHeader> for SignedBlock {
-//     fn from(header: &BeaconBlockHeader, slots_per_epoch: u64) -> Self {
-//         Self {
-//             epoch: header.slot.epoch(slots_per_epoch),
-//             signing_root: header.canonical_root(),
-//         }
-//     }
-// }
-
 impl ValidatorHistory<SignedBlock> {
     pub fn check_for_proposer_slashing(
         &self,
