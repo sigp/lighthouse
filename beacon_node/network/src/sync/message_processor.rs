@@ -18,7 +18,7 @@ use store::Store;
 use tokio::sync::{mpsc, oneshot};
 use tree_hash::SignedRoot;
 use types::{
-    Attestation, BeaconBlock, BeaconState, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, Slot,
+    Attestation, BeaconBlock, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, Slot,
 };
 
 //TODO: Rate limit requests
@@ -497,7 +497,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             } else {
                 self.chain
                     .store
-                    .get::<BeaconState<T::EthSpec>>(&parent_block.state_root)
+                    .get_state(&parent_block.state_root, Some(block.slot))
             };
 
             // If we are unable to find a state for the block, we eventually return false. This
@@ -646,7 +646,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             if let Ok(Some(state)) = self
                 .chain
                 .store
-                .get::<BeaconState<T::EthSpec>>(&block.state_root)
+                .get_state(&block.state_root, Some(block.slot))
             {
                 // Convert the attestation to an indexed attestation.
                 if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
