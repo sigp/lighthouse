@@ -9,8 +9,8 @@ clap = "2.33.0"
 hex = "0.3"
 # rust-libp2p is presently being sourced from a Sigma Prime fork of the
 # `libp2p/rust-libp2p` repository.
-libp2p =  { git = "https://github.com/sigp/rust-libp2p", rev = "2a9ded92db30dab7d3530c597a0a3b3458a7dfb7" }
-enr =  { git = "https://github.com/sigp/rust-libp2p/", rev = "2a9ded92db30dab7d3530c597a0a3b3458a7dfb7", features = ["serde"] }
+libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "b13ec466ce1661d88ea95be7e1fcd7bfdfa22ca8" }
+enr =  { git = "https://github.com/SigP/rust-libp2p/", rev = "b13ec466ce1661d88ea95be7e1fcd7bfdfa22ca8", features = ["serde"] }
 types = { path =  "../../eth2/types" }
 serde = "1.0.102"
 serde_derive = "1.0.102"
@@ -21,13 +21,15 @@ version = { path = "../version" }
 tokio = "0.1.22"
 futures = "0.1.29"
 error-chain = "0.12.1"
-tokio-timer = "0.2.11"
 dirs = "2.0.2"
-tokio-io = "0.1.12"
 smallvec = "0.6.11"
 fnv = "1.0.6"
 unsigned-varint = "0.2.3"
-bytes = "0.4.12"
-tokio-io-timeout = "0.3.1"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
+tokio-io-timeout = "0.3.1"
+
+[dev-dependencies]
+slog-stdlog = "4.0.0"
+slog-term = "2.4.2"
+slog-async = "2.3.0"

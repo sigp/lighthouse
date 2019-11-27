@@ -17,6 +17,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .global(true)
         )
+        .arg(
+            Arg::with_name("freezer-dir")
+                .long("freezer-dir")
+                .value_name("DIR")
+                .help("Data directory for the freezer database.")
+                .takes_value(true)
+                .global(true)
+        )
         /*
          * Network parameters.
          */
@@ -212,6 +220,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .short("r")
                     .help("If present, append a random string to the datadir path. Useful for fast development \
                           iteration.")
+            )
+            .arg(
+                Arg::with_name("random-propagation")
+                    .long("random-propagation")
+                    .value_name("INTEGER")
+                    .takes_value(true)
+                    .help("Specifies (as a percentage) the likelihood of propagating blocks and attestations. This should only be used for testing networking elements. The value must like in the range 1-100.")
             )
             .arg(
                 Arg::with_name("force")

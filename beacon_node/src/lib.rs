@@ -19,13 +19,14 @@ use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
-use store::DiskStore;
+use store::{migrate::BackgroundMigrator, DiskStore};
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> = Client<
     Witness<
         DiskStore,
+        BackgroundMigrator<E>,
         SystemTimeSlotClock,
         ThreadSafeReducedTree<DiskStore, E>,
         CachingEth1Backend<E, DiskStore>,
@@ -80,15 +81,17 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let client_genesis = client_config.genesis.clone();
         let log = context.log.clone();
 
-        client_config
-            .db_path()
-            .ok_or_else(|| "Unable to access database path".to_string())
+        let db_path_res = client_config.create_db_path();
+        let freezer_db_path_res = client_config.create_freezer_db_path();
+
+        db_path_res
             .into_future()
             .and_then(move |db_path| {
                 Ok(ClientBuilder::new(context.eth_spec_instance.clone())
                     .runtime_context(context)
-                    .disk_store(&db_path)?
-                    .chain_spec(spec))
+                    .chain_spec(spec)
+                    .disk_store(&db_path, &freezer_db_path_res?)?
+                    .background_migrator()?)
             })
             .and_then(move |builder| {
                 builder.beacon_chain_builder(client_genesis, genesis_eth1_config)

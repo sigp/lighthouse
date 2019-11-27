@@ -7,6 +7,9 @@ use std::path::PathBuf;
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 
+/// Default directory name for the freezer database under the top-level data dir.
+const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
+
 /// Defines how the client should initialize the `BeaconChain` and other components.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientGenesis {
@@ -39,6 +42,7 @@ pub struct Config {
     pub data_dir: PathBuf,
     pub db_type: String,
     db_name: String,
+    freezer_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
     pub spec_constants: String,
     /// If true, the node will use co-ordinated junk for eth1 values.
@@ -63,6 +67,7 @@ impl Default for Config {
             log_file: PathBuf::from(""),
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),
+            freezer_db_path: None,
             genesis: <_>::default(),
             network: NetworkConfig::new(),
             rest_api: <_>::default(),
@@ -76,19 +81,59 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Returns the path to which the client may initialize an on-disk database.
-    pub fn db_path(&self) -> Option<PathBuf> {
-        self.data_dir()
-            .and_then(|path| Some(path.join(&self.db_name)))
+    /// Get the database path without initialising it.
+    pub fn get_db_path(&self) -> Option<PathBuf> {
+        self.get_data_dir()
+            .map(|data_dir| data_dir.join(&self.db_name))
+    }
+
+    /// Get the database path, creating it if necessary.
+    pub fn create_db_path(&self) -> Result<PathBuf, String> {
+        let db_path = self
+            .get_db_path()
+            .ok_or_else(|| "Unable to locate user home directory")?;
+        ensure_dir_exists(db_path)
+    }
+
+    /// Fetch default path to use for the freezer database.
+    fn default_freezer_db_path(&self) -> Option<PathBuf> {
+        self.get_data_dir()
+            .map(|data_dir| data_dir.join(DEFAULT_FREEZER_DB_DIR))
+    }
+
+    /// Returns the path to which the client may initialize the on-disk freezer database.
+    ///
+    /// Will attempt to use the user-supplied path from e.g. the CLI, or will default
+    /// to a directory in the data_dir if no path is provided.
+    pub fn get_freezer_db_path(&self) -> Option<PathBuf> {
+        self.freezer_db_path
+            .clone()
+            .or_else(|| self.default_freezer_db_path())
+    }
+
+    /// Get the freezer DB path, creating it if necessary.
+    pub fn create_freezer_db_path(&self) -> Result<PathBuf, String> {
+        let freezer_db_path = self
+            .get_freezer_db_path()
+            .ok_or_else(|| "Unable to locate user home directory")?;
+        ensure_dir_exists(freezer_db_path)
+    }
+
+    /// Returns the core path for the client.
+    ///
+    /// Will not create any directories.
+    pub fn get_data_dir(&self) -> Option<PathBuf> {
+        dirs::home_dir().map(|home_dir| home_dir.join(&self.data_dir))
     }
 
     /// Returns the core path for the client.
     ///
     /// Creates the directory if it does not exist.
-    pub fn data_dir(&self) -> Option<PathBuf> {
-        let path = dirs::home_dir()?.join(&self.data_dir);
-        fs::create_dir_all(&path).ok()?;
-        Some(path)
+    pub fn create_data_dir(&self) -> Result<PathBuf, String> {
+        let path = self
+            .get_data_dir()
+            .ok_or_else(|| "Unable to locate user home directory".to_string())?;
+        ensure_dir_exists(path)
     }
 
     /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
@@ -100,9 +145,9 @@ impl Config {
             self.data_dir = PathBuf::from(dir);
         };
 
-        if let Some(dir) = args.value_of("db") {
-            self.db_type = dir.to_string();
-        };
+        if let Some(freezer_dir) = args.value_of("freezer-dir") {
+            self.freezer_db_path = Some(PathBuf::from(freezer_dir));
+        }
 
         self.network.apply_cli_args(args)?;
         self.rest_api.apply_cli_args(args)?;
@@ -110,6 +155,12 @@ impl Config {
 
         Ok(())
     }
+}
+
+/// Ensure that the directory at `path` exists, by creating it and all parents if necessary.
+fn ensure_dir_exists(path: PathBuf) -> Result<PathBuf, String> {
+    fs::create_dir_all(&path).map_err(|e| format!("Unable to create {}: {}", path.display(), e))?;
+    Ok(path)
 }
 
 #[cfg(test)]
