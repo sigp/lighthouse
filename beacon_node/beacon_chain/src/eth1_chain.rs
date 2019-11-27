@@ -727,6 +727,14 @@ mod test {
             prev_state.slot = Slot::new(period * 1_000);
             state.slot = Slot::new(period * 1_000 + period / 2);
 
+            // Add 50% of the votes so a lookup is required.
+            for _ in 0..period / 2 {
+                state
+                    .eth1_data_votes
+                    .push(random_eth1_data())
+                    .expect("should push eth1 vote");
+            }
+
             (0..2048).for_each(|i| {
                 eth1_chain
                     .backend
@@ -797,6 +805,14 @@ mod test {
             let mut prev_state = state.clone();
 
             state.slot = Slot::new(period / 2);
+
+            // Add 50% of the votes so a lookup is required.
+            for _ in 0..period / 2 {
+                state
+                    .eth1_data_votes
+                    .push(random_eth1_data())
+                    .expect("should push eth1 vote");
+            }
 
             let expected_root = Hash256::from_low_u64_be(42);
 
