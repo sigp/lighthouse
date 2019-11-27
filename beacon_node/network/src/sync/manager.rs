@@ -67,7 +67,7 @@ use eth2_libp2p::rpc::{RPCRequest, RequestId};
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use slog::{debug, info, trace, warn, Logger};
+use slog::{crit, debug, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Add, Sub};
@@ -875,10 +875,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             // verify the last added block is the parent of the last requested block
 
-            assert!(
-                completed_request.downloaded_blocks.len() >= 2,
-                "There must be at least two blocks in a parent request lookup at all times"
-            );
+            if completed_request.downloaded_blocks.len() < 2 {
+                crit!(
+                    self.log,
+                    "There must be at least two blocks in a parent request lookup at all times"
+                );
+                panic!("There must be at least two blocks in  parent request lookup at all time");
+                // fail loudly
+            }
             let previous_index = completed_request.downloaded_blocks.len() - 2;
             let expected_hash = completed_request.downloaded_blocks[previous_index].parent_root;
             // Note: the length must be greater than 2 so this cannot panic.

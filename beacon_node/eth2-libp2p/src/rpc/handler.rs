@@ -9,7 +9,7 @@ use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use slog::{debug, error, trace, warn};
+use slog::{crit, debug, error, trace, warn};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::time::{Duration, Instant};
@@ -332,7 +332,8 @@ where
                                 error!(self.log, "Attempted sending multiple responses to a single response request");
                             }
                             InboundSubstreamState::Poisoned => {
-                                panic!("Coding error: Poisoned substream");
+                                crit!(self.log, "Poisoned inbound substream");
+                                unreachable!("Coding error: Poisoned substream");
                             }
                         }
                     }
@@ -485,6 +486,7 @@ where
                                 }
                             }
                             InboundSubstreamState::Poisoned => {
+                                crit!(self.log, "Poisoned outbound substream");
                                 unreachable!("Coding Error: Inbound Substream is poisoned");
                             }
                         };
@@ -585,6 +587,7 @@ where
                             }
                         },
                         OutboundSubstreamState::Poisoned => {
+                            crit!(self.log, "Poisoned outbound substream");
                             unreachable!("Coding Error: Outbound substream is poisoned")
                         }
                     }

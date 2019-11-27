@@ -174,13 +174,13 @@ pub enum RPCErrorResponse {
 
 impl RPCErrorResponse {
     /// Used to encode the response in the codec.
-    pub fn as_u8(&self) -> u8 {
+    pub fn as_u8(&self) -> Option<u8> {
         match self {
-            RPCErrorResponse::Success(_) => 0,
-            RPCErrorResponse::InvalidRequest(_) => 1,
-            RPCErrorResponse::ServerError(_) => 2,
-            RPCErrorResponse::Unknown(_) => 255,
-            RPCErrorResponse::StreamTermination(_) => unreachable!(), // should never occur
+            RPCErrorResponse::Success(_) => Some(0),
+            RPCErrorResponse::InvalidRequest(_) => Some(1),
+            RPCErrorResponse::ServerError(_) => Some(2),
+            RPCErrorResponse::Unknown(_) => Some(255),
+            RPCErrorResponse::StreamTermination(_) => None,
         }
     }
 

@@ -73,7 +73,10 @@ where
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         dst.clear();
         dst.reserve(1);
-        dst.put_u8(item.as_u8());
+        dst.put_u8(
+            item.as_u8()
+                .expect("Should never encode a stream termination"),
+        );
         self.inner.encode(item, dst)
     }
 }
