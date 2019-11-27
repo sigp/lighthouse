@@ -448,7 +448,7 @@ mod deposit_tree {
                 .deposits()
                 .read()
                 .cache
-                .get_deposits(first..last, last, 32)
+                .get_deposits(first, last, last, 32)
                 .unwrap_or_else(|_| panic!("should get deposits in round {}", round));
 
             assert_eq!(
@@ -586,7 +586,7 @@ mod deposit_tree {
 
             // Ensure that the root from the deposit tree matches what the contract reported.
             let (root, deposits) = tree
-                .get_deposits(0..i as u64, deposit_counts[i], DEPOSIT_CONTRACT_TREE_DEPTH)
+                .get_deposits(0, i as u64, deposit_counts[i], DEPOSIT_CONTRACT_TREE_DEPTH)
                 .expect("should get deposits");
             assert_eq!(
                 root, deposit_roots[i],

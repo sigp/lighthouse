@@ -11,7 +11,7 @@
 //! There is no ABI parsing here, all function signatures and topics are hard-coded as constants.
 
 use futures::{Future, Stream};
-use reqwest::{header::ACCEPT_ENCODING, header::CONTENT_TYPE, r#async::ClientBuilder, StatusCode};
+use reqwest::{header::CONTENT_TYPE, r#async::ClientBuilder, StatusCode};
 use serde_json::{json, Value};
 use std::ops::Range;
 use std::time::Duration;
