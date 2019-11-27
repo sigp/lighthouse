@@ -1,8 +1,11 @@
 use super::methods::*;
-use crate::rpc::codec::{
-    base::{BaseInboundCodec, BaseOutboundCodec},
-    ssz::{SSZInboundCodec, SSZOutboundCodec},
-    InboundCodec, OutboundCodec,
+use crate::rpc::{
+    codec::{
+        base::{BaseInboundCodec, BaseOutboundCodec},
+        ssz::{SSZInboundCodec, SSZOutboundCodec},
+        InboundCodec, OutboundCodec,
+    },
+    methods::ResponseTermination,
 };
 use futures::{
     future::{self, FutureResult},
@@ -37,10 +40,10 @@ impl UpgradeInfo for RPCProtocol {
 
     fn protocol_info(&self) -> Self::InfoIter {
         vec![
-            ProtocolId::new("hello", "1", "ssz"),
+            ProtocolId::new("status", "1", "ssz"),
             ProtocolId::new("goodbye", "1", "ssz"),
-            ProtocolId::new("beacon_blocks", "1", "ssz"),
-            ProtocolId::new("recent_beacon_blocks", "1", "ssz"),
+            ProtocolId::new("blocks_by_range", "1", "ssz"),
+            ProtocolId::new("blocks_by_root", "1", "ssz"),
         ]
     }
 }
@@ -145,12 +148,12 @@ where
 // Combines all the RPC requests into a single enum to implement `UpgradeInfo` and
 // `OutboundUpgrade`
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RPCRequest {
-    Hello(HelloMessage),
+    Status(StatusMessage),
     Goodbye(GoodbyeReason),
-    BeaconBlocks(BeaconBlocksRequest),
-    RecentBeaconBlocks(RecentBeaconBlocksRequest),
+    BlocksByRange(BlocksByRangeRequest),
+    BlocksByRoot(BlocksByRootRequest),
 }
 
 impl UpgradeInfo for RPCRequest {
@@ -168,21 +171,47 @@ impl RPCRequest {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RPCRequest::Hello(_) => vec![ProtocolId::new("hello", "1", "ssz")],
+            RPCRequest::Status(_) => vec![ProtocolId::new("status", "1", "ssz")],
             RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", "1", "ssz")],
-            RPCRequest::BeaconBlocks(_) => vec![ProtocolId::new("beacon_blocks", "1", "ssz")],
-            RPCRequest::RecentBeaconBlocks(_) => {
-                vec![ProtocolId::new("recent_beacon_blocks", "1", "ssz")]
-            }
+            RPCRequest::BlocksByRange(_) => vec![ProtocolId::new("blocks_by_range", "1", "ssz")],
+            RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new("blocks_by_root", "1", "ssz")],
         }
     }
+
+    /* These functions are used in the handler for stream management */
 
     /// This specifies whether a stream should remain open and await a response, given a request.
     /// A GOODBYE request has no response.
     pub fn expect_response(&self) -> bool {
         match self {
+            RPCRequest::Status(_) => true,
             RPCRequest::Goodbye(_) => false,
-            _ => true,
+            RPCRequest::BlocksByRange(_) => true,
+            RPCRequest::BlocksByRoot(_) => true,
+        }
+    }
+
+    /// Returns which methods expect multiple responses from the stream. If this is false and
+    /// the stream terminates, an error is given.
+    pub fn multiple_responses(&self) -> bool {
+        match self {
+            RPCRequest::Status(_) => false,
+            RPCRequest::Goodbye(_) => false,
+            RPCRequest::BlocksByRange(_) => true,
+            RPCRequest::BlocksByRoot(_) => true,
+        }
+    }
+
+    /// Returns the `ResponseTermination` type associated with the request if a stream gets
+    /// terminated.
+    pub fn stream_termination(&self) -> ResponseTermination {
+        match self {
+            // this only gets called after `multiple_responses()` returns true. Therefore, only
+            // variants that have `multiple_responses()` can have values.
+            RPCRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
+            RPCRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            RPCRequest::Status(_) => unreachable!(),
+            RPCRequest::Goodbye(_) => unreachable!(),
         }
     }
 }
@@ -229,6 +258,8 @@ pub enum RPCError {
     IoError(io::Error),
     /// Waiting for a request/response timed out, or timer error'd.
     StreamTimeout,
+    /// The peer returned a valid RPCErrorResponse but the response was an error.
+    RPCErrorResponse,
     /// Custom message.
     Custom(String),
 }
@@ -256,6 +287,12 @@ impl<T> From<tokio::timer::timeout::Error<T>> for RPCError {
     }
 }
 
+impl From<()> for RPCError {
+    fn from(_err: ()) -> Self {
+        RPCError::Custom("".into())
+    }
+}
+
 impl From<io::Error> for RPCError {
     fn from(err: io::Error) -> Self {
         RPCError::IoError(err)
@@ -270,6 +307,7 @@ impl std::fmt::Display for RPCError {
             RPCError::SSZDecodeError(ref err) => write!(f, "Error while decoding ssz: {:?}", err),
             RPCError::InvalidProtocol(ref err) => write!(f, "Invalid Protocol: {}", err),
             RPCError::IoError(ref err) => write!(f, "IO Error: {}", err),
+            RPCError::RPCErrorResponse => write!(f, "RPC Response Error"),
             RPCError::StreamTimeout => write!(f, "Stream Timeout"),
             RPCError::Custom(ref err) => write!(f, "{}", err),
         }
@@ -284,6 +322,7 @@ impl std::error::Error for RPCError {
             RPCError::InvalidProtocol(_) => None,
             RPCError::IoError(ref err) => Some(err),
             RPCError::StreamTimeout => None,
+            RPCError::RPCErrorResponse => None,
             RPCError::Custom(_) => None,
         }
     }
@@ -292,10 +331,10 @@ impl std::error::Error for RPCError {
 impl std::fmt::Display for RPCRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCRequest::Hello(hello) => write!(f, "Hello Message: {}", hello),
+            RPCRequest::Status(status) => write!(f, "Status Message: {}", status),
             RPCRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
-            RPCRequest::BeaconBlocks(req) => write!(f, "Beacon Blocks: {}", req),
-            RPCRequest::RecentBeaconBlocks(req) => write!(f, "Recent Beacon Blocks: {:?}", req),
+            RPCRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
+            RPCRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
         }
     }
 }

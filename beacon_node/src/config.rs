@@ -107,6 +107,16 @@ fn process_testnet_subcommand(
         builder.clean_datadir()?;
     }
 
+    if let Some(propagation_percentage_string) = cli_args.value_of("random-propagation") {
+        let percentage = propagation_percentage_string
+            .parse::<u8>()
+            .map_err(|_| format!("Unable to parse the propagation percentage"))?;
+        if percentage > 100 {
+            return Err(format!("Propagation percentage greater than 100"));
+        }
+        builder.client_config.network.propagation_percentage = Some(percentage);
+    }
+
     let is_bootstrap = cli_args.subcommand_name() == Some("bootstrap");
 
     if let Some(path_string) = cli_args.value_of("eth2-config") {
