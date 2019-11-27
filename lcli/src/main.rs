@@ -135,9 +135,9 @@ fn main() {
                         .help("The MIN_GENESIS_TIME constant."),
                 )
                 .arg(
-                    Arg::with_name("endpoint")
+                    Arg::with_name("eth1-endpoint")
                         .short("e")
-                        .long("endpoint")
+                        .long("eth1-endpoint")
                         .value_name("HTTP_SERVER")
                         .takes_value(true)
                         .default_value("http://localhost:8545")
@@ -173,9 +173,9 @@ fn main() {
                         .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
                 )
                 .arg(
-                    Arg::with_name("endpoint")
+                    Arg::with_name("eth1-endpoint")
                         .short("e")
-                        .long("endpoint")
+                        .long("eth1-endpoint")
                         .value_name("HTTP_SERVER")
                         .takes_value(true)
                         .default_value("http://localhost:8545")

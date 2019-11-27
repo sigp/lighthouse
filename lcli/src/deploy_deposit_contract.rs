@@ -39,8 +39,8 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let password = parse_password(matches)?;
 
     let endpoint = matches
-        .value_of("endpoint")
-        .ok_or_else(|| "Endpoint not specified")?;
+        .value_of("eth1-endpoint")
+        .ok_or_else(|| "eth1-endpoint not specified")?;
 
     let (_event_loop, transport) = Http::new(&endpoint).map_err(|e| {
         format!(

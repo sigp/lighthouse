@@ -18,8 +18,8 @@ pub const DEPOSIT_ROOT_FN_SIGNATURE: &[u8] = &[0xcf, 0x7a, 0x89, 0x65];
 
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let endpoint = matches
-        .value_of("endpoint")
-        .ok_or_else(|| "Endpoint not specified")?;
+        .value_of("eth1-endpoint")
+        .ok_or_else(|| "eth1-endpoint not specified")?;
 
     let account_index = matches
         .value_of("account-index")
