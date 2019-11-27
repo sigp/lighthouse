@@ -1,9 +1,10 @@
 use crate::*;
 use ssz::{Decode, Encode};
 
-mod beacon_state;
+pub mod beacon_state;
+pub mod partial_beacon_state;
 
-impl<T: EthSpec> StoreItem for BeaconBlock<T> {
+impl<T: EthSpec> SimpleStoreItem for BeaconBlock<T> {
     fn db_column() -> DBColumn {
         DBColumn::BeaconBlock
     }
@@ -19,7 +20,7 @@ impl<T: EthSpec> StoreItem for BeaconBlock<T> {
         bytes
     }
 
-    fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, Error> {
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         let timer = metrics::start_timer(&metrics::BEACON_BLOCK_READ_TIMES);
 
         let len = bytes.len();

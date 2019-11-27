@@ -18,7 +18,7 @@ impl<'a, U: Store, E: EthSpec> AncestorIter<U, BlockRootsIterator<'a, E, U>> for
     /// Iterates across all available prior block roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<BlockRootsIterator<'a, E, U>> {
-        let state = store.get::<BeaconState<E>>(&self.state_root).ok()??;
+        let state = store.get_state(&self.state_root, Some(self.slot)).ok()??;
 
         Some(BlockRootsIterator::owned(store, state))
     }
@@ -33,11 +33,20 @@ impl<'a, U: Store, E: EthSpec> AncestorIter<U, StateRootsIterator<'a, E, U>> for
     }
 }
 
-#[derive(Clone)]
 pub struct StateRootsIterator<'a, T: EthSpec, U> {
     store: Arc<U>,
     beacon_state: Cow<'a, BeaconState<T>>,
     slot: Slot,
+}
+
+impl<'a, T: EthSpec, U> Clone for StateRootsIterator<'a, T, U> {
+    fn clone(&self) -> Self {
+        Self {
+            store: self.store.clone(),
+            beacon_state: self.beacon_state.clone(),
+            slot: self.slot,
+        }
+    }
 }
 
 impl<'a, T: EthSpec, U: Store> StateRootsIterator<'a, T, U> {
@@ -62,7 +71,7 @@ impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
     type Item = (Hash256, Slot);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if (self.slot == 0) || (self.slot > self.beacon_state.slot) {
+        if self.slot == 0 || self.slot > self.beacon_state.slot {
             return None;
         }
 
@@ -75,7 +84,7 @@ impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
                 let beacon_state: BeaconState<T> = {
                     let new_state_root = self.beacon_state.get_oldest_state_root().ok()?;
 
-                    self.store.get(&new_state_root).ok()?
+                    self.store.get_state(&new_state_root, None).ok()?
                 }?;
 
                 self.beacon_state = Cow::Owned(beacon_state);
@@ -128,11 +137,20 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockIterator<'a, T, U> {
 /// exhausted.
 ///
 /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
-#[derive(Clone)]
 pub struct BlockRootsIterator<'a, T: EthSpec, U> {
     store: Arc<U>,
     beacon_state: Cow<'a, BeaconState<T>>,
     slot: Slot,
+}
+
+impl<'a, T: EthSpec, U> Clone for BlockRootsIterator<'a, T, U> {
+    fn clone(&self) -> Self {
+        Self {
+            store: self.store.clone(),
+            beacon_state: self.beacon_state.clone(),
+            slot: self.slot,
+        }
+    }
 }
 
 impl<'a, T: EthSpec, U: Store> BlockRootsIterator<'a, T, U> {
@@ -173,7 +191,7 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
                     // Load the earliest state from disk.
                     let new_state_root = self.beacon_state.get_oldest_state_root().ok()?;
 
-                    self.store.get(&new_state_root).ok()?
+                    self.store.get_state(&new_state_root, None).ok()?
                 }?;
 
                 self.beacon_state = Cow::Owned(beacon_state);
@@ -183,6 +201,52 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
                 Some((*root, self.slot))
             }
             _ => None,
+        }
+    }
+}
+
+pub type ReverseBlockRootIterator<'a, E, S> =
+    ReverseHashAndSlotIterator<BlockRootsIterator<'a, E, S>>;
+pub type ReverseStateRootIterator<'a, E, S> =
+    ReverseHashAndSlotIterator<StateRootsIterator<'a, E, S>>;
+
+pub type ReverseHashAndSlotIterator<I> = ReverseChainIterator<(Hash256, Slot), I>;
+
+/// Provides a wrapper for an iterator that returns a given `T` before it starts returning results of
+/// the `Iterator`.
+pub struct ReverseChainIterator<T, I> {
+    first_value_used: bool,
+    first_value: T,
+    iter: I,
+}
+
+impl<T, I> ReverseChainIterator<T, I>
+where
+    T: Sized,
+    I: Iterator<Item = T> + Sized,
+{
+    pub fn new(first_value: T, iter: I) -> Self {
+        Self {
+            first_value_used: false,
+            first_value,
+            iter,
+        }
+    }
+}
+
+impl<T, I> Iterator for ReverseChainIterator<T, I>
+where
+    T: Clone,
+    I: Iterator<Item = T>,
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.first_value_used {
+            self.iter.next()
+        } else {
+            self.first_value_used = true;
+            Some(self.first_value.clone())
         }
     }
 }
@@ -225,7 +289,7 @@ mod test {
 
         let state_a_root = hashes.next().unwrap();
         state_b.state_roots[0] = state_a_root;
-        store.put(&state_a_root, &state_a).unwrap();
+        store.put_state(&state_a_root, &state_a).unwrap();
 
         let iter = BlockRootsIterator::new(store.clone(), &state_b);
 
@@ -273,8 +337,8 @@ mod test {
         let state_a_root = Hash256::from_low_u64_be(slots_per_historical_root as u64);
         let state_b_root = Hash256::from_low_u64_be(slots_per_historical_root as u64 * 2);
 
-        store.put(&state_a_root, &state_a).unwrap();
-        store.put(&state_b_root, &state_b).unwrap();
+        store.put_state(&state_a_root, &state_a).unwrap();
+        store.put_state(&state_b_root, &state_b).unwrap();
 
         let iter = StateRootsIterator::new(store.clone(), &state_b);
 

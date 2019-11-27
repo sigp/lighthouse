@@ -326,10 +326,12 @@ fn validator_block_post() {
         .runtime()
         .block_on(remote_node.http.validator().publish_block(block.clone()))
         .expect("should publish block");
-    assert!(
-        !publish_status.is_valid(),
-        "the unsigned published block should not be valid"
-    );
+    if cfg!(not(feature = "fake_crypto")) {
+        assert!(
+            !publish_status.is_valid(),
+            "the unsigned published block should not be valid"
+        );
+    }
 
     sign_block(beacon_chain.clone(), &mut block, spec);
     let block_root = block.canonical_root();
@@ -338,11 +340,14 @@ fn validator_block_post() {
         .runtime()
         .block_on(remote_node.http.validator().publish_block(block.clone()))
         .expect("should publish block");
-    assert_eq!(
-        publish_status,
-        PublishStatus::Valid,
-        "the signed published block should be valid"
-    );
+
+    if cfg!(not(feature = "fake_crypto")) {
+        assert_eq!(
+            publish_status,
+            PublishStatus::Valid,
+            "the signed published block should be valid"
+        );
+    }
 
     let head = env
         .runtime()

@@ -4,6 +4,43 @@ use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
 use types::beacon_state::{BeaconTreeHashCache, CommitteeCache, CACHED_EPOCHS};
 
+pub fn store_full_state<S: Store, E: EthSpec>(
+    store: &S,
+    state_root: &Hash256,
+    state: &BeaconState<E>,
+) -> Result<(), Error> {
+    let timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_TIMES);
+
+    let bytes = StorageContainer::new(state).as_ssz_bytes();
+    let result = store.put_bytes(DBColumn::BeaconState.into(), state_root.as_bytes(), &bytes);
+
+    metrics::stop_timer(timer);
+    metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
+    metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as i64);
+
+    result
+}
+
+pub fn get_full_state<S: Store, E: EthSpec>(
+    store: &S,
+    state_root: &Hash256,
+) -> Result<Option<BeaconState<E>>, Error> {
+    let timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
+
+    match store.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
+        Some(bytes) => {
+            let container = StorageContainer::from_ssz_bytes(&bytes)?;
+
+            metrics::stop_timer(timer);
+            metrics::inc_counter(&metrics::BEACON_STATE_READ_COUNT);
+            metrics::inc_counter_by(&metrics::BEACON_STATE_READ_BYTES, bytes.len() as i64);
+
+            Ok(Some(container.try_into()?))
+        }
+        None => Ok(None),
+    }
+}
+
 /// A container for storing `BeaconState` components.
 // TODO: would be more space efficient with the caches stored separately and referenced by hash
 #[derive(Encode, Decode)]
@@ -51,38 +88,5 @@ impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer {
         state.tree_hash_cache = BeaconTreeHashCache::from_ssz_bytes(&self.tree_hash_cache_bytes)?;
 
         Ok(state)
-    }
-}
-
-impl<T: EthSpec> StoreItem for BeaconState<T> {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconState
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        let timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_TIMES);
-
-        let container = StorageContainer::new(self);
-        let bytes = container.as_ssz_bytes();
-
-        metrics::stop_timer(timer);
-        metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
-        metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as i64);
-
-        bytes
-    }
-
-    fn from_store_bytes(bytes: &mut [u8]) -> Result<Self, Error> {
-        let timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
-
-        let len = bytes.len();
-        let container = StorageContainer::from_ssz_bytes(bytes)?;
-        let result = container.try_into();
-
-        metrics::stop_timer(timer);
-        metrics::inc_counter(&metrics::BEACON_STATE_READ_COUNT);
-        metrics::inc_counter_by(&metrics::BEACON_STATE_READ_BYTES, len as i64);
-
-        result
     }
 }

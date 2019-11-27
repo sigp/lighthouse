@@ -231,7 +231,7 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+            fn from_ssz_bytes(bytes: &[u8]) -> std::result::Result<Self, ssz::DecodeError> {
                 let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
                 #(

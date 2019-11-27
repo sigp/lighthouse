@@ -62,6 +62,6 @@ mod tests {
 
         let data = eth1_tx_data(&deposit).expect("should produce tx data");
 
-        assert_eq!(data.len(), 420, "bytes should be correct length");
+        assert_eq!(data.len(), 388, "bytes should be correct length");
     }
 }

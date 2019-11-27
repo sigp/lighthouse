@@ -93,18 +93,19 @@ fn return_validator_duties<T: BeaconChainTypes>(
     epoch: Epoch,
     validator_pubkeys: Vec<PublicKey>,
 ) -> Result<Vec<ValidatorDuty>, ApiError> {
-    let mut state = beacon_chain
-        .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-        .map_err(|e| {
-            ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
-        })?;
+    let head_state_slot = beacon_chain.head().beacon_state.slot;
+    let head_epoch = head_state_slot.current_epoch();
 
-    let current_epoch = state.current_epoch();
-    let relative_epoch = RelativeEpoch::from_epoch(current_epoch, epoch).map_err(|_| {
-        ApiError::BadRequest(format!(
-            "Epoch must be within one epoch of the current epoch",
-        ))
-    })?;
+    let relative_epoch = RelativeEpoch::from_epoch(head_epoch, epoch);
+    let mut state = if relative_epoch.is_err() {
+        beacon_chain.head().beacon_state
+    } else {
+        beacon_chain
+            .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+            .map_err(|e| {
+                ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
+            })?
+    };
 
     state
         .build_committee_cache(relative_epoch, &beacon_chain.spec)

@@ -246,7 +246,7 @@ pub fn cached_tree_hash_derive(input: TokenStream) -> TokenStream {
             fn recalculate_tree_hash_root(
                 &self,
                 cache: &mut #cache_type)
-            -> Result<Hash256, cached_tree_hash::Error>
+            -> std::result::Result<Hash256, cached_tree_hash::Error>
             {
                 let mut leaves = vec![];
 

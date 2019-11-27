@@ -3,7 +3,6 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
-use crate::iter::{ReverseBlockRootIterator, ReverseStateRootIterator};
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
@@ -27,8 +26,10 @@ use std::fs;
 use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use store::iter::{BlockRootsIterator, StateRootsIterator};
-use store::{Error as DBError, Store};
+use store::iter::{
+    BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
+};
+use store::{Error as DBError, Migrate, Store};
 use tree_hash::TreeHash;
 use types::*;
 
@@ -93,6 +94,7 @@ pub enum AttestationProcessingOutcome {
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
     type Store: store::Store;
+    type StoreMigrator: store::Migrate<Self::Store, Self::EthSpec>;
     type SlotClock: slot_clock::SlotClock;
     type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;
     type Eth1Chain: Eth1ChainBackend<Self::EthSpec>;
@@ -106,6 +108,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub spec: ChainSpec,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
     pub store: Arc<T::Store>,
+    /// Database migrator for running background maintenance on the store.
+    pub store_migrator: T::StoreMigrator,
     /// Reports the current slot, typically based upon the system clock.
     pub slot_clock: T::SlotClock,
     /// Stores all operations (e.g., `Attestation`, `Deposit`, etc) that are candidates for
@@ -235,7 +239,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_block(&block_root)?
             .ok_or_else(|| Error::MissingBeaconBlock(block_root))?;
         let state = self
-            .get_state(&block.state_root)?
+            .store
+            .get_state(&block.state_root, Some(block.slot))?
             .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
         let iter = BlockRootsIterator::owned(self.store.clone(), state);
         Ok(ReverseBlockRootIterator::new(
@@ -316,18 +321,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get(block_root)?)
     }
 
-    /// Returns the state at the given root, if any.
-    ///
-    /// ## Errors
-    ///
-    /// May return a database error.
-    pub fn get_state(
-        &self,
-        state_root: &Hash256,
-    ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
-        Ok(self.store.get(state_root)?)
-    }
-
     /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";
     /// the head of the canonical `BeaconChain`.
     ///
@@ -401,7 +394,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             Ok(self
                 .store
-                .get(&state_root)?
+                .get_state(&state_root, Some(slot))?
                 .ok_or_else(|| Error::NoStateForSlot(slot))?)
         }
     }
@@ -760,7 +753,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // not guaranteed to be from the same slot or epoch as the attestation.
             let mut state: BeaconState<T::EthSpec> = self
                 .store
-                .get(&attestation_head_block.state_root)?
+                .get_state(
+                    &attestation_head_block.state_root,
+                    Some(attestation_head_block.slot),
+                )?
                 .ok_or_else(|| Error::MissingBeaconState(attestation_head_block.state_root))?;
 
             // Ensure the state loaded from the database matches the state of the attestation
@@ -1121,8 +1117,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_state_root = parent_block.state_root;
         let parent_state = self
             .store
-            .get(&parent_state_root)?
-            .ok_or_else(|| Error::DBInconsistent(format!("Missing state {}", parent_state_root)))?;
+            .get_state(&parent_state_root, Some(parent_block.slot))?
+            .ok_or_else(|| {
+                Error::DBInconsistent(format!("Missing state {:?}", parent_state_root))
+            })?;
 
         metrics::stop_timer(db_read_timer);
 
@@ -1212,12 +1210,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 following_state.get_state_root(intermediate_state.slot)?;
 
             self.store
-                .put(&intermediate_state_root, intermediate_state)?;
+                .put_state(&intermediate_state_root, intermediate_state)?;
         }
 
         // Store the block and state.
         self.store.put(&block_root, &block)?;
-        self.store.put(&state_root, &state)?;
+        self.store.put_state(&state_root, &state)?;
 
         metrics::stop_timer(db_write_timer);
 
@@ -1280,7 +1278,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .state_at_slot(slot - 1)
             .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
-        self.produce_block_on_state(state.clone(), slot, randao_reveal)
+        self.produce_block_on_state(state, slot, randao_reveal)
     }
 
     /// Produce a block for some `slot` upon the given `state`.
@@ -1394,7 +1392,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let beacon_state_root = beacon_block.state_root;
             let beacon_state: BeaconState<T::EthSpec> = self
                 .store
-                .get(&beacon_state_root)?
+                .get_state(&beacon_state_root, Some(beacon_block.slot))?
                 .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
 
             let previous_slot = self.head().beacon_block.slot;
@@ -1517,10 +1515,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let finalized_state = self
                 .store
-                .get::<BeaconState<T::EthSpec>>(&finalized_block.state_root)?
+                .get_state(&finalized_block.state_root, Some(finalized_block.slot))?
                 .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
 
             self.op_pool.prune_all(&finalized_state, &self.spec);
+
+            // TODO: configurable max finality distance
+            let max_finality_distance = 0;
+            self.store_migrator.freeze_to_state(
+                finalized_block.state_root,
+                finalized_state,
+                max_finality_distance,
+            );
 
             let _ = self.event_handler.register(EventKind::BeaconFinalization {
                 epoch: new_finalized_epoch,
@@ -1566,9 +1572,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
                 })?;
             let beacon_state_root = beacon_block.state_root;
-            let beacon_state = self.store.get(&beacon_state_root)?.ok_or_else(|| {
-                Error::DBInconsistent(format!("Missing state {}", beacon_state_root))
-            })?;
+            let beacon_state = self
+                .store
+                .get_state(&beacon_state_root, Some(beacon_block.slot))?
+                .ok_or_else(|| {
+                    Error::DBInconsistent(format!("Missing state {:?}", beacon_state_root))
+                })?;
 
             let slot = CheckPoint {
                 beacon_block,

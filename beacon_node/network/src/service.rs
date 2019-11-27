@@ -24,7 +24,7 @@ pub struct Service<T: BeaconChainTypes> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: BeaconChainTypes + 'static> Service<T> {
+impl<T: BeaconChainTypes> Service<T> {
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
