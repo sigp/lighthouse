@@ -39,6 +39,7 @@ pub enum NotSafe {
     InvalidBlock(InvalidBlock),
     PruningError,
     NoSlotsPerEpochProvided,
+    UnnecessarySlotsPerEpoch,
     IOError(ErrorKind),
     SQLError(String),
     SQLPoolError(String),

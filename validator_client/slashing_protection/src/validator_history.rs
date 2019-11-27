@@ -308,6 +308,10 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
     type U = AttestationData;
 
     fn empty(path: &Path, slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
+        if slots_per_epoch.is_some() {
+            return Err(NotSafe::UnnecessarySlotsPerEpoch);
+        }
+
         let file = OpenOptions::new()
             .write(true)
             .read(true)
@@ -353,6 +357,10 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
     }
 
     fn open(path: &Path, slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
+        if slots_per_epoch.is_some() {
+            return Err(NotSafe::UnnecessarySlotsPerEpoch);
+        }
+
         let manager =
             SqliteConnectionManager::file(path).with_flags(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let conn_pool = Pool::new(manager)
@@ -566,6 +574,24 @@ mod single_threaded_tests {
 
         assert!(block_history.is_err(), "should have resulted in an error");
         assert_eq!(block_history.unwrap_err(), NotSafe::NoSlotsPerEpochProvided);
+    }
+
+    #[test]
+    fn slots_per_epoch_provided() {
+        let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let attestation_filename = attestation_file.path();
+
+        let attestation_history: Result<ValidatorHistory<SignedAttestation>, NotSafe> =
+            ValidatorHistory::empty(attestation_filename, Some(123));
+
+        assert!(
+            attestation_history.is_err(),
+            "should have resulted in an error"
+        );
+        assert_eq!(
+            attestation_history.unwrap_err(),
+            NotSafe::UnnecessarySlotsPerEpoch
+        );
     }
 
     #[test]
