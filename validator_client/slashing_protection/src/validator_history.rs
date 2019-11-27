@@ -275,7 +275,7 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
         // check that the slots_per_epoch provided is the same one as the one stored in db
         if curr_slots_per_epoch != slots_per_epoch {
             return Err(NotSafe::SQLError(format!(
-                "Incompatible slots_per_epoch: provided: {}, stored: {}",
+                "slots_per_epoch mismatch: provided: {}, stored: {}",
                 curr_slots_per_epoch, slots_per_epoch
             )));
         }
@@ -592,6 +592,31 @@ mod single_threaded_tests {
             .expect("should have retrieved a valid slots_per_epoch");
         assert_eq!(
             db_slots_per_epoch, slots_per_epoch,
+            "slots epoch should be the same"
+        );
+    }
+
+    #[test]
+    fn slots_per_epoch_mismatch() {
+        let block_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let block_filename = block_file.path();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+
+        let _: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::empty(block_filename, Some(slots_per_epoch))
+                .expect("IO error with file");
+
+        let second_open: Result<ValidatorHistory<SignedBlock>, NotSafe> =
+            ValidatorHistory::open(block_filename, Some(slots_per_epoch + 1));
+
+        assert!(second_open.is_err(), "should have resulted in an error");
+        assert_eq!(
+            second_open.unwrap_err(),
+            NotSafe::SQLError(format!(
+                "slots_per_epoch mismatch: provided: {}, stored: {}",
+                slots_per_epoch + 1,
+                slots_per_epoch
+            )),
             "slots epoch should be the same"
         );
     }
