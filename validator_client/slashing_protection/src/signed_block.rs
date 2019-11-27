@@ -186,7 +186,7 @@ mod block_tests {
         let (mut block_history, _attestation_file) = create_tmp();
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-        let first = block_builder(1 * slots_per_epoch);
+        let first = block_builder(slots_per_epoch);
         block_history
             .update_if_valid(&first)
             .expect("should have inserted prev data");
@@ -204,7 +204,7 @@ mod block_tests {
         let (mut block_history, _attestation_file) = create_tmp();
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-        let first = block_builder(1 * slots_per_epoch);
+        let first = block_builder(slots_per_epoch);
         block_history
             .update_if_valid(&first)
             .expect("should have inserted prev data");
@@ -213,7 +213,7 @@ mod block_tests {
             .update_if_valid(&second)
             .expect("should have inserted prev data");
 
-        let new_block = block_builder(0 * slots_per_epoch);
+        let new_block = block_builder(0);
         let res = block_history.update_if_valid(&new_block);
         assert_eq!(res, Err(NotSafe::PruningError));
     }
@@ -223,7 +223,7 @@ mod block_tests {
         let (mut block_history, _attestation_file) = create_tmp();
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-        let first = block_builder(1 * slots_per_epoch);
+        let first = block_builder(slots_per_epoch);
         block_history
             .update_if_valid(&first)
             .expect("should have inserted prev data");
@@ -250,7 +250,7 @@ mod block_tests {
         let (mut block_history, _attestation_file) = create_tmp();
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-        let first = block_builder(1 * slots_per_epoch);
+        let first = block_builder(slots_per_epoch);
         block_history
             .update_if_valid(&first)
             .expect("should have inserted prev data");

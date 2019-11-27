@@ -66,7 +66,7 @@ impl CheckAndInsert<SignedBlock> for ValidatorHistory<SignedBlock> {
     type U = BeaconBlockHeader;
 
     fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe> {
-        self.check_for_proposer_slashing(incoming_data) // SCOTT
+        self.check_for_proposer_slashing(incoming_data)
     }
 
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
@@ -196,7 +196,7 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
             .write(true)
             .read(true)
             .create(true)
-            .open(path)?; // SCOTT TEST CALLING IT TWICE
+            .open(path)?;
 
         let mut perm = file.metadata()?.permissions();
         perm.set_mode(0o600);
@@ -209,7 +209,7 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
         let conn = conn_pool.get()?;
 
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS signed_blocks (
+            "CREATE TABLE signed_blocks (
                 slot INTEGER,
                 signing_root BLOB
             )",
@@ -217,13 +217,13 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
         )?;
 
         conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS slot_index
+            "CREATE UNIQUE INDEX slot_index
                 ON signed_blocks(slot)",
             params![],
         )?;
 
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS slots_per_epoch (
+            "CREATE TABLE slots_per_epoch (
                 slots_per_epoch INTEGER
             )",
             params![],
@@ -325,7 +325,7 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
         let conn = conn_pool.get()?;
 
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS signed_attestations (
+            "CREATE TABLE signed_attestations (
                 target_epoch INTEGER,
                 source_epoch INTEGER,
                 signing_root BLOB
@@ -334,13 +334,13 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
         )?;
 
         conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS target_index
+            "CREATE UNIQUE INDEX target_index
                 ON signed_attestations(target_epoch)",
             params![],
         )?;
 
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS source_index
+            "CREATE INDEX source_index
                 ON signed_attestations(source_epoch)",
             params![],
         )?;
@@ -513,6 +513,59 @@ mod single_threaded_tests {
                 "no such table: signed_attestations".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn create_two_empty_attestation_history() {
+        let attestation_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let attestation_filename = attestation_file.path();
+
+        let _: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::empty(attestation_filename, None).expect("IO error with file");
+
+        let attestation_history: Result<ValidatorHistory<SignedAttestation>, NotSafe> =
+            ValidatorHistory::empty(attestation_filename, None);
+
+        assert!(
+            attestation_history.is_err(),
+            "should have resulted in an error"
+        );
+        assert_eq!(
+            attestation_history.unwrap_err(),
+            NotSafe::SQLError("table signed_attestations already exists".to_string())
+        );
+    }
+
+    #[test]
+    fn create_two_empty_block_history() {
+        let block_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let block_filename = block_file.path();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+
+        let _: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::empty(block_filename, Some(slots_per_epoch))
+                .expect("IO error with file");
+
+        let block_history: Result<ValidatorHistory<SignedBlock>, NotSafe> =
+            ValidatorHistory::empty(block_filename, Some(slots_per_epoch));
+
+        assert!(block_history.is_err(), "should have resulted in an error");
+        assert_eq!(
+            block_history.unwrap_err(),
+            NotSafe::SQLError("table signed_blocks already exists".to_string())
+        );
+    }
+
+    #[test]
+    fn no_slots_per_epoch_provided() {
+        let block_file = NamedTempFile::new().expect("couldn't create temporary file");
+        let block_filename = block_file.path();
+
+        let block_history: Result<ValidatorHistory<SignedBlock>, NotSafe> =
+            ValidatorHistory::empty(block_filename, None);
+
+        assert!(block_history.is_err(), "should have resulted in an error");
+        assert_eq!(block_history.unwrap_err(), NotSafe::NoSlotsPerEpochProvided);
     }
 
     #[test]
