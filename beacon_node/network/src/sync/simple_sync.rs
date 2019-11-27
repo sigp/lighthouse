@@ -468,7 +468,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         // section and find the proposer for the block's slot, otherwise, we return false.
         if let Some((parent_block, mut state)) = parent_block_opt {
             // Determine if the block being validated is more than one epoch away from the parent.
-            if  block.slot.epoch(T::EthSpec::slots_per_epoch()) + 1 > parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) {
+            if block.slot.epoch(T::EthSpec::slots_per_epoch()) + 1
+                > parent_block.slot.epoch(T::EthSpec::slots_per_epoch())
+            {
                 // If the block is more than one epoch in the future, we must fast-forward to the
                 // state and compute the committee.
                 for _ in state.slot.as_u64()..block.slot.as_u64() {
