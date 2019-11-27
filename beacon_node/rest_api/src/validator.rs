@@ -93,16 +93,27 @@ fn return_validator_duties<T: BeaconChainTypes>(
     epoch: Epoch,
     validator_pubkeys: Vec<PublicKey>,
 ) -> Result<Vec<ValidatorDuty>, ApiError> {
+    let slots_per_epoch = T::EthSpec::slots_per_epoch();
     let head_epoch = beacon_chain.head().beacon_state.current_epoch();
 
-    let mut state = if RelativeEpoch::from_epoch(head_epoch, epoch).is_err() {
+    let mut state = if RelativeEpoch::from_epoch(head_epoch, epoch).is_ok() {
         beacon_chain.head().beacon_state
     } else {
-        beacon_chain
-            .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-            .map_err(|e| {
-                ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
-            })?
+        let slot = if epoch > head_epoch {
+            // Move to the first slot of the epoch prior to the request.
+            //
+            // Taking advantage of saturating epoch subtraction.
+            (epoch - 1).start_slot(slots_per_epoch)
+        } else {
+            // Move to the end of the epoch following the target.
+            //
+            // Taking advantage of saturating epoch subtraction.
+            (epoch + 2).start_slot(slots_per_epoch) - 1
+        };
+
+        beacon_chain.state_at_slot(slot).map_err(|e| {
+            ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
+        })?
     };
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
