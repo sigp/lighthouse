@@ -142,32 +142,6 @@ impl LoadData<SignedBlock> for Vec<SignedBlock> {
     }
 }
 
-fn get_slots_per_epoch(conn_pool: &Pool) -> Result<u64, NotSafe> {
-    let conn = conn_pool.get()?;
-    // check that the slots_per_epoch table only has one row
-    let mut count_select = conn.prepare("select count(*) from slots_per_epoch")?;
-    let count = count_select.query_row(params![], |row| {
-        let count: i32 = row.get(0)?;
-        Ok(count)
-    })?;
-
-    if count > 1 {
-        return Err(NotSafe::SQLError(format!(
-            "Multiple slots_per_epoch stored in db. {} found",
-            count
-        )));
-    }
-
-    // select the slots_per_epoch value
-    let mut slot_select = conn.prepare("select slots_per_epoch from slots_per_epoch")?;
-    let slots_per_epoch = slot_select.query_row(params![], |row| {
-        let i64_slot: i64 = row.get(0)?;
-        let u64_slot = i64_to_u64(i64_slot);
-        Ok(u64_slot)
-    })?;
-    Ok(slots_per_epoch)
-}
-
 pub trait SlashingProtection<T> {
     type U;
 

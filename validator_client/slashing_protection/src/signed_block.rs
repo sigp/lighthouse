@@ -117,7 +117,7 @@ mod block_tests {
     use super::*;
     use crate::validator_history::SlashingProtection;
     use tempfile::NamedTempFile;
-    use types::{BeaconBlockHeader, EthSpec, MinimalEthSpec, Signature};
+    use types::{BeaconBlockHeader, EthSpec, MinimalEthSpec, Signature, Slot};
 
     fn block_builder(slot: u64) -> BeaconBlockHeader {
         BeaconBlockHeader {
