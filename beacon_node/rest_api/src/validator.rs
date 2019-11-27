@@ -93,11 +93,9 @@ fn return_validator_duties<T: BeaconChainTypes>(
     epoch: Epoch,
     validator_pubkeys: Vec<PublicKey>,
 ) -> Result<Vec<ValidatorDuty>, ApiError> {
-    let head_state_slot = beacon_chain.head().beacon_state.slot;
-    let head_epoch = head_state_slot.current_epoch();
+    let head_epoch = beacon_chain.head().beacon_state.current_epoch();
 
-    let relative_epoch = RelativeEpoch::from_epoch(head_epoch, epoch);
-    let mut state = if relative_epoch.is_err() {
+    let mut state = if RelativeEpoch::from_epoch(head_epoch, epoch).is_err() {
         beacon_chain.head().beacon_state
     } else {
         beacon_chain
@@ -106,6 +104,9 @@ fn return_validator_duties<T: BeaconChainTypes>(
                 ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
             })?
     };
+
+    let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
+        .map_err(|_| ApiError::ServerError(String::from("Loaded state is in the wrong epoch")))?;
 
     state
         .build_committee_cache(relative_epoch, &beacon_chain.spec)
