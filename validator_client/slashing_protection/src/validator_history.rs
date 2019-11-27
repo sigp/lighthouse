@@ -18,9 +18,17 @@ type Pool = r2d2::Pool<SqliteConnectionManager>;
 pub struct ValidatorHistory<T> {
     // The connection to the database.
     pub conn_pool: Pool,
+    slots_per_epoch: Option<u64>,
 
     // Marker for T
     phantom: PhantomData<T>,
+}
+
+impl<T> ValidatorHistory<T> {
+    pub fn slots_per_epoch(&self) -> Result<u64, NotSafe> {
+        self.slots_per_epoch
+            .ok_or_else(|| NotSafe::NoSlotsPerEpochProvided)
+    }
 }
 
 /// Utility function to check for slashing conditions and inserting new attestations/blocks in the db and in memory.
@@ -111,8 +119,8 @@ impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
 
 impl LoadData<SignedBlock> for Vec<SignedBlock> {
     fn load_data(conn_pool: &Pool) -> Result<Vec<SignedBlock>, NotSafe> {
+        let slots_per_epoch = get_slots_per_epoch(conn_pool)?;
         let conn = conn_pool.get()?;
-
         let mut block_history_select = conn
             .prepare("select slot, signing_root from signed_blocks where slot order by slot asc")?;
         let history = block_history_select.query_map(params![], |row| {
@@ -121,7 +129,7 @@ impl LoadData<SignedBlock> for Vec<SignedBlock> {
             let hash_blob: Vec<u8> = row.get(1)?;
             let signing_root = Hash256::from_slice(hash_blob.as_ref());
 
-            Ok(SignedBlock::new(slot, signing_root))
+            Ok(SignedBlock::new(slot, signing_root, slots_per_epoch))
         })?;
 
         let mut block_history = vec![];
@@ -134,16 +142,42 @@ impl LoadData<SignedBlock> for Vec<SignedBlock> {
     }
 }
 
+fn get_slots_per_epoch(conn_pool: &Pool) -> Result<u64, NotSafe> {
+    let conn = conn_pool.get()?;
+    // check that the slots_per_epoch table only has one row
+    let mut count_select = conn.prepare("select count(*) from slots_per_epoch")?;
+    let count = count_select.query_row(params![], |row| {
+        let count: i32 = row.get(0)?;
+        Ok(count)
+    })?;
+
+    if count > 1 {
+        return Err(NotSafe::SQLError(format!(
+            "Multiple slots_per_epoch stored in db. {} found",
+            count
+        )));
+    }
+
+    // select the slots_per_epoch value
+    let mut slot_select = conn.prepare("select slots_per_epoch from slots_per_epoch")?;
+    let slots_per_epoch = slot_select.query_row(params![], |row| {
+        let i64_slot: i64 = row.get(0)?;
+        let u64_slot = i64_to_u64(i64_slot);
+        Ok(u64_slot)
+    })?;
+    Ok(slots_per_epoch)
+}
+
 pub trait SlashingProtection<T> {
     type U;
 
     /// Creates an empty ValidatorHistory, and an associated sqlite database with the name passed in as argument.
     /// Returns an error if the database already exists.
-    fn empty(path: &Path) -> Result<ValidatorHistory<T>, NotSafe>;
+    fn empty(path: &Path, slots_per_epoch: Option<u64>) -> Result<ValidatorHistory<T>, NotSafe>;
 
     /// Creates a ValidatorHistory<T> by connecting to an existing db file.
     /// Returns an error if file doesn't exist.
-    fn open(path: &Path) -> Result<ValidatorHistory<T>, NotSafe>;
+    fn open(path: &Path, slots_per_epoch: Option<u64>) -> Result<ValidatorHistory<T>, NotSafe>;
 
     /// Updates the sqlite db and the in-memory Vec if the incoming_data is safe from slashings.
     /// If incoming_data is not safe, returns the associated error.
@@ -156,12 +190,13 @@ pub trait SlashingProtection<T> {
 impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
     type U = BeaconBlockHeader;
 
-    fn empty(path: &Path) -> Result<Self, NotSafe> {
+    fn empty(path: &Path, slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
+        let slots_per_epoch = slots_per_epoch.ok_or_else(|| NotSafe::NoSlotsPerEpochProvided)?;
         let file = OpenOptions::new()
             .write(true)
             .read(true)
             .create(true)
-            .open(path)?;
+            .open(path)?; // SCOTT TEST CALLING IT TWICE
 
         let mut perm = file.metadata()?.permissions();
         perm.set_mode(0o600);
@@ -187,20 +222,68 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
             params![],
         )?;
 
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS slots_per_epoch (
+                slots_per_epoch INTEGER
+            )",
+            params![],
+        )?;
+
+        conn.execute(
+            "INSERT INTO slots_per_epoch (slots_per_epoch)
+        VALUES (?1)",
+            params![u64_to_i64(slots_per_epoch)],
+        )?;
+
         Ok(Self {
             conn_pool,
+            slots_per_epoch: Some(slots_per_epoch),
             phantom: PhantomData,
         })
     }
 
-    fn open(path: &Path) -> Result<Self, NotSafe> {
+    fn open(path: &Path, curr_slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
+        let curr_slots_per_epoch =
+            curr_slots_per_epoch.ok_or_else(|| NotSafe::NoSlotsPerEpochProvided)?;
         let manager =
             SqliteConnectionManager::file(path).with_flags(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let conn_pool = Pool::new(manager)
             .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {}", e)))?;
+        let conn = conn_pool.get()?;
+
+        // check that the slots_per_epoch table only has one row
+        let mut count_select = conn.prepare("select count(*) from slots_per_epoch")?;
+        let count = count_select.query_row(params![], |row| {
+            let count: i32 = row.get(0)?;
+            Ok(count)
+        })?;
+
+        if count > 1 {
+            return Err(NotSafe::SQLError(format!(
+                "Multiple slots_per_epoch stored in db. {} found",
+                count
+            )));
+        }
+
+        // select the slots_per_epoch value
+        let mut slot_select = conn.prepare("select slots_per_epoch from slots_per_epoch")?;
+        let slots_per_epoch = slot_select.query_row(params![], |row| {
+            let i64_slot: i64 = row.get(0)?;
+            let u64_slot = i64_to_u64(i64_slot);
+            Ok(u64_slot)
+        })?;
+
+        // check that the slots_per_epoch provided is the same one as the one stored in db
+        if curr_slots_per_epoch != slots_per_epoch {
+            return Err(NotSafe::SQLError(format!(
+                "Incompatible slots_per_epoch: provided: {}, stored: {}",
+                curr_slots_per_epoch, slots_per_epoch
+            )));
+        }
 
         Ok(Self {
             conn_pool,
+            slots_per_epoch: Some(slots_per_epoch),
             phantom: PhantomData,
         })
     }
@@ -224,7 +307,7 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
 impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestation> {
     type U = AttestationData;
 
-    fn empty(path: &Path) -> Result<Self, NotSafe> {
+    fn empty(path: &Path, slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
         let file = OpenOptions::new()
             .write(true)
             .read(true)
@@ -264,11 +347,12 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
 
         Ok(Self {
             conn_pool,
+            slots_per_epoch,
             phantom: PhantomData,
         })
     }
 
-    fn open(path: &Path) -> Result<Self, NotSafe> {
+    fn open(path: &Path, slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
         let manager =
             SqliteConnectionManager::file(path).with_flags(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let conn_pool = Pool::new(manager)
@@ -276,6 +360,7 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
 
         Ok(Self {
             conn_pool,
+            slots_per_epoch,
             phantom: PhantomData,
         })
     }
@@ -301,7 +386,10 @@ mod single_threaded_tests {
     use super::*;
     use tempfile::NamedTempFile;
     use types::Signature;
-    use types::{AttestationData, BeaconBlockHeader, Checkpoint, Epoch, Hash256, Slot};
+    use types::{
+        AttestationData, BeaconBlockHeader, Checkpoint, Epoch, EthSpec, Hash256, MinimalEthSpec,
+        Slot,
+    };
 
     fn attestation_data_builder(source: u64, target: u64) -> AttestationData {
         let source = build_checkpoint(source);
@@ -341,7 +429,7 @@ mod single_threaded_tests {
         let filename = attestation_file.path();
 
         let mut attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(filename).expect("IO error with file");
+            ValidatorHistory::empty(filename, None).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(1, 2);
         let attestation2 = attestation_data_builder(2, 3);
@@ -372,7 +460,7 @@ mod single_threaded_tests {
         drop(attestation_history);
 
         let file_written_version: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::open(filename).expect("IO error with file");
+            ValidatorHistory::open(filename, None).expect("IO error with file");
         // Making sure that data in the file is correct
         assert_eq!(
             old_data,
@@ -391,7 +479,7 @@ mod single_threaded_tests {
         let filename = Path::new("this_file_does_not_exist.txt");
 
         let attestation_history: Result<ValidatorHistory<SignedAttestation>, NotSafe> =
-            ValidatorHistory::open(filename);
+            ValidatorHistory::open(filename, None);
 
         assert!(attestation_history.is_err()); // SCOTT
     }
@@ -405,10 +493,17 @@ mod single_threaded_tests {
         let block_filename = block_file.path();
 
         let mut attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::open(attestation_filename).expect("IO error with file");
+            ValidatorHistory::open(attestation_filename, None).expect("IO error with file");
 
-        let mut block_history: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::open(block_filename).expect("IO error with file");
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+        let block_history: Result<ValidatorHistory<SignedBlock>, NotSafe> =
+            ValidatorHistory::open(block_filename, Some(slots_per_epoch));
+
+        assert!(block_history.is_err());
+        assert_eq!(
+            block_history.unwrap_err(),
+            NotSafe::SQLError("no such table: slots_per_epoch".to_string())
+        );
 
         let attestation1 = attestation_data_builder(5, 9);
         let invalid_attest = attestation_history.update_if_valid(&attestation1);
@@ -417,16 +512,7 @@ mod single_threaded_tests {
             Err(NotSafe::SQLError(
                 "no such table: signed_attestations".to_string()
             ))
-        ); // SCOTT
-
-        let block1 = block_builder(1);
-        let invalid_block = block_history.update_if_valid(&block1);
-        assert_eq!(
-            invalid_block,
-            Err(NotSafe::SQLError(
-                "no such table: signed_blocks".to_string()
-            ))
-        ); // SCOTT
+        );
     }
 
     #[test]
@@ -435,7 +521,7 @@ mod single_threaded_tests {
         let filename = attestation_file.path();
 
         let mut attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(filename).expect("IO error with file");
+            ValidatorHistory::empty(filename, None).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(5, 9);
         let attestation2 = attestation_data_builder(7, 12);
@@ -473,7 +559,7 @@ mod single_threaded_tests {
 
         // Making sure that data in the file is correct
         let file_written_version: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::open(filename).expect("IO error with file");
+            ValidatorHistory::open(filename, None).expect("IO error with file");
         assert_eq!(
             old_data,
             file_written_version
@@ -492,7 +578,7 @@ mod single_threaded_tests {
         let filename = attestation_file.path();
 
         let mut attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(filename).expect("IO error with file");
+            ValidatorHistory::empty(filename, None).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(1, 2);
         let attestation2 = attestation_data_builder(1, 2); // should not get added
@@ -528,7 +614,7 @@ mod single_threaded_tests {
 
         // Making sure that data in the file is correct
         let file_written_version: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::open(filename).expect("IO error with file");
+            ValidatorHistory::open(filename, None).expect("IO error with file");
         assert_eq!(
             old_data,
             file_written_version
@@ -547,7 +633,7 @@ mod single_threaded_tests {
         let filename = attestation_file.path();
 
         let mut attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(filename).expect("IO error with file");
+            ValidatorHistory::empty(filename, None).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(1, 2);
         let attestation2 = attestation_data_builder(2, 3);
@@ -582,7 +668,7 @@ mod single_threaded_tests {
 
         // Making sure that data in the file is correct
         let mut file_written_version: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::open(filename).expect("IO error with file");
+            ValidatorHistory::open(filename, None).expect("IO error with file");
 
         assert_eq!(
             old_data,
@@ -621,22 +707,23 @@ mod single_threaded_tests {
     fn simple_block_test() {
         let block_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = block_file.path();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
         let mut block_history: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(filename).expect("IO error with file");
+            ValidatorHistory::empty(filename, Some(slots_per_epoch)).expect("IO error with file");
 
-        let block1 = block_builder(1);
-        let block2 = block_builder(2);
-        let block3 = block_builder(3);
+        let block1 = block_builder(slots_per_epoch);
+        let block2 = block_builder(2 * slots_per_epoch);
+        let block3 = block_builder(3 * slots_per_epoch);
 
         let _ = block_history.update_if_valid(&block1);
         let _ = block_history.update_if_valid(&block2);
         let _ = block_history.update_if_valid(&block3);
 
         let mut expected_vector = vec![];
-        expected_vector.push(SignedBlock::from(&block1));
-        expected_vector.push(SignedBlock::from(&block2));
-        expected_vector.push(SignedBlock::from(&block3));
+        expected_vector.push(SignedBlock::from(&block1, slots_per_epoch));
+        expected_vector.push(SignedBlock::from(&block2, slots_per_epoch));
+        expected_vector.push(SignedBlock::from(&block3, slots_per_epoch));
 
         // Making sure that data in memory is correct.
         assert_eq!(
@@ -651,7 +738,7 @@ mod single_threaded_tests {
 
         // Making sure that data in the file is correct
         let file_written_version: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::open(filename).expect("IO error with file");
+            ValidatorHistory::open(filename, Some(slots_per_epoch)).expect("IO error with file");
         assert_eq!(
             old_data,
             file_written_version
@@ -668,31 +755,35 @@ mod single_threaded_tests {
     fn block_with_failures() {
         let block_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = block_file.path();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
         let mut block_history: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(filename).expect("IO error with file");
+            ValidatorHistory::empty(filename, Some(slots_per_epoch)).expect("IO error with file");
 
-        let block1 = block_builder(1);
-        let block2 = block_builder(1); // fails
-        let block3 = block_builder(2);
-        let block4 = block_builder(10);
-        let block5 = block_builder(0); // fails
+        let block1 = block_builder(slots_per_epoch);
+        let block2 = block_builder(slots_per_epoch); // fails
+        let block3 = block_builder(2 * slots_per_epoch);
+        let block4 = block_builder(2 * slots_per_epoch + 1); // fails
+        let block5 = block_builder(10 * slots_per_epoch);
+        let block6 = block_builder(0); // fails
 
         let _ = block_history.update_if_valid(&block1);
         let _ = block_history.update_if_valid(&block2);
         let _ = block_history.update_if_valid(&block3);
         let _ = block_history.update_if_valid(&block4);
         let _ = block_history.update_if_valid(&block5);
+        let _ = block_history.update_if_valid(&block6);
 
         let mut expected_vector = vec![];
-        expected_vector.push(SignedBlock::from(&block1));
-        expected_vector.push(SignedBlock::from(&block3));
-        expected_vector.push(SignedBlock::from(&block4));
+        expected_vector.push(SignedBlock::from(&block1, slots_per_epoch));
+        expected_vector.push(SignedBlock::from(&block3, slots_per_epoch));
+        expected_vector.push(SignedBlock::from(&block5, slots_per_epoch));
 
         // Making sure that data in memory is correct.
         assert_eq!(
             expected_vector,
-            block_history.get_history().expect("error with sql db")
+            block_history.get_history().expect("error with sql db"),
+            "data in memory is incorrect"
         );
 
         // Copying the current data
@@ -702,7 +793,7 @@ mod single_threaded_tests {
 
         // Making sure that data in the file is correct
         let file_written_version: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::open(filename).expect("IO error with file");
+            ValidatorHistory::open(filename, Some(slots_per_epoch)).expect("IO error with file");
         assert_eq!(
             old_data,
             file_written_version

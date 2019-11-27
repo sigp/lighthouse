@@ -3,7 +3,7 @@ use crate::validator_history::ValidatorHistory;
 use crate::{NotSafe, Safe, ValidityReason};
 use rusqlite::params;
 use std::convert::From;
-use types::{BeaconBlockHeader, Hash256, Slot};
+use types::{BeaconBlockHeader, Epoch, Hash256, Slot};
 
 #[derive(PartialEq, Debug)]
 pub enum InvalidBlock {
@@ -13,27 +13,35 @@ pub enum InvalidBlock {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SignedBlock {
-    pub slot: Slot,
+    pub epoch: Epoch,
     signing_root: Hash256,
 }
 
 impl SignedBlock {
-    pub fn new(slot: u64, signing_root: Hash256) -> Self {
+    pub fn new(slot: u64, signing_root: Hash256, slots_per_epoch: u64) -> Self {
+        let slot = Slot::from(slot);
         Self {
-            slot: Slot::from(slot),
+            epoch: slot.epoch(slots_per_epoch),
             signing_root,
         }
     }
-}
 
-impl From<&BeaconBlockHeader> for SignedBlock {
-    fn from(header: &BeaconBlockHeader) -> Self {
+    pub fn from(header: &BeaconBlockHeader, slots_per_epoch: u64) -> Self {
         Self {
-            slot: header.slot,
+            epoch: header.slot.epoch(slots_per_epoch),
             signing_root: header.canonical_root(),
         }
     }
 }
+
+// impl From<&BeaconBlockHeader> for SignedBlock {
+//     fn from(header: &BeaconBlockHeader, slots_per_epoch: u64) -> Self {
+//         Self {
+//             epoch: header.slot.epoch(slots_per_epoch),
+//             signing_root: header.canonical_root(),
+//         }
+//     }
+// }
 
 impl ValidatorHistory<SignedBlock> {
     pub fn check_for_proposer_slashing(
@@ -50,6 +58,8 @@ impl ValidatorHistory<SignedBlock> {
             });
         }
 
+        let slots_per_epoch = self.slots_per_epoch()?;
+
         // Short-circuit: checking if the incoming block has a higher slot than the maximum slot in the db.
         let mut latest_block_select =
             conn.prepare("select max(slot), signing_root from signed_blocks")?;
@@ -58,9 +68,12 @@ impl ValidatorHistory<SignedBlock> {
             let u64_slot = i64_to_u64(i64_slot);
             let signing_bytes: Vec<u8> = row.get(1)?;
             let signing_root = Hash256::from_slice(signing_bytes.as_ref());
-            Ok(SignedBlock::new(u64_slot, signing_root))
+            Ok(SignedBlock::new(u64_slot, signing_root, slots_per_epoch))
         })?;
-        if block_header.slot > latest_block.slot {
+
+        let slots_per_epoch = self.slots_per_epoch()?;
+        let header_epoch = block_header.slot.epoch(slots_per_epoch);
+        if header_epoch > latest_block.epoch {
             return Ok(Safe {
                 reason: ValidityReason::Valid,
             });
@@ -81,12 +94,13 @@ impl ValidatorHistory<SignedBlock> {
         let mut same_slot_select =
             conn.prepare("select slot, signing_root from signed_blocks where slot = ?")?;
         let block_header_slot = u64_to_i64(block_header.slot.into());
+        let slots_per_epoch = self.slots_per_epoch()?;
         let same_slot_query = same_slot_select.query_row(params![block_header_slot], |row| {
             let i64_slot: i64 = row.get(0)?;
             let u64_slot = i64_to_u64(i64_slot);
             let signing_bytes: Vec<u8> = row.get(1)?;
             let signing_root = Hash256::from_slice(&signing_bytes[..]);
-            Ok(SignedBlock::new(u64_slot, signing_root))
+            Ok(SignedBlock::new(u64_slot, signing_root, slots_per_epoch))
         });
 
         if let Ok(same_slot_attest) = same_slot_query {
@@ -115,7 +129,7 @@ mod block_tests {
     use super::*;
     use crate::validator_history::SlashingProtection;
     use tempfile::NamedTempFile;
-    use types::{BeaconBlockHeader, Signature};
+    use types::{BeaconBlockHeader, EthSpec, MinimalEthSpec, Signature};
 
     fn block_builder(slot: u64) -> BeaconBlockHeader {
         BeaconBlockHeader {
@@ -130,9 +144,10 @@ mod block_tests {
     fn create_tmp() -> (ValidatorHistory<SignedBlock>, NamedTempFile) {
         let block_file = NamedTempFile::new().expect("couldn't create temporary file");
         let filename = block_file.path();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
         let block_history: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(filename).expect("IO error with file");
+            ValidatorHistory::empty(filename, Some(slots_per_epoch)).expect("IO error with file");
 
         (block_history, block_file)
     }
@@ -140,8 +155,9 @@ mod block_tests {
     #[test]
     fn valid_empty_history() {
         let (mut block_history, _attestation_file) = create_tmp();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-        let new_block = block_builder(3);
+        let new_block = block_builder(3 * slots_per_epoch);
         let res = block_history.update_if_valid(&new_block);
         assert_eq!(res, Ok(()));
     }
@@ -149,17 +165,18 @@ mod block_tests {
     #[test]
     fn valid_block() {
         let (mut block_history, _attestation_file) = create_tmp();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-        let first = block_builder(1);
+        let first = block_builder(slots_per_epoch);
         block_history
             .update_if_valid(&first)
             .expect("should have inserted prev data");
-        let second = block_builder(2);
+        let second = block_builder(2 * slots_per_epoch);
         block_history
             .update_if_valid(&second)
             .expect("should have inserted prev data");
 
-        let new_block = block_builder(3);
+        let new_block = block_builder(3 * slots_per_epoch);
         let res = block_history.update_if_valid(&new_block);
         assert_eq!(res, Ok(()));
     }
@@ -167,12 +184,13 @@ mod block_tests {
     #[test]
     fn valid_same_block() {
         let (mut block_history, _attestation_file) = create_tmp();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-        let first = block_builder(1);
+        let first = block_builder(1 * slots_per_epoch);
         block_history
             .update_if_valid(&first)
             .expect("should have inserted prev data");
-        let second = block_builder(2);
+        let second = block_builder(2 * slots_per_epoch);
         block_history
             .update_if_valid(&second)
             .expect("should have inserted prev data");
@@ -184,17 +202,18 @@ mod block_tests {
     #[test]
     fn invalid_pruning_error() {
         let (mut block_history, _attestation_file) = create_tmp();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-        let first = block_builder(1);
+        let first = block_builder(1 * slots_per_epoch);
         block_history
             .update_if_valid(&first)
             .expect("should have inserted prev data");
-        let second = block_builder(2);
+        let second = block_builder(2 * slots_per_epoch);
         block_history
             .update_if_valid(&second)
             .expect("should have inserted prev data");
 
-        let new_block = block_builder(0);
+        let new_block = block_builder(0 * slots_per_epoch);
         let res = block_history.update_if_valid(&new_block);
         assert_eq!(res, Err(NotSafe::PruningError));
     }
@@ -202,22 +221,26 @@ mod block_tests {
     #[test]
     fn invalid_slot_too_early() {
         let (mut block_history, _attestation_file) = create_tmp();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-        let first = block_builder(1);
+        let first = block_builder(1 * slots_per_epoch);
         block_history
             .update_if_valid(&first)
             .expect("should have inserted prev data");
-        let second = block_builder(3);
+        let second = block_builder(3 * slots_per_epoch);
         block_history
             .update_if_valid(&second)
             .expect("should have inserted prev data");
 
-        let new_block = block_builder(2);
+        let new_block = block_builder(2 * slots_per_epoch);
         let res = block_history.update_if_valid(&new_block);
+        let slots_per_epoch = block_history
+            .slots_per_epoch()
+            .expect("should have slots_per_epoch");
         assert_eq!(
             res,
             Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(
-                SignedBlock::from(&second)
+                SignedBlock::from(&second, slots_per_epoch)
             )))
         );
     }
@@ -225,26 +248,30 @@ mod block_tests {
     #[test]
     fn invalid_double_block_proposal() {
         let (mut block_history, _attestation_file) = create_tmp();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-        let first = block_builder(1);
+        let first = block_builder(1 * slots_per_epoch);
         block_history
             .update_if_valid(&first)
             .expect("should have inserted prev data");
-        let second = block_builder(2);
+        let second = block_builder(2 * slots_per_epoch);
         block_history
             .update_if_valid(&second)
             .expect("should have inserted prev data");
-        let third = block_builder(3);
+        let third = block_builder(3 * slots_per_epoch);
         block_history
             .update_if_valid(&third)
             .expect("should have inserted prev data");
 
-        let new_block = block_builder(2);
+        let new_block = block_builder(2 * slots_per_epoch);
         let res = block_history.update_if_valid(&new_block);
+        let slots_per_epoch = block_history
+            .slots_per_epoch()
+            .expect("should have slots_per_epoch");
         assert_eq!(
             res,
             Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
-                SignedBlock::from(&second)
+                SignedBlock::from(&second, slots_per_epoch)
             )))
         );
     }
