@@ -41,8 +41,8 @@ impl Default for ClientGenesis {
 pub struct Config {
     pub data_dir: PathBuf,
     pub db_type: String,
-    db_name: String,
-    freezer_db_path: Option<PathBuf>,
+    pub db_name: String,
+    pub freezer_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
     pub spec_constants: String,
     /// If true, the node will use co-ordinated junk for eth1 values.
@@ -69,7 +69,7 @@ impl Default for Config {
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
             genesis: <_>::default(),
-            network: NetworkConfig::new(),
+            network: NetworkConfig::default(),
             rest_api: <_>::default(),
             websocket_server: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
@@ -134,26 +134,6 @@ impl Config {
             .get_data_dir()
             .ok_or_else(|| "Unable to locate user home directory".to_string())?;
         ensure_dir_exists(path)
-    }
-
-    /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
-    ///
-    /// Returns an error if arguments are obviously invalid. May succeed even if some values are
-    /// invalid.
-    pub fn apply_cli_args(&mut self, args: &ArgMatches, _log: &slog::Logger) -> Result<(), String> {
-        if let Some(dir) = args.value_of("datadir") {
-            self.data_dir = PathBuf::from(dir);
-        };
-
-        if let Some(freezer_dir) = args.value_of("freezer-dir") {
-            self.freezer_db_path = Some(PathBuf::from(freezer_dir));
-        }
-
-        self.network.apply_cli_args(args)?;
-        self.rest_api.apply_cli_args(args)?;
-        self.websocket_server.apply_cli_args(args)?;
-
-        Ok(())
     }
 }
 

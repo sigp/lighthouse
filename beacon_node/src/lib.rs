@@ -57,15 +57,15 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     ) -> impl Future<Item = Self, Error = String> + 'a {
         let log = context.log.clone();
 
-        // TODO: the eth2 config in the env is being completely ignored.
+        // TODO: the eth2 config in the env is being modified.
         //
         // See https://github.com/sigp/lighthouse/issues/602
-        get_configs(&matches, log).into_future().and_then(
-            move |(client_config, eth2_config, _log)| {
+        get_configs(&matches, context.eth2_config.clone(), log)
+            .into_future()
+            .and_then(move |(client_config, eth2_config, _log)| {
                 context.eth2_config = eth2_config;
                 Self::new(context, client_config)
-            },
-        )
+            })
     }
 
     /// Starts a new beacon node `Client` in the given `environment`.

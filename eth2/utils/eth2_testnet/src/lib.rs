@@ -7,6 +7,7 @@
 //!
 //! https://github.com/sigp/lighthouse/pull/605
 
+use eth2_libp2p::Enr;
 use std::fs::{create_dir_all, File};
 use std::path::PathBuf;
 use types::Address;
@@ -14,12 +15,14 @@ use types::Address;
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const MIN_GENESIS_TIME_FILE: &str = "min_genesis_time.txt";
+pub const BOOT_NODES_FILE: &str = "boot_nodes.json";
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Eth2TestnetDir {
     deposit_contract_address: String,
     pub deposit_contract_deploy_block: u64,
     pub min_genesis_time: u64,
+    pub boot_nodes: Vec<Enr>,
 }
 
 impl Eth2TestnetDir {
@@ -28,6 +31,7 @@ impl Eth2TestnetDir {
         deposit_contract_address: String,
         deposit_contract_deploy_block: u64,
         min_genesis_time: u64,
+        boot_nodes: Vec<Enr>,
     ) -> Result<Self, String> {
         if base_dir.exists() {
             return Err("Testnet directory already exists".to_string());
@@ -36,60 +40,52 @@ impl Eth2TestnetDir {
         create_dir_all(&base_dir)
             .map_err(|e| format!("Unable to create testnet directory: {:?}", e))?;
 
-        File::create(base_dir.join(ADDRESS_FILE))
-            .map_err(|e| format!("Unable to create {}: {:?}", ADDRESS_FILE, e))
-            .and_then(|file| {
-                serde_json::to_writer(file, &deposit_contract_address)
-                    .map_err(|e| format!("Unable to write {}: {:?}", ADDRESS_FILE, e))
-            })?;
+        macro_rules! write_to_file {
+            ($file: ident, $variable: ident) => {
+                File::create(base_dir.join($file))
+                    .map_err(|e| format!("Unable to create {}: {:?}", $file, e))
+                    .and_then(|file| {
+                        serde_json::to_writer(file, &$variable)
+                            .map_err(|e| format!("Unable to write {}: {:?}", $file, e))
+                    })?;
+            };
+        }
 
-        File::create(base_dir.join(DEPLOY_BLOCK_FILE))
-            .map_err(|e| format!("Unable to create {}: {:?}", DEPLOY_BLOCK_FILE, e))
-            .and_then(|file| {
-                serde_json::to_writer(file, &deposit_contract_deploy_block)
-                    .map_err(|e| format!("Unable to write {}: {:?}", DEPLOY_BLOCK_FILE, e))
-            })?;
-
-        File::create(base_dir.join(MIN_GENESIS_TIME_FILE))
-            .map_err(|e| format!("Unable to create {}: {:?}", MIN_GENESIS_TIME_FILE, e))
-            .and_then(|file| {
-                serde_json::to_writer(file, &min_genesis_time)
-                    .map_err(|e| format!("Unable to write {}: {:?}", MIN_GENESIS_TIME_FILE, e))
-            })?;
+        write_to_file!(ADDRESS_FILE, deposit_contract_address);
+        write_to_file!(DEPLOY_BLOCK_FILE, deposit_contract_deploy_block);
+        write_to_file!(MIN_GENESIS_TIME_FILE, min_genesis_time);
+        write_to_file!(BOOT_NODES_FILE, boot_nodes);
 
         Ok(Self {
             deposit_contract_address,
             deposit_contract_deploy_block,
             min_genesis_time,
+            boot_nodes,
         })
     }
 
     pub fn load(base_dir: PathBuf) -> Result<Self, String> {
-        let deposit_contract_address = File::open(base_dir.join(ADDRESS_FILE))
-            .map_err(|e| format!("Unable to open {}: {:?}", ADDRESS_FILE, e))
-            .and_then(|file| {
-                serde_json::from_reader(file)
-                    .map_err(|e| format!("Unable to parse {}: {:?}", ADDRESS_FILE, e))
-            })?;
+        macro_rules! load_from_file {
+            ($file: ident) => {
+                File::open(base_dir.join($file))
+                    .map_err(|e| format!("Unable to open {}: {:?}", $file, e))
+                    .and_then(|file| {
+                        serde_json::from_reader(file)
+                            .map_err(|e| format!("Unable to parse {}: {:?}", $file, e))
+                    })?;
+            };
+        }
 
-        let deposit_contract_deploy_block = File::open(base_dir.join(DEPLOY_BLOCK_FILE))
-            .map_err(|e| format!("Unable to open {}: {:?}", DEPLOY_BLOCK_FILE, e))
-            .and_then(|file| {
-                serde_json::from_reader(file)
-                    .map_err(|e| format!("Unable to parse {}: {:?}", DEPLOY_BLOCK_FILE, e))
-            })?;
-
-        let min_genesis_time = File::open(base_dir.join(MIN_GENESIS_TIME_FILE))
-            .map_err(|e| format!("Unable to open {}: {:?}", MIN_GENESIS_TIME_FILE, e))
-            .and_then(|file| {
-                serde_json::from_reader(file)
-                    .map_err(|e| format!("Unable to parse {}: {:?}", MIN_GENESIS_TIME_FILE, e))
-            })?;
+        let deposit_contract_address = load_from_file!(ADDRESS_FILE);
+        let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
+        let min_genesis_time = load_from_file!(MIN_GENESIS_TIME_FILE);
+        let boot_nodes = load_from_file!(BOOT_NODES_FILE);
 
         Ok(Self {
             deposit_contract_address,
             deposit_contract_deploy_block,
             min_genesis_time,
+            boot_nodes,
         })
     }
 
@@ -122,6 +118,8 @@ mod tests {
             deposit_contract_address.clone(),
             deposit_contract_deploy_block,
             min_genesis_time,
+            // TODO: add some Enr for testing.
+            vec![],
         )
         .expect("should create struct");
 

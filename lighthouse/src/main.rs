@@ -57,7 +57,7 @@ fn main() {
                 .short("d")
                 .value_name("DIR")
                 .global(true)
-                .help("Data directory for keys and databases.")
+                .help("Data directory for lighthouse keys and databases.")
                 .takes_value(true),
         )
         .subcommand(beacon_node::cli_app())
