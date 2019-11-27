@@ -467,22 +467,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         // If we found a parent block and state to validate the signature with, we enter this
         // section and find the proposer for the block's slot, otherwise, we return false.
         if let Some((parent_block, mut state)) = parent_block_opt {
-            // Determine the epochal relationship between the parent block and the block being verified.
-            let relative_epoch = if let Ok(relative_epoch) = RelativeEpoch::from_slot(
-                parent_block.slot,
-                block.slot,
-                T::EthSpec::slots_per_epoch(),
-            ) {
-                relative_epoch
-            } else {
-                // This section is entered if the block being verified is too far from the parent to
-                // have a RelativeEpoch.
-
-                // We make sure the block being verified follows the parent's slot.
-                if state.slot.as_u64() > block.slot.as_u64() {
-                    return false;
-                }
-
+            // Determine if the block being validated is more than one epoch away from the parent.
+            if  block.slot.epoch(T::EthSpec::slots_per_epoch()) + 1 > parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) {
                 // If the block is more than one epoch in the future, we must fast-forward to the
                 // state and compute the committee.
                 for _ in state.slot.as_u64()..block.slot.as_u64() {
@@ -500,14 +486,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 {
                     return false;
                 }
-
-                // The relative epoch for the state is now Current.
-                RelativeEpoch::Current
-            };
+            }
 
             // Compute the proposer for the block's slot.
             let proposer_result = state
-                .get_beacon_proposer_index(block.slot, relative_epoch, &self.chain.spec)
+                .get_beacon_proposer_index(block.slot, &self.chain.spec)
                 .map(|i| state.validators.get(i));
 
             // Generate the domain that should have been used to create the signature.
