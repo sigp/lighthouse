@@ -188,6 +188,12 @@ where
                             Box::new(future)
                         }
                         ClientGenesis::DepositContract => {
+                            info!(
+                                context.log,
+                                "Waiting for eth2 genesis from eth1";
+                                "eth1_node" => &config.endpoint
+                            );
+
                             let genesis_service = Eth1GenesisService::new(
                                 // Some of the configuration options for `Eth1Config` are
                                 // hard-coded when listening for genesis from the deposit contract.
