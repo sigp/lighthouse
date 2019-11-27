@@ -1,5 +1,6 @@
 use crate::Store;
 use std::borrow::Cow;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot};
 
@@ -95,6 +96,33 @@ impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
             }
             _ => None,
         }
+    }
+}
+
+/// Block iterator that uses the `parent_root` of each block to backtrack.
+pub struct ParentRootBlockIterator<'a, E: EthSpec, S: Store> {
+    store: &'a S,
+    next_block_root: Hash256,
+    _phantom: PhantomData<E>,
+}
+
+impl<'a, E: EthSpec, S: Store> ParentRootBlockIterator<'a, E, S> {
+    pub fn new(store: &'a S, start_block_root: Hash256) -> Self {
+        Self {
+            store,
+            next_block_root: start_block_root,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, E: EthSpec, S: Store> Iterator for ParentRootBlockIterator<'a, E, S> {
+    type Item = BeaconBlock<E>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let block: BeaconBlock<E> = self.store.get(&self.next_block_root).ok()??;
+        self.next_block_root = block.parent_root;
+        Some(block)
     }
 }
 

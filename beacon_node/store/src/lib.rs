@@ -117,6 +117,8 @@ pub enum DBColumn {
     BeaconBlock,
     BeaconState,
     BeaconChain,
+    /// For the table mapping checkpoint numbers to state roots.
+    BeaconCheckpointState,
     BeaconBlockRoots,
     BeaconStateRoots,
     BeaconHistoricalRoots,
@@ -131,6 +133,7 @@ impl Into<&'static str> for DBColumn {
             DBColumn::BeaconBlock => "blk",
             DBColumn::BeaconState => "ste",
             DBColumn::BeaconChain => "bch",
+            DBColumn::BeaconCheckpointState => "bcs",
             DBColumn::BeaconBlockRoots => "bbr",
             DBColumn::BeaconStateRoots => "bsr",
             DBColumn::BeaconHistoricalRoots => "bhr",

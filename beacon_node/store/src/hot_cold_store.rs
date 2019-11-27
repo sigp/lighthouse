@@ -1,13 +1,18 @@
 use crate::chunked_vector::{
     store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
-use crate::iter::StateRootsIterator;
+use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::{
     leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, SimpleStoreItem, Store, StoreItem,
 };
 use parking_lot::RwLock;
-use slog::{info, trace, Logger};
+use slog::{info, trace, warn, Logger};
 use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
+use state_processing::{
+    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
+    SlotProcessingError,
+};
 use std::convert::TryInto;
 use std::path::Path;
 use std::sync::Arc;
@@ -21,7 +26,10 @@ pub struct HotColdDB {
     ///
     /// Data for slots less than `split_slot` is in the cold DB, while data for slots
     /// greater than or equal is in the hot DB.
-    split_slot: RwLock<Slot>,
+    // FIXME(sproul): comment
+    split: RwLock<Split>,
+    /// Number of slots per checkpoint state in the freezer database.
+    slots_per_checkpoint: u64,
     /// Cold database containing compact historical data.
     cold_db: LevelDB,
     /// Hot database containing duplicated but quick-to-access recent data.
@@ -38,6 +46,16 @@ pub enum HotColdDbError {
         current_split_slot: Slot,
         proposed_split_slot: Slot,
     },
+    MissingCheckpoint(u64),
+    MissingCheckpointState(Hash256),
+    MissingSplitState(Hash256, Slot),
+    CheckpointDecodeError(ssz::DecodeError),
+    CheckpointReplayFailure {
+        expected_state_root: Hash256,
+        observed_state_root: Hash256,
+    },
+    BlockReplaySlotError(SlotProcessingError),
+    BlockReplayBlockError(BlockProcessingError),
 }
 
 impl Store for HotColdDB {
@@ -79,21 +97,26 @@ impl Store for HotColdDB {
     ) -> Result<Option<BeaconState<E>>, Error> {
         if let Some(slot) = slot {
             if slot < self.get_split_slot() {
-                self.load_archive_state(state_root)
+                self.load_archive_state(state_root, slot).map(Some)
             } else {
                 self.hot_db.get_state(state_root, None)
             }
         } else {
             match self.hot_db.get_state(state_root, None)? {
                 Some(state) => Ok(Some(state)),
-                None => self.load_archive_state(state_root),
+                None => {
+                    // FIXME(sproul): work out what to do here
+                    eprintln!("WARNING: BAD SHIT");
+                    Ok(None)
+                    // self.load_archive_state(state_root, ?)
+                }
             }
         }
     }
 
     fn freeze_to_state<E: EthSpec>(
         store: Arc<Self>,
-        _frozen_head_root: Hash256,
+        frozen_head_root: Hash256,
         frozen_head: &BeaconState<E>,
     ) -> Result<(), Error> {
         info!(
@@ -136,8 +159,11 @@ impl Store for HotColdDB {
         }
 
         // 2. Update the split slot
-        *store.split_slot.write() = frozen_head.slot;
-        store.store_split_slot()?;
+        *store.split.write() = Split {
+            slot: frozen_head.slot.as_u64(),
+            state_root: frozen_head_root,
+        };
+        store.store_split()?;
 
         // 3. Delete from the hot DB
         for state_root in to_delete {
@@ -164,7 +190,9 @@ impl HotColdDB {
         log: Logger,
     ) -> Result<Self, Error> {
         let db = HotColdDB {
-            split_slot: RwLock::new(Slot::new(0)),
+            split: RwLock::new(Split::default()),
+            // FIXME(sproul): hardcoded
+            slots_per_checkpoint: 64,
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             spec,
@@ -172,8 +200,8 @@ impl HotColdDB {
         };
         // Load the previous split slot from the database (if any). This ensures we can
         // stop and restart correctly.
-        if let Some(split_slot) = db.load_split_slot()? {
-            *db.split_slot.write() = split_slot;
+        if let Some(split) = db.load_split()? {
+            *db.split.write() = split;
         }
         Ok(db)
     }
@@ -183,6 +211,16 @@ impl HotColdDB {
         state_root: &Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
+        if state.slot % self.slots_per_checkpoint != 0 {
+            warn!(
+                self.log,
+                "Not storing non-checkpoint state in freezer";
+                "slot" => state.slot.as_u64(),
+                "state_root" => format!("{:?}", state_root)
+            );
+            return Ok(());
+        }
+
         trace!(
             self.log,
             "Freezing state";
@@ -200,17 +238,32 @@ impl HotColdDB {
         store_updated_vector(HistoricalRoots, db, state, &self.spec)?;
         store_updated_vector(RandaoMixes, db, state, &self.spec)?;
 
+        // 3. Store checkpoint.
+        let checkpoint_index = state.slot.as_u64() / self.slots_per_checkpoint;
+        self.store_checkpoint(checkpoint_index, *state_root)?;
+
         Ok(())
     }
 
     pub fn load_archive_state<E: EthSpec>(
         &self,
         state_root: &Hash256,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        let mut partial_state = match PartialBeaconState::db_get(&self.cold_db, state_root)? {
-            Some(s) => s,
-            None => return Ok(None),
-        };
+        slot: Slot,
+    ) -> Result<BeaconState<E>, Error> {
+        if slot.as_u64() % self.slots_per_checkpoint == 0 {
+            self.load_checkpoint_state(state_root)
+        } else {
+            self.load_intermediate_state(state_root, slot)
+        }
+    }
+
+    /// Load a checkpoint state by its `state_root`.
+    fn load_checkpoint_state<E: EthSpec>(
+        &self,
+        state_root: &Hash256,
+    ) -> Result<BeaconState<E>, Error> {
+        let mut partial_state = PartialBeaconState::db_get(&self.cold_db, state_root)?
+            .ok_or_else(|| HotColdDbError::MissingCheckpointState(*state_root))?;
 
         // Fill in the fields of the partial state.
         partial_state.load_block_roots(&self.cold_db, &self.spec)?;
@@ -218,43 +271,179 @@ impl HotColdDB {
         partial_state.load_historical_roots(&self.cold_db, &self.spec)?;
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
 
-        let state: BeaconState<E> = partial_state.try_into()?;
+        Ok(partial_state.try_into()?)
+    }
 
-        Ok(Some(state))
+    /// Load a checkpoint state by its `checkpoint_index`.
+    fn load_checkpoint_state_by_index<E: EthSpec>(
+        &self,
+        checkpoint_index: u64,
+    ) -> Result<BeaconState<E>, Error> {
+        let state_root = self
+            .load_checkpoint(checkpoint_index)?
+            .ok_or(HotColdDbError::MissingCheckpoint(checkpoint_index))?;
+        self.load_checkpoint_state(&state_root)
+    }
+
+    /// Load a state that lies between checkpoints.
+    fn load_intermediate_state<E: EthSpec>(
+        &self,
+        state_root: &Hash256,
+        slot: Slot,
+    ) -> Result<BeaconState<E>, Error> {
+        // 1. Load the checkpoints either side of the intermediate state.
+        let low_checkpoint_idx = slot.as_u64() / self.slots_per_checkpoint;
+        let high_checkpoint_idx = low_checkpoint_idx + 1;
+
+        // Acquire the read lock, so that the split can't change while this is happening.
+        let split = self.split.read();
+
+        let low_checkpoint = self.load_checkpoint_state_by_index(low_checkpoint_idx)?;
+        let high_checkpoint = if high_checkpoint_idx * self.slots_per_checkpoint >= split.slot {
+            self.get_state::<E>(&split.state_root, Some(split.slot()))?
+                .ok_or_else(|| HotColdDbError::MissingSplitState(split.state_root, split.slot()))?
+        } else {
+            self.load_checkpoint_state_by_index(high_checkpoint_idx)?
+        };
+
+        // 2. Load the blocks from the high checkpoint back to the low checkpoint.
+        let blocks = self.load_ancestor_blocks(
+            low_checkpoint.slot,
+            slot,
+            high_checkpoint.latest_block_header.parent_root,
+        )?;
+
+        // 3. Replay the blocks on top of the low checkpoint.
+        let mut state = self.replay_blocks(low_checkpoint, blocks, slot)?;
+
+        // 4. Check that the state root is correct (should be quick).
+        let observed_state_root = state.update_tree_hash_cache()?;
+
+        if observed_state_root == *state_root {
+            Ok(state)
+        } else {
+            Err(HotColdDbError::CheckpointReplayFailure {
+                expected_state_root: *state_root,
+                observed_state_root,
+            }
+            .into())
+        }
+    }
+
+    fn load_ancestor_blocks<E: EthSpec>(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+        end_parent_hash: Hash256,
+    ) -> Result<Vec<BeaconBlock<E>>, Error> {
+        let mut blocks = ParentRootBlockIterator::new(self, end_parent_hash)
+            .filter(|block| block.slot <= end_slot)
+            .take_while(|block| block.slot >= start_slot)
+            .collect::<Vec<_>>();
+        blocks.reverse();
+
+        // FIXME(sproul): work out some appropriate sanity checks to run here?
+        Ok(blocks)
+    }
+
+    fn replay_blocks<E: EthSpec>(
+        &self,
+        mut state: BeaconState<E>,
+        blocks: Vec<BeaconBlock<E>>,
+        target_slot: Slot,
+    ) -> Result<BeaconState<E>, Error> {
+        // FIXME(sproul): map error
+        state.build_all_caches(&self.spec)?;
+
+        for block in blocks {
+            while state.slot < block.slot {
+                per_slot_processing(&mut state, &self.spec)
+                    .map_err(HotColdDbError::BlockReplaySlotError)?;
+            }
+            per_block_processing(
+                &mut state,
+                &block,
+                None,
+                BlockSignatureStrategy::NoVerification,
+                &self.spec,
+            )
+            .map_err(HotColdDbError::BlockReplayBlockError)?;
+        }
+
+        while state.slot < target_slot {
+            per_slot_processing(&mut state, &self.spec)
+                .map_err(HotColdDbError::BlockReplaySlotError)?;
+        }
+
+        Ok(state)
     }
 
     pub fn get_split_slot(&self) -> Slot {
-        *self.split_slot.read()
+        Slot::new(self.split.read().slot)
     }
 
-    fn load_split_slot(&self) -> Result<Option<Slot>, Error> {
+    fn load_split(&self) -> Result<Option<Split>, Error> {
         let key = Hash256::from_slice(SPLIT_SLOT_DB_KEY.as_bytes());
-        let split_slot: Option<SplitSlot> = self.hot_db.get(&key)?;
-        Ok(split_slot.map(|s| Slot::new(s.0)))
+        let split: Option<Split> = self.hot_db.get(&key)?;
+        Ok(split)
     }
 
-    fn store_split_slot(&self) -> Result<(), Error> {
+    fn store_split(&self) -> Result<(), Error> {
         let key = Hash256::from_slice(SPLIT_SLOT_DB_KEY.as_bytes());
-        self.hot_db
-            .put(&key, &SplitSlot(self.get_split_slot().as_u64()))?;
+        self.hot_db.put(&key, &*self.split.read())?;
         Ok(())
+    }
+
+    fn load_checkpoint(&self, checkpoint_index: u64) -> Result<Option<Hash256>, Error> {
+        let key = Self::checkpoint_key(checkpoint_index);
+        self.cold_db
+            .get_bytes(DBColumn::BeaconCheckpointState.into(), &key)?
+            .map(|bytes| Hash256::from_ssz_bytes(&bytes))
+            .transpose()
+            .map_err(HotColdDbError::CheckpointDecodeError)
+            .map_err(Into::into)
+    }
+
+    fn store_checkpoint(&self, checkpoint_index: u64, state_root: Hash256) -> Result<(), Error> {
+        let key = Self::checkpoint_key(checkpoint_index);
+
+        self.cold_db.put_bytes(
+            DBColumn::BeaconCheckpointState.into(),
+            &key,
+            &state_root.as_ssz_bytes(),
+        )?;
+        Ok(())
+    }
+
+    fn checkpoint_key(checkpoint_index: u64) -> [u8; 8] {
+        checkpoint_index.to_be_bytes()
     }
 }
 
 /// Struct for storing the split slot in the database.
-#[derive(Clone, Copy)]
-struct SplitSlot(u64);
+#[derive(Clone, Copy, Default, Encode, Decode)]
+struct Split {
+    slot: u64,
+    state_root: Hash256,
+}
 
-impl SimpleStoreItem for SplitSlot {
+impl Split {
+    // FIXME(sproul): implement ssz for slot
+    fn slot(&self) -> Slot {
+        Slot::new(self.slot)
+    }
+}
+
+impl SimpleStoreItem for Split {
     fn db_column() -> DBColumn {
         DBColumn::BeaconMeta
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {
-        self.0.as_ssz_bytes()
+        self.as_ssz_bytes()
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(SplitSlot(u64::from_ssz_bytes(bytes)?))
+        Ok(Self::from_ssz_bytes(bytes)?)
     }
 }
