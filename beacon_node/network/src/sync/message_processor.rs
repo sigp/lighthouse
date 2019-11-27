@@ -17,9 +17,7 @@ use std::sync::Arc;
 use store::Store;
 use tokio::sync::{mpsc, oneshot};
 use tree_hash::SignedRoot;
-use types::{
-    Attestation, BeaconBlock, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, Slot,
-};
+use types::{Attestation, BeaconBlock, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, Slot};
 
 //TODO: Rate limit requests
 
