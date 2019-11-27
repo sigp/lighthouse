@@ -38,7 +38,9 @@ pub enum NotSafe {
     InvalidAttestation(InvalidAttestation),
     InvalidBlock(InvalidBlock),
     PruningError,
+    // No slots_per_epoch was provided whilst using the block proposer protection database
     NoSlotsPerEpochProvided,
+    // slots_per_epoch was provided whilst using the signed attestation database
     UnnecessarySlotsPerEpoch,
     IOError(ErrorKind),
     SQLError(String),

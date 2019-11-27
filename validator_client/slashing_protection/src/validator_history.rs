@@ -70,12 +70,13 @@ impl CheckAndInsert<SignedBlock> for ValidatorHistory<SignedBlock> {
     }
 
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
-        let slot: u64 = incoming_data.slot.into();
-        let slot = u64_to_i64(slot);
+        let slots_per_epoch = self.slots_per_epoch()?;
+        let epoch: u64 = incoming_data.slot.epoch(slots_per_epoch).into();
+        let epoch = u64_to_i64(epoch);
         self.conn_pool.get()?.execute(
-            "INSERT INTO signed_blocks (slot, signing_root)
+            "INSERT INTO signed_blocks (epoch, signing_root)
                 VALUES (?1, ?2)",
-            params![slot, incoming_data.canonical_root().as_bytes()],
+            params![epoch, incoming_data.canonical_root().as_bytes()],
         )?;
         Ok(())
     }
@@ -119,17 +120,16 @@ impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
 
 impl LoadData<SignedBlock> for Vec<SignedBlock> {
     fn load_data(conn_pool: &Pool) -> Result<Vec<SignedBlock>, NotSafe> {
-        let slots_per_epoch = get_slots_per_epoch(conn_pool)?;
         let conn = conn_pool.get()?;
-        let mut block_history_select = conn
-            .prepare("select slot, signing_root from signed_blocks where slot order by slot asc")?;
+        let mut block_history_select =
+            conn.prepare("select epoch, signing_root from signed_blocks order by epoch asc")?;
         let history = block_history_select.query_map(params![], |row| {
-            let slot: i64 = row.get(0)?;
-            let slot = i64_to_u64(slot);
+            let epoch: i64 = row.get(0)?;
+            let epoch = i64_to_u64(epoch);
             let hash_blob: Vec<u8> = row.get(1)?;
             let signing_root = Hash256::from_slice(hash_blob.as_ref());
 
-            Ok(SignedBlock::new(slot, signing_root, slots_per_epoch))
+            Ok(SignedBlock::new(epoch, signing_root))
         })?;
 
         let mut block_history = vec![];
@@ -210,15 +210,15 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
 
         conn.execute(
             "CREATE TABLE signed_blocks (
-                slot INTEGER,
+                epoch INTEGER,
                 signing_root BLOB
             )",
             params![],
         )?;
 
         conn.execute(
-            "CREATE UNIQUE INDEX slot_index
-                ON signed_blocks(slot)",
+            "CREATE UNIQUE INDEX epoch_index
+                ON signed_blocks(epoch)",
             params![],
         )?;
 
