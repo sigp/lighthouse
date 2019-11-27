@@ -82,6 +82,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn discovery(&self) -> &Discovery<TSubstream> {
         &self.discovery
     }
+
+    pub fn gs(&self) -> &Gossipsub<TSubstream> {
+        &self.gossipsub
+    }
 }
 
 // Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour
@@ -103,7 +107,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
                     message: msg,
                 });
             }
-            GossipsubEvent::Subscribed { .. } => {}
+            GossipsubEvent::Subscribed { peer_id, topic } => {
+                self.events
+                    .push(BehaviourEvent::PeerSubscribed(peer_id, topic));
+            }
             GossipsubEvent::Unsubscribed { .. } => {}
         }
     }
@@ -196,6 +203,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         self.gossipsub.subscribe(topic)
     }
 
+    /// Unsubscribe from a gossipsub topic.
+    pub fn unsubscribe(&mut self, topic: Topic) -> bool {
+        self.gossipsub.unsubscribe(topic)
+    }
+
     /// Publishes a message on the pubsub (gossipsub) behaviour.
     pub fn publish(&mut self, topics: &[Topic], message: PubsubMessage) {
         let message_data = message.to_data();
@@ -219,8 +231,14 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     }
 
     /* Discovery / Peer management functions */
+    /// Return the list of currently connected peers.
     pub fn connected_peers(&self) -> usize {
         self.discovery.connected_peers()
+    }
+
+    /// Notify discovery that the peer has been banned.
+    pub fn peer_banned(&mut self, peer_id: PeerId) {
+        self.discovery.peer_banned(peer_id);
     }
 
     /// Informs the discovery behaviour if a new IP/Port is set at the application layer
@@ -248,6 +266,8 @@ pub enum BehaviourEvent {
         /// The message itself.
         message: PubsubMessage,
     },
+    /// Subscribed to peer for given topic
+    PeerSubscribed(PeerId, TopicHash),
 }
 
 /// Messages that are passed to and from the pubsub (Gossipsub) behaviour. These are encoded and

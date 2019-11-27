@@ -18,7 +18,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_timer::Delay;
+use tokio::timer::Delay;
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 60;
@@ -32,6 +32,9 @@ const ENR_FILENAME: &str = "enr.dat";
 pub struct Discovery<TSubstream> {
     /// The peers currently connected to libp2p streams.
     connected_peers: HashSet<PeerId>,
+
+    /// The currently banned peers.
+    banned_peers: HashSet<PeerId>,
 
     /// The target number of connected peers on the libp2p interface.
     max_peers: usize,
@@ -77,7 +80,10 @@ impl<TSubstream> Discovery<TSubstream> {
         info!(log, "ENR Initialised"; "ENR" => local_enr.to_base64(), "Seq" => local_enr.seq());
         debug!(log, "Discv5 Node ID Initialised"; "node_id" => format!("{}",local_enr.node_id()));
 
-        let mut discovery = Discv5::new(local_enr, local_key.clone(), config.listen_address)
+        // the last parameter enables IP limiting. 2 Nodes on the same /24 subnet per bucket and 10
+        // nodes on the same /24 subnet per table.
+        // TODO: IP filtering is currently disabled for the DHT. Enable for production
+        let mut discovery = Discv5::new(local_enr, local_key.clone(), config.listen_address, false)
             .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
@@ -93,6 +99,7 @@ impl<TSubstream> Discovery<TSubstream> {
 
         Ok(Self {
             connected_peers: HashSet::new(),
+            banned_peers: HashSet::new(),
             max_peers: config.max_peers,
             peer_discovery_delay: Delay::new(Instant::now()),
             past_discovery_delay: INITIAL_SEARCH_DELAY,
@@ -145,6 +152,14 @@ impl<TSubstream> Discovery<TSubstream> {
     /// The current number of connected libp2p peers.
     pub fn connected_peer_set(&self) -> &HashSet<PeerId> {
         &self.connected_peers
+    }
+
+    /// The peer has been banned. Add this peer to the banned list to prevent any future
+    /// re-connections.
+    // TODO: Remove the peer from the DHT if present
+    // TODO: Implement a timeout, after which we unban the peer
+    pub fn peer_banned(&mut self, peer_id: PeerId) {
+        self.banned_peers.insert(peer_id);
     }
 
     /// Search for new peers using the underlying discovery mechanism.
@@ -271,6 +286,7 @@ where
                                 // if we need more peers, attempt a connection
                                 if self.connected_peers.len() < self.max_peers
                                     && self.connected_peers.get(&peer_id).is_none()
+                                    && !self.banned_peers.contains(&peer_id)
                                 {
                                     debug!(self.log, "Peer discovered"; "peer_id"=> format!("{:?}", peer_id));
                                     return Async::Ready(NetworkBehaviourAction::DialPeer {

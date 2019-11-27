@@ -61,6 +61,11 @@ pub struct Config {
 
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<String>,
+
+    /// Introduces randomization in network propagation of messages. This should only be set for
+    /// testing purposes and will likely be removed in future versions.
+    // TODO: Remove this functionality for mainnet
+    pub propagation_percentage: Option<u8>,
 }
 
 impl Default for Config {
@@ -88,6 +93,7 @@ impl Default for Config {
             libp2p_nodes: vec![],
             client_version: version::version(),
             topics: Vec::new(),
+            propagation_percentage: None,
         }
     }
 }

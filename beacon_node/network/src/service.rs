@@ -4,13 +4,15 @@ use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::Topic;
-use eth2_libp2p::{Enr, Libp2pEvent, Multiaddr, PeerId, Swarm};
+use eth2_libp2p::{
+    rpc::{RPCErrorResponse, RPCRequest, RPCResponse},
+    ConnectedPoint, Enr, Libp2pEvent, Multiaddr, NetworkBehaviour, PeerId, Swarm, Topic,
+};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
-use parking_lot::Mutex;
-use slog::{debug, info, trace};
+use parking_lot::{Mutex, MutexGuard};
+use slog::{debug, info, trace, warn};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
@@ -53,6 +55,7 @@ impl<T: BeaconChainTypes> Service<T> {
             message_handler_send,
             executor,
             network_log,
+            config.propagation_percentage,
         )?;
         let network_service = Service {
             libp2p_service,
@@ -122,6 +125,7 @@ fn spawn_service(
     message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
     executor: &TaskExecutor,
     log: slog::Logger,
+    propagation_percentage: Option<u8>,
 ) -> error::Result<tokio::sync::oneshot::Sender<()>> {
     let (network_exit, exit_rx) = tokio::sync::oneshot::channel();
 
@@ -132,6 +136,7 @@ fn spawn_service(
             network_recv,
             message_handler_send,
             log.clone(),
+            propagation_percentage,
         )
         // allow for manual termination
         .select(exit_rx.then(|_| Ok(())))
@@ -150,33 +155,70 @@ fn network_service(
     mut network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
     mut message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
     log: slog::Logger,
+    propagation_percentage: Option<u8>,
 ) -> impl futures::Future<Item = (), Error = eth2_libp2p::error::Error> {
     futures::future::poll_fn(move || -> Result<_, eth2_libp2p::error::Error> {
-        // if the network channel is not ready, try the swarm
+        // keep a list of peers to disconnect, once all channels are processed, remove the peers.
+        let mut peers_to_ban = Vec::new();
+
+        // processes the network channel before processing the libp2p swarm
         loop {
             // poll the network channel
             match network_recv.poll() {
                 Ok(Async::Ready(Some(message))) => match message {
                     NetworkMessage::RPC(peer_id, rpc_event) => {
-                        trace!(log, "{}", rpc_event);
+                        trace!(log, "Sending RPC"; "RPC" => format!("{}", rpc_event));
                         libp2p_service.lock().swarm.send_rpc(peer_id, rpc_event);
                     }
                     NetworkMessage::Propagate {
                         propagation_source,
                         message_id,
                     } => {
-                        trace!(log, "Propagating gossipsub message";
-                        "propagation_peer" => format!("{:?}", propagation_source),
-                        "message_id" => format!("{}", message_id),
-                        );
-                        libp2p_service
-                            .lock()
-                            .swarm
-                            .propagate_message(&propagation_source, message_id);
+                        // TODO: Remove this for mainnet
+                        // randomly prevents propagation
+                        let mut should_send = true;
+                        if let Some(percentage) = propagation_percentage {
+                            // not exact percentage but close enough
+                            let rand = rand::random::<u8>() % 100;
+                            if rand > percentage {
+                                // don't propagate
+                                should_send = false;
+                            }
+                        }
+                        if !should_send {
+                            info!(log, "Random filter did not propagate message");
+                        } else {
+                            trace!(log, "Propagating gossipsub message";
+                            "propagation_peer" => format!("{:?}", propagation_source),
+                            "message_id" => format!("{}", message_id),
+                            );
+                            libp2p_service
+                                .lock()
+                                .swarm
+                                .propagate_message(&propagation_source, message_id);
+                        }
                     }
                     NetworkMessage::Publish { topics, message } => {
-                        debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
-                        libp2p_service.lock().swarm.publish(&topics, message);
+                        // TODO: Remove this for mainnet
+                        // randomly prevents propagation
+                        let mut should_send = true;
+                        if let Some(percentage) = propagation_percentage {
+                            // not exact percentage but close enough
+                            let rand = rand::random::<u8>() % 100;
+                            if rand > percentage {
+                                // don't propagate
+                                should_send = false;
+                            }
+                        }
+                        if !should_send {
+                            info!(log, "Random filter did not publish message");
+                        } else {
+                            debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
+                            libp2p_service.lock().swarm.publish(&topics, message);
+                        }
+                    }
+                    NetworkMessage::Disconnect { peer_id } => {
+                        peers_to_ban.push(peer_id);
                     }
                 },
                 Ok(Async::NotReady) => break,
@@ -194,7 +236,19 @@ fn network_service(
             match libp2p_service.lock().poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
-                        trace!(log, "{}", rpc_event);
+                        trace!(log, "Received RPC"; "RPC" => format!("{}", rpc_event));
+
+                        // if we received or sent a Goodbye message, drop and ban the peer
+                        match rpc_event {
+                            RPCEvent::Request(_, RPCRequest::Goodbye(_))
+                            | RPCEvent::Response(
+                                _,
+                                RPCErrorResponse::Success(RPCResponse::Goodbye),
+                            ) => {
+                                peers_to_ban.push(peer_id.clone());
+                            }
+                            _ => {}
+                        };
                         message_handler_send
                             .try_send(HandlerMessage::RPC(peer_id, rpc_event))
                             .map_err(|_| "Failed to send RPC to handler")?;
@@ -221,6 +275,7 @@ fn network_service(
                             .try_send(HandlerMessage::PubsubMessage(id, source, message))
                             .map_err(|_| "Failed to send pubsub message to handler")?;
                     }
+                    Libp2pEvent::PeerSubscribed(_, _) => {}
                 },
                 Ok(Async::Ready(None)) => unreachable!("Stream never ends"),
                 Ok(Async::NotReady) => break,
@@ -228,8 +283,30 @@ fn network_service(
             }
         }
 
+        while !peers_to_ban.is_empty() {
+            let service = libp2p_service.lock();
+            disconnect_peer(service, peers_to_ban.pop().expect("element exists"), &log);
+        }
+
         Ok(Async::NotReady)
     })
+}
+
+fn disconnect_peer(mut service: MutexGuard<LibP2PService>, peer_id: PeerId, log: &slog::Logger) {
+    warn!(log, "Disconnecting and banning peer"; "peer_id" => format!("{:?}", peer_id));
+    Swarm::ban_peer_id(&mut service.swarm, peer_id.clone());
+    // TODO: Correctly notify protocols of the disconnect
+    // TOOD: Also remove peer from the DHT: https://github.com/sigp/lighthouse/issues/629
+    let dummy_connected_point = ConnectedPoint::Dialer {
+        address: "/ip4/0.0.0.0"
+            .parse::<Multiaddr>()
+            .expect("valid multiaddr"),
+    };
+    service
+        .swarm
+        .inject_disconnected(&peer_id, dummy_connected_point);
+    // inform the behaviour that the peer has been banned
+    service.swarm.peer_banned(peer_id);
 }
 
 /// Types of messages that the network service can receive.
@@ -242,9 +319,11 @@ pub enum NetworkMessage {
         topics: Vec<Topic>,
         message: PubsubMessage,
     },
-    /// Propagate a received gossipsub message
+    /// Propagate a received gossipsub message.
     Propagate {
         propagation_source: PeerId,
         message_id: String,
     },
+    /// Disconnect and bans a peer id.
+    Disconnect { peer_id: PeerId },
 }

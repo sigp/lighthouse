@@ -1,4 +1,4 @@
-//!Available RPC methods types and ids.
+//! Available RPC methods types and ids.
 
 use ssz_derive::{Decode, Encode};
 use types::{Epoch, Hash256, Slot};
@@ -9,9 +9,9 @@ use types::{Epoch, Hash256, Slot};
 
 pub type RequestId = usize;
 
-/// The HELLO request/response handshake message.
-#[derive(Encode, Decode, Clone, Debug)]
-pub struct HelloMessage {
+/// The STATUS request/response handshake message.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct StatusMessage {
     /// The fork version of the chain we are broadcasting.
     pub fork_version: [u8; 4],
 
@@ -33,7 +33,7 @@ pub struct HelloMessage {
 /// Note: any unknown `u64::into(n)` will resolve to `Goodbye::Unknown` for any unknown `n`,
 /// however `GoodbyeReason::Unknown.into()` will go into `0_u64`. Therefore de-serializing then
 /// re-serializing may not return the same bytes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GoodbyeReason {
     /// This node has shutdown.
     ClientShutdown = 1,
@@ -100,7 +100,7 @@ impl ssz::Decode for GoodbyeReason {
 
 /// Request a number of beacon block roots from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BeaconBlocksRequest {
+pub struct BlocksByRangeRequest {
     /// The hash tree root of a block on the requested chain.
     pub head_block_root: Hash256,
 
@@ -119,8 +119,8 @@ pub struct BeaconBlocksRequest {
 }
 
 /// Request a number of beacon block bodies from a peer.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct RecentBeaconBlocksRequest {
+#[derive(Clone, Debug, PartialEq)]
+pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
     pub block_roots: Vec<Hash256>,
 }
@@ -128,32 +128,59 @@ pub struct RecentBeaconBlocksRequest {
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RPCResponse {
     /// A HELLO message.
-    Hello(HelloMessage),
-    /// A response to a get BEACON_BLOCKS request.
-    BeaconBlocks(Vec<u8>),
-    /// A response to a get RECENT_BEACON_BLOCKS request.
-    RecentBeaconBlocks(Vec<u8>),
+    Status(StatusMessage),
+
+    /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
+    /// batch.
+    BlocksByRange(Vec<u8>),
+
+    /// A response to a get BLOCKS_BY_ROOT request.
+    BlocksByRoot(Vec<u8>),
+
+    /// A Goodbye message has been sent
+    Goodbye,
+}
+
+/// Indicates which response is being terminated by a stream termination response.
+#[derive(Debug)]
+pub enum ResponseTermination {
+    /// Blocks by range stream termination.
+    BlocksByRange,
+
+    /// Blocks by root stream termination.
+    BlocksByRoot,
 }
 
 #[derive(Debug)]
 pub enum RPCErrorResponse {
+    /// The response is a successful.
     Success(RPCResponse),
+
+    /// The response was invalid.
     InvalidRequest(ErrorMessage),
+
+    /// The response indicates a server error.
     ServerError(ErrorMessage),
+
+    /// There was an unknown response.
     Unknown(ErrorMessage),
+
+    /// Received a stream termination indicating which response is being terminated.
+    StreamTermination(ResponseTermination),
 }
 
 impl RPCErrorResponse {
-    /// Used to encode the response.
-    pub fn as_u8(&self) -> u8 {
+    /// Used to encode the response in the codec.
+    pub fn as_u8(&self) -> Option<u8> {
         match self {
-            RPCErrorResponse::Success(_) => 0,
-            RPCErrorResponse::InvalidRequest(_) => 1,
-            RPCErrorResponse::ServerError(_) => 2,
-            RPCErrorResponse::Unknown(_) => 255,
+            RPCErrorResponse::Success(_) => Some(0),
+            RPCErrorResponse::InvalidRequest(_) => Some(1),
+            RPCErrorResponse::ServerError(_) => Some(2),
+            RPCErrorResponse::Unknown(_) => Some(255),
+            RPCErrorResponse::StreamTermination(_) => None,
         }
     }
 
@@ -173,6 +200,32 @@ impl RPCErrorResponse {
             _ => RPCErrorResponse::Unknown(err),
         }
     }
+
+    /// Specifies which response allows for multiple chunks for the stream handler.
+    pub fn multiple_responses(&self) -> bool {
+        match self {
+            RPCErrorResponse::Success(resp) => match resp {
+                RPCResponse::Status(_) => false,
+                RPCResponse::BlocksByRange(_) => true,
+                RPCResponse::BlocksByRoot(_) => true,
+                RPCResponse::Goodbye => false,
+            },
+            RPCErrorResponse::InvalidRequest(_) => true,
+            RPCErrorResponse::ServerError(_) => true,
+            RPCErrorResponse::Unknown(_) => true,
+            // Stream terminations are part of responses that have chunks
+            RPCErrorResponse::StreamTermination(_) => true,
+        }
+    }
+
+    /// Returns true if this response is an error. Used to terminate the stream after an error is
+    /// sent.
+    pub fn is_error(&self) -> bool {
+        match self {
+            RPCErrorResponse::Success(_) => false,
+            _ => true,
+        }
+    }
 }
 
 #[derive(Encode, Decode, Debug)]
@@ -187,20 +240,19 @@ impl ErrorMessage {
     }
 }
 
-impl std::fmt::Display for HelloMessage {
+impl std::fmt::Display for StatusMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Hello Message: Fork Version: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_version, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
+        write!(f, "Status Message: Fork Version: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_version, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
     }
 }
 
 impl std::fmt::Display for RPCResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCResponse::Hello(hello) => write!(f, "{}", hello),
-            RPCResponse::BeaconBlocks(data) => write!(f, "<BeaconBlocks>, len: {}", data.len()),
-            RPCResponse::RecentBeaconBlocks(data) => {
-                write!(f, "<RecentBeaconBlocks>, len: {}", data.len())
-            }
+            RPCResponse::Status(status) => write!(f, "{}", status),
+            RPCResponse::BlocksByRange(_) => write!(f, "<BlocksByRange>"),
+            RPCResponse::BlocksByRoot(_) => write!(f, "<BlocksByRoot>"),
+            RPCResponse::Goodbye => write!(f, "Goodbye Sent"),
         }
     }
 }
@@ -212,6 +264,7 @@ impl std::fmt::Display for RPCErrorResponse {
             RPCErrorResponse::InvalidRequest(err) => write!(f, "Invalid Request: {:?}", err),
             RPCErrorResponse::ServerError(err) => write!(f, "Server Error: {:?}", err),
             RPCErrorResponse::Unknown(err) => write!(f, "Unknown Error: {:?}", err),
+            RPCErrorResponse::StreamTermination(_) => write!(f, "Stream Termination"),
         }
     }
 }
@@ -227,7 +280,7 @@ impl std::fmt::Display for GoodbyeReason {
     }
 }
 
-impl std::fmt::Display for BeaconBlocksRequest {
+impl std::fmt::Display for BlocksByRangeRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
