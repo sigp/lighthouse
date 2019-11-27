@@ -68,6 +68,7 @@ impl ValidatorDirectory {
                 directory
             ));
         }
+        // Loading the block proposer db to retrieve its slots_per_epoch data
         let block_history: ValidatorHistory<SignedBlock> =
             ValidatorHistory::open(&block_slashing_protection, None).map_err(|e| e.to_string())?;
         let slots_per_epoch = block_history.slots_per_epoch().map_err(|e| e.to_string())?;
