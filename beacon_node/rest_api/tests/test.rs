@@ -205,7 +205,7 @@ fn validator_duties() {
         .beacon_chain()
         .expect("client should have beacon chain");
 
-    let epoch = Epoch::new(0);
+    let mut epoch = Epoch::new(0);
 
     let validators = beacon_chain
         .head()
@@ -220,7 +220,26 @@ fn validator_duties() {
         .block_on(remote_node.http.validator().get_duties(epoch, &validators))
         .expect("should fetch duties from http api");
 
+    // 1. Check at the current epoch.
+    check_duties(
+        duties,
+        epoch,
+        validators.clone(),
+        beacon_chain.clone(),
+        spec,
+    );
+
+    epoch += 4;
+    let duties = env
+        .runtime()
+        .block_on(remote_node.http.validator().get_duties(epoch, &validators))
+        .expect("should fetch duties from http api");
+
+    // 2. Check with a long skip forward.
     check_duties(duties, epoch, validators, beacon_chain, spec);
+
+    // TODO: test an epoch in the past. Blocked because the `LocalBeaconNode` cannot produce a
+    // chain, yet.
 }
 
 fn check_duties<T: BeaconChainTypes>(
@@ -236,7 +255,9 @@ fn check_duties<T: BeaconChainTypes>(
         "there should be a duty for each validator"
     );
 
-    let state = beacon_chain.head().beacon_state.clone();
+    let state = beacon_chain
+        .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+        .expect("should get state at slot");
 
     validators
         .iter()
