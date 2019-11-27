@@ -4,6 +4,7 @@ use ssz_types::Error as SszTypesError;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
+use std::time::Duration;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -40,8 +41,9 @@ pub enum BeaconChainError {
     },
     AttestationValidationError(AttestationValidationError),
     StateSkipTooLarge {
-        head_slot: Slot,
+        start_slot: Slot,
         requested_slot: Slot,
+        max_task_runtime: Duration,
     },
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
