@@ -425,7 +425,7 @@ mod deposit_tree {
         );
 
         for round in 0..3 {
-            let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
+            let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
 
             for deposit in &deposits {
                 deposit_contract
@@ -449,7 +449,7 @@ mod deposit_tree {
                 .read()
                 .cache
                 .get_deposits(first..last, last, 32)
-                .expect(&format!("should get deposits in round {}", round));
+                .unwrap_or_else(|_| panic!("should get deposits in round {}", round));
 
             assert_eq!(
                 local_deposits.len(),
@@ -498,7 +498,7 @@ mod deposit_tree {
             log,
         );
 
-        let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
+        let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
 
         for deposit in &deposits {
             deposit_contract
@@ -524,7 +524,7 @@ mod deposit_tree {
 
         let n = 8;
 
-        let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
+        let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
 
         let eth1 = runtime
             .block_on(GanacheEth1Instance::new())
