@@ -33,12 +33,13 @@ impl TryFrom<ValidatorDirectory> for VotingValidator {
     type Error = String;
 
     fn try_from(dir: ValidatorDirectory) -> Result<Self, Self::Error> {
+        let slots_per_epoch = dir.slots_per_epoch;
         let attestation_slashing_protection = dir
             .attestation_slashing_protection
-            .and_then(|path| ValidatorHistory::open(&path).ok());
+            .and_then(|path| ValidatorHistory::open(&path, slots_per_epoch).ok());
         let block_slashing_protection = dir
             .block_slashing_protection
-            .and_then(|path| ValidatorHistory::open(&path).ok());
+            .and_then(|path| ValidatorHistory::open(&path, slots_per_epoch).ok());
 
         if attestation_slashing_protection.is_none() || block_slashing_protection.is_none() {
             return Err(

@@ -45,6 +45,7 @@ pub struct ValidatorDirectory {
     pub deposit_data: Option<Vec<u8>>,
     pub attestation_slashing_protection: Option<PathBuf>,
     pub block_slashing_protection: Option<PathBuf>,
+    pub slots_per_epoch: Option<u64>,
 }
 
 impl ValidatorDirectory {
@@ -67,6 +68,9 @@ impl ValidatorDirectory {
                 directory
             ));
         }
+        let block_history: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::open(&block_slashing_protection, None).map_err(|e| e.to_string())?;
+        let slots_per_epoch = block_history.slots_per_epoch().map_err(|e| e.to_string())?;
 
         Ok(Self {
             voting_keypair: Some(
@@ -78,6 +82,7 @@ impl ValidatorDirectory {
             directory,
             attestation_slashing_protection: Some(attestation_slashing_protection),
             block_slashing_protection: Some(block_slashing_protection),
+            slots_per_epoch: Some(slots_per_epoch),
         })
     }
 }
@@ -162,6 +167,7 @@ pub struct ValidatorDirectoryBuilder {
     attestation_slashing_protection: Option<PathBuf>,
     block_slashing_protection: Option<PathBuf>,
     spec: Option<ChainSpec>,
+    slots_per_epoch: Option<u64>,
 }
 
 impl ValidatorDirectoryBuilder {
@@ -191,6 +197,12 @@ impl ValidatorDirectoryBuilder {
     pub fn thread_random_keypairs(mut self) -> Self {
         self.voting_keypair = Some(Keypair::random());
         self.withdrawal_keypair = Some(Keypair::random());
+        self
+    }
+
+    /// Sets the slots_per_epoch
+    pub fn slots_per_epoch(mut self, slots_per_epoch: u64) -> Self {
+        self.slots_per_epoch = Some(slots_per_epoch);
         self
     }
 
@@ -338,12 +350,15 @@ impl ValidatorDirectoryBuilder {
 
         let attestation_path = path.join(ATTESTER_SLASHING_DB);
         let block_path = path.join(BLOCK_PRODUCER_SLASHING_DB);
+        let slots_per_epoch = self.slots_per_epoch;
 
-        let _: ValidatorHistory<SignedAttestation> = ValidatorHistory::empty(&attestation_path)
-            .map_err(|e| format!("Unable to create {:?}: {:?}", attestation_path, e))?;
+        let _: ValidatorHistory<SignedAttestation> =
+            ValidatorHistory::empty(&attestation_path, None)
+                .map_err(|e| format!("Unable to create {:?}: {:?}", attestation_path, e))?;
 
-        let _: ValidatorHistory<SignedBlock> = ValidatorHistory::empty(&path.join(&block_path))
-            .map_err(|e| format!("Unable to create {:?}: {:?}", block_path, e))?;
+        let _: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::empty(&path.join(&block_path), slots_per_epoch)
+                .map_err(|e| format!("Unable to create {:?}: {:?}", block_path, e))?;
 
         self.attestation_slashing_protection = Some(attestation_path);
         self.block_slashing_protection = Some(block_path);
@@ -362,6 +377,7 @@ impl ValidatorDirectoryBuilder {
             deposit_data: self.deposit_data,
             attestation_slashing_protection: self.attestation_slashing_protection,
             block_slashing_protection: self.block_slashing_protection,
+            slots_per_epoch: self.slots_per_epoch,
         })
     }
 }
@@ -381,6 +397,7 @@ mod tests {
 
         let created_dir = ValidatorDirectoryBuilder::default()
             .spec(spec)
+            .slots_per_epoch(E::slots_per_epoch())
             .full_deposit_amount()
             .expect("should set full deposit amount")
             .thread_random_keypairs()
@@ -412,6 +429,7 @@ mod tests {
 
         let created_dir = ValidatorDirectoryBuilder::default()
             .spec(spec)
+            .slots_per_epoch(E::slots_per_epoch())
             .full_deposit_amount()
             .expect("should set full deposit amount")
             .insecure_keypairs(index)
