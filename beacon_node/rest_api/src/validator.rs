@@ -67,7 +67,7 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
     Box::new(future)
 }
 
-/// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch
+/// HTTP Handler to retrieve the duties for a set of validators during a particular epoch.
 ///
 /// The given `epoch` must be within one epoch of the current epoch.
 pub fn get_validator_duties<T: BeaconChainTypes>(
