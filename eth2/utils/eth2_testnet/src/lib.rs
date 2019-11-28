@@ -80,8 +80,21 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
             ($file: ident, $variable: expr) => {
                 File::create(base_dir.join($file))
                     .map_err(|e| format!("Unable to create {}: {:?}", $file, e))
-                    .and_then(|file| {
-                        serde_yaml::to_writer(file, &$variable)
+                    .and_then(|mut file| {
+                        let yaml = serde_yaml::to_string(&$variable)
+                            .map_err(|e| format!("Unable to YAML encode {}: {:?}", $file, e))?;
+
+                        // Remove the doc header from the YAML file.
+                        //
+                        // This allows us to play nice with other clients that are expecting
+                        // plain-text, not YAML.
+                        let no_doc_header = if yaml.starts_with("---\n") {
+                            &yaml[4..]
+                        } else {
+                            &yaml
+                        };
+
+                        file.write_all(no_doc_header.as_bytes())
                             .map_err(|e| format!("Unable to write {}: {:?}", $file, e))
                     })?;
             };
@@ -183,12 +196,34 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
 mod tests {
     use super::*;
     use tempdir::TempDir;
-    use types::MinimalEthSpec;
+    use types::{Eth1Data, Hash256, MinimalEthSpec, YamlConfig};
 
     type E = MinimalEthSpec;
 
     #[test]
     fn round_trip() {
+        let spec = &E::default_spec();
+
+        let eth1_data = Eth1Data {
+            deposit_root: Hash256::zero(),
+            deposit_count: 0,
+            block_hash: Hash256::zero(),
+        };
+
+        // TODO: figure out how to generate ENR and add some here.
+        let boot_enr = None;
+        let genesis_state = Some(BeaconState::new(42, eth1_data, spec));
+        let yaml_config = Some(YamlConfig::from_spec::<E>(spec));
+
+        do_test::<E>(boot_enr, genesis_state.clone(), yaml_config.clone());
+        do_test::<E>(None, None, None);
+    }
+
+    fn do_test<E: EthSpec>(
+        boot_enr: Option<Vec<Enr>>,
+        genesis_state: Option<BeaconState<E>>,
+        yaml_config: Option<YamlConfig>,
+    ) {
         let temp_dir = TempDir::new("eth2_testnet_test").expect("should create temp dir");
         let base_dir = PathBuf::from(temp_dir.path().join("my_testnet"));
         let deposit_contract_address = "0xBB9bc244D798123fDe783fCc1C72d3Bb8C189413".to_string();
@@ -197,12 +232,9 @@ mod tests {
         let testnet: Eth2TestnetDir<E> = Eth2TestnetDir {
             deposit_contract_address: deposit_contract_address.clone(),
             deposit_contract_deploy_block: deposit_contract_deploy_block,
-            // TODO: add some Enr for testing.
-            boot_enr: None,
-            // TODO: add a genesis state for testing.
-            genesis_state: None,
-            // TODO: add a yaml config for testing.
-            yaml_config: None,
+            boot_enr,
+            genesis_state,
+            yaml_config,
         };
 
         testnet
@@ -210,15 +242,6 @@ mod tests {
             .expect("should write to file");
 
         let decoded = Eth2TestnetDir::load(base_dir).expect("should load struct");
-
-        assert_eq!(
-            decoded.deposit_contract_address, deposit_contract_address,
-            "deposit_contract_address"
-        );
-        assert_eq!(
-            decoded.deposit_contract_deploy_block, deposit_contract_deploy_block,
-            "deposit_contract_deploy_block"
-        );
 
         assert_eq!(testnet, decoded, "should decode as encoded");
     }
