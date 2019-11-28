@@ -179,6 +179,13 @@ fn run_new_validator_subcommand<T: EthSpec>(
                 .parse::<PathBuf>()
                 .map_err(|e| format!("Unable to parse testnet-dir: {}", e))?;
 
+            if !testnet_dir.exists() {
+                return Err(format!(
+                    "Testnet directory at {:?} does not exist",
+                    testnet_dir
+                ));
+            }
+
             info!(
                 log,
                 "Loading deposit contract address";
