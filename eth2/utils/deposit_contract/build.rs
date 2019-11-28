@@ -10,12 +10,13 @@ use std::io::Write;
 use std::path::PathBuf;
 
 const TAG: &str = "v0.9.2";
+const UNSAFE_TAG: &str = "v0.9.2.1";
 
 fn spec_url() -> String {
     format!("https://raw.githubusercontent.com/ethereum/eth2.0-specs/{}/deposit_contract/contracts/validator_registration.json", TAG)
 }
 fn testnet_url() -> String {
-    format!("https://raw.githubusercontent.com/sigp/unsafe-eth2-deposit-contract/{}/unsafe_validator_registration.json", TAG)
+    format!("https://raw.githubusercontent.com/sigp/unsafe-eth2-deposit-contract/{}/unsafe_validator_registration.json", UNSAFE_TAG)
 }
 
 fn main() {
