@@ -126,10 +126,15 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                     .system_time_slot_clock()?
                     .websocket_event_handler(client_config.websocket_server.clone())?
                     .build_beacon_chain()?
-                    .libp2p_network(&client_config.network)?
-                    .http_server(&client_config, &http_eth2_config)?
-                    .peer_count_notifier()?
-                    .slot_notifier()?;
+                    .libp2p_network(&client_config.network)?;
+
+                let builder = if client_config.rest_api.enabled {
+                    builder.http_server(&client_config, &http_eth2_config)?
+                } else {
+                    builder
+                };
+
+                let builder = builder.peer_count_notifier()?.slot_notifier()?;
 
                 Ok(Self(builder.build()))
             })

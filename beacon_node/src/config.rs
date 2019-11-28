@@ -47,6 +47,22 @@ pub fn get_configs<E: EthSpec>(
         .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(BEACON_NODE_DIR)))
         .ok_or_else(|| "Unable to find a home directory for the datadir".to_string())?;
 
+    // Load the client config, if it exists .
+    let path = client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
+    if path.exists() {
+        client_config = read_from_file(path.clone())
+            .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
+            .ok_or_else(|| format!("{:?} file does not exist", path))?;
+    }
+
+    // Load the eth2 config, if it exists .
+    let path = client_config.data_dir.join(ETH2_CONFIG_FILENAME);
+    if path.exists() {
+        eth2_config = read_from_file(path.clone())
+            .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
+            .ok_or_else(|| format!("{:?} file does not exist", path))?;
+    }
+
     // Read the `--testnet-dir` flag.
     //
     // If it's not present, use the default dir.
@@ -55,22 +71,6 @@ pub fn get_configs<E: EthSpec>(
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(ETH2_TESTNET_DIR)))
         .ok_or_else(|| "Unable to find a home directory for the testnet-dir".to_string())?;
-
-    // When present, use an eth1 backend that generates deterministic junk.
-    //
-    // Useful for running testnets without the overhead of a deposit contract.
-    if cli_args.is_present("dummy-eth1") {
-        client_config.dummy_eth1_backend = true;
-    }
-
-    // When present, attempt to sync to an eth1 node.
-    //
-    // Required for block production.
-    if cli_args.is_present("eth1") {
-        client_config.sync_eth1_chain = true;
-    } else {
-        client_config.sync_eth1_chain = false;
-    }
 
     /*
      * Networking
@@ -195,6 +195,22 @@ pub fn get_configs<E: EthSpec>(
      * Eth1
      */
 
+    // When present, use an eth1 backend that generates deterministic junk.
+    //
+    // Useful for running testnets without the overhead of a deposit contract.
+    if cli_args.is_present("dummy-eth1") {
+        client_config.dummy_eth1_backend = true;
+    }
+
+    // When present, attempt to sync to an eth1 node.
+    //
+    // Required for block production.
+    if cli_args.is_present("eth1") {
+        client_config.sync_eth1_chain = true;
+    } else {
+        client_config.sync_eth1_chain = false;
+    }
+
     // Defines the URL to reach the eth1 node.
     if let Some(val) = cli_args.value_of("eth1-endpoint") {
         client_config.eth1.endpoint = val.to_string();
@@ -227,7 +243,7 @@ pub fn get_configs<E: EthSpec>(
                 );
                 // If the `testnet` command was not provided, attempt to load an existing datadir and
                 // continue with an existing chain.
-                load_from_datadir(&mut client_config, &mut eth2_config)?
+                load_from_datadir(&mut client_config)?
             }
         }
     };
@@ -260,7 +276,7 @@ pub fn get_configs<E: EthSpec>(
 }
 
 /// Load from an existing database.
-fn load_from_datadir(client_config: &mut ClientConfig, eth2_config: &mut Eth2Config) -> Result<()> {
+fn load_from_datadir(client_config: &mut ClientConfig) -> Result<()> {
     // Check to ensure the datadir exists.
     //
     // For now we return an error. In the future we may decide to boot a default (e.g.,
@@ -283,16 +299,6 @@ fn load_from_datadir(client_config: &mut ClientConfig, eth2_config: &mut Eth2Con
                 .into(),
         );
     }
-
-    let path = client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
-    *client_config = read_from_file(path.clone())
-        .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
-        .ok_or_else(|| format!("{:?} file does not exist", path))?;
-
-    let path = client_config.data_dir.join(ETH2_CONFIG_FILENAME);
-    *eth2_config = read_from_file(path.clone())
-        .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
-        .ok_or_else(|| format!("{:?} file does not exist", path))?;
 
     client_config.genesis = ClientGenesis::Resume;
 
