@@ -55,6 +55,9 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             eth2_testnet_dir.force_write_to_file(testnet_dir)
         });
 
+    info!("Starting service to produce genesis BeaconState from eth1");
+    info!("Connecting to eth1 http endpoint: {}", endpoint);
+
     env.runtime()
         .block_on(future)
         .map_err(|e| format!("Failed to find genesis: {}", e))??;

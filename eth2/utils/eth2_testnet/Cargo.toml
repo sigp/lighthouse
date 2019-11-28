@@ -14,3 +14,4 @@ serde = "1.0"
 serde_yaml = "0.8"
 types = { path = "../../types"}
 eth2-libp2p = { path = "../../../beacon_node/eth2-libp2p"}
+eth2_ssz = { path = "../ssz"}

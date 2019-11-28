@@ -8,8 +8,9 @@
 //! https://github.com/sigp/lighthouse/pull/605
 
 use eth2_libp2p::Enr;
+use ssz::{Decode, Encode};
 use std::fs::{create_dir_all, File};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use types::{Address, BeaconState, EthSpec, YamlConfig};
 
@@ -75,7 +76,7 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
         create_dir_all(&base_dir)
             .map_err(|e| format!("Unable to create testnet directory: {:?}", e))?;
 
-        macro_rules! write_to_file {
+        macro_rules! write_to_yaml_file {
             ($file: ident, $variable: expr) => {
                 File::create(base_dir.join($file))
                     .map_err(|e| format!("Unable to create {}: {:?}", $file, e))
@@ -86,19 +87,27 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
             };
         }
 
-        write_to_file!(ADDRESS_FILE, self.deposit_contract_address);
-        write_to_file!(DEPLOY_BLOCK_FILE, self.deposit_contract_deploy_block);
+        write_to_yaml_file!(ADDRESS_FILE, self.deposit_contract_address);
+        write_to_yaml_file!(DEPLOY_BLOCK_FILE, self.deposit_contract_deploy_block);
 
         if let Some(boot_enr) = &self.boot_enr {
-            write_to_file!(BOOT_NODES_FILE, boot_enr);
-        }
-
-        if let Some(genesis_state) = &self.genesis_state {
-            write_to_file!(GENESIS_STATE_FILE, genesis_state);
+            write_to_yaml_file!(BOOT_NODES_FILE, boot_enr);
         }
 
         if let Some(yaml_config) = &self.yaml_config {
-            write_to_file!(YAML_CONFIG_FILE, yaml_config);
+            write_to_yaml_file!(YAML_CONFIG_FILE, yaml_config);
+        }
+
+        // The genesis state is a special case because it uses SSZ, not YAML.
+        if let Some(genesis_state) = &self.genesis_state {
+            let file = base_dir.join(GENESIS_STATE_FILE);
+
+            File::create(&file)
+                .map_err(|e| format!("Unable to create {:?}: {:?}", file, e))
+                .and_then(|mut file| {
+                    file.write_all(&genesis_state.as_ssz_bytes())
+                        .map_err(|e| format!("Unable to write {:?}: {:?}", file, e))
+                })?;
         }
 
         Ok(())
@@ -129,8 +138,26 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
         let deposit_contract_address = load_from_file!(ADDRESS_FILE);
         let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
         let boot_enr = optional_load_from_file!(BOOT_NODES_FILE);
-        let genesis_state = optional_load_from_file!(GENESIS_STATE_FILE);
         let yaml_config = optional_load_from_file!(YAML_CONFIG_FILE);
+
+        // The genesis state is a special case because it uses SSZ, not YAML.
+        let file = base_dir.join(GENESIS_STATE_FILE);
+        let genesis_state = if base_dir.join(&file).exists() {
+            Some(
+                File::open(base_dir.join(&file))
+                    .map_err(|e| format!("Unable to open {:?}: {:?}", file, e))
+                    .and_then(|mut file| {
+                        let mut bytes = vec![];
+                        file.read_to_end(&mut bytes)
+                            .map_err(|e| format!("Unable to read {:?}: {:?}", file, e))?;
+
+                        BeaconState::from_ssz_bytes(&bytes)
+                            .map_err(|e| format!("Unable to SSZ decode {:?}: {:?}", file, e))
+                    })?,
+            )
+        } else {
+            None
+        };
 
         Ok(Self {
             deposit_contract_address,
