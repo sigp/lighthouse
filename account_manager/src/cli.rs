@@ -30,7 +30,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .long("eth1-endpoint")
                                 .value_name("HTTP_SERVER")
                                 .takes_value(true)
-                                .requires("send-deposits")
                                 .default_value("http://localhost:8545")
                                 .help("The URL to the eth1 JSON-RPC http API."),
                         )
@@ -40,7 +39,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .long("deposit-contract")
                                 .value_name("ADDRESS")
                                 .takes_value(true)
-                                .requires("send-deposits")
                                 .conflicts_with("testnet-dir")
                                 .help("The deposit contract for submitting deposits."),
                         )
@@ -50,7 +48,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .long("account-index")
                                 .value_name("INDEX")
                                 .takes_value(true)
-                                .requires("send-deposits")
                                 .default_value("0")
                                 .help("The eth1 accounts[] index which will send the transaction"),
                         )
@@ -60,7 +57,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .long("password")
                                 .value_name("FILE")
                                 .takes_value(true)
-                                .requires("send-deposits")
                                 .help("The password file to unlock the eth1 account (see --index)"),
                         )
                         .arg(
@@ -68,7 +64,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .long("testnet-dir")
                                 .value_name("DIRECTORY")
                                 .takes_value(true)
-                                .requires("send-deposits")
                                 .default_value("0")
                                 .help("The directory from which to read the deposit contract address."),
                         )
