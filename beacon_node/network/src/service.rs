@@ -190,7 +190,7 @@ fn network_service(
                         } else {
                             trace!(log, "Propagating gossipsub message";
                             "propagation_peer" => format!("{:?}", propagation_source),
-                            "message_id" => format!("{}", message_id),
+                            "message_id" => message_id.to_string(),
                             );
                             libp2p_service
                                 .lock()

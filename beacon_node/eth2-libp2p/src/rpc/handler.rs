@@ -174,7 +174,6 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    #[inline]
     pub fn send_request(&mut self, rpc_event: RPCEvent) {
         self.keep_alive = KeepAlive::Yes;
 
@@ -194,12 +193,10 @@ where
     type OutboundProtocol = RPCRequest;
     type OutboundOpenInfo = RPCEvent; // Keep track of the id and the request
 
-    #[inline]
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
         self.listen_protocol.clone()
     }
 
-    #[inline]
     fn inject_fully_negotiated_inbound(
         &mut self,
         out: <RPCProtocol as InboundUpgrade<TSubstream>>::Output,
@@ -226,7 +223,6 @@ where
         self.current_substream_id += 1;
     }
 
-    #[inline]
     fn inject_fully_negotiated_outbound(
         &mut self,
         out: <RPCRequest as OutboundUpgrade<TSubstream>>::Output,
@@ -272,7 +268,6 @@ where
 
     // Note: If the substream has closed due to inactivity, or the substream is in the
     // wrong state a response will fail silently.
-    #[inline]
     fn inject_event(&mut self, rpc_event: Self::InEvent) {
         match rpc_event {
             RPCEvent::Request(_, _) => self.send_request(rpc_event),
@@ -347,7 +342,6 @@ where
         }
     }
 
-    #[inline]
     fn inject_dial_upgrade_error(
         &mut self,
         _: Self::OutboundOpenInfo,
@@ -360,7 +354,6 @@ where
         }
     }
 
-    #[inline]
     fn connection_keep_alive(&self) -> KeepAlive {
         self.keep_alive
     }
@@ -412,7 +405,7 @@ where
             // Drain all queued items until all messages have been processed for this stream
             // TODO Improve this code logic
             let mut new_items_to_send = true;
-            while new_items_to_send == true {
+            while new_items_to_send {
                 new_items_to_send = false;
                 match self.inbound_substreams.entry(request_id) {
                     Entry::Occupied(mut entry) => {
@@ -514,7 +507,7 @@ where
                                     entry.get_mut().0 =
                                         OutboundSubstreamState::RequestPendingResponse {
                                             substream,
-                                            request: request,
+                                            request,
                                         };
                                     let delay_key = &entry.get().1;
                                     self.outbound_substreams_delay

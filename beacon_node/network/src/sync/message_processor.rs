@@ -396,6 +396,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         request_id: RequestId,
         beacon_block: Option<BeaconBlock<T::EthSpec>>,
     ) {
+        let beacon_block = beacon_block.map(Box::new);
         trace!(
             self.log,
             "Received BlocksByRange Response";
@@ -416,6 +417,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         request_id: RequestId,
         beacon_block: Option<BeaconBlock<T::EthSpec>>,
     ) {
+        let beacon_block = beacon_block.map(Box::new);
         trace!(
             self.log,
             "Received BlocksByRoot Response";
@@ -442,11 +444,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                             "peer_id" => format!("{:?}",peer_id));
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
-                BlockProcessingOutcome::ParentUnknown { parent: _ } => {
+                BlockProcessingOutcome::ParentUnknown { .. } => {
                     // Inform the sync manager to find parents for this block
                     trace!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
-                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block.clone()));
+                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, Box::new(block.clone())));
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::FutureSlot {
