@@ -59,6 +59,11 @@ impl BlockCache {
         self.blocks.first().map(|block| block.timestamp)
     }
 
+    /// Returns the timestamp of the latest block in the cache (if any).
+    pub fn latest_block_timestamp(&self) -> Option<u64> {
+        self.blocks.last().map(|block| block.timestamp)
+    }
+
     /// Returns the lowest block number stored.
     pub fn lowest_block_number(&self) -> Option<u64> {
         self.blocks.first().map(|block| block.number)

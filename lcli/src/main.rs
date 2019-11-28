@@ -2,6 +2,7 @@
 extern crate log;
 
 mod deploy_deposit_contract;
+mod eth1_genesis;
 mod parse_hex;
 mod pycli;
 mod refund_deposit_contract;
@@ -199,6 +200,29 @@ fn main() {
                 )
         )
         .subcommand(
+            SubCommand::with_name("eth1-genesis")
+                .about(
+                    "Listens to the eth1 chain and finds the genesis beacon state",
+                )
+                .arg(
+                    Arg::with_name("testnet-dir")
+                        .short("d")
+                        .long("testnet-dir")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
+                )
+                .arg(
+                    Arg::with_name("eth1-endpoint")
+                        .short("e")
+                        .long("eth1-endpoint")
+                        .value_name("HTTP_SERVER")
+                        .takes_value(true)
+                        .default_value("http://localhost:8545")
+                        .help("The URL to the eth1 JSON-RPC http API."),
+                )
+        )
+        .subcommand(
             SubCommand::with_name("pycli")
                 .about("TODO")
                 .arg(
@@ -216,7 +240,7 @@ fn main() {
     let env = EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .null_logger()
+        .async_logger("trace")
         .expect("should start null logger")
         .build()
         .expect("should build env");
@@ -257,7 +281,6 @@ fn main() {
                 "mainnet" => genesis_yaml::<MainnetEthSpec>(num_validators, genesis_time, file),
                 _ => unreachable!("guarded by slog possible_values"),
             };
-
             info!("Genesis state YAML file created. Exiting successfully.");
         }
         ("transition-blocks", Some(matches)) => run_transition_blocks(matches)
@@ -275,6 +298,8 @@ fn main() {
             refund_deposit_contract::run::<LocalEthSpec>(env, matches)
                 .unwrap_or_else(|e| error!("Failed to run refund-deposit-contract command: {}", e))
         }
+        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<LocalEthSpec>(env, matches)
+            .unwrap_or_else(|e| error!("Failed to run eth1-genesis command: {}", e)),
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
 }

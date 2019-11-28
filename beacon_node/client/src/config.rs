@@ -39,6 +39,7 @@ impl Default for ClientGenesis {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub data_dir: PathBuf,
+    pub testnet_dir: PathBuf,
     pub db_type: String,
     pub db_name: String,
     pub freezer_db_path: Option<PathBuf>,
@@ -63,6 +64,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from(".lighthouse"),
+            testnet_dir: PathBuf::from("testnet"),
             log_file: PathBuf::from(""),
             db_type: "disk".to_string(),
             db_name: "chain_db".to_string(),

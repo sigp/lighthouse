@@ -60,7 +60,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         // TODO: the eth2 config in the env is being modified.
         //
         // See https://github.com/sigp/lighthouse/issues/602
-        get_configs(&matches, context.eth2_config.clone(), log)
+        get_configs::<E>(&matches, context.eth2_config.clone(), log)
             .into_future()
             .and_then(move |(client_config, eth2_config, _log)| {
                 context.eth2_config = eth2_config;

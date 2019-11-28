@@ -24,3 +24,4 @@ environment = { path = "../lighthouse/environment" }
 web3 = "0.8.0"
 eth2_testnet = { path = "../eth2/utils/eth2_testnet" }
 dirs = "2.0"
+genesis = { path = "../beacon_node/genesis" }

@@ -8,8 +8,6 @@ use std::path::PathBuf;
 use types::EthSpec;
 use web3::{transports::Http, Web3};
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse/testnet";
-
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let min_genesis_time = matches
         .value_of("min-genesis-time")
@@ -29,10 +27,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         .and_then(|output| output.parse::<PathBuf>().map_err(|_| ()))
         .unwrap_or_else(|_| {
             dirs::home_dir()
-                .map(|mut home| {
-                    home.push(DEFAULT_DATA_DIR);
-                    home
-                })
+                .map(|home| home.join(".lighthouse").join("testnet"))
                 .expect("should locate home directory")
         });
 
@@ -91,12 +86,15 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     info!("Writing config to {:?}", output_dir);
 
-    Eth2TestnetDir::new(
-        output_dir,
-        format!("{}", deposit_contract.address()),
-        deploy_block.as_u64(),
+    let testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir {
+        deposit_contract_address: format!("{}", deposit_contract.address()),
+        deposit_contract_deploy_block: deploy_block.as_u64(),
         min_genesis_time,
-    )?;
+        boot_enr: None,
+        genesis_state: None,
+    };
+
+    testnet_dir.write_to_file(output_dir)?;
 
     Ok(())
 }

@@ -179,7 +179,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
                 .parse::<PathBuf>()
                 .map_err(|e| format!("Unable to parse testnet-dir: {}", e))?;
 
-            let eth2_testnet_dir = Eth2TestnetDir::load(testnet_dir)
+            let eth2_testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir::load(testnet_dir)
                 .map_err(|e| format!("Failed to load testnet dir: {}", e))?;
 
             // Convert from `types::Address` to `web3::types::Address`.

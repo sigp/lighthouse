@@ -10,38 +10,40 @@
 use eth2_libp2p::Enr;
 use std::fs::{create_dir_all, File};
 use std::path::PathBuf;
-use types::Address;
+use types::{Address, BeaconState, EthSpec};
 
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const MIN_GENESIS_TIME_FILE: &str = "min_genesis_time.txt";
-pub const BOOT_NODES_FILE: &str = "boot_nodes.json";
+pub const BOOT_NODES_FILE: &str = "boot_enr.json";
+pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct Eth2TestnetDir {
-    deposit_contract_address: String,
+pub struct Eth2TestnetDir<E: EthSpec> {
+    pub deposit_contract_address: String,
     pub deposit_contract_deploy_block: u64,
     pub min_genesis_time: u64,
-    pub boot_nodes: Vec<Enr>,
+    pub boot_enr: Option<Vec<Enr>>,
+    pub genesis_state: Option<BeaconState<E>>,
 }
 
-impl Eth2TestnetDir {
-    pub fn new(
-        base_dir: PathBuf,
-        deposit_contract_address: String,
-        deposit_contract_deploy_block: u64,
-        min_genesis_time: u64,
-        boot_nodes: Vec<Enr>,
-    ) -> Result<Self, String> {
+impl<E: EthSpec> Eth2TestnetDir<E> {
+    // Write the files to the directory, only if the directory doesn't already exist.
+    pub fn write_to_file(&self, base_dir: PathBuf) -> Result<(), String> {
         if base_dir.exists() {
             return Err("Testnet directory already exists".to_string());
         }
 
+        self.force_write_to_file(base_dir)
+    }
+
+    // Write the files to the directory, even if the directory already exists.
+    pub fn force_write_to_file(&self, base_dir: PathBuf) -> Result<(), String> {
         create_dir_all(&base_dir)
             .map_err(|e| format!("Unable to create testnet directory: {:?}", e))?;
 
         macro_rules! write_to_file {
-            ($file: ident, $variable: ident) => {
+            ($file: ident, $variable: expr) => {
                 File::create(base_dir.join($file))
                     .map_err(|e| format!("Unable to create {}: {:?}", $file, e))
                     .and_then(|file| {
@@ -51,17 +53,19 @@ impl Eth2TestnetDir {
             };
         }
 
-        write_to_file!(ADDRESS_FILE, deposit_contract_address);
-        write_to_file!(DEPLOY_BLOCK_FILE, deposit_contract_deploy_block);
-        write_to_file!(MIN_GENESIS_TIME_FILE, min_genesis_time);
-        write_to_file!(BOOT_NODES_FILE, boot_nodes);
+        write_to_file!(ADDRESS_FILE, self.deposit_contract_address);
+        write_to_file!(DEPLOY_BLOCK_FILE, self.deposit_contract_deploy_block);
+        write_to_file!(MIN_GENESIS_TIME_FILE, self.min_genesis_time);
 
-        Ok(Self {
-            deposit_contract_address,
-            deposit_contract_deploy_block,
-            min_genesis_time,
-            boot_nodes,
-        })
+        if let Some(boot_enr) = &self.boot_enr {
+            write_to_file!(BOOT_NODES_FILE, boot_enr);
+        }
+
+        if let Some(genesis_state) = &self.genesis_state {
+            write_to_file!(GENESIS_STATE_FILE, genesis_state);
+        }
+
+        Ok(())
     }
 
     pub fn load(base_dir: PathBuf) -> Result<Self, String> {
@@ -76,16 +80,28 @@ impl Eth2TestnetDir {
             };
         }
 
+        macro_rules! optional_load_from_file {
+            ($file: ident) => {
+                if base_dir.join($file).exists() {
+                    Some(load_from_file!($file))
+                } else {
+                    None
+                }
+            };
+        }
+
         let deposit_contract_address = load_from_file!(ADDRESS_FILE);
         let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
         let min_genesis_time = load_from_file!(MIN_GENESIS_TIME_FILE);
-        let boot_nodes = load_from_file!(BOOT_NODES_FILE);
+        let boot_enr = optional_load_from_file!(BOOT_NODES_FILE);
+        let genesis_state = optional_load_from_file!(GENESIS_STATE_FILE);
 
         Ok(Self {
             deposit_contract_address,
             deposit_contract_deploy_block,
             min_genesis_time,
-            boot_nodes,
+            boot_enr,
+            genesis_state,
         })
     }
 
@@ -104,6 +120,9 @@ impl Eth2TestnetDir {
 mod tests {
     use super::*;
     use tempdir::TempDir;
+    use types::MinimalEthSpec;
+
+    type E = MinimalEthSpec;
 
     #[test]
     fn round_trip() {
@@ -113,15 +132,19 @@ mod tests {
         let deposit_contract_deploy_block = 42;
         let min_genesis_time = 1337;
 
-        let testnet = Eth2TestnetDir::new(
-            base_dir.clone(),
-            deposit_contract_address.clone(),
-            deposit_contract_deploy_block,
+        let testnet: Eth2TestnetDir<E> = Eth2TestnetDir {
+            deposit_contract_address: deposit_contract_address.clone(),
+            deposit_contract_deploy_block: deposit_contract_deploy_block,
             min_genesis_time,
             // TODO: add some Enr for testing.
-            vec![],
-        )
-        .expect("should create struct");
+            boot_enr: None,
+            // TODO: add a genesis state for testing.
+            genesis_state: None,
+        };
+
+        testnet
+            .write_to_file(base_dir.clone())
+            .expect("should write to file");
 
         let decoded = Eth2TestnetDir::load(base_dir).expect("should load struct");
 

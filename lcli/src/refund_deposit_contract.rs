@@ -11,8 +11,6 @@ use web3::{
     Web3,
 };
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse/testnet";
-
 /// `keccak("steal()")[0..4]`
 pub const DEPOSIT_ROOT_FN_SIGNATURE: &[u8] = &[0xcf, 0x7a, 0x89, 0x65];
 
@@ -35,14 +33,11 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         .and_then(|dir| dir.parse::<PathBuf>().map_err(|_| ()))
         .unwrap_or_else(|_| {
             dirs::home_dir()
-                .map(|mut home| {
-                    home.push(DEFAULT_DATA_DIR);
-                    home
-                })
+                .map(|home| home.join(".lighthouse").join("testnet"))
                 .expect("should locate home directory")
         });
 
-    let eth2_testnet_dir = Eth2TestnetDir::load(testnet_dir)?;
+    let eth2_testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir::load(testnet_dir)?;
 
     let (_event_loop, transport) = Http::new(&endpoint).map_err(|e| {
         format!(

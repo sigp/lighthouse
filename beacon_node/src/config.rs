@@ -9,12 +9,13 @@ use slog::{crit, info, Logger};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use types::{Epoch, Fork};
+use types::{Epoch, EthSpec, Fork};
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 pub const ETH2_TESTNET_DIR: &str = "testnet";
 pub const BEACON_NODE_DIR: &str = "beacon";
+pub const NETWORK_DIR: &str = "network";
 
 pub const SECONDS_PER_ETH1_BLOCK: u64 = 15;
 
@@ -28,7 +29,7 @@ type Config = (ClientConfig, Eth2Config, Logger);
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
-pub fn get_configs(
+pub fn get_configs<E: EthSpec>(
     cli_args: &ArgMatches,
     mut eth2_config: Eth2Config,
     core_log: Logger,
@@ -41,16 +42,20 @@ pub fn get_configs(
     //
     // If it's not present, try and find the home directory (`~`) and push the default data
     // directory onto it.
-    //
-    // Note: the `config.data_dir` defines the _global_ lighthouse datadir, not just the beacon
-    // node specific datadir.
-    let data_dir: PathBuf = cli_args
+    client_config.data_dir = cli_args
         .value_of("datadir")
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(BEACON_NODE_DIR)))
         .ok_or_else(|| "Unable to find a home directory for the datadir".to_string())?;
 
-    client_config.data_dir = data_dir;
+    // Read the `--testnet-dir` flag.
+    //
+    // If it's not present, use the default dir.
+    client_config.testnet_dir = cli_args
+        .value_of("testnet-dir")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(ETH2_TESTNET_DIR)))
+        .ok_or_else(|| "Unable to find a home directory for the testnet-dir".to_string())?;
 
     // When present, use an eth1 backend that generates deterministic junk.
     //
@@ -79,6 +84,8 @@ pub fn get_configs(
     // If a network dir has been specified, override the `datadir` definition.
     if let Some(dir) = cli_args.value_of("network-dir") {
         client_config.network.network_dir = PathBuf::from(dir);
+    } else {
+        client_config.network.network_dir = client_config.data_dir.join(NETWORK_DIR);
     };
 
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {
@@ -213,7 +220,7 @@ pub fn get_configs(
             // Whilst there is no large testnet or mainnet force the user to specify how they want
             // to start a new chain (e.g., from a genesis YAML file, another node, etc).
             if !client_config.data_dir.exists() {
-                init_new_client(&mut client_config, &mut eth2_config)?
+                init_new_client::<E>(&mut client_config, &mut eth2_config)?
             } else {
                 // If the `testnet` command was not provided, attempt to load an existing datadir and
                 // continue with an existing chain.
@@ -288,21 +295,20 @@ fn load_from_datadir(client_config: &mut ClientConfig, eth2_config: &mut Eth2Con
 }
 
 /// Create a new client with the default configuration.
-fn init_new_client(client_config: &mut ClientConfig, eth2_config: &mut Eth2Config) -> Result<()> {
+fn init_new_client<E: EthSpec>(
+    client_config: &mut ClientConfig,
+    eth2_config: &mut Eth2Config,
+) -> Result<()> {
     let spec = &mut eth2_config.spec;
 
     spec.min_deposit_amount = 100;
     spec.max_effective_balance = 3_200_000_000;
     spec.ejection_balance = 1_600_000_000;
     spec.effective_balance_increment = 100_000_000;
-    spec.genesis_fork = Fork {
-        previous_version: [0; 4],
-        current_version: [0, 0, 0, 42],
-        epoch: Epoch::new(0),
-    };
 
-    let eth2_testnet_dir = Eth2TestnetDir::load(client_config.data_dir.join(ETH2_TESTNET_DIR))
-        .map_err(|e| format!("Unable to open testnet dir: {}", e))?;
+    let testnet_dir = client_config.testnet_dir.clone();
+    let eth2_testnet_dir: Eth2TestnetDir<E> = Eth2TestnetDir::load(testnet_dir.clone())
+        .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_dir.deposit_contract_address()?);

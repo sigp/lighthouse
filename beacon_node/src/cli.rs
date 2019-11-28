@@ -13,9 +13,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("network-dir")
                 .long("network-dir")
                 .value_name("DIR")
-                .help("Data directory for network keys.")
+                .help("Data directory for network keys. Defaults to network/ inside the beacon node \
+                       dir.")
                 .takes_value(true)
-                .global(true)
         )
         .arg(
             Arg::with_name("freezer-dir")
@@ -23,7 +23,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("DIR")
                 .help("Data directory for the freezer database.")
                 .takes_value(true)
-                .global(true)
+        )
+        .arg(
+            Arg::with_name("testnet-dir")
+                .long("testnet-dir")
+                .value_name("DIR")
+                .help("Path to directory containing eth2_testnet specs. Defaults to \
+                      ~/.lighthouse/testnet.")
+                .takes_value(true)
         )
         /*
          * Network parameters.

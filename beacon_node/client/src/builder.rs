@@ -194,38 +194,8 @@ where
                                 "eth1_node" => &config.endpoint
                             );
 
-                            let genesis_service = Eth1GenesisService::new(
-                                // Some of the configuration options for `Eth1Config` are
-                                // hard-coded when listening for genesis from the deposit contract.
-                                //
-                                // The idea is that the `Eth1Config` supplied to this function
-                                // (`config`) is intended for block production duties (i.e.,
-                                // listening for deposit events and voting on eth1 data) and that
-                                // we can make listening for genesis more efficient if we modify
-                                // some params.
-                                Eth1Config {
-                                    // Truncating the block cache makes searching for genesis more
-                                    // complicated.
-                                    block_cache_truncation: None,
-                                    // Scan large ranges of blocks when awaiting genesis.
-                                    blocks_per_log_query: 1_000,
-                                    // Only perform a single log request each time the eth1 node is
-                                    // polled.
-                                    //
-                                    // For small testnets this makes finding genesis much faster,
-                                    // as it usually happens within 1,000 blocks.
-                                    max_log_requests_per_update: Some(1),
-                                    // Only perform a single block request each time the eth1 node
-                                    // is polled.
-                                    //
-                                    // For small testnets, this is much faster as they do not have
-                                    // a `MIN_GENESIS_SECONDS`, so after `MIN_GENESIS_VALIDATOR_COUNT`
-                                    // has been reached only a single block needs to be read.
-                                    max_blocks_per_update: Some(1),
-                                    ..config
-                                },
-                                context.log.clone(),
-                            );
+                            let genesis_service =
+                                Eth1GenesisService::new(config, context.log.clone());
 
                             let future = genesis_service
                                 .wait_for_genesis_state(
