@@ -48,7 +48,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("listen-address")
                 .value_name("ADDRESS")
                 .help("The address lighthouse will listen for UDP and TCP connections.")
-                .default_value("127.0.0.1")
+                .default_value("0.0.0.0")
                 .takes_value(true)
         )
         .arg(
