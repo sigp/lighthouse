@@ -120,9 +120,15 @@ impl<'a, E: EthSpec, S: Store> Iterator for ParentRootBlockIterator<'a, E, S> {
     type Item = BeaconBlock<E>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let block: BeaconBlock<E> = self.store.get(&self.next_block_root).ok()??;
-        self.next_block_root = block.parent_root;
-        Some(block)
+        // Stop once we reach the zero parent, otherwise we'll keep returning the genesis
+        // block forever.
+        if self.next_block_root.is_zero() {
+            None
+        } else {
+            let block: BeaconBlock<E> = self.store.get(&self.next_block_root).ok()??;
+            self.next_block_root = block.parent_root;
+            Some(block)
+        }
     }
 }
 

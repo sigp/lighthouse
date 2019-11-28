@@ -310,7 +310,7 @@ impl HotColdDB {
         let blocks = self.load_ancestor_blocks(
             low_checkpoint.slot,
             slot,
-            high_checkpoint.latest_block_header.parent_root,
+            self.get_high_checkpoint_block_root(&high_checkpoint, slot),
         )?;
 
         // 3. Replay the blocks on top of the low checkpoint.
@@ -330,6 +330,18 @@ impl HotColdDB {
         }
     }
 
+    fn get_high_checkpoint_block_root<E: EthSpec>(
+        &self,
+        high_checkpoint: &BeaconState<E>,
+        slot: Slot,
+    ) -> Hash256 {
+        // FIXME(sproul): error handling?
+        *high_checkpoint
+            .get_block_root(slot)
+            .or_else(|_| high_checkpoint.get_oldest_block_root())
+            .expect("should always be able to get oldest block root")
+    }
+
     fn load_ancestor_blocks<E: EthSpec>(
         &self,
         start_slot: Slot,
@@ -338,7 +350,9 @@ impl HotColdDB {
     ) -> Result<Vec<BeaconBlock<E>>, Error> {
         let mut blocks = ParentRootBlockIterator::new(self, end_parent_hash)
             .filter(|block| block.slot <= end_slot)
-            .take_while(|block| block.slot >= start_slot)
+            // Exclude the block at the start slot, because it has already
+            // been applied to the state
+            .take_while(|block| block.slot > start_slot)
             .collect::<Vec<_>>();
         blocks.reverse();
 
