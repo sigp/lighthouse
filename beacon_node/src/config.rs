@@ -350,6 +350,12 @@ fn init_new_client<E: EthSpec>(
         .deposit_contract_deploy_block
         .saturating_sub(client_config.eth1.follow_distance * 2);
 
+    client_config.network.boot_nodes = eth2_testnet_dir
+        .boot_enr
+        .as_ref()
+        .ok_or_else(|| "Testnet directory does not contain any boot nodes")?
+        .clone();
+
     if let Some(genesis_state) = eth2_testnet_dir.genesis_state {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
