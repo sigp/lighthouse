@@ -273,8 +273,6 @@ where
             RPCEvent::Request(_, _) => self.send_request(rpc_event),
             RPCEvent::Response(rpc_id, response) => {
                 // check if the stream matching the response still exists
-                trace!(self.log, "Checking for outbound stream");
-
                 // variables indicating if the response is an error response or a multi-part
                 // response
                 let res_is_error = response.is_error();
@@ -284,7 +282,6 @@ where
                     Some((substream_state, _)) => {
                         match std::mem::replace(substream_state, InboundSubstreamState::Poisoned) {
                             InboundSubstreamState::ResponseIdle(substream) => {
-                                trace!(self.log, "Stream is idle, sending message"; "message" => format!("{}", response));
                                 // close the stream if there is no response
                                 if let RPCErrorResponse::StreamTermination(_) = response {
                                     trace!(self.log, "Stream termination sent. Ending the stream");
@@ -302,7 +299,6 @@ where
                                 if res_is_multiple =>
                             {
                                 // the stream is in use, add the request to a pending queue
-                                trace!(self.log, "Adding message to queue"; "message" => format!("{}", response));
                                 (*self
                                     .queued_outbound_items
                                     .entry(rpc_id)
@@ -386,7 +382,6 @@ where
             .poll()
             .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
         {
-            trace!(self.log, "Closing expired inbound stream");
             self.inbound_substreams.remove(stream_id.get_ref());
         }
 
@@ -396,7 +391,6 @@ where
             .poll()
             .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
         {
-            trace!(self.log, "Closing expired outbound stream");
             self.outbound_substreams.remove(stream_id.get_ref());
         }
 
@@ -420,7 +414,6 @@ where
                                 match substream.poll() {
                                     Ok(Async::Ready(raw_substream)) => {
                                         // completed the send
-                                        trace!(self.log, "RPC message sent");
 
                                         // close the stream if required
                                         if closing {
@@ -428,7 +421,6 @@ where
                                                 InboundSubstreamState::Closing(raw_substream)
                                         } else {
                                             // check for queued chunks and update the stream
-                                            trace!(self.log, "Checking for queued items");
                                             entry.get_mut().0 = apply_queued_responses(
                                                 raw_substream,
                                                 &mut self
@@ -456,7 +448,6 @@ where
                                 };
                             }
                             InboundSubstreamState::ResponseIdle(substream) => {
-                                trace!(self.log, "Idle stream searching queue");
                                 entry.get_mut().0 = apply_queued_responses(
                                     substream,
                                     &mut self.queued_outbound_items.get_mut(&request_id),
@@ -502,7 +493,6 @@ where
                             request,
                         } => match substream.poll() {
                             Ok(Async::Ready(Some(response))) => {
-                                trace!(self.log, "Message received"; "message" => format!("{}", response));
                                 if request.multiple_responses() {
                                     entry.get_mut().0 =
                                         OutboundSubstreamState::RequestPendingResponse {

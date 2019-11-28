@@ -167,7 +167,7 @@ fn network_service(
             match network_recv.poll() {
                 Ok(Async::Ready(Some(message))) => match message {
                     NetworkMessage::RPC(peer_id, rpc_event) => {
-                        trace!(log, "Sending RPC"; "RPC" => format!("{}", rpc_event));
+                        trace!(log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
                         libp2p_service.lock().swarm.send_rpc(peer_id, rpc_event);
                     }
                     NetworkMessage::Propagate {
@@ -236,7 +236,7 @@ fn network_service(
             match libp2p_service.lock().poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
-                        trace!(log, "Received RPC"; "RPC" => format!("{}", rpc_event));
+                        trace!(log, "Received RPC"; "rpc" => format!("{}", rpc_event));
 
                         // if we received or sent a Goodbye message, drop and ban the peer
                         match rpc_event {

@@ -173,11 +173,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
                     info.listen_addrs.truncate(MAX_IDENTIFY_ADDRESSES);
                 }
                 debug!(self.log, "Identified Peer"; "Peer" => format!("{}", peer_id),
-                "Protocol Version" => info.protocol_version,
-                "Agent Version" => info.agent_version,
-                "Listening Addresses" => format!("{:?}", info.listen_addrs),
-                "Observed Address" => format!("{:?}", observed_addr),
-                "Protocols" => format!("{:?}", info.protocols)
+                "protocol_version" => info.protocol_version,
+                "agent_version" => info.agent_version,
+                "listening_ addresses" => format!("{:?}", info.listen_addrs),
+                "observed_address" => format!("{:?}", observed_addr),
+                "protocols" => format!("{:?}", info.protocols)
                 );
             }
             IdentifyEvent::Sent { .. } => {}
