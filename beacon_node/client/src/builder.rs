@@ -23,13 +23,14 @@ use lighthouse_bootstrap::Bootstrapper;
 use lmd_ghost::LmdGhost;
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
 use slog::{debug, error, info, warn};
+use ssz::Decode;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::timer::Interval;
-use types::{ChainSpec, EthSpec};
+use types::{BeaconState, ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
 /// The interval between notifier events.
@@ -179,6 +180,24 @@ where
                         }
                         ClientGenesis::SszFile { path } => {
                             let result = state_from_ssz_file(path);
+
+                            let future = result
+                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
+                                .into_future()
+                                .map(|v| (v, None));
+
+                            Box::new(future)
+                        }
+                        ClientGenesis::SszBytes {
+                            genesis_state_bytes,
+                        } => {
+                            info!(
+                                context.log,
+                                "Using trusted genesis state";
+                            );
+
+                            let result = BeaconState::from_ssz_bytes(&genesis_state_bytes)
+                                .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e));
 
                             let future = result
                                 .and_then(move |genesis_state| builder.genesis_state(genesis_state))

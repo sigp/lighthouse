@@ -5,11 +5,10 @@ use futures::Future;
 use genesis::{Eth1Config, Eth1GenesisService};
 use std::path::PathBuf;
 use std::time::Duration;
-use types::{EthSpec, Fork};
+use types::EthSpec;
 
 /// Interval between polling the eth1 node for genesis information.
-pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
-pub const SECONDS_PER_ETH1_BLOCK: u64 = 15;
+pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
 
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let endpoint = matches
@@ -28,32 +27,29 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     let mut eth2_testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir::load(testnet_dir.clone())?;
 
+    let spec = eth2_testnet_dir
+        .yaml_config
+        .as_ref()
+        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+        .apply_to_chain_spec::<T>(&env.core_context().eth2_config.spec)
+        .ok_or_else(|| {
+            format!(
+                "The loaded config is not compatible with the {} spec",
+                &env.core_context().eth2_config.spec_constants
+            )
+        })?;
+
     let mut config = Eth1Config::default();
     config.endpoint = endpoint.to_string();
     config.deposit_contract_address = eth2_testnet_dir.deposit_contract_address.clone();
     config.deposit_contract_deploy_block = eth2_testnet_dir.deposit_contract_deploy_block;
     config.lowest_cached_block_number = eth2_testnet_dir.deposit_contract_deploy_block;
+    config.follow_distance = spec.eth1_follow_distance / 2;
 
     let genesis_service = Eth1GenesisService::new(config, env.core_context().log.clone());
-    let mut spec = env.core_context().eth2_config.spec.clone();
-
-    spec.min_genesis_time = eth2_testnet_dir.min_genesis_time;
-
-    spec.min_deposit_amount = 100;
-    spec.max_effective_balance = 3_200_000_000;
-    spec.ejection_balance = 1_600_000_000;
-    spec.effective_balance_increment = 100_000_000;
-
-    // Note: these are hard-coded hacky values. This should be fixed when we can load a testnet
-    // dir from the `Eth2TestnetDir`.
-    spec.eth1_follow_distance = 16;
-    spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2;
 
     let future = genesis_service
-        .wait_for_genesis_state(
-            Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
-            spec,
-        )
+        .wait_for_genesis_state(ETH1_GENESIS_UPDATE_INTERVAL, spec)
         .map(move |genesis_state| {
             eth2_testnet_dir.genesis_state = Some(genesis_state);
             eth2_testnet_dir.force_write_to_file(testnet_dir)

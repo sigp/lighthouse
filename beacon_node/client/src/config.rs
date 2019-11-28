@@ -24,6 +24,11 @@ pub enum ClientGenesis {
     DepositContract,
     /// Loads the genesis state from a SSZ-encoded `BeaconState` file.
     SszFile { path: PathBuf },
+    /// Loads the genesis state from SSZ-encoded `BeaconState` bytes.
+    ///
+    /// We include the bytes instead of the `BeaconState<E>` because the `EthSpec` type
+    /// parameter would be very annoying.
+    SszBytes { genesis_state_bytes: Vec<u8> },
     /// Connects to another Lighthouse instance and reads the genesis state and other data via the
     /// HTTP API.
     RemoteNode { server: String, port: Option<u16> },

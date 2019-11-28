@@ -6,6 +6,7 @@ use eth2_testnet::Eth2TestnetDir;
 use genesis::recent_genesis_time;
 use rand::{distributions::Alphanumeric, Rng};
 use slog::{crit, info, Logger};
+use ssz::Encode;
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -16,8 +17,6 @@ pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 pub const ETH2_TESTNET_DIR: &str = "testnet";
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
-
-pub const SECONDS_PER_ETH1_BLOCK: u64 = 15;
 
 type Result<T> = std::result::Result<T, String>;
 type Config = (ClientConfig, Eth2Config, Logger);
@@ -207,12 +206,6 @@ pub fn get_configs<E: EthSpec>(
         }
         // No sub-command assumes a resume operation.
         _ => {
-            info!(
-                log,
-                "Resuming from existing datadir";
-                "path" => format!("{:?}", client_config.data_dir)
-            );
-
             // If no primary subcommand was given, start the beacon chain from an existing
             // database.
             client_config.genesis = ClientGenesis::Resume;
@@ -220,8 +213,18 @@ pub fn get_configs<E: EthSpec>(
             // Whilst there is no large testnet or mainnet force the user to specify how they want
             // to start a new chain (e.g., from a genesis YAML file, another node, etc).
             if !client_config.data_dir.exists() {
+                info!(
+                    log,
+                    "Starting from an empty database";
+                    "data_dir" => format!("{:?}", client_config.data_dir)
+                );
                 init_new_client::<E>(&mut client_config, &mut eth2_config)?
             } else {
+                info!(
+                    log,
+                    "Resuming from existing datadir";
+                    "data_dir" => format!("{:?}", client_config.data_dir)
+                );
                 // If the `testnet` command was not provided, attempt to load an existing datadir and
                 // continue with an existing chain.
                 load_from_datadir(&mut client_config, &mut eth2_config)?
@@ -291,6 +294,8 @@ fn load_from_datadir(client_config: &mut ClientConfig, eth2_config: &mut Eth2Con
         .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
         .ok_or_else(|| format!("{:?} file does not exist", path))?;
 
+    client_config.genesis = ClientGenesis::Resume;
+
     Ok(())
 }
 
@@ -299,44 +304,46 @@ fn init_new_client<E: EthSpec>(
     client_config: &mut ClientConfig,
     eth2_config: &mut Eth2Config,
 ) -> Result<()> {
-    let spec = &mut eth2_config.spec;
-
-    spec.min_deposit_amount = 100;
-    spec.max_effective_balance = 3_200_000_000;
-    spec.ejection_balance = 1_600_000_000;
-    spec.effective_balance_increment = 100_000_000;
-
     let testnet_dir = client_config.testnet_dir.clone();
     let eth2_testnet_dir: Eth2TestnetDir<E> = Eth2TestnetDir::load(testnet_dir.clone())
         .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?;
+
+    eth2_config.spec = eth2_testnet_dir
+        .yaml_config
+        .as_ref()
+        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+        .apply_to_chain_spec::<E>(&eth2_config.spec)
+        .ok_or_else(|| {
+            format!(
+                "The loaded config is not compatible with the {} spec",
+                &eth2_config.spec_constants
+            )
+        })?;
+
+    let spec = &mut eth2_config.spec;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_dir.deposit_contract_address()?);
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_dir.deposit_contract_deploy_block;
-    spec.min_genesis_time = eth2_testnet_dir.min_genesis_time;
 
-    client_config.eth1.follow_distance = 16;
+    client_config.eth1.follow_distance = spec.eth1_follow_distance / 2;
     client_config.dummy_eth1_backend = false;
-    client_config.sync_eth1_chain = true;
     client_config.eth1.lowest_cached_block_number = client_config
         .eth1
         .deposit_contract_deploy_block
         .saturating_sub(client_config.eth1.follow_distance * 2);
 
-    // Note: these constants _should_ only be used during genesis to determine the genesis
-    // time. This allows the testnet to start shortly after the time + validator count
-    // conditions are satisfied, not 1-2 days.
-    //
-    // This value must be at least 2x the `ETH1_FOLLOW_DISTANCE` otherwise `all_eth1_data`
-    // can become a subset of `new_eth1_data`.
-    //
-    // See:
-    // https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/validator/0_beacon-chain-validator.md#eth1-data
-    // TODO: set from 10 back to 2
-    spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2;
-
-    client_config.genesis = ClientGenesis::DepositContract;
+    if let Some(genesis_state) = eth2_testnet_dir.genesis_state {
+        // Note: re-serializing the genesis state is not so efficient, however it avoids adding
+        // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
+        // effects.
+        client_config.genesis = ClientGenesis::SszBytes {
+            genesis_state_bytes: genesis_state.as_ssz_bytes(),
+        };
+    } else {
+        client_config.genesis = ClientGenesis::DepositContract;
+    }
 
     create_new_datadir(&client_config, &eth2_config)?;
 

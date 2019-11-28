@@ -5,8 +5,10 @@ use eth2_testnet::Eth2TestnetDir;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use types::EthSpec;
+use types::{EthSpec, YamlConfig};
 use web3::{transports::Http, Web3};
+
+pub const SECONDS_PER_ETH1_BLOCK: u64 = 15;
 
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let min_genesis_time = matches
@@ -86,12 +88,28 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     info!("Writing config to {:?}", output_dir);
 
+    let mut spec = env.core_context().eth2_config.spec.clone();
+
+    spec.min_deposit_amount = 100;
+    spec.max_effective_balance = 3_200_000_000;
+    spec.ejection_balance = 1_600_000_000;
+    spec.effective_balance_increment = 100_000_000;
+    spec.min_genesis_time = min_genesis_time;
+
+    // This value must be at least 2x the `ETH1_FOLLOW_DISTANCE` otherwise `all_eth1_data`
+    // can become a subset of `new_eth1_data`.
+    //
+    // See:
+    // https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/validator/0_beacon-chain-validator.md#eth1-data
+    // TODO: set from 10 back to 2
+    spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2;
+
     let testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir {
         deposit_contract_address: format!("{}", deposit_contract.address()),
         deposit_contract_deploy_block: deploy_block.as_u64(),
-        min_genesis_time,
         boot_enr: None,
         genesis_state: None,
+        yaml_config: Some(YamlConfig::from_spec::<T>(&spec)),
     };
 
     testnet_dir.write_to_file(output_dir)?;

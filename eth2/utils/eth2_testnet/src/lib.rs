@@ -10,21 +10,21 @@
 use eth2_libp2p::Enr;
 use std::fs::{create_dir_all, File};
 use std::path::PathBuf;
-use types::{Address, BeaconState, EthSpec};
+use types::{Address, BeaconState, EthSpec, YamlConfig};
 
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
-pub const MIN_GENESIS_TIME_FILE: &str = "min_genesis_time.txt";
-pub const BOOT_NODES_FILE: &str = "boot_enr.json";
+pub const BOOT_NODES_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
+pub const YAML_CONFIG_FILE: &str = "config.yaml";
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Eth2TestnetDir<E: EthSpec> {
     pub deposit_contract_address: String,
     pub deposit_contract_deploy_block: u64,
-    pub min_genesis_time: u64,
     pub boot_enr: Option<Vec<Enr>>,
     pub genesis_state: Option<BeaconState<E>>,
+    pub yaml_config: Option<YamlConfig>,
 }
 
 impl<E: EthSpec> Eth2TestnetDir<E> {
@@ -47,7 +47,7 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
                 File::create(base_dir.join($file))
                     .map_err(|e| format!("Unable to create {}: {:?}", $file, e))
                     .and_then(|file| {
-                        serde_json::to_writer(file, &$variable)
+                        serde_yaml::to_writer(file, &$variable)
                             .map_err(|e| format!("Unable to write {}: {:?}", $file, e))
                     })?;
             };
@@ -55,7 +55,6 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
 
         write_to_file!(ADDRESS_FILE, self.deposit_contract_address);
         write_to_file!(DEPLOY_BLOCK_FILE, self.deposit_contract_deploy_block);
-        write_to_file!(MIN_GENESIS_TIME_FILE, self.min_genesis_time);
 
         if let Some(boot_enr) = &self.boot_enr {
             write_to_file!(BOOT_NODES_FILE, boot_enr);
@@ -63,6 +62,10 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
 
         if let Some(genesis_state) = &self.genesis_state {
             write_to_file!(GENESIS_STATE_FILE, genesis_state);
+        }
+
+        if let Some(yaml_config) = &self.yaml_config {
+            write_to_file!(YAML_CONFIG_FILE, yaml_config);
         }
 
         Ok(())
@@ -74,7 +77,7 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
                 File::open(base_dir.join($file))
                     .map_err(|e| format!("Unable to open {}: {:?}", $file, e))
                     .and_then(|file| {
-                        serde_json::from_reader(file)
+                        serde_yaml::from_reader(file)
                             .map_err(|e| format!("Unable to parse {}: {:?}", $file, e))
                     })?;
             };
@@ -92,16 +95,16 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
 
         let deposit_contract_address = load_from_file!(ADDRESS_FILE);
         let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
-        let min_genesis_time = load_from_file!(MIN_GENESIS_TIME_FILE);
         let boot_enr = optional_load_from_file!(BOOT_NODES_FILE);
         let genesis_state = optional_load_from_file!(GENESIS_STATE_FILE);
+        let yaml_config = optional_load_from_file!(YAML_CONFIG_FILE);
 
         Ok(Self {
             deposit_contract_address,
             deposit_contract_deploy_block,
-            min_genesis_time,
             boot_enr,
             genesis_state,
+            yaml_config,
         })
     }
 
@@ -130,16 +133,16 @@ mod tests {
         let base_dir = PathBuf::from(temp_dir.path().join("my_testnet"));
         let deposit_contract_address = "0xBB9bc244D798123fDe783fCc1C72d3Bb8C189413".to_string();
         let deposit_contract_deploy_block = 42;
-        let min_genesis_time = 1337;
 
         let testnet: Eth2TestnetDir<E> = Eth2TestnetDir {
             deposit_contract_address: deposit_contract_address.clone(),
             deposit_contract_deploy_block: deposit_contract_deploy_block,
-            min_genesis_time,
             // TODO: add some Enr for testing.
             boot_enr: None,
             // TODO: add a genesis state for testing.
             genesis_state: None,
+            // TODO: add a yaml config for testing.
+            yaml_config: None,
         };
 
         testnet
@@ -155,10 +158,6 @@ mod tests {
         assert_eq!(
             decoded.deposit_contract_deploy_block, deposit_contract_deploy_block,
             "deposit_contract_deploy_block"
-        );
-        assert_eq!(
-            decoded.min_genesis_time, min_genesis_time,
-            "min_genesis_time"
         );
 
         assert_eq!(testnet, decoded, "should decode as encoded");

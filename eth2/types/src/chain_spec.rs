@@ -319,7 +319,7 @@ mod tests {
 }
 
 // Yaml Config is declared here in order to access domain fields of ChainSpec which are private fields.
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[serde(deny_unknown_fields)]

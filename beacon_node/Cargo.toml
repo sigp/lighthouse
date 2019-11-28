@@ -36,3 +36,4 @@ environment = { path = "../lighthouse/environment" }
 genesis = { path = "genesis" }
 eth2_testnet = { path = "../eth2/utils/eth2_testnet" }
 eth2-libp2p = { path = "./eth2-libp2p" }
+eth2_ssz = { path = "../eth2/utils/ssz" }
