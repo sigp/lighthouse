@@ -157,16 +157,16 @@ pub fn get_configs<E: EthSpec>(
         client_config.rest_api.enabled = false;
     }
 
-    if let Some(address) = cli_args.value_of("api-address") {
+    if let Some(address) = cli_args.value_of("http-address") {
         client_config.rest_api.listen_address = address
             .parse::<Ipv4Addr>()
-            .map_err(|_| "api-address is not a valid IPv4 address.")?;
+            .map_err(|_| "http-address is not a valid IPv4 address.")?;
     }
 
-    if let Some(port) = cli_args.value_of("api-port") {
+    if let Some(port) = cli_args.value_of("http-port") {
         client_config.rest_api.port = port
             .parse::<u16>()
-            .map_err(|_| "api-port is not a valid u16.")?;
+            .map_err(|_| "http-port is not a valid u16.")?;
     }
 
     /*
