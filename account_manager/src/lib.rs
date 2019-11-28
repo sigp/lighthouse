@@ -179,8 +179,14 @@ fn run_new_validator_subcommand<T: EthSpec>(
                 .parse::<PathBuf>()
                 .map_err(|e| format!("Unable to parse testnet-dir: {}", e))?;
 
-            let eth2_testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir::load(testnet_dir)
-                .map_err(|e| format!("Failed to load testnet dir: {}", e))?;
+            info!(
+                log,
+                "Loading deposit contract address";
+                "testnet_dir" => format!("{:?}", &testnet_dir)
+            );
+
+            let eth2_testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir::load(testnet_dir.clone())
+                .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?;
 
             // Convert from `types::Address` to `web3::types::Address`.
             Address::from_slice(
@@ -191,7 +197,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
         } else {
             matches
                 .value_of("deposit-contract")
-                .ok_or_else(|| "No deposit-contract".to_string())?
+                .ok_or_else(|| "No --deposit-contract or --testnet-dir".to_string())?
                 .parse::<Address>()
                 .map_err(|e| format!("Unable to parse deposit-contract: {}", e))?
         };

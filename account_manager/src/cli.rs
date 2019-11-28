@@ -64,7 +64,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .long("testnet-dir")
                                 .value_name("DIRECTORY")
                                 .takes_value(true)
-                                .default_value("0")
                                 .help("The directory from which to read the deposit contract address."),
                         )
                         .subcommand(
