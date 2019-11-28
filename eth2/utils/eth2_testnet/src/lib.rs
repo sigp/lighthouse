@@ -9,6 +9,7 @@
 
 use eth2_libp2p::Enr;
 use std::fs::{create_dir_all, File};
+use std::io::Write;
 use std::path::PathBuf;
 use types::{Address, BeaconState, EthSpec, YamlConfig};
 
@@ -17,6 +18,11 @@ pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const BOOT_NODES_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const YAML_CONFIG_FILE: &str = "config.yaml";
+
+pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../testnet/config.yaml");
+pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../testnet/deploy_block.txt");
+pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../testnet/deposit_contract.txt");
+pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../testnet/genesis.ssz");
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Eth2TestnetDir<E: EthSpec> {
@@ -28,6 +34,33 @@ pub struct Eth2TestnetDir<E: EthSpec> {
 }
 
 impl<E: EthSpec> Eth2TestnetDir<E> {
+    pub fn create_hardcoded(base_dir: PathBuf) -> Result<Self, String> {
+        if base_dir.exists() {
+            return Err("Testnet directory already exists".to_string());
+        }
+
+        create_dir_all(&base_dir)
+            .map_err(|e| format!("Unable to create testnet directory: {:?}", e))?;
+
+        macro_rules! write_bytes_to_file {
+            ($file: ident, $bytes: expr) => {
+                File::create(base_dir.join($file))
+                    .map_err(|e| format!("Unable to create {}: {:?}", $file, e))
+                    .and_then(|mut file| {
+                        file.write_all($bytes)
+                            .map_err(|e| format!("Unable to write bytes to {}: {}", $file, e))
+                    })?;
+            };
+        }
+
+        write_bytes_to_file!(YAML_CONFIG_FILE, HARDCODED_YAML_CONFIG);
+        write_bytes_to_file!(DEPLOY_BLOCK_FILE, HARDCODED_DEPLOY_BLOCK);
+        write_bytes_to_file!(ADDRESS_FILE, HARDCODED_DEPOSIT_CONTRACT);
+        write_bytes_to_file!(GENESIS_STATE_FILE, HARDCODED_GENESIS_STATE);
+
+        Self::load(base_dir)
+    }
+
     // Write the files to the directory, only if the directory doesn't already exist.
     pub fn write_to_file(&self, base_dir: PathBuf) -> Result<(), String> {
         if base_dir.exists() {

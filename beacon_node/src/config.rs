@@ -305,8 +305,18 @@ fn init_new_client<E: EthSpec>(
     eth2_config: &mut Eth2Config,
 ) -> Result<()> {
     let testnet_dir = client_config.testnet_dir.clone();
-    let eth2_testnet_dir: Eth2TestnetDir<E> = Eth2TestnetDir::load(testnet_dir.clone())
-        .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?;
+
+    let eth2_testnet_dir: Eth2TestnetDir<E> = if testnet_dir.exists() {
+        Eth2TestnetDir::load(testnet_dir.clone())
+            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
+    } else {
+        Eth2TestnetDir::create_hardcoded(testnet_dir.clone()).map_err(|e| {
+            format!(
+                "Unable to create and open testnet dir at {:?}: {}",
+                testnet_dir, e
+            )
+        })?
+    };
 
     eth2_config.spec = eth2_testnet_dir
         .yaml_config
