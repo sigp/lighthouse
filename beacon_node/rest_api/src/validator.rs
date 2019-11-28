@@ -38,7 +38,7 @@ pub struct BulkValidatorDutiesRequest {
     pub pubkeys: Vec<PublicKey>,
 }
 
-/// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch. This
+/// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
 /// method allows for collecting bulk sets of validator duties without risking exceeding the max
 /// URL length with query pairs.
 pub fn post_validator_duties<T: BeaconChainTypes>(
