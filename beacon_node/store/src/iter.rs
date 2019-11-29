@@ -83,21 +83,9 @@ impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
         match self.beacon_state.get_state_root(self.slot) {
             Ok(root) => Some((*root, self.slot)),
             Err(BeaconStateError::SlotOutOfBounds) => {
-                // Read a `BeaconState` from the store that has access to prior historical root.
-                let beacon_state: BeaconState<T> = {
-                    // FIXME(sproul): deduplicate?
-                    // For compatibility with the freezer database's checkpoints, we load a state at
-                    // a checkpoint slot (thus avoiding replaying blocks). In the case where we're
-                    // not frozen, this just means we might not jump back by the maximum amount on
-                    // our first jump (i.e. at most 1 extra state load).
-                    let new_state_slot =
-                        slot_of_guaranteed_last_checkpoint::<T>(self.beacon_state.slot);
-                    let new_state_root = self.beacon_state.get_state_root(new_state_slot).ok()?;
-
-                    self.store
-                        .get_state(new_state_root, Some(new_state_slot))
-                        .ok()?
-                }?;
+                // Read a `BeaconState` from the store that has access to prior historical roots.
+                let beacon_state =
+                    next_historical_root_backtrack_state(&*self.store, &self.beacon_state)?;
 
                 self.beacon_state = Cow::Owned(beacon_state);
 
@@ -231,20 +219,9 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
         match self.beacon_state.get_block_root(self.slot) {
             Ok(root) => Some((*root, self.slot)),
             Err(BeaconStateError::SlotOutOfBounds) => {
-                // Read a `BeaconState` from the store that has access to prior historical root.
-                let beacon_state: BeaconState<T> = {
-                    // For compatibility with the freezer database's checkpoints, we load a state at
-                    // a checkpoint slot (thus avoiding replaying blocks). In the case where we're
-                    // not frozen, this just means we might not jump back by the maximum amount on
-                    // our first jump (i.e. at most 1 extra state load).
-                    let new_state_slot =
-                        slot_of_guaranteed_last_checkpoint::<T>(self.beacon_state.slot);
-                    let new_state_root = self.beacon_state.get_state_root(new_state_slot).ok()?;
-
-                    self.store
-                        .get_state(new_state_root, Some(new_state_slot))
-                        .ok()?
-                }?;
+                // Read a `BeaconState` from the store that has access to prior historical roots.
+                let beacon_state =
+                    next_historical_root_backtrack_state(&*self.store, &self.beacon_state)?;
 
                 self.beacon_state = Cow::Owned(beacon_state);
 
@@ -257,7 +234,22 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
     }
 }
 
-fn slot_of_guaranteed_last_checkpoint<E: EthSpec>(current_slot: Slot) -> Slot {
+/// Fetch the next state to use whilst backtracking in `*RootsIterator`.
+fn next_historical_root_backtrack_state<E: EthSpec, S: Store>(
+    store: &S,
+    current_state: &BeaconState<E>,
+) -> Option<BeaconState<E>> {
+    // For compatibility with the freezer database's restore points, we load a state at
+    // a restore point slot (thus avoiding replaying blocks). In the case where we're
+    // not frozen, this just means we might not jump back by the maximum amount on
+    // our first jump (i.e. at most 1 extra state load).
+    let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot);
+    let new_state_root = current_state.get_state_root(new_state_slot).ok()?;
+    store.get_state(new_state_root, Some(new_state_slot)).ok()?
+}
+
+/// Compute the slot of the last guaranteed restore point in the freezer database.
+fn slot_of_prev_restore_point<E: EthSpec>(current_slot: Slot) -> Slot {
     let slots_per_historical_root = E::SlotsPerHistoricalRoot::to_u64();
     (current_slot - 1) / slots_per_historical_root * slots_per_historical_root
 }
