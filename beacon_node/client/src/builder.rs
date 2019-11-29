@@ -493,7 +493,7 @@ where
                     .clone()
                     .ok_or_else(|| "beacon_chain requires a slot clock")?,
             )
-            .empty_reduced_tree_fork_choice()
+            .reduced_tree_fork_choice()
             .map_err(|e| format!("Failed to init fork choice: {}", e))?
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;

@@ -170,7 +170,7 @@ pub struct Environment<E: EthSpec> {
     runtime: Runtime,
     log: Logger,
     eth_spec_instance: E,
-    eth2_config: Eth2Config,
+    pub eth2_config: Eth2Config,
 }
 
 impl<E: EthSpec> Environment<E> {

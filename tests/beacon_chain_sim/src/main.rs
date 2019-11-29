@@ -28,6 +28,8 @@ fn simulation(num_nodes: usize, validators_per_node: usize) -> Result<(), String
         .multi_threaded_tokio_runtime()?
         .build()?;
 
+    env.eth2_config.spec.milliseconds_per_slot = 2_000;
+
     let mut base_config = testing_client_config();
 
     let now = SystemTime::now()
