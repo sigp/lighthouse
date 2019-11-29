@@ -21,6 +21,7 @@ const PRUNE_DEPTH: u64 = 4;
 
 type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, ValidatorDuty>>;
 
+#[derive(Debug, PartialEq)]
 /// The outcome of inserting some `ValidatorDuty` into the `DutiesStore`.
 enum InsertOutcome {
     /// These are the first duties received for this validator.
@@ -423,63 +424,161 @@ fn duties_match_epoch(duties: &ValidatorDuty, epoch: Epoch, slots_per_epoch: u64
     true
 }
 
+#[cfg(test)]
 mod test {
     use super::*;
-    use crate::fork_service::{ForkService, ForkServiceBuilder};
-    use crate::Config;
-    use crate::ProductionValidatorClient;
-    use environment::{Environment, EnvironmentBuilder};
-    use sloggers::{null::NullLoggerBuilder, Build};
-    use slot_clock::SystemTimeSlotClock;
-    use types::MinimalEthSpec;
 
     #[test]
-    pub fn fake() {
-        let chainspec = ChainSpec::minimal();
-        let genesis_slot = chainspec.genesis_slot;
-        let genesis_time = 0;
-        let genesis_duration = Duration::from_secs(genesis_time);
-        let slot_duration = Duration::from_millis(chainspec.milliseconds_per_slot);
-        let slot_clock = SystemTimeSlotClock::new(genesis_slot, genesis_duration, slot_duration);
+    fn empty_duties_store() {
+        let duties = DutiesStore::default();
+        let slots_per_epoch = 6;
+        let slot = Slot::from(4u64);
 
-        let indices = [1, 2, 3, 4];
-        let log_builder = NullLoggerBuilder;
-        let logger = log_builder.build().expect("should build null logger");
+        assert!(duties.store.read().is_empty());
+        assert!(duties.attesters(slot, slots_per_epoch).is_empty());
+        assert!(duties.block_producers(slot, slots_per_epoch).is_empty());
 
-        let mut env = EnvironmentBuilder::minimal()
-            .null_logger()
-            .expect("should create null logger")
-            .single_thread_tokio_runtime()
-            .expect("should build env")
-            .build()
-            .expect("should have built env");
+        duties.prune(slot.epoch(slots_per_epoch));
 
-        let config = Config::default();
-        let endpoint = String::from("https://test.com");
-        let beacon_node = RemoteBeaconNode::new(endpoint).expect("should have remote beacon node");
-        let fork_service = ForkServiceBuilder::new()
-            .slot_clock(slot_clock.clone())
-            .beacon_node(beacon_node.clone())
-            .runtime_context(env.core_context())
-            .build()
-            .expect("Should build fork service");
+        assert!(duties.attesters(slot, slots_per_epoch).is_empty());
+        assert!(duties.block_producers(slot, slots_per_epoch).is_empty());
 
-        let validator_store = ValidatorStore::insecure_ephemeral_validators(
-            &[1, 2, 3, 4],
-            chainspec,
-            fork_service,
-            logger,
-        )
-        .expect("should build validator store");
+        duties.prune(slot.epoch(slots_per_epoch) + 2);
 
-        let duties_service_builder = DutiesServiceBuilder::new()
-            .slot_clock(slot_clock.clone())
-            .validator_store(validator_store)
-            .beacon_node(beacon_node.clone())
-            .runtime_context(env.core_context());
+        assert!(duties.attesters(slot, slots_per_epoch).is_empty());
+        assert!(duties.block_producers(slot, slots_per_epoch).is_empty());
+    }
 
-        let duties_service = duties_service_builder
-            .build()
-            .expect("Should have built DutiesService");
+    #[test]
+    fn insert_one_empty_validator_duty() {
+        let duties = DutiesStore::default();
+        let slots_per_epoch = 6;
+        let slot = Slot::from(4u64);
+
+        let pubkey = PublicKey::default();
+        let duty = ValidatorDuty {
+            validator_pubkey: pubkey,
+            attestation_slot: None,
+            attestation_committee_index: None,
+            attestation_committee_position: None,
+            block_proposal_slot: None,
+        };
+        let epoch = slot.epoch(slots_per_epoch);
+
+        let outcome = duties.insert(epoch, duty.clone(), slots_per_epoch);
+        assert_eq!(outcome, InsertOutcome::NewValidator);
+        let outcome = duties.insert(epoch, duty, slots_per_epoch);
+        assert_eq!(outcome, InsertOutcome::Identical);
+        assert!(!duties.store.read().is_empty());
+        let res = duties.attesters(slot, slots_per_epoch);
+        assert_eq!(res, vec![]);
+    }
+
+    #[test]
+    fn insert_one_validator_duty() {
+        let duties = DutiesStore::default();
+        let slots_per_epoch = 6;
+        let slot = Slot::from(4u64);
+        let attestation_slot = Slot::from(0u64);
+        let block_proposal_slot = Slot::from(5u64);
+
+        let pubkey = PublicKey::default();
+        let duty = ValidatorDuty {
+            validator_pubkey: pubkey.clone(),
+            attestation_slot: Some(attestation_slot),
+            attestation_committee_index: None,
+            attestation_committee_position: None,
+            block_proposal_slot: Some(block_proposal_slot),
+        };
+        let epoch = slot.epoch(slots_per_epoch);
+
+        let outcome = duties.insert(epoch, duty.clone(), slots_per_epoch);
+        assert_eq!(outcome, InsertOutcome::NewValidator);
+        let outcome = duties.insert(epoch, duty.clone(), slots_per_epoch);
+        assert_eq!(outcome, InsertOutcome::Identical);
+        let res = duties.attesters(attestation_slot, slots_per_epoch);
+        assert_eq!(res, vec![duty]);
+        let res = duties.attesters(block_proposal_slot, slots_per_epoch);
+        assert!(res.is_empty());
+        let res = duties.block_producers(block_proposal_slot, slots_per_epoch);
+        assert_eq!(res, vec![pubkey]);
+        let res = duties.block_producers(attestation_slot, slots_per_epoch);
+        assert!(res.is_empty());
+    }
+
+    #[test]
+    fn prune_duties_store() {
+        let duties = DutiesStore::default();
+        let slots_per_epoch = 6;
+        let slot = Slot::from(8u64);
+        let attestation_slot = Slot::from(6u64);
+        let block_proposal_slot = Slot::from(11u64);
+
+        let pubkey = PublicKey::default();
+        let duty = ValidatorDuty {
+            validator_pubkey: pubkey.clone(),
+            attestation_slot: Some(attestation_slot),
+            attestation_committee_index: None,
+            attestation_committee_position: None,
+            block_proposal_slot: Some(block_proposal_slot),
+        };
+        let epoch = slot.epoch(slots_per_epoch);
+
+        let outcome = duties.insert(epoch, duty.clone(), slots_per_epoch);
+        assert_eq!(outcome, InsertOutcome::NewValidator);
+        let outcome = duties.insert(epoch, duty.clone(), slots_per_epoch);
+        assert_eq!(outcome, InsertOutcome::Identical);
+
+        duties.prune(epoch - 1);
+
+        let res = duties.attesters(attestation_slot, slots_per_epoch);
+        assert_eq!(res, vec![duty.clone()]);
+        let res = duties.block_producers(block_proposal_slot, slots_per_epoch);
+        assert_eq!(res, vec![pubkey.clone()]);
+
+        duties.prune(epoch);
+
+        let res = duties.attesters(attestation_slot, slots_per_epoch);
+        assert_eq!(res, vec![duty.clone()]);
+        let res = duties.block_producers(block_proposal_slot, slots_per_epoch);
+        assert_eq!(res, vec![pubkey.clone()]);
+
+        duties.prune(epoch + 1);
+        assert!(duties.store.read().is_empty());
+    }
+
+    #[test]
+    fn replace_duties() {
+        let duties = DutiesStore::default();
+        let slots_per_epoch = 6;
+        let slot = Slot::from(8u64);
+        let attestation_slot = Slot::from(6u64);
+        let block_proposal_slot = Slot::from(11u64);
+
+        let pubkey = PublicKey::default();
+        let duty = ValidatorDuty {
+            validator_pubkey: pubkey.clone(),
+            attestation_slot: Some(attestation_slot),
+            attestation_committee_index: None,
+            attestation_committee_position: None,
+            block_proposal_slot: Some(block_proposal_slot),
+        };
+        let epoch = slot.epoch(slots_per_epoch);
+
+        let outcome = duties.insert(epoch, duty.clone(), slots_per_epoch);
+        assert_eq!(outcome, InsertOutcome::NewValidator);
+        let outcome = duties.insert(epoch, duty.clone(), slots_per_epoch);
+        assert_eq!(outcome, InsertOutcome::Identical);
+
+        let duty = ValidatorDuty {
+            validator_pubkey: pubkey.clone(),
+            attestation_slot: Some(attestation_slot + 1),
+            attestation_committee_index: None,
+            attestation_committee_position: None,
+            block_proposal_slot: Some(block_proposal_slot),
+        };
+
+        let outcome = duties.insert(epoch, duty.clone(), slots_per_epoch);
+        assert_eq!(outcome, InsertOutcome::Replaced);
     }
 }
