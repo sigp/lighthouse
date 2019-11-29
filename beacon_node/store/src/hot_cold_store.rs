@@ -48,6 +48,7 @@ pub enum HotColdDbError {
     },
     MissingCheckpoint(u64),
     MissingCheckpointState(Hash256),
+    MissingStateSlot(Hash256),
     MissingSplitState(Hash256, Slot),
     CheckpointDecodeError(ssz::DecodeError),
     CheckpointReplayFailure {
@@ -105,10 +106,11 @@ impl Store for HotColdDB {
             match self.hot_db.get_state(state_root, None)? {
                 Some(state) => Ok(Some(state)),
                 None => {
-                    // FIXME(sproul): work out what to do here
-                    eprintln!("WARNING: BAD SHIT");
-                    Ok(None)
-                    // self.load_archive_state(state_root, ?)
+                    // Look-up the state in the freezer DB. We don't know the slot, so we must
+                    // look it up separately and then use it to reconstruct the state from a
+                    // restore point.
+                    let slot = self.load_state_slot(state_root)?;
+                    self.load_archive_state(state_root, slot).map(Some)
                 }
             }
         }
@@ -156,6 +158,11 @@ impl Store for HotColdDB {
 
                 store.store_archive_state(&state_root, &state)?;
             }
+
+            // Store a pointer from this state root to its slot, so we can later reconstruct states
+            // from their state root alone.
+            store.store_state_slot(&state_root, slot)?;
+
             to_delete.push(state_root);
         }
 
@@ -433,9 +440,21 @@ impl HotColdDB {
     fn checkpoint_key(checkpoint_index: u64) -> [u8; 8] {
         checkpoint_index.to_be_bytes()
     }
+
+    fn load_state_slot(&self, state_root: &Hash256) -> Result<Slot, Error> {
+        StateSlot::db_get(&self.cold_db, state_root)?
+            .map(Into::into)
+            .ok_or_else(|| HotColdDbError::MissingStateSlot(*state_root).into())
+    }
+
+    fn store_state_slot(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
+        StateSlot::from(slot)
+            .db_put(&self.cold_db, state_root)
+            .map_err(Into::into)
+    }
 }
 
-/// Struct for storing the split slot in the database.
+/// Struct for storing the split slot and state root in the database.
 #[derive(Clone, Copy, Default, Encode, Decode)]
 struct Split {
     slot: u64,
@@ -452,6 +471,40 @@ impl Split {
 impl SimpleStoreItem for Split {
     fn db_column() -> DBColumn {
         DBColumn::BeaconMeta
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+/// Struct for storing the slot of a state root in the database.
+#[derive(Clone, Copy, Default, Encode, Decode)]
+struct StateSlot {
+    slot: u64,
+}
+
+impl Into<Slot> for StateSlot {
+    fn into(self) -> Slot {
+        Slot::new(self.slot)
+    }
+}
+
+impl From<Slot> for StateSlot {
+    fn from(slot: Slot) -> Self {
+        Self {
+            slot: slot.as_u64(),
+        }
+    }
+}
+
+impl SimpleStoreItem for StateSlot {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconStateSlot
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {

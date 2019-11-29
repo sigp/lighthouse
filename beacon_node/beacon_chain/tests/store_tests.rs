@@ -9,7 +9,7 @@ use beacon_chain::test_utils::{
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
-use store::DiskStore;
+use store::{DiskStore, Store};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::test_utils::{SeedableRng, XorShiftRng};
@@ -285,10 +285,24 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
     assert_eq!(chain_dump.len() as u64, expected_len);
 
     for checkpoint in chain_dump {
+        // Check that the tree hash of the stored state is as expected
         assert_eq!(
             checkpoint.beacon_state_root,
             Hash256::from_slice(&checkpoint.beacon_state.tree_hash_root()),
             "tree hash of stored state is incorrect"
+        );
+
+        // Check that looking up the state root with no slot hint succeeds.
+        // This tests the state root -> slot mapping.
+        assert_eq!(
+            harness
+                .chain
+                .store
+                .get_state::<E>(&checkpoint.beacon_state_root, None)
+                .expect("no error")
+                .expect("state exists")
+                .slot,
+            checkpoint.beacon_state.slot
         );
     }
 }

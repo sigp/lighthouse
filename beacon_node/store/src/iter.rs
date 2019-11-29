@@ -239,12 +239,7 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
                     // our first jump (i.e. at most 1 extra state load).
                     let new_state_slot =
                         slot_of_guaranteed_last_checkpoint::<T>(self.beacon_state.slot);
-                    println!(
-                        "Updating reference state slot: {} -> {}",
-                        self.beacon_state.slot, new_state_slot
-                    );
                     let new_state_root = self.beacon_state.get_state_root(new_state_slot).ok()?;
-                    println!("Got a new state root: {:?}", new_state_root);
 
                     self.store
                         .get_state(new_state_root, Some(new_state_slot))
