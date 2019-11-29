@@ -354,11 +354,11 @@ impl ValidatorDirectoryBuilder {
         let slots_per_epoch = self.slots_per_epoch;
 
         let _: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(&attestation_path, None)
+            ValidatorHistory::new(&attestation_path, None)
                 .map_err(|e| format!("Unable to create {:?}: {:?}", attestation_path, e))?;
 
         let _: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(&path.join(&block_path), slots_per_epoch)
+            ValidatorHistory::new(&path.join(&block_path), slots_per_epoch)
                 .map_err(|e| format!("Unable to create {:?}: {:?}", block_path, e))?;
 
         self.attestation_slashing_protection = Some(attestation_path);

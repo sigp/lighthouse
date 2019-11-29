@@ -135,7 +135,7 @@ mod block_tests {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
         let block_history: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(filename, Some(slots_per_epoch)).expect("IO error with file");
+            ValidatorHistory::new(filename, Some(slots_per_epoch)).expect("IO error with file");
 
         (block_history, block_file)
     }

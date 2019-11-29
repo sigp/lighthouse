@@ -225,7 +225,7 @@ mod attestation_tests {
         let filename = attestation_file.path();
 
         let attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(filename, None).expect("IO error with file");
+            ValidatorHistory::new(filename, None).expect("IO error with file");
 
         (attestation_history, attestation_file)
     }

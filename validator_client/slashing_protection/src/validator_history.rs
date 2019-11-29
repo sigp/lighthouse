@@ -145,9 +145,9 @@ impl LoadData<SignedBlock> for Vec<SignedBlock> {
 pub trait SlashingProtection<T> {
     type U;
 
-    /// Creates an empty ValidatorHistory, and an associated sqlite database with the name passed in as argument.
+    /// Creates an new ValidatorHistory, and an associated sqlite database with the name passed in as argument.
     /// Returns an error if the database already exists.
-    fn empty(path: &Path, slots_per_epoch: Option<u64>) -> Result<ValidatorHistory<T>, NotSafe>;
+    fn new(path: &Path, slots_per_epoch: Option<u64>) -> Result<ValidatorHistory<T>, NotSafe>;
 
     /// Creates a ValidatorHistory<T> by connecting to an existing db file.
     /// Returns an error if file doesn't exist.
@@ -164,7 +164,7 @@ pub trait SlashingProtection<T> {
 impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
     type U = BeaconBlockHeader;
 
-    fn empty(path: &Path, slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
+    fn new(path: &Path, slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
         let slots_per_epoch = slots_per_epoch.ok_or_else(|| NotSafe::NoSlotsPerEpochProvided)?;
         let file = OpenOptions::new()
             .write(true)
@@ -280,7 +280,7 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
 impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestation> {
     type U = AttestationData;
 
-    fn empty(path: &Path, slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
+    fn new(path: &Path, slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
         if slots_per_epoch.is_some() {
             return Err(NotSafe::UnnecessarySlotsPerEpoch);
         }
@@ -410,7 +410,7 @@ mod single_threaded_tests {
         let filename = attestation_file.path();
 
         let mut attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(filename, None).expect("IO error with file");
+            ValidatorHistory::new(filename, None).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(1, 2);
         let attestation2 = attestation_data_builder(2, 3);
@@ -502,10 +502,10 @@ mod single_threaded_tests {
         let attestation_filename = attestation_file.path();
 
         let _: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(attestation_filename, None).expect("IO error with file");
+            ValidatorHistory::new(attestation_filename, None).expect("IO error with file");
 
         let attestation_history: Result<ValidatorHistory<SignedAttestation>, NotSafe> =
-            ValidatorHistory::empty(attestation_filename, None);
+            ValidatorHistory::new(attestation_filename, None);
 
         assert!(
             attestation_history.is_err(),
@@ -524,11 +524,11 @@ mod single_threaded_tests {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
         let _: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(block_filename, Some(slots_per_epoch))
+            ValidatorHistory::new(block_filename, Some(slots_per_epoch))
                 .expect("IO error with file");
 
         let block_history: Result<ValidatorHistory<SignedBlock>, NotSafe> =
-            ValidatorHistory::empty(block_filename, Some(slots_per_epoch));
+            ValidatorHistory::new(block_filename, Some(slots_per_epoch));
 
         assert!(block_history.is_err(), "should have resulted in an error");
         assert_eq!(
@@ -543,7 +543,7 @@ mod single_threaded_tests {
         let block_filename = block_file.path();
 
         let block_history: Result<ValidatorHistory<SignedBlock>, NotSafe> =
-            ValidatorHistory::empty(block_filename, None);
+            ValidatorHistory::new(block_filename, None);
 
         assert!(block_history.is_err(), "should have resulted in an error");
         assert_eq!(block_history.unwrap_err(), NotSafe::NoSlotsPerEpochProvided);
@@ -556,7 +556,7 @@ mod single_threaded_tests {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
         let _: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(block_filename, Some(slots_per_epoch))
+            ValidatorHistory::new(block_filename, Some(slots_per_epoch))
                 .expect("IO error with file");
 
         let second_open: ValidatorHistory<SignedBlock> =
@@ -577,7 +577,7 @@ mod single_threaded_tests {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
         let _: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(block_filename, Some(slots_per_epoch))
+            ValidatorHistory::new(block_filename, Some(slots_per_epoch))
                 .expect("IO error with file");
 
         let second_open: Result<ValidatorHistory<SignedBlock>, NotSafe> =
@@ -601,7 +601,7 @@ mod single_threaded_tests {
         let attestation_filename = attestation_file.path();
 
         let attestation_history: Result<ValidatorHistory<SignedAttestation>, NotSafe> =
-            ValidatorHistory::empty(attestation_filename, Some(123));
+            ValidatorHistory::new(attestation_filename, Some(123));
 
         assert!(
             attestation_history.is_err(),
@@ -619,7 +619,7 @@ mod single_threaded_tests {
         let filename = attestation_file.path();
 
         let mut attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(filename, None).expect("IO error with file");
+            ValidatorHistory::new(filename, None).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(5, 9);
         let attestation2 = attestation_data_builder(7, 12);
@@ -676,7 +676,7 @@ mod single_threaded_tests {
         let filename = attestation_file.path();
 
         let mut attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(filename, None).expect("IO error with file");
+            ValidatorHistory::new(filename, None).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(1, 2);
         let attestation2 = attestation_data_builder(1, 2); // should not get added
@@ -731,7 +731,7 @@ mod single_threaded_tests {
         let filename = attestation_file.path();
 
         let mut attestation_history: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::empty(filename, None).expect("IO error with file");
+            ValidatorHistory::new(filename, None).expect("IO error with file");
 
         let attestation1 = attestation_data_builder(1, 2);
         let attestation2 = attestation_data_builder(2, 3);
@@ -808,7 +808,7 @@ mod single_threaded_tests {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
         let mut block_history: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(filename, Some(slots_per_epoch)).expect("IO error with file");
+            ValidatorHistory::new(filename, Some(slots_per_epoch)).expect("IO error with file");
 
         let block1 = block_builder(slots_per_epoch);
         let block2 = block_builder(2 * slots_per_epoch);
@@ -856,7 +856,7 @@ mod single_threaded_tests {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
         let mut block_history: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::empty(filename, Some(slots_per_epoch)).expect("IO error with file");
+            ValidatorHistory::new(filename, Some(slots_per_epoch)).expect("IO error with file");
 
         let block1 = block_builder(slots_per_epoch);
         let block2 = block_builder(slots_per_epoch); // fails
