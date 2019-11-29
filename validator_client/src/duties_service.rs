@@ -507,6 +507,61 @@ mod test {
     }
 
     #[test]
+    fn insert_multiple_validator_duty() {
+        let duties = DutiesStore::default();
+        let slots_per_epoch = 6;
+
+        let num_duties = 100;
+        let val_duties: Vec<ValidatorDuty> = (0..=num_duties)
+            .map(|i| ValidatorDuty {
+                validator_pubkey: PublicKey::default(),
+                attestation_slot: Some(Slot::from(i as u64)),
+                attestation_committee_index: None,
+                attestation_committee_position: None,
+                block_proposal_slot: Some(Slot::from(i as u64)),
+            })
+            .collect();
+
+        for (i, duty) in val_duties.into_iter().enumerate() {
+            let outcome = duties.insert(
+                Slot::from(i as u64).epoch(slots_per_epoch),
+                duty,
+                slots_per_epoch,
+            );
+            assert_eq!(outcome, InsertOutcome::NewValidator);
+        }
+        assert_eq!(duties.store.read().len(), num_duties + 1);
+    }
+
+    #[test]
+    fn insert_multiple_same_validators_duty() {
+        let duties = DutiesStore::default();
+        let slots_per_epoch = 6;
+
+        let num_duties = 100;
+        let num_validators = 10;
+        let keys: Vec<PublicKey> = (0..num_validators).map(|_| PublicKey::default()).collect();
+        let val_duties: Vec<ValidatorDuty> = (0..=num_duties)
+            .map(|i| ValidatorDuty {
+                validator_pubkey: keys[i % keys.len()].clone(),
+                attestation_slot: Some(Slot::from(i as u64)),
+                attestation_committee_index: None,
+                attestation_committee_position: None,
+                block_proposal_slot: Some(Slot::from(i as u64)),
+            })
+            .collect();
+
+        for (i, duty) in val_duties.into_iter().enumerate() {
+            duties.insert(
+                Slot::from(i as u64).epoch(slots_per_epoch),
+                duty,
+                slots_per_epoch,
+            );
+        }
+        assert_eq!(duties.store.read().len(), keys.len());
+    }
+
+    #[test]
     fn prune_duties_store() {
         let duties = DutiesStore::default();
         let slots_per_epoch = 6;
