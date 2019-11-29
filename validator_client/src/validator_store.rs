@@ -82,7 +82,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let path = validator_dir.ok()?.path();
 
                 if path.is_dir() {
-                    match ValidatorDirectory::load_for_signing(path.clone()) {
+                    match ValidatorDirectory::load_for_signing(path.clone(), E::slots_per_epoch()) {
                         Ok(validator_directory) => Some(validator_directory),
                         Err(e) => {
                             error!(
@@ -140,6 +140,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .map(|index| {
                 ValidatorDirectoryBuilder::default()
                     .spec(spec.clone())
+                    .slots_per_epoch(E::slots_per_epoch())
                     .full_deposit_amount()?
                     .insecure_keypairs(*index)
                     .create_directory(data_dir.clone())?

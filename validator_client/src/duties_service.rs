@@ -422,3 +422,64 @@ fn duties_match_epoch(duties: &ValidatorDuty, epoch: Epoch, slots_per_epoch: u64
 
     true
 }
+
+mod test {
+    use super::*;
+    use crate::fork_service::{ForkService, ForkServiceBuilder};
+    use crate::Config;
+    use crate::ProductionValidatorClient;
+    use environment::{Environment, EnvironmentBuilder};
+    use sloggers::{null::NullLoggerBuilder, Build};
+    use slot_clock::SystemTimeSlotClock;
+    use types::MinimalEthSpec;
+
+    #[test]
+    pub fn fake() {
+        let chainspec = ChainSpec::minimal();
+        let genesis_slot = chainspec.genesis_slot;
+        let genesis_time = 0;
+        let genesis_duration = Duration::from_secs(genesis_time);
+        let slot_duration = Duration::from_millis(chainspec.milliseconds_per_slot);
+        let slot_clock = SystemTimeSlotClock::new(genesis_slot, genesis_duration, slot_duration);
+
+        let indices = [1, 2, 3, 4];
+        let log_builder = NullLoggerBuilder;
+        let logger = log_builder.build().expect("should build null logger");
+
+        let mut env = EnvironmentBuilder::minimal()
+            .null_logger()
+            .expect("should create null logger")
+            .single_thread_tokio_runtime()
+            .expect("should build env")
+            .build()
+            .expect("should have built env");
+
+        let config = Config::default();
+        let endpoint = String::from("https://test.com");
+        let beacon_node = RemoteBeaconNode::new(endpoint).expect("should have remote beacon node");
+        let fork_service = ForkServiceBuilder::new()
+            .slot_clock(slot_clock.clone())
+            .beacon_node(beacon_node.clone())
+            .runtime_context(env.core_context())
+            .build()
+            .expect("Should build fork service");
+
+        let validator_store = ValidatorStore::insecure_ephemeral_validators(
+            &[1, 2, 3, 4],
+            chainspec,
+            fork_service,
+            logger,
+        )
+        .expect("should build validator store");
+
+        let duties_service_builder = DutiesServiceBuilder::new()
+            .slot_clock(slot_clock.clone())
+            .validator_store(validator_store)
+            .beacon_node(beacon_node.clone())
+            .runtime_context(env.core_context());
+
+        let duties_service = duties_service_builder
+            .build()
+            .expect("Should have built DutiesService");
+    }
+}

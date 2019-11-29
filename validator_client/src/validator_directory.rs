@@ -51,7 +51,7 @@ pub struct ValidatorDirectory {
 impl ValidatorDirectory {
     /// Attempts to load a validator from the given directory, requiring only components necessary
     /// for signing messages.
-    pub fn load_for_signing(directory: PathBuf) -> Result<Self, String> {
+    pub fn load_for_signing(directory: PathBuf, slots_per_epoch: u64) -> Result<Self, String> {
         if !directory.exists() {
             return Err(format!(
                 "Validator directory does not exist: {:?}",
@@ -70,7 +70,8 @@ impl ValidatorDirectory {
         }
         // Loading the block proposer db to retrieve its slots_per_epoch data
         let block_history: ValidatorHistory<SignedBlock> =
-            ValidatorHistory::open(&block_slashing_protection, None).map_err(|e| e.to_string())?;
+            ValidatorHistory::open(&block_slashing_protection, Some(slots_per_epoch))
+                .map_err(|e| e.to_string())?;
         let slots_per_epoch = block_history.slots_per_epoch().map_err(|e| e.to_string())?;
 
         Ok(Self {
@@ -353,9 +354,8 @@ impl ValidatorDirectoryBuilder {
         let block_path = path.join(BLOCK_PRODUCER_SLASHING_DB);
         let slots_per_epoch = self.slots_per_epoch;
 
-        let _: ValidatorHistory<SignedAttestation> =
-            ValidatorHistory::new(&attestation_path, None)
-                .map_err(|e| format!("Unable to create {:?}: {:?}", attestation_path, e))?;
+        let _: ValidatorHistory<SignedAttestation> = ValidatorHistory::new(&attestation_path, None)
+            .map_err(|e| format!("Unable to create {:?}: {:?}", attestation_path, e))?;
 
         let _: ValidatorHistory<SignedBlock> =
             ValidatorHistory::new(&path.join(&block_path), slots_per_epoch)
@@ -413,8 +413,11 @@ mod tests {
             .build()
             .expect("should build dir");
 
-        let loaded_dir = ValidatorDirectory::load_for_signing(created_dir.directory.clone())
-            .expect("should load directory");
+        let loaded_dir = ValidatorDirectory::load_for_signing(
+            created_dir.directory.clone(),
+            E::slots_per_epoch(),
+        )
+        .expect("should load directory");
 
         assert_eq!(
             created_dir, loaded_dir,
@@ -486,8 +489,11 @@ mod tests {
             "should have some deposit data"
         );
 
-        let loaded_dir = ValidatorDirectory::load_for_signing(created_dir.directory.clone())
-            .expect("should load directory");
+        let loaded_dir = ValidatorDirectory::load_for_signing(
+            created_dir.directory.clone(),
+            E::slots_per_epoch(),
+        )
+        .expect("should load directory");
 
         assert_eq!(
             created_dir, loaded_dir,
