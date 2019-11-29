@@ -21,12 +21,13 @@ use types::*;
 /// 32-byte key for accessing the `split_slot` of the freezer DB.
 pub const SPLIT_SLOT_DB_KEY: &str = "FREEZERDBSPLITSLOTFREEZERDBSPLIT";
 
+// FIXME: comments
+
 pub struct HotColdDB {
-    /// The slot before which all data is stored in the cold database.
+    /// The slot and state root at the point where the database is split between hot and cold.
     ///
-    /// Data for slots less than `split_slot` is in the cold DB, while data for slots
+    /// Data for slots less than `split.slot` is in the cold DB, while data for slots
     /// greater than or equal is in the hot DB.
-    // FIXME(sproul): comment
     split: RwLock<Split>,
     /// Number of slots per checkpoint state in the freezer database.
     slots_per_checkpoint: u64,
