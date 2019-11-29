@@ -965,7 +965,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // remove any fully processed parent chains
         self.parent_queue
-            .retain(|req| !(req.state == BlockRequestsState::ReadyToProcess));
+            .retain(|req| req.state != BlockRequestsState::ReadyToProcess);
         re_run_poll
     }
 }

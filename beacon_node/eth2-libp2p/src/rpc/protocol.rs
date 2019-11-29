@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use super::methods::*;
 use crate::rpc::{
     codec::{

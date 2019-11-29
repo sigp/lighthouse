@@ -22,11 +22,8 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub(crate) mod codec;
-#[allow(clippy::type_complexity)]
-#[allow(clippy::congitive_complexity)]
 mod handler;
 pub mod methods;
-#[allow(clippy::type_complexity)]
 mod protocol;
 
 /// The return type used in the behaviour and the resultant event from the protocols handler.

@@ -1,3 +1,6 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::cognitive_complexity)]
+
 use super::methods::{RPCErrorResponse, RPCResponse, RequestId};
 use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
