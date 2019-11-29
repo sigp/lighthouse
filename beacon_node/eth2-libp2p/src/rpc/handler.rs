@@ -204,6 +204,11 @@ where
         &mut self,
         out: <RPCProtocol as InboundUpgrade<TSubstream>>::Output,
     ) {
+        // update the keep alive timeout if there are no more remaining outbound streams
+        if let KeepAlive::Until(_) = self.keep_alive {
+            self.keep_alive = KeepAlive::Until(Instant::now() + self.inactive_timeout);
+        }
+
         let (req, substream) = out;
         // drop the stream and return a 0 id for goodbye "requests"
         if let r @ RPCRequest::Goodbye(_) = req {

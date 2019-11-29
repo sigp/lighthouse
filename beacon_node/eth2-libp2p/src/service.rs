@@ -219,6 +219,7 @@ impl Stream for Service {
         if !self.verified_listen_address {
             let multiaddr = Swarm::listeners(&self.swarm).next();
             if let Some(multiaddr) = multiaddr {
+                self.verified_listen_address = true;
                 if let Some(socket_addr) = multiaddr_to_socket_addr(multiaddr) {
                     self.swarm.update_local_enr_socket(socket_addr, true);
                 }
