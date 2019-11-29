@@ -336,10 +336,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.canonical_head.read().clone()
     }
 
+    /// Returns the current heads of the `BeaconChain`. For the canonical head, see `Self::head`.
+    ///
+    /// Returns `(block_root, block_slot)`.
+    pub fn heads(&self) -> Vec<(Hash256, Slot)> {
+        self.head_tracker.heads()
+    }
+
     /// Returns the `BeaconState` at the given slot.
     ///
-    ///  Returns `None` when the state is not found in the database or there is an error skipping
-    ///  to a future state.
+    /// Returns `None` when the state is not found in the database or there is an error skipping
+    /// to a future state.
     pub fn state_at_slot(&self, slot: Slot) -> Result<BeaconState<T::EthSpec>, Error> {
         let head_state = self.head().beacon_state;
 

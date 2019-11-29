@@ -64,6 +64,9 @@ pub fn route<T: BeaconChainTypes>(
 
             // Methods for Beacon Node
             (&Method::GET, "/beacon/head") => into_boxfut(beacon::get_head::<T>(req, beacon_chain)),
+            (&Method::GET, "/beacon/heads") => {
+                into_boxfut(beacon::get_heads::<T>(req, beacon_chain))
+            }
             (&Method::GET, "/beacon/block") => {
                 into_boxfut(beacon::get_block::<T>(req, beacon_chain))
             }
