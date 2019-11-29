@@ -45,7 +45,6 @@ impl Encoder for SSZInboundCodec {
                     RPCResponse::Status(res) => res.as_ssz_bytes(),
                     RPCResponse::BlocksByRange(res) => res, // already raw bytes
                     RPCResponse::BlocksByRoot(res) => res,  // already raw bytes
-                    RPCResponse::Goodbye => unreachable!("Never encode or decode this message"),
                 }
             }
             RPCErrorResponse::InvalidRequest(err) => err.as_ssz_bytes(),
