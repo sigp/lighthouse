@@ -669,7 +669,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         });
                 }
                 other => {
-                    warn!(
+                    trace!(
                         self.log,
                         "Beacon attestation rejected";
                         "reason" => format!("{:?}", other),
@@ -1024,7 +1024,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     });
                 }
                 other => {
-                    warn!(
+                    trace!(
                         self.log,
                         "Beacon block rejected";
                         "reason" => format!("{:?}", other),

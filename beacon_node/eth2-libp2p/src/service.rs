@@ -141,14 +141,7 @@ impl Service {
         topics.push(topic_builder(ATTESTER_SLASHING_TOPIC));
 
         // Add any topics specified by the user
-        topics.append(
-            &mut config
-                .topics
-                .iter()
-                .cloned()
-                .map(|s| Topic::new(s))
-                .collect(),
-        );
+        topics.append(&mut config.topics.iter().cloned().map(Topic::new).collect());
 
         let mut subscribed_topics = vec![];
         for topic in topics {

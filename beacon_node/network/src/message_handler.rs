@@ -1,3 +1,4 @@
+#![allow(clippy::unit_arg)]
 use crate::error;
 use crate::service::NetworkMessage;
 use crate::sync::MessageProcessor;
