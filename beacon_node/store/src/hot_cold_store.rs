@@ -21,7 +21,7 @@ use types::*;
 /// 32-byte key for accessing the `split_slot` of the freezer DB.
 pub const SPLIT_SLOT_DB_KEY: &str = "FREEZERDBSPLITSLOTFREEZERDBSPLIT";
 
-// FIXME: comments
+// FIXME(sproul): comments
 
 pub struct HotColdDB {
     /// The slot and state root at the point where the database is split between hot and cold.
@@ -56,6 +56,7 @@ pub enum HotColdDbError {
         expected_state_root: Hash256,
         observed_state_root: Hash256,
     },
+    BlockReplayBeaconError(BeaconStateError),
     BlockReplaySlotError(SlotProcessingError),
     BlockReplayBlockError(BlockProcessingError),
 }
@@ -169,7 +170,7 @@ impl Store for HotColdDB {
 
         // 2. Update the split slot
         *store.split.write() = Split {
-            slot: frozen_head.slot.as_u64(),
+            slot: frozen_head.slot,
             state_root: frozen_head_root,
         };
         store.store_split()?;
@@ -309,10 +310,10 @@ impl HotColdDB {
 
         let low_restore_point = self.load_restore_point_by_index(low_restore_point_idx)?;
         let high_restore_point = if high_restore_point_idx * self.slots_per_restore_point
-            >= split.slot
+            >= split.slot.as_u64()
         {
-            self.get_state::<E>(&split.state_root, Some(split.slot()))?
-                .ok_or_else(|| HotColdDbError::MissingSplitState(split.state_root, split.slot()))?
+            self.get_state::<E>(&split.state_root, Some(split.slot))?
+                .ok_or_else(|| HotColdDbError::MissingSplitState(split.state_root, split.slot))?
         } else {
             self.load_restore_point_by_index(high_restore_point_idx)?
         };
@@ -366,8 +367,6 @@ impl HotColdDB {
             .take_while(|block| block.slot > start_slot)
             .collect::<Vec<_>>();
         blocks.reverse();
-
-        // FIXME(sproul): work out some appropriate sanity checks to run here?
         Ok(blocks)
     }
 
@@ -377,8 +376,9 @@ impl HotColdDB {
         blocks: Vec<BeaconBlock<E>>,
         target_slot: Slot,
     ) -> Result<BeaconState<E>, Error> {
-        // FIXME(sproul): map error
-        state.build_all_caches(&self.spec)?;
+        state
+            .build_all_caches(&self.spec)
+            .map_err(HotColdDbError::BlockReplayBeaconError)?;
 
         for block in blocks {
             while state.slot < block.slot {
@@ -404,7 +404,7 @@ impl HotColdDB {
     }
 
     pub fn get_split_slot(&self) -> Slot {
-        Slot::new(self.split.read().slot)
+        self.split.read().slot
     }
 
     fn load_split(&self) -> Result<Option<Split>, Error> {
@@ -450,7 +450,7 @@ impl HotColdDB {
 
     fn load_state_slot(&self, state_root: &Hash256) -> Result<Slot, Error> {
         StateSlot::db_get(&self.cold_db, state_root)?
-            .map(Into::into)
+            .map(|s| s.slot)
             .ok_or_else(|| HotColdDbError::MissingStateSlot(*state_root).into())
     }
 
@@ -464,15 +464,8 @@ impl HotColdDB {
 /// Struct for storing the split slot and state root in the database.
 #[derive(Clone, Copy, Default, Encode, Decode)]
 struct Split {
-    slot: u64,
+    slot: Slot,
     state_root: Hash256,
-}
-
-impl Split {
-    // FIXME(sproul): implement ssz for slot
-    fn slot(&self) -> Slot {
-        Slot::new(self.slot)
-    }
 }
 
 impl SimpleStoreItem for Split {
@@ -492,20 +485,12 @@ impl SimpleStoreItem for Split {
 /// Struct for storing the slot of a state root in the database.
 #[derive(Clone, Copy, Default, Encode, Decode)]
 struct StateSlot {
-    slot: u64,
-}
-
-impl Into<Slot> for StateSlot {
-    fn into(self) -> Slot {
-        Slot::new(self.slot)
-    }
+    slot: Slot,
 }
 
 impl From<Slot> for StateSlot {
     fn from(slot: Slot) -> Self {
-        Self {
-            slot: slot.as_u64(),
-        }
+        Self { slot }
     }
 }
 
