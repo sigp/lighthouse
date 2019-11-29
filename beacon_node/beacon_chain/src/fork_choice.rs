@@ -291,6 +291,14 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             .update_finalized_root(finalized_block, finalized_block_root)
             .map_err(Into::into)
     }
+
+    /// Returns a byte-level representation of the present state of the fork choice cache.
+    ///
+    /// This simply calls `as_bytes()`, on the backend. To decode these bytes, decode the backend
+    /// directly then use `Self::new(..)`.
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.backend.as_bytes()
+    }
 }
 
 impl From<BeaconStateError> for Error {

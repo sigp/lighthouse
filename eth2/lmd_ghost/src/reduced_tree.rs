@@ -121,8 +121,8 @@ where
     }
 
     /// Consume the `ReducedTree` object and return its ssz encoded bytes representation.
-    fn as_bytes(self) -> Vec<u8> {
-        self.core.into_inner().as_bytes()
+    fn as_bytes(&self) -> Vec<u8> {
+        self.core.read().as_bytes()
     }
 
     /// Create a new `ThreadSafeReducedTree` instance from a `store` and the

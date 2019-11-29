@@ -15,6 +15,7 @@ pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub op_pool: PersistedOperationPool<T::EthSpec>,
     pub genesis_block_root: Hash256,
     pub ssz_head_tracker: SszHeadTracker,
+    pub fork_choice_ssz_bytes: Vec<u8>,
 }
 
 impl<T: BeaconChainTypes> SimpleStoreItem for PersistedBeaconChain<T> {

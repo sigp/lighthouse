@@ -54,7 +54,7 @@ pub trait LmdGhost<S: Store, E: EthSpec>: Send + Sync + Sized {
     fn verify_integrity(&self) -> Result<()>;
 
     /// Encode the `LmdGhost` instance to bytes.
-    fn as_bytes(self) -> Vec<u8>;
+    fn as_bytes(&self) -> Vec<u8>;
 
     /// Create a new `LmdGhost` instance given a `store` and encoded bytes.
     fn from_bytes(bytes: &[u8], store: Arc<S>) -> Result<Self>;

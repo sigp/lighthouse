@@ -388,9 +388,7 @@ where
             event_handler: self
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
-            head_tracker: self
-                .head_tracker
-                .ok_or_else(|| "Cannot build without a head tracker".to_string())?,
+            head_tracker: self.head_tracker.unwrap_or_default(),
             log: log.clone(),
         };
 
@@ -430,21 +428,27 @@ where
     /// `ThreadSafeReducedTree` backend.
     ///
     /// Requires the store and state to be initialized.
-    pub fn empty_reduced_tree_fork_choice(self) -> Result<Self, String> {
+    pub fn reduced_tree_fork_choice(self) -> Result<Self, String> {
         let store = self
             .store
             .clone()
             .ok_or_else(|| "reduced_tree_fork_choice requires a store")?;
-        let finalized_checkpoint = &self
-            .finalized_checkpoint
-            .as_ref()
-            .expect("should have finalized checkpoint");
 
-        let backend = ThreadSafeReducedTree::new(
-            store.clone(),
-            &finalized_checkpoint.beacon_block,
-            finalized_checkpoint.beacon_block_root,
-        );
+        let backend = if let Some(persisted_beacon_chain) = &self.persisted_beacon_chain {
+            ThreadSafeReducedTree::from_bytes(&persisted_beacon_chain.fork_choice_ssz_bytes, store)
+                .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
+        } else {
+            let finalized_checkpoint = &self
+                .finalized_checkpoint
+                .as_ref()
+                .expect("should have finalized checkpoint");
+
+            ThreadSafeReducedTree::new(
+                store.clone(),
+                &finalized_checkpoint.beacon_block,
+                finalized_checkpoint.beacon_block_root,
+            )
+        };
 
         self.fork_choice_backend(backend)
     }
@@ -623,7 +627,7 @@ mod test {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
-            .empty_reduced_tree_fork_choice()
+            .reduced_tree_fork_choice()
             .expect("should add fork choice to builder")
             .build()
             .expect("should build");

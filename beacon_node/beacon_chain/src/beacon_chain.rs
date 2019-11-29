@@ -145,6 +145,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             op_pool: PersistedOperationPool::from_operation_pool(&self.op_pool),
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
+            fork_choice_ssz_bytes: self.fork_choice.as_bytes(),
         };
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
