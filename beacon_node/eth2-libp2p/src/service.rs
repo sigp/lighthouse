@@ -170,7 +170,7 @@ impl Service {
         })
     }
 
-    /// Adds a peer to be panned after a timeout period.
+    /// Adds a peer to be banned after a timeout period.
     pub fn disconnect_and_ban_peer(&mut self, peer_id: PeerId) {
         self.peers_to_ban.push((
             peer_id,
