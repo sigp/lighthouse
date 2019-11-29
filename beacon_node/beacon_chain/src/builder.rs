@@ -1,5 +1,6 @@
 use crate::eth1_chain::CachingEth1Backend;
 use crate::events::NullEventHandler;
+use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::{
     BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
@@ -9,7 +10,7 @@ use eth1::Config as Eth1Config;
 use lmd_ghost::{LmdGhost, ThreadSafeReducedTree};
 use operation_pool::OperationPool;
 use parking_lot::RwLock;
-use slog::{info, Logger};
+use slog::{error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -88,6 +89,8 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
+    persisted_beacon_chain: Option<PersistedBeaconChain<T>>,
+    head_tracker: Option<HeadTracker>,
     spec: ChainSpec,
     log: Option<Logger>,
 }
@@ -128,6 +131,8 @@ where
             eth1_chain: None,
             event_handler: None,
             slot_clock: None,
+            persisted_beacon_chain: None,
+            head_tracker: None,
             spec: TEthSpec::default_spec(),
             log: None,
         }
@@ -213,6 +218,10 @@ where
 
         self.finalized_checkpoint = Some(p.canonical_head);
         self.genesis_block_root = Some(p.genesis_block_root);
+
+        self.head_tracker = HeadTracker::from_ssz_container(&p.ssz_head_tracker)
+            .map_err(|e| error!(log, "Failed to decode head tracker for database: {:?}", e))
+            .ok();
 
         Ok(self)
     }
@@ -379,6 +388,9 @@ where
             event_handler: self
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
+            head_tracker: self
+                .head_tracker
+                .ok_or_else(|| "Cannot build without a head tracker".to_string())?,
             log: log.clone(),
         };
 

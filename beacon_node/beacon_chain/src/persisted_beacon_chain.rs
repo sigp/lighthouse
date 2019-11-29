@@ -1,3 +1,4 @@
+use crate::head_tracker::SszHeadTracker;
 use crate::{BeaconChainTypes, CheckPoint};
 use operation_pool::PersistedOperationPool;
 use ssz::{Decode, Encode};
@@ -13,6 +14,7 @@ pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub canonical_head: CheckPoint<T::EthSpec>,
     pub op_pool: PersistedOperationPool<T::EthSpec>,
     pub genesis_block_root: Hash256,
+    pub ssz_head_tracker: SszHeadTracker,
 }
 
 impl<T: BeaconChainTypes> SimpleStoreItem for PersistedBeaconChain<T> {
