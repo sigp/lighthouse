@@ -145,7 +145,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             // Fast-forward the state to the start slot of the epoch where it was justified.
             for _ in block.slot.as_u64()..block_justified_slot.as_u64() {
                 per_slot_processing(&mut state, &chain.spec)
-                    .map_err(|e| BeaconChainError::SlotProcessingError(e))?
+                    .map_err(BeaconChainError::SlotProcessingError)?
             }
 
             (state, block_root, block_justified_slot)

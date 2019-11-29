@@ -6,7 +6,7 @@ use beacon_chain::{
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{debug, error, info, o, trace, warn};
+use slog::{debug, info, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
@@ -396,6 +396,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         request_id: RequestId,
         beacon_block: Option<BeaconBlock<T::EthSpec>>,
     ) {
+        let beacon_block = beacon_block.map(Box::new);
         trace!(
             self.log,
             "Received BlocksByRange Response";
@@ -416,6 +417,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         request_id: RequestId,
         beacon_block: Option<BeaconBlock<T::EthSpec>>,
     ) {
+        let beacon_block = beacon_block.map(Box::new);
         trace!(
             self.log,
             "Received BlocksByRoot Response";
@@ -442,11 +444,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                             "peer_id" => format!("{:?}",peer_id));
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
-                BlockProcessingOutcome::ParentUnknown { parent: _ } => {
+                BlockProcessingOutcome::ParentUnknown { .. } => {
                     // Inform the sync manager to find parents for this block
                     trace!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
-                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block.clone()));
+                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, Box::new(block.clone())));
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::FutureSlot {
@@ -473,13 +475,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     SHOULD_NOT_FORWARD_GOSSIP_BLOCK //TODO: Decide if we want to forward these
                 }
             },
-            Err(e) => {
-                error!(
-                    self.log,
-                    "Error processing gossip beacon block";
-                    "error" => format!("{:?}", e),
-                    "block slot" => block.slot
-                );
+            Err(_) => {
+                // error is logged during the processing therefore no error is logged here
                 trace!(
                     self.log,
                     "Erroneous gossip beacon block ssz";
@@ -523,13 +520,13 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     self.network.disconnect(peer_id, GoodbyeReason::Fault);
                 }
             },
-            Err(e) => {
+            Err(_) => {
+                // error is logged during the processing therefore no error is logged here
                 trace!(
                     self.log,
                     "Erroneous gossip attestation ssz";
                     "ssz" => format!("0x{}", hex::encode(msg.as_ssz_bytes())),
                 );
-                error!(self.log, "Invalid gossip attestation"; "error" => format!("{:?}", e));
             }
         }
     }

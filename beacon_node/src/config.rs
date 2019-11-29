@@ -110,9 +110,9 @@ fn process_testnet_subcommand(
     if let Some(propagation_percentage_string) = cli_args.value_of("random-propagation") {
         let percentage = propagation_percentage_string
             .parse::<u8>()
-            .map_err(|_| format!("Unable to parse the propagation percentage"))?;
+            .map_err(|_| "Unable to parse the propagation percentage".to_string())?;
         if percentage > 100 {
-            return Err(format!("Propagation percentage greater than 100"));
+            return Err("Propagation percentage greater than 100".to_string());
         }
         builder.client_config.network.propagation_percentage = Some(percentage);
     }
@@ -255,7 +255,7 @@ fn process_testnet_subcommand(
 
             client_config.eth1.deposit_contract_address =
                 "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();
-            client_config.eth1.deposit_contract_deploy_block = 1487270;
+            client_config.eth1.deposit_contract_deploy_block = 1_487_270;
             client_config.eth1.follow_distance = 16;
             client_config.dummy_eth1_backend = false;
 
@@ -608,7 +608,7 @@ impl ConfigBuilder {
     /// The supplied `cli_args` should be the base-level `clap` cli_args (i.e., not a subcommand
     /// cli_args).
     pub fn build(mut self, cli_args: &ArgMatches) -> Result<Config> {
-        self.client_config.apply_cli_args(cli_args, &mut self.log)?;
+        self.client_config.apply_cli_args(cli_args, &self.log)?;
 
         if let Some(bump) = cli_args.value_of("port-bump") {
             let bump = bump
