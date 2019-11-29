@@ -142,20 +142,21 @@ impl Store for HotColdDB {
         for (state_root, slot) in
             state_root_iter.take_while(|&(_, slot)| slot >= current_split_slot)
         {
-            trace!(store.log, "Freezing";
+            if slot % store.slots_per_checkpoint == 0 {
+                trace!(store.log, "Freezing";
                    "slot" => slot,
                    "state_root" => format!("{}", state_root));
 
-            let state: BeaconState<E> = match store.hot_db.get_state(&state_root, None)? {
-                Some(s) => s,
-                // If there's no state it could be a skip slot, which is fine, our job is just
-                // to move everything that was in the hot DB to the cold.
-                None => continue,
-            };
+                let state: BeaconState<E> = match store.hot_db.get_state(&state_root, None)? {
+                    Some(s) => s,
+                    // If there's no state it could be a skip slot, which is fine, our job is just
+                    // to move everything that was in the hot DB to the cold.
+                    None => continue,
+                };
 
+                store.store_archive_state(&state_root, &state)?;
+            }
             to_delete.push(state_root);
-
-            store.store_archive_state(&state_root, &state)?;
         }
 
         // 2. Update the split slot

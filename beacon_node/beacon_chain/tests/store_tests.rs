@@ -62,6 +62,7 @@ fn full_participation_no_skips() {
     check_finalization(&harness, num_blocks_produced);
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_blocks_produced + 1);
+    check_iterators(&harness);
 }
 
 #[test]
@@ -99,6 +100,7 @@ fn randomised_skips() {
 
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_blocks_produced + 1);
+    check_iterators(&harness);
 }
 
 #[test]
@@ -140,6 +142,7 @@ fn long_skip() {
     check_finalization(&harness, initial_blocks + skip_slots + final_blocks);
     check_split_slot(&harness, store);
     check_chain_dump(&harness, initial_blocks + final_blocks + 1);
+    check_iterators(&harness);
 }
 
 /// Go forward to the point where the genesis randao value is no longer part of the vector.
@@ -201,6 +204,7 @@ fn randao_genesis_storage() {
     check_finalization(&harness, num_slots);
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_slots + 1);
+    check_iterators(&harness);
 }
 
 // Check that closing and reopening a freezer DB restores the split slot to its correct value.
@@ -287,4 +291,24 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
             "tree hash of stored state is incorrect"
         );
     }
+}
+
+/// Check that state and block root iterators can reach genesis
+fn check_iterators(harness: &TestHarness) {
+    assert_eq!(
+        harness
+            .chain
+            .rev_iter_state_roots()
+            .last()
+            .map(|(_, slot)| slot),
+        Some(Slot::new(0))
+    );
+    assert_eq!(
+        harness
+            .chain
+            .rev_iter_block_roots()
+            .last()
+            .map(|(_, slot)| slot),
+        Some(Slot::new(0))
+    );
 }

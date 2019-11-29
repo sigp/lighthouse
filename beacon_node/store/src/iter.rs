@@ -2,7 +2,9 @@ use crate::Store;
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot};
+use types::{
+    typenum::Unsigned, BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot,
+};
 
 /// Implemented for types that have ancestors (e.g., blocks, states) that may be iterated over.
 ///
@@ -83,9 +85,18 @@ impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
             Err(BeaconStateError::SlotOutOfBounds) => {
                 // Read a `BeaconState` from the store that has access to prior historical root.
                 let beacon_state: BeaconState<T> = {
-                    let new_state_root = self.beacon_state.get_oldest_state_root().ok()?;
+                    // FIXME(sproul): deduplicate?
+                    // For compatibility with the freezer database's checkpoints, we load a state at
+                    // a checkpoint slot (thus avoiding replaying blocks). In the case where we're
+                    // not frozen, this just means we might not jump back by the maximum amount on
+                    // our first jump (i.e. at most 1 extra state load).
+                    let new_state_slot =
+                        slot_of_guaranteed_last_checkpoint::<T>(self.beacon_state.slot);
+                    let new_state_root = self.beacon_state.get_state_root(new_state_slot).ok()?;
 
-                    self.store.get_state(&new_state_root, None).ok()?
+                    self.store
+                        .get_state(new_state_root, Some(new_state_slot))
+                        .ok()?
                 }?;
 
                 self.beacon_state = Cow::Owned(beacon_state);
@@ -211,7 +222,7 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
     type Item = (Hash256, Slot);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if (self.slot == 0) || (self.slot > self.beacon_state.slot) {
+        if self.slot == 0 || self.slot > self.beacon_state.slot {
             return None;
         }
 
@@ -222,10 +233,22 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
             Err(BeaconStateError::SlotOutOfBounds) => {
                 // Read a `BeaconState` from the store that has access to prior historical root.
                 let beacon_state: BeaconState<T> = {
-                    // Load the earliest state from disk.
-                    let new_state_root = self.beacon_state.get_oldest_state_root().ok()?;
+                    // For compatibility with the freezer database's checkpoints, we load a state at
+                    // a checkpoint slot (thus avoiding replaying blocks). In the case where we're
+                    // not frozen, this just means we might not jump back by the maximum amount on
+                    // our first jump (i.e. at most 1 extra state load).
+                    let new_state_slot =
+                        slot_of_guaranteed_last_checkpoint::<T>(self.beacon_state.slot);
+                    println!(
+                        "Updating reference state slot: {} -> {}",
+                        self.beacon_state.slot, new_state_slot
+                    );
+                    let new_state_root = self.beacon_state.get_state_root(new_state_slot).ok()?;
+                    println!("Got a new state root: {:?}", new_state_root);
 
-                    self.store.get_state(&new_state_root, None).ok()?
+                    self.store
+                        .get_state(new_state_root, Some(new_state_slot))
+                        .ok()?
                 }?;
 
                 self.beacon_state = Cow::Owned(beacon_state);
@@ -237,6 +260,11 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
             _ => None,
         }
     }
+}
+
+fn slot_of_guaranteed_last_checkpoint<E: EthSpec>(current_slot: Slot) -> Slot {
+    let slots_per_historical_root = E::SlotsPerHistoricalRoot::to_u64();
+    (current_slot - 1) / slots_per_historical_root * slots_per_historical_root
 }
 
 pub type ReverseBlockRootIterator<'a, E, S> =
