@@ -31,6 +31,16 @@ const TTFB_TIMEOUT: u64 = 5;
 /// established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 15;
 
+/// Protocol names to be used.
+/// The Status protocol name.
+pub const RPC_STATUS: &str = "status";
+/// The Goodbye protocol name.
+pub const RPC_GOODBYE: &str = "goodbye";
+/// The `BlocksByRange` protocol name.
+pub const RPC_BLOCKS_BY_RANGE: &str = "beacon_blocks_by_range";
+/// The `BlocksByRoot` protocol name.
+pub const RPC_BLOCKS_BY_ROOT: &str = "beacon_blocks_by_root";
+
 #[derive(Debug, Clone)]
 pub struct RPCProtocol;
 
@@ -40,10 +50,10 @@ impl UpgradeInfo for RPCProtocol {
 
     fn protocol_info(&self) -> Self::InfoIter {
         vec![
-            ProtocolId::new("status", "1", "ssz"),
-            ProtocolId::new("goodbye", "1", "ssz"),
-            ProtocolId::new("blocks_by_range", "1", "ssz"),
-            ProtocolId::new("blocks_by_root", "1", "ssz"),
+            ProtocolId::new(RPC_STATUS, "1", "ssz"),
+            ProtocolId::new(RPC_GOODBYE, "1", "ssz"),
+            ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
+            ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
         ]
     }
 }
@@ -171,10 +181,10 @@ impl RPCRequest {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RPCRequest::Status(_) => vec![ProtocolId::new("status", "1", "ssz")],
-            RPCRequest::Goodbye(_) => vec![ProtocolId::new("goodbye", "1", "ssz")],
-            RPCRequest::BlocksByRange(_) => vec![ProtocolId::new("blocks_by_range", "1", "ssz")],
-            RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new("blocks_by_root", "1", "ssz")],
+            RPCRequest::Status(_) => vec![ProtocolId::new(RPC_STATUS, "1", "ssz")],
+            RPCRequest::Goodbye(_) => vec![ProtocolId::new(RPC_GOODBYE, "1", "ssz")],
+            RPCRequest::BlocksByRange(_) => vec![ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz")],
+            RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz")],
         }
     }
 

@@ -37,8 +37,11 @@ pub struct Config {
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
+        let mut data_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        data_dir.push(".lighthouse");
+        data_dir.push("validators");
         Self {
-            data_dir: PathBuf::from(DEFAULT_DATA_DIR),
+            data_dir,
             key_source: <_>::default(),
             http_server: DEFAULT_HTTP_SERVER.to_string(),
         }

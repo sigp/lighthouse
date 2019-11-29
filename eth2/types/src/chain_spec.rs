@@ -253,7 +253,6 @@ impl ChainSpec {
             target_committee_size: 4,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
-            milliseconds_per_slot: 6_000,
             network_id: 2, // lighthouse testnet network id
             boot_nodes,
             eth1_follow_distance: 16,
