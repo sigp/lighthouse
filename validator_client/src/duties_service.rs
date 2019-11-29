@@ -219,8 +219,6 @@ impl<T, E: EthSpec> Deref for DutiesService<T, E> {
 impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     /// Returns the pubkeys of the validators which are assigned to propose in the given slot.
     ///
-    /// In normal cases, there should be 0 or 1 validators returned. In extreme cases (i.e., deep forking)
-    ///
     /// It is possible that multiple validators have an identical proposal slot, however that is
     /// likely the result of heavy forking (lol) or inconsistent beacon node connections.
     pub fn block_producers(&self, slot: Slot) -> Vec<PublicKey> {
