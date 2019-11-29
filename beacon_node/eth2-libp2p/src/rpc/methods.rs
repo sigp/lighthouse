@@ -139,9 +139,6 @@ pub enum RPCResponse {
 
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Vec<u8>),
-
-    /// A Goodbye message has been sent
-    Goodbye,
 }
 
 /// Indicates which response is being terminated by a stream termination response.
@@ -208,7 +205,6 @@ impl RPCErrorResponse {
                 RPCResponse::Status(_) => false,
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
-                RPCResponse::Goodbye => false,
             },
             RPCErrorResponse::InvalidRequest(_) => true,
             RPCErrorResponse::ServerError(_) => true,
@@ -252,7 +248,6 @@ impl std::fmt::Display for RPCResponse {
             RPCResponse::Status(status) => write!(f, "{}", status),
             RPCResponse::BlocksByRange(_) => write!(f, "<BlocksByRange>"),
             RPCResponse::BlocksByRoot(_) => write!(f, "<BlocksByRoot>"),
-            RPCResponse::Goodbye => write!(f, "Goodbye Sent"),
         }
     }
 }
