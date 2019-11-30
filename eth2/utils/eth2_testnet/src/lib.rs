@@ -16,7 +16,7 @@ use types::{Address, BeaconState, EthSpec, YamlConfig};
 
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
-pub const BOOT_NODES_FILE: &str = "boot_enr.yaml";
+pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const YAML_CONFIG_FILE: &str = "config.yaml";
 
@@ -24,6 +24,7 @@ pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../testnet/config.yaml"
 pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../testnet/deploy_block.txt");
 pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../testnet/deposit_contract.txt");
 pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../testnet/genesis.ssz");
+pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../testnet/boot_enr.yaml");
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Eth2TestnetDir<E: EthSpec> {
@@ -58,6 +59,7 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
         write_bytes_to_file!(DEPLOY_BLOCK_FILE, HARDCODED_DEPLOY_BLOCK);
         write_bytes_to_file!(ADDRESS_FILE, HARDCODED_DEPOSIT_CONTRACT);
         write_bytes_to_file!(GENESIS_STATE_FILE, HARDCODED_GENESIS_STATE);
+        write_bytes_to_file!(BOOT_ENR_FILE, HARDCODED_BOOT_ENR);
 
         Self::load(base_dir)
     }
@@ -104,7 +106,7 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
         write_to_yaml_file!(DEPLOY_BLOCK_FILE, self.deposit_contract_deploy_block);
 
         if let Some(boot_enr) = &self.boot_enr {
-            write_to_yaml_file!(BOOT_NODES_FILE, boot_enr);
+            write_to_yaml_file!(BOOT_ENR_FILE, boot_enr);
         }
 
         if let Some(yaml_config) = &self.yaml_config {
@@ -150,7 +152,7 @@ impl<E: EthSpec> Eth2TestnetDir<E> {
 
         let deposit_contract_address = load_from_file!(ADDRESS_FILE);
         let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
-        let boot_enr = optional_load_from_file!(BOOT_NODES_FILE);
+        let boot_enr = optional_load_from_file!(BOOT_ENR_FILE);
         let yaml_config = optional_load_from_file!(YAML_CONFIG_FILE);
 
         // The genesis state is a special case because it uses SSZ, not YAML.
