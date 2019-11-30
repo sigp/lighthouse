@@ -36,7 +36,7 @@ fn get_store(db_path: &TempDir) -> Arc<DiskStore> {
 #[test]
 fn finalizes_after_resuming_from_db() {
     let validator_count = 16;
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 8;
     let first_half = num_blocks_produced / 2;
 
     let db_path = tempdir().unwrap();
@@ -54,6 +54,11 @@ fn finalizes_after_resuming_from_db() {
         first_half as usize,
         BlockStrategy::OnCanonicalHead,
         AttestationStrategy::AllValidators,
+    );
+
+    assert!(
+        harness.chain.head().beacon_state.finalized_checkpoint.epoch > 0,
+        "the chain should have already finalized"
     );
 
     let latest_slot = harness.chain.slot().expect("should have a slot");
@@ -110,6 +115,9 @@ fn finalizes_after_resuming_from_db() {
     );
 }
 
+/// Checks that two chains are the same, for the purpose of this tests.
+///
+/// Several fields that are hard/impossible to check are ignored (e.g., the store).
 fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b: &BeaconChain<T>) {
     assert_eq!(a.spec, b.spec, "spec should be equal");
     assert_eq!(a.op_pool, b.op_pool, "op_pool should be equal");
