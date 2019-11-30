@@ -3,7 +3,10 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
+use beacon_chain::{
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy},
+    BeaconChain, BeaconChainTypes,
+};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
 use store::DiskStore;
@@ -55,21 +58,21 @@ fn finalizes_after_resuming_from_db() {
 
     let latest_slot = harness.chain.slot().expect("should have a slot");
 
-    let original_head = harness.chain.head();
-    let original_heads = harness.chain.heads();
-
-    assert_eq!(
-        original_head.beacon_state.slot, first_half,
-        "head should be half way through test"
-    );
-
-    drop(harness);
+    harness.chain.persist().expect("should persist the chain");
 
     let resumed_harness = BeaconChainHarness::resume_from_disk_store(
         MinimalEthSpec,
         store,
         KEYPAIRS[0..validator_count].to_vec(),
     );
+
+    assert_chains_pretty_much_the_same(&harness.chain, &resumed_harness.chain);
+
+    // Ensures we don't accidentally use it again.
+    //
+    // Note: this will persist the chain again, but that shouldn't matter since nothing has
+    // changed.
+    drop(harness);
 
     // Set the slot clock of the resumed harness to be in the slot following the previous harness.
     //
@@ -78,18 +81,6 @@ fn finalizes_after_resuming_from_db() {
         .chain
         .slot_clock
         .set_slot(latest_slot.as_u64() + 1);
-
-    assert_eq!(
-        original_head,
-        resumed_harness.chain.head(),
-        "resumed head should be same as previous head"
-    );
-
-    assert_eq!(
-        original_heads,
-        resumed_harness.chain.heads(),
-        "resumed heads should be same as previous heads"
-    );
 
     resumed_harness.extend_chain(
         (num_blocks_produced - first_half) as usize,
@@ -116,5 +107,20 @@ fn finalizes_after_resuming_from_db() {
         state.finalized_checkpoint.epoch,
         state.current_epoch() - 2,
         "the head should be finalized two behind the current epoch"
+    );
+}
+
+fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b: &BeaconChain<T>) {
+    assert_eq!(a.spec, b.spec, "spec should be equal");
+    assert_eq!(a.op_pool, b.op_pool, "op_pool should be equal");
+    assert_eq!(a.head(), b.head(), "head() should be equal");
+    assert_eq!(a.heads(), b.heads(), "heads() should be equal");
+    assert_eq!(
+        a.genesis_block_root, b.genesis_block_root,
+        "genesis_block_root should be equal"
+    );
+    assert!(
+        a.fork_choice == b.fork_choice,
+        "fork_choice should be equal"
     );
 }

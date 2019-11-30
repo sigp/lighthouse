@@ -8,7 +8,9 @@ pub use reduced_tree::ThreadSafeReducedTree;
 
 pub type Result<T> = std::result::Result<T, String>;
 
-pub trait LmdGhost<S: Store, E: EthSpec>: Send + Sync + Sized {
+// Note: the `PartialEq` bound is only required for testing. If it becomes a serious annoyance we
+// can remove it.
+pub trait LmdGhost<S: Store, E: EthSpec>: PartialEq + Send + Sync + Sized {
     /// Create a new instance, with the given `store` and `finalized_root`.
     fn new(store: Arc<S>, finalized_block: &BeaconBlock<E>, finalized_root: Hash256) -> Self;
 

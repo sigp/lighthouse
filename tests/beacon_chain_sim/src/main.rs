@@ -1,3 +1,5 @@
+// mod simulated_network;
+
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder, RuntimeContext},
     testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode, LocalValidatorClient,
@@ -7,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use types::EthSpec;
 
 pub type BeaconNode<E> = LocalBeaconNode<ProductionClient<E>>;
+pub type ValidatorClient<E> = LocalValidatorClient<E>;
 
 fn main() {
     let nodes = 4;

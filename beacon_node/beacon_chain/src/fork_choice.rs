@@ -35,6 +35,16 @@ pub struct ForkChoice<T: BeaconChainTypes> {
     best_justified_checkpoint: RwLock<Checkpoint>,
 }
 
+impl<T: BeaconChainTypes> PartialEq for ForkChoice<T> {
+    /// This implementation ignores the `store`.
+    fn eq(&self, other: &Self) -> bool {
+        self.backend == other.backend
+            && self.genesis_block_root == other.genesis_block_root
+            && *self.justified_checkpoint.read() == *other.justified_checkpoint.read()
+            && *self.best_justified_checkpoint.read() == *other.best_justified_checkpoint.read()
+    }
+}
+
 impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Instantiate a new fork chooser.
     ///
