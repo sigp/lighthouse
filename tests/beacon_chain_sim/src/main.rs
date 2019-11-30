@@ -1,13 +1,16 @@
-// mod simulated_network;
+mod simulated_network;
 
+use futures::{future, stream, Future, IntoFuture, Stream};
 use node_test_rig::{
-    environment::{Environment, EnvironmentBuilder, RuntimeContext},
-    testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode, LocalValidatorClient,
-    ProductionClient, ValidatorConfig,
+    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, LocalBeaconNode,
+    LocalValidatorClient, ProductionClient, ValidatorConfig,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
-use types::EthSpec;
+use simulated_network::LocalNetwork;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::timer::Delay;
+use types::{Epoch, EthSpec, MinimalEthSpec};
 
+pub type E = MinimalEthSpec;
 pub type BeaconNode<E> = LocalBeaconNode<ProductionClient<E>>;
 pub type ValidatorClient<E> = LocalValidatorClient<E>;
 
@@ -15,122 +18,118 @@ fn main() {
     let nodes = 4;
     let validators_per_node = 64 / nodes;
 
-    match simulation(nodes, validators_per_node) {
+    match async_sim(nodes, validators_per_node, 4) {
         Ok(()) => println!("Simulation exited successfully"),
         Err(e) => println!("Simulation exited with error: {}", e),
     }
 }
 
-fn simulation(num_nodes: usize, validators_per_node: usize) -> Result<(), String> {
-    if num_nodes < 1 {
-        return Err("Must have at least one node".into());
-    }
-
+fn async_sim(
+    node_count: usize,
+    validators_per_node: usize,
+    speed_up_factor: u64,
+) -> Result<(), String> {
     let mut env = EnvironmentBuilder::minimal()
         .async_logger("debug")?
         .multi_threaded_tokio_runtime()?
         .build()?;
 
-    env.eth2_config.spec.milliseconds_per_slot = 2_000;
-
-    let mut base_config = testing_client_config();
+    env.eth2_config.spec.milliseconds_per_slot =
+        env.eth2_config.spec.milliseconds_per_slot / speed_up_factor;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("should get system time")
         .as_secs();
-    base_config.genesis = ClientGenesis::Interop {
+
+    let mut beacon_config = testing_client_config();
+    beacon_config.genesis = ClientGenesis::Interop {
         genesis_time: now,
-        validator_count: num_nodes * validators_per_node,
+        validator_count: node_count * validators_per_node,
     };
 
-    let boot_node =
-        BeaconNode::production(env.service_context("boot_node".into()), base_config.clone());
+    let slot_duration = Duration::from_millis(env.eth2_config.spec.milliseconds_per_slot);
 
-    let mut nodes = (1..num_nodes)
-        .map(|i| {
-            let context = env.service_context(format!("node_{}", i));
-            new_with_bootnode_via_enr(context, &boot_node, base_config.clone())
+    let network = LocalNetwork::new(env.core_context(), beacon_config.clone())?;
+
+    let network_1 = network.clone();
+    let network_2 = network.clone();
+    let network_3 = network.clone();
+
+    let future = future::ok(())
+        .and_then(move |()| {
+            let network = network_1;
+
+            for _ in 0..node_count - 1 {
+                network.add_beacon_node(beacon_config.clone())?;
+            }
+
+            Ok(())
         })
-        .collect::<Vec<_>>();
+        .and_then(move |()| {
+            let network = network_2;
 
-    let _validators = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, node)| {
-            let mut context = env.service_context(format!("validator_{}", i));
+            stream::unfold(0..node_count, move |mut iter| {
+                iter.next().map(|i| {
+                    let indices = (i * validators_per_node..(i + 1) * validators_per_node)
+                        .collect::<Vec<_>>();
 
-            // Pull the spec from the beacon node's beacon chain, in case there were some changes
-            // to the spec after the node booted.
-            context.eth2_config.spec = node
-                .client
-                .beacon_chain()
-                .expect("should have beacon chain")
-                .spec
-                .clone();
-
-            let context = env.service_context(format!("validator_{}", i));
-
-            let indices =
-                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
-            new_validator_client(
-                &mut env,
-                context,
-                node,
-                ValidatorConfig::default(),
-                &indices,
-            )
+                    network
+                        .add_validator_client(ValidatorConfig::default(), i, indices)
+                        .map(|()| ((), iter))
+                })
+            })
+            .collect()
+            .map(|_| ())
         })
-        .collect::<Vec<_>>();
+        .and_then(move |_| {
+            epoch_delay(Epoch::new(4), slot_duration, E::slots_per_epoch())
+                .and_then(|()| verify_all_finalized_at(network_3, Epoch::new(2)))
+        });
 
-    nodes.insert(0, boot_node);
-
-    env.block_until_ctrl_c()?;
-
-    Ok(())
+    env.runtime().block_on(future)
 }
 
-// TODO: this function does not result in nodes connecting to each other. This is a bug due to
-// using a 0 port for discovery. Age is fixing it.
-fn new_with_bootnode_via_enr<E: EthSpec>(
-    context: RuntimeContext<E>,
-    boot_node: &BeaconNode<E>,
-    base_config: ClientConfig,
-) -> BeaconNode<E> {
-    let mut config = base_config;
-    config.network.boot_nodes.push(
-        boot_node
-            .client
-            .enr()
-            .expect("bootnode must have a network"),
-    );
+/// Delays for `epochs`, plus half a slot extra.
+fn epoch_delay(
+    epochs: Epoch,
+    slot_duration: Duration,
+    slots_per_epoch: u64,
+) -> impl Future<Item = (), Error = String> {
+    let duration = slot_duration * (epochs.as_u64() * slots_per_epoch) as u32 + slot_duration / 2;
 
-    BeaconNode::production(context, config)
+    Delay::new(Instant::now() + duration).map_err(|e| format!("Epoch delay failed: {:?}", e))
 }
 
-// Note: this function will block until the validator can connect to the beaco node. It is
-// recommended to ensure that the beacon node is running first.
-fn new_validator_client<E: EthSpec>(
-    env: &mut Environment<E>,
-    context: RuntimeContext<E>,
-    beacon_node: &BeaconNode<E>,
-    base_config: ValidatorConfig,
-    keypair_indices: &[usize],
-) -> LocalValidatorClient<E> {
-    let mut config = base_config;
-
-    let socket_addr = beacon_node
-        .client
-        .http_listen_addr()
-        .expect("Must have http started");
-
-    config.http_server = format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
-
-    env.runtime()
-        .block_on(LocalValidatorClient::production_with_insecure_keypairs(
-            context,
-            config,
-            keypair_indices,
-        ))
-        .expect("should start validator")
+fn verify_all_finalized_at<E: EthSpec>(
+    network: LocalNetwork<E>,
+    epoch: Epoch,
+) -> impl Future<Item = (), Error = String> {
+    network
+        .remote_nodes()
+        .into_future()
+        .and_then(|remote_nodes| {
+            stream::unfold(remote_nodes.into_iter(), |mut iter| {
+                iter.next().map(|remote_node| {
+                    remote_node
+                        .http
+                        .beacon()
+                        .get_head()
+                        .map(|head| head.finalized_slot.epoch(E::slots_per_epoch()))
+                        .map(|epoch| (epoch, iter))
+                        .map_err(|e| format!("Get head via http failed: {:?}", e))
+                })
+            })
+            .collect()
+        })
+        .and_then(move |epochs| {
+            if epochs.iter().any(|node_epoch| *node_epoch != epoch) {
+                Err(format!(
+                    "Nodes are not finalized at epoch {}. Finalized epochs: {:?}",
+                    epoch, epochs
+                ))
+            } else {
+                Ok(())
+            }
+        })
 }

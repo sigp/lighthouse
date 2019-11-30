@@ -5,7 +5,6 @@
 use beacon_node::{beacon_chain::BeaconChainTypes, Client, ProductionBeaconNode};
 use environment::RuntimeContext;
 use futures::Future;
-use remote_beacon_node::RemoteBeaconNode;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempdir::TempDir;
@@ -14,6 +13,7 @@ use validator_client::{KeySource, ProductionValidatorClient};
 
 pub use beacon_node::{ClientConfig, ClientGenesis, ProductionClient};
 pub use environment;
+pub use remote_beacon_node::RemoteBeaconNode;
 pub use validator_client::Config as ValidatorConfig;
 
 /// Provids a beacon node that is running in the current process on a given tokio executor (it

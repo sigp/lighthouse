@@ -170,7 +170,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 let fork_service = ForkServiceBuilder::new()
                     .slot_clock(slot_clock.clone())
                     .beacon_node(beacon_node.clone())
-                    .runtime_context(context.service_context("fork"))
+                    .runtime_context(context.service_context("fork".into()))
                     .build()?;
 
                 let validator_store: ValidatorStore<SystemTimeSlotClock, T> =
@@ -207,7 +207,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     .slot_clock(slot_clock.clone())
                     .validator_store(validator_store.clone())
                     .beacon_node(beacon_node.clone())
-                    .runtime_context(context.service_context("duties"))
+                    .runtime_context(context.service_context("duties".into()))
                     .build()?;
 
                 let block_service = BlockServiceBuilder::new()
@@ -215,7 +215,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     .slot_clock(slot_clock.clone())
                     .validator_store(validator_store.clone())
                     .beacon_node(beacon_node.clone())
-                    .runtime_context(context.service_context("block"))
+                    .runtime_context(context.service_context("block".into()))
                     .build()?;
 
                 let attestation_service = AttestationServiceBuilder::new()
@@ -223,7 +223,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     .slot_clock(slot_clock)
                     .validator_store(validator_store)
                     .beacon_node(beacon_node)
-                    .runtime_context(context.service_context("attestation"))
+                    .runtime_context(context.service_context("attestation".into()))
                     .build()?;
 
                 Ok(Self {

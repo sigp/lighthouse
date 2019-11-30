@@ -149,7 +149,7 @@ where
                 })?;
                 let context = runtime_context
                     .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
-                    .service_context("beacon");
+                    .service_context("beacon".into());
                 let spec = chain_spec
                     .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
 
@@ -270,7 +270,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "libp2p_network requires a runtime_context")?
-            .service_context("network");
+            .service_context("network".into());
 
         let (network, network_send) =
             NetworkService::new(beacon_chain, config, &context.executor, context.log)
@@ -296,7 +296,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "http_server requires a runtime_context")?
-            .service_context("http");
+            .service_context("http".into());
         let network = self
             .libp2p_network
             .clone()
@@ -336,7 +336,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "peer_count_notifier requires a runtime_context")?
-            .service_context("peer_notifier");
+            .service_context("peer_notifier".into());
         let log = context.log.clone();
         let log_2 = context.log.clone();
         let network = self
@@ -379,7 +379,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "slot_notifier requires a runtime_context")?
-            .service_context("slot_notifier");
+            .service_context("slot_notifier".into());
         let log = context.log.clone();
         let log_2 = log.clone();
         let beacon_chain = self
@@ -532,7 +532,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
-            .service_context("ws");
+            .service_context("ws".into());
 
         let (sender, exit_signal, listening_addr): (
             WebSocketSender<TEthSpec>,
@@ -582,7 +582,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "disk_store requires a log".to_string())?
-            .service_context("freezer_db");
+            .service_context("freezer_db".into());
         let spec = self
             .chain_spec
             .clone()
@@ -710,7 +710,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "caching_eth1_backend requires a runtime_context")?
-            .service_context("eth1_rpc");
+            .service_context("eth1_rpc".into());
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
