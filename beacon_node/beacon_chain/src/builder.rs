@@ -213,15 +213,16 @@ where
 
         self.op_pool = Some(
             p.op_pool
+                .clone()
                 .into_operation_pool(&p.canonical_head.beacon_state, &self.spec),
         );
 
-        self.finalized_checkpoint = Some(p.canonical_head);
+        self.finalized_checkpoint = Some(p.finalized_checkpoint.clone());
         self.genesis_block_root = Some(p.genesis_block_root);
-
         self.head_tracker = HeadTracker::from_ssz_container(&p.ssz_head_tracker)
             .map_err(|e| error!(log, "Failed to decode head tracker for database: {:?}", e))
             .ok();
+        self.persisted_beacon_chain = Some(p);
 
         Ok(self)
     }
@@ -271,28 +272,6 @@ where
         });
 
         Ok(self.empty_op_pool())
-    }
-
-    /// Sets the `BeaconChain` fork choice backend.
-    ///
-    /// Requires the store and state to have been specified earlier in the build chain.
-    pub fn fork_choice_backend(mut self, backend: TLmdGhost) -> Result<Self, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "reduced_tree_fork_choice requires a store")?;
-        let genesis_block_root = self
-            .genesis_block_root
-            .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
-
-        self.fork_choice = Some(ForkChoice::new(
-            store,
-            backend,
-            genesis_block_root,
-            self.spec.genesis_slot,
-        ));
-
-        Ok(self)
     }
 
     /// Sets the `BeaconChain` eth1 backend.
@@ -346,9 +325,12 @@ where
         >,
         String,
     > {
-        let mut canonical_head = self
-            .finalized_checkpoint
-            .ok_or_else(|| "Cannot build without a state".to_string())?;
+        let mut canonical_head = if let Some(persisted_beacon_chain) = self.persisted_beacon_chain {
+            persisted_beacon_chain.canonical_head
+        } else {
+            self.finalized_checkpoint
+                .ok_or_else(|| "Cannot build without a state".to_string())?
+        };
 
         canonical_head
             .beacon_state
@@ -428,29 +410,39 @@ where
     /// `ThreadSafeReducedTree` backend.
     ///
     /// Requires the store and state to be initialized.
-    pub fn reduced_tree_fork_choice(self) -> Result<Self, String> {
+    pub fn reduced_tree_fork_choice(mut self) -> Result<Self, String> {
         let store = self
             .store
             .clone()
             .ok_or_else(|| "reduced_tree_fork_choice requires a store")?;
 
-        let backend = if let Some(persisted_beacon_chain) = &self.persisted_beacon_chain {
-            ThreadSafeReducedTree::from_bytes(&persisted_beacon_chain.fork_choice_ssz_bytes, store)
-                .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
+        let fork_choice = if let Some(persisted_beacon_chain) = &self.persisted_beacon_chain {
+            ForkChoice::from_ssz_container(
+                persisted_beacon_chain.fork_choice.clone(),
+                store.clone(),
+            )
+            .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
         } else {
             let finalized_checkpoint = &self
                 .finalized_checkpoint
                 .as_ref()
                 .expect("should have finalized checkpoint");
+            let genesis_block_root = self
+                .genesis_block_root
+                .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
 
-            ThreadSafeReducedTree::new(
+            let backend = ThreadSafeReducedTree::new(
                 store.clone(),
                 &finalized_checkpoint.beacon_block,
                 finalized_checkpoint.beacon_block_root,
-            )
+            );
+
+            ForkChoice::new(store, backend, genesis_block_root, self.spec.genesis_slot)
         };
 
-        self.fork_choice_backend(backend)
+        self.fork_choice = Some(fork_choice);
+
+        Ok(self)
     }
 }
 

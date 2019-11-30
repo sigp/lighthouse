@@ -9,16 +9,29 @@ pub enum Error {
     MismatchingLengths { roots_len: usize, slots_len: usize },
 }
 
-#[derive(Encode, Decode)]
+/// Helper struct that is used to encode/decode the state of the `HeadTracker` as SSZ bytes.
+///
+/// This is used when persisting the state of the `BeaconChain` to disk.
+#[derive(Encode, Decode, Clone)]
 pub struct SszHeadTracker {
     roots: Vec<Hash256>,
     slots: Vec<Slot>,
 }
 
+/// Maintains a list of `BeaconChain` head block roots and slots.
+///
+/// Each time a new block is imported, it should be applied to the `Self::register_block` function.
+/// In order for this struct to be effective, every single block that is imported must be
+/// registered here.
 #[derive(Default, Debug)]
 pub struct HeadTracker(RwLock<HashMap<Hash256, Slot>>);
 
 impl HeadTracker {
+    /// Register a block with `Self`, so it may or may not be included in a `Self::heads` call.
+    ///
+    /// This function assumes that no block is imported without its parent having already been
+    /// imported. It cannot detect an error if this is not the case, it is the responsibility of
+    /// the upstream user.
     pub fn register_block<E: EthSpec>(&self, block_root: Hash256, block: &BeaconBlock<E>) {
         let mut map = self.0.write();
 
@@ -26,6 +39,7 @@ impl HeadTracker {
         map.insert(block_root, block.slot);
     }
 
+    /// Returns the list of heads in the chain.
     pub fn heads(&self) -> Vec<(Hash256, Slot)> {
         self.0
             .read()
@@ -34,6 +48,8 @@ impl HeadTracker {
             .collect()
     }
 
+    /// Returns a `SszHeadTracker`, which contains all necessary information to restore the state
+    /// of `Self` at some later point.
     pub fn to_ssz_container(&self) -> SszHeadTracker {
         let (roots, slots) = self
             .0
@@ -45,6 +61,8 @@ impl HeadTracker {
         SszHeadTracker { roots, slots }
     }
 
+    /// Creates a new `Self` from the given `SszHeadTracker`, restoring `Self` to the same state of
+    /// the `Self` that created the `SszHeadTracker`.
     pub fn from_ssz_container(ssz_container: &SszHeadTracker) -> Result<Self, Error> {
         let roots_len = ssz_container.roots.len();
         let slots_len = ssz_container.slots.len();

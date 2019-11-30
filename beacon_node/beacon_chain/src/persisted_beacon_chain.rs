@@ -1,3 +1,4 @@
+use crate::fork_choice::SszForkChoice;
 use crate::head_tracker::SszHeadTracker;
 use crate::{BeaconChainTypes, CheckPoint};
 use operation_pool::PersistedOperationPool;
@@ -9,13 +10,14 @@ use types::Hash256;
 /// 32-byte key for accessing the `PersistedBeaconChain`.
 pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
 
-#[derive(Encode, Decode)]
+#[derive(Clone, Encode, Decode)]
 pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub canonical_head: CheckPoint<T::EthSpec>,
+    pub finalized_checkpoint: CheckPoint<T::EthSpec>,
     pub op_pool: PersistedOperationPool<T::EthSpec>,
     pub genesis_block_root: Hash256,
     pub ssz_head_tracker: SszHeadTracker,
-    pub fork_choice_ssz_bytes: Vec<u8>,
+    pub fork_choice: SszForkChoice,
 }
 
 impl<T: BeaconChainTypes> SimpleStoreItem for PersistedBeaconChain<T> {

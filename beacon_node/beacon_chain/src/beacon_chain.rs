@@ -140,12 +140,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn persist(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_CHAIN);
 
+        let canonical_head = self.head();
+
+        let finalized_checkpoint = {
+            let beacon_block_root = canonical_head.beacon_state.finalized_checkpoint.root;
+            let beacon_block = self
+                .store
+                .get::<BeaconBlock<_>>(&beacon_block_root)?
+                .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
+            let beacon_state_root = beacon_block.state_root;
+            let beacon_state = self
+                .store
+                .get_state(&beacon_state_root, Some(beacon_block.slot))?
+                .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
+
+            CheckPoint {
+                beacon_block_root,
+                beacon_block,
+                beacon_state_root,
+                beacon_state,
+            }
+        };
+
         let p: PersistedBeaconChain<T> = PersistedBeaconChain {
-            canonical_head: self.canonical_head.read().clone(),
+            canonical_head,
+            finalized_checkpoint,
             op_pool: PersistedOperationPool::from_operation_pool(&self.op_pool),
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
-            fork_choice_ssz_bytes: self.fork_choice.as_bytes(),
+            fork_choice: self.fork_choice.as_ssz_container(),
         };
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
@@ -1607,6 +1630,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         dump.reverse();
 
         Ok(dump)
+    }
+}
+
+impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
+    fn drop(&mut self) {
+        if let Err(e) = self.persist() {
+            error!(
+                self.log,
+                "Failed to persist BeaconChain on drop";
+                "error" => format!("{:?}", e)
+            )
+        } else {
+            info!(
+                self.log,
+                "Saved beacon chain state";
+            )
+        }
     }
 }
 
