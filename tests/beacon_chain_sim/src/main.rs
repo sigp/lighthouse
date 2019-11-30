@@ -1,14 +1,14 @@
-mod simulated_network;
+mod checks;
+mod local_network;
 
-use futures::{future, stream, Future, IntoFuture, Stream};
+use futures::{future, stream, Future, Stream};
+use local_network::LocalNetwork;
 use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, LocalBeaconNode,
     LocalValidatorClient, ProductionClient, ValidatorConfig,
 };
-use simulated_network::LocalNetwork;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::timer::Delay;
-use types::{Epoch, EthSpec, MinimalEthSpec};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use types::MinimalEthSpec;
 
 pub type E = MinimalEthSpec;
 pub type BeaconNode<E> = LocalBeaconNode<ProductionClient<E>>;
@@ -83,53 +83,10 @@ fn async_sim(
             .map(|_| ())
         })
         .and_then(move |_| {
-            epoch_delay(Epoch::new(4), slot_duration, E::slots_per_epoch())
-                .and_then(|()| verify_all_finalized_at(network_3, Epoch::new(2)))
+            let network = network_3;
+
+            checks::verify_first_finalization(network, slot_duration)
         });
 
     env.runtime().block_on(future)
-}
-
-/// Delays for `epochs`, plus half a slot extra.
-fn epoch_delay(
-    epochs: Epoch,
-    slot_duration: Duration,
-    slots_per_epoch: u64,
-) -> impl Future<Item = (), Error = String> {
-    let duration = slot_duration * (epochs.as_u64() * slots_per_epoch) as u32 + slot_duration / 2;
-
-    Delay::new(Instant::now() + duration).map_err(|e| format!("Epoch delay failed: {:?}", e))
-}
-
-fn verify_all_finalized_at<E: EthSpec>(
-    network: LocalNetwork<E>,
-    epoch: Epoch,
-) -> impl Future<Item = (), Error = String> {
-    network
-        .remote_nodes()
-        .into_future()
-        .and_then(|remote_nodes| {
-            stream::unfold(remote_nodes.into_iter(), |mut iter| {
-                iter.next().map(|remote_node| {
-                    remote_node
-                        .http
-                        .beacon()
-                        .get_head()
-                        .map(|head| head.finalized_slot.epoch(E::slots_per_epoch()))
-                        .map(|epoch| (epoch, iter))
-                        .map_err(|e| format!("Get head via http failed: {:?}", e))
-                })
-            })
-            .collect()
-        })
-        .and_then(move |epochs| {
-            if epochs.iter().any(|node_epoch| *node_epoch != epoch) {
-                Err(format!(
-                    "Nodes are not finalized at epoch {}. Finalized epochs: {:?}",
-                    epoch, epochs
-                ))
-            } else {
-                Ok(())
-            }
-        })
 }
