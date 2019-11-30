@@ -13,7 +13,7 @@ use ganache::GanacheInstance;
 use std::time::{Duration, Instant};
 use tokio::{runtime::Runtime, timer::Delay};
 use types::DepositData;
-use types::{EthSpec, Hash256, Keypair, Signature};
+use types::{test_utils::generate_deterministic_keypair, EthSpec, Hash256, Keypair, Signature};
 use web3::contract::{Contract, Options};
 use web3::transports::Http;
 use web3::types::{Address, TransactionRequest, U256};
@@ -154,6 +154,25 @@ impl DepositContract {
         runtime
             .block_on(self.deposit_async(deposit_data))
             .map_err(|e| format!("Deposit failed: {:?}", e))
+    }
+
+    pub fn deposit_deterministic_async<E: EthSpec>(
+        &self,
+        keypair_index: usize,
+        amount: u64,
+    ) -> impl Future<Item = (), Error = String> {
+        let keypair = generate_deterministic_keypair(keypair_index);
+
+        let mut deposit = DepositData {
+            pubkey: keypair.pk.into(),
+            withdrawal_credentials: Hash256::zero(),
+            amount,
+            signature: Signature::empty_signature().into(),
+        };
+
+        deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());
+
+        self.deposit_async(deposit)
     }
 
     /// Performs a non-blocking deposit.

@@ -37,22 +37,35 @@ impl<E: EthSpec> Deref for LocalNetwork<E> {
 
 impl<E: EthSpec> LocalNetwork<E> {
     /// Creates a new network with a single `BeaconNode`.
-    pub fn new(context: RuntimeContext<E>, beacon_config: ClientConfig) -> Result<Self, String> {
-        let beacon_nodes = vec![BeaconNode::production(
-            context.service_context("boot_node".into()),
-            beacon_config,
-        )];
-
-        Ok(Self {
-            inner: Arc::new(Inner {
-                context,
-                beacon_nodes: RwLock::new(beacon_nodes),
-                validator_clients: RwLock::new(vec![]),
-            }),
-        })
+    pub fn new(
+        context: RuntimeContext<E>,
+        beacon_config: ClientConfig,
+    ) -> impl Future<Item = Self, Error = String> {
+        BeaconNode::production(context.service_context("boot_node".into()), beacon_config).map(
+            |beacon_node| Self {
+                inner: Arc::new(Inner {
+                    context,
+                    beacon_nodes: RwLock::new(vec![beacon_node]),
+                    validator_clients: RwLock::new(vec![]),
+                }),
+            },
+        )
     }
 
-    pub fn add_beacon_node(&self, mut beacon_config: ClientConfig) -> Result<(), String> {
+    pub fn beacon_node_count(&self) -> usize {
+        self.beacon_nodes.read().len()
+    }
+
+    pub fn validator_client_count(&self) -> usize {
+        self.validator_clients.read().len()
+    }
+
+    pub fn add_beacon_node(
+        &self,
+        mut beacon_config: ClientConfig,
+    ) -> impl Future<Item = (), Error = String> {
+        let self_1 = self.clone();
+
         self.beacon_nodes
             .read()
             .first()
@@ -64,18 +77,17 @@ impl<E: EthSpec> LocalNetwork<E> {
                         .expect("bootnode must have a network"),
                 );
             })
-            .ok_or_else(|| "No boot node".to_string())?;
+            .expect("should have atleast one node");
 
         let index = self.beacon_nodes.read().len();
 
-        let beacon_node = BeaconNode::production(
+        BeaconNode::production(
             self.context.service_context(format!("node_{}", index)),
             beacon_config,
-        );
-
-        self.beacon_nodes.write().push(beacon_node);
-
-        Ok(())
+        )
+        .map(move |beacon_node| {
+            self_1.beacon_nodes.write().push(beacon_node);
+        })
     }
 
     pub fn add_validator_client(

@@ -29,7 +29,10 @@ impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
     /// Starts a new, production beacon node on the tokio runtime in the given `context`.
     ///
     /// The node created is using the same types as the node we use in production.
-    pub fn production(context: RuntimeContext<E>, mut client_config: ClientConfig) -> Self {
+    pub fn production(
+        context: RuntimeContext<E>,
+        mut client_config: ClientConfig,
+    ) -> impl Future<Item = Self, Error = String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempDir::new("lighthouse_node_test_rig")
             .expect("should create temp directory for client datadir");
@@ -37,12 +40,10 @@ impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
         client_config.data_dir = datadir.path().into();
         client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
 
-        let client = ProductionBeaconNode::new(context, client_config)
-            .wait()
-            .expect("should build production client")
-            .into_inner();
-
-        LocalBeaconNode { client, datadir }
+        ProductionBeaconNode::new(context, client_config).map(move |client| Self {
+            client: client.into_inner(),
+            datadir,
+        })
     }
 }
 
