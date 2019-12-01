@@ -3,7 +3,7 @@ mod cli;
 use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
 use environment::{Environment, RuntimeContext};
-use eth2_testnet::Eth2TestnetDir;
+use eth2_testnet::{Eth2TestnetDir, TempDir};
 use futures::{future, stream::unfold, Future, IntoFuture, Stream};
 use rayon::prelude::*;
 use slog::{crit, error, info, Logger};
@@ -174,7 +174,9 @@ fn run_new_validator_subcommand<T: EthSpec>(
             "eth1_node_http_endpoint" => eth1_endpoint
         );
 
-        let deposit_contract = if let Some(testnet_dir_str) = matches.value_of("testnet-dir") {
+        let eth2_testnet_dir: Eth2TestnetDir<T> = if let Some(testnet_dir_str) =
+            matches.value_of("testnet-dir")
+        {
             let testnet_dir = testnet_dir_str
                 .parse::<PathBuf>()
                 .map_err(|e| format!("Unable to parse testnet-dir: {}", e))?;
@@ -192,22 +194,30 @@ fn run_new_validator_subcommand<T: EthSpec>(
                 "testnet_dir" => format!("{:?}", &testnet_dir)
             );
 
-            let eth2_testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir::load(testnet_dir.clone())
-                .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?;
-
-            // Convert from `types::Address` to `web3::types::Address`.
-            Address::from_slice(
-                eth2_testnet_dir
-                    .deposit_contract_address()?
-                    .as_fixed_bytes(),
-            )
+            Eth2TestnetDir::load(testnet_dir.clone())
+                .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?
         } else {
-            matches
-                .value_of("deposit-contract")
-                .ok_or_else(|| "No --deposit-contract or --testnet-dir".to_string())?
-                .parse::<Address>()
-                .map_err(|e| format!("Unable to parse deposit-contract: {}", e))?
+            let temp_dir = TempDir::new("lighthouse-account-manager")
+                .map_err(|e| format!("Unable to create temporary directory: {}", e))?;
+
+            info!(log, "Using default deposit contract address");
+
+            let testnet_dir = PathBuf::from(temp_dir.path());
+
+            Eth2TestnetDir::load(testnet_dir.clone()).map_err(|e| {
+                format!(
+                    "Failed to load default testnet dir at {:?}: {}",
+                    testnet_dir, e
+                )
+            })?
         };
+
+        // Convert from `types::Address` to `web3::types::Address`.
+        let deposit_contract = Address::from_slice(
+            eth2_testnet_dir
+                .deposit_contract_address()?
+                .as_fixed_bytes(),
+        );
 
         if let Err(()) = env.runtime().block_on(deposit_validators(
             context.clone(),

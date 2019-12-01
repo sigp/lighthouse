@@ -14,6 +14,8 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use types::{Address, BeaconState, EthSpec, YamlConfig};
 
+pub use tempdir::TempDir;
+
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
