@@ -1361,6 +1361,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (proposer_slashings, attester_slashings) =
             self.op_pool.get_slashings(&state, &self.spec);
 
+        let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
+        let deposits = eth1_chain
+            .deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?
+            .into();
+
         let mut block = BeaconBlock {
             slot: state.slot,
             parent_root,
@@ -1369,14 +1374,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             signature: Signature::empty_signature(),
             body: BeaconBlockBody {
                 randao_reveal,
-                eth1_data: eth1_chain.eth1_data_for_block_production(&state, &self.spec)?,
+                eth1_data,
                 graffiti,
                 proposer_slashings: proposer_slashings.into(),
                 attester_slashings: attester_slashings.into(),
                 attestations: self.op_pool.get_attestations(&state, &self.spec).into(),
-                deposits: eth1_chain
-                    .deposits_for_block_inclusion(&state, &self.spec)?
-                    .into(),
+                deposits,
                 voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec).into(),
             },
         };

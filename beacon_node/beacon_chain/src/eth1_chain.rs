@@ -5,6 +5,7 @@ use futures::Future;
 use integer_sqrt::IntegerSquareRoot;
 use rand::prelude::*;
 use slog::{crit, debug, error, trace, Logger};
+use state_processing::per_block_processing::get_new_eth1_data;
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::iter::FromIterator;
@@ -89,16 +90,21 @@ where
     /// Returns a list of `Deposits` that may be included in a block.
     ///
     /// Including all of the returned `Deposits` in a block should _not_ cause it to become
-    /// invalid.
+    /// invalid (i.e., this function should respect the maximum).
+    ///
+    /// The `eth1_data_vote` is the `Eth1Data` that the block producer would include in their
+    /// block. This vote may change the `state.eth1_data` value, which would change the deposit
+    /// count and therefore change the output of this function.
     pub fn deposits_for_block_inclusion(
         &self,
         state: &BeaconState<E>,
+        eth1_data_vote: &Eth1Data,
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
         if self.use_dummy_backend {
-            DummyEth1ChainBackend::default().queued_deposits(state, spec)
+            DummyEth1ChainBackend::default().queued_deposits(state, eth1_data_vote, spec)
         } else {
-            self.backend.queued_deposits(state, spec)
+            self.backend.queued_deposits(state, eth1_data_vote, spec)
         }
     }
 }
@@ -119,6 +125,7 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     fn queued_deposits(
         &self,
         beacon_state: &BeaconState<T>,
+        eth1_data_vote: &Eth1Data,
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error>;
 }
@@ -146,7 +153,12 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
         })
     }
 
-    fn queued_deposits(&self, _: &BeaconState<T>, _: &ChainSpec) -> Result<Vec<Deposit>, Error> {
+    fn queued_deposits(
+        &self,
+        _: &BeaconState<T>,
+        _: &Eth1Data,
+        _: &ChainSpec,
+    ) -> Result<Vec<Deposit>, Error> {
         Ok(vec![])
     }
 }
@@ -291,10 +303,15 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
     fn queued_deposits(
         &self,
         state: &BeaconState<T>,
+        eth1_data_vote: &Eth1Data,
         _spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
-        let deposit_count = state.eth1_data.deposit_count;
         let deposit_index = state.eth1_deposit_index;
+        let deposit_count = if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data_vote) {
+            new_eth1_data.deposit_count
+        } else {
+            state.eth1_data.deposit_count
+        };
 
         if deposit_index > deposit_count {
             Err(Error::DepositIndexTooHigh)
@@ -346,7 +363,7 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
 ) -> Result<Hash256, Error> {
     let period = T::SlotsPerEth1VotingPeriod::to_u64();
 
-    if (state.eth1_data_votes.len() as u64) < period / 2 {
+    if !eth1_data_change_is_possible(state) {
         // If there are less than 50% of the votes in the current state, it's impossible that the
         // `eth1_data.block_hash` has changed from the value at `state.eth1_data.block_hash`.
         Ok(state.eth1_data.block_hash)
@@ -365,6 +382,12 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
             .map(|state| state.eth1_data.block_hash)
             .ok_or_else(|| Error::PreviousStateNotInDB(*prev_state_root))
     }
+}
+
+/// Returns true if there are enough eth1 votes in the given `state` to have updated
+/// `state.eth1_data`.
+fn eth1_data_change_is_possible<E: EthSpec>(state: &BeaconState<E>) -> bool {
+    state.eth1_data_votes.len() as u64 >= E::SlotsPerEth1VotingPeriod::to_u64() / 2
 }
 
 /// Calculates and returns `(new_eth1_data, all_eth1_data)` for the given `state`, based upon the
@@ -584,7 +607,7 @@ mod test {
 
             assert!(
                 eth1_chain
-                    .deposits_for_block_inclusion(&state, spec)
+                    .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
                     .is_ok(),
                 "should succeed if cache is empty but no deposits are required"
             );
@@ -593,7 +616,7 @@ mod test {
 
             assert!(
                 eth1_chain
-                    .deposits_for_block_inclusion(&state, spec)
+                    .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
                     .is_err(),
                 "should fail to get deposits if required, but cache is empty"
             );
@@ -637,7 +660,7 @@ mod test {
 
             assert!(
                 eth1_chain
-                    .deposits_for_block_inclusion(&state, spec)
+                    .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
                     .is_ok(),
                 "should succeed if no deposits are required"
             );
@@ -649,7 +672,7 @@ mod test {
                     state.eth1_data.deposit_count = i as u64;
 
                     let deposits_for_inclusion = eth1_chain
-                        .deposits_for_block_inclusion(&state, spec)
+                        .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
                         .expect(&format!("should find deposit for {}", i));
 
                     let expected_len =
