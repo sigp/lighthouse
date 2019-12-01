@@ -77,7 +77,7 @@ impl<TSubstream> Discovery<TSubstream> {
             None => String::from(""),
         };
 
-        info!(log, "ENR Initialised"; "ENR" => local_enr.to_base64(), "Seq" => local_enr.seq());
+        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq());
         debug!(log, "Discv5 Node ID Initialised"; "node_id" => format!("{}",local_enr.node_id()));
 
         // the last parameter enables IP limiting. 2 Nodes on the same /24 subnet per bucket and 10
@@ -110,8 +110,8 @@ impl<TSubstream> Discovery<TSubstream> {
         })
     }
 
-    /// Allows the application layer to update the `ip` and `port` of the local ENR. The second
-    /// parameter defines whether the port is a TPC port. If false, this is interpreted as a UDP
+    /// Allows the application layer to update the `IP` and `port` of the local ENR. The second
+    /// parameter defines whether the port is a TCP port. If false, this is interpreted as a UDP
     /// port.
     pub fn update_local_enr(&mut self, socket: std::net::SocketAddr, is_tcp: bool) {
         // discv5 checks to see if an update is necessary before performing it, so we do not
@@ -251,7 +251,7 @@ where
                 }
                 Ok(Async::NotReady) => break,
                 Err(e) => {
-                    warn!(self.log, "Discovery peer search failed"; "Error" => format!("{:?}", e));
+                    warn!(self.log, "Discovery peer search failed"; "error" => format!("{:?}", e));
                 }
             }
         }
@@ -266,7 +266,7 @@ where
                             // query.
                         }
                         Discv5Event::SocketUpdated(socket) => {
-                            info!(self.log, "Address updated"; "IP" => format!("{}",socket.ip()));
+                            info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "port" => format!("{}", socket.port()));
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             let mut address = Multiaddr::from(socket.ip());
                             address.push(Protocol::Tcp(self.tcp_port));

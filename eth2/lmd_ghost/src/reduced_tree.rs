@@ -6,6 +6,8 @@
 use super::{LmdGhost, Result as SuperResult};
 use itertools::Itertools;
 use parking_lot::RwLock;
+use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
@@ -26,11 +28,19 @@ pub enum Error {
     NoCommonAncestor((Hash256, Hash256)),
     StoreError(StoreError),
     ValidatorWeightUnknown(usize),
+    SszDecodingError(ssz::DecodeError),
+    InvalidReducedTreeSsz(String),
 }
 
 impl From<StoreError> for Error {
     fn from(e: StoreError) -> Error {
         Error::StoreError(e)
+    }
+}
+
+impl From<ssz::DecodeError> for Error {
+    fn from(e: ssz::DecodeError) -> Error {
+        Error::SszDecodingError(e)
     }
 }
 
@@ -106,11 +116,73 @@ where
         self.core.read().latest_message(validator_index)
     }
 
-    fn verify_integrity(&self) -> std::result::Result<(), String> {
+    fn verify_integrity(&self) -> SuperResult<()> {
         self.core.read().verify_integrity()
+    }
+
+    /// Consume the `ReducedTree` object and return its ssz encoded bytes representation.
+    fn as_bytes(self) -> Vec<u8> {
+        self.core.into_inner().as_bytes()
+    }
+
+    /// Create a new `ThreadSafeReducedTree` instance from a `store` and the
+    /// encoded ssz bytes representation.
+    ///
+    /// Returns an error if ssz bytes are not a valid `ReducedTreeSsz` object.
+    fn from_bytes(bytes: &[u8], store: Arc<T>) -> SuperResult<Self> {
+        Ok(ThreadSafeReducedTree {
+            core: RwLock::new(
+                ReducedTree::from_bytes(bytes, store)
+                    .map_err(|e| format!("Cannot decode ssz bytes {:?}", e))?,
+            ),
+        })
     }
 }
 
+/// Intermediate representation of a `ReducedTree` `LmdGhost` fork choice.
+#[derive(Debug, PartialEq, Encode, Decode)]
+struct ReducedTreeSsz {
+    pub node_hashes: Vec<Hash256>,
+    pub nodes: Vec<Node>,
+    pub latest_votes: Vec<Option<Vote>>,
+    pub root_hash: Hash256,
+    pub root_slot: Slot,
+}
+
+impl ReducedTreeSsz {
+    pub fn from_reduced_tree<T, E>(tree: &ReducedTree<T, E>) -> Self {
+        let (node_hashes, nodes): (Vec<_>, Vec<_>) = tree.nodes.clone().into_iter().unzip();
+        ReducedTreeSsz {
+            node_hashes,
+            nodes,
+            latest_votes: tree.latest_votes.0.clone(),
+            root_hash: tree.root.0,
+            root_slot: tree.root.1,
+        }
+    }
+
+    pub fn to_reduced_tree<T, E>(self, store: Arc<T>) -> Result<ReducedTree<T, E>> {
+        if self.node_hashes.len() != self.nodes.len() {
+            Error::InvalidReducedTreeSsz("node_hashes and nodes should have equal length".into());
+        }
+        let nodes: HashMap<_, _> = self
+            .node_hashes
+            .into_iter()
+            .zip(self.nodes.into_iter())
+            .collect();
+        let latest_votes = ElasticList(self.latest_votes);
+        let root = (self.root_hash, self.root_slot);
+        Ok(ReducedTree {
+            store,
+            nodes,
+            latest_votes,
+            root,
+            _phantom: PhantomData,
+        })
+    }
+}
+
+#[derive(Clone)]
 struct ReducedTree<T, E> {
     store: Arc<T>,
     /// Stores all nodes of the tree, keyed by the block hash contained in the node.
@@ -763,9 +835,19 @@ where
     fn root_slot(&self) -> Slot {
         self.root.1
     }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        let reduced_tree_ssz: ReducedTreeSsz = ReducedTreeSsz::from_reduced_tree(&self);
+        reduced_tree_ssz.as_ssz_bytes()
+    }
+
+    fn from_bytes(bytes: &[u8], store: Arc<T>) -> Result<Self> {
+        let reduced_tree_ssz = ReducedTreeSsz::from_ssz_bytes(bytes)?;
+        Ok(reduced_tree_ssz.to_reduced_tree(store)?)
+    }
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq, Encode, Decode)]
 pub struct Node {
     /// Hash of the parent node in the reduced tree (not necessarily parent block).
     pub parent_hash: Option<Hash256>,
@@ -775,7 +857,7 @@ pub struct Node {
     pub voters: Vec<usize>,
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq, Encode, Decode)]
 pub struct ChildLink {
     /// Hash of the child block (may not be a direct descendant).
     pub hash: Hash256,
@@ -826,7 +908,7 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Encode, Decode)]
 pub struct Vote {
     hash: Hash256,
     slot: Slot,
@@ -867,5 +949,29 @@ where
 impl From<Error> for String {
     fn from(e: Error) -> String {
         format!("{:?}", e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use store::MemoryStore;
+    use types::eth_spec::MinimalEthSpec;
+
+    #[test]
+    fn test_reduced_tree_ssz() {
+        let store = Arc::new(MemoryStore::open());
+        let tree = ReducedTree::<MemoryStore, MinimalEthSpec>::new(
+            store.clone(),
+            &BeaconBlock::empty(&MinimalEthSpec::default_spec()),
+            Hash256::zero(),
+        );
+        let ssz_tree = ReducedTreeSsz::from_reduced_tree(&tree);
+        let bytes = tree.as_bytes();
+        let recovered_tree =
+            ReducedTree::<MemoryStore, MinimalEthSpec>::from_bytes(&bytes, store.clone()).unwrap();
+
+        let recovered_ssz = ReducedTreeSsz::from_reduced_tree(&recovered_tree);
+        assert_eq!(ssz_tree, recovered_ssz);
     }
 }

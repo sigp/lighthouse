@@ -8,7 +8,7 @@ pub use reduced_tree::ThreadSafeReducedTree;
 
 pub type Result<T> = std::result::Result<T, String>;
 
-pub trait LmdGhost<S: Store, E: EthSpec>: Send + Sync {
+pub trait LmdGhost<S: Store, E: EthSpec>: Send + Sync + Sized {
     /// Create a new instance, with the given `store` and `finalized_root`.
     fn new(store: Arc<S>, finalized_block: &BeaconBlock<E>, finalized_root: Hash256) -> Self;
 
@@ -52,4 +52,10 @@ pub trait LmdGhost<S: Store, E: EthSpec>: Send + Sync {
     /// Returns `Ok(())` if the underlying fork choice has maintained its integrity,
     /// `Err(description)` otherwise.
     fn verify_integrity(&self) -> Result<()>;
+
+    /// Encode the `LmdGhost` instance to bytes.
+    fn as_bytes(self) -> Vec<u8>;
+
+    /// Create a new `LmdGhost` instance given a `store` and encoded bytes.
+    fn from_bytes(bytes: &[u8], store: Arc<S>) -> Result<Self>;
 }

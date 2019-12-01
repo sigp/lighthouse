@@ -290,11 +290,11 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
         let slot = (state.slot / period) * period;
         let prev_state_root = state
             .get_state_root(slot)
-            .map_err(|e| Error::UnableToGetPreviousStateRoot(e))?;
+            .map_err(Error::UnableToGetPreviousStateRoot)?;
 
         store
             .get_state::<T>(&prev_state_root, Some(slot))
-            .map_err(|e| Error::StoreError(e))?
+            .map_err(Error::StoreError)?
             .map(|state| state.eth1_data.block_hash)
             .ok_or_else(|| Error::PreviousStateNotInDB)
     }
