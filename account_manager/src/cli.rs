@@ -17,12 +17,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .value_name("GWEI")
                                 .takes_value(true)
                                 .default_value("32000000000")
-                                .help("The deposit amount in Gwei (not wei). Default is 32 eth."),
+                                .help("The deposit amount in Gwei (not Wei). Default is 32 ETH."),
                         )
                         .arg(
                             Arg::with_name("send-deposits")
                                 .long("send-deposits")
-                                .help("If present, submit validator deposits to an eth1 endpoint")
+                                .help("If present, submit validator deposits to an eth1 endpoint /
+                                       defined by the --eth1-endpoint. Requires either the /
+                                       --deposit-contract or --testnet-dir flag.")
                         )
                         .arg(
                             Arg::with_name("eth1-endpoint")
@@ -31,16 +33,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .value_name("HTTP_SERVER")
                                 .takes_value(true)
                                 .default_value("http://localhost:8545")
-                                .help("The URL to the eth1 JSON-RPC http API."),
-                        )
-                        .arg(
-                            Arg::with_name("deposit-contract")
-                                .short("c")
-                                .long("deposit-contract")
-                                .value_name("ADDRESS")
-                                .takes_value(true)
-                                .conflicts_with("testnet-dir")
-                                .help("The deposit contract for submitting deposits."),
+                                .help("The URL to the Eth1 JSON-RPC HTTP API (e.g., Geth/Parity-Ethereum)."),
                         )
                         .arg(
                             Arg::with_name("account-index")
@@ -64,7 +57,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .long("testnet-dir")
                                 .value_name("DIRECTORY")
                                 .takes_value(true)
-                                .help("The directory from which to read the deposit contract address."),
+                                .help("The directory from which to read the deposit contract /
+                                       address. Defaults to the current Lighthouse testnet."),
                         )
                         .subcommand(
                             SubCommand::with_name("insecure")
