@@ -183,7 +183,7 @@ impl Eth1GenesisService {
                         {
                             Ok(Loop::Break((spec, genesis_state)))
                         } else {
-                            trace!(
+                            debug!(
                                 service_4.core.log,
                                 "No eth1 genesis block found";
                                 "latest_block_timestamp" => service_4.core.latest_block_timestamp(),

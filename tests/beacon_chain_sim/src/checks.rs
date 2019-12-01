@@ -20,8 +20,7 @@ pub fn verify_first_finalization<E: EthSpec>(
     network: LocalNetwork<E>,
     slot_duration: Duration,
 ) -> impl Future<Item = (), Error = String> {
-    // TODO: set 5 back to 4.
-    epoch_delay(Epoch::new(5), slot_duration, E::slots_per_epoch())
+    epoch_delay(Epoch::new(4), slot_duration, E::slots_per_epoch())
         .and_then(|()| verify_all_finalized_at(network, Epoch::new(2)))
 }
 
