@@ -26,6 +26,16 @@ fn build_env() -> Environment<E> {
         .expect("environment should build")
 }
 
+fn build_node<E: EthSpec>(env: &mut Environment<E>) -> LocalBeaconNode<E> {
+    let context = env.core_context();
+    env.runtime()
+        .block_on(LocalBeaconNode::production(
+            context,
+            testing_client_config(),
+        ))
+        .expect("should block until node created")
+}
+
 /// Returns the randao reveal for the given slot (assuming the given `beacon_chain` uses
 /// deterministic keypairs).
 fn get_randao_reveal<T: BeaconChainTypes>(
@@ -64,7 +74,7 @@ fn validator_produce_attestation() {
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -160,7 +170,7 @@ fn validator_duties_bulk() {
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -197,7 +207,7 @@ fn validator_duties() {
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -321,7 +331,7 @@ fn validator_block_post() {
         genesis_time: 13_371_337,
     };
 
-    let node = LocalBeaconNode::production(env.core_context(), config);
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -387,7 +397,7 @@ fn validator_block_get() {
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -425,7 +435,7 @@ fn validator_block_get() {
 fn beacon_state() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let (state_by_slot, root) = env
@@ -469,7 +479,7 @@ fn beacon_state() {
 fn beacon_block() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let (block_by_slot, root) = env
@@ -513,7 +523,7 @@ fn beacon_block() {
 fn genesis_time() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let genesis_time = env
@@ -537,7 +547,7 @@ fn genesis_time() {
 fn fork() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let fork = env
@@ -561,7 +571,7 @@ fn fork() {
 fn eth2_config() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let eth2_config = env
@@ -585,7 +595,7 @@ fn eth2_config() {
 fn get_version() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let version = env

@@ -1,8 +1,7 @@
-use crate::{BeaconNode, ValidatorClient};
 use futures::{Future, IntoFuture};
 use node_test_rig::{
-    environment::RuntimeContext, ClientConfig, LocalValidatorClient, RemoteBeaconNode,
-    ValidatorConfig,
+    environment::RuntimeContext, ClientConfig, LocalBeaconNode, LocalValidatorClient,
+    RemoteBeaconNode, ValidatorConfig,
 };
 use parking_lot::RwLock;
 use std::ops::Deref;
@@ -11,8 +10,8 @@ use types::EthSpec;
 
 pub struct Inner<E: EthSpec> {
     context: RuntimeContext<E>,
-    beacon_nodes: RwLock<Vec<BeaconNode<E>>>,
-    validator_clients: RwLock<Vec<ValidatorClient<E>>>,
+    beacon_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
+    validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
 }
 
 pub struct LocalNetwork<E: EthSpec> {
@@ -41,7 +40,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         context: RuntimeContext<E>,
         beacon_config: ClientConfig,
     ) -> impl Future<Item = Self, Error = String> {
-        BeaconNode::production(context.service_context("boot_node".into()), beacon_config).map(
+        LocalBeaconNode::production(context.service_context("boot_node".into()), beacon_config).map(
             |beacon_node| Self {
                 inner: Arc::new(Inner {
                     context,
@@ -81,7 +80,7 @@ impl<E: EthSpec> LocalNetwork<E> {
 
         let index = self.beacon_nodes.read().len();
 
-        BeaconNode::production(
+        LocalBeaconNode::production(
             self.context.service_context(format!("node_{}", index)),
             beacon_config,
         )

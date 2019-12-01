@@ -2,7 +2,7 @@
 //!
 //! Intended to be used for testing and simulation purposes. Not for production.
 
-use beacon_node::{beacon_chain::BeaconChainTypes, Client, ProductionBeaconNode};
+use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
 use futures::Future;
 use std::path::PathBuf;
@@ -20,12 +20,12 @@ pub use validator_client::Config as ValidatorConfig;
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
-pub struct LocalBeaconNode<T> {
-    pub client: T,
+pub struct LocalBeaconNode<E: EthSpec> {
+    pub client: ProductionClient<E>,
     pub datadir: TempDir,
 }
 
-impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
+impl<E: EthSpec> LocalBeaconNode<E> {
     /// Starts a new, production beacon node on the tokio runtime in the given `context`.
     ///
     /// The node created is using the same types as the node we use in production.
@@ -47,10 +47,10 @@ impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
     }
 }
 
-impl<T: BeaconChainTypes> LocalBeaconNode<Client<T>> {
+impl<E: EthSpec> LocalBeaconNode<E> {
     /// Returns a `RemoteBeaconNode` that can connect to `self`. Useful for testing the node as if
     /// it were external this process.
-    pub fn remote_node(&self) -> Result<RemoteBeaconNode<T::EthSpec>, String> {
+    pub fn remote_node(&self) -> Result<RemoteBeaconNode<E>, String> {
         let socket_addr = self
             .client
             .http_listen_addr()
