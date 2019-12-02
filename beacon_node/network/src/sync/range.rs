@@ -12,41 +12,43 @@
 //TODO: Make this dynamic based on peer's bandwidth
 const BLOCKS_PER_REQUEST: u64 = 50;
 
-#[derive(PartialEq)]
-/// The current state of a block or batches lookup.
-enum BlockRequestsState {
-    /// The object is queued to be downloaded from a peer but has not yet been requested.
-    Queued,
-
-    /// The batch or parent has been requested with the `RequestId` and we are awaiting a response.
-    Pending(RequestId),
-
-    /// The downloaded blocks are ready to be processed by the beacon chain. For a batch process
-    /// this means we have found a common chain.
-    ReadyToProcess,
-
-    /// The batch is complete, simply drop without downvoting the peer.
-    Complete,
-
-    /// A failure has occurred and we will drop and downvote the peer that caused the request.
-    Failed,
-}
-
-enum BatchState {
-    Completed,
-    Pending(RequestId),
-    Failed,
-}
 
 struct Batch<T: EthSpec> {
-    id: u64,
+    id: usize,
     start_slot: Slot,
     end_slot: Slot,
+    head_root: Hash256,
     current_peer: PeerId, 
     retries: u8,
-    state: BatchState,
     downloaded_blocks: Vec<BeaconBlock<T>,
 }
+
+impl<T: EthSpec> Batch<T> {
+
+    fn new(id: usize, start_slot: Slot, end_slot: Slot, head_root: Hash256, current_peer: PeerId) -> Self {
+        Batch {
+            id,
+            start_slot,
+            end_slot,
+            head_root,
+            current_peer,
+            retries: 0,
+            downloaded_blocks: Vec::new(),
+        }
+    }
+
+    fn to_blocks_by_range_request(&self) => BlocksByRangeRequest {
+        BlocksByRangeRequest {
+            head_block_root: self.head_root,
+            start_slot: self.start_slot,
+            count: BLOCKS_PER_REQUEST,
+            step: 1
+        }
+    }
+
+}
+
+
 
 enum SyncingChainState {
     Stopped,
@@ -55,23 +57,48 @@ enum SyncingChainState {
 
 
 struct SyncingChain<T: EthSpec> {
+
+    start_slot: Slot,
+
     target_head_slot: Slot,
 
     target_head_root: Hash256,
 
     downloaded_batches: Vec<Batch>,
 
+    pending_batches: FnHashMap<RequestId, Batch>,
+
+    completed_batches: Vec<Batch>,
+
     blocks_processed: usize,
 
-    peer_pool: Vec<PeerId>,
+    peer_pool: HashSet<PeerId>,
 
-    /// The current `start_slot` of the batched block request.
-    current_batch_id: u64,
+    current_batch_id: usize,
+
+    last_processed_batch_id: usize,
 
     state: SyncingChainState
 }
 
 impl SyncingChain<T: EthSpec> {
+
+    pub fn new(start_slot: Slot, target_head_slot: Slot, target_head_root: Hash256, peer: PeerId) -> Self {
+
+        SyncingChain {
+            start_slot,
+            target_head_slot,
+            target_head_root,
+            downloaded_batches: Vec::new(),
+            blocks_processed: 0,
+            peer_pool: vec![peer],
+            current_batch_id: 0,
+            processed_batches: 0
+            failed_batches: Vec<usize>,
+            completed_batches:
+            state: SyncingChainState::Stopped
+        }
+    }
 
 
     pub fn stop_syncing(&mut self) {
@@ -79,17 +106,89 @@ impl SyncingChain<T: EthSpec> {
     }
 
     // either a new chain, or an old one with a peer list
-    pub fn start_syncing(&mut self) {
+    pub fn start_syncing(&mut self, &mut network: NetworkContext, local_head_slot: Option<Slot>, log: &slog::Logger) {
 
-        // update the start slot from current chain
-        // given the peer pool start batch requests
+        // a local head is provided for finalized chains, as other chains may have made
+        // progress whilst this chain was Stopped. If so, update the `processed_batch_id` to
+        // accommodate potentially downloaded batches from other chains. Also prune any old batches
+        // awaiting processing
+        if let Some(local_head) = local_head {
+            
+            // only important if the local head is more than a batch worth of blocks ahead of
+            // what this chain believes is downloaded
+            if let Some(batches_ahead) = local_head_slot.sub(self.start_slot + self.processed_batches*BLOCKS_PER_REQUEST).into().checked_rem(BLOCKS_PER_REQUEST) {
+                // there are `batches_ahead` whole batches that have been downloaded by another
+                // chain. Set the current processed_batch_id to this value.
+                debug!(log, "Updating chains processed batches"; "old_completed_slot" => self.start_slot + self.processed_batches*BLOCKS_PER_REQUEST; "new_completed_slot" => self.start_slot + (self.processed_batches+ batches_ahead)*BLOCKS_PER_REQUEST);
+                self.processed_batches += batches_ahead;
 
+                if self.processed_batches*BLOCKS_PER_REQUEST > self.target_head_slot {
+                    crit!(log, "Current head slot is above the target head - Coding error"); 
+                    return;
+                }
 
+                // update the `current_batch_id`
+                if self.current_batch_id < self.processed_batch {
+                    self.current_batch_id = processed_batches;
+                }
 
+            }
+        }
+
+        // now begin requesting blocks from the peer pool. Ignore any peers with currently
+        // pending requests
+        let pending_peers = self.pending_batches.values().map(|batch| batch.current_peer).collect::<Vec<_>>();
+        for peer_id in self.peer_pool.iter().filter(!peer| !pending_peers.contains(peer)) {
+            // send a blocks by range request to the peer
+            self.send_range_request(network, peer_id);
+        };
     }
 
     // a peer has been added, start batch requests for this peer
-    pub fn peer_added(peer_id: PeerId) { }
+    // this should only be called for a syncing chain
+    pub fn peer_added(&mut self, &mut network: NetworkContext, peer_id: PeerId) {
+        // function should only be called on syncing chains
+        if let SyncingChainState::Stopped =  self.state  {
+            crit!(self.log, "Peer added to a non-syncing chain"; "peer_id" => format!("{:?}", peer_id));
+            return;
+        }
+
+        // find the next batch and request it from the peer
+        self.send_range_request(network, peer_id);
+    }
+
+    fn send_range_request(&mut self, network: &mut SyncNetworkContext,  peer_id: PeerId) {
+        // find the next pending batch and request it from the peer
+        let batch = self.get_next_batch(peer_id);
+
+        // request the next batch
+        let request = batch.to_blocks_by_range_request(); 
+        let request_id = match network.blocks_by_range_request(peer_id, request) {
+            Ok(id) => id,
+            Err(_) => {
+                // the network channel failed. This is a critical unrecoverable error. We
+                // simply ignore this peer for now.
+                crit!(self.log, "Cannot communicate to the network server"; "error"=> "The network channel failed. Syncing cannot be completed");
+                return;
+            }
+        };
+
+        // add the batch to pending list
+        self.pending_batches.insert(request_id, batch);
+    }
+
+    fn get_next_batch(&mut self, peer_id: PeerId) -> Batch {
+        let batch_start_slot = self.start_slot + self.current_batch_id*BLOCKS_PER_REQUEST;
+        let batch_end_slot = batch_start_slot + BLOCKS_PER_REQUEST - 1;
+
+        let batch_id = self.current_batch_id;
+        self.current_batch_id +=1;
+
+        let  batch = Batch::new(batch_id, batch_start_slot, batch_end_slot, peer_id);
+    }
+
+
+
 }
 
 
@@ -124,15 +223,25 @@ enum SyncState {
 
 struct RangeSync<T: EthSpec> {
     chain: Weak<BeaconChain>,
+    network: SyncNetworkContext,
     state: SyncState,
     finalized_chains: Vec<SyncingChain>,
     head_chains: Vec<SyncingChain>,
+    /// The request ID for BlocksByRange sync requests. These ID's cannot overlap with other
+    /// requests from the sync manager as requests are segregated by RPC type and the manager
+    /// does not call `BlocksByRange`. Regardless, we start at 2^20. 
+    request_id: usize,
+    // In principle we could store this in the manager and reference it, but we store it here also
+    // for the time being
+    known_peers: HashSet<PeerId>,
+    log: slog::Logger,
 }
 
+        pub fn add_peer(peer_id: PeerId, remote: PeerSyncInfo) {
 
+        // add the peer to our list of known peers
+        self.known_peers.insert(peer_id);
 
-
-        pub fn add_peer(peer: PeerId, remote: PeerSyncInfo) {
         // evaluate which chain to sync from
 
         // determine if we need to run a sync to the nearest finalized state or simply sync to
@@ -147,86 +256,87 @@ struct RangeSync<T: EthSpec> {
             }
         };
 
+        // convenience variables
+        let remote_finalized_slot = remote.finalized_epoch.start_slot(T::slots_per_epoch());
+        let local_finalized_slot = local_info.finalized_epoch.start_slot(T::slots_per_epoch());
+        
+        // firstly, remove any out of date chains
+        self.finalized_chains.retain(|chain| chain.target_head_slot > local_finalized_slot);
+        self.head_chains.retain(|chain| chain.target_head_slot > local_info.head_slot);
+
         if remote.finalized_epoch > local_info.finalized_epoch {
+            trace!(self.log, "Peer added - Beginning a finalization sync"; "peer_id" => format!("{:?}", peer_id));
             // finalized chain search
-            
-            // firstly, remove any out of date chains
-            self.finalized_chains.retain(|chain| chain.target_head_slot > Slot::from(local_info.finalized_epoch));
 
-            // if a finalized chain already exists that matches, add our peer to the chain's peer
+            // if a finalized chain already exists that matches, add this peer to the chain's peer
             // pool.
-            if let Some(index) = self.finalized_chains.iter().position(|chain| chain.target_root == remote.finalized_root && chain.target_slot == Slot::from(remote.finalized_epoch)) {
+            if let Some(index) = self.finalized_chains.iter().position(|chain| chain.target_root == remote.finalized_root && chain.target_slot == remote_finalized_slot) {
 
+                trace!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id));
                 // add the peer to the chain's peer pool
-                self.finalized_chains[index].peer_pool.push(peer_id);
+                self.finalized_chains[index].peer_pool.insert(peer_id);
 
                 // check if the new peer's addition will favour a new syncing chain. 
                 if index != 0 && self.finalized_chains[index].peer_pool.len() > self.finalized_chains[0].peer_pool.len() {
                     // switch to the new syncing chain and stop the old
+                    trace!(self.log, "Switching finalized chains to sync"; "peer_id" => format!("{:?}", peer_id));
 
-                    self.finalized_chains[0].stop_syncing();
+                   self.finalized_chains[0].stop_syncing();
                    let new_best = self.finalized_chains.swap_remove(index);
                    self.finalized_chains.insert(0, new_best);
-                   // start syncing the new chain
-                   self.finalized_chains[0].start_syncing();
+                   // start syncing the better chain
+                   self.finalized_chains[0].start_syncing(local_finalized_slot);
                 } else {
                     // no new chain to sync, peer has been added to current syncing chain.
                     // Inform it to request batches from the peer
+                    debug!(self.log, "Peer added to chain pool"; "peer_id" => format!("{:?}", peer_id));
                     self.finalized_chains[0].peer_added(peer_id);
+                }
+            } else {  // there is no finalized chain that matches this peer's last finalized target
+                // create a new finalized chain
+                trace!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id));
+                self.finalized_chains.push(SyncingChain::new(local_finalized_slot,remote_finalized_slot,
+                    remote.finalized_root,peer_id));
 
-
-                // add the peer to this chain's peer pool
-                let is_new_peer = self.finalized_chains[index].add_peer(peer_id);
-
-
-
-
-                   // begin/resume the syncing
-                   self.finalized_chains[0]
-
-
-                // as a new peer has been added
+                // this chain will only have a single peer, and will only become the syncing chain
+                // if no other chain exists
+                if self.finalized_chains.len() == 1 {
+                    self.finalized_chains[0].start_syncing(local_finalized_slot);
+                }
             }
-            else {
-
-
-
+        } else {
+            if !self.finalized_chains.is_empty() {
+                // if there are finalized chains to sync, finish these first, before syncing head
+                // chains. This allows us to re-sync all known peers
+                debug!(self.log, "Peer added - Waiting for finalized sync to complete"; "peer_id" => format!("{:?}", peer_id));
+                return;
             }
+
+            // The new peer has the same finalized (earlier filters should prevent a peer with an
+            // earlier finalized chain from reaching here). 
+            trace!(self.log, "New peer added for recent head sync"; "peer_id" => format!("{:?}", peer_id));
             
+            // search if their is a matching head chain, then add the peer to the chain
+            if let Some(index) = self.head_chains.iter().position(|chain| chain.target_root == remote.head_root && chain.target_slot == remote.head_slot) {
+                trace!(self.log, "Head chain exists, adding peer to the pool"; "peer_id" => format!("{:?}", peer_id));
 
-
-
-
-        } else {
-            // head chain search
-
-
-
-
-        // Check if we are already downloading blocks from this peer, if so update, if not set up
-        // a new request structure
-        if let Some(block_requests) = self.import_queue.get_mut(&peer_id) {
-            // update the target head slot
-            if remote.head_slot > block_requests.target_head_slot {
-                block_requests.target_head_slot = remote.head_slot;
+                // add the peer to the head's pool
+                self.head_chains[index].peer_pool.insert(peer_id);
+                self.head_chains[index].peer_added();
             }
-        } else {
-            // not already downloading blocks from this peer
-            let block_requests = BlockRequests {
-                target_head_slot: remote.head_slot, // this should be larger than the current head. It is checked before add_peer is called
-                target_head_root: remote.head_root,
-                consecutive_empty_batches: 0,
-                downloaded_blocks: Vec::new(),
-                blocks_processed: 0,
-                state: BlockRequestsState::Queued,
-                current_start_slot: local
-                    .finalized_epoch
-                    .start_slot(T::EthSpec::slots_per_epoch()),
-            };
-            self.import_queue.insert(peer_id, block_requests);
+            // there are no other head chains that match this peers status, create a new one, and
+            // remove the peer from any old ones
+            self.head_chains.retain(|chain|  {
+                                    chain.peer_pool.remove(peer_id);
+                                    !chain.peer_pool.is_empty()
+            });
+            let new_head_chain = SyncingChain::new(local_finalized_slot, remote.head_slot, remote.head_root, peer_id); 
+            // All head chains can sync simultaneously
+            new_head_chain.start_syncing(local_finalized_slot);
+            self.head_chains.insert(new_head_chain);
         }
 
-        }
+    }
 
         pub fn is_syncing() {
         }

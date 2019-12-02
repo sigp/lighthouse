@@ -679,59 +679,6 @@ fn status_peer<T: BeaconChainTypes>(
     }
 }
 
-fn blocks_by_range_request(
-    network: &mut NetworkContext,
-    log: &slog::Logger,
-    peer_id: PeerId,
-    request_id: RequestId,
-    request: BlocksByRangeRequest,
-) {
-    trace!(
-        log,
-        "Sending BlocksByRange Request";
-        "method" => "BlocksByRange",
-        "id" => request_id,
-        "count" => request.count,
-        "peer" => format!("{:?}", peer_id)
-    );
-    network.send_rpc_request(
-        Some(request_id),
-        peer_id.clone(),
-        RPCRequest::BlocksByRange(request),
-    );
-}
-
-fn blocks_by_root_request(
-    network: &mut NetworkContext,
-    log: &slog::Logger,
-    peer_id: PeerId,
-    request_id: RequestId,
-    request: BlocksByRootRequest,
-) {
-    trace!(
-        log,
-        "Sending BlocksByRoot Request";
-        "method" => "BlocksByRoot",
-        "count" => request.block_roots.len(),
-        "peer" => format!("{:?}", peer_id)
-    );
-    network.send_rpc_request(
-        Some(request_id),
-        peer_id.clone(),
-        RPCRequest::BlocksByRoot(request),
-    );
-}
-
-fn downvote_peer(network: &mut NetworkContext, log: &slog::Logger, peer_id: PeerId) {
-    trace!(
-        log,
-        "Peer downvoted";
-        "peer" => format!("{:?}", peer_id)
-    );
-    // TODO: Implement reputation
-    network.disconnect(peer_id.clone(), GoodbyeReason::Fault);
-}
-
 impl<T: BeaconChainTypes> Future for SyncManager<T> {
     type Item = ();
     type Error = String;
@@ -825,5 +772,112 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
         self.update_state();
 
         Ok(Async::NotReady)
+    }
+}
+
+/// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
+pub struct SyncNetworkContext {
+    /// The network channel to relay messages to the Network service.
+    network_send: mpsc::UnboundedSender<NetworkMessage>,
+
+    request_id: RequestId,
+    /// Logger for the `SyncNetworkContext`.
+    log: slog::Logger,
+}
+
+impl SyncNetworkContext {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
+        Self {
+            network_send,
+            request_id: RequestId(0),
+            log,
+        }
+    }
+
+    fn blocks_by_range_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BlocksByRangeRequest,
+    ) -> RequestId {
+        trace!(
+            self.log,
+            "Sending BlocksByRange Request";
+            "method" => "BlocksByRange",
+            "count" => request.count,
+            "peer" => format!("{:?}", peer_id)
+        );
+        network.send_rpc_request(
+            Some(request_id),
+            peer_id.clone(),
+            RPCRequest::BlocksByRange(request),
+        )
+    }
+
+    fn downvote_peer(network: &mut NetworkContext, log: &slog::Logger, peer_id: PeerId) {
+        trace!(
+            log,
+            "Peer downvoted";
+            "peer" => format!("{:?}", peer_id)
+        );
+        // TODO: Implement reputation
+        network.disconnect(peer_id.clone(), GoodbyeReason::Fault);
+    }
+
+    fn blocks_by_root_request(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        request: BlocksByRootRequest,
+    ) -> Result<RequestId, &'static str> {
+        trace!(
+            self.log,
+            "Sending BlocksByRoot Request";
+            "method" => "BlocksByRoot",
+            "count" => request.block_roots.len(),
+            "peer" => format!("{:?}", peer_id)
+        );
+        self.send_rpc_request(
+            peer_id.clone(),
+            RPCRequest::BlocksByRoot(request),
+        )
+    }
+
+    pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        warn!(
+            &self.log,
+            "Disconnecting peer (RPC)";
+            "reason" => format!("{:?}", reason),
+            "peer_id" => format!("{:?}", peer_id),
+        );
+
+        // ignore the error if the channel send fails
+        let _ self.send_rpc_request(None, peer_id.clone(), RPCRequest::Goodbye(reason));
+        self.network_send
+            .try_send(NetworkMessage::Disconnect { peer_id })
+            .unwrap_or_else(|_| {
+                warn!(
+                    self.log,
+                    "Could not send a Disconnect to the network service"
+                )
+            });
+    }
+
+    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest) -> Result<RequestId, &'static str> {
+        let request_id = self.request_id;
+        self.request_id += 1;
+        self.send_rpc_event(peer_id, RPCEvent::Request(request_id, rpc_request))?;
+        Ok(request_id)
+    }
+
+    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent)  -> Result<(), &'static str> {
+        self.network_send
+            .try_send(NetworkMessage::RPC(peer_id, rpc_event))
+            .map_err(|e| {
+                warn!(
+                    self.log,
+                    "Could not send RPC message to the network service"
+                )
+                Err("Network channel send Failed")
+            })?
     }
 }
