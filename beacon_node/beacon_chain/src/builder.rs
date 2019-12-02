@@ -10,7 +10,7 @@ use eth1::Config as Eth1Config;
 use lmd_ghost::{LmdGhost, ThreadSafeReducedTree};
 use operation_pool::OperationPool;
 use parking_lot::RwLock;
-use slog::{error, info, Logger};
+use slog::{info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -219,9 +219,10 @@ where
 
         self.finalized_checkpoint = Some(p.finalized_checkpoint.clone());
         self.genesis_block_root = Some(p.genesis_block_root);
-        self.head_tracker = HeadTracker::from_ssz_container(&p.ssz_head_tracker)
-            .map_err(|e| error!(log, "Failed to decode head tracker for database: {:?}", e))
-            .ok();
+        self.head_tracker = Some(
+            HeadTracker::from_ssz_container(&p.ssz_head_tracker)
+                .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
+        );
         self.persisted_beacon_chain = Some(p);
 
         Ok(self)

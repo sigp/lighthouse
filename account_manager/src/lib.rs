@@ -361,6 +361,7 @@ fn deposit_validator(
 
             let log_1 = log.clone();
             let log_2 = log.clone();
+
             web3.eth()
                 .accounts()
                 .map_err(|e| format!("Failed to get accounts: {:?}", e))
@@ -385,7 +386,8 @@ fn deposit_validator(
                                 .then(move |result| match result {
                                     Ok(true) => Ok(from_address),
                                     Ok(false) => {
-                                        Err("Eth1 node refused to unlock account".to_string())
+                                        Err("Eth1 node refused to unlock account. Check password."
+                                            .to_string())
                                     }
                                     Err(e) => Err(format!("Eth1 unlock request failed: {:?}", e)),
                                 });
