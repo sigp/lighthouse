@@ -91,7 +91,7 @@ impl<TSubstream> Discovery<TSubstream> {
             debug!(
                 log,
                 "Adding node to routing table";
-                "Node ID" => format!("{}",
+                "node_id" => format!("{}",
                 bootnode_enr.node_id())
             );
             discovery.add_enr(bootnode_enr);
