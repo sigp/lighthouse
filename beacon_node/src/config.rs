@@ -14,7 +14,6 @@ use types::{Epoch, EthSpec, Fork};
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
-pub const ETH2_TESTNET_DIR: &str = "testnet";
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
 
@@ -64,13 +63,9 @@ pub fn get_configs<E: EthSpec>(
     }
 
     // Read the `--testnet-dir` flag.
-    //
-    // If it's not present, use the default dir.
-    client_config.testnet_dir = cli_args
-        .value_of("testnet-dir")
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(ETH2_TESTNET_DIR)))
-        .ok_or_else(|| "Unable to find a home directory for the testnet-dir".to_string())?;
+    if let Some(val) = cli_args.value_of("testnet-dir") {
+        client_config.testnet_dir = Some(PathBuf::from(val));
+    }
 
     /*
      * Networking
@@ -310,18 +305,13 @@ fn init_new_client<E: EthSpec>(
     client_config: &mut ClientConfig,
     eth2_config: &mut Eth2Config,
 ) -> Result<()> {
-    let testnet_dir = client_config.testnet_dir.clone();
-
-    let eth2_testnet_dir: Eth2TestnetDir<E> = if testnet_dir.exists() {
+    let eth2_testnet_dir: Eth2TestnetDir<E> = if let Some(testnet_dir) = &client_config.testnet_dir
+    {
         Eth2TestnetDir::load(testnet_dir.clone())
             .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
     } else {
-        Eth2TestnetDir::create_hardcoded(testnet_dir.clone()).map_err(|e| {
-            format!(
-                "Unable to create and open testnet dir at {:?}: {}",
-                testnet_dir, e
-            )
-        })?
+        Eth2TestnetDir::hardcoded()
+            .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
     };
 
     eth2_config.spec = eth2_testnet_dir

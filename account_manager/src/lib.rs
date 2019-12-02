@@ -3,7 +3,7 @@ mod cli;
 use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
 use environment::{Environment, RuntimeContext};
-use eth2_testnet::{Eth2TestnetDir, TempDir};
+use eth2_testnet::Eth2TestnetDir;
 use futures::{future, stream::unfold, Future, IntoFuture, Stream};
 use rayon::prelude::*;
 use slog::{crit, error, info, Logger};
@@ -145,6 +145,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
             .parse::<usize>()
             .map_err(|e| format!("Unable to parse account-index: {}", e))?;
 
+        // If supplied, load the eth1 account password from file.
         let password = if let Some(password_path) = matches.value_of("password") {
             Some(
                 File::open(password_path)
@@ -174,6 +175,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
             "eth1_node_http_endpoint" => eth1_endpoint
         );
 
+        // Load the testnet configuration from disk, or use the default testnet.
         let eth2_testnet_dir: Eth2TestnetDir<T> = if let Some(testnet_dir_str) =
             matches.value_of("testnet-dir")
         {
@@ -197,19 +199,8 @@ fn run_new_validator_subcommand<T: EthSpec>(
             Eth2TestnetDir::load(testnet_dir.clone())
                 .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?
         } else {
-            let temp_dir = TempDir::new("lighthouse-account-manager")
-                .map_err(|e| format!("Unable to create temporary directory: {}", e))?;
-
-            info!(log, "Using default deposit contract address");
-
-            let testnet_dir = PathBuf::from(temp_dir.path());
-
-            Eth2TestnetDir::load(testnet_dir.clone()).map_err(|e| {
-                format!(
-                    "Failed to load default testnet dir at {:?}: {}",
-                    testnet_dir, e
-                )
-            })?
+            Eth2TestnetDir::hardcoded()
+                .map_err(|e| format!("Failed to load hardcoded testnet dir: {}", e))?
         };
 
         // Convert from `types::Address` to `web3::types::Address`.

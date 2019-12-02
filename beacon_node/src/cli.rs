@@ -29,7 +29,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("testnet-dir")
                 .value_name("DIR")
                 .help("Path to directory containing eth2_testnet specs. Defaults to \
-                      ~/.lighthouse/testnet.")
+                      a hard-coded Lighthouse testnet. Only effective if there is no \
+                      existing database.")
                 .takes_value(true)
         )
         /*
@@ -40,7 +41,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("zero-ports")
                 .short("z")
                 .help("Sets all listening TCP/UDP ports to 0, allowing the OS to choose some \
-                       arbitrary free port number.")
+                       arbitrary free ports.")
                 .takes_value(false),
         )
         .arg(

@@ -14,8 +14,6 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use types::{Address, BeaconState, EthSpec, YamlConfig};
 
-pub use tempdir::TempDir;
-
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
@@ -38,32 +36,29 @@ pub struct Eth2TestnetDir<E: EthSpec> {
 }
 
 impl<E: EthSpec> Eth2TestnetDir<E> {
-    pub fn create_hardcoded(base_dir: PathBuf) -> Result<Self, String> {
-        if base_dir.exists() {
-            return Err("Testnet directory already exists".to_string());
-        }
-
-        create_dir_all(&base_dir)
-            .map_err(|e| format!("Unable to create testnet directory: {:?}", e))?;
-
-        macro_rules! write_bytes_to_file {
-            ($file: ident, $bytes: expr) => {
-                File::create(base_dir.join($file))
-                    .map_err(|e| format!("Unable to create {}: {:?}", $file, e))
-                    .and_then(|mut file| {
-                        file.write_all($bytes)
-                            .map_err(|e| format!("Unable to write bytes to {}: {}", $file, e))
-                    })?;
-            };
-        }
-
-        write_bytes_to_file!(YAML_CONFIG_FILE, HARDCODED_YAML_CONFIG);
-        write_bytes_to_file!(DEPLOY_BLOCK_FILE, HARDCODED_DEPLOY_BLOCK);
-        write_bytes_to_file!(ADDRESS_FILE, HARDCODED_DEPOSIT_CONTRACT);
-        write_bytes_to_file!(GENESIS_STATE_FILE, HARDCODED_GENESIS_STATE);
-        write_bytes_to_file!(BOOT_ENR_FILE, HARDCODED_BOOT_ENR);
-
-        Self::load(base_dir)
+    // Creates the `Eth2TestnetDir` that was included in the binary at compile time. This can be
+    // considered the default Lighthouse testnet.
+    //
+    // Returns an error if those included bytes are invalid (this is unlikely).
+    pub fn hardcoded() -> Result<Self, String> {
+        Ok(Self {
+            deposit_contract_address: serde_yaml::from_reader(HARDCODED_DEPOSIT_CONTRACT)
+                .map_err(|e| format!("Unable to parse contract address: {:?}", e))?,
+            deposit_contract_deploy_block: serde_yaml::from_reader(HARDCODED_DEPLOY_BLOCK)
+                .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
+            boot_enr: Some(
+                serde_yaml::from_reader(HARDCODED_BOOT_ENR)
+                    .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
+            ),
+            genesis_state: Some(
+                BeaconState::from_ssz_bytes(HARDCODED_GENESIS_STATE)
+                    .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
+            ),
+            yaml_config: Some(
+                serde_yaml::from_reader(HARDCODED_YAML_CONFIG)
+                    .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
+            ),
+        })
     }
 
     // Write the files to the directory, only if the directory doesn't already exist.
@@ -203,6 +198,16 @@ mod tests {
     use types::{Eth1Data, Hash256, MinimalEthSpec, YamlConfig};
 
     type E = MinimalEthSpec;
+
+    #[test]
+    fn hardcoded_works() {
+        let dir: Eth2TestnetDir<E> =
+            Eth2TestnetDir::hardcoded().expect("should decode hardcoded params");
+
+        assert!(dir.boot_enr.is_some());
+        assert!(dir.genesis_state.is_some());
+        assert!(dir.yaml_config.is_some());
+    }
 
     #[test]
     fn round_trip() {
