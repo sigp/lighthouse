@@ -92,7 +92,7 @@ where
     /// Including all of the returned `Deposits` in a block should _not_ cause it to become
     /// invalid (i.e., this function should respect the maximum).
     ///
-    /// The `eth1_data_vote` is the `Eth1Data` that the block producer would include in their
+    /// `eth1_data_vote` is the `Eth1Data` that the block producer would include in their
     /// block. This vote may change the `state.eth1_data` value, which would change the deposit
     /// count and therefore change the output of this function.
     pub fn deposits_for_block_inclusion(
@@ -138,6 +138,7 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
 pub struct DummyEth1ChainBackend<T: EthSpec>(PhantomData<T>);
 
 impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
+    /// Produce some deterministic junk based upon the current epoch.
     fn eth1_data(&self, state: &BeaconState<T>, _spec: &ChainSpec) -> Result<Eth1Data, Error> {
         let current_epoch = state.current_epoch();
         let slots_per_voting_period = T::slots_per_eth1_voting_period() as u64;
@@ -153,6 +154,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
         })
     }
 
+    /// The dummy back-end never produces deposits.
     fn queued_deposits(
         &self,
         _: &BeaconState<T>,
@@ -213,9 +215,9 @@ impl<T: EthSpec, S: Store> CachingEth1Backend<T, S> {
 
 impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
     fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
+        // Note: we do not return random junk if this function call fails as it would be caused by
+        // an internal error.
         let prev_eth1_hash = eth1_block_hash_at_start_of_voting_period(self.store.clone(), state)?;
-
-        let blocks = self.core.blocks().read();
 
         let period = T::SlotsPerEth1VotingPeriod::to_u64();
         let eth1_follow_distance = spec.eth1_follow_distance;
@@ -226,6 +228,8 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
             voting_period_start_slot,
         );
 
+        let blocks = self.core.blocks().read();
+
         let (new_eth1_data, all_eth1_data) = if let Some(sets) = eth1_data_sets(
             blocks.iter(),
             prev_eth1_hash,
@@ -235,6 +239,14 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
         ) {
             sets
         } else {
+            // The algorithm was unable to find the `new_eth1_data` and `all_eth1_data` sets.
+            //
+            // This is likely because the caches are empty or the previous eth1 block hash is not
+            // in the cache.
+            //
+            // This situation can also be caused when a testnet does not have an adequate delay
+            // between the eth1 genesis block and the eth2 genesis block. This delay needs to be at
+            // least `2 * ETH1_FOLLOW_DISTANCE`.
             crit!(
                 self.log,
                 "Unable to find eth1 data sets";
@@ -243,6 +255,7 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 "genesis_time" => state.genesis_time,
                 "outcome" => "casting random eth1 vote"
             );
+
             return Ok(random_eth1_data());
         };
 
@@ -258,6 +271,10 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
         let eth1_data = if let Some(eth1_data) = find_winning_vote(valid_votes) {
             eth1_data
         } else {
+            // In this case, there are no other viable votes (perhaps there are no votes yet or all
+            // the existing votes are junk).
+            //
+            // Here we choose the latest block in our voting window.
             blocks
                 .iter()
                 .rev()
@@ -474,7 +491,7 @@ fn collect_valid_votes<T: EthSpec>(
     valid_votes
 }
 
-/// Indicates if the given `state` is in the tail of it's eth1 voting period (i.e., the later
+/// Indicates if the given `state` is in the tail of it's eth1 voting period (i.e., in the later
 /// slots).
 fn is_period_tail<E: EthSpec>(state: &BeaconState<E>) -> bool {
     let slots_per_eth1_voting_period = E::SlotsPerEth1VotingPeriod::to_u64();

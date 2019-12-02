@@ -409,10 +409,10 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
-    /// Initializes a new, empty (no recorded votes or blocks) fork choice, using the
-    /// `ThreadSafeReducedTree` backend.
+    /// Initializes a fork choice with the `ThreadSafeReducedTree` backend.
     ///
-    /// Requires the store and state to be initialized.
+    /// If this builder is being "resumed" from disk, then rebuild the last fork choice stored to
+    /// the database. Otherwise, create a new, empty fork choice.
     pub fn reduced_tree_fork_choice(mut self) -> Result<Self, String> {
         let store = self
             .store
