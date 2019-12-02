@@ -326,6 +326,12 @@ where
         >,
         String,
     > {
+        let log = self
+            .log
+            .ok_or_else(|| "Cannot build without a logger".to_string())?;
+
+        // If this beacon chain is being loaded from disk, use the stored head. Otherwise, just use
+        // the finalized checkpoint (which is probably genesis).
         let mut canonical_head = if let Some(persisted_beacon_chain) = self.persisted_beacon_chain {
             persisted_beacon_chain.canonical_head
         } else {
@@ -337,10 +343,6 @@ where
             .beacon_state
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
-
-        let log = self
-            .log
-            .ok_or_else(|| "Cannot build without a logger".to_string())?;
 
         if canonical_head.beacon_block.state_root != canonical_head.beacon_state_root {
             return Err("beacon_block.state_root != beacon_state".to_string());
