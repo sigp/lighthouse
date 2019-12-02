@@ -38,22 +38,19 @@ fn run_account_manager<T: EthSpec>(
     let context = env.core_context();
     let log = context.log.clone();
 
+    // If the `datadir` was not provided, default to the home directory. If the home directory is
+    // not known, use the current directory.
     let datadir = matches
         .value_of("datadir")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            let mut default_dir = match dirs::home_dir() {
-                Some(v) => v,
-                None => {
-                    panic!("Failed to find a home directory");
-                }
-            };
-            default_dir.push(".lighthouse");
-            default_dir.push("validators");
-            default_dir
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".lighthouse")
+                .join("validators")
         });
 
-    fs::create_dir_all(&datadir).map_err(|e| format!("Failed to initialize datadir: {}", e))?;
+    fs::create_dir_all(&datadir).map_err(|e| format!("Failed to create datadir: {}", e))?;
 
     info!(
         log,
@@ -157,7 +154,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
                             .map(|_| password)
                     })
                     .map(|password| {
-                        // Trim the linefeed from the end.
+                        // Trim the line feed from the end of the password file, if present.
                         if password.ends_with("\n") {
                             password[0..password.len() - 1].to_string()
                         } else {
@@ -269,6 +266,10 @@ fn make_validators(
         .collect()
 }
 
+/// For each `ValidatorDirectory`, submit a deposit transaction to the `eth1_endpoint`.
+///
+/// Returns success as soon as the eth1 endpoint accepts the transaction (i.e., does not wait for
+/// transaction success/revert).
 fn deposit_validators<E: EthSpec>(
     context: RuntimeContext<E>,
     eth1_endpoint: String,
@@ -290,6 +291,9 @@ fn deposit_validators<E: EthSpec>(
             )
         })
         .into_future()
+        /*
+         * Loop through the validator directories and submit the deposits.
+         */
         .and_then(move |(event_loop, transport)| {
             let web3 = Web3::new(transport);
 
@@ -318,6 +322,10 @@ fn deposit_validators<E: EthSpec>(
         .map(|event_loop| drop(event_loop))
 }
 
+/// For the given `ValidatorDirectory`, submit a deposit transaction to the `web3` node.
+///
+/// Returns success as soon as the eth1 endpoint accepts the transaction (i.e., does not wait for
+/// transaction success/revert).
 fn deposit_validator(
     web3: Web3<Http>,
     deposit_contract: Address,
@@ -327,90 +335,103 @@ fn deposit_validator(
     password_opt: Option<String>,
     log: Logger,
 ) -> impl Future<Item = (), Error = ()> {
-    let web3_1 = web3.clone();
-    let web3_2 = web3.clone();
-
-    let log_1 = log.clone();
-    let log_2 = log.clone();
-
-    let validator_voting_pubkey_1 = validator
+    validator
         .voting_keypair
         .clone()
-        .expect("Validators must have a voting public key")
-        .pk;
-    let validator_voting_pubkey_2 = validator_voting_pubkey_1.clone();
-
-    let deposit_data = validator
-        .deposit_data
-        .clone()
-        .expect("Validators must have a deposit data");
-
-    web3.eth()
-        .accounts()
-        .map_err(|e| format!("Failed to get accounts: {:?}", e))
-        .and_then(move |accounts| {
-            accounts
-                .get(account_index)
-                .cloned()
-                .ok_or_else(|| "Insufficient accounts for deposit".to_string())
+        .ok_or_else(|| error!(log, "Validator does not have voting keypair"))
+        .and_then(|voting_keypair| {
+            validator
+                .deposit_data
+                .clone()
+                .ok_or_else(|| error!(log, "Validator does not have deposit data"))
+                .map(|deposit_data| (voting_keypair, deposit_data))
         })
-        .and_then(move |from_address| {
-            let future: Box<dyn Future<Item = Address, Error = String> + Send> =
-                if let Some(password) = password_opt {
-                    // Unlock for only a single transaction.
-                    let duration = None;
+        .into_future()
+        .and_then(move |(voting_keypair, deposit_data)| {
+            let pubkey_1 = voting_keypair.pk.clone();
+            let pubkey_2 = voting_keypair.pk.clone();
 
-                    let future = web3_1
-                        .personal()
-                        .unlock_account(from_address, &password, duration)
-                        .then(move |result| match result {
-                            Ok(true) => Ok(from_address),
-                            Ok(false) => Err("Eth1 node refused to unlock account".to_string()),
-                            Err(e) => Err(format!("Eth1 unlock request failed: {:?}", e)),
-                        });
+            let web3_1 = web3.clone();
+            let web3_2 = web3.clone();
 
-                    Box::new(future)
-                } else {
-                    Box::new(future::ok(from_address))
-                };
+            let log_1 = log.clone();
+            let log_2 = log.clone();
+            web3.eth()
+                .accounts()
+                .map_err(|e| format!("Failed to get accounts: {:?}", e))
+                .and_then(move |accounts| {
+                    accounts
+                        .get(account_index)
+                        .cloned()
+                        .ok_or_else(|| "Insufficient accounts for deposit".to_string())
+                })
+                /*
+                 * If a password was supplied, unlock the account.
+                 */
+                .and_then(move |from_address| {
+                    let future: Box<dyn Future<Item = Address, Error = String> + Send> =
+                        if let Some(password) = password_opt {
+                            // Unlock for only a single transaction.
+                            let duration = None;
 
-            future
-        })
-        .and_then(move |from| {
-            let tx_request = TransactionRequest {
-                from,
-                to: Some(deposit_contract),
-                gas: Some(U256::from(DEPOSIT_GAS)),
-                gas_price: None,
-                value: Some(U256::from(from_gwei(deposit_amount))),
-                data: Some(deposit_data.into()),
-                nonce: None,
-                condition: None,
-            };
+                            let future = web3_1
+                                .personal()
+                                .unlock_account(from_address, &password, duration)
+                                .then(move |result| match result {
+                                    Ok(true) => Ok(from_address),
+                                    Ok(false) => {
+                                        Err("Eth1 node refused to unlock account".to_string())
+                                    }
+                                    Err(e) => Err(format!("Eth1 unlock request failed: {:?}", e)),
+                                });
 
-            web3_2
-                .eth()
-                .send_transaction(tx_request)
-                .map_err(|e| format!("Failed to call deposit fn: {:?}", e))
-        })
-        .map(move |tx| {
-            info!(
-                log_1,
-                "Validator deposit successful";
-                "eth1_tx_hash" => format!("{:?}", tx),
-                "validator_voting_pubkey" => format!("{:?}", validator_voting_pubkey_1)
-            )
-        })
-        .map_err(move |e| {
-            error!(
-                log_2,
-                "Validator deposit_failed";
-                "error" => e,
-                "validator_voting_pubkey" => format!("{:?}", validator_voting_pubkey_2)
-            )
+                            Box::new(future)
+                        } else {
+                            Box::new(future::ok(from_address))
+                        };
+
+                    future
+                })
+                /*
+                 * Submit the deposit transaction.
+                 */
+                .and_then(move |from| {
+                    let tx_request = TransactionRequest {
+                        from,
+                        to: Some(deposit_contract),
+                        gas: Some(U256::from(DEPOSIT_GAS)),
+                        gas_price: None,
+                        value: Some(U256::from(from_gwei(deposit_amount))),
+                        data: Some(deposit_data.into()),
+                        nonce: None,
+                        condition: None,
+                    };
+
+                    web3_2
+                        .eth()
+                        .send_transaction(tx_request)
+                        .map_err(|e| format!("Failed to call deposit fn: {:?}", e))
+                })
+                .map(move |tx| {
+                    info!(
+                        log_1,
+                        "Validator deposit successful";
+                        "eth1_tx_hash" => format!("{:?}", tx),
+                        "validator_voting_pubkey" => format!("{:?}", pubkey_1)
+                    )
+                })
+                .map_err(move |e| {
+                    error!(
+                        log_2,
+                        "Validator deposit_failed";
+                        "error" => e,
+                        "validator_voting_pubkey" => format!("{:?}", pubkey_2)
+                    )
+                })
         })
 }
 
+/// Converts gwei to wei.
 fn from_gwei(gwei: u64) -> U256 {
     U256::from(gwei) * U256::exp10(9)
 }
