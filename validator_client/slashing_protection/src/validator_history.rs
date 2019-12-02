@@ -31,13 +31,13 @@ impl<T> ValidatorHistory<T> {
     }
 }
 
-/// Utility function to check for slashing conditions and inserting new attestations/blocks in the db and in memory.
+/// Utility function to check for slashing conditions and inserting new attestations/blocks in the db.
 trait CheckAndInsert<T> {
     type U;
 
-    /// Checks if the incoming_data is safe from slashing
+    /// Checks if the incoming_data is safe from slashing. Expects the incoming_data to be valid!
     fn check_slashing(&self, incoming_data: &Self::U) -> Result<Safe, NotSafe>;
-    /// Inserts the incoming_data in th sqlite db and in the in-memory vector.
+    /// Inserts the incoming_data in the sqlite db.
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 }
 
@@ -153,7 +153,7 @@ pub trait SlashingProtection<T> {
     /// Returns an error if file doesn't exist.
     fn open(path: &Path, slots_per_epoch: Option<u64>) -> Result<ValidatorHistory<T>, NotSafe>;
 
-    /// Updates the sqlite db and the in-memory Vec if the incoming_data is safe from slashings.
+    /// Updates the sqlite db if the incoming_data is safe from slashings.
     /// If incoming_data is not safe, returns the associated error.
     fn update_if_valid(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe>;
 
