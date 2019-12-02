@@ -40,7 +40,7 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
     // considered the default Lighthouse testnet.
     //
     // Returns an error if those included bytes are invalid (this is unlikely).
-    pub fn hardcoded() -> Result<Self, String> {
+    pub fn hard_coded() -> Result<Self, String> {
         Ok(Self {
             deposit_contract_address: serde_yaml::from_reader(HARDCODED_DEPOSIT_CONTRACT)
                 .map_err(|e| format!("Unable to parse contract address: {:?}", e))?,
@@ -200,9 +200,9 @@ mod tests {
     type E = MinimalEthSpec;
 
     #[test]
-    fn hardcoded_works() {
+    fn hard_coded_works() {
         let dir: Eth2TestnetConfig<E> =
-            Eth2TestnetConfig::hardcoded().expect("should decode hardcoded params");
+            Eth2TestnetConfig::hard_coded().expect("should decode hard_coded params");
 
         assert!(dir.boot_enr.is_some());
         assert!(dir.genesis_state.is_some());

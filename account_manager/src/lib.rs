@@ -199,8 +199,8 @@ fn run_new_validator_subcommand<T: EthSpec>(
             Eth2TestnetConfig::load(testnet_dir.clone())
                 .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?
         } else {
-            Eth2TestnetConfig::hardcoded()
-                .map_err(|e| format!("Failed to load hardcoded testnet dir: {}", e))?
+            Eth2TestnetConfig::hard_coded()
+                .map_err(|e| format!("Failed to load hard_coded testnet dir: {}", e))?
         };
 
         // Convert from `types::Address` to `web3::types::Address`.

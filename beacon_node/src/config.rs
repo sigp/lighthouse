@@ -310,7 +310,7 @@ fn init_new_client<E: EthSpec>(
             Eth2TestnetConfig::load(testnet_dir.clone())
                 .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
         } else {
-            Eth2TestnetConfig::hardcoded()
+            Eth2TestnetConfig::hard_coded()
                 .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
         };
 
