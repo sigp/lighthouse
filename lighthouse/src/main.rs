@@ -49,7 +49,7 @@ fn main() {
                 .help("The title of the spec constants for chain config.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
-                .default_value("trace"),
+                .default_value("info"),
         )
         .arg(
             Arg::with_name("datadir")
