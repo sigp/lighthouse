@@ -80,10 +80,13 @@ impl Config {
                             .into(),
                     );
                 }
-                process_testnet_subcommand(sub_cli_args, config)
+                process_testnet_subcommand(sub_cli_args, config)?
             }
-            _ => return Err("You must use the testnet command. See '--help'.".into()),
-        }?;
+            _ => {
+                config.key_source = KeySource::Disk;
+                config
+            }
+        };
 
         Ok(config)
     }
