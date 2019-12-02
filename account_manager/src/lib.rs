@@ -196,6 +196,11 @@ fn run_new_validator_subcommand<T: EthSpec>(
             Eth2TestnetConfig::load(testnet_dir.clone())
                 .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?
         } else {
+            info!(
+                log,
+                "Using Lighthouse testnet deposit contract";
+            );
+
             Eth2TestnetConfig::hard_coded()
                 .map_err(|e| format!("Failed to load hard_coded testnet dir: {}", e))?
         };
