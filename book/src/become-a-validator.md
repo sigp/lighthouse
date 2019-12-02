@@ -133,11 +133,11 @@ client starts successfully publishing attestations each slot:
 Dec 03 08:49:40.053 INFO Successfully published attestation      slot: 98, committee_index: 0, head_block: 0xa208…7fd5,
 ```
 
-Although you'll produce an attestation each slot, it's more rare to produce a
+Although you'll produce an attestation each slot, it's less common to produce a
 block. Watch for the block production logs too:
 
 ```
-Dec 03 08:49:36.225 INFO Successfully published block            slot: 98, attestations: 0, deposits: 0, service: block
+Dec 03 08:49:36.225 INFO Successfully published block            slot: 98, attestations: 2, deposits: 0, service: block
 ```
 
 If you see any `ERRO` (error) logs, please reach out on
