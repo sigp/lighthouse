@@ -21,6 +21,7 @@
 mod checks;
 mod local_network;
 
+use env_logger::{Builder, Env};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::{future, stream, Future, Stream};
 use local_network::LocalNetwork;
@@ -34,6 +35,9 @@ use types::MinimalEthSpec;
 pub type E = MinimalEthSpec;
 
 fn main() {
+    // Debugging output for libp2p and external crates.
+    Builder::from_env(Env::default()).init();
+
     let nodes = 4;
     let validators_per_node = 20;
     let log_level = "debug";
