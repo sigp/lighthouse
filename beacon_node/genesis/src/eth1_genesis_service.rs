@@ -46,14 +46,12 @@ impl Eth1GenesisService {
             block_cache_truncation: None,
             // Scan large ranges of blocks when awaiting genesis.
             blocks_per_log_query: 1_000,
-            // Only perform a single log request each time the eth1 node is
-            // polled.
+            // Only perform a few log requests each time the eth1 node is polled.
             //
             // For small testnets this makes finding genesis much faster,
             // as it usually happens within 1,000 blocks.
             max_log_requests_per_update: Some(5),
-            // Only perform a single block request each time the eth1 node
-            // is polled.
+            // Only perform a few logs requests each time the eth1 node is polled.
             //
             // For small testnets, this is much faster as they do not have
             // a `MIN_GENESIS_SECONDS`, so after `MIN_GENESIS_VALIDATOR_COUNT`

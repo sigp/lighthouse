@@ -193,7 +193,7 @@ where
                         } => {
                             info!(
                                 context.log,
-                                "Using trusted genesis state";
+                                "Starting from known genesis state";
                             );
 
                             let result = BeaconState::from_ssz_bytes(&genesis_state_bytes)

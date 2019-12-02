@@ -9,15 +9,6 @@ pub enum Error {
     MismatchingLengths { roots_len: usize, slots_len: usize },
 }
 
-/// Helper struct that is used to encode/decode the state of the `HeadTracker` as SSZ bytes.
-///
-/// This is used when persisting the state of the `BeaconChain` to disk.
-#[derive(Encode, Decode, Clone)]
-pub struct SszHeadTracker {
-    roots: Vec<Hash256>,
-    slots: Vec<Slot>,
-}
-
 /// Maintains a list of `BeaconChain` head block roots and slots.
 ///
 /// Each time a new block is imported, it should be applied to the `Self::register_block` function.
@@ -90,6 +81,15 @@ impl PartialEq<HeadTracker> for HeadTracker {
     fn eq(&self, other: &HeadTracker) -> bool {
         *self.0.read() == *other.0.read()
     }
+}
+
+/// Helper struct that is used to encode/decode the state of the `HeadTracker` as SSZ bytes.
+///
+/// This is used when persisting the state of the `BeaconChain` to disk.
+#[derive(Encode, Decode, Clone)]
+pub struct SszHeadTracker {
+    roots: Vec<Hash256>,
+    slots: Vec<Slot>,
 }
 
 #[cfg(test)]

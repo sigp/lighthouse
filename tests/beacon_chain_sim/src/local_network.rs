@@ -8,12 +8,16 @@ use std::ops::Deref;
 use std::sync::Arc;
 use types::EthSpec;
 
+/// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
     context: RuntimeContext<E>,
     beacon_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
     validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
 }
 
+/// Represents a set of interconnected `LocalBeaconNode` and `LocalValidatorClient`.
+///
+/// Provides functions to allow adding new beacon nodes and validators.
 pub struct LocalNetwork<E: EthSpec> {
     inner: Arc<Inner<E>>,
 }
@@ -51,14 +55,23 @@ impl<E: EthSpec> LocalNetwork<E> {
         )
     }
 
+    /// Returns the number of beacon nodes in the network.
+    ///
+    /// Note: does not count nodes that are external to this `LocalNetwork` that may have connected
+    /// (e.g., another Lighthouse process on the same machine.)
     pub fn beacon_node_count(&self) -> usize {
         self.beacon_nodes.read().len()
     }
 
+    /// Returns the number of validator clients in the network.
+    ///
+    /// Note: does not count nodes that are external to this `LocalNetwork` that may have connected
+    /// (e.g., another Lighthouse process on the same machine.)
     pub fn validator_client_count(&self) -> usize {
         self.validator_clients.read().len()
     }
 
+    /// Adds a beacon node to the network, connecting to the 0'th beacon node via ENR.
     pub fn add_beacon_node(
         &self,
         mut beacon_config: ClientConfig,
@@ -89,6 +102,8 @@ impl<E: EthSpec> LocalNetwork<E> {
         })
     }
 
+    /// Adds a validator client to the network, connecting it to the beacon node with index
+    /// `beacon_node`.
     pub fn add_validator_client(
         &self,
         mut validator_config: ValidatorConfig,
@@ -125,6 +140,7 @@ impl<E: EthSpec> LocalNetwork<E> {
             .map(move |validator_client| self_1.validator_clients.write().push(validator_client))
     }
 
+    /// For all beacon nodes in `Self`, return a HTTP client to access each nodes HTTP API.
     pub fn remote_nodes(&self) -> Result<Vec<RemoteBeaconNode<E>>, String> {
         let beacon_nodes = self.beacon_nodes.read();
 

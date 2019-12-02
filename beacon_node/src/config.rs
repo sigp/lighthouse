@@ -70,11 +70,6 @@ pub fn get_configs<E: EthSpec>(
     /*
      * Networking
      */
-    // If a `datadir` has been specified, set the network dir to be inside it.
-    if let Some(dir) = cli_args.value_of("datadir") {
-        client_config.network.network_dir = PathBuf::from(dir).join("network");
-    };
-
     // If a network dir has been specified, override the `datadir` definition.
     if let Some(dir) = cli_args.value_of("network-dir") {
         client_config.network.network_dir = PathBuf::from(dir);
@@ -148,8 +143,6 @@ pub fn get_configs<E: EthSpec>(
 
     if cli_args.is_present("http") {
         client_config.rest_api.enabled = true;
-    } else {
-        client_config.rest_api.enabled = false;
     }
 
     if let Some(address) = cli_args.value_of("http-address") {
@@ -170,8 +163,6 @@ pub fn get_configs<E: EthSpec>(
 
     if cli_args.is_present("ws") {
         client_config.websocket_server.enabled = true;
-    } else {
-        client_config.websocket_server.enabled = false;
     }
 
     if let Some(address) = cli_args.value_of("ws-address") {
@@ -202,8 +193,6 @@ pub fn get_configs<E: EthSpec>(
     // Required for block production.
     if cli_args.is_present("eth1") {
         client_config.sync_eth1_chain = true;
-    } else {
-        client_config.sync_eth1_chain = false;
     }
 
     // Defines the URL to reach the eth1 node.

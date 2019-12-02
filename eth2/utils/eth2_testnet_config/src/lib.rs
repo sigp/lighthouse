@@ -26,6 +26,9 @@ pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../testnet/deposit
 pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../testnet/genesis.ssz");
 pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../testnet/boot_enr.yaml");
 
+/// Specifies an Eth2 testnet.
+///
+/// See the crate-level documentation for more details.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Eth2TestnetConfig<E: EthSpec> {
     pub deposit_contract_address: String,

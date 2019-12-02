@@ -57,17 +57,15 @@ impl Config {
         // Read the `--datadir` flag.
         //
         // If it's not present, try and find the home directory (`~`) and push the default data
-        // directory onto it.
+        // directory onto it. If the home directory is not available, use the present directory.
         config.data_dir = cli_args
             .value_of("datadir")
             .map(PathBuf::from)
-            .or_else(|| {
-                dirs::home_dir().map(|mut home| {
-                    home.push(DEFAULT_DATA_DIR);
-                    home
-                })
-            })
-            .ok_or_else(|| "Unable to find a home directory for the datadir".to_string())?;
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .map(|home| home.join(DEFAULT_DATA_DIR))
+                    .unwrap_or_else(|| PathBuf::from("."))
+            });
 
         if let Some(server) = cli_args.value_of("server") {
             config.http_server = server.to_string();

@@ -12,7 +12,7 @@ use web3::{
 };
 
 /// `keccak("steal()")[0..4]`
-pub const DEPOSIT_ROOT_FN_SIGNATURE: &[u8] = &[0xcf, 0x7a, 0x89, 0x65];
+pub const STEAL_FN_SIGNATURE: &[u8] = &[0xcf, 0x7a, 0x89, 0x65];
 
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let endpoint = matches
@@ -95,7 +95,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 gas: Some(U256::from(400_000)),
                 gas_price: None,
                 value: Some(U256::zero()),
-                data: Some(DEPOSIT_ROOT_FN_SIGNATURE.into()),
+                data: Some(STEAL_FN_SIGNATURE.into()),
                 nonce: None,
                 condition: None,
             };
