@@ -27,7 +27,7 @@ pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../testnet/genesis.ss
 pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../testnet/boot_enr.yaml");
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct Eth2TestnetDir<E: EthSpec> {
+pub struct Eth2TestnetConfig<E: EthSpec> {
     pub deposit_contract_address: String,
     pub deposit_contract_deploy_block: u64,
     pub boot_enr: Option<Vec<Enr>>,
@@ -35,8 +35,8 @@ pub struct Eth2TestnetDir<E: EthSpec> {
     pub yaml_config: Option<YamlConfig>,
 }
 
-impl<E: EthSpec> Eth2TestnetDir<E> {
-    // Creates the `Eth2TestnetDir` that was included in the binary at compile time. This can be
+impl<E: EthSpec> Eth2TestnetConfig<E> {
+    // Creates the `Eth2TestnetConfig` that was included in the binary at compile time. This can be
     // considered the default Lighthouse testnet.
     //
     // Returns an error if those included bytes are invalid (this is unlikely).
@@ -201,8 +201,8 @@ mod tests {
 
     #[test]
     fn hardcoded_works() {
-        let dir: Eth2TestnetDir<E> =
-            Eth2TestnetDir::hardcoded().expect("should decode hardcoded params");
+        let dir: Eth2TestnetConfig<E> =
+            Eth2TestnetConfig::hardcoded().expect("should decode hardcoded params");
 
         assert!(dir.boot_enr.is_some());
         assert!(dir.genesis_state.is_some());
@@ -238,7 +238,7 @@ mod tests {
         let deposit_contract_address = "0xBB9bc244D798123fDe783fCc1C72d3Bb8C189413".to_string();
         let deposit_contract_deploy_block = 42;
 
-        let testnet: Eth2TestnetDir<E> = Eth2TestnetDir {
+        let testnet: Eth2TestnetConfig<E> = Eth2TestnetConfig {
             deposit_contract_address: deposit_contract_address.clone(),
             deposit_contract_deploy_block: deposit_contract_deploy_block,
             boot_enr,
@@ -250,7 +250,7 @@ mod tests {
             .write_to_file(base_dir.clone())
             .expect("should write to file");
 
-        let decoded = Eth2TestnetDir::load(base_dir).expect("should load struct");
+        let decoded = Eth2TestnetConfig::load(base_dir).expect("should load struct");
 
         assert_eq!(testnet, decoded, "should decode as encoded");
     }

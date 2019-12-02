@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use environment::Environment;
 use eth1_test_rig::DepositContract;
-use eth2_testnet::Eth2TestnetDir;
+use eth2_testnet_config::Eth2TestnetConfig;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -91,7 +91,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let mut spec = lighthouse_testnet_spec(env.core_context().eth2_config.spec.clone());
     spec.min_genesis_time = min_genesis_time;
 
-    let testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir {
+    let testnet_config: Eth2TestnetConfig<T> = Eth2TestnetConfig {
         deposit_contract_address: format!("{}", deposit_contract.address()),
         deposit_contract_deploy_block: deploy_block.as_u64(),
         boot_enr: None,
@@ -99,7 +99,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         yaml_config: Some(YamlConfig::from_spec::<T>(&spec)),
     };
 
-    testnet_dir.write_to_file(output_dir)?;
+    testnet_config.write_to_file(output_dir)?;
 
     Ok(())
 }

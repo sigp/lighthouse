@@ -1,7 +1,7 @@
 use crate::deploy_deposit_contract::parse_password;
 use clap::ArgMatches;
 use environment::Environment;
-use eth2_testnet::Eth2TestnetDir;
+use eth2_testnet_config::Eth2TestnetConfig;
 use futures::{future, Future};
 use std::path::PathBuf;
 use types::EthSpec;
@@ -37,7 +37,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 .expect("should locate home directory")
         });
 
-    let eth2_testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir::load(testnet_dir)?;
+    let eth2_testnet_config: Eth2TestnetConfig<T> = Eth2TestnetConfig::load(testnet_dir)?;
 
     let (_event_loop, transport) = Http::new(&endpoint).map_err(|e| {
         format!(
@@ -51,7 +51,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     // Convert from `types::Address` to `web3::types::Address`.
     let deposit_contract = Address::from_slice(
-        eth2_testnet_dir
+        eth2_testnet_config
             .deposit_contract_address()?
             .as_fixed_bytes(),
     );

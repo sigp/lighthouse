@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use client::{ClientConfig, ClientGenesis, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use eth2_libp2p::{Enr, Multiaddr};
-use eth2_testnet::Eth2TestnetDir;
+use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::recent_genesis_time;
 use rand::{distributions::Alphanumeric, Rng};
 use slog::{crit, info, Logger};
@@ -305,16 +305,16 @@ fn init_new_client<E: EthSpec>(
     client_config: &mut ClientConfig,
     eth2_config: &mut Eth2Config,
 ) -> Result<()> {
-    let eth2_testnet_dir: Eth2TestnetDir<E> = if let Some(testnet_dir) = &client_config.testnet_dir
-    {
-        Eth2TestnetDir::load(testnet_dir.clone())
-            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
-    } else {
-        Eth2TestnetDir::hardcoded()
-            .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
-    };
+    let eth2_testnet_config: Eth2TestnetConfig<E> =
+        if let Some(testnet_dir) = &client_config.testnet_dir {
+            Eth2TestnetConfig::load(testnet_dir.clone())
+                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
+        } else {
+            Eth2TestnetConfig::hardcoded()
+                .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
+        };
 
-    eth2_config.spec = eth2_testnet_dir
+    eth2_config.spec = eth2_testnet_config
         .yaml_config
         .as_ref()
         .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
@@ -329,9 +329,9 @@ fn init_new_client<E: EthSpec>(
     let spec = &mut eth2_config.spec;
 
     client_config.eth1.deposit_contract_address =
-        format!("{:?}", eth2_testnet_dir.deposit_contract_address()?);
+        format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
     client_config.eth1.deposit_contract_deploy_block =
-        eth2_testnet_dir.deposit_contract_deploy_block;
+        eth2_testnet_config.deposit_contract_deploy_block;
 
     client_config.eth1.follow_distance = spec.eth1_follow_distance / 2;
     client_config.dummy_eth1_backend = false;
@@ -340,14 +340,14 @@ fn init_new_client<E: EthSpec>(
         .deposit_contract_deploy_block
         .saturating_sub(client_config.eth1.follow_distance * 2);
 
-    if let Some(boot_nodes) = eth2_testnet_dir.boot_enr {
+    if let Some(boot_nodes) = eth2_testnet_config.boot_enr {
         client_config
             .network
             .boot_nodes
             .append(&mut boot_nodes.clone())
     }
 
-    if let Some(genesis_state) = eth2_testnet_dir.genesis_state {
+    if let Some(genesis_state) = eth2_testnet_config.genesis_state {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
         // effects.

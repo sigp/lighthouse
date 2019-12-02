@@ -1,6 +1,6 @@
 use clap::ArgMatches;
 use environment::Environment;
-use eth2_testnet::Eth2TestnetDir;
+use eth2_testnet_config::Eth2TestnetConfig;
 use futures::Future;
 use genesis::{Eth1Config, Eth1GenesisService};
 use std::path::PathBuf;
@@ -25,9 +25,10 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 .expect("should locate home directory")
         });
 
-    let mut eth2_testnet_dir: Eth2TestnetDir<T> = Eth2TestnetDir::load(testnet_dir.clone())?;
+    let mut eth2_testnet_config: Eth2TestnetConfig<T> =
+        Eth2TestnetConfig::load(testnet_dir.clone())?;
 
-    let spec = eth2_testnet_dir
+    let spec = eth2_testnet_config
         .yaml_config
         .as_ref()
         .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
@@ -41,9 +42,9 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     let mut config = Eth1Config::default();
     config.endpoint = endpoint.to_string();
-    config.deposit_contract_address = eth2_testnet_dir.deposit_contract_address.clone();
-    config.deposit_contract_deploy_block = eth2_testnet_dir.deposit_contract_deploy_block;
-    config.lowest_cached_block_number = eth2_testnet_dir.deposit_contract_deploy_block;
+    config.deposit_contract_address = eth2_testnet_config.deposit_contract_address.clone();
+    config.deposit_contract_deploy_block = eth2_testnet_config.deposit_contract_deploy_block;
+    config.lowest_cached_block_number = eth2_testnet_config.deposit_contract_deploy_block;
     config.follow_distance = spec.eth1_follow_distance / 2;
 
     let genesis_service = Eth1GenesisService::new(config, env.core_context().log.clone());
@@ -51,8 +52,8 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let future = genesis_service
         .wait_for_genesis_state(ETH1_GENESIS_UPDATE_INTERVAL, spec)
         .map(move |genesis_state| {
-            eth2_testnet_dir.genesis_state = Some(genesis_state);
-            eth2_testnet_dir.force_write_to_file(testnet_dir)
+            eth2_testnet_config.genesis_state = Some(genesis_state);
+            eth2_testnet_config.force_write_to_file(testnet_dir)
         });
 
     info!("Starting service to produce genesis BeaconState from eth1");

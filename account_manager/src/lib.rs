@@ -3,7 +3,7 @@ mod cli;
 use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
 use environment::{Environment, RuntimeContext};
-use eth2_testnet::Eth2TestnetDir;
+use eth2_testnet_config::Eth2TestnetConfig;
 use futures::{future, stream::unfold, Future, IntoFuture, Stream};
 use rayon::prelude::*;
 use slog::{crit, error, info, Logger};
@@ -176,7 +176,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
         );
 
         // Load the testnet configuration from disk, or use the default testnet.
-        let eth2_testnet_dir: Eth2TestnetDir<T> = if let Some(testnet_dir_str) =
+        let eth2_testnet_config: Eth2TestnetConfig<T> = if let Some(testnet_dir_str) =
             matches.value_of("testnet-dir")
         {
             let testnet_dir = testnet_dir_str
@@ -196,16 +196,16 @@ fn run_new_validator_subcommand<T: EthSpec>(
                 "testnet_dir" => format!("{:?}", &testnet_dir)
             );
 
-            Eth2TestnetDir::load(testnet_dir.clone())
+            Eth2TestnetConfig::load(testnet_dir.clone())
                 .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?
         } else {
-            Eth2TestnetDir::hardcoded()
+            Eth2TestnetConfig::hardcoded()
                 .map_err(|e| format!("Failed to load hardcoded testnet dir: {}", e))?
         };
 
         // Convert from `types::Address` to `web3::types::Address`.
         let deposit_contract = Address::from_slice(
-            eth2_testnet_dir
+            eth2_testnet_config
                 .deposit_contract_address()?
                 .as_fixed_bytes(),
         );
