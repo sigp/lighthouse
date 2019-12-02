@@ -5,6 +5,11 @@ _* Testnet validator_
 If you're familiar with using the terminal of your operating system, becoming a
 Lighthouse validator is easy. All you need is your terminal and this website.
 
+Before you start, you'll need [Metamask](https://metamask.io/) and 3.2 gETH
+(Goerli ETH). We recommend the [mudit.blog
+faucet](https://faucet.goerli.mudit.blog/) for those familiar with Goerli, or
+[goerli.net](https://goerli.net/) for an overview of the testnet.
+
 ### 1. Download and install Lighthouse
 
 If you already have Rust installed, you can install Lighthouse with the
