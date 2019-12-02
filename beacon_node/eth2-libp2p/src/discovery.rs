@@ -91,7 +91,7 @@ impl<TSubstream> Discovery<TSubstream> {
             debug!(
                 log,
                 "Adding node to routing table";
-                "Node ID" => format!("{}",
+                "node_id" => format!("{}",
                 bootnode_enr.node_id())
             );
             discovery.add_enr(bootnode_enr);
@@ -124,6 +124,7 @@ impl<TSubstream> Discovery<TSubstream> {
             "enr" => enr.to_base64(), 
             "seq" => enr.seq(),
             "address" => format!("{:?}", socket));
+            save_enr_to_disc(Path::new(&self.enr_dir), enr, &self.log)
         }
     }
 
@@ -266,7 +267,7 @@ where
                             // query.
                         }
                         Discv5Event::SocketUpdated(socket) => {
-                            info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "port" => format!("{}", socket.port()));
+                            info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "udp_port" => format!("{}", socket.port()));
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             let mut address = Multiaddr::from(socket.ip());
                             address.push(Protocol::Tcp(self.tcp_port));
