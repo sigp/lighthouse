@@ -410,10 +410,10 @@ enum SyncState {
 
 struct RangeSync<T: EthSpec> {
     /// The beacon chain for processing
-    chain: Weak<BeaconChain>,
+    chain: Weak<BeaconChain<T>>,
     /// A network context that provides the ability to send RPC requests/responses and handles a
     /// global request id for the syncing thread.
-    network: SyncNetworkContext,
+//    network: &'a mut SyncNetworkContext,
     /// The current state of the RangeSync
     state: SyncState,
     /// A collection of finalized chains that need to be downloaded.
@@ -426,7 +426,21 @@ struct RangeSync<T: EthSpec> {
     log: slog::Logger,
 }
 
-        pub fn add_peer(peer_id: PeerId, remote: PeerSyncInfo) {
+
+impl<T: EthSpec> RangeSync<T> {
+
+    pub fn new(chain: Weak<BeaconChain<T>>, log: slog::Logger) -> Self {
+        RangeSync {
+            chain, 
+            state: SyncState::Idle,
+            finalized_chains: Vec::new(),
+            head_chains: Vec::new(),
+            awaiting_head_peers: HashSet::new(),
+            log,
+        }
+    }
+
+        pub fn add_peer(&mut self, network: &mut SyncNetworkContext, peer_id: PeerId, remote: PeerSyncInfo) {
 
         // add the peer to our list of known peers
         self.known_peers.insert(peer_id);
@@ -543,12 +557,9 @@ struct RangeSync<T: EthSpec> {
             // allow for code simplicity and allow the processing to occur on a `SyncingChain`
             // struct.
             // Process the response
-            if chain.on_block_response(self.network, request_id, beacon_block) {
+            if chain.on_block_response(network, request_id, beacon_block) {
                 // the chain is complete, re-status it's peers and remove it
-
-                for peer_id in chain.peer_pool.iter() {
-                    network.status_peer(peer_id);
-                }
+                chain.status_peer();
 
                 // flag to start syncing a new chain as the current completed chain was the
                 // syncing chain
@@ -624,6 +635,8 @@ struct RangeSync<T: EthSpec> {
         // TODO: Write this
         pub fn inject_error(&mut self, peer_id: PeerId, request_id: RequestId) {
         }
+
+}
 
 // Helper function to process blocks which only consumes the chain and blocks to process
 fn process_blocks<T: BeaconChainTypes>(

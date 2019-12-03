@@ -61,7 +61,7 @@ pub struct MessageProcessor<T: BeaconChainTypes> {
     /// A oneshot channel for destroying the sync thread.
     _sync_exit: oneshot::Sender<()>,
     /// A network context to return and handle RPC requests.
-    network: NetworkContext,
+    network: HandlerNetworkContext,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -75,13 +75,12 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         log: &slog::Logger,
     ) -> Self {
         let sync_logger = log.new(o!("service"=> "sync"));
-        let sync_network_context = NetworkContext::new(network_send.clone(), sync_logger.clone());
 
         // spawn the sync thread
         let (sync_send, _sync_exit) = super::manager::spawn(
             executor,
             Arc::downgrade(&beacon_chain),
-            sync_network_context,
+            network_send.clone(),
             sync_logger,
         );
 
@@ -89,7 +88,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             chain: beacon_chain,
             sync_send,
             _sync_exit,
-            network: NetworkContext::new(network_send, log.clone()),
+            network: HandlerNetworkContext::new(network_send, log.clone()),
             log: log.clone(),
         }
     }
