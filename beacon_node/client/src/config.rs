@@ -1,4 +1,3 @@
-use clap::ArgMatches;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
@@ -22,6 +21,11 @@ pub enum ClientGenesis {
     DepositContract,
     /// Loads the genesis state from a SSZ-encoded `BeaconState` file.
     SszFile { path: PathBuf },
+    /// Loads the genesis state from SSZ-encoded `BeaconState` bytes.
+    ///
+    /// We include the bytes instead of the `BeaconState<E>` because the `EthSpec` type
+    /// parameter would be very annoying.
+    SszBytes { genesis_state_bytes: Vec<u8> },
     /// Connects to another Lighthouse instance and reads the genesis state and other data via the
     /// HTTP API.
     RemoteNode { server: String, port: Option<u16> },
@@ -37,6 +41,7 @@ impl Default for ClientGenesis {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub data_dir: PathBuf,
+    pub testnet_dir: Option<PathBuf>,
     pub log_file: PathBuf,
     pub spec_constants: String,
     /// If true, the node will use co-ordinated junk for eth1 values.
@@ -59,10 +64,11 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from(".lighthouse"),
+            testnet_dir: None,
             log_file: PathBuf::from(""),
             genesis: <_>::default(),
             store: <_>::default(),
-            network: NetworkConfig::new(),
+            network: NetworkConfig::default(),
             rest_api: <_>::default(),
             websocket_server: <_>::default(),
             spec_constants: TESTNET_SPEC_CONSTANTS.into(),
@@ -128,23 +134,6 @@ impl Config {
             .get_data_dir()
             .ok_or_else(|| "Unable to locate user home directory".to_string())?;
         ensure_dir_exists(path)
-    }
-
-    /// Apply the following arguments to `self`, replacing values if they are specified in `args`.
-    ///
-    /// Returns an error if arguments are obviously invalid. May succeed even if some values are
-    /// invalid.
-    pub fn apply_cli_args(&mut self, args: &ArgMatches, _log: &slog::Logger) -> Result<(), String> {
-        if let Some(dir) = args.value_of("datadir") {
-            self.data_dir = PathBuf::from(dir);
-        };
-
-        self.store.apply_cli_args(args)?;
-        self.network.apply_cli_args(args)?;
-        self.rest_api.apply_cli_args(args)?;
-        self.websocket_server.apply_cli_args(args)?;
-
-        Ok(())
     }
 }
 

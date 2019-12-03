@@ -77,7 +77,7 @@ impl<TSubstream> RPC<TSubstream> {
         RPC {
             events: Vec::new(),
             marker: PhantomData,
-            log: log,
+            log,
         }
     }
 

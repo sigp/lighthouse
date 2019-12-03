@@ -165,9 +165,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             }
 
                             Ok(())
-                        })
-                        // Prevent any errors from escaping and stopping the interval.
-                        .then(|_| Ok(())),
+                        }),
                 )
                 .map(move |_| info!(log_3, "Shutdown complete")),
         );

@@ -107,18 +107,18 @@ pub enum SyncMessage<T: EthSpec> {
     BlocksByRangeResponse {
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<BeaconBlock<T>>,
+        beacon_block: Option<Box<BeaconBlock<T>>>,
     },
 
     /// A `BlocksByRoot` response has been received.
     BlocksByRootResponse {
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<BeaconBlock<T>>,
+        beacon_block: Option<Box<BeaconBlock<T>>>,
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, BeaconBlock<T>),
+    UnknownBlock(PeerId, Box<BeaconBlock<T>>),
 
     /// A peer has sent an object that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -520,7 +520,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 parent_request.failed_attempts += 1;
                 parent_request.state = BlockRequestsState::Queued;
                 parent_request.last_submitted_peer = peer_id;
-                return;
             }
         }
     }
@@ -549,7 +548,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         BlockProcessingOutcome::Processed { block_root } => {
                             info!(self.log, "Processed block"; "block" => format!("{}", block_root));
                         }
-                        BlockProcessingOutcome::ParentUnknown { parent: _ } => {
+                        BlockProcessingOutcome::ParentUnknown { .. } => {
                             // We don't know of the blocks parent, begin a parent lookup search
                             self.add_unknown_block(peer_id, block);
                         }
@@ -580,10 +579,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // make sure this block is not already being searched for
         // TODO: Potentially store a hashset of blocks for O(1) lookups
         for parent_req in self.parent_queue.iter() {
-            if let Some(_) = parent_req
+            if parent_req
                 .downloaded_blocks
                 .iter()
-                .find(|d_block| d_block == &&block)
+                .any(|d_block| d_block == &block)
             {
                 // we are already searching for this block, ignore it
                 return;
@@ -915,14 +914,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // check if the chain exists
                 if let Some(chain) = self.chain.upgrade() {
                     match chain.process_block(block.clone()) {
-                        Ok(BlockProcessingOutcome::ParentUnknown { parent: _ }) => {
+                        Ok(BlockProcessingOutcome::ParentUnknown { .. }) => {
                             // need to keep looking for parents
                             completed_request.downloaded_blocks.push(block);
                             completed_request.state = BlockRequestsState::Queued;
                             re_run_poll = true;
                             break;
                         }
-                        Ok(BlockProcessingOutcome::Processed { block_root: _ })
+                        Ok(BlockProcessingOutcome::Processed { .. })
                         | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {}
                         Ok(outcome) => {
                             // it's a future slot or an invalid block, remove it and try again
@@ -965,13 +964,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
 
         // remove any fully processed parent chains
-        self.parent_queue.retain(|req| {
-            if req.state == BlockRequestsState::ReadyToProcess {
-                false
-            } else {
-                true
-            }
-        });
+        self.parent_queue
+            .retain(|req| req.state != BlockRequestsState::ReadyToProcess);
         re_run_poll
     }
 }
@@ -1172,17 +1166,21 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                         request_id,
                         beacon_block,
                     } => {
-                        self.blocks_by_range_response(peer_id, request_id, beacon_block);
+                        self.blocks_by_range_response(
+                            peer_id,
+                            request_id,
+                            beacon_block.map(|b| *b),
+                        );
                     }
                     SyncMessage::BlocksByRootResponse {
                         peer_id,
                         request_id,
                         beacon_block,
                     } => {
-                        self.blocks_by_root_response(peer_id, request_id, beacon_block);
+                        self.blocks_by_root_response(peer_id, request_id, beacon_block.map(|b| *b));
                     }
                     SyncMessage::UnknownBlock(peer_id, block) => {
-                        self.add_unknown_block(peer_id, block);
+                        self.add_unknown_block(peer_id, *block);
                     }
                     SyncMessage::UnknownBlockHash(peer_id, block_hash) => {
                         self.search_for_block(peer_id, block_hash);
@@ -1228,7 +1226,7 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
             }
 
             // Shutdown the thread if the chain has termined
-            if let None = self.chain.upgrade() {
+            if self.chain.upgrade().is_none() {
                 return Ok(Async::Ready(()));
             }
 
@@ -1240,6 +1238,6 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
         // update the state of the manager
         self.update_state();
 
-        return Ok(Async::NotReady);
+        Ok(Async::NotReady)
     }
 }

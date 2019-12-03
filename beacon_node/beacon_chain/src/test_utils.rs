@@ -25,7 +25,10 @@ use types::{
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 pub use types::test_utils::generate_deterministic_keypairs;
 
-pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690; // 4th September 2019
+// 4th September 2019
+pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
+// This parameter is required by a builder but not used because we use the `TestingSlotClock`.
+pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 
 pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec> = Witness<
     TStore,
@@ -98,9 +101,9 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
             .dummy_eth1_backend()
             .expect("should build dummy backend")
             .null_event_handler()
-            .testing_slot_clock(Duration::from_secs(1))
+            .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
-            .empty_reduced_tree_fork_choice()
+            .reduced_tree_fork_choice()
             .expect("should add fork choice to builder")
             .build()
             .expect("should build");
@@ -115,7 +118,7 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
 
 impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn with_disk_store(
+    pub fn new_with_disk_store(
         eth_spec_instance: E,
         store: Arc<DiskStore>,
         keypairs: Vec<Keypair>,
@@ -140,9 +143,46 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .dummy_eth1_backend()
             .expect("should build dummy backend")
             .null_event_handler()
+            .testing_slot_clock(HARNESS_SLOT_TIME)
+            .expect("should configure testing slot clock")
+            .reduced_tree_fork_choice()
+            .expect("should add fork choice to builder")
+            .build()
+            .expect("should build");
+
+        Self {
+            spec: chain.spec.clone(),
+            chain,
+            keypairs,
+        }
+    }
+
+    /// Instantiate a new harness with `validator_count` initial validators.
+    pub fn resume_from_disk_store(
+        eth_spec_instance: E,
+        store: Arc<DiskStore>,
+        keypairs: Vec<Keypair>,
+    ) -> Self {
+        let spec = E::default_spec();
+
+        let log = TerminalLoggerBuilder::new()
+            .level(Severity::Warning)
+            .build()
+            .expect("logger should build");
+
+        let chain = BeaconChainBuilder::new(eth_spec_instance)
+            .logger(log.clone())
+            .custom_spec(spec.clone())
+            .store(store.clone())
+            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
+            .resume_from_db()
+            .expect("should resume beacon chain from db")
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
+            .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
-            .empty_reduced_tree_fork_choice()
+            .reduced_tree_fork_choice()
             .expect("should add fork choice to builder")
             .build()
             .expect("should build");

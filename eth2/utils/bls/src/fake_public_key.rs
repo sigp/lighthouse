@@ -13,7 +13,7 @@ use std::hash::{Hash, Hasher};
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, Clone, Eq)]
+#[derive(Clone, Eq)]
 pub struct FakePublicKey {
     bytes: Vec<u8>,
     /// Never used, only use for compatibility with "real" `PublicKey`.
@@ -90,6 +90,12 @@ impl FakePublicKey {
 impl fmt::Display for FakePublicKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.concatenated_hex_id())
+    }
+}
+
+impl fmt::Debug for FakePublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "0x{}", self.as_hex_string())
     }
 }
 

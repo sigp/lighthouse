@@ -1,4 +1,7 @@
-use super::methods::{RPCErrorResponse, RPCResponse, RequestId};
+#![allow(clippy::type_complexity)]
+#![allow(clippy::cognitive_complexity)]
+
+use super::methods::{RPCErrorResponse, RequestId};
 use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
@@ -174,7 +177,6 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    #[inline]
     pub fn send_request(&mut self, rpc_event: RPCEvent) {
         self.keep_alive = KeepAlive::Yes;
 
@@ -194,21 +196,23 @@ where
     type OutboundProtocol = RPCRequest;
     type OutboundOpenInfo = RPCEvent; // Keep track of the id and the request
 
-    #[inline]
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
         self.listen_protocol.clone()
     }
 
-    #[inline]
     fn inject_fully_negotiated_inbound(
         &mut self,
         out: <RPCProtocol as InboundUpgrade<TSubstream>>::Output,
     ) {
+        // update the keep alive timeout if there are no more remaining outbound streams
+        if let KeepAlive::Until(_) = self.keep_alive {
+            self.keep_alive = KeepAlive::Until(Instant::now() + self.inactive_timeout);
+        }
+
         let (req, substream) = out;
         // drop the stream and return a 0 id for goodbye "requests"
         if let r @ RPCRequest::Goodbye(_) = req {
             self.events_out.push(RPCEvent::Request(0, r));
-            warn!(self.log, "Goodbye Received");
             return;
         }
 
@@ -226,7 +230,6 @@ where
         self.current_substream_id += 1;
     }
 
-    #[inline]
     fn inject_fully_negotiated_outbound(
         &mut self,
         out: <RPCRequest as OutboundUpgrade<TSubstream>>::Output,
@@ -245,14 +248,6 @@ where
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
         match rpc_event {
-            RPCEvent::Request(id, RPCRequest::Goodbye(_)) => {
-                // notify the application layer, that a goodbye has been sent, so the application can
-                // drop and remove the peer
-                self.events_out.push(RPCEvent::Response(
-                    id,
-                    RPCErrorResponse::Success(RPCResponse::Goodbye),
-                ));
-            }
             RPCEvent::Request(id, request) if request.expect_response() => {
                 // new outbound request. Store the stream and tag the output.
                 let delay_key = self
@@ -272,14 +267,11 @@ where
 
     // Note: If the substream has closed due to inactivity, or the substream is in the
     // wrong state a response will fail silently.
-    #[inline]
     fn inject_event(&mut self, rpc_event: Self::InEvent) {
         match rpc_event {
             RPCEvent::Request(_, _) => self.send_request(rpc_event),
             RPCEvent::Response(rpc_id, response) => {
                 // check if the stream matching the response still exists
-                trace!(self.log, "Checking for outbound stream");
-
                 // variables indicating if the response is an error response or a multi-part
                 // response
                 let res_is_error = response.is_error();
@@ -289,7 +281,6 @@ where
                     Some((substream_state, _)) => {
                         match std::mem::replace(substream_state, InboundSubstreamState::Poisoned) {
                             InboundSubstreamState::ResponseIdle(substream) => {
-                                trace!(self.log, "Stream is idle, sending message"; "message" => format!("{}", response));
                                 // close the stream if there is no response
                                 if let RPCErrorResponse::StreamTermination(_) = response {
                                     trace!(self.log, "Stream termination sent. Ending the stream");
@@ -307,7 +298,6 @@ where
                                 if res_is_multiple =>
                             {
                                 // the stream is in use, add the request to a pending queue
-                                trace!(self.log, "Adding message to queue"; "message" => format!("{}", response));
                                 (*self
                                     .queued_outbound_items
                                     .entry(rpc_id)
@@ -347,7 +337,6 @@ where
         }
     }
 
-    #[inline]
     fn inject_dial_upgrade_error(
         &mut self,
         _: Self::OutboundOpenInfo,
@@ -360,7 +349,6 @@ where
         }
     }
 
-    #[inline]
     fn connection_keep_alive(&self) -> KeepAlive {
         self.keep_alive
     }
@@ -393,7 +381,6 @@ where
             .poll()
             .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
         {
-            trace!(self.log, "Closing expired inbound stream");
             self.inbound_substreams.remove(stream_id.get_ref());
         }
 
@@ -403,7 +390,6 @@ where
             .poll()
             .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
         {
-            trace!(self.log, "Closing expired outbound stream");
             self.outbound_substreams.remove(stream_id.get_ref());
         }
 
@@ -412,7 +398,7 @@ where
             // Drain all queued items until all messages have been processed for this stream
             // TODO Improve this code logic
             let mut new_items_to_send = true;
-            while new_items_to_send == true {
+            while new_items_to_send {
                 new_items_to_send = false;
                 match self.inbound_substreams.entry(request_id) {
                     Entry::Occupied(mut entry) => {
@@ -427,7 +413,6 @@ where
                                 match substream.poll() {
                                     Ok(Async::Ready(raw_substream)) => {
                                         // completed the send
-                                        trace!(self.log, "RPC message sent");
 
                                         // close the stream if required
                                         if closing {
@@ -435,7 +420,6 @@ where
                                                 InboundSubstreamState::Closing(raw_substream)
                                         } else {
                                             // check for queued chunks and update the stream
-                                            trace!(self.log, "Checking for queued items");
                                             entry.get_mut().0 = apply_queued_responses(
                                                 raw_substream,
                                                 &mut self
@@ -463,7 +447,6 @@ where
                                 };
                             }
                             InboundSubstreamState::ResponseIdle(substream) => {
-                                trace!(self.log, "Idle stream searching queue");
                                 entry.get_mut().0 = apply_queued_responses(
                                     substream,
                                     &mut self.queued_outbound_items.get_mut(&request_id),
@@ -509,12 +492,11 @@ where
                             request,
                         } => match substream.poll() {
                             Ok(Async::Ready(Some(response))) => {
-                                trace!(self.log, "Message received"; "message" => format!("{}", response));
                                 if request.multiple_responses() {
                                     entry.get_mut().0 =
                                         OutboundSubstreamState::RequestPendingResponse {
                                             substream,
-                                            request: request,
+                                            request,
                                         };
                                     let delay_key = &entry.get().1;
                                     self.outbound_substreams_delay

@@ -3,6 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
+pub const DEFAULT_DATA_DIR: &str = ".lighthouse/validators";
 
 /// Specifies a method for obtaining validator keypairs.
 #[derive(Clone)]
@@ -36,8 +37,11 @@ pub struct Config {
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
+        let mut data_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        data_dir.push(".lighthouse");
+        data_dir.push("validators");
         Self {
-            data_dir: PathBuf::from(".lighthouse/validators"),
+            data_dir,
             key_source: <_>::default(),
             http_server: DEFAULT_HTTP_SERVER.to_string(),
         }
@@ -49,6 +53,19 @@ impl Config {
     /// `cli_args`.
     pub fn from_cli(cli_args: &ArgMatches) -> Result<Config, String> {
         let mut config = Config::default();
+
+        // Read the `--datadir` flag.
+        //
+        // If it's not present, try and find the home directory (`~`) and push the default data
+        // directory onto it. If the home directory is not available, use the present directory.
+        config.data_dir = cli_args
+            .value_of("datadir")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .map(|home| home.join(DEFAULT_DATA_DIR))
+                    .unwrap_or_else(|| PathBuf::from("."))
+            });
 
         if let Some(server) = cli_args.value_of("server") {
             config.http_server = server.to_string();

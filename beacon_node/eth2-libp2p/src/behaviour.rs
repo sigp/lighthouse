@@ -173,11 +173,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
                     info.listen_addrs.truncate(MAX_IDENTIFY_ADDRESSES);
                 }
                 debug!(self.log, "Identified Peer"; "Peer" => format!("{}", peer_id),
-                "Protocol Version" => info.protocol_version,
-                "Agent Version" => info.agent_version,
-                "Listening Addresses" => format!("{:?}", info.listen_addrs),
-                "Observed Address" => format!("{:?}", observed_addr),
-                "Protocols" => format!("{:?}", info.protocols)
+                "protocol_version" => info.protocol_version,
+                "agent_version" => info.agent_version,
+                "listening_ addresses" => format!("{:?}", info.listen_addrs),
+                "observed_address" => format!("{:?}", observed_addr),
+                "protocols" => format!("{:?}", info.protocols)
                 );
             }
             IdentifyEvent::Sent { .. } => {}
@@ -210,7 +210,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 
     /// Publishes a message on the pubsub (gossipsub) behaviour.
     pub fn publish(&mut self, topics: &[Topic], message: PubsubMessage) {
-        let message_data = message.to_data();
+        let message_data = message.into_data();
         for topic in topics {
             self.gossipsub.publish(topic, message_data.clone());
         }
@@ -295,7 +295,7 @@ impl PubsubMessage {
      * Also note that a message can be associated with many topics. As soon as one of the topics is
      * known we match. If none of the topics are known we return an unknown state.
      */
-    fn from_topics(topics: &Vec<TopicHash>, data: Vec<u8>) -> Self {
+    fn from_topics(topics: &[TopicHash], data: Vec<u8>) -> Self {
         for topic in topics {
             // compare the prefix and postfix, then match on the topic
             let topic_parts: Vec<&str> = topic.as_str().split('/').collect();
@@ -316,7 +316,7 @@ impl PubsubMessage {
         PubsubMessage::Unknown(data)
     }
 
-    fn to_data(self) -> Vec<u8> {
+    fn into_data(self) -> Vec<u8> {
         match self {
             PubsubMessage::Block(data)
             | PubsubMessage::Attestation(data)

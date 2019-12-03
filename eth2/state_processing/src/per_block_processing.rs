@@ -213,19 +213,35 @@ pub fn process_eth1_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     eth1_data: &Eth1Data,
 ) -> Result<(), Error> {
+    if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data) {
+        state.eth1_data = new_eth1_data;
+    }
+
     state.eth1_data_votes.push(eth1_data.clone())?;
 
+    Ok(())
+}
+
+/// Returns `Some(eth1_data)` if adding the given `eth1_data` to `state.eth1_data_votes` would
+/// result in a change to `state.eth1_data`.
+///
+/// Spec v0.9.1
+pub fn get_new_eth1_data<T: EthSpec>(
+    state: &BeaconState<T>,
+    eth1_data: &Eth1Data,
+) -> Option<Eth1Data> {
     let num_votes = state
         .eth1_data_votes
         .iter()
         .filter(|vote| *vote == eth1_data)
         .count();
 
-    if num_votes * 2 > T::SlotsPerEth1VotingPeriod::to_usize() {
-        state.eth1_data = eth1_data.clone();
+    // The +1 is to account for the `eth1_data` supplied to the function.
+    if 2 * (num_votes + 1) > T::SlotsPerEth1VotingPeriod::to_usize() {
+        Some(eth1_data.clone())
+    } else {
+        None
     }
-
-    Ok(())
 }
 
 /// Validates each `ProposerSlashing` and updates the state, short-circuiting on an invalid object.
