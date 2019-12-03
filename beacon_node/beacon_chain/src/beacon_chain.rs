@@ -6,7 +6,6 @@ use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
-use eth2_libp2p::{PersistedDht, DHT_DB_KEY};
 use lmd_ghost::LmdGhost;
 use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -177,13 +176,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(timer);
 
-        Ok(())
-    }
-
-    /// Attempt to persist the enrs in the DHT to `self.store`.
-    pub fn persist_dht(&self, enrs: PersistedDht) -> Result<(), Error> {
-        let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
-        self.store.put(&key, &enrs)?;
         Ok(())
     }
 

@@ -5,19 +5,23 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, Multiaddr, PeerId, Swarm, Topic};
+use eth2_libp2p::{PersistedDht, DHT_DB_KEY};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
 use parking_lot::Mutex;
 use slog::{debug, info, trace};
 use std::sync::Arc;
+use store::Store;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
+use types::Hash256;
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service<T: BeaconChainTypes> {
     libp2p_service: Arc<Mutex<LibP2PService>>,
     libp2p_port: u16,
+    store: Arc<T::Store>,
     _libp2p_exit: oneshot::Sender<()>,
     _network_send: mpsc::UnboundedSender<NetworkMessage>,
     _phantom: PhantomData<T>,
@@ -32,6 +36,8 @@ impl<T: BeaconChainTypes> Service<T> {
     ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage>)> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage>();
+        // Get a reference to the beacon chain store
+        let store = beacon_chain.store.clone();
         // launch message handler thread
         let message_handler_send = MessageHandler::spawn(
             beacon_chain,
@@ -46,6 +52,19 @@ impl<T: BeaconChainTypes> Service<T> {
             network_log.clone(),
         )?));
 
+        // Load DHT from store
+        let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
+        let enrs: Vec<Enr> = match store.get(&key) {
+            Ok(Some(p)) => {
+                let p: PersistedDht = p;
+                p.enrs
+            }
+            _ => Vec::new(),
+        };
+        for enr in enrs {
+            libp2p_service.lock().swarm.discovery_mut().add_enr(enr);
+        }
+
         let libp2p_exit = spawn_service(
             libp2p_service.clone(),
             network_recv,
@@ -57,6 +76,7 @@ impl<T: BeaconChainTypes> Service<T> {
         let network_service = Service {
             libp2p_service,
             libp2p_port: config.libp2p_port,
+            store,
             _libp2p_exit: libp2p_exit,
             _network_send: network_send.clone(),
             _phantom: PhantomData,
@@ -113,6 +133,21 @@ impl<T: BeaconChainTypes> Service<T> {
     /// Provides a reference to the underlying libp2p service.
     pub fn libp2p_service(&self) -> Arc<Mutex<LibP2PService>> {
         self.libp2p_service.clone()
+    }
+
+    /// Attempt to persist the enrs in the DHT to `self.store`.
+    pub fn persist_dht(&self) -> Result<(), store::Error> {
+        let enrs: Vec<Enr> = self
+            .libp2p_service()
+            .lock()
+            .swarm
+            .discovery_mut()
+            .enr_entries()
+            .map(|x| x.clone())
+            .collect();
+        let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
+        self.store.put(&key, &PersistedDht { enrs })?;
+        Ok(())
     }
 }
 

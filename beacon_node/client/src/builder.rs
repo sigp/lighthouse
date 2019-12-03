@@ -14,7 +14,6 @@ use beacon_chain::{
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_config::Eth2Config;
-use eth2_libp2p::{Enr, PersistedDht, DHT_DB_KEY};
 use exit_future::Signal;
 use futures::{future, Future, IntoFuture, Stream};
 use genesis::{
@@ -31,7 +30,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::timer::Interval;
-use types::{BeaconState, ChainSpec, EthSpec, Hash256};
+use types::{BeaconState, ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
 /// The interval between notifier events.
@@ -276,26 +275,6 @@ where
         let (network, network_send) =
             NetworkService::new(beacon_chain, config, &context.executor, context.log)
                 .map_err(|e| format!("Failed to start libp2p network: {:?}", e))?;
-
-        // Load DHT from store
-        if let Some(store) = &self.store {
-            let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
-            let enrs: Vec<Enr> = match store.get(&key) {
-                Ok(Some(p)) => {
-                    let p: PersistedDht = p;
-                    p.enrs
-                }
-                _ => Vec::new(),
-            };
-            for enr in enrs {
-                network
-                    .libp2p_service()
-                    .lock()
-                    .swarm
-                    .discovery_mut()
-                    .add_enr(enr);
-            }
-        }
 
         self.libp2p_network = Some(network);
         self.libp2p_network_send = Some(network_send);
