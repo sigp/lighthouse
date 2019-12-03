@@ -429,7 +429,7 @@ where
             let finalized_checkpoint = &self
                 .finalized_checkpoint
                 .as_ref()
-                .expect("should have finalized checkpoint");
+                .ok_or_else(|| "fork_choice_backend requires a finalized_checkpoint")?;
             let genesis_block_root = self
                 .genesis_block_root
                 .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;

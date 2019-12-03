@@ -280,9 +280,7 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 .rev()
                 .skip_while(|eth1_block| eth1_block.timestamp > voting_period_start_seconds)
                 .skip(eth1_follow_distance as usize)
-                .take(1)
-                .collect::<Vec<_>>()
-                .first()
+                .next()
                 .map(|block| {
                     trace!(
                         self.log,
@@ -293,7 +291,7 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
 
                     block
                 })
-                .and_then(|&block| block.clone().eth1_data())
+                .and_then(|block| block.clone().eth1_data())
                 .unwrap_or_else(|| {
                     crit!(
                         self.log,
@@ -404,7 +402,7 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
 /// Returns true if there are enough eth1 votes in the given `state` to have updated
 /// `state.eth1_data`.
 fn eth1_data_change_is_possible<E: EthSpec>(state: &BeaconState<E>) -> bool {
-    state.eth1_data_votes.len() as u64 >= E::SlotsPerEth1VotingPeriod::to_u64() / 2
+    2 * state.eth1_data_votes.len() > E::SlotsPerEth1VotingPeriod::to_usize()
 }
 
 /// Calculates and returns `(new_eth1_data, all_eth1_data)` for the given `state`, based upon the

@@ -237,7 +237,7 @@ pub fn get_new_eth1_data<T: EthSpec>(
         .count();
 
     // The +1 is to account for the `eth1_data` supplied to the function.
-    if num_votes * 2 + 1 > T::SlotsPerEth1VotingPeriod::to_usize() {
+    if 2 * (num_votes + 1) > T::SlotsPerEth1VotingPeriod::to_usize() {
         Some(eth1_data.clone())
     } else {
         None

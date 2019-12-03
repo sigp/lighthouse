@@ -4,7 +4,7 @@ use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
 use environment::{Environment, RuntimeContext};
 use eth2_testnet_config::Eth2TestnetConfig;
-use futures::{future, stream::unfold, Future, IntoFuture, Stream};
+use futures::{future, Future, IntoFuture, Stream};
 use rayon::prelude::*;
 use slog::{crit, error, info, Logger};
 use std::fs;
@@ -302,12 +302,12 @@ fn deposit_validators<E: EthSpec>(
         .and_then(move |(event_loop, transport)| {
             let web3 = Web3::new(transport);
 
-            unfold(validators.into_iter(), move |mut validators| {
-                let web3 = web3.clone();
-                let log = log_2.clone();
-                let password = password.clone();
+            futures::stream::iter_ok(validators)
+                .for_each(move |validator| {
+                    let web3 = web3.clone();
+                    let log = log_2.clone();
+                    let password = password.clone();
 
-                validators.next().map(move |validator| {
                     deposit_validator(
                         web3,
                         deposit_contract,
@@ -317,11 +317,8 @@ fn deposit_validators<E: EthSpec>(
                         password,
                         log,
                     )
-                    .map(|()| ((), validators))
                 })
-            })
-            .collect()
-            .map(|_| event_loop)
+                .map(|_| event_loop)
         })
         // Web3 gives errors if the event loop is dropped whilst performing requests.
         .map(|event_loop| drop(event_loop))
