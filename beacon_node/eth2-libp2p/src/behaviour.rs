@@ -4,7 +4,6 @@ use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
 use crate::{BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC};
-use enr::Enr;
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
@@ -19,10 +18,6 @@ use libp2p::{
 use slog::{debug, o};
 use std::num::NonZeroU32;
 use std::time::Duration;
-use store::{DBColumn, Error as StoreError, SimpleStoreItem};
-
-/// 32-byte key for accessing the `DhtEnrs`.
-pub const DHT_DB_KEY: &str = "PERSISTEDDHTPERSISTEDDHTPERSISTE";
 
 const MAX_IDENTIFY_ADDRESSES: usize = 20;
 
@@ -334,48 +329,5 @@ impl PubsubMessage {
             | PubsubMessage::AttesterSlashing(data)
             | PubsubMessage::Unknown(data) => data,
         }
-    }
-}
-
-pub struct PersistedDht {
-    pub enrs: Vec<Enr>,
-}
-
-impl SimpleStoreItem for PersistedDht {
-    fn db_column() -> DBColumn {
-        DBColumn::DhtEnrs
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        rlp::encode_list(&self.enrs)
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
-        let rlp = rlp::Rlp::new(bytes);
-        let enrs: Vec<Enr> = rlp
-            .as_list()
-            .map_err(|e| StoreError::RlpError(format!("{}", e)))?;
-        Ok(PersistedDht { enrs })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use enr::EnrBuilder;
-    use store::MemoryStore;
-    use store::Store;
-    use types::Hash256;
-    #[test]
-    fn test_persisted_dht() {
-        let store = MemoryStore::open();
-        let kp = Keypair::generate_secp256k1();
-        let enrs = vec![EnrBuilder::new("v4").build(&kp).unwrap()];
-        let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
-        store
-            .put(&key, &PersistedDht { enrs: enrs.clone() })
-            .unwrap();
-        let dht: PersistedDht = store.get(&key).unwrap().unwrap();
-        assert_eq!(dht.enrs, enrs);
     }
 }

@@ -1,11 +1,11 @@
 use crate::error;
 use crate::message_handler::{HandlerMessage, MessageHandler};
+use crate::persisted_dht::{PersistedDht, DHT_DB_KEY};
 use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, Multiaddr, PeerId, Swarm, Topic};
-use eth2_libp2p::{PersistedDht, DHT_DB_KEY};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
