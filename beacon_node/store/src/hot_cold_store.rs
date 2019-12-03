@@ -59,6 +59,10 @@ pub enum HotColdDbError {
     BlockReplayBeaconError(BeaconStateError),
     BlockReplaySlotError(SlotProcessingError),
     BlockReplayBlockError(BlockProcessingError),
+    InvalidSlotsPerRestorePoint {
+        slots_per_restore_point: u64,
+        slots_per_historical_root: u64,
+    },
 }
 
 impl Store for HotColdDB {
@@ -193,16 +197,18 @@ impl Store for HotColdDB {
 }
 
 impl HotColdDB {
-    pub fn open(
+    pub fn open<E: EthSpec>(
         hot_path: &Path,
         cold_path: &Path,
+        slots_per_restore_point: u64,
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Self, Error> {
+        Self::verify_slots_per_restore_point::<E>(slots_per_restore_point)?;
+
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
-            // FIXME(sproul): hardcoded
-            slots_per_restore_point: 64,
+            slots_per_restore_point,
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             spec,
@@ -458,6 +464,25 @@ impl HotColdDB {
         StateSlot::from(slot)
             .db_put(&self.cold_db, state_root)
             .map_err(Into::into)
+    }
+
+    /// Check that the restore point frequency is a divisor of the slots per historical root.
+    ///
+    /// This ensures that we have at least one restore point within range of our state
+    /// root history when iterating backwards (and allows for more frequent restore points if
+    /// desired).
+    fn verify_slots_per_restore_point<E: EthSpec>(
+        slots_per_restore_point: u64,
+    ) -> Result<(), HotColdDbError> {
+        let slots_per_historical_root = E::SlotsPerHistoricalRoot::to_u64();
+        if slots_per_restore_point > 0 && slots_per_historical_root % slots_per_restore_point == 0 {
+            Ok(())
+        } else {
+            Err(HotColdDbError::InvalidSlotsPerRestorePoint {
+                slots_per_restore_point,
+                slots_per_historical_root,
+            })
+        }
     }
 }
 

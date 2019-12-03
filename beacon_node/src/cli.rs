@@ -192,6 +192,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 // TODO: set this higher once we're not using testnets all the time.
                 .default_value("0")
         )
+        .arg(
+            Arg::with_name("slots-per-restore-point")
+                .long("slots-per-restore-point")
+                .value_name("SLOT_COUNT")
+                .help("Specifies how often a freezer DB restore point should be stored.")
+                .takes_value(true)
+        )
         /*
          * The "testnet" sub-command.
          *

@@ -7,9 +7,6 @@ use std::path::PathBuf;
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 
-/// Default directory name for the freezer database under the top-level data dir.
-const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
-
 /// Defines how the client should initialize the `BeaconChain` and other components.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientGenesis {
@@ -40,9 +37,6 @@ impl Default for ClientGenesis {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub data_dir: PathBuf,
-    pub db_type: String,
-    db_name: String,
-    freezer_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
     pub spec_constants: String,
     /// If true, the node will use co-ordinated junk for eth1 values.
@@ -54,6 +48,7 @@ pub struct Config {
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
     pub genesis: ClientGenesis,
+    pub store: store::StoreConfig,
     pub network: network::NetworkConfig,
     pub rest_api: rest_api::Config,
     pub websocket_server: websocket_server::Config,
@@ -65,10 +60,8 @@ impl Default for Config {
         Self {
             data_dir: PathBuf::from(".lighthouse"),
             log_file: PathBuf::from(""),
-            db_type: "disk".to_string(),
-            db_name: "chain_db".to_string(),
-            freezer_db_path: None,
             genesis: <_>::default(),
+            store: <_>::default(),
             network: NetworkConfig::new(),
             rest_api: <_>::default(),
             websocket_server: <_>::default(),
@@ -84,7 +77,7 @@ impl Config {
     /// Get the database path without initialising it.
     pub fn get_db_path(&self) -> Option<PathBuf> {
         self.get_data_dir()
-            .map(|data_dir| data_dir.join(&self.db_name))
+            .map(|data_dir| data_dir.join(&self.store.db_name))
     }
 
     /// Get the database path, creating it if necessary.
@@ -98,7 +91,7 @@ impl Config {
     /// Fetch default path to use for the freezer database.
     fn default_freezer_db_path(&self) -> Option<PathBuf> {
         self.get_data_dir()
-            .map(|data_dir| data_dir.join(DEFAULT_FREEZER_DB_DIR))
+            .map(|data_dir| data_dir.join(self.store.default_freezer_db_dir()))
     }
 
     /// Returns the path to which the client may initialize the on-disk freezer database.
@@ -106,7 +99,8 @@ impl Config {
     /// Will attempt to use the user-supplied path from e.g. the CLI, or will default
     /// to a directory in the data_dir if no path is provided.
     pub fn get_freezer_db_path(&self) -> Option<PathBuf> {
-        self.freezer_db_path
+        self.store
+            .freezer_db_path
             .clone()
             .or_else(|| self.default_freezer_db_path())
     }
@@ -145,10 +139,7 @@ impl Config {
             self.data_dir = PathBuf::from(dir);
         };
 
-        if let Some(freezer_dir) = args.value_of("freezer-dir") {
-            self.freezer_db_path = Some(PathBuf::from(freezer_dir));
-        }
-
+        self.store.apply_cli_args(args)?;
         self.network.apply_cli_args(args)?;
         self.rest_api.apply_cli_args(args)?;
         self.websocket_server.apply_cli_args(args)?;
