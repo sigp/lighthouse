@@ -4,7 +4,8 @@ use exit_future::Exit;
 use futures::Future;
 use integer_sqrt::IntegerSquareRoot;
 use rand::prelude::*;
-use slog::{crit, Logger};
+use slog::{crit, debug, error, trace, Logger};
+use state_processing::per_block_processing::get_new_eth1_data;
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::iter::FromIterator;
@@ -33,7 +34,7 @@ pub enum Error {
     /// voting period.
     UnableToGetPreviousStateRoot(BeaconStateError),
     /// The state required to find the previous eth1 block was not found in the store.
-    PreviousStateNotInDB,
+    PreviousStateNotInDB(Hash256),
     /// There was an error accessing an object in the database.
     StoreError(StoreError),
     /// The eth1 head block at the start of the eth1 voting period is unknown.
@@ -89,16 +90,21 @@ where
     /// Returns a list of `Deposits` that may be included in a block.
     ///
     /// Including all of the returned `Deposits` in a block should _not_ cause it to become
-    /// invalid.
+    /// invalid (i.e., this function should respect the maximum).
+    ///
+    /// `eth1_data_vote` is the `Eth1Data` that the block producer would include in their
+    /// block. This vote may change the `state.eth1_data` value, which would change the deposit
+    /// count and therefore change the output of this function.
     pub fn deposits_for_block_inclusion(
         &self,
         state: &BeaconState<E>,
+        eth1_data_vote: &Eth1Data,
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
         if self.use_dummy_backend {
-            DummyEth1ChainBackend::default().queued_deposits(state, spec)
+            DummyEth1ChainBackend::default().queued_deposits(state, eth1_data_vote, spec)
         } else {
-            self.backend.queued_deposits(state, spec)
+            self.backend.queued_deposits(state, eth1_data_vote, spec)
         }
     }
 }
@@ -119,6 +125,7 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     fn queued_deposits(
         &self,
         beacon_state: &BeaconState<T>,
+        eth1_data_vote: &Eth1Data,
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error>;
 }
@@ -131,6 +138,7 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
 pub struct DummyEth1ChainBackend<T: EthSpec>(PhantomData<T>);
 
 impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
+    /// Produce some deterministic junk based upon the current epoch.
     fn eth1_data(&self, state: &BeaconState<T>, _spec: &ChainSpec) -> Result<Eth1Data, Error> {
         let current_epoch = state.current_epoch();
         let slots_per_voting_period = T::slots_per_eth1_voting_period() as u64;
@@ -146,7 +154,13 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
         })
     }
 
-    fn queued_deposits(&self, _: &BeaconState<T>, _: &ChainSpec) -> Result<Vec<Deposit>, Error> {
+    /// The dummy back-end never produces deposits.
+    fn queued_deposits(
+        &self,
+        _: &BeaconState<T>,
+        _: &Eth1Data,
+        _: &ChainSpec,
+    ) -> Result<Vec<Deposit>, Error> {
         Ok(vec![])
     }
 }
@@ -201,24 +215,102 @@ impl<T: EthSpec, S: Store> CachingEth1Backend<T, S> {
 
 impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
     fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
+        // Note: we do not return random junk if this function call fails as it would be caused by
+        // an internal error.
         let prev_eth1_hash = eth1_block_hash_at_start_of_voting_period(self.store.clone(), state)?;
+
+        let period = T::SlotsPerEth1VotingPeriod::to_u64();
+        let eth1_follow_distance = spec.eth1_follow_distance;
+        let voting_period_start_slot = (state.slot / period) * period;
+        let voting_period_start_seconds = slot_start_seconds::<T>(
+            state.genesis_time,
+            spec.milliseconds_per_slot,
+            voting_period_start_slot,
+        );
 
         let blocks = self.core.blocks().read();
 
-        let eth1_data = eth1_data_sets(blocks.iter(), state, prev_eth1_hash, spec)
-            .map(|(new_eth1_data, all_eth1_data)| {
-                collect_valid_votes(state, new_eth1_data, all_eth1_data)
-            })
-            .and_then(find_winning_vote)
-            .unwrap_or_else(|| {
-                crit!(
-                    self.log,
-                    "Unable to cast valid vote for Eth1Data";
-                    "hint" => "check connection to eth1 node",
-                    "reason" => "no votes",
-                );
-                random_eth1_data()
-            });
+        let (new_eth1_data, all_eth1_data) = if let Some(sets) = eth1_data_sets(
+            blocks.iter(),
+            prev_eth1_hash,
+            voting_period_start_seconds,
+            spec,
+            &self.log,
+        ) {
+            sets
+        } else {
+            // The algorithm was unable to find the `new_eth1_data` and `all_eth1_data` sets.
+            //
+            // This is likely because the caches are empty or the previous eth1 block hash is not
+            // in the cache.
+            //
+            // This situation can also be caused when a testnet does not have an adequate delay
+            // between the eth1 genesis block and the eth2 genesis block. This delay needs to be at
+            // least `2 * ETH1_FOLLOW_DISTANCE`.
+            crit!(
+                self.log,
+                "Unable to find eth1 data sets";
+                "lowest_block_number" => self.core.lowest_block_number(),
+                "earliest_block_timestamp" => self.core.earliest_block_timestamp(),
+                "genesis_time" => state.genesis_time,
+                "outcome" => "casting random eth1 vote"
+            );
+
+            return Ok(random_eth1_data());
+        };
+
+        trace!(
+            self.log,
+            "Found eth1 data sets";
+            "all_eth1_data" => all_eth1_data.len(),
+            "new_eth1_data" => new_eth1_data.len(),
+        );
+
+        let valid_votes = collect_valid_votes(state, new_eth1_data, all_eth1_data);
+
+        let eth1_data = if let Some(eth1_data) = find_winning_vote(valid_votes) {
+            eth1_data
+        } else {
+            // In this case, there are no other viable votes (perhaps there are no votes yet or all
+            // the existing votes are junk).
+            //
+            // Here we choose the latest block in our voting window.
+            blocks
+                .iter()
+                .rev()
+                .skip_while(|eth1_block| eth1_block.timestamp > voting_period_start_seconds)
+                .skip(eth1_follow_distance as usize)
+                .next()
+                .map(|block| {
+                    trace!(
+                        self.log,
+                        "Choosing default eth1_data";
+                        "eth1_block_number" =>  block.number,
+                        "eth1_block_hash" => format!("{:?}", block.hash),
+                    );
+
+                    block
+                })
+                .and_then(|block| block.clone().eth1_data())
+                .unwrap_or_else(|| {
+                    crit!(
+                        self.log,
+                        "Unable to find a winning eth1 vote";
+                        "outcome" => "casting random eth1 vote"
+                    );
+
+                    random_eth1_data()
+                })
+        };
+
+        debug!(
+            self.log,
+            "Produced vote for eth1 chain";
+            "is_period_tail" => is_period_tail(state),
+            "deposit_root" => format!("{:?}", eth1_data.deposit_root),
+            "deposit_count" => eth1_data.deposit_count,
+            "block_hash" => format!("{:?}", eth1_data.block_hash),
+        );
 
         Ok(eth1_data)
     }
@@ -226,10 +318,15 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
     fn queued_deposits(
         &self,
         state: &BeaconState<T>,
+        eth1_data_vote: &Eth1Data,
         _spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
-        let deposit_count = state.eth1_data.deposit_count;
         let deposit_index = state.eth1_deposit_index;
+        let deposit_count = if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data_vote) {
+            new_eth1_data.deposit_count
+        } else {
+            state.eth1_data.deposit_count
+        };
 
         if deposit_index > deposit_count {
             Err(Error::DepositIndexTooHigh)
@@ -281,12 +378,14 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
 ) -> Result<Hash256, Error> {
     let period = T::SlotsPerEth1VotingPeriod::to_u64();
 
-    // Find `state.eth1_data.block_hash` for the state at the start of the voting period.
-    if state.slot % period < period / 2 {
-        // When the state is less than half way through the period we can safely assume that
-        // the eth1_data has not changed since the start of the period.
+    if !eth1_data_change_is_possible(state) {
+        // If there are less than 50% of the votes in the current state, it's impossible that the
+        // `eth1_data.block_hash` has changed from the value at `state.eth1_data.block_hash`.
         Ok(state.eth1_data.block_hash)
     } else {
+        // If there have been more than 50% of votes in this period it's possible (but not
+        // necessary) that the `state.eth1_data.block_hash` has been changed since the start of the
+        // voting period.
         let slot = (state.slot / period) * period;
         let prev_state_root = state
             .get_state_root(slot)
@@ -296,8 +395,14 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
             .get_state::<T>(&prev_state_root, Some(slot))
             .map_err(Error::StoreError)?
             .map(|state| state.eth1_data.block_hash)
-            .ok_or_else(|| Error::PreviousStateNotInDB)
+            .ok_or_else(|| Error::PreviousStateNotInDB(*prev_state_root))
     }
+}
+
+/// Returns true if there are enough eth1 votes in the given `state` to have updated
+/// `state.eth1_data`.
+fn eth1_data_change_is_possible<E: EthSpec>(state: &BeaconState<E>) -> bool {
+    2 * state.eth1_data_votes.len() > E::SlotsPerEth1VotingPeriod::to_usize()
 }
 
 /// Calculates and returns `(new_eth1_data, all_eth1_data)` for the given `state`, based upon the
@@ -305,24 +410,17 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
 ///
 /// `prev_eth1_hash` is the `eth1_data.block_hash` at the start of the voting period defined by
 /// `state.slot`.
-fn eth1_data_sets<'a, T: EthSpec, I>(
+fn eth1_data_sets<'a, I>(
     blocks: I,
-    state: &BeaconState<T>,
     prev_eth1_hash: Hash256,
+    voting_period_start_seconds: u64,
     spec: &ChainSpec,
+    log: &Logger,
 ) -> Option<(Eth1DataBlockNumber, Eth1DataBlockNumber)>
 where
-    T: EthSpec,
     I: DoubleEndedIterator<Item = &'a Eth1Block> + Clone,
 {
-    let period = T::SlotsPerEth1VotingPeriod::to_u64();
     let eth1_follow_distance = spec.eth1_follow_distance;
-    let voting_period_start_slot = (state.slot / period) * period;
-    let voting_period_start_seconds = slot_start_seconds::<T>(
-        state.genesis_time,
-        spec.milliseconds_per_slot,
-        voting_period_start_slot,
-    );
 
     let in_scope_eth1_data = blocks
         .rev()
@@ -345,6 +443,12 @@ where
             HashMap::from_iter(all_eth1_data),
         ))
     } else {
+        error!(
+            log,
+            "The previous eth1 hash is not in cache";
+            "previous_hash" => format!("{:?}", prev_eth1_hash)
+        );
+
         None
     }
 }
@@ -356,8 +460,6 @@ fn collect_valid_votes<T: EthSpec>(
     new_eth1_data: Eth1DataBlockNumber,
     all_eth1_data: Eth1DataBlockNumber,
 ) -> Eth1DataVoteCount {
-    let slots_per_eth1_voting_period = T::SlotsPerEth1VotingPeriod::to_u64();
-
     let mut valid_votes = HashMap::new();
 
     state
@@ -368,10 +470,7 @@ fn collect_valid_votes<T: EthSpec>(
                 .get(vote)
                 .map(|block_number| (vote.clone(), *block_number))
                 .or_else(|| {
-                    let slot = state.slot % slots_per_eth1_voting_period;
-                    let period_tail = slot >= slots_per_eth1_voting_period.integer_sqrt();
-
-                    if period_tail {
+                    if is_period_tail(state) {
                         all_eth1_data
                             .get(vote)
                             .map(|block_number| (vote.clone(), *block_number))
@@ -388,6 +487,15 @@ fn collect_valid_votes<T: EthSpec>(
         });
 
     valid_votes
+}
+
+/// Indicates if the given `state` is in the tail of it's eth1 voting period (i.e., in the later
+/// slots).
+fn is_period_tail<E: EthSpec>(state: &BeaconState<E>) -> bool {
+    let slots_per_eth1_voting_period = E::SlotsPerEth1VotingPeriod::to_u64();
+    let slot = state.slot % slots_per_eth1_voting_period;
+
+    slot >= slots_per_eth1_voting_period.integer_sqrt()
 }
 
 /// Selects the winning vote from `valid_votes`.
@@ -417,6 +525,7 @@ fn slot_start_seconds<T: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use environment::null_logger;
     use types::{test_utils::DepositTestTask, MinimalEthSpec};
 
     type E = MinimalEthSpec;
@@ -468,7 +577,6 @@ mod test {
 
     mod eth1_chain_json_backend {
         use super::*;
-        use environment::null_logger;
         use eth1::DepositLog;
         use store::MemoryStore;
         use types::test_utils::{generate_deterministic_keypair, TestingDepositBuilder};
@@ -514,7 +622,7 @@ mod test {
 
             assert!(
                 eth1_chain
-                    .deposits_for_block_inclusion(&state, spec)
+                    .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
                     .is_ok(),
                 "should succeed if cache is empty but no deposits are required"
             );
@@ -523,7 +631,7 @@ mod test {
 
             assert!(
                 eth1_chain
-                    .deposits_for_block_inclusion(&state, spec)
+                    .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
                     .is_err(),
                 "should fail to get deposits if required, but cache is empty"
             );
@@ -567,7 +675,7 @@ mod test {
 
             assert!(
                 eth1_chain
-                    .deposits_for_block_inclusion(&state, spec)
+                    .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
                     .is_ok(),
                 "should succeed if no deposits are required"
             );
@@ -579,7 +687,7 @@ mod test {
                     state.eth1_data.deposit_count = i as u64;
 
                     let deposits_for_inclusion = eth1_chain
-                        .deposits_for_block_inclusion(&state, spec)
+                        .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
                         .expect(&format!("should find deposit for {}", i));
 
                     let expected_len =
@@ -657,6 +765,14 @@ mod test {
             prev_state.slot = Slot::new(period * 1_000);
             state.slot = Slot::new(period * 1_000 + period / 2);
 
+            // Add 50% of the votes so a lookup is required.
+            for _ in 0..period / 2 + 1 {
+                state
+                    .eth1_data_votes
+                    .push(random_eth1_data())
+                    .expect("should push eth1 vote");
+            }
+
             (0..2048).for_each(|i| {
                 eth1_chain
                     .backend
@@ -728,6 +844,14 @@ mod test {
 
             state.slot = Slot::new(period / 2);
 
+            // Add 50% of the votes so a lookup is required.
+            for _ in 0..period / 2 + 1 {
+                state
+                    .eth1_data_votes
+                    .push(random_eth1_data())
+                    .expect("should push eth1 vote");
+            }
+
             let expected_root = Hash256::from_low_u64_be(42);
 
             prev_state.eth1_data.block_hash = expected_root;
@@ -757,8 +881,20 @@ mod test {
     mod eth1_data_sets {
         use super::*;
 
+        fn get_voting_period_start_seconds(state: &BeaconState<E>, spec: &ChainSpec) -> u64 {
+            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+            let voting_period_start_slot = (state.slot / period) * period;
+            slot_start_seconds::<E>(
+                state.genesis_time,
+                spec.milliseconds_per_slot,
+                voting_period_start_slot,
+            )
+        }
+
         #[test]
         fn empty_cache() {
+            let log = null_logger().unwrap();
+
             let spec = &E::default_spec();
             let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
             let prev_eth1_hash = Hash256::zero();
@@ -766,13 +902,21 @@ mod test {
             let blocks = vec![];
 
             assert_eq!(
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec),
+                eth1_data_sets(
+                    blocks.iter(),
+                    prev_eth1_hash,
+                    get_voting_period_start_seconds(&state, spec),
+                    &spec,
+                    &log
+                ),
                 None
             );
         }
 
         #[test]
         fn no_known_block_hash() {
+            let log = null_logger().unwrap();
+
             let mut spec = E::default_spec();
             spec.milliseconds_per_slot = 1_000;
 
@@ -782,13 +926,21 @@ mod test {
             let blocks = vec![get_eth1_block(0, 0)];
 
             assert_eq!(
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec),
+                eth1_data_sets(
+                    blocks.iter(),
+                    prev_eth1_hash,
+                    get_voting_period_start_seconds(&state, &spec),
+                    &spec,
+                    &log
+                ),
                 None
             );
         }
 
         #[test]
         fn ideal_scenario() {
+            let log = null_logger().unwrap();
+
             let mut spec = E::default_spec();
             spec.milliseconds_per_slot = 1_000;
 
@@ -805,9 +957,14 @@ mod test {
                 .map(|i| get_eth1_block(i, i))
                 .collect::<Vec<_>>();
 
-            let (new_eth1_data, all_eth1_data) =
-                eth1_data_sets(blocks.iter(), &state, prev_eth1_hash, &spec)
-                    .expect("should find data");
+            let (new_eth1_data, all_eth1_data) = eth1_data_sets(
+                blocks.iter(),
+                prev_eth1_hash,
+                get_voting_period_start_seconds(&state, &spec),
+                &spec,
+                &log,
+            )
+            .expect("should find data");
 
             assert_eq!(
                 all_eth1_data.len(),

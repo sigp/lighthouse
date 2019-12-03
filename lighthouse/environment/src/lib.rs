@@ -149,7 +149,7 @@ impl<E: EthSpec> RuntimeContext<E> {
     /// Returns a sub-context of this context.
     ///
     /// The generated service will have the `service_name` in all it's logs.
-    pub fn service_context(&self, service_name: &'static str) -> Self {
+    pub fn service_context(&self, service_name: String) -> Self {
         Self {
             executor: self.executor.clone(),
             log: self.log.new(o!("service" => service_name)),
@@ -170,7 +170,7 @@ pub struct Environment<E: EthSpec> {
     runtime: Runtime,
     log: Logger,
     eth_spec_instance: E,
-    eth2_config: Eth2Config,
+    pub eth2_config: Eth2Config,
 }
 
 impl<E: EthSpec> Environment<E> {

@@ -56,6 +56,29 @@ pub fn get_head<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&head)
 }
 
+#[derive(Serialize, Deserialize, Encode)]
+pub struct HeadBeaconBlock {
+    beacon_block_root: Hash256,
+    beacon_block_slot: Slot,
+}
+
+/// HTTP handler to return a list of head BeaconBlocks.
+pub fn get_heads<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    let heads = beacon_chain
+        .heads()
+        .into_iter()
+        .map(|(beacon_block_root, beacon_block_slot)| HeadBeaconBlock {
+            beacon_block_root,
+            beacon_block_slot,
+        })
+        .collect::<Vec<_>>();
+
+    ResponseBuilder::new(&req)?.body(&heads)
+}
+
 #[derive(Serialize, Encode)]
 #[serde(bound = "T: EthSpec")]
 pub struct BlockResponse<T: EthSpec> {

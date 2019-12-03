@@ -23,13 +23,14 @@ use lighthouse_bootstrap::Bootstrapper;
 use lmd_ghost::LmdGhost;
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
 use slog::{debug, error, info, warn};
+use ssz::Decode;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::timer::Interval;
-use types::{ChainSpec, EthSpec};
+use types::{BeaconState, ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
 /// The interval between notifier events.
@@ -37,7 +38,7 @@ pub const NOTIFIER_INTERVAL_SECONDS: u64 = 15;
 /// Create a warning log whenever the peer count is at or below this value.
 pub const WARN_PEER_COUNT: usize = 1;
 /// Interval between polling the eth1 node for genesis information.
-pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 500;
+pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
 
 /// Builds a `Client` instance.
 ///
@@ -148,7 +149,7 @@ where
                 })?;
                 let context = runtime_context
                     .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
-                    .service_context("beacon");
+                    .service_context("beacon".into());
                 let spec = chain_spec
                     .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
 
@@ -187,39 +188,33 @@ where
 
                             Box::new(future)
                         }
-                        ClientGenesis::DepositContract => {
-                            let genesis_service = Eth1GenesisService::new(
-                                // Some of the configuration options for `Eth1Config` are
-                                // hard-coded when listening for genesis from the deposit contract.
-                                //
-                                // The idea is that the `Eth1Config` supplied to this function
-                                // (`config`) is intended for block production duties (i.e.,
-                                // listening for deposit events and voting on eth1 data) and that
-                                // we can make listening for genesis more efficient if we modify
-                                // some params.
-                                Eth1Config {
-                                    // Truncating the block cache makes searching for genesis more
-                                    // complicated.
-                                    block_cache_truncation: None,
-                                    // Scan large ranges of blocks when awaiting genesis.
-                                    blocks_per_log_query: 1_000,
-                                    // Only perform a single log request each time the eth1 node is
-                                    // polled.
-                                    //
-                                    // For small testnets this makes finding genesis much faster,
-                                    // as it usually happens within 1,000 blocks.
-                                    max_log_requests_per_update: Some(1),
-                                    // Only perform a single block request each time the eth1 node
-                                    // is polled.
-                                    //
-                                    // For small testnets, this is much faster as they do not have
-                                    // a `MIN_GENESIS_SECONDS`, so after `MIN_GENESIS_VALIDATOR_COUNT`
-                                    // has been reached only a single block needs to be read.
-                                    max_blocks_per_update: Some(1),
-                                    ..config
-                                },
-                                context.log.clone(),
+                        ClientGenesis::SszBytes {
+                            genesis_state_bytes,
+                        } => {
+                            info!(
+                                context.log,
+                                "Starting from known genesis state";
                             );
+
+                            let result = BeaconState::from_ssz_bytes(&genesis_state_bytes)
+                                .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e));
+
+                            let future = result
+                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
+                                .into_future()
+                                .map(|v| (v, None));
+
+                            Box::new(future)
+                        }
+                        ClientGenesis::DepositContract => {
+                            info!(
+                                context.log,
+                                "Waiting for eth2 genesis from eth1";
+                                "eth1_node" => &config.endpoint
+                            );
+
+                            let genesis_service =
+                                Eth1GenesisService::new(config, context.log.clone());
 
                             let future = genesis_service
                                 .wait_for_genesis_state(
@@ -275,7 +270,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "libp2p_network requires a runtime_context")?
-            .service_context("network");
+            .service_context("network".into());
 
         let (network, network_send) =
             NetworkService::new(beacon_chain, config, &context.executor, context.log)
@@ -301,7 +296,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "http_server requires a runtime_context")?
-            .service_context("http");
+            .service_context("http".into());
         let network = self
             .libp2p_network
             .clone()
@@ -341,7 +336,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "peer_count_notifier requires a runtime_context")?
-            .service_context("peer_notifier");
+            .service_context("peer_notifier".into());
         let log = context.log.clone();
         let log_2 = context.log.clone();
         let network = self
@@ -384,7 +379,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "slot_notifier requires a runtime_context")?
-            .service_context("slot_notifier");
+            .service_context("slot_notifier".into());
         let log = context.log.clone();
         let log_2 = log.clone();
         let beacon_chain = self
@@ -498,7 +493,7 @@ where
                     .clone()
                     .ok_or_else(|| "beacon_chain requires a slot clock")?,
             )
-            .empty_reduced_tree_fork_choice()
+            .reduced_tree_fork_choice()
             .map_err(|e| format!("Failed to init fork choice: {}", e))?
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
@@ -537,7 +532,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
-            .service_context("ws");
+            .service_context("ws".into());
 
         let (sender, exit_signal, listening_addr): (
             WebSocketSender<TEthSpec>,
@@ -587,7 +582,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "disk_store requires a log".to_string())?
-            .service_context("freezer_db");
+            .service_context("freezer_db".into());
         let spec = self
             .chain_spec
             .clone()
@@ -715,7 +710,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "caching_eth1_backend requires a runtime_context")?
-            .service_context("eth1_rpc");
+            .service_context("eth1_rpc".into());
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
@@ -726,6 +721,17 @@ where
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config.clone())?;
+
+            // This cache is not useful because it's first (earliest) block likely the block that
+            // triggered genesis.
+            //
+            // In order to vote we need to be able to go back at least 2 * `ETH1_FOLLOW_DISTANCE`
+            // from the genesis-triggering block.  Presently the block cache does not support
+            // importing blocks with decreasing block numbers, it only accepts them in increasing
+            // order. If this turns out to be a bottleneck we can update the block cache to allow
+            // adding earlier blocks too.
+            eth1_service_from_genesis.drop_block_cache();
+
             CachingEth1Backend::from_service(eth1_service_from_genesis, store)
         } else {
             CachingEth1Backend::new(config, context.log, store)

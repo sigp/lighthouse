@@ -2,10 +2,9 @@
 //!
 //! Intended to be used for testing and simulation purposes. Not for production.
 
-use beacon_node::{beacon_chain::BeaconChainTypes, Client, ProductionBeaconNode};
+use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
 use futures::Future;
-use remote_beacon_node::RemoteBeaconNode;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempdir::TempDir;
@@ -14,22 +13,26 @@ use validator_client::{KeySource, ProductionValidatorClient};
 
 pub use beacon_node::{ClientConfig, ClientGenesis, ProductionClient};
 pub use environment;
+pub use remote_beacon_node::RemoteBeaconNode;
 pub use validator_client::Config as ValidatorConfig;
 
 /// Provids a beacon node that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
-pub struct LocalBeaconNode<T> {
-    pub client: T,
+pub struct LocalBeaconNode<E: EthSpec> {
+    pub client: ProductionClient<E>,
     pub datadir: TempDir,
 }
 
-impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
+impl<E: EthSpec> LocalBeaconNode<E> {
     /// Starts a new, production beacon node on the tokio runtime in the given `context`.
     ///
     /// The node created is using the same types as the node we use in production.
-    pub fn production(context: RuntimeContext<E>, mut client_config: ClientConfig) -> Self {
+    pub fn production(
+        context: RuntimeContext<E>,
+        mut client_config: ClientConfig,
+    ) -> impl Future<Item = Self, Error = String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempDir::new("lighthouse_node_test_rig")
             .expect("should create temp directory for client datadir");
@@ -37,19 +40,17 @@ impl<E: EthSpec> LocalBeaconNode<ProductionClient<E>> {
         client_config.data_dir = datadir.path().into();
         client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
 
-        let client = ProductionBeaconNode::new(context, client_config)
-            .wait()
-            .expect("should build production client")
-            .into_inner();
-
-        LocalBeaconNode { client, datadir }
+        ProductionBeaconNode::new(context, client_config).map(move |client| Self {
+            client: client.into_inner(),
+            datadir,
+        })
     }
 }
 
-impl<T: BeaconChainTypes> LocalBeaconNode<Client<T>> {
+impl<E: EthSpec> LocalBeaconNode<E> {
     /// Returns a `RemoteBeaconNode` that can connect to `self`. Useful for testing the node as if
     /// it were external this process.
-    pub fn remote_node(&self) -> Result<RemoteBeaconNode<T::EthSpec>, String> {
+    pub fn remote_node(&self) -> Result<RemoteBeaconNode<E>, String> {
         let socket_addr = self
             .client
             .http_listen_addr()
