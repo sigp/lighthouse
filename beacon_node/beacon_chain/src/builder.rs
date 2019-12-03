@@ -1,5 +1,6 @@
 use crate::eth1_chain::CachingEth1Backend;
 use crate::events::NullEventHandler;
+use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::{
     BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
@@ -88,6 +89,8 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
+    persisted_beacon_chain: Option<PersistedBeaconChain<T>>,
+    head_tracker: Option<HeadTracker>,
     spec: ChainSpec,
     log: Option<Logger>,
 }
@@ -128,6 +131,8 @@ where
             eth1_chain: None,
             event_handler: None,
             slot_clock: None,
+            persisted_beacon_chain: None,
+            head_tracker: None,
             spec: TEthSpec::default_spec(),
             log: None,
         }
@@ -208,11 +213,17 @@ where
 
         self.op_pool = Some(
             p.op_pool
+                .clone()
                 .into_operation_pool(&p.canonical_head.beacon_state, &self.spec),
         );
 
-        self.finalized_checkpoint = Some(p.canonical_head);
+        self.finalized_checkpoint = Some(p.finalized_checkpoint.clone());
         self.genesis_block_root = Some(p.genesis_block_root);
+        self.head_tracker = Some(
+            HeadTracker::from_ssz_container(&p.ssz_head_tracker)
+                .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
+        );
+        self.persisted_beacon_chain = Some(p);
 
         Ok(self)
     }
@@ -262,28 +273,6 @@ where
         });
 
         Ok(self.empty_op_pool())
-    }
-
-    /// Sets the `BeaconChain` fork choice backend.
-    ///
-    /// Requires the store and state to have been specified earlier in the build chain.
-    pub fn fork_choice_backend(mut self, backend: TLmdGhost) -> Result<Self, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "reduced_tree_fork_choice requires a store")?;
-        let genesis_block_root = self
-            .genesis_block_root
-            .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
-
-        self.fork_choice = Some(ForkChoice::new(
-            store,
-            backend,
-            genesis_block_root,
-            self.spec.genesis_slot,
-        ));
-
-        Ok(self)
     }
 
     /// Sets the `BeaconChain` eth1 backend.
@@ -337,18 +326,23 @@ where
         >,
         String,
     > {
-        let mut canonical_head = self
-            .finalized_checkpoint
-            .ok_or_else(|| "Cannot build without a state".to_string())?;
+        let log = self
+            .log
+            .ok_or_else(|| "Cannot build without a logger".to_string())?;
+
+        // If this beacon chain is being loaded from disk, use the stored head. Otherwise, just use
+        // the finalized checkpoint (which is probably genesis).
+        let mut canonical_head = if let Some(persisted_beacon_chain) = self.persisted_beacon_chain {
+            persisted_beacon_chain.canonical_head
+        } else {
+            self.finalized_checkpoint
+                .ok_or_else(|| "Cannot build without a state".to_string())?
+        };
 
         canonical_head
             .beacon_state
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
-
-        let log = self
-            .log
-            .ok_or_else(|| "Cannot build without a logger".to_string())?;
 
         if canonical_head.beacon_block.state_root != canonical_head.beacon_state_root {
             return Err("beacon_block.state_root != beacon_state".to_string());
@@ -379,6 +373,7 @@ where
             event_handler: self
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
+            head_tracker: self.head_tracker.unwrap_or_default(),
             log: log.clone(),
         };
 
@@ -414,27 +409,43 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
-    /// Initializes a new, empty (no recorded votes or blocks) fork choice, using the
-    /// `ThreadSafeReducedTree` backend.
+    /// Initializes a fork choice with the `ThreadSafeReducedTree` backend.
     ///
-    /// Requires the store and state to be initialized.
-    pub fn empty_reduced_tree_fork_choice(self) -> Result<Self, String> {
+    /// If this builder is being "resumed" from disk, then rebuild the last fork choice stored to
+    /// the database. Otherwise, create a new, empty fork choice.
+    pub fn reduced_tree_fork_choice(mut self) -> Result<Self, String> {
         let store = self
             .store
             .clone()
             .ok_or_else(|| "reduced_tree_fork_choice requires a store")?;
-        let finalized_checkpoint = &self
-            .finalized_checkpoint
-            .as_ref()
-            .expect("should have finalized checkpoint");
 
-        let backend = ThreadSafeReducedTree::new(
-            store.clone(),
-            &finalized_checkpoint.beacon_block,
-            finalized_checkpoint.beacon_block_root,
-        );
+        let fork_choice = if let Some(persisted_beacon_chain) = &self.persisted_beacon_chain {
+            ForkChoice::from_ssz_container(
+                persisted_beacon_chain.fork_choice.clone(),
+                store.clone(),
+            )
+            .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
+        } else {
+            let finalized_checkpoint = &self
+                .finalized_checkpoint
+                .as_ref()
+                .ok_or_else(|| "fork_choice_backend requires a finalized_checkpoint")?;
+            let genesis_block_root = self
+                .genesis_block_root
+                .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
 
-        self.fork_choice_backend(backend)
+            let backend = ThreadSafeReducedTree::new(
+                store.clone(),
+                &finalized_checkpoint.beacon_block,
+                finalized_checkpoint.beacon_block_root,
+            );
+
+            ForkChoice::new(store, backend, genesis_block_root, self.spec.genesis_slot)
+        };
+
+        self.fork_choice = Some(fork_choice);
+
+        Ok(self)
     }
 }
 
@@ -611,7 +622,7 @@ mod test {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
-            .empty_reduced_tree_fork_choice()
+            .reduced_tree_fork_choice()
             .expect("should add fork choice to builder")
             .build()
             .expect("should build");

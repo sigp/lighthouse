@@ -57,15 +57,15 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     ) -> impl Future<Item = Self, Error = String> + 'a {
         let log = context.log.clone();
 
-        // TODO: the eth2 config in the env is being completely ignored.
+        // TODO: the eth2 config in the env is being modified.
         //
         // See https://github.com/sigp/lighthouse/issues/602
-        get_configs(&matches, log).into_future().and_then(
-            move |(client_config, eth2_config, _log)| {
+        get_configs::<E>(&matches, context.eth2_config.clone(), log)
+            .into_future()
+            .and_then(move |(client_config, eth2_config, _log)| {
                 context.eth2_config = eth2_config;
                 Self::new(context, client_config)
-            },
-        )
+            })
     }
 
     /// Starts a new beacon node `Client` in the given `environment`.
@@ -126,10 +126,15 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                     .system_time_slot_clock()?
                     .websocket_event_handler(client_config.websocket_server.clone())?
                     .build_beacon_chain()?
-                    .libp2p_network(&client_config.network)?
-                    .http_server(&client_config, &http_eth2_config)?
-                    .peer_count_notifier()?
-                    .slot_notifier()?;
+                    .libp2p_network(&client_config.network)?;
+
+                let builder = if client_config.rest_api.enabled {
+                    builder.http_server(&client_config, &http_eth2_config)?
+                } else {
+                    builder
+                };
+
+                let builder = builder.peer_count_notifier()?.slot_notifier()?;
 
                 Ok(Self(builder.build()))
             })

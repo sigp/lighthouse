@@ -37,7 +37,7 @@ fn get_store(db_path: &TempDir) -> Arc<DiskStore> {
 }
 
 fn get_harness(store: Arc<DiskStore>, validator_count: usize) -> TestHarness {
-    let harness = BeaconChainHarness::with_disk_store(
+    let harness = BeaconChainHarness::new_with_disk_store(
         MinimalEthSpec,
         store,
         KEYPAIRS[0..validator_count].to_vec(),

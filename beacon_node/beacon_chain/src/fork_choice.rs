@@ -1,6 +1,7 @@
 use crate::{errors::BeaconChainError, metrics, BeaconChain, BeaconChainTypes};
 use lmd_ghost::LmdGhost;
 use parking_lot::RwLock;
+use ssz_derive::{Decode, Encode};
 use state_processing::{common::get_attesting_indices, per_slot_processing};
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
@@ -32,6 +33,16 @@ pub struct ForkChoice<T: BeaconChainTypes> {
     justified_checkpoint: RwLock<Checkpoint>,
     /// The best justified checkpoint we've seen, which may be ahead of `justified_checkpoint`.
     best_justified_checkpoint: RwLock<Checkpoint>,
+}
+
+impl<T: BeaconChainTypes> PartialEq for ForkChoice<T> {
+    /// This implementation ignores the `store`.
+    fn eq(&self, other: &Self) -> bool {
+        self.backend == other.backend
+            && self.genesis_block_root == other.genesis_block_root
+            && *self.justified_checkpoint.read() == *other.justified_checkpoint.read()
+            && *self.best_justified_checkpoint.read() == *other.best_justified_checkpoint.read()
+    }
 }
 
 impl<T: BeaconChainTypes> ForkChoice<T> {
@@ -291,6 +302,42 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             .update_finalized_root(finalized_block, finalized_block_root)
             .map_err(Into::into)
     }
+
+    /// Returns a `SszForkChoice` which contains the current state of `Self`.
+    pub fn as_ssz_container(&self) -> SszForkChoice {
+        SszForkChoice {
+            genesis_block_root: self.genesis_block_root.clone(),
+            justified_checkpoint: self.justified_checkpoint.read().clone(),
+            best_justified_checkpoint: self.best_justified_checkpoint.read().clone(),
+            backend_bytes: self.backend.as_bytes(),
+        }
+    }
+
+    /// Instantiates `Self` from a prior `SszForkChoice`.
+    ///
+    /// The created `Self` will have the same state as the `Self` that created the `SszForkChoice`.
+    pub fn from_ssz_container(ssz_container: SszForkChoice, store: Arc<T::Store>) -> Result<Self> {
+        let backend = LmdGhost::from_bytes(&ssz_container.backend_bytes, store.clone())?;
+
+        Ok(Self {
+            store,
+            backend,
+            genesis_block_root: ssz_container.genesis_block_root,
+            justified_checkpoint: RwLock::new(ssz_container.justified_checkpoint),
+            best_justified_checkpoint: RwLock::new(ssz_container.best_justified_checkpoint),
+        })
+    }
+}
+
+/// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
+///
+/// This is used when persisting the state of the `BeaconChain` to disk.
+#[derive(Encode, Decode, Clone)]
+pub struct SszForkChoice {
+    genesis_block_root: Hash256,
+    justified_checkpoint: Checkpoint,
+    best_justified_checkpoint: Checkpoint,
+    backend_bytes: Vec<u8>,
 }
 
 impl From<BeaconStateError> for Error {
