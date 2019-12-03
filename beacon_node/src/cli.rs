@@ -13,9 +13,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("network-dir")
                 .long("network-dir")
                 .value_name("DIR")
-                .help("Data directory for network keys.")
+                .help("Data directory for network keys. Defaults to network/ inside the beacon node \
+                       dir.")
                 .takes_value(true)
-                .global(true)
         )
         .arg(
             Arg::with_name("freezer-dir")
@@ -23,26 +23,33 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("DIR")
                 .help("Data directory for the freezer database.")
                 .takes_value(true)
-                .global(true)
+        )
+        .arg(
+            Arg::with_name("testnet-dir")
+                .long("testnet-dir")
+                .value_name("DIR")
+                .help("Path to directory containing eth2_testnet specs. Defaults to \
+                      a hard-coded Lighthouse testnet. Only effective if there is no \
+                      existing database.")
+                .takes_value(true)
         )
         /*
          * Network parameters.
          */
         .arg(
-            Arg::with_name("port-bump")
-                .long("port-bump")
-                .short("b")
-                .value_name("INCREMENT")
-                .help("Sets all listening TCP/UDP ports to default values, but with each port increased by \
-                      INCREMENT. Useful when starting multiple nodes on a single machine. Using increments \
-                      in multiples of 10 is recommended.")
-                .takes_value(true),
+            Arg::with_name("zero-ports")
+                .long("zero-ports")
+                .short("z")
+                .help("Sets all listening TCP/UDP ports to 0, allowing the OS to choose some \
+                       arbitrary free ports.")
+                .takes_value(false),
         )
         .arg(
             Arg::with_name("listen-address")
                 .long("listen-address")
                 .value_name("ADDRESS")
-                .help("The address lighthouse will listen for UDP and TCP connections. (default 127.0.0.1).")
+                .help("The address lighthouse will listen for UDP and TCP connections.")
+                .default_value("0.0.0.0")
                 .takes_value(true)
         )
         .arg(
@@ -50,13 +57,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("port")
                 .value_name("PORT")
                 .help("The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.")
-                .conflicts_with("port-bump")
+                .default_value("9000")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("maxpeers")
                 .long("maxpeers")
-                .help("The maximum number of peers (default 10).")
+                .help("The maximum number of peers.")
+                .default_value("10")
                 .takes_value(true),
         )
         .arg(
@@ -72,64 +80,70 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("disc-port")
                 .value_name("PORT")
                 .help("The discovery UDP port.")
-                .conflicts_with("port-bump")
+                .default_value("9000")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("discovery-address")
                 .long("discovery-address")
                 .value_name("ADDRESS")
-                .help("The IP address to broadcast to other peers on how to reach this node.")
+                .help("The IP address to broadcast to other peers on how to reach this node. \
+                       Default is determined automatically.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("topics")
                 .long("topics")
                 .value_name("STRING")
-                .help("One or more comma-delimited gossipsub topic strings to subscribe to.")
+                .help("One or more comma-delimited gossipsub topic strings to subscribe to. Default \
+                       is determined automatically.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("libp2p-addresses")
                 .long("libp2p-addresses")
                 .value_name("MULTIADDR")
-                .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer without an ENR.")
+                .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
+                       without an ENR.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("p2p-priv-key")
                 .long("p2p-priv-key")
                 .value_name("HEX")
-                .help("A secp256k1 secret key, represented as ASCII-encoded hex bytes (with or without 0x prefix).")
+                .help("A secp256k1 secret key, represented as ASCII-encoded hex bytes (with or \
+                       without 0x prefix). Default is either loaded from disk or generated \
+                       automatically.")
                 .takes_value(true),
         )
         /* REST API related arguments */
         .arg(
-            Arg::with_name("no-api")
-                .long("no-api")
-                .help("Disable RESTful HTTP API server.")
+            Arg::with_name("http")
+                .long("http")
+                .help("Enable RESTful HTTP API server. Disabled by default.")
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("api-address")
-                .long("api-address")
+            Arg::with_name("http-address")
+                .long("http-address")
                 .value_name("ADDRESS")
                 .help("Set the listen address for the RESTful HTTP API server.")
+                .default_value("127.0.0.1")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("api-port")
-                .long("api-port")
+            Arg::with_name("http-port")
+                .long("http-port")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
-                .conflicts_with("port-bump")
+                .default_value("5052")
                 .takes_value(true),
         )
         /* Websocket related arguments */
         .arg(
-            Arg::with_name("no-ws")
-                .long("no-ws")
-                .help("Disable websocket server.")
+            Arg::with_name("ws")
+                .long("ws")
+                .help("Enable the websocket server. Disabled by default.")
                 .takes_value(false),
         )
         .arg(
@@ -137,7 +151,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("ws-address")
                 .value_name("ADDRESS")
                 .help("Set the listen address for the websocket server.")
-                .conflicts_with_all(&["no-ws"])
+                .default_value("127.0.0.1")
                 .takes_value(true),
         )
         .arg(
@@ -145,7 +159,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("ws-port")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the websocket server.")
-                .conflicts_with_all(&["no-ws", "port-bump"])
+                .default_value("5053")
                 .takes_value(true),
         )
 
@@ -153,8 +167,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          * Eth1 Integration
          */
         .arg(
+            Arg::with_name("eth1")
+                .long("eth1")
+                .help("If present the node will connect to an eth1 node. This is required for \
+                       block production, you must use this flag if you wish to serve a validator.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("dummy-eth1")
                 .long("dummy-eth1")
+                .conflicts_with("eth1")
                 .help("If present, uses an eth1 backend that generates static dummy data.\
                       Identical to the method used at the 2019 Canada interop.")
         )
@@ -166,32 +188,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("http://localhost:8545")
         )
-        .arg(
-            Arg::with_name("eth1-follow")
-                .long("eth1-follow")
-                .value_name("BLOCK_COUNT")
-                .help("Specifies how many blocks we should cache behind the eth1 head. A larger number means a smaller cache.")
-                .takes_value(true)
-                // TODO: set this higher once we're not using testnets all the time.
-                .default_value("0")
-        )
-        .arg(
-            Arg::with_name("deposit-contract")
-                .long("deposit-contract")
-                .short("e")
-                .value_name("DEPOSIT-CONTRACT")
-                .help("Specifies the deposit contract address on the Eth1 chain.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("deposit-contract-deploy")
-                .long("deposit-contract-deploy")
-                .value_name("BLOCK_NUMBER")
-                .help("Specifies the block number that the deposit contract was deployed at.")
-                .takes_value(true)
-                // TODO: set this higher once we're not using testnets all the time.
-                .default_value("0")
-        )
         /*
          * The "testnet" sub-command.
          *
@@ -200,33 +196,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(SubCommand::with_name("testnet")
             .about("Create a new Lighthouse datadir using a testnet strategy.")
             .arg(
-                Arg::with_name("eth2-config")
-                    .long("eth2-config")
-                    .value_name("TOML_FILE")
-                    .help("A existing eth2_spec TOML file (e.g., eth2_spec.toml).")
-                    .takes_value(true)
-                    .conflicts_with("spec")
-            )
-            .arg(
-                Arg::with_name("client-config")
-                    .long("client-config")
-                    .value_name("TOML_FILE")
-                    .help("An existing beacon_node TOML file (e.g., beacon_node.toml).")
-                    .takes_value(true)
-            )
-            .arg(
                 Arg::with_name("random-datadir")
                     .long("random-datadir")
                     .short("r")
                     .help("If present, append a random string to the datadir path. Useful for fast development \
                           iteration.")
-            )
-            .arg(
-                Arg::with_name("random-propagation")
-                    .long("random-propagation")
-                    .value_name("INTEGER")
-                    .takes_value(true)
-                    .help("Specifies (as a percentage) the likelihood of propagating blocks and attestations. This should only be used for testing networking elements. The value must like in the range 1-100.")
             )
             .arg(
                 Arg::with_name("force")
@@ -237,32 +211,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .conflicts_with("random-datadir")
             )
             .arg(
+                Arg::with_name("random-propagation")
+                    .long("random-propagation")
+                    .value_name("INTEGER")
+                    .takes_value(true)
+                    .help("Specifies (as a percentage) the likelihood of propagating blocks and \
+                           attestations. This should only be used for testing networking elements. The \
+                           value must like in the range 1-100. Default is 100.")
+            )
+            .arg(
                 Arg::with_name("slot-time")
                     .long("slot-time")
                     .short("t")
                     .value_name("MILLISECONDS")
-                    .help("Defines the slot time when creating a new testnet.")
-            )
-            /*
-             * `boostrap`
-             *
-             * Start a new node by downloading genesis and network info from another node via the
-             * HTTP API.
-             */
-            .subcommand(SubCommand::with_name("bootstrap")
-                .about("Connects to the given HTTP server, downloads a genesis state and attempts to peer with it.")
-                .arg(Arg::with_name("server")
-                    .value_name("HTTP_SERVER")
-                    .required(true)
-                    .default_value("http://localhost:5052")
-                    .help("A HTTP server, with a http:// prefix"))
-                .arg(Arg::with_name("libp2p-port")
-                    .short("p")
-                    .long("port")
-                    .value_name("TCP_PORT")
-                    .help("A libp2p listen port used to peer with the bootstrap server. This flag is useful \
-                           when port-fowarding is used: you may connect using a different port than \
-                           the one the server is immediately listening on."))
+                    .help("Defines the slot time when creating a new testnet. The default is \
+                           specified by the spec.")
             )
             /*
              * `recent`
@@ -326,7 +289,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
              * Connect to the Prysmatic Labs testnet.
              */
             .subcommand(SubCommand::with_name("prysm")
-                .about("Connect to the Prysmatic Labs testnet on Goerli.")
+                .about("Connect to the Prysmatic Labs testnet on Goerli. Not guaranteed to be \
+                    up-to-date or functioning.")
             )
         )
 }

@@ -8,7 +8,7 @@ use futures::{
     Future,
 };
 use parking_lot::Mutex;
-use slog::{debug, error, info, Logger};
+use slog::{debug, error, info, trace, Logger};
 use state_processing::{
     initialize_beacon_state_from_eth1, is_valid_genesis_state,
     per_block_processing::process_deposit, process_activations,
@@ -37,7 +37,29 @@ pub struct Eth1GenesisService {
 
 impl Eth1GenesisService {
     /// Creates a new service. Does not attempt to connect to the Eth1 node.
+    ///
+    /// Modifies the given `config` to make it more suitable to the task of listening to genesis.
     pub fn new(config: Eth1Config, log: Logger) -> Self {
+        let config = Eth1Config {
+            // Truncating the block cache makes searching for genesis more
+            // complicated.
+            block_cache_truncation: None,
+            // Scan large ranges of blocks when awaiting genesis.
+            blocks_per_log_query: 1_000,
+            // Only perform a few log requests each time the eth1 node is polled.
+            //
+            // For small testnets this makes finding genesis much faster,
+            // as it usually happens within 1,000 blocks.
+            max_log_requests_per_update: Some(5),
+            // Only perform a few logs requests each time the eth1 node is polled.
+            //
+            // For small testnets, this is much faster as they do not have
+            // a `MIN_GENESIS_SECONDS`, so after `MIN_GENESIS_VALIDATOR_COUNT`
+            // has been reached only a single block needs to be read.
+            max_blocks_per_update: Some(5),
+            ..config
+        };
+
         Self {
             core: Service::new(config, log),
             highest_processed_block: Arc::new(Mutex::new(None)),
@@ -81,6 +103,7 @@ impl Eth1GenesisService {
                 let service_4 = service.clone();
                 let log = service.core.log.clone();
                 let min_genesis_active_validator_count = spec.min_genesis_active_validator_count;
+                let min_genesis_time = spec.min_genesis_time;
 
                 Delay::new(Instant::now() + update_interval)
                     .map_err(|e| format!("Delay between genesis deposit checks failed: {:?}", e))
@@ -161,6 +184,9 @@ impl Eth1GenesisService {
                             debug!(
                                 service_4.core.log,
                                 "No eth1 genesis block found";
+                                "latest_block_timestamp" => service_4.core.latest_block_timestamp(),
+                                "min_genesis_time" => min_genesis_time,
+                                "min_validator_count" => min_genesis_active_validator_count,
                                 "cached_blocks" => service_4.core.block_cache_len(),
                                 "cached_deposits" => service_4.core.deposit_cache_len(),
                                 "cache_head" => service_4.highest_known_block(),
@@ -205,22 +231,34 @@ impl Eth1GenesisService {
             .filter(|block| {
                 self.highest_known_block()
                     .map(|n| block.number <= n)
-                    .unwrap_or_else(|| false)
+                    .unwrap_or_else(|| true)
             })
             .find(|block| {
                 let mut highest_processed_block = self.highest_processed_block.lock();
+                let block_number = block.number;
 
                 let next_new_block_number =
                     highest_processed_block.map(|n| n + 1).unwrap_or_else(|| 0);
 
-                if block.number < next_new_block_number {
+                if block_number < next_new_block_number {
                     return false;
                 }
 
-                self.is_valid_genesis_eth1_block::<E>(block, &spec)
+                self.is_valid_genesis_eth1_block::<E>(block, &spec, &self.core.log)
                     .and_then(|val| {
                         *highest_processed_block = Some(block.number);
                         Ok(val)
+                    })
+                    .map(|is_valid| {
+                        if !is_valid {
+                            info!(
+                                self.core.log,
+                                "Inspected new eth1 block";
+                                "msg" => "did not trigger genesis",
+                                "block_number" => block_number
+                            );
+                        };
+                        is_valid
                     })
                     .unwrap_or_else(|_| {
                         error!(
@@ -301,6 +339,7 @@ impl Eth1GenesisService {
         &self,
         target_block: &Eth1Block,
         spec: &ChainSpec,
+        log: &Logger,
     ) -> Result<bool, String> {
         if target_block.timestamp < spec.min_genesis_time {
             Ok(false)
@@ -345,8 +384,16 @@ impl Eth1GenesisService {
                 })?;
 
             process_activations(&mut local_state, spec);
+            let is_valid = is_valid_genesis_state(&local_state, spec);
 
-            Ok(is_valid_genesis_state(&local_state, spec))
+            trace!(
+                log,
+                "Eth1 block inspected for genesis";
+                "active_validators" => local_state.get_active_validator_indices(local_state.current_epoch()).len(),
+                "validators" => local_state.validators.len()
+            );
+
+            Ok(is_valid)
         }
     }
 

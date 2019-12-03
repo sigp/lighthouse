@@ -1,13 +1,14 @@
 #[macro_use]
 extern crate log;
 
-mod deposit_contract;
+mod deploy_deposit_contract;
+mod eth1_genesis;
 mod parse_hex;
 mod pycli;
+mod refund_deposit_contract;
 mod transition_blocks;
 
 use clap::{App, Arg, SubCommand};
-use deposit_contract::run_deposit_contract;
 use environment::EnvironmentBuilder;
 use log::Level;
 use parse_hex::run_parse_hex;
@@ -24,8 +25,6 @@ fn main() {
     simple_logger::init_with_level(Level::Info).expect("logger should initialize");
 
     let matches = App::new("Lighthouse CLI Tool")
-        .version("0.1.0")
-        .author("Paul Hauner <paul@sigmaprime.io>")
         .about(
             "Performs various testing-related tasks, modelled after zcli. \
              by @protolambda.",
@@ -33,8 +32,6 @@ fn main() {
         .subcommand(
             SubCommand::with_name("genesis_yaml")
                 .about("Generates a genesis YAML file")
-                .version("0.1.0")
-                .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
                     Arg::with_name("num_validators")
                         .short("n")
@@ -73,8 +70,6 @@ fn main() {
         .subcommand(
             SubCommand::with_name("transition-blocks")
                 .about("Performs a state transition given a pre-state and block")
-                .version("0.1.0")
-                .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
                     Arg::with_name("pre-state")
                         .value_name("BEACON_STATE")
@@ -101,8 +96,6 @@ fn main() {
         .subcommand(
             SubCommand::with_name("pretty-hex")
                 .about("Parses SSZ encoded as ASCII 0x-prefixed hex")
-                .version("0.1.0")
-                .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
                     Arg::with_name("type")
                         .value_name("TYPE")
@@ -120,31 +113,32 @@ fn main() {
                 ),
         )
         .subcommand(
-            SubCommand::with_name("deposit-contract")
+            SubCommand::with_name("deploy-deposit-contract")
                 .about(
-                    "Uses an eth1 test rpc (e.g., ganache-cli) to simulate the deposit contract.",
+                    "Deploy an eth1 deposit contract and create a ~/.lighthouse/testnet directory \
+                    (unless another directory is specified).",
                 )
-                .version("0.1.0")
-                .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
-                    Arg::with_name("count")
-                        .short("c")
-                        .value_name("INTEGER")
+                    Arg::with_name("output")
+                        .short("o")
+                        .long("output")
+                        .value_name("PATH")
                         .takes_value(true)
-                        .required(true)
-                        .help("The number of deposits to be submitted."),
+                        .help("The output directory. Defaults to ~/.lighthouse/testnet"),
                 )
                 .arg(
-                    Arg::with_name("delay")
-                        .short("d")
-                        .value_name("MILLIS")
+                    Arg::with_name("min-genesis-time")
+                        .short("t")
+                        .long("min-genesis-time")
+                        .value_name("UNIX_EPOCH_SECONDS")
                         .takes_value(true)
-                        .required(true)
-                        .help("The delay (in milliseconds) between each deposit"),
+                        .default_value("0")
+                        .help("The MIN_GENESIS_TIME constant."),
                 )
                 .arg(
-                    Arg::with_name("endpoint")
+                    Arg::with_name("eth1-endpoint")
                         .short("e")
+                        .long("eth1-endpoint")
                         .value_name("HTTP_SERVER")
                         .takes_value(true)
                         .default_value("http://localhost:8545")
@@ -153,16 +147,84 @@ fn main() {
                 .arg(
                     Arg::with_name("confirmations")
                         .value_name("INTEGER")
+                        .long("confirmations")
                         .takes_value(true)
                         .default_value("3")
                         .help("The number of block confirmations before declaring the contract deployed."),
+                )
+                .arg(
+                    Arg::with_name("password")
+                        .long("password")
+                        .value_name("FILE")
+                        .takes_value(true)
+                        .help("The password file to unlock the eth1 account (see --index)"),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("refund-deposit-contract")
+                .about(
+                    "Calls the steal() function on a testnet eth1 contract.",
+                )
+                .arg(
+                    Arg::with_name("testnet-dir")
+                        .short("d")
+                        .long("testnet-dir")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
+                )
+                .arg(
+                    Arg::with_name("eth1-endpoint")
+                        .short("e")
+                        .long("eth1-endpoint")
+                        .value_name("HTTP_SERVER")
+                        .takes_value(true)
+                        .default_value("http://localhost:8545")
+                        .help("The URL to the eth1 JSON-RPC http API."),
+                )
+                .arg(
+                    Arg::with_name("password")
+                        .long("password")
+                        .value_name("FILE")
+                        .takes_value(true)
+                        .help("The password file to unlock the eth1 account (see --index)"),
+                )
+                .arg(
+                    Arg::with_name("account-index")
+                        .short("i")
+                        .long("account-index")
+                        .value_name("INDEX")
+                        .takes_value(true)
+                        .default_value("0")
+                        .help("The eth1 accounts[] index which will send the transaction"),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("eth1-genesis")
+                .about(
+                    "Listens to the eth1 chain and finds the genesis beacon state",
+                )
+                .arg(
+                    Arg::with_name("testnet-dir")
+                        .short("d")
+                        .long("testnet-dir")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
+                )
+                .arg(
+                    Arg::with_name("eth1-endpoint")
+                        .short("e")
+                        .long("eth1-endpoint")
+                        .value_name("HTTP_SERVER")
+                        .takes_value(true)
+                        .default_value("http://localhost:8545")
+                        .help("The URL to the eth1 JSON-RPC http API."),
                 )
         )
         .subcommand(
             SubCommand::with_name("pycli")
                 .about("TODO")
-                .version("0.1.0")
-                .author("Paul Hauner <paul@sigmaprime.io>")
                 .arg(
                     Arg::with_name("pycli-path")
                         .long("pycli-path")
@@ -178,7 +240,7 @@ fn main() {
     let env = EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .null_logger()
+        .async_logger("trace")
         .expect("should start null logger")
         .build()
         .expect("should build env");
@@ -219,7 +281,6 @@ fn main() {
                 "mainnet" => genesis_yaml::<MainnetEthSpec>(num_validators, genesis_time, file),
                 _ => unreachable!("guarded by slog possible_values"),
             };
-
             info!("Genesis state YAML file created. Exiting successfully.");
         }
         ("transition-blocks", Some(matches)) => run_transition_blocks(matches)
@@ -229,8 +290,16 @@ fn main() {
         }
         ("pycli", Some(matches)) => run_pycli::<LocalEthSpec>(matches)
             .unwrap_or_else(|e| error!("Failed to run pycli: {}", e)),
-        ("deposit-contract", Some(matches)) => run_deposit_contract::<LocalEthSpec>(env, matches)
-            .unwrap_or_else(|e| error!("Failed to run deposit contract sim: {}", e)),
+        ("deploy-deposit-contract", Some(matches)) => {
+            deploy_deposit_contract::run::<LocalEthSpec>(env, matches)
+                .unwrap_or_else(|e| error!("Failed to run deploy-deposit-contract command: {}", e))
+        }
+        ("refund-deposit-contract", Some(matches)) => {
+            refund_deposit_contract::run::<LocalEthSpec>(env, matches)
+                .unwrap_or_else(|e| error!("Failed to run refund-deposit-contract command: {}", e))
+        }
+        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<LocalEthSpec>(env, matches)
+            .unwrap_or_else(|e| error!("Failed to run eth1-genesis command: {}", e)),
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
 }

@@ -10,6 +10,56 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .subcommand(
                     SubCommand::with_name("new")
                         .about("Create a new Ethereum 2.0 validator.")
+                        .arg(
+                            Arg::with_name("deposit-value")
+                                .short("v")
+                                .long("deposit-value")
+                                .value_name("GWEI")
+                                .takes_value(true)
+                                .default_value("32000000000")
+                                .help("The deposit amount in Gwei (not Wei). Default is 32 ETH."),
+                        )
+                        .arg(
+                            Arg::with_name("send-deposits")
+                                .long("send-deposits")
+                                .help("If present, submit validator deposits to an eth1 endpoint /
+                                       defined by the --eth1-endpoint. Requires either the /
+                                       --deposit-contract or --testnet-dir flag.")
+                        )
+                        .arg(
+                            Arg::with_name("eth1-endpoint")
+                                .short("e")
+                                .long("eth1-endpoint")
+                                .value_name("HTTP_SERVER")
+                                .takes_value(true)
+                                .default_value("http://localhost:8545")
+                                .help("The URL to the Eth1 JSON-RPC HTTP API (e.g., Geth/Parity-Ethereum)."),
+                        )
+                        .arg(
+                            Arg::with_name("account-index")
+                                .short("i")
+                                .long("account-index")
+                                .value_name("INDEX")
+                                .takes_value(true)
+                                .default_value("0")
+                                .help("The eth1 accounts[] index which will send the transaction"),
+                        )
+                        .arg(
+                            Arg::with_name("password")
+                                .short("p")
+                                .long("password")
+                                .value_name("FILE")
+                                .takes_value(true)
+                                .help("The password file to unlock the eth1 account (see --index)"),
+                        )
+                        .arg(
+                            Arg::with_name("testnet-dir")
+                                .long("testnet-dir")
+                                .value_name("DIRECTORY")
+                                .takes_value(true)
+                                .help("The directory from which to read the deposit contract /
+                                       address. Defaults to the current Lighthouse testnet."),
+                        )
                         .subcommand(
                             SubCommand::with_name("insecure")
                                 .about("Produce insecure, ephemeral validators. DO NOT USE TO STORE VALUE.")
@@ -25,7 +75,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                     Arg::with_name("last")
                                         .index(2)
                                         .value_name("INDEX")
-                                        .help("Index of the first validator")
+                                        .help("Index of the last validator")
                                         .takes_value(true)
                                         .required(true),
                                 ),
