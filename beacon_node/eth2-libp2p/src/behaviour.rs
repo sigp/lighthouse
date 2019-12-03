@@ -88,6 +88,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         &self.discovery
     }
 
+    pub fn discovery_mut(&mut self) -> &mut Discovery<TSubstream> {
+        &mut self.discovery
+    }
+
     pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
         self.discovery.enr_entries()
     }
@@ -356,5 +360,26 @@ impl SimpleStoreItem for PersistedDht {
             .as_list()
             .map_err(|e| StoreError::RlpError(format!("{}", e)))?;
         Ok(PersistedDht { enrs })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use enr::EnrBuilder;
+    use store::MemoryStore;
+    use store::Store;
+    use types::Hash256;
+    #[test]
+    fn test_persisted_dht() {
+        let store = MemoryStore::open();
+        let kp = Keypair::generate_secp256k1();
+        let enrs = vec![EnrBuilder::new("v4").build(&kp).unwrap()];
+        let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
+        store
+            .put(&key, &PersistedDht { enrs: enrs.clone() })
+            .unwrap();
+        let dht: PersistedDht = store.get(&key).unwrap().unwrap();
+        assert_eq!(dht.enrs, enrs);
     }
 }
