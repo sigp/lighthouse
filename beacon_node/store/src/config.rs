@@ -1,4 +1,3 @@
-use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::{EthSpec, MinimalEthSpec};
@@ -29,17 +28,5 @@ impl Default for StoreConfig {
 impl StoreConfig {
     pub fn default_freezer_db_dir(&self) -> &'static str {
         DEFAULT_FREEZER_DB_DIR
-    }
-
-    pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), String> {
-        if let Some(freezer_dir) = args.value_of("freezer-dir") {
-            self.freezer_db_path = Some(PathBuf::from(freezer_dir));
-        }
-        if let Some(slots_per_restore_point) = args.value_of("slots-per-restore-point") {
-            self.slots_per_restore_point = slots_per_restore_point
-                .parse()
-                .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
-        }
-        Ok(())
     }
 }
