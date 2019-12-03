@@ -70,6 +70,7 @@ impl<T: BeaconChainTypes> Drop for Client<T> {
                     .libp2p_service()
                     .lock()
                     .swarm
+                    .discovery_mut()
                     .enr_entries()
                     .map(|x| x.clone())
                     .collect();

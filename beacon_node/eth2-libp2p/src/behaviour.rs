@@ -92,10 +92,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         &mut self.discovery
     }
 
-    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
-        self.discovery.enr_entries()
-    }
-
     pub fn gs(&self) -> &Gossipsub<TSubstream> {
         &self.gossipsub
     }
