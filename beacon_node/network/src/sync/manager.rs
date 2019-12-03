@@ -58,11 +58,13 @@
 //! if an attestation references an unknown block) this manager can search for the block and
 //! subsequently search for parents if needed.
 
-use super::message_processor::{status_message, PeerSyncInfo};
+use super::message_processor::PeerSyncInfo;
+use super::network_context::SyncNetworkContext;
+use super::range_sync::RangeSync;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RequestId};
+use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
 use futures::prelude::*;
@@ -170,7 +172,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     network: SyncNetworkContext,
 
     /// The object handling long-range batch load-balanced syncing.
-    range_sync: RangeSync<T::EthSpec>,
+    range_sync: RangeSync<T>,
 
     /// A collection of parent block lookups.
     parent_queue: SmallVec<[ParentRequests<T::EthSpec>; 3]>,
@@ -267,8 +269,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             "peer_head_slot" => remote.head_slot,
             "local_head_slot" => local.head_slot,
             );
-            // remove the peer from the queue if it exists
-            self.range_sync.remove_peer(&peer_id);
             self.add_full_peer(peer_id);
             return;
         }
@@ -287,7 +287,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
 
         // Add the peer to our RangeSync
-        self.range_sync.add_peer(self.network, peer_id, remote);
+        self.range_sync.add_peer(&mut self.network, peer_id, remote);
     }
 
     /// The response to a `BlocksByRoot` request.
@@ -637,6 +637,7 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                         beacon_block,
                     } => {
                         self.range_sync.blocks_by_range_response(
+                            &mut self.network,
                             peer_id,
                             request_id,
                             beacon_block.map(|b| *b),
@@ -676,120 +677,5 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
         self.update_state();
 
         Ok(Async::NotReady)
-    }
-}
-
-/// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
-pub struct SyncNetworkContext {
-    /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
-
-    request_id: RequestId,
-    /// Logger for the `SyncNetworkContext`.
-    log: slog::Logger,
-}
-
-impl SyncNetworkContext {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
-        Self {
-            network_send,
-            request_id: 0,
-            log,
-        }
-    }
-
-    fn status_peer<T: BeaconChainTypes>(&mut self, chain: Weak<BeaconChain<T>>, peer_id: PeerId) {
-        trace!(
-            self.log,
-            "Sending Status Request";
-            "method" => "STATUS",
-            "peer" => format!("{:?}", peer_id)
-        );
-        if let Some(chain) = chain.upgrade() {
-            self.send_rpc_request(peer_id, RPCRequest::Status(status_message(&chain)));
-        }
-    }
-
-    fn blocks_by_range_request(
-        &mut self,
-        peer_id: PeerId,
-        request: BlocksByRangeRequest,
-    ) -> Result<RequestId, &'static str> {
-        trace!(
-            self.log,
-            "Sending BlocksByRange Request";
-            "method" => "BlocksByRange",
-            "count" => request.count,
-            "peer" => format!("{:?}", peer_id)
-        );
-        self.send_rpc_request(peer_id.clone(), RPCRequest::BlocksByRange(request))
-    }
-
-    fn blocks_by_root_request(
-        &mut self,
-        peer_id: PeerId,
-        request: BlocksByRootRequest,
-    ) -> Result<RequestId, &'static str> {
-        trace!(
-            self.log,
-            "Sending BlocksByRoot Request";
-            "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
-            "peer" => format!("{:?}", peer_id)
-        );
-        self.send_rpc_request(peer_id.clone(), RPCRequest::BlocksByRoot(request))
-    }
-
-    fn downvote_peer(&mut self, peer_id: PeerId) {
-        trace!(
-            self.log,
-            "Peer downvoted";
-            "peer" => format!("{:?}", peer_id)
-        );
-        // TODO: Implement reputation
-        self.disconnect(peer_id.clone(), GoodbyeReason::Fault);
-    }
-
-    pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        warn!(
-            &self.log,
-            "Disconnecting peer (RPC)";
-            "reason" => format!("{:?}", reason),
-            "peer_id" => format!("{:?}", peer_id),
-        );
-
-        // ignore the error if the channel send fails
-        let _ = self.send_rpc_request(peer_id.clone(), RPCRequest::Goodbye(reason));
-        self.network_send
-            .try_send(NetworkMessage::Disconnect { peer_id })
-            .unwrap_or_else(|_| {
-                warn!(
-                    self.log,
-                    "Could not send a Disconnect to the network service"
-                )
-            });
-    }
-
-    pub fn send_rpc_request(
-        &mut self,
-        peer_id: PeerId,
-        rpc_request: RPCRequest,
-    ) -> Result<RequestId, &'static str> {
-        let request_id = self.request_id;
-        self.request_id += 1;
-        self.send_rpc_event(peer_id, RPCEvent::Request(request_id, rpc_request))?;
-        Ok(request_id)
-    }
-
-    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) -> Result<(), &'static str> {
-        self.network_send
-            .try_send(NetworkMessage::RPC(peer_id, rpc_event))
-            .map_err(|e| {
-                warn!(
-                    self.log,
-                    "Could not send RPC message to the network service"
-                );
-                "Network channel send Failed"
-            })
     }
 }
