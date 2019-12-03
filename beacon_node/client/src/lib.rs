@@ -66,8 +66,5 @@ impl<T: BeaconChainTypes> Drop for Client<T> {
         if let Some(beacon_chain) = &self.beacon_chain {
             let _result = beacon_chain.persist();
         }
-        if let Some(network) = &self.libp2p_network {
-            let _result = network.persist_dht();
-        }
     }
 }

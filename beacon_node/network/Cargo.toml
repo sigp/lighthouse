@@ -6,6 +6,7 @@ edition = "2018"
 
 [dev-dependencies]
 sloggers = "0.3.4"
+genesis = { path = "../genesis" }
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
