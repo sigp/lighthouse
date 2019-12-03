@@ -4,6 +4,7 @@ use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
 use crate::{BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC};
+use enr::Enr;
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
@@ -18,6 +19,10 @@ use libp2p::{
 use slog::{debug, o};
 use std::num::NonZeroU32;
 use std::time::Duration;
+use store::{DBColumn, Error as StoreError, SimpleStoreItem};
+
+/// 32-byte key for accessing the `DhtEnrs`.
+pub const DHT_DB_KEY: &str = "PERSISTEDDHTPERSISTEDDHTPERSISTE";
 
 const MAX_IDENTIFY_ADDRESSES: usize = 20;
 
@@ -81,6 +86,10 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 
     pub fn discovery(&self) -> &Discovery<TSubstream> {
         &self.discovery
+    }
+
+    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
+        self.discovery.enr_entries()
     }
 
     pub fn gs(&self) -> &Gossipsub<TSubstream> {
@@ -325,5 +334,27 @@ impl PubsubMessage {
             | PubsubMessage::AttesterSlashing(data)
             | PubsubMessage::Unknown(data) => data,
         }
+    }
+}
+
+pub struct PersistedDht {
+    pub enrs: Vec<Enr>,
+}
+
+impl SimpleStoreItem for PersistedDht {
+    fn db_column() -> DBColumn {
+        DBColumn::DhtEnrs
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        rlp::encode_list(&self.enrs)
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        let rlp = rlp::Rlp::new(bytes);
+        let enrs: Vec<Enr> = rlp
+            .as_list()
+            .map_err(|e| StoreError::RlpError(format!("{}", e)))?;
+        Ok(PersistedDht { enrs })
     }
 }

@@ -14,6 +14,7 @@ pub mod rpc;
 mod service;
 
 pub use behaviour::PubsubMessage;
+pub use behaviour::{PersistedDht, DHT_DB_KEY};
 pub use config::{
     Config as NetworkConfig, BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC, SHARD_TOPIC_PREFIX,
     TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX,

@@ -121,7 +121,7 @@ impl<TSubstream> Discovery<TSubstream> {
             info!(
             self.log,
             "ENR Updated";
-            "enr" => enr.to_base64(), 
+            "enr" => enr.to_base64(),
             "seq" => enr.seq(),
             "address" => format!("{:?}", socket));
             save_enr_to_disc(Path::new(&self.enr_dir), enr, &self.log)
@@ -161,6 +161,11 @@ impl<TSubstream> Discovery<TSubstream> {
     // TODO: Implement a timeout, after which we unban the peer
     pub fn peer_banned(&mut self, peer_id: PeerId) {
         self.banned_peers.insert(peer_id);
+    }
+
+    /// Returns an iterator over all enr entries in the DHT.
+    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
+        self.discovery.enr_entries()
     }
 
     /// Search for new peers using the underlying discovery mechanism.

@@ -6,7 +6,7 @@ pub mod builder;
 pub mod error;
 
 use beacon_chain::BeaconChain;
-use eth2_libp2p::{Enr, Multiaddr};
+use eth2_libp2p::{Enr, Multiaddr, PersistedDht};
 use exit_future::Signal;
 use network::Service as NetworkService;
 use std::net::SocketAddr;
@@ -65,6 +65,16 @@ impl<T: BeaconChainTypes> Drop for Client<T> {
     fn drop(&mut self) {
         if let Some(beacon_chain) = &self.beacon_chain {
             let _result = beacon_chain.persist();
+            if let Some(network) = &self.libp2p_network {
+                let enrs: Vec<Enr> = network
+                    .libp2p_service()
+                    .lock()
+                    .swarm
+                    .enr_entries()
+                    .map(|x| x.clone())
+                    .collect();
+                let _result = beacon_chain.persist_dht(PersistedDht { enrs });
+            }
         }
     }
 }
