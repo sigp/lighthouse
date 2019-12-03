@@ -168,18 +168,6 @@ impl<TSubstream> Discovery<TSubstream> {
         let random_node = NodeId::random();
         debug!(self.log, "Searching for peers");
         self.discovery.find_node(random_node);
-
-        // update the time until next discovery
-        let delay = {
-            if self.past_discovery_delay < MAX_TIME_BETWEEN_PEER_SEARCHES {
-                self.past_discovery_delay *= 2;
-                self.past_discovery_delay
-            } else {
-                MAX_TIME_BETWEEN_PEER_SEARCHES
-            }
-        };
-        self.peer_discovery_delay
-            .reset(Instant::now() + Duration::from_secs(delay));
     }
 }
 
@@ -248,6 +236,17 @@ where
                     if self.connected_peers.len() < self.max_peers {
                         self.find_peers();
                     }
+                    // update the time until next discovery
+                    let delay = {
+                        if self.past_discovery_delay < MAX_TIME_BETWEEN_PEER_SEARCHES {
+                            self.past_discovery_delay *= 2;
+                            self.past_discovery_delay
+                        } else {
+                            MAX_TIME_BETWEEN_PEER_SEARCHES
+                        }
+                    };
+                    self.peer_discovery_delay
+                        .reset(Instant::now() + Duration::from_secs(delay));
                 }
                 Ok(Async::NotReady) => break,
                 Err(e) => {
