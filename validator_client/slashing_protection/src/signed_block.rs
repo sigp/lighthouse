@@ -7,7 +7,6 @@ use types::{BeaconBlockHeader, Epoch, Hash256};
 
 #[derive(PartialEq, Debug)]
 pub enum InvalidBlock {
-    BlockSlotTooEarly(SignedBlock),
     DoubleBlockProposal(SignedBlock),
 }
 
@@ -104,10 +103,9 @@ impl ValidatorHistory<SignedBlock> {
                 )))
             }
         } else {
-            // No signed block with the same epoch -> the incoming block is targeting an invalid epoch
-            Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(
-                latest_block,
-            )))
+            Ok(Safe {
+                reason: ValidityReason::Valid
+            })
         }
     }
 }
@@ -207,7 +205,7 @@ mod block_tests {
     }
 
     #[test]
-    fn invalid_slot_too_early() {
+    fn valid_block_in_the_middle() {
         let (mut block_history, _attestation_file) = create_tmp();
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
@@ -222,14 +220,9 @@ mod block_tests {
 
         let new_block = block_builder(2 * slots_per_epoch);
         let res = block_history.update_if_valid(&new_block);
-        let slots_per_epoch = block_history
-            .slots_per_epoch()
-            .expect("should have slots_per_epoch");
         assert_eq!(
             res,
-            Err(NotSafe::InvalidBlock(InvalidBlock::BlockSlotTooEarly(
-                SignedBlock::from(&second, slots_per_epoch)
-            )))
+            Ok(())
         );
     }
 
