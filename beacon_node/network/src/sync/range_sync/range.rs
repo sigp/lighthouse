@@ -1,10 +1,10 @@
 use super::chain::SyncingChain;
-use crate::sync::message_processor::{PeerSyncInfo, FUTURE_SLOT_TOLERANCE};
+use crate::sync::message_processor::PeerSyncInfo;
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
-use slog::{crit, debug, info, trace, warn, Logger};
+use slog::{debug, trace, warn};
 use std::collections::HashSet;
 use std::sync::Weak;
 use types::{BeaconBlock, EthSpec};

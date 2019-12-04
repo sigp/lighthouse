@@ -43,7 +43,7 @@ impl SyncNetworkContext {
             "peer" => format!("{:?}", peer_id)
         );
         if let Some(chain) = chain.upgrade() {
-            self.send_rpc_request(peer_id, RPCRequest::Status(status_message(&chain)));
+            let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message(&chain)));
         }
     }
 
@@ -121,7 +121,7 @@ impl SyncNetworkContext {
     fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) -> Result<(), &'static str> {
         self.network_send
             .try_send(NetworkMessage::RPC(peer_id, rpc_event))
-            .map_err(|e| {
+            .map_err(|_| {
                 crit!(
                     self.log,
                     "Could not send RPC message to the network service"
