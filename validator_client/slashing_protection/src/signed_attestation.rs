@@ -83,7 +83,8 @@ impl ValidatorHistory<SignedAttestation> {
     ) -> Result<Safe, NotSafe> {
         if attestation_data.target.epoch <= attestation_data.source.epoch {
             return Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::InvalidData(attestation_data.clone())))
+                InvalidAttestation::InvalidData(attestation_data.clone()),
+            ));
         }
 
         let conn = self.conn_pool.get()?;
@@ -768,7 +769,12 @@ mod attestation_tests {
 
         let attestation_data = attestation_data_builder(222, 221);
         let res = attestation_history.update_if_valid(&attestation_data);
-        assert_eq!(res, Err(NotSafe::InvalidAttestation(InvalidAttestation::InvalidData(attestation_data))));
+        assert_eq!(
+            res,
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::InvalidData(attestation_data)
+            ))
+        );
     }
 
     #[test]
@@ -777,6 +783,11 @@ mod attestation_tests {
 
         let attestation_data = attestation_data_builder(222, 222);
         let res = attestation_history.update_if_valid(&attestation_data);
-        assert_eq!(res, Err(NotSafe::InvalidAttestation(InvalidAttestation::InvalidData(attestation_data))));
+        assert_eq!(
+            res,
+            Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::InvalidData(attestation_data)
+            ))
+        );
     }
 }

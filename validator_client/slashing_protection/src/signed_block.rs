@@ -104,7 +104,7 @@ impl ValidatorHistory<SignedBlock> {
             }
         } else {
             Ok(Safe {
-                reason: ValidityReason::Valid
+                reason: ValidityReason::Valid,
             })
         }
     }
@@ -220,10 +220,7 @@ mod block_tests {
 
         let new_block = block_builder(2 * slots_per_epoch);
         let res = block_history.update_if_valid(&new_block);
-        assert_eq!(
-            res,
-            Ok(())
-        );
+        assert_eq!(res, Ok(()));
     }
 
     #[test]
