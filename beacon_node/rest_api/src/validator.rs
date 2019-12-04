@@ -28,8 +28,8 @@ pub struct ValidatorDuty {
     pub attestation_committee_index: Option<CommitteeIndex>,
     /// The position of the validator in the committee.
     pub attestation_committee_position: Option<usize>,
-    /// The slot in which a validator must propose a block, or `null` if block production is not required.
-    pub block_proposal_slot: Option<Slot>,
+    /// The slots in which a validator must propose a block (can be empty).
+    pub block_proposal_slots: Vec<Slot>,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
@@ -161,17 +161,18 @@ fn return_validator_duties<T: BeaconChainTypes>(
                         ))
                     })?;
 
-                let block_proposal_slot = validator_proposers
+                let block_proposal_slots = validator_proposers
                     .iter()
-                    .find(|(i, _slot)| validator_index == *i)
-                    .map(|(_i, slot)| *slot);
+                    .filter(|(i, _slot)| validator_index == *i)
+                    .map(|(_i, slot)| *slot)
+                    .collect();
 
                 Ok(ValidatorDuty {
                     validator_pubkey,
                     attestation_slot: duties.map(|d| d.slot),
                     attestation_committee_index: duties.map(|d| d.index),
                     attestation_committee_position: duties.map(|d| d.committee_position),
-                    block_proposal_slot,
+                    block_proposal_slots,
                 })
             } else {
                 Ok(ValidatorDuty {
@@ -179,7 +180,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
                     attestation_slot: None,
                     attestation_committee_index: None,
                     attestation_committee_position: None,
-                    block_proposal_slot: None,
+                    block_proposal_slots: vec![],
                 })
             }
         })
