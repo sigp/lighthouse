@@ -79,8 +79,8 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         self.head_chains
             .retain(|chain| chain.target_head_slot > local_info.head_slot);
 
-        if remote.finalized_epoch > local_info.finalized_epoch {
-            trace!(self.log, "Peer added - Beginning a finalization sync"; "peer_id" => format!("{:?}", peer_id));
+        if remote_finalized_slot > local_info.head_slot {
+            debug!(self.log, "Beginning a finalization sync"; "peer_id" => format!("{:?}", peer_id));
             // finalized chain search
 
             // if a finalized chain already exists that matches, add this peer to the chain's peer
@@ -121,7 +121,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             } else {
                 // there is no finalized chain that matches this peer's last finalized target
                 // create a new finalized chain
-                trace!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id));
+                debug!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id), "start_slot" => local_finalized_slot.as_u64(), "end_slot" => remote_finalized_slot.as_u64(), "finalized_root" => format!("{}", remote.finalized_root));
                 self.finalized_chains.push(SyncingChain::new(
                     local_finalized_slot,
                     remote_finalized_slot,
@@ -144,7 +144,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             if !self.finalized_chains.is_empty() {
                 // If there are finalized chains to sync, finish these first, before syncing head
                 // chains. This allows us to re-sync all known peers
-                debug!(self.log, "Peer added - Waiting for finalized sync to complete"; "peer_id" => format!("{:?}", peer_id));
+                trace!(self.log, "Waiting for finalized sync to complete"; "peer_id" => format!("{:?}", peer_id));
                 return;
             }
 
@@ -152,34 +152,37 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             // earlier finalized chain from reaching here).
             trace!(self.log, "New peer added for recent head sync"; "peer_id" => format!("{:?}", peer_id));
 
-            // search if their is a matching head chain, then add the peer to the chain
+            // search if there is a matching head chain, then add the peer to the chain
             if let Some(index) = self.head_chains.iter().position(|chain| {
                 chain.target_head_root == remote.head_root
                     && chain.target_head_slot == remote.head_slot
             }) {
-                trace!(self.log, "Head chain exists, adding peer to the pool"; "peer_id" => format!("{:?}", peer_id));
+                debug!(self.log, "Adding peer to the existing head chain peer pool"; "head_root" => format!("{}",remote.head_root), "head_slot" => remote.head_slot, "peer_id" => format!("{:?}", peer_id));
 
                 // add the peer to the head's pool
                 self.head_chains[index].peer_pool.insert(peer_id.clone());
                 self.head_chains[index].peer_added(network, peer_id.clone(), &self.log);
-            }
-            // There are no other head chains that match this peers status, create a new one, and
-            // remove the peer from any old ones
-            self.head_chains.iter_mut().for_each(|chain| {
-                chain.peer_pool.remove(&peer_id);
-            });
-            self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
+            } else {
+                // There are no other head chains that match this peer's status, create a new one, and
+                // remove the peer from any old ones
+                self.head_chains.iter_mut().for_each(|chain| {
+                    chain.peer_pool.remove(&peer_id);
+                });
+                self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
 
-            let mut new_head_chain = SyncingChain::new(
-                local_finalized_slot,
-                remote.head_slot,
-                remote.head_root,
-                peer_id,
-            );
-            // All head chains can sync simultaneously
-            new_head_chain.start_syncing(network, local_finalized_slot, &self.log);
-            self.head_chains.push(new_head_chain);
-            self.state = SyncState::Head;
+                debug!(self.log, "Creating a new syncing head chain"; "head_root" => format!("{}",remote.head_root), "head_slot" => remote.head_slot, "peer_id" => format!("{:?}", peer_id));
+
+                let mut new_head_chain = SyncingChain::new(
+                    local_finalized_slot,
+                    remote.head_slot,
+                    remote.head_root,
+                    peer_id,
+                );
+                // All head chains can sync simultaneously
+                new_head_chain.start_syncing(network, local_finalized_slot, &self.log);
+                self.head_chains.push(new_head_chain);
+                self.state = SyncState::Head;
+            }
         }
     }
 
@@ -215,6 +218,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 beacon_block,
                 &self.log,
             ) {
+                trace!(self.log, "Finalized chain completed");
                 // the chain is complete, re-status it's peers and remove it
                 chain.status_peers(self.chain.clone(), network);
 
@@ -240,9 +244,13 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 beacon_block,
                 &self.log,
             ) {
+                debug!(self.log, "Head chain completed"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
                 // the chain is complete, re-status it's peers and remove it
                 chain.status_peers(self.chain.clone(), network);
-
+                // update the current state if necessary
+                if self.head_chains.len() == 1 {
+                    self.state = SyncState::Idle;
+                }
                 self.head_chains.swap_remove(index);
             }
         } else {
@@ -251,8 +259,9 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             debug!(self.log, "Range response without matching request"; "peer" => format!("{:?}", peer_id), "request_id" => request_id);
         }
 
-        // if a finalized chain has completed, check to see if a new chain needs to start syncing
+        // if a finalized syncing chain has completed, check to see if a new chain needs to start syncing
         if update_finalized {
+            debug!(self.log, "Finalized syncing chain completed");
             // remove any out-dated finalized chains, re statusing their peers.
             let local_info = match self.chain.upgrade() {
                 Some(chain) => PeerSyncInfo::from(&chain),
@@ -290,10 +299,12 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 self.finalized_chains[0].start_syncing(network, local_finalized_slot, &self.log);
             } else {
                 // there is no new finalized_chain, this was the last, re-status all head_peers to
-                // begin a head sync
+                // begin a head sync if necessary
                 for peer_id in self.awaiting_head_peers.iter() {
                     network.status_peer(self.chain.clone(), peer_id.clone());
                 }
+                // change the status to idle, as head syncing may not be required
+                self.state = SyncState::Idle;
             }
         }
     }
@@ -311,111 +322,4 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
     // TODO: Write this
     pub fn inject_error(&mut self, _peer_id: PeerId, _request_id: RequestId) {}
-}
-
-// Helper function to process blocks which only consumes the chain and blocks to process
-fn process_blocks<T: BeaconChainTypes>(
-    weak_chain: Weak<BeaconChain<T>>,
-    blocks: Vec<BeaconBlock<T::EthSpec>>,
-    log: &Logger,
-) -> Result<(), String> {
-    for block in blocks {
-        if let Some(chain) = weak_chain.upgrade() {
-            let processing_result = chain.process_block(block.clone());
-
-            if let Ok(outcome) = processing_result {
-                match outcome {
-                    BlockProcessingOutcome::Processed { block_root } => {
-                        // The block was valid and we processed it successfully.
-                        trace!(
-                            log, "Imported block from network";
-                            "slot" => block.slot,
-                            "block_root" => format!("{}", block_root),
-                        );
-                    }
-                    BlockProcessingOutcome::ParentUnknown { parent } => {
-                        // blocks should be sequential and all parents should exist
-                        trace!(
-                            log, "Parent block is unknown";
-                            "parent_root" => format!("{}", parent),
-                            "baby_block_slot" => block.slot,
-                        );
-                        return Err(format!(
-                            "Block at slot {} has an unknown parent.",
-                            block.slot
-                        ));
-                    }
-                    BlockProcessingOutcome::BlockIsAlreadyKnown => {
-                        // this block is already known to us, move to the next
-                        debug!(
-                            log, "Imported a block that is already known";
-                            "block_slot" => block.slot,
-                        );
-                    }
-                    BlockProcessingOutcome::FutureSlot {
-                        present_slot,
-                        block_slot,
-                    } => {
-                        if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot {
-                            // The block is too far in the future, drop it.
-                            trace!(
-                                log, "Block is ahead of our slot clock";
-                                "msg" => "block for future slot rejected, check your time",
-                                "present_slot" => present_slot,
-                                "block_slot" => block_slot,
-                                "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
-                            );
-                            return Err(format!(
-                                "Block at slot {} is too far in the future",
-                                block.slot
-                            ));
-                        } else {
-                            // The block is in the future, but not too far.
-                            trace!(
-                                log, "Block is slightly ahead of our slot clock, ignoring.";
-                                "present_slot" => present_slot,
-                                "block_slot" => block_slot,
-                                "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
-                            );
-                        }
-                    }
-                    BlockProcessingOutcome::WouldRevertFinalizedSlot { .. } => {
-                        trace!(
-                            log, "Finalized or earlier block processed";
-                            "outcome" => format!("{:?}", outcome),
-                        );
-                        // block reached our finalized slot or was earlier, move to the next block
-                    }
-                    BlockProcessingOutcome::GenesisBlock => {
-                        trace!(
-                            log, "Genesis block was processed";
-                            "outcome" => format!("{:?}", outcome),
-                        );
-                    }
-                    _ => {
-                        warn!(
-                            log, "Invalid block received";
-                            "msg" => "peer sent invalid block",
-                            "outcome" => format!("{:?}", outcome),
-                        );
-                        return Err(format!("Invalid block at slot {}", block.slot));
-                    }
-                }
-            } else {
-                warn!(
-                    log, "BlockProcessingFailure";
-                    "msg" => "unexpected condition in processing block.",
-                    "outcome" => format!("{:?}", processing_result)
-                );
-                return Err(format!(
-                    "Unexpected block processing error: {:?}",
-                    processing_result
-                ));
-            }
-        } else {
-            return Ok(()); // terminate early due to dropped beacon chain
-        }
-    }
-
-    Ok(())
 }
