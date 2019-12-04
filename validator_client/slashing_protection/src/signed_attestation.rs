@@ -38,6 +38,7 @@ pub enum InvalidAttestation {
     DoubleVote(SignedAttestation),
     SurroundingVote(SignedAttestation),
     SurroundedVote(SignedAttestation),
+    InvalidData(AttestationData),
 }
 
 fn check_surrounded(
@@ -80,8 +81,12 @@ impl ValidatorHistory<SignedAttestation> {
         &self,
         attestation_data: &AttestationData,
     ) -> Result<Safe, NotSafe> {
-        let conn = self.conn_pool.get()?;
+        if attestation_data.target.epoch <= attestation_data.source.epoch {
+            return Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::InvalidData(attestation_data.clone())))
+        }
 
+        let conn = self.conn_pool.get()?;
         // Checking if history is empty
         let mut empty_select = conn.prepare("select 1 from signed_attestations limit 1")?;
         if !empty_select.exists(params![])? {
@@ -755,5 +760,23 @@ mod attestation_tests {
         let attestation_data = attestation_data_builder(222, 223);
         let res = attestation_history.update_if_valid(&attestation_data);
         assert_eq!(res, Err(NotSafe::PruningError));
+    }
+
+    #[test]
+    fn invalid_attestation_target_smaller_than_source() {
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let attestation_data = attestation_data_builder(222, 221);
+        let res = attestation_history.update_if_valid(&attestation_data);
+        assert_eq!(res, Err(NotSafe::InvalidAttestation(InvalidAttestation::InvalidData(attestation_data))));
+    }
+
+    #[test]
+    fn invalid_attestation_target_equal_to_source() {
+        let (mut attestation_history, _attestation_file) = create_tmp();
+
+        let attestation_data = attestation_data_builder(222, 222);
+        let res = attestation_history.update_if_valid(&attestation_data);
+        assert_eq!(res, Err(NotSafe::InvalidAttestation(InvalidAttestation::InvalidData(attestation_data))));
     }
 }
