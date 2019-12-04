@@ -294,14 +294,16 @@ fn check_duties<T: BeaconChainTypes>(
                 "attestation index should match"
             );
 
-            if let Some(slot) = duty.block_proposal_slot {
-                let expected_proposer = state
-                    .get_beacon_proposer_index(slot, spec)
-                    .expect("should know proposer");
-                assert_eq!(
-                    expected_proposer, validator_index,
-                    "should get correct proposal slot"
-                );
+            if !duty.block_proposal_slots.is_empty() {
+                for slot in &duty.block_proposal_slots {
+                    let expected_proposer = state
+                        .get_beacon_proposer_index(*slot, spec)
+                        .expect("should know proposer");
+                    assert_eq!(
+                        expected_proposer, validator_index,
+                        "should get correct proposal slot"
+                    );
+                }
             } else {
                 epoch.slot_iter(E::slots_per_epoch()).for_each(|slot| {
                     let slot_proposer = state
@@ -314,6 +316,16 @@ fn check_duties<T: BeaconChainTypes>(
                 })
             }
         });
+
+    // Validator duties should include a proposer for every slot of the epoch.
+    let mut all_proposer_slots: Vec<Slot> = duties
+        .iter()
+        .flat_map(|duty| duty.block_proposal_slots.clone())
+        .collect();
+    all_proposer_slots.sort();
+
+    let all_slots: Vec<Slot> = epoch.slot_iter(E::slots_per_epoch()).collect();
+    assert_eq!(all_proposer_slots, all_slots);
 }
 
 #[test]
