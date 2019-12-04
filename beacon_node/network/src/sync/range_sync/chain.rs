@@ -17,7 +17,7 @@ use types::{BeaconBlock, EthSpec, Hash256, Slot};
 /// to do so.
 //TODO: Make this dynamic based on peer's bandwidth
 const BLOCKS_PER_REQUEST: u64 = 50;
-struct Batch<T: EthSpec> {
+pub struct Batch<T: EthSpec> {
     /// The ID of the batch, batches are ID's sequentially.
     id: u64,
     /// The requested start slot of the batch.
@@ -27,11 +27,11 @@ struct Batch<T: EthSpec> {
     /// The hash of the chain root to requested from the peer.
     head_root: Hash256,
     /// The peer that was originally assigned to the batch.
-    original_peer: PeerId,
+    _original_peer: PeerId,
     /// The peer that is currently assigned to the batch.
     current_peer: PeerId,
     /// The number of retries this batch has undergone.
-    retries: u8,
+    _retries: u8,
     /// The blocks that have been downloaded.
     downloaded_blocks: Vec<BeaconBlock<T>>,
 }
@@ -43,9 +43,9 @@ impl<T: EthSpec> Batch<T> {
             start_slot,
             end_slot,
             head_root,
-            original_peer: peer_id,
+            _original_peer: peer_id.clone(),
             current_peer: peer_id,
-            retries: 0,
+            _retries: 0,
             downloaded_blocks: Vec::new(),
         }
     }
@@ -114,7 +114,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_root: Hash256,
         peer_id: PeerId,
     ) -> Self {
-        let peer_pool = HashSet::new();
+        let mut peer_pool = HashSet::new();
         peer_pool.insert(peer_id);
 
         SyncingChain {
@@ -161,7 +161,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     return false;
                 }
             };
-            let current_peer = batch.current_peer.clone();
             self.process_completed_batch(chain, network, batch, log)
         }
     }
@@ -227,7 +226,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // the batch was empty, progress to the next block
                         self.to_be_processed_id += 1;
                         continue;
-                    } else if self.process_batch(chain, batch) {
+                    } else if process_batch(chain.clone(), batch) {
+                        info!(log, "Blocks Processed"; "current_slot" => batch.end_slot);
                         // batch was successfully processed
                         self.last_processed_id;
                         self.to_be_processed_id += 1;
@@ -238,10 +238,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // an invalid batch.
 
                         // firstly remove any validated batches
-                        self.completed_batches
-                            .retain(|batch| batch.id >= self.last_processed_id);
                         self.handle_invalid_batch(chain, network);
-                        return false;
+                        break;
                     }
                 } else {
                     // there are no more batches to be processed, end
@@ -249,8 +247,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
             }
             // remove any validated batches
+            let last_processed_id = self.last_processed_id;
             self.completed_batches
-                .retain(|batch| batch.id >= self.last_processed_id);
+                .retain(|batch| batch.id >= last_processed_id);
 
             // check if the chain has completed syncing, if not, request another batch from this peer
             if self.start_slot + self.last_processed_id * BLOCKS_PER_REQUEST
@@ -268,14 +267,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    fn process_batch(&mut self, chain: Weak<BeaconChain<T>>, batch: &Batch<T::EthSpec>) -> bool {
-        true
-    }
-
     fn handle_invalid_batch(
         &mut self,
-        chain: Weak<BeaconChain<T>>,
-        network: &mut SyncNetworkContext,
+        _chain: Weak<BeaconChain<T>>,
+        _network: &mut SyncNetworkContext,
     ) {
         // The current batch could not be processed, indicating either the current or previous
         // batches are invalid
@@ -355,8 +350,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 self.to_be_downloaded_id = self.last_processed_id;
             }
 
+            let last_processed_id = self.last_processed_id;
             self.completed_batches
-                .retain(|batch| batch.id >= self.last_processed_id.saturating_sub(1));
+                .retain(|batch| batch.id >= last_processed_id.saturating_sub(1));
         }
 
         // Now begin requesting blocks from the peer pool. Ignore any peers with currently
@@ -364,16 +360,22 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let pending_peers = self
             .pending_batches
             .values()
-            .map(|batch| batch.current_peer)
+            .map(|batch| batch.current_peer.clone())
             .collect::<Vec<_>>();
-        for peer_id in self
+
+        let peers = self
             .peer_pool
             .iter()
             .filter(|peer| !pending_peers.contains(peer))
-        {
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for peer_id in peers {
             // send a blocks by range request to the peer
-            self.send_range_request(network, peer_id.clone());
+            self.send_range_request(network, peer_id);
         }
+
+        self.state = ChainSyncingState::Syncing;
     }
 
     // A peer has been added, start batch requests for this peer
@@ -397,7 +399,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     // Re-STATUS all the peers in this chain
     pub fn status_peers(&self, chain: Weak<BeaconChain<T>>, network: &mut SyncNetworkContext) {
         for peer_id in self.peer_pool.iter() {
-            network.status_peer(chain, peer_id.clone());
+            network.status_peer(chain.clone(), peer_id.clone());
         }
     }
 
@@ -411,7 +413,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     fn send_batch(&mut self, network: &mut SyncNetworkContext, batch: Batch<T::EthSpec>) {
         let request = batch.to_blocks_by_range_request();
-        if let Ok(request_id) = network.blocks_by_range_request(batch.current_peer, request) {
+        if let Ok(request_id) = network.blocks_by_range_request(batch.current_peer.clone(), request)
+        {
             // add the batch to pending list
             self.pending_batches.insert(request_id, batch);
         }
@@ -430,10 +433,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let batch_id = self.to_be_downloaded_id;
         // find the next batch id. The largest of the next sequential idea, of the next uncompleted
         // id
-        let max_completed_id = self
-            .completed_batches
-            .iter()
-            .fold(0, |total, batch| total + batch.id);
+        let max_completed_id =
+            self.completed_batches
+                .iter()
+                .fold(0, |max, batch| if batch.id > max { batch.id } else { max });
         self.to_be_downloaded_id =
             std::cmp::max(self.to_be_downloaded_id + 1, max_completed_id + 1);
 
@@ -445,4 +448,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             peer_id,
         ))
     }
+}
+
+fn process_batch<T: BeaconChainTypes>(
+    _chain: Weak<BeaconChain<T>>,
+    _batch: &Batch<T::EthSpec>,
+) -> bool {
+    true
 }

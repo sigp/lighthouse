@@ -204,18 +204,13 @@ pub fn spawn<T: BeaconChainTypes>(
     // generate the message channel
     let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
-    // Created to initialise RangeSync before adjusting to a reference of the real network
-    let temp_network = SyncNetworkContext::new(network_send, log.clone());
-
-    let network = SyncNetworkContext::new(network_send, log.clone());
-
     // create an instance of the SyncManager
     let sync_manager = SyncManager {
-        chain: beacon_chain,
+        chain: beacon_chain.clone(),
         state: ManagerState::Stalled,
         input_channel: sync_recv,
-        network,
-        range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
+        network: SyncNetworkContext::new(network_send, log.clone()),
+        range_sync: RangeSync::new(beacon_chain, log.clone()),
         parent_queue: SmallVec::new(),
         single_block_lookups: FnvHashMap::default(),
         full_peers: HashSet::new(),
@@ -316,7 +311,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // this should be a response to a parent request search
         // find the request
-        let parent_request = match self
+        let mut parent_request = match self
             .parent_queue
             .iter()
             .position(|request| request.pending == Some(request_id))
@@ -441,7 +436,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.single_block_lookups.remove(&request_id);
 
         // notify the range sync
-        self.range_sync.inject_error(peer_id, request_id);
+        self.range_sync.inject_error(peer_id.clone(), request_id);
 
         // increment the failure of a parent lookup if the request matches a parent search
         if let Some(pos) = self
@@ -449,7 +444,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .iter()
             .position(|request| request.pending == Some(request_id))
         {
-            let parent_request = self.parent_queue.remove(pos);
+            let mut parent_request = self.parent_queue.remove(pos);
             parent_request.failed_attempts += 1;
             parent_request.last_submitted_peer = peer_id;
             self.request_parent(parent_request);
@@ -495,7 +490,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn process_parent_request(&mut self, parent_request: ParentRequests<T::EthSpec>) {
+    fn process_parent_request(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {
         // verify the last added block is the parent of the last requested block
 
         if parent_request.downloaded_blocks.len() < 2 {
@@ -529,59 +524,54 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
             self.request_parent(parent_request);
             self.network.downvote_peer(peer);
-        }
-
-        // try and process the list of blocks up to the requested block
-        while !parent_request.downloaded_blocks.is_empty() {
-            let block = parent_request
-                .downloaded_blocks
-                .pop()
-                .expect("Block must exist exist");
-
-            // check if the chain exists
-            if let Some(chain) = self.chain.upgrade() {
-                match chain.process_block(block.clone()) {
-                    Ok(BlockProcessingOutcome::ParentUnknown { .. }) => {
-                        // need to keep looking for parents
-                        parent_request.downloaded_blocks.push(block);
-                        self.request_parent(parent_request);
-                        break;
+        } else {
+            // try and process the list of blocks up to the requested block
+            while let Some(block) = parent_request.downloaded_blocks.pop() {
+                // check if the chain exists
+                if let Some(chain) = self.chain.upgrade() {
+                    match chain.process_block(block.clone()) {
+                        Ok(BlockProcessingOutcome::ParentUnknown { .. }) => {
+                            // need to keep looking for parents
+                            parent_request.downloaded_blocks.push(block);
+                            self.request_parent(parent_request);
+                            break;
+                        }
+                        Ok(BlockProcessingOutcome::Processed { .. })
+                        | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {}
+                        Ok(outcome) => {
+                            // it's a future slot or an invalid block, remove it and try again
+                            parent_request.failed_attempts += 1;
+                            trace!(
+                                self.log, "Invalid parent block";
+                                "outcome" => format!("{:?}", outcome),
+                                "peer" => format!("{:?}", parent_request.last_submitted_peer),
+                            );
+                            self.network
+                                .downvote_peer(parent_request.last_submitted_peer.clone());
+                            self.request_parent(parent_request);
+                            return;
+                        }
+                        Err(e) => {
+                            parent_request.failed_attempts += 1;
+                            warn!(
+                                self.log, "Parent processing error";
+                                "error" => format!("{:?}", e)
+                            );
+                            self.network
+                                .downvote_peer(parent_request.last_submitted_peer.clone());
+                            self.request_parent(parent_request);
+                            return;
+                        }
                     }
-                    Ok(BlockProcessingOutcome::Processed { .. })
-                    | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {}
-                    Ok(outcome) => {
-                        // it's a future slot or an invalid block, remove it and try again
-                        parent_request.failed_attempts += 1;
-                        trace!(
-                            self.log, "Invalid parent block";
-                            "outcome" => format!("{:?}", outcome),
-                            "peer" => format!("{:?}", parent_request.last_submitted_peer),
-                        );
-                        self.network
-                            .downvote_peer(parent_request.last_submitted_peer.clone());
-                        self.request_parent(parent_request);
-                        return;
-                    }
-                    Err(e) => {
-                        parent_request.failed_attempts += 1;
-                        warn!(
-                            self.log, "Parent processing error";
-                            "error" => format!("{:?}", e)
-                        );
-                        self.network
-                            .downvote_peer(parent_request.last_submitted_peer.clone());
-                        self.request_parent(parent_request);
-                        return;
-                    }
+                } else {
+                    // chain doesn't exist - return early
+                    return;
                 }
-            } else {
-                // chain doesn't exist - return early
-                return;
             }
         }
     }
 
-    fn request_parent(&mut self, parent_request: ParentRequests<T::EthSpec>) {
+    fn request_parent(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {
         // check to make sure there are peers to search for the parent from
         if self.full_peers.is_empty() {
             return;
