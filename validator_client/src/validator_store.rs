@@ -328,8 +328,8 @@ mod tests {
     use std::time::Duration;
     use std::time::{SystemTime, UNIX_EPOCH};
     use types::{
-        AggregateSignature, AttestationData, BitList, Checkpoint, Epoch, EthSpec, Hash256,
-        MinimalEthSpec, Slot,
+        AggregateSignature, AttestationData, BeaconBlockBody, BitList, Checkpoint, Epoch, Eth1Data,
+        EthSpec, Hash256, MinimalEthSpec, Slot, VariableList,
     };
 
     // Create an attestation that is NOT signed, just for testing purposes.
@@ -373,6 +373,36 @@ mod tests {
             source,
             target,
             beacon_block_root,
+        }
+    }
+
+    fn eth1_data_builder() -> Eth1Data {
+        Eth1Data {
+            deposit_root: Hash256::zero(),
+            deposit_count: 0,
+            block_hash: Hash256::zero(),
+        }
+    }
+    fn beacon_block_body_builder<T: EthSpec>() -> BeaconBlockBody<T> {
+        BeaconBlockBody {
+            randao_reveal: Signature::empty_signature(),
+            eth1_data: eth1_data_builder(),
+            graffiti: [1; 32],
+            proposer_slashings: VariableList::empty(),
+            attester_slashings: VariableList::empty(),
+            attestations: VariableList::empty(),
+            deposits: VariableList::empty(),
+            voluntary_exits: VariableList::empty(),
+        }
+    }
+
+    fn block_builder<T: EthSpec>(slot: u64) -> BeaconBlock<T> {
+        BeaconBlock {
+            slot: Slot::from(slot),
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: beacon_block_body_builder(),
+            signature: Signature::empty_signature(),
         }
     }
 
@@ -637,15 +667,114 @@ mod tests {
         assert_eq!(res, None);
 
         // Invalid attestation: target < source: expected to fail.
-        // let source = 79 * slots_per_epoch;
-        // let target = 80 * slots_per_epoch;
-        // let mut attestation =
-        //     attestation_builder::<MinimalEthSpec>(slot, index, committee_size, source, target);
-        // let res = validator_store.sign_attestation(
-        //     &pubkeys[0],
-        //     validator_committee_position,
-        //     &mut attestation,
-        // );
-        // assert_eq!(res, None); // waiting for Paul's input
+        let source = 80 * slots_per_epoch;
+        let target = 79 * slots_per_epoch;
+        let mut attestation =
+            attestation_builder::<MinimalEthSpec>(slot, index, committee_size, source, target);
+        let res = validator_store.sign_attestation(
+            &pubkeys[0],
+            validator_committee_position,
+            &mut attestation,
+        );
+        assert_eq!(res, None);
+
+        // Invalid attestation: target == source: expected to fail.
+        let source = 81 * slots_per_epoch;
+        let target = 81 * slots_per_epoch;
+        let mut attestation =
+            attestation_builder::<MinimalEthSpec>(slot, index, committee_size, source, target);
+        let res = validator_store.sign_attestation(
+            &pubkeys[0],
+            validator_committee_position,
+            &mut attestation,
+        );
+        assert_eq!(res, None);
+    }
+
+    #[test]
+    fn validator_store_block_protection_test() {
+        let validator_store = testing_validator_store();
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+        let pubkeys = validator_store.voting_pubkeys();
+        let validators = validator_store.validators.read();
+
+        // Retrieving the corresponding ValidatorDir
+        let validator = validators.get(&pubkeys[0]).expect("Should find pubkey");
+        let voting_keypair = &validator.voting_keypair;
+
+        // Perfectly valid block: expected to succeed.
+        let slot = slots_per_epoch;
+        let mut block = block_builder(slot);
+        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        block.sign(
+            &voting_keypair.sk,
+            &validator_store.fork().expect("Should have a fork"),
+            &validator_store.spec,
+        );
+        assert_eq!(res, Some(block));
+
+        // Valid block: expected to succeed.
+        let slot = 2 * slots_per_epoch;
+        let mut block = block_builder(slot);
+        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        block.sign(
+            &voting_keypair.sk,
+            &validator_store.fork().expect("Should have a fork"),
+            &validator_store.spec,
+        );
+        assert_eq!(res, Some(block));
+
+        // Re-publishing block: expected to succeed.
+        let slot = 2 * slots_per_epoch;
+        let mut block = block_builder(slot);
+        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        block.sign(
+            &voting_keypair.sk,
+            &validator_store.fork().expect("Should have a fork"),
+            &validator_store.spec,
+        );
+        assert_eq!(res, Some(block));
+
+        // Valid block: expected to succeed.
+        let slot = 5 * slots_per_epoch;
+        let mut block = block_builder(slot);
+        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        block.sign(
+            &voting_keypair.sk,
+            &validator_store.fork().expect("Should have a fork"),
+            &validator_store.spec,
+        );
+        assert_eq!(res, Some(block));
+
+        // Valid block: expected to succeed.
+        let slot = 3 * slots_per_epoch;
+        let mut block = block_builder(slot);
+        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        block.sign(
+            &voting_keypair.sk,
+            &validator_store.fork().expect("Should have a fork"),
+            &validator_store.spec,
+        );
+        assert_eq!(res, Some(block));
+
+        // Block slot earlier than first entry: expected to fail.
+        let slot = 0;
+        let block = block_builder(slot);
+        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        assert_eq!(res, None);
+
+        // Conflicting block with slot 3: expected to fail.
+        let slot = 3 * slots_per_epoch;
+        let mut block = block_builder(slot);
+        block.parent_root = Hash256::random();
+        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        assert_eq!(res, None);
+
+        // Conflicting block with slot 3: expected to fail.
+        let slot = 3 * slots_per_epoch;
+        let mut block = block_builder(slot);
+        block.state_root = Hash256::random();
+        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        assert_eq!(res, None);
     }
 }
