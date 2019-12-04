@@ -43,6 +43,8 @@ pub enum InvalidAttestation {
 
 fn check_surrounded(
     attestation_data: &AttestationData,
+    // This is a vec containing all the attestations that have a
+    // target_epoch > attestation_data.target.epoch
     attestation_history: &[SignedAttestation],
 ) -> Result<(), NotSafe> {
     let surrounded = attestation_history
@@ -60,6 +62,8 @@ fn check_surrounded(
 
 fn check_surrounding(
     attestation_data: &AttestationData,
+    // This is a vec containing all the attestations that have a
+    // (target_epoch < attestation_data.target.epoch && target_epoch > attestation_data.source.epoch)
     attestation_history: &[SignedAttestation],
 ) -> Result<(), NotSafe> {
     let surrounding = attestation_history
@@ -75,7 +79,7 @@ fn check_surrounding(
     }
 }
 
-/// Checks if the incoming attestation is surrounding a vote, is a surrounded by another vote, or if it is a double vote.
+/// Checks if the attestation is valid, invalid, or slashable, and returns accordingly.
 impl ValidatorHistory<SignedAttestation> {
     pub fn check_for_attester_slashing(
         &self,
@@ -169,7 +173,7 @@ impl ValidatorHistory<SignedAttestation> {
         }
         check_surrounded(attestation_data, &surrounded_vec[..])?;
 
-        // Checking if attestation_Data is not surrounding any previous votes
+        // Checking if attestation_data is not surrounding any previous votes
         let mut surrounding_select = conn.prepare("select target_epoch, source_epoch, signing_root from signed_attestations where target_epoch > ? and target_epoch < ? order by target_epoch desc")?;
         let surrounding_query =
             surrounding_select.query_map(params![i64_source_epoch, i64_target_epoch], |row| {
