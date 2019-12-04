@@ -289,7 +289,6 @@ fn check_duties<T: BeaconChainTypes>(
 }
 
 #[test]
-#[cfg_attr(feature = "fake_crypto", ignore)]
 fn validator_block_post() {
     let mut env = build_env();
 
@@ -327,7 +326,7 @@ fn validator_block_post() {
         .runtime()
         .block_on(remote_node.http.validator().publish_block(block.clone()))
         .expect("should publish block");
-    if cfg!(feature = "fake_crypto") {
+    if cfg!(not(feature = "fake_crypto")) {
         assert!(
             !publish_status.is_valid(),
             "the unsigned published block should not be valid"
@@ -342,7 +341,7 @@ fn validator_block_post() {
         .block_on(remote_node.http.validator().publish_block(block.clone()))
         .expect("should publish block");
 
-    if cfg!(feature = "fake_crypto") {
+    if cfg!(not(feature = "fake_crypto")) {
         assert_eq!(
             publish_status,
             PublishStatus::Valid,
