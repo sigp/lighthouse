@@ -244,7 +244,7 @@ mod block_tests {
             .update_if_valid(&third)
             .expect("should have inserted prev data");
 
-        let new_block = block_builder(2 * slots_per_epoch);
+        let new_block = block_builder(2 * slots_per_epoch + 2);
         let res = block_history.update_if_valid(&new_block);
         let slots_per_epoch = block_history
             .slots_per_epoch()
