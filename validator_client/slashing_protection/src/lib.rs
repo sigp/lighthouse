@@ -51,14 +51,14 @@ pub enum NotSafe {
 pub enum ValidityReason {
     // History is empty so inserting is safe
     EmptyHistory,
-    // Re-signing a previous vote is safe
-    SameVote,
+    // Casting the exact same data (block or attestation) twice is never slashable.
+    SameData,
     // Incoming data is safe from slashing
     Valid,
 }
 
 #[derive(PartialEq, Debug)]
 pub struct Safe {
-    /// Used to check if the attestation is a SameVote, in which case it should not get inserted.
+    /// Used to check if the attestation is a SameData, in which case it should not get inserted.
     pub reason: ValidityReason,
 }

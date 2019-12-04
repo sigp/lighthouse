@@ -265,7 +265,7 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
         let check = self.check_slashing(incoming_data);
         match check {
             Ok(safe) => match safe.reason {
-                ValidityReason::SameVote => Ok(()),
+                ValidityReason::SameData => Ok(()),
                 _ => self.insert(incoming_data),
             },
             Err(notsafe) => Err(notsafe),
@@ -350,7 +350,7 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
         let check = self.check_slashing(incoming_data);
         match check {
             Ok(safe) => match safe.reason {
-                ValidityReason::SameVote => Ok(()),
+                ValidityReason::SameData => Ok(()),
                 _ => self.insert(incoming_data),
             },
             Err(notsafe) => Err(notsafe),

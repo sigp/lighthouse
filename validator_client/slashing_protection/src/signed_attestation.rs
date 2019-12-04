@@ -113,7 +113,7 @@ impl ValidatorHistory<SignedAttestation> {
         if let Ok(same_hash) = same_hash_select {
             if same_hash == Hash256::from_slice(&attestation_data.tree_hash_root()[..]) {
                 return Ok(Safe {
-                    reason: ValidityReason::SameVote,
+                    reason: ValidityReason::SameData,
                 });
             } else {
                 let mut double_vote_select = conn.prepare(

@@ -94,7 +94,7 @@ impl ValidatorHistory<SignedBlock> {
             if same_epoch_attest.signing_root == block_header.canonical_root() {
                 // Same epoch and same hash -> we're re-broadcasting a previously signed block
                 Ok(Safe {
-                    reason: ValidityReason::SameVote,
+                    reason: ValidityReason::SameData,
                 })
             } else {
                 // Same epoch but not the same hash -> it's a DoubleBlockProposal
