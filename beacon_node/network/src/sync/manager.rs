@@ -283,6 +283,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // Add the peer to our RangeSync
         self.range_sync.add_peer(&mut self.network, peer_id, remote);
+        self.update_state();
     }
 
     /// The response to a `BlocksByRoot` request.
@@ -421,6 +422,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// A request to search for a block hash has been received. This function begins a BlocksByRoot
     /// request to find the requested block.
     fn search_for_block(&mut self, peer_id: PeerId, block_hash: Hash256) {
+        // If we are not in regular sync mode, ignore this block
+        if self.state != ManagerState::Regular {
+            return;
+        }
+
         let request = BlocksByRootRequest {
             block_roots: vec![block_hash],
         };
@@ -469,7 +475,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     // These functions are called in the main poll function to transition the state of the sync
     // manager
 
-    // TODO: Run this only when state could be updated.
     /// Updates the syncing state of the `SyncManager`.
     fn update_state(&mut self) {
         let previous_state = self.state.clone();

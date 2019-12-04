@@ -1,4 +1,3 @@
-use clap::ArgMatches;
 use enr::Enr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 use libp2p::Multiaddr;
@@ -95,86 +94,5 @@ impl Default for Config {
             topics: Vec::new(),
             propagation_percentage: None,
         }
-    }
-}
-
-/// Generates a default Config.
-impl Config {
-    pub fn new() -> Self {
-        Config::default()
-    }
-
-    pub fn apply_cli_args(&mut self, args: &ArgMatches) -> Result<(), String> {
-        // If a `datadir` has been specified, set the network dir to be inside it.
-        if let Some(dir) = args.value_of("datadir") {
-            self.network_dir = PathBuf::from(dir).join("network");
-        };
-
-        // If a network dir has been specified, override the `datadir` definition.
-        if let Some(dir) = args.value_of("network-dir") {
-            self.network_dir = PathBuf::from(dir);
-        };
-
-        if let Some(listen_address_str) = args.value_of("listen-address") {
-            let listen_address = listen_address_str
-                .parse()
-                .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
-            self.listen_address = listen_address;
-            self.discovery_address = listen_address;
-        }
-
-        if let Some(max_peers_str) = args.value_of("maxpeers") {
-            self.max_peers = max_peers_str
-                .parse::<usize>()
-                .map_err(|_| format!("Invalid number of max peers: {}", max_peers_str))?;
-        }
-
-        if let Some(port_str) = args.value_of("port") {
-            let port = port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid port: {}", port_str))?;
-            self.libp2p_port = port;
-            self.discovery_port = port;
-        }
-
-        if let Some(boot_enr_str) = args.value_of("boot-nodes") {
-            self.boot_nodes = boot_enr_str
-                .split(',')
-                .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
-                .collect::<Result<Vec<Enr>, _>>()?;
-        }
-
-        if let Some(libp2p_addresses_str) = args.value_of("libp2p-addresses") {
-            self.libp2p_nodes = libp2p_addresses_str
-                .split(',')
-                .map(|multiaddr| {
-                    multiaddr
-                        .parse()
-                        .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
-                })
-                .collect::<Result<Vec<Multiaddr>, _>>()?;
-        }
-
-        if let Some(topics_str) = args.value_of("topics") {
-            self.topics = topics_str.split(',').map(|s| s.into()).collect();
-        }
-
-        if let Some(discovery_address_str) = args.value_of("discovery-address") {
-            self.discovery_address = discovery_address_str
-                .parse()
-                .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?
-        }
-
-        if let Some(disc_port_str) = args.value_of("disc-port") {
-            self.discovery_port = disc_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid discovery port: {}", disc_port_str))?;
-        }
-
-        if let Some(p2p_priv_key) = args.value_of("p2p-priv-key") {
-            self.secret_key_hex = Some(p2p_priv_key.to_string());
-        }
-
-        Ok(())
     }
 }

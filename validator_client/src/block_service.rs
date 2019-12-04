@@ -146,9 +146,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                 "error" => format!("{}", e)
                             }
                         })
-                        .for_each(move |_| service.clone().do_update())
-                        // Prevent any errors from escaping and stopping the interval.
-                        .then(|_| Ok(())),
+                        .for_each(move |_| service.clone().do_update().then(|_| Ok(()))),
                 )
                 .map(move |_| info!(log_2, "Shutdown complete")),
         );

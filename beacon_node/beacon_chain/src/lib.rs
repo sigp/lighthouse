@@ -9,6 +9,7 @@ mod errors;
 pub mod eth1_chain;
 pub mod events;
 mod fork_choice;
+mod head_tracker;
 mod metrics;
 mod persisted_beacon_chain;
 pub mod test_utils;

@@ -1,3 +1,4 @@
+#![allow(clippy::unit_arg)]
 use crate::error;
 use crate::service::NetworkMessage;
 use crate::sync::MessageProcessor;
@@ -193,9 +194,6 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
                                 warn!(self.log, "Peer sent invalid BEACON_BLOCKS response";"peer" => format!("{:?}", peer_id), "error" => format!("{:?}", e));
                             }
                         }
-                    }
-                    RPCResponse::Goodbye => {
-                        // A goodbye was successfully sent, ignore it
                     }
                 }
             }

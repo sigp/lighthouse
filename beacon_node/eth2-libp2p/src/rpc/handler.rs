@@ -1,4 +1,7 @@
-use super::methods::{RPCErrorResponse, RPCResponse, RequestId};
+#![allow(clippy::type_complexity)]
+#![allow(clippy::cognitive_complexity)]
+
+use super::methods::{RPCErrorResponse, RequestId};
 use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
@@ -201,11 +204,15 @@ where
         &mut self,
         out: <RPCProtocol as InboundUpgrade<TSubstream>>::Output,
     ) {
+        // update the keep alive timeout if there are no more remaining outbound streams
+        if let KeepAlive::Until(_) = self.keep_alive {
+            self.keep_alive = KeepAlive::Until(Instant::now() + self.inactive_timeout);
+        }
+
         let (req, substream) = out;
         // drop the stream and return a 0 id for goodbye "requests"
         if let r @ RPCRequest::Goodbye(_) = req {
             self.events_out.push(RPCEvent::Request(0, r));
-            warn!(self.log, "Goodbye Received");
             return;
         }
 
@@ -241,14 +248,6 @@ where
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
         match rpc_event {
-            RPCEvent::Request(id, RPCRequest::Goodbye(_)) => {
-                // notify the application layer, that a goodbye has been sent, so the application can
-                // drop and remove the peer
-                self.events_out.push(RPCEvent::Response(
-                    id,
-                    RPCErrorResponse::Success(RPCResponse::Goodbye),
-                ));
-            }
             RPCEvent::Request(id, request) if request.expect_response() => {
                 // new outbound request. Store the stream and tag the output.
                 let delay_key = self
