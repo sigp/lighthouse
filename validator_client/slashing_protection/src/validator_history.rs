@@ -462,7 +462,8 @@ mod single_threaded_tests {
         let attestation_history: Result<ValidatorHistory<SignedAttestation>, NotSafe> =
             ValidatorHistory::open(filename, None);
 
-        assert!(attestation_history.is_err()); // SCOTT
+        // Expecting to fail as one should use empty instead of open to first create the db.
+        assert!(attestation_history.is_err());
     }
 
     #[test]

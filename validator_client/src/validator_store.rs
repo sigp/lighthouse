@@ -224,7 +224,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // Retrieving the corresponding ValidatorDir
         let validator = match validators.get(validator_pubkey) {
             Some(validator) => validator,
-            None => return None, // SCOTT maybe log that validator was not found?
+            None => return None,
         };
 
         if validator.block_slashing_protection.is_none() {
@@ -240,7 +240,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let is_slashing_free = validator
             .block_slashing_protection
             .as_ref()?
-            .try_lock()? // SCOTT TODO: deal with the try_lock failing? retry?
+            .try_lock()?
             .update_if_valid(&block.block_header())
             .is_ok();
 
@@ -281,7 +281,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let is_slashing_free = validator
             .attestation_slashing_protection
             .as_ref()?
-            .try_lock()? // SCOTT TODO: deal with the try_lock failing? retry?
+            .try_lock()?
             .update_if_valid(&attestation.data)
             .is_ok();
 
