@@ -10,7 +10,7 @@ use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
 use parking_lot::Mutex;
-use slog::{debug, info, trace};
+use slog::{debug, error, info, trace};
 use std::sync::Arc;
 use store::Store;
 use tokio::runtime::TaskExecutor;
@@ -22,6 +22,7 @@ pub struct Service<T: BeaconChainTypes> {
     libp2p_service: Arc<Mutex<LibP2PService>>,
     libp2p_port: u16,
     store: Arc<T::Store>,
+    log: slog::Logger,
     _libp2p_exit: oneshot::Sender<()>,
     _network_send: mpsc::UnboundedSender<NetworkMessage>,
     _phantom: PhantomData<T>,
@@ -70,13 +71,14 @@ impl<T: BeaconChainTypes> Service<T> {
             network_recv,
             message_handler_send,
             executor,
-            network_log,
+            network_log.clone(),
             config.propagation_percentage,
         )?;
         let network_service = Service {
             libp2p_service,
             libp2p_port: config.libp2p_port,
             store,
+            log: network_log,
             _libp2p_exit: libp2p_exit,
             _network_send: network_send.clone(),
             _phantom: PhantomData,
@@ -145,6 +147,11 @@ impl<T: BeaconChainTypes> Service<T> {
             .enr_entries()
             .map(|x| x.clone())
             .collect();
+        info!(
+            self.log,
+            "Persisting DHT to store";
+            "Number of peers" => format!("{}", enrs.len()),
+        );
         let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
         self.store.put(&key, &PersistedDht { enrs })?;
         Ok(())
@@ -331,7 +338,18 @@ pub enum NetworkMessage {
 
 impl<T: BeaconChainTypes> Drop for Service<T> {
     fn drop(&mut self) {
-        let _result = self.persist_dht();
+        if let Err(e) = self.persist_dht() {
+            error!(
+                self.log,
+                "Failed to persist DHT on drop";
+                "error" => format!("{:?}", e)
+            )
+        } else {
+            info!(
+                self.log,
+                "Saved DHT state";
+            )
+        }
     }
 }
 
@@ -373,7 +391,7 @@ mod tests {
         .expect("should create interop genesis state");
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
-            .store(store.clone())
+            .store(store)
             .store_migrator(NullMigrator)
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
@@ -428,7 +446,7 @@ mod tests {
 
         // Recover the network service from beacon chain store and fresh network config
         let (recovered_service, _) = Service::new(
-            beacon_chain.clone(),
+            beacon_chain,
             &NetworkConfig::default(),
             &runtime.executor(),
             log.clone(),
