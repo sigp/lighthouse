@@ -97,7 +97,7 @@ pub fn start_server<T: BeaconChainTypes>(
     let (exit_signal, exit) = exit_future::signal();
     let inner_log = log.clone();
     let server_exit = exit.and_then(move |_| {
-        info!(inner_log, "API service shutdown");
+        info!(inner_log, "HTTP service shutdown");
         Ok(())
     });
     // Configure the `hyper` server to gracefully shutdown when the shutdown channel is triggered.
@@ -107,13 +107,13 @@ pub fn start_server<T: BeaconChainTypes>(
         .map_err(move |e| {
             warn!(
             inner_log,
-            "API failed to start, Unable to bind"; "address" => format!("{:?}", e)
+            "HTTP server failed to start, Unable to bind"; "address" => format!("{:?}", e)
             )
         });
 
     info!(
         log,
-        "REST API started";
+        "HTTP API started";
         "address" => format!("{}", actual_listen_addr.ip()),
         "port" => actual_listen_addr.port(),
     );

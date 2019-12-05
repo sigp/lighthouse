@@ -837,11 +837,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             //
             // This is likely overly restrictive, we could store the attestation for later
             // processing.
-            warn!(
-                self.log,
-                "Dropped attestation for unknown block";
-                "block" => format!("{}", attestation.data.beacon_block_root)
-            );
+            let head_epoch = self
+                .head()
+                .beacon_block
+                .slot
+                .epoch(T::EthSpec::slots_per_epoch());
+            let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
+
+            // Only log a warning if our head is in a reasonable place to verify this attestation.
+            // This avoids excess logging during syncing.
+            if head_epoch + 1 >= attestation_epoch {
+                warn!(
+                    self.log,
+                    "Dropped attestation for unknown block";
+                    "block" => format!("{}", attestation.data.beacon_block_root)
+                );
+            } else {
+                debug!(
+                    self.log,
+                    "Dropped attestation for unknown block";
+                    "block" => format!("{}", attestation.data.beacon_block_root)
+                );
+            }
+
             Ok(AttestationProcessingOutcome::UnknownHeadBlock {
                 beacon_block_root: attestation.data.beacon_block_root,
             })
@@ -1453,12 +1471,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "new_slot" => new_slot
                 );
             } else {
-                info!(
-                    self.log,
-                    "New head beacon block";
-                    "root" => format!("{}", beacon_block_root),
-                    "slot" => new_slot,
-                );
                 debug!(
                     self.log,
                     "Head beacon block";
@@ -1466,6 +1478,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "justified_epoch" => beacon_state.current_justified_checkpoint.epoch,
                     "finalized_root" => format!("{}", beacon_state.finalized_checkpoint.root),
                     "finalized_epoch" => beacon_state.finalized_checkpoint.epoch,
+                    "root" => format!("{}", beacon_block_root),
+                    "slot" => new_slot,
                 );
             };
 
