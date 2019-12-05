@@ -442,7 +442,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.single_block_lookups.remove(&request_id);
 
         // notify the range sync
-        self.range_sync.inject_error(peer_id.clone(), request_id);
+        self.range_sync
+            .inject_error(&mut self.network, peer_id.clone(), request_id);
 
         // increment the failure of a parent lookup if the request matches a parent search
         if let Some(pos) = self

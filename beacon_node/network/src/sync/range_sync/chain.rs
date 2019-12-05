@@ -18,7 +18,10 @@ use types::{BeaconBlock, EthSpec, Hash256, Slot};
 /// responder will fill the response up to the max request size, assuming they have the bandwidth
 /// to do so.
 //TODO: Make this dynamic based on peer's bandwidth
-const BLOCKS_PER_REQUEST: u64 = 50;
+const BLOCKS_PER_BATCH: u64 = 50;
+
+/// The number of times to retry a batch before the chain is considered failed and removed.
+const MAX_BATCH_RETRIES: u8 = 5;
 
 #[derive(PartialEq)]
 pub struct Batch<T: EthSpec> {
@@ -35,7 +38,7 @@ pub struct Batch<T: EthSpec> {
     /// The peer that is currently assigned to the batch.
     current_peer: PeerId,
     /// The number of retries this batch has undergone.
-    _retries: u8,
+    retries: u8,
     /// The blocks that have been downloaded.
     downloaded_blocks: Vec<BeaconBlock<T>>,
 }
@@ -52,6 +55,11 @@ impl<T: EthSpec> PartialOrd for Batch<T> {
     }
 }
 
+pub enum ProcessingResult {
+    KeepChain,
+    RemoveChain,
+}
+
 impl<T: EthSpec> Eq for Batch<T> {}
 
 impl<T: EthSpec> Batch<T> {
@@ -63,7 +71,7 @@ impl<T: EthSpec> Batch<T> {
             head_root,
             _original_peer: peer_id.clone(),
             current_peer: peer_id,
-            _retries: 0,
+            retries: 0,
             downloaded_blocks: Vec::new(),
         }
     }
@@ -72,10 +80,7 @@ impl<T: EthSpec> Batch<T> {
         BlocksByRangeRequest {
             head_block_root: self.head_root,
             start_slot: self.start_slot.into(),
-            count: std::cmp::min(
-                BLOCKS_PER_REQUEST,
-                self.end_slot.sub(self.start_slot).into(),
-            ),
+            count: std::cmp::min(BLOCKS_PER_BATCH, self.end_slot.sub(self.start_slot).into()),
             step: 1,
         }
     }
@@ -151,35 +156,21 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     pub fn on_block_response(
         &mut self,
-        chain: Weak<BeaconChain<T>>,
+        chain: &Weak<BeaconChain<T>>,
         network: &mut SyncNetworkContext,
         request_id: RequestId,
-        beacon_block: Option<BeaconBlock<T::EthSpec>>,
+        beacon_block: &Option<BeaconBlock<T::EthSpec>>,
         log: &slog::Logger,
-    ) -> bool {
-        // returns true if this response completes the chain
-
-        // If this is not a stream termination, simply add the block to the request
+    ) -> Option<ProcessingResult> {
         if let Some(block) = beacon_block {
-            match self.pending_batches.get_mut(&request_id) {
-                Some(batch) => batch.downloaded_blocks.push(block),
-                None => {
-                    // the request must exist before this function is called
-                    crit!(log, "Request doesn't exist - coding error");
-                }
-            };
-            return false;
+            let batch = self.pending_batches.get_mut(&request_id)?;
+            // This is not a stream termination, simply add the block to the request
+            batch.downloaded_blocks.push(block.clone());
+            return Some(ProcessingResult::KeepChain);
         } else {
             // A stream termination has been sent. This batch has ended. Process a completed batch.
-            let batch = match self.pending_batches.remove(&request_id) {
-                Some(batch) => batch,
-                None => {
-                    // the request must exist before this function is called
-                    crit!(log, "Request doesn't exist - coding error");
-                    return false;
-                }
-            };
-            self.process_completed_batch(chain, network, batch, log)
+            let batch = self.pending_batches.remove(&request_id)?;
+            Some(self.process_completed_batch(chain.clone(), network, batch, log))
         }
     }
 
@@ -189,7 +180,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext,
         batch: Batch<T::EthSpec>,
         log: &slog::Logger,
-    ) -> bool {
+    ) -> ProcessingResult {
         // An entire batch of blocks has been received. This functions checks to see if it can be processed,
         // remove any batches waiting to be verified and if this chain is syncing, request new
         // blocks for the peer.
@@ -209,7 +200,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                           "requested_initial_slot" => batch.start_slot);
                 network.downvote_peer(batch.current_peer);
                 self.to_be_processed_id = batch.id; // reset the id back to here, when incrementing, it will check against completed batches
-                return false;
+                return ProcessingResult::KeepChain;
             }
         }
 
@@ -284,17 +275,16 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .retain(|batch| batch.id >= last_processed_id);
 
             // check if the chain has completed syncing, if not, request another batch from this peer
-            if self.start_slot + self.last_processed_id * BLOCKS_PER_REQUEST
-                >= self.target_head_slot
+            if self.start_slot + self.last_processed_id * BLOCKS_PER_BATCH >= self.target_head_slot
             {
                 // chain is completed
-                true
+                ProcessingResult::RemoveChain
             } else {
                 // chain is not completed
-                false
+                ProcessingResult::KeepChain
             }
         } else {
-            false
+            ProcessingResult::KeepChain
         }
     }
 
@@ -308,10 +298,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         // The previous batch could be
         // incomplete due to the block sizes being too large to fit in a single RPC
-        // request or there could be consecutive empty batches which are not supposed to be
+        // request or there could be consecutive empty batches which are not supposed to be there
 
-        // Prevent processing and downloading blocks from peers, whilst this is being resolved
-        // self.state = SyncingChainState::Paused;
+        // Address these two cases individually.
+        // Firstly, check if the past batch is invalid.
     }
 
     pub fn stop_syncing(&mut self) {
@@ -334,23 +324,23 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // what this chain believes is downloaded
         let batches_ahead = local_finalized_slot
             .as_u64()
-            .saturating_sub(self.start_slot.as_u64() + self.last_processed_id * BLOCKS_PER_REQUEST)
-            / BLOCKS_PER_REQUEST;
+            .saturating_sub(self.start_slot.as_u64() + self.last_processed_id * BLOCKS_PER_BATCH)
+            / BLOCKS_PER_BATCH;
 
         if batches_ahead != 0 {
             // there are `batches_ahead` whole batches that have been downloaded by another
             // chain. Set the current processed_batch_id to this value.
-            debug!(log, "Updating chains processed batches"; "old_completed_slot" => self.start_slot + self.last_processed_id*BLOCKS_PER_REQUEST, "new_completed_slot" => self.start_slot + (self.last_processed_id + batches_ahead)*BLOCKS_PER_REQUEST);
+            debug!(log, "Updating chains processed batches"; "old_completed_slot" => self.start_slot + self.last_processed_id*BLOCKS_PER_BATCH, "new_completed_slot" => self.start_slot + (self.last_processed_id + batches_ahead)*BLOCKS_PER_BATCH);
             self.last_processed_id += batches_ahead;
 
-            if self.start_slot + self.last_processed_id * BLOCKS_PER_REQUEST
+            if self.start_slot + self.last_processed_id * BLOCKS_PER_BATCH
                 > self.target_head_slot.as_u64()
             {
                 crit!(
                     log,
                     "Current head slot is above the target head - Coding error";
                     "target_head_slot" => self.target_head_slot.as_u64(),
-                    "new_start" => self.start_slot + self.last_processed_id * BLOCKS_PER_REQUEST,
+                    "new_start" => self.start_slot + self.last_processed_id * BLOCKS_PER_BATCH,
                 );
                 return;
             }
@@ -432,12 +422,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     fn get_next_batch(&mut self, peer_id: PeerId) -> Option<Batch<T::EthSpec>> {
         let batch_start_slot =
-            self.start_slot + self.to_be_downloaded_id.saturating_sub(1) * BLOCKS_PER_REQUEST;
+            self.start_slot + self.to_be_downloaded_id.saturating_sub(1) * BLOCKS_PER_BATCH;
         if batch_start_slot > self.target_head_slot {
             return None;
         }
         let batch_end_slot = std::cmp::min(
-            batch_start_slot + BLOCKS_PER_REQUEST,
+            batch_start_slot + BLOCKS_PER_BATCH,
             self.target_head_slot.saturating_add(1u64),
         );
 
@@ -458,6 +448,40 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             self.target_head_root,
             peer_id,
         ))
+    }
+
+    // Checks if the request_id is associated with this chain. If so, attempts to re-request the
+    // batch. If the batch has exceeded the number of retries, returns Some(true), indicating
+    // the chain should be dropped.
+    pub fn inject_error(
+        &mut self,
+        network: &mut SyncNetworkContext,
+        peer_id: &PeerId,
+        request_id: &RequestId,
+        log: &slog::Logger,
+    ) -> Option<ProcessingResult> {
+        if let Some(mut batch) = self.pending_batches.remove(&request_id) {
+            warn!(log, "Batch failed. RPC Error"; "id" => batch.id, "retries" => batch.retries, "peer" => format!("{:?}", peer_id));
+
+            batch.retries += 1;
+
+            if batch.retries > MAX_BATCH_RETRIES {
+                // chain is unrecoverable, remove it
+                return Some(ProcessingResult::RemoveChain);
+            } else {
+                // try to re-process the request using a different peer, if possible
+                let new_peer = self
+                    .peer_pool
+                    .iter()
+                    .find(|peer| *peer != peer_id)
+                    .unwrap_or_else(|| peer_id);
+
+                batch.current_peer = new_peer.clone();
+                self.send_batch(network, batch);
+                return Some(ProcessingResult::KeepChain);
+            }
+        }
+        None
     }
 }
 

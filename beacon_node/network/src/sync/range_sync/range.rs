@@ -1,4 +1,4 @@
-use super::chain::SyncingChain;
+use super::chain::{ProcessingResult, SyncingChain};
 use crate::sync::message_processor::PeerSyncInfo;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -203,112 +203,121 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         // request id to index of the vector to avoid O(N) searches and O(N) hash lookups.
         // Note to future sync-rewriter/profiler: Michael approves of these O(N) searches.
 
-        let mut update_finalized = false;
-        if let Some((index, chain)) = self
+        let chain_ref = &self.chain;
+        let log_ref = &self.log;
+        match self
             .finalized_chains
             .iter_mut()
             .enumerate()
-            .find(|(_, chain)| chain.pending_batches.get(&request_id).is_some())
-        {
-            // The request was associated with a finalized chain. We do two hashmap lookups to
-            // allow for code simplicity and allow the processing to occur on a `SyncingChain`
-            // struct.
-            // Process the response
-            if chain.on_block_response(
-                self.chain.clone(),
-                network,
-                request_id,
-                beacon_block,
-                &self.log,
-            ) {
-                trace!(self.log, "Finalized chain completed");
+            .find_map(|(index, chain)| {
+                Some((
+                    index,
+                    chain.on_block_response(
+                        chain_ref,
+                        network,
+                        request_id,
+                        &beacon_block,
+                        log_ref,
+                    )?,
+                ))
+            }) {
+            Some((index, ProcessingResult::RemoveChain)) => {
+                let chain = self.finalized_chains.swap_remove(index);
+                debug!(self.log, "Finalized chain completed"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
                 // the chain is complete, re-status it's peers and remove it
                 chain.status_peers(self.chain.clone(), network);
 
                 // flag to start syncing a new chain as the current completed chain was the
                 // syncing chain
                 if index == 0 {
-                    update_finalized = true;
+                    self.update_finalized_chains(network);
                 }
-                self.finalized_chains.swap_remove(index);
             }
-        } else if let Some((index, chain)) = self
-            .head_chains
-            .iter_mut()
-            .enumerate()
-            .find(|(_, chain)| chain.pending_batches.get(&request_id).is_some())
-        {
-            // The request was associated with a head chain.
-            // Process the completed request for the head chain.
-            if chain.on_block_response(
-                self.chain.clone(),
-                network,
-                request_id,
-                beacon_block,
-                &self.log,
-            ) {
-                debug!(self.log, "Head chain completed"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
-                // the chain is complete, re-status it's peers and remove it
-                chain.status_peers(self.chain.clone(), network);
-                // update the current state if necessary
-                if self.head_chains.len() == 1 {
-                    self.state = SyncState::Idle;
+            Some(_) => {} // blocks added to the chain
+            None => {
+                match self
+                    .head_chains
+                    .iter_mut()
+                    .enumerate()
+                    .find_map(|(index, chain)| {
+                        Some((
+                            index,
+                            chain.on_block_response(
+                                &chain_ref,
+                                network,
+                                request_id,
+                                &beacon_block,
+                                log_ref,
+                            )?,
+                        ))
+                    }) {
+                    Some((index, ProcessingResult::RemoveChain)) => {
+                        let chain = self.head_chains.swap_remove(index);
+                        debug!(self.log, "Head chain completed"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
+                        // the chain is complete, re-status it's peers and remove it
+                        chain.status_peers(self.chain.clone(), network);
+                        // update the current state if necessary
+                        if self.head_chains.is_empty() {
+                            self.state = SyncState::Idle;
+                        }
+                    }
+                    Some(_) => {}
+                    None => {
+                        // The request didn't exist in any `SyncingChain`. Could have been an old request. Log
+                        // and ignore
+                        debug!(self.log, "Range response without matching request"; "peer" => format!("{:?}", peer_id), "request_id" => request_id);
+                    }
                 }
-                self.head_chains.swap_remove(index);
             }
-        } else {
-            // The request didn't exist in any `SyncingChain`. Could have been an old request. Log
-            // and ignore
-            debug!(self.log, "Range response without matching request"; "peer" => format!("{:?}", peer_id), "request_id" => request_id);
         }
+    }
 
-        // if a finalized syncing chain has completed, check to see if a new chain needs to start syncing
-        if update_finalized {
-            debug!(self.log, "Finalized syncing chain completed");
-            // remove any out-dated finalized chains, re statusing their peers.
-            let local_info = match self.chain.upgrade() {
-                Some(chain) => PeerSyncInfo::from(&chain),
-                None => {
-                    warn!(self.log,
-                          "Beacon chain dropped. Not starting a new sync chain";
-                          "peer_id" => format!("{:?}", peer_id));
-                    return;
-                }
-            };
-            let beacon_chain = self.chain.clone();
-            self.finalized_chains.retain(|chain| {
-                if chain.target_head_slot <= local_info.head_slot {
-                    chain.status_peers(beacon_chain.clone(), network);
-                    false
-                } else {
-                    true
-                }
-            });
-
-            // check if there is a new finalized_chain
-            if let Some(index) = self
-                .finalized_chains
-                .iter()
-                .enumerate()
-                .max_by_key(|(_, chain)| chain.peer_pool.len())
-                .map(|(index, _)| index)
-            {
-                // new syncing chain, begin syncing
-                let new_chain = self.finalized_chains.swap_remove(index);
-                self.finalized_chains.insert(0, new_chain);
-                let local_finalized_slot = local_info
-                    .finalized_epoch
-                    .start_slot(T::EthSpec::slots_per_epoch());
-                self.finalized_chains[0].start_syncing(network, local_finalized_slot, &self.log);
-            } else {
-                // there is no new finalized_chain, this was the last, re-status all head_peers to
-                // begin a head sync if necessary
-                for peer_id in self.awaiting_head_peers.iter() {
-                    network.status_peer(self.chain.clone(), peer_id.clone());
-                }
-                // change the status to idle, as head syncing may not be required
-                self.state = SyncState::Idle;
+    // The current finalizing chain has completed. Clean any remaining finalized chains, start
+    // syncing a new finalized chain if one exists, otherwise prepare to start a head sync.
+    fn update_finalized_chains(&mut self, network: &mut SyncNetworkContext) {
+        debug!(self.log, "Finalized syncing chain completed");
+        // remove any out-dated finalized chains, re statusing their peers.
+        let local_info = match self.chain.upgrade() {
+            Some(chain) => PeerSyncInfo::from(&chain),
+            None => {
+                warn!(self.log,
+                          "Beacon chain dropped. Not starting a new sync chain";);
+                return;
             }
+        };
+        let beacon_chain = self.chain.clone();
+        self.finalized_chains.retain(|chain| {
+            if chain.target_head_slot <= local_info.head_slot {
+                chain.status_peers(beacon_chain.clone(), network);
+                false
+            } else {
+                true
+            }
+        });
+
+        // check if there is a new finalized_chain
+        if let Some(index) = self
+            .finalized_chains
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, chain)| chain.peer_pool.len())
+            .map(|(index, _)| index)
+        {
+            // new syncing chain, begin syncing
+            let new_chain = self.finalized_chains.swap_remove(index);
+            self.finalized_chains.insert(0, new_chain);
+            let local_finalized_slot = local_info
+                .finalized_epoch
+                .start_slot(T::EthSpec::slots_per_epoch());
+            self.finalized_chains[0].start_syncing(network, local_finalized_slot, &self.log);
+        } else {
+            // there is no new finalized_chain, this was the last, re-status all head_peers to
+            // begin a head sync if necessary
+            for peer_id in self.awaiting_head_peers.iter() {
+                network.status_peer(self.chain.clone(), peer_id.clone());
+            }
+            // change the status to idle, as head syncing may not be required
+            self.state = SyncState::Idle;
         }
     }
 
@@ -323,6 +332,52 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     // if a peer disconnects, re-evaluate which chain to sync
     pub fn peer_disconnect(&mut self, _peer_id: &PeerId) {}
 
-    // TODO: Write this
-    pub fn inject_error(&mut self, _peer_id: PeerId, _request_id: RequestId) {}
+    // An RPC Error occurred, if it's a pending batch, re-request it if possible, if there have
+    // been too many attempts, remove the chain
+    pub fn inject_error(
+        &mut self,
+        network: &mut SyncNetworkContext,
+        peer_id: PeerId,
+        request_id: RequestId,
+    ) {
+        // check that this request is pending
+        let log_ref = &self.log;
+        match self
+            .finalized_chains
+            .iter_mut()
+            .enumerate()
+            .find_map(|(index, chain)| {
+                Some((
+                    index,
+                    chain.inject_error(network, &peer_id, &request_id, log_ref)?,
+                ))
+            }) {
+            Some((_, ProcessingResult::KeepChain)) => {}
+            Some((index, ProcessingResult::RemoveChain)) => {
+                self.finalized_chains.remove(index);
+                if index == 0 {
+                    self.update_finalized_chains(network);
+                }
+            }
+            None => {
+                // request wasn't in the finalized chains, check the head chains
+                match self
+                    .head_chains
+                    .iter_mut()
+                    .enumerate()
+                    .find_map(|(index, chain)| {
+                        Some((
+                            index,
+                            chain.inject_error(network, &peer_id, &request_id, log_ref)?,
+                        ))
+                    }) {
+                    Some((_, ProcessingResult::KeepChain)) => {}
+                    Some((index, ProcessingResult::RemoveChain)) => {
+                        self.finalized_chains.remove(index);
+                    }
+                    None => {} // request id was not recognized
+                }
+            }
+        }
+    }
 }
