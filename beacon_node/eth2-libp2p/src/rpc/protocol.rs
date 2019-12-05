@@ -137,7 +137,7 @@ where
         protocol: ProtocolId,
     ) -> Self::Future {
         match protocol.encoding.as_str() {
-            "ssz" | _ => {
+            "ssz_snappy" => {
                 let ssz_codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol, MAX_RPC_SIZE));
                 let codec = InboundCodec::SSZ(ssz_codec);
                 let mut timed_socket = TimeoutStream::new(socket);
@@ -155,7 +155,7 @@ where
                         }
                     } as FnAndThen<TSocket>)
             }
-            "ssz_snappy" | _ => {
+            "ssz" | _ => {
                 let ssz_codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol, MAX_RPC_SIZE));
                 let codec = InboundCodec::SSZ(ssz_codec);
                 let mut timed_socket = TimeoutStream::new(socket);
