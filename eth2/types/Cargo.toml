@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
+[[bench]]
+name = "benches"
+harness = false
+
 [dependencies]
 bls = { path = "../utils/bls" }
 compare_fields = { path = "../utils/compare_fields" }
@@ -37,3 +41,4 @@ tempfile = "3.1.0"
 [dev-dependencies]
 env_logger = "0.7.1"
 serde_json = "1.0.41"
+criterion = "0.3.0"
