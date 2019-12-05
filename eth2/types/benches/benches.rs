@@ -21,7 +21,7 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
         state
             .validators
             .push(Validator {
-                pubkey: generate_deterministic_keypair(i).pk,
+                pubkey: generate_deterministic_keypair(i).pk.into(),
                 withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
                 effective_balance: i as u64,
                 slashed: i % 2 == 0,
