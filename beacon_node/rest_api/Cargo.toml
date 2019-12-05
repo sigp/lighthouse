@@ -39,3 +39,6 @@ futures = "0.1.29"
 remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }
 node_test_rig = { path = "../../tests/node_test_rig" }
 tree_hash = { path = "../../eth2/utils/tree_hash" }
+
+[features]
+fake_crypto = []
