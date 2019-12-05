@@ -1,5 +1,6 @@
 use crate::{AggregatePublicKey, AggregateSignature, PublicKey, Signature};
 use milagro_bls::{G1Point, G2Point};
+use std::borrow::Cow;
 
 #[cfg(not(feature = "fake_crypto"))]
 use milagro_bls::AggregateSignature as RawAggregateSignature;
@@ -9,17 +10,14 @@ type Domain = u64;
 
 #[derive(Clone, Debug)]
 pub struct SignedMessage<'a> {
-    signing_keys: Vec<&'a G1Point>,
+    signing_keys: Vec<Cow<'a, G1Point>>,
     message: Message,
 }
 
 impl<'a> SignedMessage<'a> {
-    pub fn new<T>(signing_keys: Vec<&'a T>, message: Message) -> Self
-    where
-        T: G1Ref,
-    {
+    pub fn new(signing_keys: Vec<Cow<'a, G1Point>>, message: Message) -> Self {
         Self {
-            signing_keys: signing_keys.iter().map(|k| k.g1_ref()).collect(),
+            signing_keys,
             message,
         }
     }
@@ -33,14 +31,13 @@ pub struct SignatureSet<'a> {
 }
 
 impl<'a> SignatureSet<'a> {
-    pub fn single<S, T>(
+    pub fn single<S>(
         signature: &'a S,
-        signing_key: &'a T,
+        signing_key: Cow<'a, G1Point>,
         message: Message,
         domain: Domain,
     ) -> Self
     where
-        T: G1Ref,
         S: G2Ref,
     {
         Self {
@@ -53,13 +50,13 @@ impl<'a> SignatureSet<'a> {
     pub fn dual<S, T>(
         signature: &'a S,
         message_0: Message,
-        message_0_signing_keys: Vec<&'a T>,
+        message_0_signing_keys: Vec<Cow<'a, G1Point>>,
         message_1: Message,
-        message_1_signing_keys: Vec<&'a T>,
+        message_1_signing_keys: Vec<Cow<'a, G1Point>>,
         domain: Domain,
     ) -> Self
     where
-        T: G1Ref,
+        T: G1Ref + Clone,
         S: G2Ref,
     {
         Self {
@@ -95,7 +92,7 @@ impl<'a> SignatureSet<'a> {
             messages.push(signed_message.message.clone());
 
             let point = if signed_message.signing_keys.len() == 1 {
-                signed_message.signing_keys[0].clone()
+                signed_message.signing_keys[0].clone().into_owned()
             } else {
                 aggregate_public_keys(&signed_message.signing_keys)
             };
@@ -132,7 +129,7 @@ impl<'a> Into<VerifySet<'a>> for SignatureSet<'a> {
             .into_iter()
             .map(|signed_message| {
                 let key = if signed_message.signing_keys.len() == 1 {
-                    signed_message.signing_keys[0].clone()
+                    signed_message.signing_keys[0].clone().into_owned()
                 } else {
                     aggregate_public_keys(&signed_message.signing_keys)
                 };
@@ -146,12 +143,12 @@ impl<'a> Into<VerifySet<'a>> for SignatureSet<'a> {
 }
 
 /// Create an aggregate public key for a list of validators, failing if any key can't be found.
-fn aggregate_public_keys<'a>(public_keys: &'a [&'a G1Point]) -> G1Point {
+fn aggregate_public_keys<'a>(public_keys: &'a [Cow<'a, G1Point>]) -> G1Point {
     let mut aggregate =
         public_keys
             .iter()
-            .fold(AggregatePublicKey::new(), |mut aggregate, &pubkey| {
-                aggregate.add_point(pubkey);
+            .fold(AggregatePublicKey::new(), |mut aggregate, pubkey| {
+                aggregate.add_point(&pubkey);
                 aggregate
             });
 
@@ -161,18 +158,18 @@ fn aggregate_public_keys<'a>(public_keys: &'a [&'a G1Point]) -> G1Point {
 }
 
 pub trait G1Ref {
-    fn g1_ref(&self) -> &G1Point;
+    fn g1_ref<'a>(&'a self) -> Cow<'a, G1Point>;
 }
 
 impl G1Ref for AggregatePublicKey {
-    fn g1_ref(&self) -> &G1Point {
-        &self.as_raw().point
+    fn g1_ref<'a>(&'a self) -> Cow<'a, G1Point> {
+        Cow::Borrowed(&self.as_raw().point)
     }
 }
 
 impl G1Ref for PublicKey {
-    fn g1_ref(&self) -> &G1Point {
-        &self.as_raw().point
+    fn g1_ref<'a>(&'a self) -> Cow<'a, G1Point> {
+        Cow::Borrowed(&self.as_raw().point)
     }
 }
 

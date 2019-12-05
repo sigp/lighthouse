@@ -260,7 +260,10 @@ impl<E: EthSpec> Validator<E> {
 
         let bulk_request = BulkValidatorDutiesRequest {
             epoch,
-            pubkeys: validator_pubkeys.to_vec(),
+            pubkeys: validator_pubkeys
+                .iter()
+                .map(|pubkey| pubkey.clone().into())
+                .collect(),
         };
 
         self.url("duties")

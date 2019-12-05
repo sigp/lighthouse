@@ -454,7 +454,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns the validator index (if any) for the given public key.
     ///
     /// Information is retrieved from the present `beacon_state.validators`.
-    pub fn validator_index(&self, pubkey: &PublicKey) -> Option<usize> {
+    pub fn validator_index(&self, pubkey: &PublicKeyBytes) -> Option<usize> {
         for (i, validator) in self.head().beacon_state.validators.iter().enumerate() {
             if validator.pubkey == *pubkey {
                 return Some(i);

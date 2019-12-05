@@ -1,8 +1,11 @@
-use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
+use crate::{
+    duties_service::{DutiesService, ValidatorDuty},
+    validator_store::ValidatorStore,
+};
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{Future, Stream};
-use remote_beacon_node::{PublishStatus, RemoteBeaconNode, ValidatorDuty};
+use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use slog::{crit, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
