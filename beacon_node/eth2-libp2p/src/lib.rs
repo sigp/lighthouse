@@ -5,6 +5,8 @@
 #[macro_use]
 extern crate lazy_static;
 
+extern crate snap;
+
 pub mod behaviour;
 mod config;
 mod discovery;
