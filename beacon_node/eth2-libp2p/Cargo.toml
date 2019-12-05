@@ -30,6 +30,7 @@ smallvec = "1.0.0"
 lru = "0.4.3"
 sha2 = "0.8.0"
 base64 = "0.11.0"
+snap = "0.2"
 
 [dev-dependencies]
 slog-stdlog = "4.0.0"
