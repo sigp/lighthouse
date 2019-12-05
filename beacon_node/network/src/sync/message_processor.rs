@@ -6,7 +6,7 @@ use beacon_chain::{
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{debug, info, o, trace, warn};
+use slog::{debug, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
@@ -490,7 +490,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         match self.chain.process_attestation(msg.clone()) {
             Ok(outcome) => match outcome {
                 AttestationProcessingOutcome::Processed => {
-                    info!(
+                    debug!(
                         self.log,
                         "Processed attestation";
                         "source" => "gossip",
