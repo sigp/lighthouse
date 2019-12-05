@@ -47,8 +47,8 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
-// Approximately 100 years (2^28 * SLOTS_PER_EPOCH / SECONDS_PER_DAY / 365)
-// with SLOTS_PER_EPOCH == 12 and SECONDS_PER_DAY == 86400
+// Approximately 100 years (2^28 * SECONDS_PER_SLOT / SECONDS_PER_DAY / 365)
+// with SECONDS_PER_SLOT == 12 and SECONDS_PER_DAY == 86400
 const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 268_435_456;
 
 #[derive(Debug, PartialEq)]
