@@ -89,7 +89,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 chain.target_head_root == remote.finalized_root
                     && chain.target_head_slot == remote_finalized_slot
             }) {
-                trace!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id));
+                {
+                    let chain = &self.finalized_chains[index];
+                    trace!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id), "target_root" => format!("{}", chain.target_head_root), "end_slot" => chain.target_head_slot, "start_slot"=> chain.start_slot);
+                }
                 // add the peer to the chain's peer pool
                 self.finalized_chains[index]
                     .peer_pool
@@ -101,10 +104,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         > self.finalized_chains[0].peer_pool.len()
                 {
                     // switch to the new syncing chain and stop the old
-                    trace!(self.log, "Switching finalized chains to sync"; "peer_id" => format!("{:?}", peer_id));
 
                     self.finalized_chains[0].stop_syncing();
                     let new_best = self.finalized_chains.swap_remove(index);
+                    trace!(self.log, "Switching finalized chains to sync"; "peer_id" => format!("{:?}", peer_id), "new_target_root" => format!("{}", new_best.target_head_root), "new_end_slot" => new_best.target_head_slot, "new_start_slot"=> new_best.start_slot);
                     self.finalized_chains.insert(0, new_best);
                     // start syncing the better chain
                     self.finalized_chains[0].start_syncing(

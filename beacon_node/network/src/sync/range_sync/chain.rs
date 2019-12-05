@@ -5,7 +5,7 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
-use slog::{crit, debug, info, trace, warn, Logger};
+use slog::{crit, debug, trace, warn, Logger};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ops::Sub;
@@ -193,7 +193,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // An entire batch of blocks has been received. This functions checks to see if it can be processed,
         // remove any batches waiting to be verified and if this chain is syncing, request new
         // blocks for the peer.
-        warn!(log, "Completed batch received"; "id"=>batch.id, "blocks"=>batch.downloaded_blocks.len(), "awaiting_batches" => self.completed_batches.len());
+        debug!(log, "Completed batch received"; "id"=>batch.id, "blocks"=>batch.downloaded_blocks.len(), "awaiting_batches" => self.completed_batches.len());
 
         // The peer that completed this batch, may be re-requested if this batch doesn't complete
         // the chain and there is no error in processing
@@ -255,7 +255,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         warn!(log, "Processing batch"; "batch_id" => batch.id);
                         match process_batch(chain.clone(), batch, log) {
                             Ok(_) => {
-                                info!(log, "Blocks Processed"; "current_slot" => batch.end_slot);
+                                trace!(log, "Blocks Processed"; "current_slot" => batch.end_slot);
                                 // batch was successfully processed
                                 self.last_processed_id = self.to_be_processed_id;
                                 self.to_be_processed_id += 1;
@@ -314,32 +314,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // self.state = SyncingChainState::Paused;
     }
 
-    /*
-    // empty. In this case we re-request backwards
-    if let Some(batch) = self.pending_verification_batch.take() {
-        // find the latest downloaded slot
-        if !batch.downloaded_blocks.is_empty() {
-            let last_slot = batch.downloaded_blocks.iter().max_by_key(|block| block.slot).slot;
-            // this MUST be less than `batch.end_slot` otherwise this batch should never
-            // have been inserted into `pending_verification_batch`. We log a crit, to
-            // ensure.
-            if last_slot == batch.end_slot {
-                crit!(log, "Pending verified batch incorrectly added");
-                return;
-            }
-            batch.start_slot = last_slot+ 1;
-        }
-        // Start the batch from the last processed slot and retry with a different peer
-        // (if possible)
-        if self.peer_pool.len() > 1 {
-            let peer = self.peer_pool.iter().find(|peer| peer != batch.peer).expect("must be another peer");
-            self.batch.current_peer = peer.clone();
-        }
-        self.send_batch(batch);
-
-    }
-    */
-
     pub fn stop_syncing(&mut self) {
         self.state = ChainSyncingState::Stopped;
     }
@@ -361,8 +335,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let batches_ahead = local_finalized_slot
             .as_u64()
             .saturating_sub(self.start_slot.as_u64() + self.last_processed_id * BLOCKS_PER_REQUEST)
-            .checked_rem(BLOCKS_PER_REQUEST)
-            .expect("BLOCKS_PER_REQUEST cannot be 0");
+            / BLOCKS_PER_REQUEST;
 
         if batches_ahead != 0 {
             // there are `batches_ahead` whole batches that have been downloaded by another
@@ -370,10 +343,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             debug!(log, "Updating chains processed batches"; "old_completed_slot" => self.start_slot + self.last_processed_id*BLOCKS_PER_REQUEST, "new_completed_slot" => self.start_slot + (self.last_processed_id + batches_ahead)*BLOCKS_PER_REQUEST);
             self.last_processed_id += batches_ahead;
 
-            if self.last_processed_id * BLOCKS_PER_REQUEST > self.target_head_slot.as_u64() {
+            if self.start_slot + self.last_processed_id * BLOCKS_PER_REQUEST
+                > self.target_head_slot.as_u64()
+            {
                 crit!(
                     log,
-                    "Current head slot is above the target head - Coding error"
+                    "Current head slot is above the target head - Coding error";
+                    "target_head_slot" => self.target_head_slot.as_u64(),
+                    "new_start" => self.start_slot + self.last_processed_id * BLOCKS_PER_REQUEST,
                 );
                 return;
             }
