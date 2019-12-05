@@ -18,7 +18,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::timer::{Delay, DelayQueue};
+use tokio::timer::Delay;
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 60;
@@ -35,10 +35,6 @@ pub struct Discovery<TSubstream> {
 
     /// The currently banned peers.
     banned_peers: HashSet<PeerId>,
-
-    /// The timeout queue for banned peers. Once the ban timeout is reached, peers are no longer
-    /// banned.
-    banned_peers_delay: DelayQueue<PeerId>,
 
     /// The target number of connected peers on the libp2p interface.
     max_peers: usize,
@@ -104,7 +100,6 @@ impl<TSubstream> Discovery<TSubstream> {
         Ok(Self {
             connected_peers: HashSet::new(),
             banned_peers: HashSet::new(),
-            banned_peers_delay: DelayQueue::new(),
             max_peers: config.max_peers,
             peer_discovery_delay: Delay::new(Instant::now()),
             past_discovery_delay: INITIAL_SEARCH_DELAY,
