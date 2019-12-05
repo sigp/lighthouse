@@ -19,7 +19,7 @@ merkle_proof = { path = "../../eth2/utils/merkle_proof" }
 eth2_ssz = "0.1"
 eth2_hashing = { path = "../../eth2/utils/eth2_hashing" }
 tree_hash = "0.1"
-tokio = "0.1.17"
+tokio = "0.1.22"
 parking_lot = "0.7"
 slog = "^2.2.3"
 exit-future = "0.1.4"

@@ -14,6 +14,9 @@ use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
 
+/// The time in seconds that a peer will be banned and prevented from reconnecting.
+const BAN_PEER_TIMEOUT: u64 = 30;
+
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service<T: BeaconChainTypes> {
     libp2p_service: Arc<Mutex<LibP2PService>>,
@@ -212,7 +215,10 @@ fn network_service(
                         }
                     }
                     NetworkMessage::Disconnect { peer_id } => {
-                        libp2p_service.lock().disconnect_and_ban_peer(peer_id);
+                        libp2p_service.lock().disconnect_and_ban_peer(
+                            peer_id,
+                            std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
+                        );
                     }
                 },
                 Ok(Async::NotReady) => break,
@@ -235,7 +241,10 @@ fn network_service(
 
                         // if we received a Goodbye message, drop and ban the peer
                         if let RPCEvent::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
-                            locked_service.disconnect_and_ban_peer(peer_id.clone());
+                            locked_service.disconnect_and_ban_peer(
+                                peer_id.clone(),
+                                std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
+                            );
                         };
                         message_handler_send
                             .try_send(HandlerMessage::RPC(peer_id, rpc_event))
