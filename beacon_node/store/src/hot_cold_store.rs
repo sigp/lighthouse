@@ -159,7 +159,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         for (state_root, slot) in
             state_root_iter.take_while(|&(_, slot)| slot >= current_split_slot)
         {
-            if slot % dbg!(store.slots_per_restore_point) == 0 {
+            if slot % store.slots_per_restore_point == 0 {
                 let state: BeaconState<E> = store
                     .hot_db
                     .get_state(&state_root, None)?
@@ -264,7 +264,6 @@ impl<E: EthSpec> HotColdDB<E> {
             "slot" => state.slot,
             "state_root" => format!("{:?}", state_root)
         );
-        println!("Creating restore point {}", state.slot);
 
         // 1. Convert to PartialBeaconState and store that in the DB.
         let partial_state = PartialBeaconState::from_state_forgetful(state);
