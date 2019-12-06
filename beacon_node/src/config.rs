@@ -36,6 +36,8 @@ pub fn get_configs<E: EthSpec>(
 
     let mut client_config = ClientConfig::default();
 
+    client_config.spec_constants = eth2_config.spec_constants.clone();
+
     // Read the `--datadir` flag.
     //
     // If it's not present, try and find the home directory (`~`) and push the default data
@@ -57,9 +59,23 @@ pub fn get_configs<E: EthSpec>(
     // Load the eth2 config, if it exists .
     let path = client_config.data_dir.join(ETH2_CONFIG_FILENAME);
     if path.exists() {
-        eth2_config = read_from_file(path.clone())
+        let loaded_eth2_config: Eth2Config = read_from_file(path.clone())
             .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
             .ok_or_else(|| format!("{:?} file does not exist", path))?;
+
+        // The loaded spec must be using the same spec constants (e.g., minimal, mainnet) as the
+        // client expects.
+        if loaded_eth2_config.spec_constants == client_config.spec_constants {
+            eth2_config = loaded_eth2_config
+        } else {
+            return Err(
+                format!(
+                    "Eth2 config loaded from disk does not match client spec version. Got {} expected {}",
+                    &loaded_eth2_config.spec_constants,
+                    &client_config.spec_constants
+                )
+            );
+        }
     }
 
     // Read the `--testnet-dir` flag.
