@@ -126,7 +126,9 @@ pub fn lighthouse_testnet_spec(mut spec: ChainSpec) -> ChainSpec {
     //
     // This value determines the delay between the eth1 block that triggers genesis and the first
     // slot of that new chain.
-    spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2;
+    //
+    // With a follow distance of 16, this is 40mins.
+    spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2 * 5;
 
     spec
 }
