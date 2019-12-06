@@ -1,8 +1,12 @@
 use crate::chunked_vector::{chunk_key, Chunk, Field};
 use crate::DiskStore;
+use slog::error;
 use std::sync::Arc;
 use types::{ChainSpec, EthSpec, Slot};
 
+/// Iterator over the values of a `BeaconState` vector field (like `block_roots`).
+///
+/// Uses the freezer DB's separate table to load the values.
 pub struct ChunkedVectorIter<F, E>
 where
     F: Field<E>,
@@ -20,7 +24,12 @@ where
     F: Field<E>,
     E: EthSpec,
 {
-    // FIXME(sproul): check end_vindex > start_vindex
+    /// Create a new iterator which can yield elements from `start_vindex` up to the last
+    /// index stored by the restore point at `last_restore_point_slot`.
+    ///
+    /// The `last_restore_point` slot should be the slot of a recent restore point as obtained from
+    /// `DiskStore::get_latest_restore_point_slot`. We pass it as a parameter so that the caller can
+    /// maintain a stable view of the database (see `HybridForwardsBlockRootsIterator`).
     pub fn new(
         store: Arc<DiskStore<E>>,
         start_vindex: usize,
@@ -29,7 +38,7 @@ where
     ) -> Self {
         let (_, end_vindex) = F::start_and_end_vindex(last_restore_point_slot, spec);
 
-        // Set the next chunk to be loaded to the one containing `start_vindex`.
+        // Set the next chunk to the one containing `start_vindex`.
         let next_cindex = start_vindex / F::chunk_size();
         // Set the current chunk to the empty chunk, it will never be read.
         let current_chunk = Chunk::default();
@@ -51,7 +60,6 @@ where
 {
     type Item = (usize, F::Value);
 
-    // FIXME(sproul): log error if out of range, or chunk load fails
     fn next(&mut self) -> Option<Self::Item> {
         let chunk_size = F::chunk_size();
 
@@ -61,20 +69,48 @@ where
         }
         // Value lies in the current chunk, return it.
         else if self.current_vindex < self.next_cindex * chunk_size {
-            let i = self.current_vindex % chunk_size;
             let vindex = self.current_vindex;
-            let val = self.current_chunk.values.get(i).cloned()?;
+            let val = self
+                .current_chunk
+                .values
+                .get(vindex % chunk_size)
+                .cloned()
+                .or_else(|| {
+                    error!(
+                        self.store.log,
+                        "Missing chunk value in forwards iterator";
+                        "vector index" => vindex
+                    );
+                    None
+                })?;
             self.current_vindex += 1;
             Some((vindex, val))
         }
         // Need to load the next chunk, load it and recurse back into the in-range case.
         else {
-            self.current_chunk = Chunk::load::<_, E>(
+            self.current_chunk = Chunk::load(
                 &self.store.cold_db,
                 F::column(),
                 &chunk_key(self.next_cindex as u64),
             )
-            .ok()??;
+            .map_err(|e| {
+                error!(
+                    self.store.log,
+                    "Database error in forwards iterator";
+                    "chunk index" => self.next_cindex,
+                    "error" => format!("{:?}", e)
+                );
+                e
+            })
+            .ok()?
+            .or_else(|| {
+                error!(
+                    self.store.log,
+                    "Missing chunk in forwards iterator";
+                    "chunk index" => self.next_cindex
+                );
+                None
+            })?;
             self.next_cindex += 1;
             self.next()
         }

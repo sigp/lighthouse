@@ -110,6 +110,16 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         Ok(())
     }
 
+    /// Get a forwards (slot-ascending) iterator over the beacon block roots since `start_slot`.
+    ///
+    /// Will be efficient for frozen portions of the database if using `DiskStore`.
+    ///
+    /// The `end_state` and `end_block_root` are required for backtracking in the post-finalization
+    /// part of the chain, and should be usually be set to the current head. Importantly, the
+    /// `end_state` must be a state that has had a block applied to it, and the hash of that
+    /// block must be `end_block_root`.
+    // NOTE: could maybe optimise by getting the `BeaconState` and end block root from a closure, as
+    // it's not always required.
     fn forwards_block_roots_iterator(
         store: Arc<Self>,
         start_slot: Slot,

@@ -2,22 +2,26 @@ use crate::chunked_iter::ChunkedVectorIter;
 use crate::chunked_vector::BlockRoots;
 use crate::iter::{BlockRootsIterator, ReverseBlockRootIterator};
 use crate::{DiskStore, Store};
+use slog::error;
 use std::sync::Arc;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
-/// Forwards block iterator that makes use of the `block_roots` table in the freezer DB.
+/// Forwards block roots iterator that makes use of the `block_roots` table in the freezer DB.
 pub struct FrozenForwardsBlockRootsIterator<E: EthSpec> {
     inner: ChunkedVectorIter<BlockRoots, E>,
 }
 
+/// Forwards block roots iterator that reverses a backwards iterator (only good for short ranges).
 pub struct SimpleForwardsBlockRootsIterator {
     // Values from the backwards iterator (in slot descending order)
     values: Vec<(Hash256, Slot)>,
 }
 
+/// Fusion of the above two approaches to forwards iteration. Fast and efficient.
 pub enum HybridForwardsBlockRootsIterator<E: EthSpec> {
     PreFinalization {
         iter: FrozenForwardsBlockRootsIterator<E>,
+        /// Data required by the `PostFinalization` iterator when we get to it.
         continuation_data: Option<(BeaconState<E>, Hash256)>,
     },
     PostFinalization {
@@ -54,7 +58,6 @@ impl<E: EthSpec> Iterator for FrozenForwardsBlockRootsIterator<E> {
 }
 
 impl SimpleForwardsBlockRootsIterator {
-    /// `end_state` must be the state with the block corresponding to `end_block_root` applied to it
     pub fn new<S: Store<E>, E: EthSpec>(
         store: Arc<S>,
         start_slot: Slot,
@@ -134,8 +137,15 @@ impl<E: EthSpec> Iterator for HybridForwardsBlockRootsIterator<E> {
                     // to a post-finalization iterator beginning from the last slot
                     // of the pre iterator.
                     None => {
-                        // FIXME(sproul): log an error if continuation data is None
-                        let (end_state, end_block_root) = continuation_data.take()?;
+                        let (end_state, end_block_root) =
+                            continuation_data.take().or_else(|| {
+                                error!(
+                                    iter.inner.store.log,
+                                    "HybridForwardsBlockRootsIterator: logic error"
+                                );
+                                None
+                            })?;
+
                         *self = PostFinalization {
                             iter: SimpleForwardsBlockRootsIterator::new(
                                 iter.inner.store.clone(),
