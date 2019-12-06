@@ -113,6 +113,8 @@ pub fn lighthouse_testnet_spec(mut spec: ChainSpec) -> ChainSpec {
 
     spec.eth1_follow_distance = 16;
 
+    spec.min_genesis_active_validator_count = 128;
+
     // This value must be at least 2x the `ETH1_FOLLOW_DISTANCE` otherwise `all_eth1_data` can
     // become a subset of `new_eth1_data` which may result in an Exception in the spec
     // implementation.
