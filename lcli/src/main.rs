@@ -51,7 +51,7 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .possible_values(&["minimal", "mainnet"])
-                        .default_value("minimal")
+                        .default_value("mainnet")
                         .help("Eth2 genesis time (seconds since UNIX epoch)."),
                 )
                 .arg(
