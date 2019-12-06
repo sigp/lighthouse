@@ -16,6 +16,9 @@ eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 tree_hash = "0.1.0"
 types = { path =  "../../eth2/types" }
+state_processing = { path = "../../eth2/state_processing" }
 slog = "2.2.3"
+serde = "1.0"
+serde_derive = "1.0.102"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }

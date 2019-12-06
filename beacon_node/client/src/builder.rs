@@ -577,7 +577,12 @@ where
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Specifies that the `Client` should use a `DiskStore` database.
-    pub fn disk_store(mut self, hot_path: &Path, cold_path: &Path) -> Result<Self, String> {
+    pub fn disk_store(
+        mut self,
+        hot_path: &Path,
+        cold_path: &Path,
+        slots_per_restore_point: u64,
+    ) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -588,8 +593,14 @@ where
             .clone()
             .ok_or_else(|| "disk_store requires a chain spec".to_string())?;
 
-        let store = DiskStore::open(hot_path, cold_path, spec, context.log)
-            .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
+        let store = DiskStore::open::<TEthSpec>(
+            hot_path,
+            cold_path,
+            slots_per_restore_point,
+            spec,
+            context.log,
+        )
+        .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
         self.store = Some(Arc::new(store));
         Ok(self)
     }

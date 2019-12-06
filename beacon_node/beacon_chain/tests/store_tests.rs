@@ -9,7 +9,7 @@ use beacon_chain::test_utils::{
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
-use store::DiskStore;
+use store::{DiskStore, Store};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::test_utils::{SeedableRng, XorShiftRng};
@@ -30,9 +30,11 @@ fn get_store(db_path: &TempDir) -> Arc<DiskStore> {
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
+    let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
     let log = NullLoggerBuilder.build().expect("logger should build");
     Arc::new(
-        DiskStore::open(&hot_path, &cold_path, spec, log).expect("disk store should initialize"),
+        DiskStore::open::<E>(&hot_path, &cold_path, slots_per_restore_point, spec, log)
+            .expect("disk store should initialize"),
     )
 }
 
@@ -62,6 +64,7 @@ fn full_participation_no_skips() {
     check_finalization(&harness, num_blocks_produced);
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_blocks_produced + 1);
+    check_iterators(&harness);
 }
 
 #[test]
@@ -99,6 +102,7 @@ fn randomised_skips() {
 
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_blocks_produced + 1);
+    check_iterators(&harness);
 }
 
 #[test]
@@ -140,6 +144,7 @@ fn long_skip() {
     check_finalization(&harness, initial_blocks + skip_slots + final_blocks);
     check_split_slot(&harness, store);
     check_chain_dump(&harness, initial_blocks + final_blocks + 1);
+    check_iterators(&harness);
 }
 
 /// Go forward to the point where the genesis randao value is no longer part of the vector.
@@ -201,6 +206,7 @@ fn randao_genesis_storage() {
     check_finalization(&harness, num_slots);
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_slots + 1);
+    check_iterators(&harness);
 }
 
 // Check that closing and reopening a freezer DB restores the split slot to its correct value.
@@ -281,10 +287,44 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
     assert_eq!(chain_dump.len() as u64, expected_len);
 
     for checkpoint in chain_dump {
+        // Check that the tree hash of the stored state is as expected
         assert_eq!(
             checkpoint.beacon_state_root,
             Hash256::from_slice(&checkpoint.beacon_state.tree_hash_root()),
             "tree hash of stored state is incorrect"
         );
+
+        // Check that looking up the state root with no slot hint succeeds.
+        // This tests the state root -> slot mapping.
+        assert_eq!(
+            harness
+                .chain
+                .store
+                .get_state::<E>(&checkpoint.beacon_state_root, None)
+                .expect("no error")
+                .expect("state exists")
+                .slot,
+            checkpoint.beacon_state.slot
+        );
     }
+}
+
+/// Check that state and block root iterators can reach genesis
+fn check_iterators(harness: &TestHarness) {
+    assert_eq!(
+        harness
+            .chain
+            .rev_iter_state_roots()
+            .last()
+            .map(|(_, slot)| slot),
+        Some(Slot::new(0))
+    );
+    assert_eq!(
+        harness
+            .chain
+            .rev_iter_block_roots()
+            .last()
+            .map(|(_, slot)| slot),
+        Some(Slot::new(0))
+    );
 }

@@ -576,6 +576,14 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(&self.state_roots[i])
     }
 
+    /// Gets the oldest (earliest slot) block root.
+    ///
+    /// Spec v0.9.1
+    pub fn get_oldest_block_root(&self) -> Result<&Hash256, Error> {
+        let i = self.get_latest_block_roots_index(self.slot - self.block_roots.len() as u64)?;
+        Ok(&self.block_roots[i])
+    }
+
     /// Sets the latest state root for slot.
     ///
     /// Spec v0.9.1
