@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-tokio = "0.1.15"
+tokio = "0.1.22"
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
 sloggers = "0.3.4"
 types = { "path" = "../../eth2/types" }

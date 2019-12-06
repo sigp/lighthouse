@@ -44,48 +44,51 @@ pub fn get_full_state<S: Store, E: EthSpec>(
 /// A container for storing `BeaconState` components.
 // TODO: would be more space efficient with the caches stored separately and referenced by hash
 #[derive(Encode, Decode)]
-struct StorageContainer {
-    state_bytes: Vec<u8>,
-    committee_caches_bytes: Vec<Vec<u8>>,
-    tree_hash_cache_bytes: Vec<u8>,
+pub struct StorageContainer<T: EthSpec> {
+    state: BeaconState<T>,
+    committee_caches: Vec<CommitteeCache>,
+    tree_hash_cache: BeaconTreeHashCache,
 }
 
-impl StorageContainer {
+impl<T: EthSpec> StorageContainer<T> {
     /// Create a new instance for storing a `BeaconState`.
-    pub fn new<T: EthSpec>(state: &BeaconState<T>) -> Self {
-        let mut committee_caches_bytes = vec![];
+    pub fn new(state: &BeaconState<T>) -> Self {
+        let mut state = state.clone();
 
-        for cache in state.committee_caches[..].iter() {
-            committee_caches_bytes.push(cache.as_ssz_bytes());
+        let mut committee_caches = vec![CommitteeCache::default(); CACHED_EPOCHS];
+
+        for i in 0..CACHED_EPOCHS {
+            std::mem::swap(&mut state.committee_caches[i], &mut committee_caches[i]);
         }
 
-        let tree_hash_cache_bytes = state.tree_hash_cache.as_ssz_bytes();
+        let tree_hash_cache =
+            std::mem::replace(&mut state.tree_hash_cache, BeaconTreeHashCache::default());
 
         Self {
-            state_bytes: state.as_ssz_bytes(),
-            committee_caches_bytes,
-            tree_hash_cache_bytes,
+            state,
+            committee_caches,
+            tree_hash_cache,
         }
     }
 }
 
-impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer {
+impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer<T> {
     type Error = Error;
 
-    fn try_into(self) -> Result<BeaconState<T>, Error> {
-        let mut state: BeaconState<T> = BeaconState::from_ssz_bytes(&self.state_bytes)?;
+    fn try_into(mut self) -> Result<BeaconState<T>, Error> {
+        let mut state = self.state;
 
-        for i in 0..CACHED_EPOCHS {
-            let bytes = &self.committee_caches_bytes.get(i).ok_or_else(|| {
-                Error::SszDecodeError(DecodeError::BytesInvalid(
+        for i in (0..CACHED_EPOCHS).rev() {
+            if i >= self.committee_caches.len() {
+                return Err(Error::SszDecodeError(DecodeError::BytesInvalid(
                     "Insufficient committees for BeaconState".to_string(),
-                ))
-            })?;
+                )));
+            };
 
-            state.committee_caches[i] = CommitteeCache::from_ssz_bytes(bytes)?;
+            state.committee_caches[i] = self.committee_caches.remove(i);
         }
 
-        state.tree_hash_cache = BeaconTreeHashCache::from_ssz_bytes(&self.tree_hash_cache_bytes)?;
+        state.tree_hash_cache = self.tree_hash_cache;
 
         Ok(state)
     }
