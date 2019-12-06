@@ -345,9 +345,9 @@ pub fn publish_attestation<T: BeaconChainTypes>(
                         );
 
                         Err(ApiError::ProcessingError(format!(
-                        "The Attestation could not be processed and has not been published: {:?}",
-                        outcome
-                    )))
+                            "The Attestation could not be processed and has not been published: {:?}",
+                            outcome
+                        )))
                     }
                     Err(e) => {
                         error!(
