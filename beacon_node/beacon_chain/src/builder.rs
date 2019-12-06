@@ -52,7 +52,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEve
         TEventHandler,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
@@ -108,7 +108,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEve
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
@@ -402,7 +402,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
@@ -462,7 +462,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
@@ -514,7 +514,7 @@ impl<TStore, TStoreMigrator, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
@@ -555,7 +555,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,

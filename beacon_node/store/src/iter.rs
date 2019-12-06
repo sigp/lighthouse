@@ -12,12 +12,14 @@ use types::{
 ///
 /// It is assumed that all ancestors for this object are stored in the database. If this is not the
 /// case, the iterator will start returning `None` prior to genesis.
-pub trait AncestorIter<U: Store, I: Iterator> {
+pub trait AncestorIter<U: Store<E>, E: EthSpec, I: Iterator> {
     /// Returns an iterator over the roots of the ancestors of `self`.
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<I>;
 }
 
-impl<'a, U: Store, E: EthSpec> AncestorIter<U, BlockRootsIterator<'a, E, U>> for BeaconBlock<E> {
+impl<'a, U: Store<E>, E: EthSpec> AncestorIter<U, E, BlockRootsIterator<'a, E, U>>
+    for BeaconBlock<E>
+{
     /// Iterates across all available prior block roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<BlockRootsIterator<'a, E, U>> {
@@ -27,7 +29,9 @@ impl<'a, U: Store, E: EthSpec> AncestorIter<U, BlockRootsIterator<'a, E, U>> for
     }
 }
 
-impl<'a, U: Store, E: EthSpec> AncestorIter<U, StateRootsIterator<'a, E, U>> for BeaconState<E> {
+impl<'a, U: Store<E>, E: EthSpec> AncestorIter<U, E, StateRootsIterator<'a, E, U>>
+    for BeaconState<E>
+{
     /// Iterates across all available prior state roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<StateRootsIterator<'a, E, U>> {
@@ -52,7 +56,7 @@ impl<'a, T: EthSpec, U> Clone for StateRootsIterator<'a, T, U> {
     }
 }
 
-impl<'a, T: EthSpec, U: Store> StateRootsIterator<'a, T, U> {
+impl<'a, T: EthSpec, U: Store<T>> StateRootsIterator<'a, T, U> {
     pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
             store,
@@ -70,7 +74,7 @@ impl<'a, T: EthSpec, U: Store> StateRootsIterator<'a, T, U> {
     }
 }
 
-impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
+impl<'a, T: EthSpec, U: Store<T>> Iterator for StateRootsIterator<'a, T, U> {
     type Item = (Hash256, Slot);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -99,13 +103,13 @@ impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
 }
 
 /// Block iterator that uses the `parent_root` of each block to backtrack.
-pub struct ParentRootBlockIterator<'a, E: EthSpec, S: Store> {
+pub struct ParentRootBlockIterator<'a, E: EthSpec, S: Store<E>> {
     store: &'a S,
     next_block_root: Hash256,
     _phantom: PhantomData<E>,
 }
 
-impl<'a, E: EthSpec, S: Store> ParentRootBlockIterator<'a, E, S> {
+impl<'a, E: EthSpec, S: Store<E>> ParentRootBlockIterator<'a, E, S> {
     pub fn new(store: &'a S, start_block_root: Hash256) -> Self {
         Self {
             store,
@@ -115,7 +119,7 @@ impl<'a, E: EthSpec, S: Store> ParentRootBlockIterator<'a, E, S> {
     }
 }
 
-impl<'a, E: EthSpec, S: Store> Iterator for ParentRootBlockIterator<'a, E, S> {
+impl<'a, E: EthSpec, S: Store<E>> Iterator for ParentRootBlockIterator<'a, E, S> {
     type Item = BeaconBlock<E>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -137,7 +141,7 @@ pub struct BlockIterator<'a, T: EthSpec, U> {
     roots: BlockRootsIterator<'a, T, U>,
 }
 
-impl<'a, T: EthSpec, U: Store> BlockIterator<'a, T, U> {
+impl<'a, T: EthSpec, U: Store<T>> BlockIterator<'a, T, U> {
     /// Create a new iterator over all blocks in the given `beacon_state` and prior states.
     pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
@@ -153,7 +157,7 @@ impl<'a, T: EthSpec, U: Store> BlockIterator<'a, T, U> {
     }
 }
 
-impl<'a, T: EthSpec, U: Store> Iterator for BlockIterator<'a, T, U> {
+impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockIterator<'a, T, U> {
     type Item = BeaconBlock<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -186,7 +190,7 @@ impl<'a, T: EthSpec, U> Clone for BlockRootsIterator<'a, T, U> {
     }
 }
 
-impl<'a, T: EthSpec, U: Store> BlockRootsIterator<'a, T, U> {
+impl<'a, T: EthSpec, U: Store<T>> BlockRootsIterator<'a, T, U> {
     /// Create a new iterator over all block roots in the given `beacon_state` and prior states.
     pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
@@ -206,7 +210,7 @@ impl<'a, T: EthSpec, U: Store> BlockRootsIterator<'a, T, U> {
     }
 }
 
-impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
+impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockRootsIterator<'a, T, U> {
     type Item = (Hash256, Slot);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -235,7 +239,7 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
 }
 
 /// Fetch the next state to use whilst backtracking in `*RootsIterator`.
-fn next_historical_root_backtrack_state<E: EthSpec, S: Store>(
+fn next_historical_root_backtrack_state<E: EthSpec, S: Store<E>>(
     store: &S,
     current_state: &BeaconState<E>,
 ) -> Option<BeaconState<E>> {

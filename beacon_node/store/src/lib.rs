@@ -11,9 +11,11 @@
 extern crate lazy_static;
 
 mod block_at_slot;
+pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
 mod errors;
+mod forwards_iter;
 mod hot_cold_store;
 mod impls;
 mod leveldb_store;
@@ -42,7 +44,9 @@ pub use types::*;
 /// A `Store` is fundamentally backed by a key-value database, however it provides support for
 /// columns. A simple column implementation might involve prefixing a key with some bytes unique to
 /// each column.
-pub trait Store: Sync + Send + Sized + 'static {
+pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
+    type ForwardsBlockRootsIterator: Iterator<Item = (Hash256, Slot)>;
+
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
@@ -76,14 +80,10 @@ pub trait Store: Sync + Send + Sized + 'static {
     }
 
     /// Store a state in the store.
-    fn put_state<E: EthSpec>(
-        &self,
-        state_root: &Hash256,
-        state: &BeaconState<E>,
-    ) -> Result<(), Error>;
+    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
 
     /// Fetch a state from the store.
-    fn get_state<E: EthSpec>(
+    fn get_state(
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
@@ -94,7 +94,7 @@ pub trait Store: Sync + Send + Sized + 'static {
     ///
     /// Returns `None` if no parent block exists at that slot, or if `slot` is greater than the
     /// slot of `start_block_root`.
-    fn get_block_at_preceeding_slot<E: EthSpec>(
+    fn get_block_at_preceeding_slot(
         &self,
         start_block_root: Hash256,
         slot: Slot,
@@ -103,13 +103,31 @@ pub trait Store: Sync + Send + Sized + 'static {
     }
 
     /// (Optionally) Move all data before the frozen slot to the freezer database.
-    fn freeze_to_state<E: EthSpec>(
+    fn freeze_to_state(
         _store: Arc<Self>,
         _frozen_head_root: Hash256,
         _frozen_head: &BeaconState<E>,
     ) -> Result<(), Error> {
         Ok(())
     }
+
+    /// Get a forwards (slot-ascending) iterator over the beacon block roots since `start_slot`.
+    ///
+    /// Will be efficient for frozen portions of the database if using `DiskStore`.
+    ///
+    /// The `end_state` and `end_block_root` are required for backtracking in the post-finalization
+    /// part of the chain, and should be usually be set to the current head. Importantly, the
+    /// `end_state` must be a state that has had a block applied to it, and the hash of that
+    /// block must be `end_block_root`.
+    // NOTE: could maybe optimise by getting the `BeaconState` and end block root from a closure, as
+    // it's not always required.
+    fn forwards_block_roots_iterator(
+        store: Arc<Self>,
+        start_slot: Slot,
+        end_state: BeaconState<E>,
+        end_block_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Self::ForwardsBlockRootsIterator;
 }
 
 /// A unique column identifier.
@@ -165,16 +183,16 @@ pub trait SimpleStoreItem: Sized {
 /// An item that may be stored in a `Store`.
 pub trait StoreItem: Sized {
     /// Store `self`.
-    fn db_put<S: Store>(&self, store: &S, key: &Hash256) -> Result<(), Error>;
+    fn db_put<S: Store<E>, E: EthSpec>(&self, store: &S, key: &Hash256) -> Result<(), Error>;
 
     /// Retrieve an instance of `Self` from `store`.
-    fn db_get<S: Store>(store: &S, key: &Hash256) -> Result<Option<Self>, Error>;
+    fn db_get<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<Option<Self>, Error>;
 
     /// Return `true` if an instance of `Self` exists in `store`.
-    fn db_exists<S: Store>(store: &S, key: &Hash256) -> Result<bool, Error>;
+    fn db_exists<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<bool, Error>;
 
     /// Delete an instance of `Self` from `store`.
-    fn db_delete<S: Store>(store: &S, key: &Hash256) -> Result<(), Error>;
+    fn db_delete<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<(), Error>;
 }
 
 impl<T> StoreItem for T
@@ -182,7 +200,7 @@ where
     T: SimpleStoreItem,
 {
     /// Store `self`.
-    fn db_put<S: Store>(&self, store: &S, key: &Hash256) -> Result<(), Error> {
+    fn db_put<S: Store<E>, E: EthSpec>(&self, store: &S, key: &Hash256) -> Result<(), Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
@@ -192,7 +210,7 @@ where
     }
 
     /// Retrieve an instance of `Self`.
-    fn db_get<S: Store>(store: &S, key: &Hash256) -> Result<Option<Self>, Error> {
+    fn db_get<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<Option<Self>, Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
@@ -203,7 +221,7 @@ where
     }
 
     /// Return `true` if an instance of `Self` exists in `Store`.
-    fn db_exists<S: Store>(store: &S, key: &Hash256) -> Result<bool, Error> {
+    fn db_exists<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<bool, Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
@@ -211,7 +229,7 @@ where
     }
 
     /// Delete `self` from the `Store`.
-    fn db_delete<S: Store>(store: &S, key: &Hash256) -> Result<(), Error> {
+    fn db_delete<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<(), Error> {
         let column = Self::db_column().into();
         let key = key.as_bytes();
 
@@ -246,7 +264,7 @@ mod tests {
         }
     }
 
-    fn test_impl(store: impl Store) {
+    fn test_impl(store: impl Store<MinimalEthSpec>) {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
@@ -275,7 +293,7 @@ mod tests {
         let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
         let spec = MinimalEthSpec::default_spec();
         let log = NullLoggerBuilder.build().unwrap();
-        let store = DiskStore::open::<MinimalEthSpec>(
+        let store = DiskStore::open(
             &hot_dir.path(),
             &cold_dir.path(),
             slots_per_restore_point,
@@ -305,7 +323,7 @@ mod tests {
 
     #[test]
     fn exists() {
-        let store = MemoryStore::open();
+        let store = MemoryStore::<MinimalEthSpec>::open();
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 

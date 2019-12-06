@@ -12,7 +12,7 @@ use futures::future::Future;
 use futures::stream::Stream;
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
-use slog::{info, warn, Logger};
+use slog::{error, info, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
@@ -195,6 +195,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
 pub fn get_new_beacon_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
+    log: Logger,
 ) -> ApiResult {
     let query = UrlQuery::from_request(&req)?;
 
@@ -204,6 +205,12 @@ pub fn get_new_beacon_block<T: BeaconChainTypes>(
     let (new_block, _state) = beacon_chain
         .produce_block(randao_reveal, slot)
         .map_err(|e| {
+            error!(
+                log,
+                "Error whilst producing block";
+                "error" => format!("{:?}", e)
+            );
+
             ApiError::ServerError(format!(
                 "Beacon node is not able to produce a block: {:?}",
                 e
@@ -224,38 +231,56 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
     let response_builder = ResponseBuilder::new(&req);
 
     let body = req.into_body();
-    Box::new(body
-        .concat2()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}",e)))
-        .and_then(|chunks| {
-            serde_json::from_slice(&chunks).map_err(|e| ApiError::BadRequest(format!("Unable to parse JSON into BeaconBlock: {:?}",e)))
-        })
-        .and_then(move |block: BeaconBlock<T::EthSpec>| {
-            let slot = block.slot;
-            match beacon_chain.process_block(block.clone()) {
-                Ok(BlockProcessingOutcome::Processed { block_root }) => {
-                    // Block was processed, publish via gossipsub
-                    info!(log, "Processed valid block from API, transmitting to network."; "block_slot" => slot, "block_root" => format!("{}", block_root));
-                    publish_beacon_block_to_network::<T>(network_chan, block)
+    Box::new(
+        body.concat2()
+            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+            .and_then(|chunks| {
+                serde_json::from_slice(&chunks).map_err(|e| {
+                    ApiError::BadRequest(format!("Unable to parse JSON into BeaconBlock: {:?}", e))
+                })
+            })
+            .and_then(move |block: BeaconBlock<T::EthSpec>| {
+                let slot = block.slot;
+                match beacon_chain.process_block(block.clone()) {
+                    Ok(BlockProcessingOutcome::Processed { block_root }) => {
+                        // Block was processed, publish via gossipsub
+                        info!(
+                            log,
+                            "Block from local validator";
+                            "block_root" => format!("{}", block_root),
+                            "block_slot" => slot,
+                        );
+
+                        publish_beacon_block_to_network::<T>(network_chan, block)
+                    }
+                    Ok(outcome) => {
+                        warn!(
+                            log,
+                            "Invalid block from local validator";
+                            "outcome" => format!("{:?}", outcome)
+                        );
+
+                        Err(ApiError::ProcessingError(format!(
+                            "The BeaconBlock could not be processed and has not been published: {:?}",
+                            outcome
+                        )))
+                    }
+                    Err(e) => {
+                        error!(
+                            log,
+                            "Error whilst processing block";
+                            "error" => format!("{:?}", e)
+                        );
+
+                        Err(ApiError::ServerError(format!(
+                            "Error while processing block: {:?}",
+                            e
+                        )))
+                    }
                 }
-                Ok(outcome) => {
-                    warn!(log, "BeaconBlock could not be processed, but is being sent to the network anyway."; "outcome" => format!("{:?}", outcome));
-                    publish_beacon_block_to_network::<T>(network_chan, block)?;
-                    Err(ApiError::ProcessingError(format!(
-                        "The BeaconBlock could not be processed, but has still been published: {:?}",
-                        outcome
-                    )))
-                }
-                Err(e) => {
-                    Err(ApiError::ServerError(format!(
-                        "Error while processing block: {:?}",
-                        e
-                    )))
-                }
-            }
-        }).and_then(|_| {
-            response_builder?.body_no_ssz(&())
-        }))
+            })
+            .and_then(|_| response_builder?.body_no_ssz(&())),
+    )
 }
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
@@ -285,42 +310,59 @@ pub fn publish_attestation<T: BeaconChainTypes>(
     try_future!(check_content_type_for_json(&req));
     let response_builder = ResponseBuilder::new(&req);
 
-    Box::new(req
-        .into_body()
-        .concat2()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}",e)))
-        .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
-        .and_then(|chunks| {
-            serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
-                ApiError::BadRequest(format!(
-                    "Unable to deserialize JSON into a BeaconBlock: {:?}",
-                    e
-                ))
-            })
-        })
-        .and_then(move |attestation: Attestation<T::EthSpec>| {
-            match beacon_chain.process_attestation(attestation.clone()) {
-                Ok(AttestationProcessingOutcome::Processed) => {
-                    // Block was processed, publish via gossipsub
-                    info!(log, "Processed valid attestation from API, transmitting to network.");
-                    publish_attestation_to_network::<T>(network_chan, attestation)
-                }
-                Ok(outcome) => {
-                    warn!(log, "Attestation could not be processed, but is being sent to the network anyway."; "outcome" => format!("{:?}", outcome));
-                    publish_attestation_to_network::<T>(network_chan, attestation)?;
-                    Err(ApiError::ProcessingError(format!(
-                        "The Attestation could not be processed, but has still been published: {:?}",
-                        outcome
-                    )))
-                }
-                Err(e) => {
-                    Err(ApiError::ServerError(format!(
-                        "Error while processing attestation: {:?}",
+    Box::new(
+        req.into_body()
+            .concat2()
+            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+            .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
+            .and_then(|chunks| {
+                serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
+                    ApiError::BadRequest(format!(
+                        "Unable to deserialize JSON into a BeaconBlock: {:?}",
                         e
-                    )))
+                    ))
+                })
+            })
+            .and_then(move |attestation: Attestation<T::EthSpec>| {
+                match beacon_chain.process_attestation(attestation.clone()) {
+                    Ok(AttestationProcessingOutcome::Processed) => {
+                        // Block was processed, publish via gossipsub
+                        info!(
+                            log,
+                            "Attestation from local validator";
+                            "target" => attestation.data.source.epoch,
+                            "source" => attestation.data.source.epoch,
+                            "index" => attestation.data.index,
+                            "slot" => attestation.data.slot,
+                        );
+                        publish_attestation_to_network::<T>(network_chan, attestation)
+                    }
+                    Ok(outcome) => {
+                        warn!(
+                            log,
+                            "Invalid attestation from local validator";
+                            "outcome" => format!("{:?}", outcome)
+                        );
+
+                        Err(ApiError::ProcessingError(format!(
+                            "The Attestation could not be processed and has not been published: {:?}",
+                            outcome
+                        )))
+                    }
+                    Err(e) => {
+                        error!(
+                            log,
+                            "Error whilst processing attestation";
+                            "error" => format!("{:?}", e)
+                        );
+
+                        Err(ApiError::ServerError(format!(
+                            "Error while processing attestation: {:?}",
+                            e
+                        )))
+                    }
                 }
-            }
-        }).and_then(|_| {
-        response_builder?.body_no_ssz(&())
-    }))
+            })
+            .and_then(|_| response_builder?.body_no_ssz(&())),
+    )
 }
