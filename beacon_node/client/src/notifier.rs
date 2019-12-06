@@ -22,6 +22,9 @@ const DAYS_PER_WEEK: u64 = 7;
 const HOURS_PER_DAY: u64 = 24;
 const MINUTES_PER_HOUR: u64 = 60;
 
+/// How long to wait for the lock on `network.libp2p_service()` before we give up.
+const LIBP2P_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
+
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<T: BeaconChainTypes>(
     context: RuntimeContext<T::EthSpec>,
@@ -53,7 +56,15 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         .for_each(move |_| {
             let log = log_2.clone();
 
-            let connected_peer_count = network.libp2p_service().lock().swarm.connected_peers();
+            let connected_peer_count = if let Some(libp2p) = network
+                .libp2p_service()
+                .try_lock_until(Instant::now() + LIBP2P_LOCK_TIMEOUT)
+            {
+                libp2p.swarm.connected_peers()
+            } else {
+                // Use max_value here and we'll print something pretty later.
+                usize::max_value()
+            };
 
             let head = beacon_chain.head();
 
@@ -80,13 +91,13 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             *previous_head_slot = head_slot;
 
             if connected_peer_count <= WARN_PEER_COUNT {
-                warn!(log, "Low peer count"; "peer_count" => connected_peer_count);
+                warn!(log, "Low peer count"; "peer_count" => peer_count_pretty(connected_peer_count));
             }
 
             debug!(
                 log,
                 "Slot timer";
-                "peers" => connected_peer_count,
+                "peers" => peer_count_pretty(connected_peer_count),
                 "finalized_root" => format!("{}", finalized_root),
                 "finalized_epoch" => finalized_epoch,
                 "head_block" => format!("{}", head_root),
@@ -104,7 +115,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     log,
                     "Syncing";
-                    "peers" => connected_peer_count,
+                    "peers" => peer_count_pretty(connected_peer_count),
                     "speed" => sync_rate_pretty(slots_since_last_update, interval_duration.as_secs()),
                     "distance" => distance
                 );
@@ -117,7 +128,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     info!(
                         log_2,
                         $message;
-                        "peers" => connected_peer_count,
+                        "peers" => peer_count_pretty(connected_peer_count),
                         "finalized_root" => format!("{}", finalized_root),
                         "finalized_epoch" => finalized_epoch,
                         "head_slot" => head_slot,
@@ -134,7 +145,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     log_2,
                     "Synced";
-                    "peers" => connected_peer_count,
+                    "peers" => peer_count_pretty(connected_peer_count),
                     "finalized_root" => format!("{}", finalized_root),
                     "finalized_epoch" => finalized_epoch,
                     "epoch" => current_epoch,
@@ -151,6 +162,16 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         .spawn(exit.until(interval_future).map(|_| ()));
 
     Ok(exit_signal)
+}
+
+/// Returns the peer count, returning something helpful if it's `usize::max_value` (effectively a
+/// `None` value).
+fn peer_count_pretty(peer_count: usize) -> String {
+    if peer_count == usize::max_value() {
+        String::from("--")
+    } else {
+        format!("{}", peer_count)
+    }
 }
 
 /// Returns a nicely formated string describing the rate of slot imports per second.
