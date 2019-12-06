@@ -52,7 +52,7 @@ impl DutiesStore {
                 let epoch = slot.epoch(slots_per_epoch);
 
                 validator_map.get(&epoch).and_then(|duties| {
-                    if duties.block_proposal_slot == Some(slot) {
+                    if duties.block_proposal_slots.contains(&slot) {
                         Some(duties.validator_pubkey.clone())
                     } else {
                         None
@@ -363,7 +363,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                             info!(
                                 log,
                                 "First duty assignment for validator";
-                                "proposal_slot" => format!("{:?}", &duties.block_proposal_slot),
+                                "proposal_slots" => format!("{:?}", &duties.block_proposal_slots),
                                 "attestation_slot" => format!("{:?}", &duties.attestation_slot),
                                 "validator" => format!("{:?}", &duties.validator_pubkey)
                             );
@@ -408,17 +408,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
 /// Returns `true` if the slots in the `duties` are from the given `epoch`
 fn duties_match_epoch(duties: &ValidatorDuty, epoch: Epoch, slots_per_epoch: u64) -> bool {
-    if let Some(attestation_slot) = duties.attestation_slot {
-        if attestation_slot.epoch(slots_per_epoch) != epoch {
-            return false;
-        }
-    }
-
-    if let Some(block_proposal_slot) = duties.block_proposal_slot {
-        if block_proposal_slot.epoch(slots_per_epoch) != epoch {
-            return false;
-        }
-    }
-
-    true
+    duties
+        .attestation_slot
+        .map_or(true, |slot| slot.epoch(slots_per_epoch) == epoch)
+        && duties
+            .block_proposal_slots
+            .iter()
+            .all(|slot| slot.epoch(slots_per_epoch) == epoch)
 }
