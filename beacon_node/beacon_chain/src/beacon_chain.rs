@@ -264,7 +264,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
     ) -> Result<ReverseBlockRootIterator<T::EthSpec, T::Store>, Error> {
         let block = self
-            .get_block(&block_root)?
+            .get_block_caching(&block_root)?
             .ok_or_else(|| Error::MissingBeaconBlock(block_root))?;
         let state = self
             .store
@@ -347,6 +347,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
     ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
         Ok(self.store.get(block_root)?)
+    }
+
+    /// Returns the block at the given root, if any.
+    ///
+    /// Attempts to avoid reading the database if the request root is the canonical head. Do not
+    /// use this function if you have a write lock on the canonical head.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    fn get_block_caching(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
+        if *block_root == self.canonical_head.read().beacon_block_root {
+            Ok(Some(self.canonical_head.read().beacon_block.clone()))
+        } else {
+            Ok(self.store.get(block_root)?)
+        }
+    }
+
+    /// Returns the state at the given root, if any.
+    ///
+    /// Attempts to avoid reading the database if the request root is the canonical head. Do not
+    /// use this function if you have a write lock on the canonical head.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    fn get_state_caching(
+        &self,
+        state_root: &Hash256,
+        slot: Option<Slot>,
+    ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
+        if *state_root == self.canonical_head.read().beacon_state_root {
+            Ok(Some(self.canonical_head.read().beacon_state.clone()))
+        } else {
+            Ok(self.store.get_state(state_root, slot)?)
+        }
     }
 
     /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";
@@ -745,9 +784,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // An honest validator would have set this block to be the head of the chain (i.e., the
         // result of running fork choice).
-        let result = if let Some(attestation_head_block) = self
-            .store
-            .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)?
+        let result = if let Some(attestation_head_block) =
+            self.get_block_caching(&attestation.data.beacon_block_root)?
         {
             // Attempt to process the attestation using the `self.head()` state.
             //
@@ -787,8 +825,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // This state is guaranteed to be in the same chain as the attestation, but it's
             // not guaranteed to be from the same slot or epoch as the attestation.
             let mut state: BeaconState<T::EthSpec> = self
-                .store
-                .get_state(
+                .get_state_caching(
                     &attestation_head_block.state_root,
                     Some(attestation_head_block.slot),
                 )?
@@ -1156,21 +1193,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
-        let parent_block: BeaconBlock<T::EthSpec> = match self.store.get(&block.parent_root)? {
-            Some(block) => block,
-            None => {
-                return Ok(BlockProcessingOutcome::ParentUnknown {
-                    parent: block.parent_root,
-                });
-            }
-        };
+        let parent_block: BeaconBlock<T::EthSpec> =
+            match self.get_block_caching(&block.parent_root)? {
+                Some(block) => block,
+                None => {
+                    return Ok(BlockProcessingOutcome::ParentUnknown {
+                        parent: block.parent_root,
+                    });
+                }
+            };
 
         // Load the parent blocks state from the database, returning an error if it is not found.
         // It is an error because if we know the parent block we should also know the parent state.
         let parent_state_root = parent_block.state_root;
         let parent_state = self
-            .store
-            .get_state(&parent_state_root, Some(parent_block.slot))?
+            .get_state_caching(&parent_state_root, Some(parent_block.slot))?
             .ok_or_else(|| {
                 Error::DBInconsistent(format!("Missing state {:?}", parent_state_root))
             })?;
