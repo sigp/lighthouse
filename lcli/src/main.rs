@@ -131,6 +131,15 @@ fn main() {
                         .help("The MIN_GENESIS_TIME constant."),
                 )
                 .arg(
+                    Arg::with_name("min-genesis-active-validator-count")
+                        .short("v")
+                        .long("min-genesis-active-validator-count")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("64")
+                        .help("The MIN_GENESIS_ACTIVE_VALIDATOR_COUNT constant."),
+                )
+                .arg(
                     Arg::with_name("eth1-endpoint")
                         .short("e")
                         .long("eth1-endpoint")
