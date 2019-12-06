@@ -241,6 +241,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         self.discovery.peer_banned(peer_id);
     }
 
+    /// Notify discovery that the peer has been unbanned.
+    pub fn peer_unbanned(&mut self, peer_id: &PeerId) {
+        self.discovery.peer_unbanned(peer_id);
+    }
+
     /// Informs the discovery behaviour if a new IP/Port is set at the application layer
     pub fn update_local_enr_socket(&mut self, socket: std::net::SocketAddr, is_tcp: bool) {
         self.discovery.update_local_enr(socket, is_tcp);
