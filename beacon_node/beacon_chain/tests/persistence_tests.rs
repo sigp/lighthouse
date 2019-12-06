@@ -27,9 +27,11 @@ fn get_store(db_path: &TempDir) -> Arc<DiskStore> {
     let spec = E::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
+    let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
     let log = NullLoggerBuilder.build().expect("logger should build");
     Arc::new(
-        DiskStore::open(&hot_path, &cold_path, spec, log).expect("disk store should initialize"),
+        DiskStore::open::<E>(&hot_path, &cold_path, slots_per_restore_point, spec, log)
+            .expect("disk store should initialize"),
     )
 }
 

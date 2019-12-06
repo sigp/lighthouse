@@ -20,7 +20,7 @@ deposit_contract = { path = "../eth2/utils/deposit_contract" }
 libc = "0.2.65"
 eth2_ssz = { path = "../eth2/utils/ssz" }
 eth2_ssz_derive = { path = "../eth2/utils/ssz_derive" }
-hex = "0.4"
+hex = "0.3"
 validator_client = { path = "../validator_client" }
 rayon = "1.2.0"
 eth2_testnet_config = { path = "../eth2/utils/eth2_testnet_config" }

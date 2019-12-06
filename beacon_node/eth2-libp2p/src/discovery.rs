@@ -39,7 +39,7 @@ pub struct Discovery<TSubstream> {
     /// The target number of connected peers on the libp2p interface.
     max_peers: usize,
 
-    /// directory to save ENR to
+    /// The directory where the ENR is stored.
     enr_dir: String,
 
     /// The delay between peer discovery searches.
@@ -158,9 +158,12 @@ impl<TSubstream> Discovery<TSubstream> {
     /// The peer has been banned. Add this peer to the banned list to prevent any future
     /// re-connections.
     // TODO: Remove the peer from the DHT if present
-    // TODO: Implement a timeout, after which we unban the peer
     pub fn peer_banned(&mut self, peer_id: PeerId) {
         self.banned_peers.insert(peer_id);
+    }
+
+    pub fn peer_unbanned(&mut self, peer_id: &PeerId) {
+        self.banned_peers.remove(peer_id);
     }
 
     /// Search for new peers using the underlying discovery mechanism.
