@@ -40,8 +40,8 @@ pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec> = Witness<
     NullEventHandler<TEthSpec>,
 >;
 
-pub type HarnessType<E> = BaseHarnessType<MemoryStore, NullMigrator, E>;
-pub type DiskHarnessType<E> = BaseHarnessType<DiskStore, BlockingMigrator<DiskStore>, E>;
+pub type HarnessType<E> = BaseHarnessType<MemoryStore<E>, NullMigrator, E>;
+pub type DiskHarnessType<E> = BaseHarnessType<DiskStore<E>, BlockingMigrator<DiskStore<E>>, E>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -120,7 +120,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new_with_disk_store(
         eth_spec_instance: E,
-        store: Arc<DiskStore>,
+        store: Arc<DiskStore<E>>,
         keypairs: Vec<Keypair>,
     ) -> Self {
         let spec = E::default_spec();
@@ -160,7 +160,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
-        store: Arc<DiskStore>,
+        store: Arc<DiskStore<E>>,
         keypairs: Vec<Keypair>,
     ) -> Self {
         let spec = E::default_spec();
@@ -197,7 +197,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
 
 impl<S, M, E> BeaconChainHarness<BaseHarnessType<S, M, E>>
 where
-    S: Store,
+    S: Store<E>,
     M: Migrate<S, E>,
     E: EthSpec,
 {

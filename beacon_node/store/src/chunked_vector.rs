@@ -34,7 +34,7 @@ pub enum UpdatePattern {
 /// Map a chunk index to bytes that can be used to key the NoSQL database.
 ///
 /// We shift chunks up by 1 to make room for a genesis chunk that is handled separately.
-fn chunk_key(cindex: u64) -> [u8; 8] {
+pub fn chunk_key(cindex: u64) -> [u8; 8] {
     (cindex + 1).to_be_bytes()
 }
 
@@ -177,7 +177,7 @@ pub trait Field<E: EthSpec>: Copy {
     /// Load the genesis value for a fixed length field from the store.
     ///
     /// This genesis value should be used to fill the initial state of the vector.
-    fn load_genesis_value<S: Store>(store: &S) -> Result<Self::Value, Error> {
+    fn load_genesis_value<S: Store<E>>(store: &S) -> Result<Self::Value, Error> {
         let key = &genesis_value_key()[..];
         let chunk =
             Chunk::load(store, Self::column(), key)?.ok_or(ChunkError::MissingGenesisValue)?;
@@ -192,7 +192,10 @@ pub trait Field<E: EthSpec>: Copy {
     ///
     /// Check the existing value (if any) for consistency with the value we intend to store, and
     /// return an error if they are inconsistent.
-    fn check_and_store_genesis_value<S: Store>(store: &S, value: Self::Value) -> Result<(), Error> {
+    fn check_and_store_genesis_value<S: Store<E>>(
+        store: &S,
+        value: Self::Value,
+    ) -> Result<(), Error> {
         let key = &genesis_value_key()[..];
 
         if let Some(existing_chunk) = Chunk::<Self::Value>::load(store, Self::column(), key)? {
@@ -324,7 +327,7 @@ field!(
     |state: &BeaconState<_>, index, _| safe_modulo_index(&state.randao_mixes, index)
 );
 
-pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store>(
+pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store<E>>(
     field: F,
     store: &S,
     state: &BeaconState<E>,
@@ -384,7 +387,7 @@ fn store_range<F, E, S, I>(
 where
     F: Field<E>,
     E: EthSpec,
-    S: Store,
+    S: Store<E>,
     I: Iterator<Item = usize>,
 {
     for chunk_index in range {
@@ -414,7 +417,7 @@ where
 
 // Chunks at the end index are included.
 // TODO: could be more efficient with a real range query (perhaps RocksDB)
-fn range_query<S: Store, T: Decode + Encode>(
+fn range_query<S: Store<E>, E: EthSpec, T: Decode + Encode>(
     store: &S,
     column: DBColumn,
     start_index: usize,
@@ -479,7 +482,7 @@ fn stitch<T: Default + Clone>(
     Ok(result)
 }
 
-pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store>(
+pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store<E>>(
     store: &S,
     slot: Slot,
     spec: &ChainSpec,
@@ -511,7 +514,7 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store>(
 }
 
 /// The historical roots are stored in vector chunks, despite not actually being a vector.
-pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: Store>(
+pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: Store<E>>(
     store: &S,
     slot: Slot,
     spec: &ChainSpec,
@@ -571,14 +574,23 @@ where
         Chunk { values }
     }
 
-    pub fn load<S: Store>(store: &S, column: DBColumn, key: &[u8]) -> Result<Option<Self>, Error> {
+    pub fn load<S: Store<E>, E: EthSpec>(
+        store: &S,
+        column: DBColumn,
+        key: &[u8],
+    ) -> Result<Option<Self>, Error> {
         store
             .get_bytes(column.into(), key)?
             .map(|bytes| Self::decode(&bytes))
             .transpose()
     }
 
-    pub fn store<S: Store>(&self, store: &S, column: DBColumn, key: &[u8]) -> Result<(), Error> {
+    pub fn store<S: Store<E>, E: EthSpec>(
+        &self,
+        store: &S,
+        column: DBColumn,
+        key: &[u8],
+    ) -> Result<(), Error> {
         store.put_bytes(column.into(), key, &self.encode()?)?;
         Ok(())
     }

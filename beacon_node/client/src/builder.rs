@@ -80,7 +80,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEve
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
@@ -395,7 +395,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
@@ -442,7 +442,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
@@ -482,7 +482,7 @@ where
 impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
-            DiskStore,
+            DiskStore<TEthSpec>,
             TStoreMigrator,
             TSlotClock,
             TLmdGhost,
@@ -493,8 +493,8 @@ impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandle
     >
 where
     TSlotClock: SlotClock + 'static,
-    TStoreMigrator: store::Migrate<DiskStore, TEthSpec> + 'static,
-    TLmdGhost: LmdGhost<DiskStore, TEthSpec> + 'static,
+    TStoreMigrator: store::Migrate<DiskStore<TEthSpec>, TEthSpec> + 'static,
+    TLmdGhost: LmdGhost<DiskStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -516,7 +516,7 @@ where
             .clone()
             .ok_or_else(|| "disk_store requires a chain spec".to_string())?;
 
-        let store = DiskStore::open::<TEthSpec>(
+        let store = DiskStore::open(
             hot_path,
             cold_path,
             slots_per_restore_point,
@@ -532,7 +532,7 @@ where
 impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
-            SimpleDiskStore,
+            SimpleDiskStore<TEthSpec>,
             TStoreMigrator,
             TSlotClock,
             TLmdGhost,
@@ -543,8 +543,8 @@ impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandle
     >
 where
     TSlotClock: SlotClock + 'static,
-    TStoreMigrator: store::Migrate<SimpleDiskStore, TEthSpec> + 'static,
-    TLmdGhost: LmdGhost<SimpleDiskStore, TEthSpec> + 'static,
+    TStoreMigrator: store::Migrate<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
+    TLmdGhost: LmdGhost<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -561,7 +561,7 @@ where
 impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
-            MemoryStore,
+            MemoryStore<TEthSpec>,
             NullMigrator,
             TSlotClock,
             TLmdGhost,
@@ -572,7 +572,7 @@ impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<MemoryStore, TEthSpec> + 'static,
+    TLmdGhost: LmdGhost<MemoryStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -591,7 +591,7 @@ where
 impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
-            DiskStore,
+            DiskStore<TEthSpec>,
             BackgroundMigrator<TEthSpec>,
             TSlotClock,
             TLmdGhost,
@@ -602,7 +602,7 @@ impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<DiskStore, TEthSpec> + 'static,
+    TLmdGhost: LmdGhost<DiskStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -629,7 +629,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
@@ -731,7 +731,7 @@ impl<TStore, TStoreMigrator, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,

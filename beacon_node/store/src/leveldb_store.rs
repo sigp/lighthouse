@@ -1,4 +1,5 @@
 use super::*;
+use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::metrics;
 use db_key::Key;
@@ -6,14 +7,16 @@ use leveldb::database::kv::KV;
 use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
 use leveldb::options::{Options, ReadOptions, WriteOptions};
+use std::marker::PhantomData;
 use std::path::Path;
 
 /// A wrapped leveldb database.
-pub struct LevelDB {
+pub struct LevelDB<E: EthSpec> {
     db: Database<BytesKey>,
+    _phantom: PhantomData<E>,
 }
 
-impl LevelDB {
+impl<E: EthSpec> LevelDB<E> {
     /// Open a database at `path`, creating a new database if one does not already exist.
     pub fn open(path: &Path) -> Result<Self, Error> {
         let mut options = Options::new();
@@ -22,7 +25,10 @@ impl LevelDB {
 
         let db = Database::open(path, options)?;
 
-        Ok(Self { db })
+        Ok(Self {
+            db,
+            _phantom: PhantomData,
+        })
     }
 
     fn read_options(&self) -> ReadOptions<BytesKey> {
@@ -55,7 +61,9 @@ impl Key for BytesKey {
     }
 }
 
-impl Store for LevelDB {
+impl<E: EthSpec> Store<E> for LevelDB<E> {
+    type ForwardsBlockRootsIterator = SimpleForwardsBlockRootsIterator;
+
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = Self::get_key_for_col(col, key);
@@ -110,21 +118,27 @@ impl Store for LevelDB {
     }
 
     /// Store a state in the store.
-    fn put_state<E: EthSpec>(
-        &self,
-        state_root: &Hash256,
-        state: &BeaconState<E>,
-    ) -> Result<(), Error> {
+    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         store_full_state(self, state_root, state)
     }
 
     /// Fetch a state from the store.
-    fn get_state<E: EthSpec>(
+    fn get_state(
         &self,
         state_root: &Hash256,
         _: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
         get_full_state(self, state_root)
+    }
+
+    fn forwards_block_roots_iterator(
+        store: Arc<Self>,
+        start_slot: Slot,
+        end_state: BeaconState<E>,
+        end_block_root: Hash256,
+        _: &ChainSpec,
+    ) -> Self::ForwardsBlockRootsIterator {
+        SimpleForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root)
     }
 }
 
