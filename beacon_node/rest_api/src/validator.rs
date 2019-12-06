@@ -261,9 +261,9 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
                         );
 
                         Err(ApiError::ProcessingError(format!(
-                        "The BeaconBlock could not be processed and has not been published: {:?}",
-                        outcome
-                    )))
+                            "The BeaconBlock could not be processed and has not been published: {:?}",
+                            outcome
+                        )))
                     }
                     Err(e) => {
                         error!(
