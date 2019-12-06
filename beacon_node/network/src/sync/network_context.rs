@@ -122,7 +122,8 @@ impl SyncNetworkContext {
         self.network_send
             .try_send(NetworkMessage::RPC(peer_id, rpc_event))
             .map_err(|_| {
-                crit!(
+                // This is likely to happen when shutting down. Suppress this warning to trace for now
+                trace!(
                     self.log,
                     "Could not send RPC message to the network service"
                 );

@@ -243,7 +243,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         self.to_be_processed_id += 1;
                         continue;
                     } else {
-                        warn!(log, "Processing batch"; "batch_id" => batch.id);
+                        debug!(log, "Processing batch"; "batch_id" => batch.id);
                         match process_batch(chain.clone(), batch, log) {
                             Ok(_) => {
                                 trace!(log, "Blocks Processed"; "current_slot" => batch.end_slot);
