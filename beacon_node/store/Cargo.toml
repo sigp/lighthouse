@@ -4,9 +4,15 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
+[[bench]]
+name = "benches"
+harness = false
+
 [dev-dependencies]
 tempfile = "3.1.0"
 sloggers = "0.3.2"
+criterion = "0.3.0"
+rayon = "1.2.0"
 
 [dependencies]
 db-key = "0.0.5"
