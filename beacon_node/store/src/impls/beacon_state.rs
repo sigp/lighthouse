@@ -44,23 +44,17 @@ pub fn get_full_state<S: Store, E: EthSpec>(
 /// A container for storing `BeaconState` components.
 // TODO: would be more space efficient with the caches stored separately and referenced by hash
 #[derive(Encode, Decode)]
-pub struct StorageContainer {
-    state_bytes: Vec<u8>,
+pub struct StorageContainer<T: EthSpec> {
+    state: BeaconState<T>,
     committee_caches: Vec<CommitteeCache>,
     tree_hash_cache: BeaconTreeHashCache,
 }
 
-impl StorageContainer {
+impl<T: EthSpec> StorageContainer<T> {
     /// Create a new instance for storing a `BeaconState`.
-    pub fn new<T: EthSpec>(state: &BeaconState<T>) -> Self {
-        let mut committee_caches_bytes = vec![];
-
-        for cache in state.committee_caches[..].iter() {
-            committee_caches_bytes.push(cache.as_ssz_bytes());
-        }
-
+    pub fn new(state: &BeaconState<T>) -> Self {
         Self {
-            state_bytes: state.as_ssz_bytes(),
+            state: state.clone(),
             committee_caches: state
                 .committee_caches
                 .iter()
@@ -71,11 +65,11 @@ impl StorageContainer {
     }
 }
 
-impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer {
+impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer<T> {
     type Error = Error;
 
     fn try_into(mut self) -> Result<BeaconState<T>, Error> {
-        let mut state: BeaconState<T> = BeaconState::from_ssz_bytes(&self.state_bytes)?;
+        let mut state = self.state;
 
         for i in (0..CACHED_EPOCHS).rev() {
             if i >= self.committee_caches.len() {
