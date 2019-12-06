@@ -25,6 +25,15 @@ fn main() {
             "Performs various testing-related tasks, modelled after zcli. \
              by @protolambda.",
         )
+        .arg(
+            Arg::with_name("spec")
+                .short("s")
+                .value_name("STRING")
+                .takes_value(true)
+                .required(true)
+                .possible_values(&["minimal", "mainnet"])
+                .default_value("mainnet")
+        )
         .subcommand(
             SubCommand::with_name("genesis_yaml")
                 .about("Generates a genesis YAML file")
@@ -42,16 +51,6 @@ fn main() {
                         .value_name("INTEGER")
                         .takes_value(true)
                         .required(false)
-                        .help("Eth2 genesis time (seconds since UNIX epoch)."),
-                )
-                .arg(
-                    Arg::with_name("spec")
-                        .short("s")
-                        .value_name("STRING")
-                        .takes_value(true)
-                        .required(true)
-                        .possible_values(&["minimal", "mainnet"])
-                        .default_value("mainnet")
                         .help("Eth2 genesis time (seconds since UNIX epoch)."),
                 )
                 .arg(
