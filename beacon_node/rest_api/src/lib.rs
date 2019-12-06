@@ -37,7 +37,7 @@ use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 use url_query::UrlQuery;
 
-pub use crate::helpers::parse_pubkey;
+pub use crate::helpers::parse_pubkey_bytes;
 pub use beacon::{BlockResponse, HeadResponse, StateResponse};
 pub use config::Config;
 pub use validator::{BulkValidatorDutiesRequest, ValidatorDuty};

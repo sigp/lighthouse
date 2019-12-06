@@ -268,7 +268,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// returns `None`.
     ///
     /// Requires a fully up-to-date `pubkey_cache`, returns an error if this is not the case.
-    pub fn get_validator_index(&self, pubkey: &PublicKey) -> Result<Option<usize>, Error> {
+    pub fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
         if self.pubkey_cache.len() == self.validators.len() {
             Ok(self.pubkey_cache.get(pubkey))
         } else {
@@ -860,7 +860,7 @@ impl<T: EthSpec> BeaconState<T> {
             .enumerate()
             .skip(self.pubkey_cache.len())
         {
-            let success = self.pubkey_cache.insert(validator.pubkey.clone(), i);
+            let success = self.pubkey_cache.insert(validator.pubkey.clone().into(), i);
             if !success {
                 return Err(Error::PubkeyCacheInconsistent);
             }
