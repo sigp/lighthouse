@@ -111,6 +111,8 @@ pub fn lighthouse_testnet_spec(mut spec: ChainSpec) -> ChainSpec {
     spec.ejection_balance = 1_600_000_000;
     spec.effective_balance_increment = 100_000_000;
 
+    spec.eth1_follow_distance = 16;
+
     // This value must be at least 2x the `ETH1_FOLLOW_DISTANCE` otherwise `all_eth1_data` can
     // become a subset of `new_eth1_data` which may result in an Exception in the spec
     // implementation.
