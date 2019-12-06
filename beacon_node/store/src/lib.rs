@@ -12,6 +12,7 @@ extern crate lazy_static;
 
 mod block_at_slot;
 pub mod chunked_vector;
+pub mod config;
 mod errors;
 mod hot_cold_store;
 mod impls;
@@ -25,6 +26,7 @@ pub mod migrate;
 
 use std::sync::Arc;
 
+pub use self::config::StoreConfig;
 pub use self::hot_cold_store::HotColdDB as DiskStore;
 pub use self::leveldb_store::LevelDB as SimpleDiskStore;
 pub use self::memory_store::MemoryStore;
@@ -117,6 +119,10 @@ pub enum DBColumn {
     BeaconBlock,
     BeaconState,
     BeaconChain,
+    /// For the table mapping restore point numbers to state roots.
+    BeaconRestorePoint,
+    /// For the mapping from state roots to their slots.
+    BeaconStateSlot,
     BeaconBlockRoots,
     BeaconStateRoots,
     BeaconHistoricalRoots,
@@ -131,6 +137,8 @@ impl Into<&'static str> for DBColumn {
             DBColumn::BeaconBlock => "blk",
             DBColumn::BeaconState => "ste",
             DBColumn::BeaconChain => "bch",
+            DBColumn::BeaconRestorePoint => "brp",
+            DBColumn::BeaconStateSlot => "bss",
             DBColumn::BeaconBlockRoots => "bbr",
             DBColumn::BeaconStateRoots => "bsr",
             DBColumn::BeaconHistoricalRoots => "bhr",
@@ -263,9 +271,17 @@ mod tests {
 
         let hot_dir = tempdir().unwrap();
         let cold_dir = tempdir().unwrap();
+        let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
         let spec = MinimalEthSpec::default_spec();
         let log = NullLoggerBuilder.build().unwrap();
-        let store = DiskStore::open(&hot_dir.path(), &cold_dir.path(), spec, log).unwrap();
+        let store = DiskStore::open::<MinimalEthSpec>(
+            &hot_dir.path(),
+            &cold_dir.path(),
+            slots_per_restore_point,
+            spec,
+            log,
+        )
+        .unwrap();
 
         test_impl(store);
     }

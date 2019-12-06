@@ -1,7 +1,10 @@
 use crate::Store;
 use std::borrow::Cow;
+use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot};
+use types::{
+    typenum::Unsigned, BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot,
+};
 
 /// Implemented for types that have ancestors (e.g., blocks, states) that may be iterated over.
 ///
@@ -80,12 +83,9 @@ impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
         match self.beacon_state.get_state_root(self.slot) {
             Ok(root) => Some((*root, self.slot)),
             Err(BeaconStateError::SlotOutOfBounds) => {
-                // Read a `BeaconState` from the store that has access to prior historical root.
-                let beacon_state: BeaconState<T> = {
-                    let new_state_root = self.beacon_state.get_oldest_state_root().ok()?;
-
-                    self.store.get_state(&new_state_root, None).ok()?
-                }?;
+                // Read a `BeaconState` from the store that has access to prior historical roots.
+                let beacon_state =
+                    next_historical_root_backtrack_state(&*self.store, &self.beacon_state)?;
 
                 self.beacon_state = Cow::Owned(beacon_state);
 
@@ -94,6 +94,39 @@ impl<'a, T: EthSpec, U: Store> Iterator for StateRootsIterator<'a, T, U> {
                 Some((*root, self.slot))
             }
             _ => None,
+        }
+    }
+}
+
+/// Block iterator that uses the `parent_root` of each block to backtrack.
+pub struct ParentRootBlockIterator<'a, E: EthSpec, S: Store> {
+    store: &'a S,
+    next_block_root: Hash256,
+    _phantom: PhantomData<E>,
+}
+
+impl<'a, E: EthSpec, S: Store> ParentRootBlockIterator<'a, E, S> {
+    pub fn new(store: &'a S, start_block_root: Hash256) -> Self {
+        Self {
+            store,
+            next_block_root: start_block_root,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, E: EthSpec, S: Store> Iterator for ParentRootBlockIterator<'a, E, S> {
+    type Item = BeaconBlock<E>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Stop once we reach the zero parent, otherwise we'll keep returning the genesis
+        // block forever.
+        if self.next_block_root.is_zero() {
+            None
+        } else {
+            let block: BeaconBlock<E> = self.store.get(&self.next_block_root).ok()??;
+            self.next_block_root = block.parent_root;
+            Some(block)
         }
     }
 }
@@ -177,7 +210,7 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
     type Item = (Hash256, Slot);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if (self.slot == 0) || (self.slot > self.beacon_state.slot) {
+        if self.slot == 0 || self.slot > self.beacon_state.slot {
             return None;
         }
 
@@ -186,13 +219,9 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
         match self.beacon_state.get_block_root(self.slot) {
             Ok(root) => Some((*root, self.slot)),
             Err(BeaconStateError::SlotOutOfBounds) => {
-                // Read a `BeaconState` from the store that has access to prior historical root.
-                let beacon_state: BeaconState<T> = {
-                    // Load the earliest state from disk.
-                    let new_state_root = self.beacon_state.get_oldest_state_root().ok()?;
-
-                    self.store.get_state(&new_state_root, None).ok()?
-                }?;
+                // Read a `BeaconState` from the store that has access to prior historical roots.
+                let beacon_state =
+                    next_historical_root_backtrack_state(&*self.store, &self.beacon_state)?;
 
                 self.beacon_state = Cow::Owned(beacon_state);
 
@@ -203,6 +232,26 @@ impl<'a, T: EthSpec, U: Store> Iterator for BlockRootsIterator<'a, T, U> {
             _ => None,
         }
     }
+}
+
+/// Fetch the next state to use whilst backtracking in `*RootsIterator`.
+fn next_historical_root_backtrack_state<E: EthSpec, S: Store>(
+    store: &S,
+    current_state: &BeaconState<E>,
+) -> Option<BeaconState<E>> {
+    // For compatibility with the freezer database's restore points, we load a state at
+    // a restore point slot (thus avoiding replaying blocks). In the case where we're
+    // not frozen, this just means we might not jump back by the maximum amount on
+    // our first jump (i.e. at most 1 extra state load).
+    let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot);
+    let new_state_root = current_state.get_state_root(new_state_slot).ok()?;
+    store.get_state(new_state_root, Some(new_state_slot)).ok()?
+}
+
+/// Compute the slot of the last guaranteed restore point in the freezer database.
+fn slot_of_prev_restore_point<E: EthSpec>(current_slot: Slot) -> Slot {
+    let slots_per_historical_root = E::SlotsPerHistoricalRoot::to_u64();
+    (current_slot - 1) / slots_per_historical_root * slots_per_historical_root
 }
 
 pub type ReverseBlockRootIterator<'a, E, S> =
