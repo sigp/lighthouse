@@ -3,15 +3,16 @@ use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{Future, IntoFuture, Stream};
 use parking_lot::RwLock;
-use remote_beacon_node::{RemoteBeaconNode, ValidatorDuty};
+use remote_beacon_node::RemoteBeaconNode;
 use slog::{crit, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
-use types::{ChainSpec, Epoch, EthSpec, PublicKey, Slot};
+use types::{ChainSpec, CommitteeIndex, Epoch, EthSpec, PublicKey, Slot};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
@@ -20,6 +21,37 @@ const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
 const PRUNE_DEPTH: u64 = 4;
 
 type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, ValidatorDuty>>;
+
+/// Stores the duties for some validator for an epoch.
+#[derive(PartialEq, Debug, Clone)]
+pub struct ValidatorDuty {
+    /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
+    pub validator_pubkey: PublicKey,
+    /// The slot at which the validator must attest.
+    pub attestation_slot: Option<Slot>,
+    /// The index of the committee within `slot` of which the validator is a member.
+    pub attestation_committee_index: Option<CommitteeIndex>,
+    /// The position of the validator in the committee.
+    pub attestation_committee_position: Option<usize>,
+    /// The slots in which a validator must propose a block (can be empty).
+    pub block_proposal_slots: Vec<Slot>,
+}
+
+impl TryInto<ValidatorDuty> for remote_beacon_node::ValidatorDuty {
+    type Error = String;
+
+    fn try_into(self) -> Result<ValidatorDuty, Self::Error> {
+        Ok(ValidatorDuty {
+            validator_pubkey: (&self.validator_pubkey)
+                .try_into()
+                .map_err(|e| format!("Invalid pubkey bytes from server: {:?}", e))?,
+            attestation_slot: self.attestation_slot,
+            attestation_committee_index: self.attestation_committee_index,
+            attestation_committee_position: self.attestation_committee_position,
+            block_proposal_slots: self.block_proposal_slots,
+        })
+    }
+}
 
 /// The outcome of inserting some `ValidatorDuty` into the `DutiesStore`.
 enum InsertOutcome {
@@ -345,7 +377,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .get_duties_bulk(epoch, pubkeys.as_slice())
             .map(move |all_duties| (epoch, all_duties))
             .map_err(move |e| format!("Failed to get duties for epoch {}: {:?}", epoch, e))
-            .map(move |(epoch, all_duties)| {
+            .and_then(move |(epoch, all_duties)| {
                 let log = service_2.context.log.clone();
 
                 let mut new_validator = 0;
@@ -354,7 +386,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 let mut replaced = 0;
                 let mut invalid = 0;
 
-                all_duties.into_iter().for_each(|duties| {
+                all_duties.into_iter().try_for_each::<_, Result<_, String>>(|remote_duties| {
+                    let duties: ValidatorDuty = remote_duties.try_into()?;
+
                     match service_2
                         .store
                         .insert(epoch, duties.clone(), E::slots_per_epoch())
@@ -374,7 +408,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                         InsertOutcome::Replaced => replaced += 1,
                         InsertOutcome::Invalid => invalid += 1,
                     };
-                });
+
+                    Ok(())
+                })?;
 
                 if invalid > 0 {
                     error!(
@@ -402,6 +438,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                         "info" => "Chain re-org likely occurred."
                     )
                 }
+
+                Ok(())
             })
     }
 }

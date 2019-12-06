@@ -33,6 +33,7 @@ pub use self::memory_store::MemoryStore;
 pub use self::migrate::Migrate;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
+pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metrics::scrape_for_metrics;
 pub use types::*;
 

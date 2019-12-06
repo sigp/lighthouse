@@ -1,6 +1,6 @@
 use crate::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use bls::PublicKey;
+use bls::PublicKeyBytes;
 use eth2_libp2p::{PubsubMessage, Topic};
 use eth2_libp2p::{
     BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX,
@@ -99,12 +99,12 @@ pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
 }
 
 /// Parse a PublicKey from a `0x` prefixed hex string
-pub fn parse_pubkey(string: &str) -> Result<PublicKey, ApiError> {
+pub fn parse_pubkey_bytes(string: &str) -> Result<PublicKeyBytes, ApiError> {
     const PREFIX: &str = "0x";
     if string.starts_with(PREFIX) {
         let pubkey_bytes = hex::decode(string.trim_start_matches(PREFIX))
             .map_err(|e| ApiError::BadRequest(format!("Invalid hex string: {:?}", e)))?;
-        let pubkey = PublicKey::from_bytes(pubkey_bytes.as_slice()).map_err(|e| {
+        let pubkey = PublicKeyBytes::from_bytes(pubkey_bytes.as_slice()).map_err(|e| {
             ApiError::BadRequest(format!("Unable to deserialize public key: {:?}.", e))
         })?;
         Ok(pubkey)

@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, Epoch, Hash256, PublicKey};
+use crate::{test_utils::TestRandom, Epoch, Hash256, PublicKeyBytes};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -10,7 +10,7 @@ use tree_hash_derive::TreeHash;
 /// Spec v0.9.1
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 pub struct Validator {
-    pub pubkey: PublicKey,
+    pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
     pub effective_balance: u64,
     pub slashed: bool,
@@ -46,7 +46,7 @@ impl Default for Validator {
     /// Yields a "default" `Validator`. Primarily used for testing.
     fn default() -> Self {
         Self {
-            pubkey: PublicKey::default(),
+            pubkey: PublicKeyBytes::empty(),
             withdrawal_credentials: Hash256::default(),
             activation_eligibility_epoch: Epoch::from(std::u64::MAX),
             activation_epoch: Epoch::from(std::u64::MAX),

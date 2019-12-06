@@ -128,6 +128,12 @@ macro_rules! bytes_struct {
             }
         }
 
+        impl std::hash::Hash for $name {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                self.0.hash(state)
+            }
+        }
+
         impl Eq for $name {}
 
         impl std::convert::TryInto<$type> for &$name {
