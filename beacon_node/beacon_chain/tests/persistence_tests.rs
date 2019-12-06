@@ -23,14 +23,14 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_store(db_path: &TempDir) -> Arc<DiskStore> {
+fn get_store(db_path: &TempDir) -> Arc<DiskStore<E>> {
     let spec = E::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
     let log = NullLoggerBuilder.build().expect("logger should build");
     Arc::new(
-        DiskStore::open::<E>(&hot_path, &cold_path, slots_per_restore_point, spec, log)
+        DiskStore::open(&hot_path, &cold_path, slots_per_restore_point, spec, log)
             .expect("disk store should initialize"),
     )
 }

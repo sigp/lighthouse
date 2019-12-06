@@ -94,7 +94,7 @@ pub enum AttestationProcessingOutcome {
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
-    type Store: store::Store;
+    type Store: store::Store<Self::EthSpec>;
     type StoreMigrator: store::Migrate<Self::Store, Self::EthSpec>;
     type SlotClock: slot_clock::SlotClock;
     type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;

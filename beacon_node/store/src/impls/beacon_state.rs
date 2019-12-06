@@ -4,7 +4,7 @@ use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
 use types::beacon_state::{BeaconTreeHashCache, CommitteeCache, CACHED_EPOCHS};
 
-pub fn store_full_state<S: Store, E: EthSpec>(
+pub fn store_full_state<S: Store<E>, E: EthSpec>(
     store: &S,
     state_root: &Hash256,
     state: &BeaconState<E>,
@@ -21,7 +21,7 @@ pub fn store_full_state<S: Store, E: EthSpec>(
     result
 }
 
-pub fn get_full_state<S: Store, E: EthSpec>(
+pub fn get_full_state<S: Store<E>, E: EthSpec>(
     store: &S,
     state_root: &Hash256,
 ) -> Result<Option<BeaconState<E>>, Error> {
