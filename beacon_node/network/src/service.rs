@@ -251,13 +251,13 @@ fn network_service(
                             .map_err(|_| "Failed to send RPC to handler")?;
                     }
                     Libp2pEvent::PeerDialed(peer_id) => {
-                        debug!(log, "Peer Dialed"; "PeerID" => format!("{:?}", peer_id));
+                        debug!(log, "Peer Dialed"; "peer_id" => format!("{:?}", peer_id));
                         message_handler_send
                             .try_send(HandlerMessage::PeerDialed(peer_id))
                             .map_err(|_| "Failed to send PeerDialed to handler")?;
                     }
                     Libp2pEvent::PeerDisconnected(peer_id) => {
-                        debug!(log, "Peer Disconnected";  "PeerID" => format!("{:?}", peer_id));
+                        debug!(log, "Peer Disconnected";  "peer_id" => format!("{:?}", peer_id));
                         message_handler_send
                             .try_send(HandlerMessage::PeerDisconnected(peer_id))
                             .map_err(|_| "Failed to send PeerDisconnected to handler")?;

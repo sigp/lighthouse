@@ -6,7 +6,7 @@ use beacon_chain::{
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{debug, info, o, trace, warn};
+use slog::{debug, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
@@ -60,8 +60,8 @@ pub struct MessageProcessor<T: BeaconChainTypes> {
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     /// A oneshot channel for destroying the sync thread.
     _sync_exit: oneshot::Sender<()>,
-    /// A nextwork context to return and handle RPC requests.
-    network: NetworkContext,
+    /// A network context to return and handle RPC requests.
+    network: HandlerNetworkContext,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -75,13 +75,12 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         log: &slog::Logger,
     ) -> Self {
         let sync_logger = log.new(o!("service"=> "sync"));
-        let sync_network_context = NetworkContext::new(network_send.clone(), sync_logger.clone());
 
         // spawn the sync thread
         let (sync_send, _sync_exit) = super::manager::spawn(
             executor,
             Arc::downgrade(&beacon_chain),
-            sync_network_context,
+            network_send.clone(),
             sync_logger,
         );
 
@@ -89,7 +88,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             chain: beacon_chain,
             sync_send,
             _sync_exit,
-            network: NetworkContext::new(network_send, log.clone()),
+            network: HandlerNetworkContext::new(network_send, log.clone()),
             log: log.clone(),
         }
     }
@@ -120,11 +119,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ///
     /// Sends a `Status` message to the peer.
     pub fn on_connect(&mut self, peer_id: PeerId) {
-        self.network.send_rpc_request(
-            None,
-            peer_id,
-            RPCRequest::Status(status_message(&self.chain)),
-        );
+        self.network
+            .send_rpc_request(peer_id, RPCRequest::Status(status_message(&self.chain)));
     }
 
     /// Handle a `Status` request.
@@ -494,7 +490,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         match self.chain.process_attestation(msg.clone()) {
             Ok(outcome) => match outcome {
                 AttestationProcessingOutcome::Processed => {
-                    info!(
+                    debug!(
                         self.log,
                         "Processed attestation";
                         "source" => "gossip",
@@ -545,15 +541,17 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
     }
 }
 
-/// Wraps a Network Channel to employ various RPC/Sync related network functionality.
-pub struct NetworkContext {
+/// Wraps a Network Channel to employ various RPC related network functionality for the message
+/// handler. The handler doesn't manage it's own request Id's and can therefore only send
+/// responses or requests with 0 request Ids.
+pub struct HandlerNetworkContext {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage>,
     /// Logger for the `NetworkContext`.
     log: slog::Logger,
 }
 
-impl NetworkContext {
+impl HandlerNetworkContext {
     pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
         Self { network_send, log }
     }
@@ -565,7 +563,7 @@ impl NetworkContext {
             "reason" => format!("{:?}", reason),
             "peer_id" => format!("{:?}", peer_id),
         );
-        self.send_rpc_request(None, peer_id.clone(), RPCRequest::Goodbye(reason));
+        self.send_rpc_request(peer_id.clone(), RPCRequest::Goodbye(reason));
         self.network_send
             .try_send(NetworkMessage::Disconnect { peer_id })
             .unwrap_or_else(|_| {
@@ -576,14 +574,10 @@ impl NetworkContext {
             });
     }
 
-    pub fn send_rpc_request(
-        &mut self,
-        request_id: Option<RequestId>,
-        peer_id: PeerId,
-        rpc_request: RPCRequest,
-    ) {
-        // use 0 as the default request id, when an ID is not required.
-        let request_id = request_id.unwrap_or_else(|| 0);
+    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest) {
+        // the message handler cannot send requests with ids. Id's are managed by the sync
+        // manager.
+        let request_id = 0;
         self.send_rpc_event(peer_id, RPCEvent::Request(request_id, rpc_request));
     }
 
