@@ -64,7 +64,7 @@ impl<T, E> PartialEq for ThreadSafeReducedTree<T, E> {
 
 impl<T, E> LmdGhost<T, E> for ThreadSafeReducedTree<T, E>
 where
-    T: Store,
+    T: Store<E>,
     E: EthSpec,
 {
     fn new(store: Arc<T>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
@@ -218,7 +218,7 @@ impl<T, E> PartialEq for ReducedTree<T, E> {
 
 impl<T, E> ReducedTree<T, E>
 where
-    T: Store,
+    T: Store<E>,
     E: EthSpec,
 {
     pub fn new(store: Arc<T>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
@@ -976,16 +976,15 @@ mod tests {
 
     #[test]
     fn test_reduced_tree_ssz() {
-        let store = Arc::new(MemoryStore::open());
-        let tree = ReducedTree::<MemoryStore, MinimalEthSpec>::new(
+        let store = Arc::new(MemoryStore::<MinimalEthSpec>::open());
+        let tree = ReducedTree::new(
             store.clone(),
             &BeaconBlock::empty(&MinimalEthSpec::default_spec()),
             Hash256::zero(),
         );
         let ssz_tree = ReducedTreeSsz::from_reduced_tree(&tree);
         let bytes = tree.as_bytes();
-        let recovered_tree =
-            ReducedTree::<MemoryStore, MinimalEthSpec>::from_bytes(&bytes, store.clone()).unwrap();
+        let recovered_tree = ReducedTree::from_bytes(&bytes, store.clone()).unwrap();
 
         let recovered_ssz = ReducedTreeSsz::from_reduced_tree(&recovered_tree);
         assert_eq!(ssz_tree, recovered_ssz);

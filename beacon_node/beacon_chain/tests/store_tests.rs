@@ -26,19 +26,19 @@ lazy_static! {
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
-fn get_store(db_path: &TempDir) -> Arc<DiskStore> {
+fn get_store(db_path: &TempDir) -> Arc<DiskStore<E>> {
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
     let log = NullLoggerBuilder.build().expect("logger should build");
     Arc::new(
-        DiskStore::open::<E>(&hot_path, &cold_path, slots_per_restore_point, spec, log)
+        DiskStore::open(&hot_path, &cold_path, slots_per_restore_point, spec, log)
             .expect("disk store should initialize"),
     )
 }
 
-fn get_harness(store: Arc<DiskStore>, validator_count: usize) -> TestHarness {
+fn get_harness(store: Arc<DiskStore<E>>, validator_count: usize) -> TestHarness {
     let harness = BeaconChainHarness::new_with_disk_store(
         MinimalEthSpec,
         store,
@@ -265,7 +265,7 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
 }
 
 /// Check that the DiskStore's split_slot is equal to the start slot of the last finalized epoch.
-fn check_split_slot(harness: &TestHarness, store: Arc<DiskStore>) {
+fn check_split_slot(harness: &TestHarness, store: Arc<DiskStore<E>>) {
     let split_slot = store.get_split_slot();
     assert_eq!(
         harness
@@ -286,7 +286,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
 
     assert_eq!(chain_dump.len() as u64, expected_len);
 
-    for checkpoint in chain_dump {
+    for checkpoint in &chain_dump {
         // Check that the tree hash of the stored state is as expected
         assert_eq!(
             checkpoint.beacon_state_root,
@@ -300,11 +300,39 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
             harness
                 .chain
                 .store
-                .get_state::<E>(&checkpoint.beacon_state_root, None)
+                .get_state(&checkpoint.beacon_state_root, None)
                 .expect("no error")
                 .expect("state exists")
                 .slot,
             checkpoint.beacon_state.slot
+        );
+    }
+
+    // Check the forwards block roots iterator against the chain dump
+    let chain_dump_block_roots = chain_dump
+        .iter()
+        .map(|checkpoint| (checkpoint.beacon_block_root, checkpoint.beacon_block.slot))
+        .collect::<Vec<_>>();
+
+    let head = harness.chain.head();
+    let mut forward_block_roots = Store::forwards_block_roots_iterator(
+        harness.chain.store.clone(),
+        Slot::new(0),
+        head.beacon_state,
+        head.beacon_block_root,
+        &harness.spec,
+    )
+    .collect::<Vec<_>>();
+
+    // Drop the block roots for skipped slots.
+    forward_block_roots.dedup_by_key(|(block_root, _)| *block_root);
+
+    for i in 0..std::cmp::max(chain_dump_block_roots.len(), forward_block_roots.len()) {
+        assert_eq!(
+            chain_dump_block_roots[i],
+            forward_block_roots[i],
+            "split slot is {}",
+            harness.chain.store.get_split_slot()
         );
     }
 }

@@ -25,11 +25,11 @@ use types::EthSpec;
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> = Client<
     Witness<
-        DiskStore,
+        DiskStore<E>,
         BackgroundMigrator<E>,
         SystemTimeSlotClock,
-        ThreadSafeReducedTree<DiskStore, E>,
-        CachingEth1Backend<E, DiskStore>,
+        ThreadSafeReducedTree<DiskStore<E>, E>,
+        CachingEth1Backend<E, DiskStore<E>>,
         E,
         WebSocketSender<E>,
     >,
