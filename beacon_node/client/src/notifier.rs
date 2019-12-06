@@ -162,10 +162,10 @@ fn sync_rate_pretty(slots_since_last_update: Slot, update_interval_secs: u64) ->
     if slots_since_last_update == 0 {
         "No progress".into()
     } else {
-        format!(
-            "{} slots/sec",
-            slots_since_last_update / update_interval_secs
-        )
+        let distance = f64::from(slots_since_last_update.as_u64() as u32);
+        let time = f64::from(update_interval_secs as u32);
+
+        format!("{:.2} slots/sec", distance / time)
     }
 }
 
