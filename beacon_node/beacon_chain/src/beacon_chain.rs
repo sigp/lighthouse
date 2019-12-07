@@ -1,4 +1,5 @@
 use crate::checkpoint::CheckPoint;
+use crate::checkpoint_cache::CheckPointCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
@@ -129,6 +130,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub event_handler: T::EventHandler,
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: HeadTracker,
+    /// Provides a small cache of `BeaconState` and `BeaconBlock`.
+    pub(crate) checkpoint_cache: CheckPointCache<T::EthSpec>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
 }
@@ -351,9 +354,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the block at the given root, if any.
     ///
-    /// Attempts to avoid reading the database if the request root is the canonical head. Do not
-    /// use this function if you have a write lock on the canonical head.
-    ///
     /// ## Errors
     ///
     /// May return a database error.
@@ -361,17 +361,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
-        if *block_root == self.canonical_head.read().beacon_block_root {
-            Ok(Some(self.canonical_head.read().beacon_block.clone()))
+        if let Some(block) = self.checkpoint_cache.get_block(block_root) {
+            Ok(Some(block))
         } else {
             Ok(self.store.get(block_root)?)
         }
     }
 
     /// Returns the state at the given root, if any.
-    ///
-    /// Attempts to avoid reading the database if the request root is the canonical head. Do not
-    /// use this function if you have a write lock on the canonical head.
     ///
     /// ## Errors
     ///
@@ -381,8 +378,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
-        if *state_root == self.canonical_head.read().beacon_state_root {
-            Ok(Some(self.canonical_head.read().beacon_state.clone()))
+        if let Some(state) = self.checkpoint_cache.get_state(state_root) {
+            Ok(Some(state))
         } else {
             Ok(self.store.get_state(state_root, slot)?)
         }
@@ -1352,6 +1349,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
             block.body.attestations.len() as f64,
         );
+
+        // Store the block in the checkpoint cache.
+        //
+        // A block that was just imported is likely to be referenced by the next block that we
+        // import.
+        self.checkpoint_cache.insert(&CheckPoint {
+            beacon_block_root: block_root,
+            beacon_block: block,
+            beacon_state_root: state_root,
+            beacon_state: state,
+        });
+
         metrics::stop_timer(full_timer);
 
         Ok(BlockProcessingOutcome::Processed { block_root })
@@ -1544,6 +1553,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 new_head.beacon_state.build_all_caches(&self.spec)?;
 
                 let timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
+
+                // Store the head in the checkpoint cache.
+                //
+                // The head block is likely to be referenced by the next imported block.
+                self.checkpoint_cache.insert(&new_head);
 
                 // Update the checkpoint that stores the head of the chain at the time it received the
                 // block.
