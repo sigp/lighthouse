@@ -473,7 +473,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
-        self.range_sync.peer_disconnect(peer_id);
+        self.range_sync.peer_disconnect(&mut self.network, peer_id);
         self.full_peers.remove(peer_id);
         self.update_state();
     }
