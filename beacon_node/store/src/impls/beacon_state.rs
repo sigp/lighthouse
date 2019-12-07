@@ -52,17 +52,9 @@ pub struct StorageContainer<T: EthSpec> {
 impl<T: EthSpec> StorageContainer<T> {
     /// Create a new instance for storing a `BeaconState`.
     pub fn new(state: &BeaconState<T>) -> Self {
-        let mut state = state.clone();
-
-        let mut committee_caches = vec![CommitteeCache::default(); CACHED_EPOCHS];
-
-        for i in 0..CACHED_EPOCHS {
-            std::mem::swap(&mut state.committee_caches[i], &mut committee_caches[i]);
-        }
-
         Self {
-            state,
-            committee_caches,
+            state: state.clone_without_caches(),
+            committee_caches: state.committee_caches.to_vec(),
         }
     }
 }

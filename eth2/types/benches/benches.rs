@@ -3,7 +3,7 @@ use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 use rayon::prelude::*;
 use ssz::{Decode, Encode};
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconState, Eth1Data, EthSpec, Hash256,
+    test_utils::generate_deterministic_keypair, BeaconState, Epoch, Eth1Data, EthSpec, Hash256,
     MainnetEthSpec, Validator,
 };
 
@@ -28,12 +28,12 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
         .map(|&i| Validator {
             pubkey: generate_deterministic_keypair(i).pk.into(),
             withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
-            effective_balance: i as u64,
-            slashed: i % 2 == 0,
-            activation_eligibility_epoch: i.into(),
-            activation_epoch: i.into(),
-            exit_epoch: i.into(),
-            withdrawable_epoch: i.into(),
+            effective_balance: spec.max_effective_balance,
+            slashed: false,
+            activation_eligibility_epoch: Epoch::new(0),
+            activation_epoch: Epoch::new(0),
+            exit_epoch: Epoch::from(u64::max_value()),
+            withdrawable_epoch: Epoch::from(u64::max_value()),
         })
         .collect::<Vec<_>>()
         .into();
@@ -43,14 +43,18 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
 
 fn all_benches(c: &mut Criterion) {
     let validator_count = 16_384;
-    let state = get_state::<MainnetEthSpec>(validator_count);
+    let spec = &MainnetEthSpec::default_spec();
+
+    let mut state = get_state::<MainnetEthSpec>(validator_count);
+    state.build_all_caches(spec).expect("should build caches");
     let state_bytes = state.as_ssz_bytes();
 
+    let inner_state = state.clone();
     c.bench(
         &format!("{}_validators", validator_count),
         Benchmark::new("encode/beacon_state", move |b| {
             b.iter_batched_ref(
-                || state.clone(),
+                || inner_state.clone(),
                 |state| black_box(state.as_ssz_bytes()),
                 criterion::BatchSize::SmallInput,
             )
@@ -68,6 +72,32 @@ fn all_benches(c: &mut Criterion) {
                         BeaconState::from_ssz_bytes(&bytes).expect("should decode");
                     black_box(state)
                 },
+                criterion::BatchSize::SmallInput,
+            )
+        })
+        .sample_size(10),
+    );
+
+    let inner_state = state.clone();
+    c.bench(
+        &format!("{}_validators", validator_count),
+        Benchmark::new("clone/beacon_state", move |b| {
+            b.iter_batched_ref(
+                || inner_state.clone(),
+                |state| black_box(state.clone()),
+                criterion::BatchSize::SmallInput,
+            )
+        })
+        .sample_size(10),
+    );
+
+    let inner_state = state.clone();
+    c.bench(
+        &format!("{}_validators", validator_count),
+        Benchmark::new("clone_without_caches/beacon_state", move |b| {
+            b.iter_batched_ref(
+                || inner_state.clone(),
+                |state| black_box(state.clone_without_caches()),
                 criterion::BatchSize::SmallInput,
             )
         })
