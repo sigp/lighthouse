@@ -384,6 +384,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Returns the state at the given root, if any.
+    ///
+    /// The return state does not contain any caches other than the committee caches. This method
+    /// is much faster than `Self::get_state_caching` because it does not clone the tree hash cache
+    /// when the state is found in the checkpoint cache.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    fn get_state_caching_only_with_committee_caches(
+        &self,
+        state_root: &Hash256,
+        slot: Option<Slot>,
+    ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
+        if let Some(state) = self
+            .checkpoint_cache
+            .get_state_only_with_committee_cache(state_root)
+        {
+            Ok(Some(state))
+        } else {
+            Ok(self.store.get_state(state_root, slot)?)
+        }
+    }
+
     /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";
     /// the head of the canonical `BeaconChain`.
     ///
@@ -782,45 +806,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let result = if let Some(attestation_head_block) =
             self.get_block_caching(&attestation.data.beacon_block_root)?
         {
-            // Attempt to process the attestation using the `self.head()` state.
-            //
-            // This is purely an effort to avoid loading a `BeaconState` unnecessarily from the DB.
-            let state = &self.head().beacon_state;
-
-            // If it turns out that the attestation was made using the head state, then there
-            // is no need to load a state from the database to process the attestation.
-            //
-            // Note: use the epoch of the target because it indicates which epoch the
-            // attestation was created in. You cannot use the epoch of the head block, because
-            // the block doesn't necessarily need to be in the same epoch as the attestation
-            // (e.g., if there are skip slots between the epoch the block was created in and
-            // the epoch for the attestation).
-            //
-            // This check also ensures that the slot for `data.beacon_block_root` is not higher
-            // than `state.root` by ensuring that the block is in the history of `state`.
-            if state.current_epoch() == attestation.data.target.epoch
-                && (attestation.data.beacon_block_root == self.head().beacon_block_root
-                    || state
-                        .get_block_root(attestation_head_block.slot)
-                        .map(|root| *root == attestation.data.beacon_block_root)
-                        .unwrap_or_else(|_| false))
-            {
-                // The head state is able to be used to validate this attestation. No need to load
-                // anything from the database.
-                return self.process_attestation_for_state_and_block(
-                    attestation.clone(),
-                    state,
-                    &attestation_head_block,
-                );
-            }
-
             // Use the `data.beacon_block_root` to load the state from the latest non-skipped
             // slot preceding the attestation's creation.
             //
             // This state is guaranteed to be in the same chain as the attestation, but it's
             // not guaranteed to be from the same slot or epoch as the attestation.
             let mut state: BeaconState<T::EthSpec> = self
-                .get_state_caching(
+                .get_state_caching_only_with_committee_caches(
                     &attestation_head_block.state_root,
                     Some(attestation_head_block.slot),
                 )?

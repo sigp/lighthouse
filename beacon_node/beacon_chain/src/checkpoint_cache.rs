@@ -78,6 +78,31 @@ impl<T: EthSpec> CheckPointCache<T> {
             })
     }
 
+    pub fn get_state_only_with_committee_cache(
+        &self,
+        state_root: &Hash256,
+    ) -> Option<BeaconState<T>> {
+        self.inner
+            .read()
+            .checkpoints
+            .iter()
+            // Also `O(n)`.
+            .find(|checkpoint| checkpoint.beacon_state_root == *state_root)
+            .map(|checkpoint| {
+                metrics::inc_counter(&metrics::CHECKPOINT_CACHE_HITS);
+
+                let mut state = checkpoint.beacon_state.clone_without_caches();
+                state.committee_caches = checkpoint.beacon_state.committee_caches.clone();
+
+                state
+            })
+            .or_else(|| {
+                metrics::inc_counter(&metrics::CHECKPOINT_CACHE_MISSES);
+
+                None
+            })
+    }
+
     pub fn get_block(&self, block_root: &Hash256) -> Option<BeaconBlock<T>> {
         self.inner
             .read()
