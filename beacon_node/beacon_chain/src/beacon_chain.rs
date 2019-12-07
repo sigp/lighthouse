@@ -1274,6 +1274,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let state_root = state.update_tree_hash_cache()?;
 
+        metrics::stop_timer(state_root_timer);
+
         write_state(
             &format!("state_post_block_{}", block_root),
             &state,
@@ -1286,8 +1288,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 local: state_root,
             });
         }
-
-        metrics::stop_timer(state_root_timer);
 
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
@@ -1446,7 +1446,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.spec,
         )?;
 
-        let state_root = state.canonical_root();
+        let state_root = state.update_tree_hash_cache()?;
 
         block.state_root = state_root;
 
