@@ -231,20 +231,17 @@ fn network_service(
             }
         }
 
+        // poll the swarm
+        let mut peers_to_ban = Vec::new();
         loop {
-            // poll the swarm
-            let mut locked_service = libp2p_service.lock();
-            match locked_service.poll() {
+            match libp2p_service.lock().poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
                         trace!(log, "Received RPC"; "rpc" => format!("{}", rpc_event));
 
                         // if we received a Goodbye message, drop and ban the peer
                         if let RPCEvent::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
-                            locked_service.disconnect_and_ban_peer(
-                                peer_id.clone(),
-                                std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
-                            );
+                            peers_to_ban.push(peer_id.clone());
                         };
                         message_handler_send
                             .try_send(HandlerMessage::RPC(peer_id, rpc_event))
@@ -278,6 +275,14 @@ fn network_service(
                 Ok(Async::NotReady) => break,
                 Err(_) => break,
             }
+        }
+
+        // ban and disconnect any peers that sent Goodbye requests
+        while let Some(peer_id) = peers_to_ban.pop() {
+            libp2p_service.lock().disconnect_and_ban_peer(
+                peer_id.clone(),
+                std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
+            );
         }
 
         Ok(Async::NotReady)
