@@ -270,8 +270,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_block_caching(&block_root)?
             .ok_or_else(|| Error::MissingBeaconBlock(block_root))?;
         let state = self
-            .store
-            .get_state(&block.state_root, Some(block.slot))?
+            .get_state_caching(&block.state_root, Some(block.slot))?
             .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
         let iter = BlockRootsIterator::owned(self.store.clone(), state);
         Ok(ReverseBlockRootIterator::new(
@@ -1473,14 +1472,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
             let beacon_block: BeaconBlock<T::EthSpec> = self
-                .store
-                .get(&beacon_block_root)?
+                .get_block_caching(&beacon_block_root)?
                 .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
 
             let beacon_state_root = beacon_block.state_root;
             let beacon_state: BeaconState<T::EthSpec> = self
-                .store
-                .get_state(&beacon_state_root, Some(beacon_block.slot))?
+                .get_state_caching(&beacon_state_root, Some(beacon_block.slot))?
                 .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
 
             let previous_slot = self.head().beacon_block.slot;
