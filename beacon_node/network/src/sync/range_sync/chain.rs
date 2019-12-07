@@ -36,7 +36,7 @@ pub struct Batch<T: EthSpec> {
     /// The peer that was originally assigned to the batch.
     _original_peer: PeerId,
     /// The peer that is currently assigned to the batch.
-    current_peer: PeerId,
+    pub current_peer: PeerId,
     /// The number of retries this batch has undergone.
     retries: u8,
     /// The blocks that have been downloaded.
