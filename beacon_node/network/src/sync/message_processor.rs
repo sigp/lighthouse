@@ -6,7 +6,7 @@ use beacon_chain::{
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{debug, o, trace, warn};
+use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
@@ -438,6 +438,27 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 BlockProcessingOutcome::Processed { .. } => {
                     trace!(self.log, "Gossipsub block processed";
                             "peer_id" => format!("{:?}",peer_id));
+
+                    // TODO: It would be better if we can run this _after_ we publish the block to
+                    // reduce block propagation latency.
+                    //
+                    // The `MessageHandler` would be the place to put this, however it doesn't seem
+                    // to have a reference to the `BeaconChain`. I will leave this for future
+                    // works.
+                    match self.chain.fork_choice() {
+                        Ok(()) => trace!(
+                            self.log,
+                            "Fork choice success";
+                            "location" => "block gossip"
+                        ),
+                        Err(e) => error!(
+                            self.log,
+                            "Fork choice failed";
+                            "error" => format!("{:?}", e),
+                            "location" => "block gossip"
+                        ),
+                    }
+
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::ParentUnknown { .. } => {

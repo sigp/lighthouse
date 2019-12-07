@@ -1293,23 +1293,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(fork_choice_register_timer);
 
-        let find_head_timer =
-            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_FIND_HEAD);
-
-        // Execute the fork choice algorithm, enthroning a new head if discovered.
-        //
-        // Note: in the future we may choose to run fork-choice less often, potentially based upon
-        // some heuristic around number of attestations seen for the block.
-        if let Err(e) = self.fork_choice() {
-            error!(
-                self.log,
-                "fork choice failed to find head";
-                "error" => format!("{:?}", e)
-            )
-        };
-
-        metrics::stop_timer(find_head_timer);
-
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
@@ -1456,7 +1439,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let previous_slot = self.head().beacon_block.slot;
             let new_slot = beacon_block.slot;
 
-            let is_reorg = self.head().beacon_block_root != beacon_block.parent_root;
+            // Note: this will declare a re-org if we skip `SLOTS_PER_HISTORICAL_ROOT` blocks
+            // between calls to fork choice without swapping between chains. This seems like an
+            // extreme-enough scenario that a warning is fine.
+            let is_reorg = self.head().beacon_block_root
+                != beacon_state
+                    .get_block_root(self.head().beacon_block.slot)
+                    .map(|root| *root)
+                    .unwrap_or_else(|_| Hash256::random());
 
             // If we switched to a new chain (instead of building atop the present chain).
             if is_reorg {
