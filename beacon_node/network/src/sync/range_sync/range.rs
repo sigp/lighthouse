@@ -4,10 +4,16 @@ use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
-use slog::{debug, trace, warn};
+use slog::{crit, debug, trace, warn};
 use std::collections::HashSet;
 use std::sync::Weak;
 use types::{BeaconBlock, EthSpec};
+
+//TODO: The code becomes cleaner if finalized_chains and head_chains were merged into a single
+// object. This will prevent code duplication. Rather than keeping the current syncing
+// finalized chain in index 0, it should be stored in this object under an option. Then lookups can
+// occur over the single object containing both finalized and head chains, which would then
+// behave similarly.
 
 pub struct RangeSync<T: BeaconChainTypes> {
     /// The beacon chain for processing
@@ -82,6 +88,9 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         if remote_finalized_slot > local_info.head_slot {
             debug!(self.log, "Beginning a finalization sync"; "peer_id" => format!("{:?}", peer_id));
             // finalized chain search
+
+            // Note: We keep current head chains. These can continue syncing whilst we complete
+            // this new finalized chain.
 
             // if a finalized chain already exists that matches, add this peer to the chain's peer
             // pool.
@@ -227,7 +236,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 // the chain is complete, re-status it's peers and remove it
                 chain.status_peers(self.chain.clone(), network);
 
-                // flag to start syncing a new chain as the current completed chain was the
+                // The current completed chain was the
                 // syncing chain
                 if index == 0 {
                     self.update_finalized_chains(network);
@@ -257,7 +266,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         // the chain is complete, re-status it's peers and remove it
                         chain.status_peers(self.chain.clone(), network);
                         // update the current state if necessary
-                        if self.head_chains.is_empty() {
+                        if self.head_chains.is_empty() && self.finalized_chains.is_empty() {
                             self.state = SyncState::Idle;
                         }
                     }
@@ -317,7 +326,11 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 network.status_peer(self.chain.clone(), peer_id.clone());
             }
             // change the status to idle, as head syncing may not be required
-            self.state = SyncState::Idle;
+            self.state = if self.head_chains.is_empty() {
+                SyncState::Idle
+            } else {
+                SyncState::Head
+            };
         }
     }
 
@@ -329,8 +342,92 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }
     }
 
-    // if a peer disconnects, re-evaluate which chain to sync
-    pub fn peer_disconnect(&mut self, _peer_id: &PeerId) {}
+    // If a peer disconnects, re-evaluate which chain to sync
+    // TODO: Re-write this with a single head/finalized object
+    pub fn peer_disconnect(&mut self, network: &mut SyncNetworkContext, peer_id: &PeerId) {
+        self.awaiting_head_peers.remove(&peer_id);
+
+        // remove the peer from any peer pool
+        // in principle the peer should only exist in a single chain, for now, we will search all
+        // chains and log a critical to ensure this is true.
+        // TODO: Stop searching once a peer has been found and removed. - The ProcessingResult
+        // pattern used elsewhere could then be applied.
+        let mut peer_found = false;
+        let mut chain_index_to_remove = None;
+
+        for (index, chain) in self.finalized_chains.iter_mut().enumerate() {
+            if chain.peer_pool.remove(&peer_id) {
+                if peer_found {
+                    crit!(self.log, "Peer existed in multiple chains");
+                }
+                peer_found = true;
+            }
+            //TODO: Remove this search once content the libp2p service instructs sync that a
+            //pending request has been cancelled
+            if chain
+                .pending_batches
+                .values()
+                .find(|batch| batch.current_peer == *peer_id)
+                .is_some()
+            {
+                crit!(
+                    self.log,
+                    "Sync was not alerted to a disconnected peer with ongoing request."
+                );
+            }
+
+            if chain.peer_pool.is_empty() {
+                chain_index_to_remove = Some(index);
+            }
+        }
+
+        if let Some(index) = chain_index_to_remove {
+            // the removed peer was the last in the chain. We remove the chain. If the chain was
+            // currently syncing, search for a new chain to sync
+            self.finalized_chains.remove(index);
+            if index == 0 {
+                self.update_finalized_chains(network);
+            }
+        }
+
+        let mut chain_index_to_remove = None;
+        // remove any peer for head chains
+        for (index, chain) in self.head_chains.iter_mut().enumerate() {
+            if chain.peer_pool.remove(&peer_id) {
+                if peer_found {
+                    crit!(self.log, "Peer existed in multiple chains");
+                }
+                peer_found = true;
+            }
+            //TODO: Remove this search once content the libp2p service instructs sync that a
+            //pending request has been cancelled
+            if chain
+                .pending_batches
+                .values()
+                .find(|batch| batch.current_peer == *peer_id)
+                .is_some()
+            {
+                crit!(
+                    self.log,
+                    "Sync was not alerted to a disconnected peer with ongoing request."
+                );
+            }
+
+            if chain.peer_pool.is_empty() {
+                chain_index_to_remove = Some(index);
+            }
+        }
+
+        if let Some(index) = chain_index_to_remove {
+            // the removed peer was the last in the chain. We remove the chain.
+            self.head_chains.remove(index);
+
+            // update the head state
+            if self.head_chains.is_empty() && self.finalized_chains.is_empty() {
+                self.state = SyncState::Idle;
+            }
+        }
+    }
 
     // An RPC Error occurred, if it's a pending batch, re-request it if possible, if there have
     // been too many attempts, remove the chain
