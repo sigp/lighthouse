@@ -68,7 +68,7 @@ use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use slog::{crit, debug, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::collections::HashSet;
 use std::ops::Sub;
@@ -367,6 +367,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     match outcome {
                         BlockProcessingOutcome::Processed { block_root } => {
                             info!(self.log, "Processed block"; "block" => format!("{}", block_root));
+
+                            match chain.fork_choice() {
+                                Ok(()) => trace!(
+                                    self.log,
+                                    "Fork choice success after gossip block";
+                                    "location" => "single block"
+                                ),
+                                Err(e) => error!(
+                                    self.log,
+                                    "Fork choice failed";
+                                    "error" => format!("{:?}", e),
+                                    "location" => "single block"
+                                ),
+                            }
                         }
                         BlockProcessingOutcome::ParentUnknown { .. } => {
                             // We don't know of the blocks parent, begin a parent lookup search
@@ -531,6 +545,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.request_parent(parent_request);
             self.network.downvote_peer(peer);
         } else {
+            let mut successes = 0;
+
             // try and process the list of blocks up to the requested block
             while let Some(block) = parent_request.downloaded_blocks.pop() {
                 // check if the chain exists
@@ -542,8 +558,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             self.request_parent(parent_request);
                             break;
                         }
-                        Ok(BlockProcessingOutcome::Processed { .. })
-                        | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {}
+                        Ok(BlockProcessingOutcome::Processed { .. }) => successes += 1,
+                        Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {}
                         Ok(outcome) => {
                             // it's a future slot or an invalid block, remove it and try again
                             parent_request.failed_attempts += 1;
@@ -555,7 +571,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             self.network
                                 .downvote_peer(parent_request.last_submitted_peer.clone());
                             self.request_parent(parent_request);
-                            return;
+                            break;
                         }
                         Err(e) => {
                             parent_request.failed_attempts += 1;
@@ -566,13 +582,29 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             self.network
                                 .downvote_peer(parent_request.last_submitted_peer.clone());
                             self.request_parent(parent_request);
-                            return;
+                            break;
                         }
                     }
                 } else {
-                    // chain doesn't exist - return early
-                    return;
+                    break;
                 }
+            }
+
+            if let Some(chain) = self.chain.upgrade() {
+                match chain.fork_choice() {
+                    Ok(()) => trace!(
+                        self.log,
+                        "Fork choice success";
+                        "block_imports" => successes,
+                        "location" => "parent request"
+                    ),
+                    Err(e) => error!(
+                        self.log,
+                        "Fork choice failed";
+                        "error" => format!("{:?}", e),
+                        "location" => "parent request"
+                    ),
+                };
             }
         }
     }
