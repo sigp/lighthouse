@@ -310,9 +310,9 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
                         )))
                     }
                 }
-        }).and_then(|_| {
-            response_builder?.body_no_ssz(&())
-        }))
+        })
+        .and_then(|_| response_builder?.body_no_ssz(&()))
+    )
 }
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.

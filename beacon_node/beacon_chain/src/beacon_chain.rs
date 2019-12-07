@@ -1293,23 +1293,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(fork_choice_register_timer);
 
-        let find_head_timer =
-            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_FIND_HEAD);
-
-        // Execute the fork choice algorithm, enthroning a new head if discovered.
-        //
-        // Note: in the future we may choose to run fork-choice less often, potentially based upon
-        // some heuristic around number of attestations seen for the block.
-        if let Err(e) = self.fork_choice() {
-            error!(
-                self.log,
-                "fork choice failed to find head";
-                "error" => format!("{:?}", e)
-            )
-        };
-
-        metrics::stop_timer(find_head_timer);
-
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
