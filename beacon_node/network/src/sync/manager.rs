@@ -590,21 +590,23 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
 
-            if let Some(chain) = self.chain.upgrade() {
-                match chain.fork_choice() {
-                    Ok(()) => trace!(
-                        self.log,
-                        "Fork choice success";
-                        "block_imports" => successes,
-                        "location" => "parent request"
-                    ),
-                    Err(e) => error!(
-                        self.log,
-                        "Fork choice failed";
-                        "error" => format!("{:?}", e),
-                        "location" => "parent request"
-                    ),
-                };
+            if successes > 0 {
+                if let Some(chain) = self.chain.upgrade() {
+                    match chain.fork_choice() {
+                        Ok(()) => trace!(
+                            self.log,
+                            "Fork choice success";
+                            "block_imports" => successes,
+                            "location" => "parent request"
+                        ),
+                        Err(e) => error!(
+                            self.log,
+                            "Fork choice failed";
+                            "error" => format!("{:?}", e),
+                            "location" => "parent request"
+                        ),
+                    };
+                }
             }
         }
     }
