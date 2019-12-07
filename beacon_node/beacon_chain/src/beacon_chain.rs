@@ -1221,7 +1221,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Transition the parent state to the block slot.
         let mut state: BeaconState<T::EthSpec> = parent_state;
-        for i in state.slot.as_u64()..block.slot.as_u64() {
+        let distance = block.slot.as_u64().saturating_sub(state.slot.as_u64());
+        for i in 0..distance {
             if i > 0 {
                 intermediate_states.push(state.clone());
             }
