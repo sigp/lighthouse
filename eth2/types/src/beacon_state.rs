@@ -909,6 +909,39 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn drop_tree_hash_cache(&mut self) {
         self.tree_hash_cache = BeaconTreeHashCache::default();
     }
+
+    pub fn clone_without_caches(&self) -> Self {
+        BeaconState {
+            genesis_time: self.genesis_time,
+            slot: self.slot,
+            fork: self.fork.clone(),
+            latest_block_header: self.latest_block_header.clone(),
+            block_roots: self.block_roots.clone(),
+            state_roots: self.state_roots.clone(),
+            historical_roots: self.historical_roots.clone(),
+            eth1_data: self.eth1_data.clone(),
+            eth1_data_votes: self.eth1_data_votes.clone(),
+            eth1_deposit_index: self.eth1_deposit_index,
+            validators: self.validators.clone(),
+            balances: self.balances.clone(),
+            randao_mixes: self.randao_mixes.clone(),
+            slashings: self.slashings.clone(),
+            previous_epoch_attestations: self.previous_epoch_attestations.clone(),
+            current_epoch_attestations: self.current_epoch_attestations.clone(),
+            justification_bits: self.justification_bits.clone(),
+            previous_justified_checkpoint: self.previous_justified_checkpoint.clone(),
+            current_justified_checkpoint: self.current_justified_checkpoint.clone(),
+            finalized_checkpoint: self.finalized_checkpoint.clone(),
+            committee_caches: [
+                CommitteeCache::default(),
+                CommitteeCache::default(),
+                CommitteeCache::default(),
+            ],
+            pubkey_cache: PubkeyCache::default(),
+            exit_cache: ExitCache::default(),
+            tree_hash_cache: BeaconTreeHashCache::default(),
+        }
+    }
 }
 
 impl From<RelativeEpochError> for Error {

@@ -463,8 +463,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or_else(|| Error::NoStateForSlot(slot))?;
 
             Ok(self
-                .store
-                .get_state(&state_root, Some(slot))?
+                .get_state_caching(&state_root, Some(slot))?
                 .ok_or_else(|| Error::NoStateForSlot(slot))?)
         }
     }
