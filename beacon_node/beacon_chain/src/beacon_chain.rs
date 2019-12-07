@@ -1272,7 +1272,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let state_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_STATE_ROOT);
 
-        let state_root = state.canonical_root();
+        let state_root = state.update_tree_hash_cache()?;
 
         write_state(
             &format!("state_post_block_{}", block_root),
