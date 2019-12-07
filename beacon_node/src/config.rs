@@ -233,7 +233,13 @@ pub fn get_configs<E: EthSpec>(
     };
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
-        client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
+        client_config.store.freezer_db_path = Some(PathBuf::from(freezer_dir));
+    }
+
+    if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
+        client_config.store.slots_per_restore_point = slots_per_restore_point
+            .parse()
+            .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
     }
 
     if eth2_config.spec_constants != client_config.spec_constants {

@@ -21,12 +21,12 @@ tokio = "0.1.22"
 futures = "0.1.29"
 error-chain = "0.12.1"
 dirs = "2.0.2"
-smallvec = "0.6.11"
 fnv = "1.0.6"
 unsigned-varint = "0.2.3"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
 tokio-io-timeout = "0.3.1"
+smallvec = "1.0.0"
 
 [dev-dependencies]
 slog-stdlog = "4.0.0"
