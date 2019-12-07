@@ -5,7 +5,7 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
-use slog::{crit, debug, trace, warn, Logger};
+use slog::{crit, debug, error, trace, warn, Logger};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ops::Sub;
@@ -243,16 +243,53 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         self.to_be_processed_id += 1;
                         continue;
                     } else {
+                        let mut successes = 0;
                         debug!(log, "Processing batch"; "batch_id" => batch.id);
-                        match process_batch(chain.clone(), batch, log) {
+                        match process_batch(chain.clone(), batch, &mut successes, log) {
                             Ok(_) => {
                                 trace!(log, "Blocks Processed"; "current_slot" => batch.end_slot);
                                 // batch was successfully processed
                                 self.last_processed_id = self.to_be_processed_id;
                                 self.to_be_processed_id += 1;
+
+                                if let Some(chain) = chain.upgrade() {
+                                    match chain.fork_choice() {
+                                        Ok(()) => trace!(
+                                            log,
+                                            "Fork choice success";
+                                            "location" => "batch import success"
+                                        ),
+                                        Err(e) => error!(
+                                            log,
+                                            "Fork choice failed";
+                                            "error" => format!("{:?}", e),
+                                            "location" => "batch import success"
+                                        ),
+                                    }
+                                }
                             }
                             Err(e) => {
                                 warn!(log, "Block processing error"; "error"=> format!("{:?}", e));
+
+                                if successes > 0 {
+                                    if let Some(chain) = chain.upgrade() {
+                                        match chain.fork_choice() {
+                                            Ok(()) => trace!(
+                                                log,
+                                                "Fork choice success";
+                                                "block_imports" => successes,
+                                                "location" => "batch import error"
+                                            ),
+                                            Err(e) => error!(
+                                                log,
+                                                "Fork choice failed";
+                                                "error" => format!("{:?}", e),
+                                                "location" => "batch import error"
+                                            ),
+                                        }
+                                    }
+                                }
+
                                 // batch processing failed
                                 // this could be because this batch is invalid, or a previous invalidated batch
                                 // is invalid. We need to find out which and downvote the peer that has sent us
@@ -496,6 +533,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 fn process_batch<T: BeaconChainTypes>(
     chain: Weak<BeaconChain<T>>,
     batch: &Batch<T::EthSpec>,
+    successes: &mut usize,
     log: &Logger,
 ) -> Result<(), String> {
     for block in &batch.downloaded_blocks {
@@ -511,6 +549,8 @@ fn process_batch<T: BeaconChainTypes>(
                             "slot" => block.slot,
                             "block_root" => format!("{}", block_root),
                         );
+
+                        *successes += 1
                     }
                     BlockProcessingOutcome::ParentUnknown { parent } => {
                         // blocks should be sequential and all parents should exist
