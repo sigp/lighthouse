@@ -296,8 +296,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                 // an invalid batch.
 
                                 // firstly remove any validated batches
-                                self.handle_invalid_batch(chain, network);
-                                break;
+                                return self.handle_invalid_batch(chain, network);
                             }
                         }
                     }
@@ -328,8 +327,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     fn handle_invalid_batch(
         &mut self,
         _chain: Weak<BeaconChain<T>>,
-        _network: &mut SyncNetworkContext,
-    ) {
+        network: &mut SyncNetworkContext,
+    ) -> ProcessingResult {
         // The current batch could not be processed, indicating either the current or previous
         // batches are invalid
 
@@ -339,6 +338,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         // Address these two cases individually.
         // Firstly, check if the past batch is invalid.
+        //
+
+        //TODO: Implement this logic
+        // Currently just fail the chain, and drop all associated peers
+        for peer_id in self.peer_pool.iter() {
+            network.downvote_peer(peer_id.clone());
+        }
+        ProcessingResult::RemoveChain
     }
 
     pub fn stop_syncing(&mut self) {

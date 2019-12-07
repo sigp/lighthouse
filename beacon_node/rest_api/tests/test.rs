@@ -6,6 +6,7 @@ use node_test_rig::{
     testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode,
 };
 use remote_beacon_node::{PublishStatus, ValidatorDuty};
+use std::convert::TryInto;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
@@ -182,7 +183,7 @@ fn validator_duties_bulk() {
         .beacon_state
         .validators
         .iter()
-        .map(|v| v.pubkey.clone())
+        .map(|v| (&v.pubkey).try_into().expect("pubkey should be valid"))
         .collect::<Vec<_>>();
 
     let duties = env
@@ -219,7 +220,7 @@ fn validator_duties() {
         .beacon_state
         .validators
         .iter()
-        .map(|v| v.pubkey.clone())
+        .map(|v| (&v.pubkey).try_into().expect("pubkey should be valid"))
         .collect::<Vec<_>>();
 
     let duties = env
@@ -270,10 +271,16 @@ fn check_duties<T: BeaconChainTypes>(
         .iter()
         .zip(duties.iter())
         .for_each(|(validator, duty)| {
-            assert_eq!(*validator, duty.validator_pubkey, "pubkey should match");
+            assert_eq!(
+                *validator,
+                (&duty.validator_pubkey)
+                    .try_into()
+                    .expect("should be valid pubkey"),
+                "pubkey should match"
+            );
 
             let validator_index = state
-                .get_validator_index(validator)
+                .get_validator_index(&validator.clone().into())
                 .expect("should have pubkey cache")
                 .expect("pubkey should exist");
 
@@ -294,14 +301,16 @@ fn check_duties<T: BeaconChainTypes>(
                 "attestation index should match"
             );
 
-            if let Some(slot) = duty.block_proposal_slot {
-                let expected_proposer = state
-                    .get_beacon_proposer_index(slot, spec)
-                    .expect("should know proposer");
-                assert_eq!(
-                    expected_proposer, validator_index,
-                    "should get correct proposal slot"
-                );
+            if !duty.block_proposal_slots.is_empty() {
+                for slot in &duty.block_proposal_slots {
+                    let expected_proposer = state
+                        .get_beacon_proposer_index(*slot, spec)
+                        .expect("should know proposer");
+                    assert_eq!(
+                        expected_proposer, validator_index,
+                        "should get correct proposal slot"
+                    );
+                }
             } else {
                 epoch.slot_iter(E::slots_per_epoch()).for_each(|slot| {
                     let slot_proposer = state
@@ -314,6 +323,16 @@ fn check_duties<T: BeaconChainTypes>(
                 })
             }
         });
+
+    // Validator duties should include a proposer for every slot of the epoch.
+    let mut all_proposer_slots: Vec<Slot> = duties
+        .iter()
+        .flat_map(|duty| duty.block_proposal_slots.clone())
+        .collect();
+    all_proposer_slots.sort();
+
+    let all_slots: Vec<Slot> = epoch.slot_iter(E::slots_per_epoch()).collect();
+    assert_eq!(all_proposer_slots, all_slots);
 }
 
 #[test]

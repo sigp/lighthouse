@@ -10,17 +10,14 @@ use beacon_chain::test_utils::{
 use lmd_ghost::{LmdGhost, ThreadSafeReducedTree as BaseThreadSafeReducedTree};
 use rand::{prelude::*, rngs::StdRng};
 use std::sync::Arc;
-use store::{
-    iter::{AncestorIter, BlockRootsIterator},
-    MemoryStore, Store,
-};
+use store::{iter::AncestorIter, MemoryStore, Store};
 use types::{BeaconBlock, EthSpec, Hash256, MinimalEthSpec, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 3 * 8;
 
 type TestEthSpec = MinimalEthSpec;
-type ThreadSafeReducedTree = BaseThreadSafeReducedTree<MemoryStore, TestEthSpec>;
+type ThreadSafeReducedTree = BaseThreadSafeReducedTree<MemoryStore<TestEthSpec>, TestEthSpec>;
 type BeaconChainHarness = BaseBeaconChainHarness<HarnessType<TestEthSpec>>;
 type RootAndSlot = (Hash256, Slot);
 
@@ -86,16 +83,14 @@ impl ForkedHarness {
             faulty_fork_blocks,
         );
 
-        let mut honest_roots =
-            get_ancestor_roots::<TestEthSpec, _>(harness.chain.store.clone(), honest_head);
+        let mut honest_roots = get_ancestor_roots(harness.chain.store.clone(), honest_head);
 
         honest_roots.insert(
             0,
             (honest_head, get_slot_for_block_root(&harness, honest_head)),
         );
 
-        let mut faulty_roots =
-            get_ancestor_roots::<TestEthSpec, _>(harness.chain.store.clone(), faulty_head);
+        let mut faulty_roots = get_ancestor_roots(harness.chain.store.clone(), faulty_head);
 
         faulty_roots.insert(
             0,
@@ -121,7 +116,7 @@ impl ForkedHarness {
         }
     }
 
-    pub fn store_clone(&self) -> MemoryStore {
+    pub fn store_clone(&self) -> MemoryStore<TestEthSpec> {
         (*self.harness.chain.store).clone()
     }
 
@@ -131,7 +126,7 @@ impl ForkedHarness {
         //
         // Taking a clone here ensures that each fork choice gets it's own store so there is no
         // cross-contamination between tests.
-        let store: MemoryStore = self.store_clone();
+        let store: MemoryStore<TestEthSpec> = self.store_clone();
 
         ThreadSafeReducedTree::new(
             Arc::new(store),
@@ -155,7 +150,7 @@ impl ForkedHarness {
 }
 
 /// Helper: returns all the ancestor roots and slots for a given block_root.
-fn get_ancestor_roots<E: EthSpec, U: Store>(
+fn get_ancestor_roots<U: Store<TestEthSpec>>(
     store: Arc<U>,
     block_root: Hash256,
 ) -> Vec<(Hash256, Slot)> {
@@ -164,11 +159,9 @@ fn get_ancestor_roots<E: EthSpec, U: Store>(
         .expect("block should exist")
         .expect("store should not error");
 
-    <BeaconBlock<TestEthSpec> as AncestorIter<_, BlockRootsIterator<TestEthSpec, _>>>::try_iter_ancestor_roots(
-        &block, store,
-    )
-    .expect("should be able to create ancestor iter")
-    .collect()
+    <BeaconBlock<TestEthSpec> as AncestorIter<_, _, _>>::try_iter_ancestor_roots(&block, store)
+        .expect("should be able to create ancestor iter")
+        .collect()
 }
 
 /// Helper: returns the slot for some block_root.

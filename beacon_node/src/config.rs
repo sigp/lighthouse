@@ -22,7 +22,7 @@ type Config = (ClientConfig, Eth2Config, Logger);
 
 /// Gets the fully-initialized global client and eth2 configuration objects.
 ///
-/// The top-level `clap` arguments should be provied as `cli_args`.
+/// The top-level `clap` arguments should be provided as `cli_args`.
 ///
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
@@ -233,7 +233,13 @@ pub fn get_configs<E: EthSpec>(
     };
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
-        client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
+        client_config.store.freezer_db_path = Some(PathBuf::from(freezer_dir));
+    }
+
+    if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
+        client_config.store.slots_per_restore_point = slots_per_restore_point
+            .parse()
+            .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
     }
 
     if eth2_config.spec_constants != client_config.spec_constants {

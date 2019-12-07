@@ -1,5 +1,5 @@
 use crate::helpers::{
-    check_content_type_for_json, parse_pubkey, publish_attestation_to_network,
+    check_content_type_for_json, parse_pubkey_bytes, publish_attestation_to_network,
     publish_beacon_block_to_network,
 };
 use crate::response_builder::ResponseBuilder;
@@ -7,7 +7,7 @@ use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
-use bls::PublicKey;
+use bls::PublicKeyBytes;
 use futures::future::Future;
 use futures::stream::Stream;
 use hyper::{Body, Request};
@@ -21,21 +21,21 @@ use types::{Attestation, BeaconBlock, CommitteeIndex, Epoch, RelativeEpoch, Slot
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorDuty {
     /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
-    pub validator_pubkey: PublicKey,
+    pub validator_pubkey: PublicKeyBytes,
     /// The slot at which the validator must attest.
     pub attestation_slot: Option<Slot>,
     /// The index of the committee within `slot` of which the validator is a member.
     pub attestation_committee_index: Option<CommitteeIndex>,
     /// The position of the validator in the committee.
     pub attestation_committee_position: Option<usize>,
-    /// The slot in which a validator must propose a block, or `null` if block production is not required.
-    pub block_proposal_slot: Option<Slot>,
+    /// The slots in which a validator must propose a block (can be empty).
+    pub block_proposal_slots: Vec<Slot>,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
 pub struct BulkValidatorDutiesRequest {
     pub epoch: Epoch,
-    pub pubkeys: Vec<PublicKey>,
+    pub pubkeys: Vec<PublicKeyBytes>,
 }
 
 /// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch. This
@@ -60,7 +60,11 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
             })
         })
         .and_then(|bulk_request| {
-            return_validator_duties(beacon_chain, bulk_request.epoch, bulk_request.pubkeys)
+            return_validator_duties(
+                beacon_chain,
+                bulk_request.epoch,
+                bulk_request.pubkeys.into_iter().map(Into::into).collect(),
+            )
         })
         .and_then(|duties| response_builder?.body_no_ssz(&duties));
 
@@ -80,7 +84,7 @@ pub fn get_validator_duties<T: BeaconChainTypes>(
     let validator_pubkeys = query
         .all_of("validator_pubkeys")?
         .iter()
-        .map(|validator_pubkey_str| parse_pubkey(validator_pubkey_str))
+        .map(|validator_pubkey_str| parse_pubkey_bytes(validator_pubkey_str))
         .collect::<Result<_, _>>()?;
 
     let duties = return_validator_duties(beacon_chain, epoch, validator_pubkeys)?;
@@ -91,7 +95,7 @@ pub fn get_validator_duties<T: BeaconChainTypes>(
 fn return_validator_duties<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     epoch: Epoch,
-    validator_pubkeys: Vec<PublicKey>,
+    validator_pubkeys: Vec<PublicKeyBytes>,
 ) -> Result<Vec<ValidatorDuty>, ApiError> {
     let slots_per_epoch = T::EthSpec::slots_per_epoch();
     let head_epoch = beacon_chain.head().beacon_state.current_epoch();
@@ -161,17 +165,18 @@ fn return_validator_duties<T: BeaconChainTypes>(
                         ))
                     })?;
 
-                let block_proposal_slot = validator_proposers
+                let block_proposal_slots = validator_proposers
                     .iter()
-                    .find(|(i, _slot)| validator_index == *i)
-                    .map(|(_i, slot)| *slot);
+                    .filter(|(i, _slot)| validator_index == *i)
+                    .map(|(_i, slot)| *slot)
+                    .collect();
 
                 Ok(ValidatorDuty {
                     validator_pubkey,
                     attestation_slot: duties.map(|d| d.slot),
                     attestation_committee_index: duties.map(|d| d.index),
                     attestation_committee_position: duties.map(|d| d.committee_position),
-                    block_proposal_slot,
+                    block_proposal_slots,
                 })
             } else {
                 Ok(ValidatorDuty {
@@ -179,7 +184,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
                     attestation_slot: None,
                     attestation_committee_index: None,
                     attestation_committee_position: None,
-                    block_proposal_slot: None,
+                    block_proposal_slots: vec![],
                 })
             }
         })
@@ -190,6 +195,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
 pub fn get_new_beacon_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
+    log: Logger,
 ) -> ApiResult {
     let query = UrlQuery::from_request(&req)?;
 
@@ -199,6 +205,12 @@ pub fn get_new_beacon_block<T: BeaconChainTypes>(
     let (new_block, _state) = beacon_chain
         .produce_block(randao_reveal, slot)
         .map_err(|e| {
+            error!(
+                log,
+                "Error whilst producing block";
+                "error" => format!("{:?}", e)
+            );
+
             ApiError::ServerError(format!(
                 "Beacon node is not able to produce a block: {:?}",
                 e
@@ -330,42 +342,59 @@ pub fn publish_attestation<T: BeaconChainTypes>(
     try_future!(check_content_type_for_json(&req));
     let response_builder = ResponseBuilder::new(&req);
 
-    Box::new(req
-        .into_body()
-        .concat2()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}",e)))
-        .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
-        .and_then(|chunks| {
-            serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
-                ApiError::BadRequest(format!(
-                    "Unable to deserialize JSON into a BeaconBlock: {:?}",
-                    e
-                ))
-            })
-        })
-        .and_then(move |attestation: Attestation<T::EthSpec>| {
-            match beacon_chain.process_attestation(attestation.clone()) {
-                Ok(AttestationProcessingOutcome::Processed) => {
-                    // Block was processed, publish via gossipsub
-                    info!(log, "Processed valid attestation from API, transmitting to network.");
-                    publish_attestation_to_network::<T>(network_chan, attestation)
-                }
-                Ok(outcome) => {
-                    warn!(log, "Attestation could not be processed, but is being sent to the network anyway."; "outcome" => format!("{:?}", outcome));
-                    publish_attestation_to_network::<T>(network_chan, attestation)?;
-                    Err(ApiError::ProcessingError(format!(
-                        "The Attestation could not be processed, but has still been published: {:?}",
-                        outcome
-                    )))
-                }
-                Err(e) => {
-                    Err(ApiError::ServerError(format!(
-                        "Error while processing attestation: {:?}",
+    Box::new(
+        req.into_body()
+            .concat2()
+            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+            .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
+            .and_then(|chunks| {
+                serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
+                    ApiError::BadRequest(format!(
+                        "Unable to deserialize JSON into a BeaconBlock: {:?}",
                         e
-                    )))
+                    ))
+                })
+            })
+            .and_then(move |attestation: Attestation<T::EthSpec>| {
+                match beacon_chain.process_attestation(attestation.clone()) {
+                    Ok(AttestationProcessingOutcome::Processed) => {
+                        // Block was processed, publish via gossipsub
+                        info!(
+                            log,
+                            "Attestation from local validator";
+                            "target" => attestation.data.source.epoch,
+                            "source" => attestation.data.source.epoch,
+                            "index" => attestation.data.index,
+                            "slot" => attestation.data.slot,
+                        );
+                        publish_attestation_to_network::<T>(network_chan, attestation)
+                    }
+                    Ok(outcome) => {
+                        warn!(
+                            log,
+                            "Invalid attestation from local validator";
+                            "outcome" => format!("{:?}", outcome)
+                        );
+
+                        Err(ApiError::ProcessingError(format!(
+                            "The Attestation could not be processed and has not been published: {:?}",
+                            outcome
+                        )))
+                    }
+                    Err(e) => {
+                        error!(
+                            log,
+                            "Error whilst processing attestation";
+                            "error" => format!("{:?}", e)
+                        );
+
+                        Err(ApiError::ServerError(format!(
+                            "Error while processing attestation: {:?}",
+                            e
+                        )))
+                    }
                 }
-            }
-        }).and_then(|_| {
-        response_builder?.body_no_ssz(&())
-    }))
+            })
+            .and_then(|_| response_builder?.body_no_ssz(&())),
+    )
 }

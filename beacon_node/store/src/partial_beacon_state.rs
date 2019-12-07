@@ -111,7 +111,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
         }
     }
 
-    pub fn load_block_roots<S: Store>(&mut self, store: &S, spec: &ChainSpec) -> Result<(), Error> {
+    pub fn load_block_roots<S: Store<T>>(
+        &mut self,
+        store: &S,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
         if self.block_roots.is_none() {
             self.block_roots = Some(load_vector_from_db::<BlockRoots, T, _>(
                 store, self.slot, spec,
@@ -120,7 +124,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_state_roots<S: Store>(&mut self, store: &S, spec: &ChainSpec) -> Result<(), Error> {
+    pub fn load_state_roots<S: Store<T>>(
+        &mut self,
+        store: &S,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
         if self.state_roots.is_none() {
             self.state_roots = Some(load_vector_from_db::<StateRoots, T, _>(
                 store, self.slot, spec,
@@ -129,7 +137,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_historical_roots<S: Store>(
+    pub fn load_historical_roots<S: Store<T>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
@@ -142,7 +150,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_randao_mixes<S: Store>(
+    pub fn load_randao_mixes<S: Store<T>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
