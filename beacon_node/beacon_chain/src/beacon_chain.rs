@@ -94,6 +94,13 @@ pub enum AttestationProcessingOutcome {
     Invalid(AttestationValidationError),
 }
 
+pub struct HeadInfo {
+    pub slot: Slot,
+    pub block_root: Hash256,
+    pub state_root: Hash256,
+    pub finalized_checkpoint: types::Checkpoint,
+}
+
 pub trait BeaconChainTypes: Send + Sync + 'static {
     type Store: store::Store<Self::EthSpec>;
     type StoreMigrator: store::Migrate<Self::Store, Self::EthSpec>;
@@ -416,6 +423,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// now.
     pub fn head(&self) -> CheckPoint<T::EthSpec> {
         self.canonical_head.read().clone()
+    }
+
+    /// Returns info representing the head block and state.
+    ///
+    /// A summarized version of `Self::head` that involves less cloning.
+    pub fn head_info(&self) -> HeadInfo {
+        let head = self.canonical_head.read();
+
+        HeadInfo {
+            slot: head.beacon_block.slot,
+            block_root: head.beacon_block_root,
+            state_root: head.beacon_state_root,
+            finalized_checkpoint: head.beacon_state.finalized_checkpoint.clone(),
+        }
     }
 
     /// Returns the current heads of the `BeaconChain`. For the canonical head, see `Self::head`.
@@ -861,11 +882,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             //
             // This is likely overly restrictive, we could store the attestation for later
             // processing.
-            let head_epoch = self
-                .head()
-                .beacon_block
-                .slot
-                .epoch(T::EthSpec::slots_per_epoch());
+            let head_epoch = self.head_info().slot.epoch(T::EthSpec::slots_per_epoch());
             let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
 
             // Only log a warning if our head is in a reasonable place to verify this attestation.
@@ -927,7 +944,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // - The highest valid finalized epoch we've ever seen (i.e., the head).
         // - The finalized epoch that this attestation was created against.
         let finalized_epoch = std::cmp::max(
-            self.head().beacon_state.finalized_checkpoint.epoch,
+            self.head_info().finalized_checkpoint.epoch,
             state.finalized_checkpoint.epoch,
         );
 
@@ -1134,8 +1151,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
         let finalized_slot = self
-            .head()
-            .beacon_state
+            .head_info()
             .finalized_checkpoint
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
@@ -1459,7 +1475,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root = self.fork_choice.find_head(&self)?;
 
         // If a new head was chosen.
-        let result = if beacon_block_root != self.head().beacon_block_root {
+        let result = if beacon_block_root != self.head_info().block_root {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
             let beacon_block: BeaconBlock<T::EthSpec> = self
@@ -1471,15 +1487,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .get_state_caching(&beacon_state_root, Some(beacon_block.slot))?
                 .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
 
-            let previous_slot = self.head().beacon_block.slot;
+            let previous_slot = self.head_info().slot;
             let new_slot = beacon_block.slot;
 
             // Note: this will declare a re-org if we skip `SLOTS_PER_HISTORICAL_ROOT` blocks
             // between calls to fork choice without swapping between chains. This seems like an
             // extreme-enough scenario that a warning is fine.
-            let is_reorg = self.head().beacon_block_root
+            let is_reorg = self.head_info().block_root
                 != beacon_state
-                    .get_block_root(self.head().beacon_block.slot)
+                    .get_block_root(self.head_info().slot)
                     .map(|root| *root)
                     .unwrap_or_else(|_| Hash256::random());
 
@@ -1489,7 +1505,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 warn!(
                     self.log,
                     "Beacon chain re-org";
-                    "previous_head" => format!("{}", self.head().beacon_block_root),
+                    "previous_head" => format!("{}", self.head_info().block_root),
                     "previous_slot" => previous_slot,
                     "new_head_parent" => format!("{}", beacon_block.parent_root),
                     "new_head" => format!("{}", beacon_block_root),
@@ -1508,7 +1524,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             };
 
-            let old_finalized_epoch = self.head().beacon_state.finalized_checkpoint.epoch;
+            let old_finalized_epoch = self.head_info().finalized_checkpoint.epoch;
             let new_finalized_epoch = beacon_state.finalized_checkpoint.epoch;
             let finalized_root = beacon_state.finalized_checkpoint.root;
 
