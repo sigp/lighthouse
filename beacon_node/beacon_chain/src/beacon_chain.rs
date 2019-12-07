@@ -1439,7 +1439,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let previous_slot = self.head().beacon_block.slot;
             let new_slot = beacon_block.slot;
 
-            let is_reorg = self.head().beacon_block_root != beacon_block.parent_root;
+            let is_reorg = self.head().beacon_block_root
+                != beacon_state
+                    .get_state_root(self.head().beacon_block.slot)
+                    .map(|root| *root)
+                    .unwrap_or_else(|_| Hash256::random());
 
             // If we switched to a new chain (instead of building atop the present chain).
             if is_reorg {
