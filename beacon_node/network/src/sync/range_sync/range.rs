@@ -384,7 +384,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         if let Some(index) = chain_index_to_remove {
             // the removed peer was the last in the chain. We remove the chain. If the chain was
             // currently syncing, search for a new chain to sync
-            self.finalized_chains.remove(index);
+
+            //TODO: Function this
+            let chain = self.finalized_chains.swap_remove(index);
+            debug!(self.log, "Finalized chain removed"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
             if index == 0 {
                 self.update_finalized_chains(network);
             }
@@ -420,6 +423,9 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
         if let Some(index) = chain_index_to_remove {
             // the removed peer was the last in the chain. We remove the chain.
+            let chain = self.head_chains.swap_remove(index);
+            debug!(self.log, "Head chain removed"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
+
             self.head_chains.remove(index);
 
             // update the head state

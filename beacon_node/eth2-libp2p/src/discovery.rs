@@ -274,7 +274,7 @@ where
                             });
                         }
                         Discv5Event::FindNodeResult { closer_peers, .. } => {
-                            info!(self.log, "Discovery query completed"; "peers_found" => closer_peers.len());
+                            debug!(self.log, "Discovery query completed"; "peers_found" => closer_peers.len());
                             // update the time to the next query
                             if self.past_discovery_delay < MAX_TIME_BETWEEN_PEER_SEARCHES {
                                 self.past_discovery_delay *= 2;
