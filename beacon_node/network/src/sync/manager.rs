@@ -371,7 +371,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             match chain.fork_choice() {
                                 Ok(()) => trace!(
                                     self.log,
-                                    "Fork choice success after gossip block";
+                                    "Fork choice success";
                                     "location" => "single block"
                                 ),
                                 Err(e) => error!(
