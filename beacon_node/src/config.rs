@@ -276,7 +276,7 @@ pub fn get_configs<E: EthSpec>(
 
     // ENR ip needs to be explicit for node to be discoverable
     if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
-        return Err("Discovery address cannot be 0.0.0.0. Specify discovery-addr");
+        return Err("Discovery address cannot be 0.0.0.0. Specify discovery-addr".into());
     }
     Ok((client_config, eth2_config, log))
 }
