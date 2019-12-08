@@ -110,24 +110,6 @@ impl<TSubstream> Discovery<TSubstream> {
         })
     }
 
-    /// Allows the application layer to update the `IP` and `port` of the local ENR. The second
-    /// parameter defines whether the port is a TCP port. If false, this is interpreted as a UDP
-    /// port.
-    pub fn update_local_enr(&mut self, socket: std::net::SocketAddr, is_tcp: bool) {
-        // discv5 checks to see if an update is necessary before performing it, so we do not
-        // need to check here
-        if self.discovery.update_local_enr_socket(socket, is_tcp) {
-            let enr = self.discovery.local_enr();
-            info!(
-            self.log,
-            "ENR Updated";
-            "enr" => enr.to_base64(), 
-            "seq" => enr.seq(),
-            "address" => format!("{:?}", socket));
-            save_enr_to_disc(Path::new(&self.enr_dir), enr, &self.log)
-        }
-    }
-
     /// Return the nodes local ENR.
     pub fn local_enr(&self) -> &Enr {
         self.discovery.local_enr()

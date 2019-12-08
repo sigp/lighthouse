@@ -40,9 +40,6 @@ pub struct Service {
     /// A current list of peers to ban after a given timeout.
     peers_to_ban: SmallVec<[(PeerId, Instant); 4]>,
 
-    /// Indicates if the listening address have been verified and compared to the expected ENR.
-    verified_listen_address: bool,
-
     /// The libp2p logger handle.
     pub log: slog::Logger,
 }
@@ -158,7 +155,6 @@ impl Service {
             local_peer_id,
             swarm,
             peers_to_ban: SmallVec::new(),
-            verified_listen_address: false,
             log,
         })
     }
@@ -212,17 +208,6 @@ impl Stream for Service {
                 Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
                 Ok(Async::NotReady) => break,
                 _ => break,
-            }
-        }
-        // swarm is not ready
-        // check to see if the address is different to the config. If so, update our ENR
-        if !self.verified_listen_address {
-            let multiaddr = Swarm::listeners(&self.swarm).next();
-            if let Some(multiaddr) = multiaddr {
-                self.verified_listen_address = true;
-                if let Some(socket_addr) = multiaddr_to_socket_addr(multiaddr) {
-                    self.swarm.update_local_enr_socket(socket_addr, true);
-                }
             }
         }
 
