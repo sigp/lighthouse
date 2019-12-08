@@ -7,7 +7,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{trace, warn};
+use slog::{debug, trace, warn};
 use std::sync::Weak;
 use tokio::sync::mpsc;
 
@@ -78,7 +78,7 @@ impl SyncNetworkContext {
     }
 
     pub fn downvote_peer(&mut self, peer_id: PeerId) {
-        trace!(
+        debug!(
             self.log,
             "Peer downvoted";
             "peer" => format!("{:?}", peer_id)
