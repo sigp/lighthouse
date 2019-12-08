@@ -120,6 +120,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
         // Check if any chains become the new syncing chain
         if let Some(index) = self.finalized_syncing_index() {
+            debug!(log, "Finalized chain syncing index"; "index"=> index);
             // There is a current finalized chain syncing
             let syncing_chain_peer_count = self.finalized_chains[index].peer_pool.len();
 
@@ -149,13 +150,13 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             // There is no currently syncing finalization chain, starting the one with the most peers
             debug!(log, "New finalized chain started syncing"; "new_target_root" => format!("{}", chain.target_head_root), "new_end_slot" => chain.target_head_slot, "new_start_slot"=> chain.start_slot);
             chain.start_syncing(network, local_slot, log);
-            self.sync_state = SyncState::Finalized
+            self.sync_state = SyncState::Finalized;
         } else {
             // There are no finalized chains, update the state
             if self.head_chains.is_empty() {
-                self.sync_state = SyncState::Idle
+                self.sync_state = SyncState::Idle;
             } else {
-                self.sync_state = SyncState::Head
+                self.sync_state = SyncState::Head;
             }
         }
     }
@@ -163,12 +164,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// Add a new finalized chain to the collection
     pub fn new_finalized_chain(
         &mut self,
-        network: &mut SyncNetworkContext,
         local_finalized_slot: Slot,
         target_head: Hash256,
         target_slot: Slot,
         peer_id: PeerId,
-        log: &slog::Logger,
     ) {
         self.finalized_chains.push(SyncingChain::new(
             local_finalized_slot,
@@ -176,12 +175,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             target_head,
             peer_id,
         ));
-
-        // This chain will only have a single peer, and will only become the syncing chain
-        // if no other chain exists
-        if self.finalized_chains.len() == 1 {
-            self.finalized_chains[0].start_syncing(network, local_finalized_slot, log);
-        }
     }
 
     /// Add a new finalized chain to the collection

@@ -247,7 +247,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         debug!(log, "Processing batch"; "batch_id" => batch.id);
                         match process_batch(chain.clone(), batch, &mut successes, log) {
                             Ok(_) => {
-                                trace!(log, "Blocks Processed"; "current_slot" => batch.end_slot);
                                 // batch was successfully processed
                                 self.last_processed_id = self.to_be_processed_id;
                                 self.to_be_processed_id += 1;
@@ -544,7 +543,7 @@ fn process_batch<T: BeaconChainTypes>(
                 match outcome {
                     BlockProcessingOutcome::Processed { block_root } => {
                         // The block was valid and we processed it successfully.
-                        trace!(
+                        debug!(
                             log, "Imported block from network";
                             "slot" => block.slot,
                             "block_root" => format!("{}", block_root),

@@ -563,7 +563,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         Ok(outcome) => {
                             // it's a future slot or an invalid block, remove it and try again
                             parent_request.failed_attempts += 1;
-                            trace!(
+                            debug!(
                                 self.log, "Invalid parent block";
                                 "outcome" => format!("{:?}", outcome),
                                 "peer" => format!("{:?}", parent_request.last_submitted_peer),
@@ -625,6 +625,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             "block" => format!("{:?}",parent_request.downloaded_blocks[0].canonical_root()),
             "ancestors_found" => parent_request.downloaded_blocks.len()
             );
+            return; // drop the request
         }
 
         let parent_hash = parent_request
@@ -642,7 +643,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .network
             .blocks_by_root_request(peer_id.clone(), request)
         {
-            // if the request was sucessful add the queue back into self
+            // if the request was successful add the queue back into self
             parent_request.pending = Some(request_id);
             self.parent_queue.push(parent_request);
         }

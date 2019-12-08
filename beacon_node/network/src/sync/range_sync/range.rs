@@ -69,6 +69,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         self.chains.purge_head(local_info.head_slot);
 
         // remove peer from any chains
+        self.chains.remove_peer(&peer_id);
 
         if remote_finalized_slot > local_info.head_slot {
             debug!(self.log, "Finalization sync peer joined"; "peer_id" => format!("{:?}", peer_id));
@@ -83,7 +84,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 .chains
                 .get_finalized_mut(remote.finalized_root, remote_finalized_slot)
             {
-                trace!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id), "target_root" => format!("{}", chain.target_head_root), "end_slot" => chain.target_head_slot, "start_slot"=> chain.start_slot);
+                debug!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id), "target_root" => format!("{}", chain.target_head_root), "end_slot" => chain.target_head_slot, "start_slot"=> chain.start_slot);
 
                 // add the peer to the chain's peer pool
                 chain.peer_pool.insert(peer_id.clone());
@@ -98,12 +99,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 debug!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id), "start_slot" => local_finalized_slot.as_u64(), "end_slot" => remote_finalized_slot.as_u64(), "finalized_root" => format!("{}", remote.finalized_root));
 
                 self.chains.new_finalized_chain(
-                    network,
                     local_finalized_slot,
                     remote.finalized_root,
                     remote_finalized_slot,
                     peer_id,
-                    &self.log,
                 );
                 self.chains
                     .update_finalized(self.chain.clone(), network, &self.log);
@@ -129,11 +128,11 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 chain.peer_added(network, peer_id.clone(), &self.log);
             } else {
                 // There are no other head chains that match this peer's status, create a new one, and
-                // remove the peer from any old ones
-                debug!(self.log, "Creating a new syncing head chain"; "head_root" => format!("{}",remote.head_root), "head_slot" => remote.head_slot, "peer_id" => format!("{:?}", peer_id));
+                let start_slot = std::cmp::min(local_info.head_slot, remote_finalized_slot);
+                debug!(self.log, "Creating a new syncing head chain"; "head_root" => format!("{}",remote.head_root), "start_slot" => start_slot, "head_slot" => remote.head_slot, "peer_id" => format!("{:?}", peer_id));
                 self.chains.new_head_chain(
                     network,
-                    remote_finalized_slot,
+                    start_slot,
                     remote.head_root,
                     remote.head_slot,
                     peer_id,
