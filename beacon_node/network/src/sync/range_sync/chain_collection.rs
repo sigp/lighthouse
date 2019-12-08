@@ -32,6 +32,23 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         &self.sync_state
     }
 
+    // if a finalized chain just completed, we assume we waiting for head syncing, unless a fully
+    // sync peer joins.
+    pub fn fully_synced_peer_found(&mut self) {
+        if let SyncState::Head = self.sync_state {
+            if self.head_chains.is_empty() {
+                self.sync_state = SyncState::Idle;
+            }
+        }
+    }
+
+    // after a finalized chain completes, the state should be waiting for a head chain
+    pub fn set_head_sync(&mut self) {
+        if let SyncState::Idle = self.sync_state {
+            self.sync_state = SyncState::Head;
+        }
+    }
+
     fn finalized_syncing_index(&self) -> Option<usize> {
         self.finalized_chains
             .iter()
@@ -120,7 +137,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
         // Check if any chains become the new syncing chain
         if let Some(index) = self.finalized_syncing_index() {
-            debug!(log, "Finalized chain syncing index"; "index"=> index);
             // There is a current finalized chain syncing
             let syncing_chain_peer_count = self.finalized_chains[index].peer_pool.len();
 
