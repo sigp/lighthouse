@@ -120,7 +120,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
         // Check if any chains become the new syncing chain
         if let Some(index) = self.finalized_syncing_index() {
-            debug!(log, "Finalized chain syncing index"; "index"=> index);
             // There is a current finalized chain syncing
             let syncing_chain_peer_count = self.finalized_chains[index].peer_pool.len();
 

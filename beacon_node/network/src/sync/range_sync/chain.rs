@@ -543,7 +543,7 @@ fn process_batch<T: BeaconChainTypes>(
                 match outcome {
                     BlockProcessingOutcome::Processed { block_root } => {
                         // The block was valid and we processed it successfully.
-                        debug!(
+                        trace!(
                             log, "Imported block from network";
                             "slot" => block.slot,
                             "block_root" => format!("{}", block_root),
