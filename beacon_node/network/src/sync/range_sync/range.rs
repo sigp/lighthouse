@@ -36,6 +36,12 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }
     }
 
+    // Notify the collection that a fully synced peer was found. This allows updating the state
+    // if we were awaiting a head state.
+    pub fn fully_synced_peer_found(&mut self) {
+        self.chains.fully_synced_peer_found()
+    }
+
     pub fn add_peer(
         &mut self,
         network: &mut SyncNetworkContext,
@@ -173,6 +179,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 // update the state of the collection
                 self.chains
                     .update_finalized(self.chain.clone(), network, &self.log);
+
+                // set the state to a head sync, to inform the manager that we are awaiting a
+                // head chain.
+                self.chains.set_head_sync();
 
                 // if there are no more finalized chains, re-status all known peers awaiting a head
                 // sync

@@ -265,6 +265,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             "local_head_slot" => local.head_slot,
             );
             self.add_full_peer(peer_id);
+            // notify the range sync that a peer has been added
+            self.range_sync.fully_synced_peer_found();
             return;
         }
 
