@@ -2,6 +2,7 @@
 //! peers.
 
 mod chain;
+mod chain_collection;
 mod range;
 
 pub use range::RangeSync;

@@ -117,7 +117,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     last_processed_id: u64,
 
     /// The current state of the chain.
-    state: ChainSyncingState,
+    pub state: ChainSyncingState,
 }
 
 #[derive(PartialEq)]
