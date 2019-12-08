@@ -503,28 +503,38 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         request_id: &RequestId,
         log: &slog::Logger,
     ) -> Option<ProcessingResult> {
-        if let Some(mut batch) = self.pending_batches.remove(&request_id) {
+        if let Some(batch) = self.pending_batches.remove(&request_id) {
             warn!(log, "Batch failed. RPC Error"; "id" => batch.id, "retries" => batch.retries, "peer" => format!("{:?}", peer_id));
 
-            batch.retries += 1;
-
-            if batch.retries > MAX_BATCH_RETRIES {
-                // chain is unrecoverable, remove it
-                return Some(ProcessingResult::RemoveChain);
-            } else {
-                // try to re-process the request using a different peer, if possible
-                let new_peer = self
-                    .peer_pool
-                    .iter()
-                    .find(|peer| *peer != peer_id)
-                    .unwrap_or_else(|| peer_id);
-
-                batch.current_peer = new_peer.clone();
-                self.send_batch(network, batch);
-                return Some(ProcessingResult::KeepChain);
-            }
+            Some(self.failed_batch(network, batch))
+        } else {
+            None
         }
-        None
+    }
+
+    pub fn failed_batch(
+        &mut self,
+        network: &mut SyncNetworkContext,
+        mut batch: Batch<T::EthSpec>,
+    ) -> ProcessingResult {
+        batch.retries += 1;
+
+        if batch.retries > MAX_BATCH_RETRIES {
+            // chain is unrecoverable, remove it
+            ProcessingResult::RemoveChain
+        } else {
+            // try to re-process the request using a different peer, if possible
+            let current_peer = &batch.current_peer;
+            let new_peer = self
+                .peer_pool
+                .iter()
+                .find(|peer| *peer != current_peer)
+                .unwrap_or_else(|| current_peer);
+
+            batch.current_peer = new_peer.clone();
+            self.send_batch(network, batch);
+            ProcessingResult::KeepChain
+        }
     }
 }
 
