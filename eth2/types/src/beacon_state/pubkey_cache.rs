@@ -10,7 +10,7 @@ pub struct PubkeyCache {
     /// len, as it does not increase when duplicate keys are added. Duplicate keys are used during
     /// testing.
     len: usize,
-    map: HashMap<PublicKey, ValidatorIndex>,
+    map: HashMap<PublicKeyBytes, ValidatorIndex>,
 }
 
 impl PubkeyCache {
@@ -23,7 +23,7 @@ impl PubkeyCache {
     ///
     /// The added index must equal the number of validators already added to the map. This ensures
     /// that an index is never skipped.
-    pub fn insert(&mut self, pubkey: PublicKey, index: ValidatorIndex) -> bool {
+    pub fn insert(&mut self, pubkey: PublicKeyBytes, index: ValidatorIndex) -> bool {
         if index == self.len {
             self.map.insert(pubkey, index);
             self.len += 1;
@@ -34,7 +34,7 @@ impl PubkeyCache {
     }
 
     /// Looks up a validator index's by their public key.
-    pub fn get(&self, pubkey: &PublicKey) -> Option<ValidatorIndex> {
+    pub fn get(&self, pubkey: &PublicKeyBytes) -> Option<ValidatorIndex> {
         self.map.get(pubkey).copied()
     }
 }

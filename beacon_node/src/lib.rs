@@ -25,11 +25,11 @@ use types::EthSpec;
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> = Client<
     Witness<
-        DiskStore,
+        DiskStore<E>,
         BackgroundMigrator<E>,
         SystemTimeSlotClock,
-        ThreadSafeReducedTree<DiskStore, E>,
-        CachingEth1Backend<E, DiskStore>,
+        ThreadSafeReducedTree<DiskStore<E>, E>,
+        CachingEth1Backend<E, DiskStore<E>>,
         E,
         WebSocketSender<E>,
     >,
@@ -79,6 +79,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let spec = context.eth2_config().spec.clone();
         let genesis_eth1_config = client_config.eth1.clone();
         let client_genesis = client_config.genesis.clone();
+        let store_config = client_config.store.clone();
         let log = context.log.clone();
 
         let db_path_res = client_config.create_db_path();
@@ -90,7 +91,11 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 Ok(ClientBuilder::new(context.eth_spec_instance.clone())
                     .runtime_context(context)
                     .chain_spec(spec)
-                    .disk_store(&db_path, &freezer_db_path_res?)?
+                    .disk_store(
+                        &db_path,
+                        &freezer_db_path_res?,
+                        store_config.slots_per_restore_point,
+                    )?
                     .background_migrator()?)
             })
             .and_then(move |builder| {
@@ -126,15 +131,14 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                     .system_time_slot_clock()?
                     .websocket_event_handler(client_config.websocket_server.clone())?
                     .build_beacon_chain()?
-                    .libp2p_network(&client_config.network)?;
+                    .libp2p_network(&client_config.network)?
+                    .notifier()?;
 
                 let builder = if client_config.rest_api.enabled {
                     builder.http_server(&client_config, &http_eth2_config)?
                 } else {
                     builder
                 };
-
-                let builder = builder.peer_count_notifier()?.slot_notifier()?;
 
                 Ok(Self(builder.build()))
             })

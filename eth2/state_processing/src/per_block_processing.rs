@@ -440,7 +440,7 @@ pub fn process_deposit<T: EthSpec>(
     };
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
-    let validator_index = get_existing_validator_index(state, &pubkey)
+    let validator_index = get_existing_validator_index(state, &deposit.data.pubkey)
         .map_err(|e| e.into_with_index(deposit_index))?;
 
     let amount = deposit.data.amount;
@@ -457,7 +457,7 @@ pub fn process_deposit<T: EthSpec>(
 
         // Create a new validator.
         let validator = Validator {
-            pubkey,
+            pubkey: pubkey.into(),
             withdrawal_credentials: deposit.data.withdrawal_credentials,
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,

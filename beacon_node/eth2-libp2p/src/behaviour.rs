@@ -240,6 +240,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     pub fn peer_banned(&mut self, peer_id: PeerId) {
         self.discovery.peer_banned(peer_id);
     }
+
+    /// Notify discovery that the peer has been unbanned.
+    pub fn peer_unbanned(&mut self, peer_id: &PeerId) {
+        self.discovery.peer_unbanned(peer_id);
+    }
 }
 
 /// The types of events than can be obtained from polling the behaviour.
