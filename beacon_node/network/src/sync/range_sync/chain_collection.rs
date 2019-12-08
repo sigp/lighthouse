@@ -131,9 +131,13 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
         // Remove any outdated finalized chains
         self.purge_finalized(local_slot);
+        self.finalized_chains
+            .retain(|chain| !chain.peer_pool.is_empty());
 
         // Remove any outdated head chains
         self.purge_head(local_info.head_slot);
+        self.finalized_chains
+            .retain(|chain| !chain.peer_pool.is_empty());
 
         // Check if any chains become the new syncing chain
         if let Some(index) = self.finalized_syncing_index() {
@@ -266,23 +270,15 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         self.head_chains.swap_remove(index)
     }
 
-    pub fn remove_peer(&mut self, peer_id: &PeerId) {
-        // A peer can only exist in a single chain. We find that chain first then ignore the rest.
-        if let Some(chain) = self
-            .finalized_chains
-            .iter_mut()
-            .chain(self.head_chains.iter_mut())
-            .find(|chain| chain.peer_pool.contains(&peer_id))
-        {
-            chain.peer_pool.remove(&peer_id);
-            chain
-                .pending_batches
-                .retain(|_, batch| batch.current_peer != *peer_id);
+    /// Removes a chain from either finalized or head chains based on the index. Using a request
+    /// iterates of finalized chains before head chains. Thus an index that is greater than the
+    /// finalized chain length, indicates a head chain.
+    pub fn remove_chain(&mut self, index: usize) -> SyncingChain<T> {
+        if index >= self.finalized_chains.len() {
+            let index = index - self.finalized_chains.len();
+            self.head_chains.swap_remove(index)
+        } else {
+            self.finalized_chains.swap_remove(index)
         }
-
-        // remove any chains that no longer have enough peers
-        self.finalized_chains
-            .retain(|chain| !chain.peer_pool.is_empty());
-        self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
     }
 }
