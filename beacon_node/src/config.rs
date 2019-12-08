@@ -8,8 +8,8 @@ use rand::{distributions::Alphanumeric, Rng};
 use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
-use std::net::Ipv4Addr;
 use std::net::TcpListener;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use types::{Epoch, EthSpec, Fork};
 
@@ -252,14 +252,14 @@ pub fn get_configs<E: EthSpec>(
      * Libp2p and discovery ports are set explicitly by selecting
      * a random free port so that we aren't needlessly updating ENR
      * from lighthouse.
+     * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        // client_config.network.listen_address = "127.0.0.1"
-        //     .parse()
-        //     .map_err(|e| format!("Invalid listen address: {}", e))?;
-        // client_config.network.discovery_address = "127.0.0.1"
-        //     .parse()
-        //     .map_err(|e| format!("Invalid discovery address: {}", e))?;
+        if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
+            client_config.network.discovery_address = "127.0.0.1"
+                .parse()
+                .map_err(|e| format!("Invalid discovery address: {}", e))?
+        }
         client_config.network.libp2p_port =
             unused_port().map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
         client_config.network.discovery_port =
@@ -267,15 +267,6 @@ pub fn get_configs<E: EthSpec>(
         client_config.rest_api.port = 0;
         client_config.websocket_server.port = 0;
     }
-    info!(log, "Config.";
-        "client_config libp2p addr" => client_config.network.listen_address.to_string(),
-        "client_config libp2p" => client_config.network.libp2p_port,
-        "client_config discovery addr" => client_config.network.discovery_address.to_string(),
-        "client_config discovery" => client_config.network.discovery_port,
-        "client_config rest_api" => client_config.rest_api.port,
-        "client_config websocket server" => client_config.websocket_server.port,
-    );
-
     Ok((client_config, eth2_config, log))
 }
 
