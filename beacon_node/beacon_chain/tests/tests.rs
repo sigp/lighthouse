@@ -494,6 +494,11 @@ fn run_skip_slot_test(skip_slots: u64) {
         })
     );
 
+    harness_b
+        .chain
+        .fork_choice()
+        .expect("should run fork choice");
+
     assert_eq!(
         harness_b.chain.head().beacon_block.slot,
         Slot::new(skip_slots + 1)

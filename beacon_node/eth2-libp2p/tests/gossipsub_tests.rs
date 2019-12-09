@@ -84,7 +84,7 @@ fn test_gossipsub_full_mesh_publish() {
     let log = common::build_log(Level::Info, false);
 
     let num_nodes = 20;
-    let mut nodes = common::build_full_mesh(log, num_nodes, None);
+    let mut nodes = common::build_full_mesh(log, num_nodes, Some(11320));
     let mut publishing_node = nodes.pop().unwrap();
     let pubsub_message = PubsubMessage::Block(vec![0; 4]);
     let publishing_topic: String = "/eth2/beacon_block/ssz".into();

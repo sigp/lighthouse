@@ -8,11 +8,11 @@ use crate::rpc::protocol::{InboundFramed, OutboundFramed};
 use core::marker::PhantomData;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
+use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade, UpgradeError};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use slog::{crit, debug, error, trace, warn};
+use slog::{crit, debug, error, trace};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::time::{Duration, Instant};
@@ -24,6 +24,9 @@ use tokio::timer::{delay_queue, DelayQueue};
 
 /// The time (in seconds) before a substream that is awaiting a response from the user times out.
 pub const RESPONSE_TIMEOUT: u64 = 10;
+
+/// The number of times to retry an outbound upgrade in the case of IO errors.
+const IO_ERROR_RETRIES: u8 = 3;
 
 /// Inbound requests are given a sequential `RequestId` to keep track of.
 type InboundRequestId = RequestId;
@@ -40,7 +43,7 @@ where
     listen_protocol: SubstreamProtocol<RPCProtocol>,
 
     /// If `Some`, something bad happened and we should shut down the handler with an error.
-    pending_error: Option<ProtocolsHandlerUpgrErr<RPCError>>,
+    pending_error: Option<(RequestId, ProtocolsHandlerUpgrErr<RPCError>)>,
 
     /// Queue of events to produce in `poll()`.
     events_out: SmallVec<[RPCEvent; 4]>,
@@ -80,6 +83,10 @@ where
 
     /// After the given duration has elapsed, an inactive connection will shutdown.
     inactive_timeout: Duration,
+
+    /// Try to negotiate the outbound upgrade a few times if there is an IO error before reporting the request as failed.
+    /// This keeps track of the number of attempts.
+    outbound_io_error_retries: u8,
 
     /// Logger for handling RPC streams
     log: slog::Logger,
@@ -150,6 +157,7 @@ where
             max_dial_negotiated: 8,
             keep_alive: KeepAlive::Yes,
             inactive_timeout,
+            outbound_io_error_retries: 0,
             log: log.clone(),
             _phantom: PhantomData,
         }
@@ -339,13 +347,29 @@ where
 
     fn inject_dial_upgrade_error(
         &mut self,
-        _: Self::OutboundOpenInfo,
+        request: Self::OutboundOpenInfo,
         error: ProtocolsHandlerUpgrErr<
             <Self::OutboundProtocol as OutboundUpgrade<Self::Substream>>::Error,
         >,
     ) {
+        if let ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error {
+            self.outbound_io_error_retries += 1;
+            if self.outbound_io_error_retries < IO_ERROR_RETRIES {
+                self.send_request(request);
+                return;
+            }
+        }
+        self.outbound_io_error_retries = 0;
+        // add the error
+        let request_id = {
+            if let RPCEvent::Request(id, _) = request {
+                id
+            } else {
+                0
+            }
+        };
         if self.pending_error.is_none() {
-            self.pending_error = Some(error);
+            self.pending_error = Some((request_id, error));
         }
     }
 
@@ -359,11 +383,43 @@ where
         ProtocolsHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent>,
         Self::Error,
     > {
-        if let Some(err) = self.pending_error.take() {
-            // Returning an error here will result in dropping any peer that doesn't support any of
-            // the RPC protocols. For our immediate purposes we permit this and simply log that an
-            // upgrade was not supported.
-            warn!(self.log,"RPC Protocol was not supported"; "Error" => format!("{}", err));
+        if let Some((request_id, err)) = self.pending_error.take() {
+            // Returning an error here will result in dropping the peer.
+            match err {
+                ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(
+                    RPCError::InvalidProtocol(protocol_string),
+                )) => {
+                    // Peer does not support the protocol.
+                    // TODO: We currently will not drop the peer, for maximal compatibility with
+                    // other clients testing their software. In the future, we will need to decide
+                    // which protocols are a bare minimum to support before kicking the peer.
+                    error!(self.log, "Peer doesn't support the RPC protocol"; "protocol" => protocol_string);
+                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                        RPCEvent::Error(request_id, RPCError::InvalidProtocol(protocol_string)),
+                    )));
+                }
+                ProtocolsHandlerUpgrErr::Timeout | ProtocolsHandlerUpgrErr::Timer => {
+                    // negotiation timeout, mark the request as failed
+                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                        RPCEvent::Error(
+                            request_id,
+                            RPCError::Custom("Protocol negotiation timeout".into()),
+                        ),
+                    )));
+                }
+                ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(err)) => {
+                    // IO/Decode/Custom Error, report to the application
+                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                        RPCEvent::Error(request_id, err),
+                    )));
+                }
+                ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Select(err)) => {
+                    // Error during negotiation
+                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                        RPCEvent::Error(request_id, RPCError::Custom(format!("{}", err))),
+                    )));
+                }
+            }
         }
 
         // return any events that need to be reported
@@ -385,12 +441,19 @@ where
         }
 
         // purge expired outbound substreams
-        while let Async::Ready(Some(stream_id)) = self
+        if let Async::Ready(Some(stream_id)) = self
             .outbound_substreams_delay
             .poll()
             .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
         {
             self.outbound_substreams.remove(stream_id.get_ref());
+            // notify the user
+            return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                RPCEvent::Error(
+                    stream_id.get_ref().clone(),
+                    RPCError::Custom("Stream timed out".into()),
+                ),
+            )));
         }
 
         // drive inbound streams that need to be processed

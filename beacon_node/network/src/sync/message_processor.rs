@@ -6,7 +6,7 @@ use beacon_chain::{
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{debug, info, o, trace, warn};
+use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
@@ -60,8 +60,8 @@ pub struct MessageProcessor<T: BeaconChainTypes> {
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     /// A oneshot channel for destroying the sync thread.
     _sync_exit: oneshot::Sender<()>,
-    /// A nextwork context to return and handle RPC requests.
-    network: NetworkContext,
+    /// A network context to return and handle RPC requests.
+    network: HandlerNetworkContext,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -75,13 +75,12 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         log: &slog::Logger,
     ) -> Self {
         let sync_logger = log.new(o!("service"=> "sync"));
-        let sync_network_context = NetworkContext::new(network_send.clone(), sync_logger.clone());
 
         // spawn the sync thread
         let (sync_send, _sync_exit) = super::manager::spawn(
             executor,
             Arc::downgrade(&beacon_chain),
-            sync_network_context,
+            network_send.clone(),
             sync_logger,
         );
 
@@ -89,7 +88,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             chain: beacon_chain,
             sync_send,
             _sync_exit,
-            network: NetworkContext::new(network_send, log.clone()),
+            network: HandlerNetworkContext::new(network_send, log.clone()),
             log: log.clone(),
         }
     }
@@ -120,11 +119,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ///
     /// Sends a `Status` message to the peer.
     pub fn on_connect(&mut self, peer_id: PeerId) {
-        self.network.send_rpc_request(
-            None,
-            peer_id,
-            RPCRequest::Status(status_message(&self.chain)),
-        );
+        self.network
+            .send_rpc_request(peer_id, RPCRequest::Status(status_message(&self.chain)));
     }
 
     /// Handle a `Status` request.
@@ -316,51 +312,47 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             "start_slot" => req.start_slot,
         );
 
-        //TODO: Optimize this
-        // Currently for skipped slots, the blocks returned could be less than the requested range.
-        // In the current implementation we read from the db then filter out out-of-range blocks.
-        // Improving the db schema to prevent this would be ideal.
-
-        //TODO: This really needs to be read forward for infinite streams
-        // We should be reading the first block from the db, sending, then reading the next... we
-        // need a forwards iterator!!
-
-        let mut blocks: Vec<BeaconBlock<T::EthSpec>> = self
+        let mut block_roots = self
             .chain
-            .rev_iter_block_roots()
-            .filter(|(_root, slot)| {
-                req.start_slot <= slot.as_u64() && req.start_slot + req.count > slot.as_u64()
-            })
-            .take_while(|(_root, slot)| req.start_slot <= slot.as_u64())
-            .filter_map(|(root, _slot)| {
-                if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
-                    Some(block)
-                } else {
-                    warn!(
-                        self.log,
-                        "Block in the chain is not in the store";
-                        "request_root" => format!("{:}", root),
+            .forwards_iter_block_roots(Slot::from(req.start_slot))
+            .take_while(|(_root, slot)| slot.as_u64() < req.start_slot + req.count)
+            .map(|(root, _slot)| root)
+            .collect::<Vec<_>>();
+
+        block_roots.dedup();
+
+        let mut blocks_sent = 0;
+        for root in block_roots {
+            if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
+                // Due to skip slots, blocks could be out of the range, we ensure they are in the
+                // range before sending
+                if block.slot >= req.start_slot && block.slot < req.start_slot + req.count {
+                    blocks_sent += 1;
+                    self.network.send_rpc_response(
+                        peer_id.clone(),
+                        request_id,
+                        RPCResponse::BlocksByRange(block.as_ssz_bytes()),
                     );
-                    None
                 }
-            })
-            .filter(|block| block.slot >= req.start_slot)
-            .collect();
+            } else {
+                error!(
+                    self.log,
+                    "Block in the chain is not in the store";
+                    "request_root" => format!("{:}", root),
+                );
+            }
+        }
 
-        blocks.reverse();
-        blocks.dedup_by_key(|brs| brs.slot);
-
-        if blocks.len() < (req.count as usize) {
-            debug!(
+        if blocks_sent < (req.count as usize) {
+            trace!(
                 self.log,
-                "Sending BlocksByRange Response";
+                "BlocksByRange Response Sent";
                 "peer" => format!("{:?}", peer_id),
                 "msg" => "Failed to return all requested blocks",
                 "start_slot" => req.start_slot,
                 "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
                 "requested" => req.count,
-                "returned" => blocks.len(),
-            );
+                "returned" => blocks_sent);
         } else {
             trace!(
                 self.log,
@@ -369,17 +361,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 "start_slot" => req.start_slot,
                 "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
                 "requested" => req.count,
-                "returned" => blocks.len(),
-            );
+                "returned" => blocks_sent);
         }
 
-        for block in blocks {
-            self.network.send_rpc_response(
-                peer_id.clone(),
-                request_id,
-                RPCResponse::BlocksByRange(block.as_ssz_bytes()),
-            );
-        }
         // send the stream terminator
         self.network.send_rpc_error_response(
             peer_id,
@@ -442,6 +426,27 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 BlockProcessingOutcome::Processed { .. } => {
                     trace!(self.log, "Gossipsub block processed";
                             "peer_id" => format!("{:?}",peer_id));
+
+                    // TODO: It would be better if we can run this _after_ we publish the block to
+                    // reduce block propagation latency.
+                    //
+                    // The `MessageHandler` would be the place to put this, however it doesn't seem
+                    // to have a reference to the `BeaconChain`. I will leave this for future
+                    // works.
+                    match self.chain.fork_choice() {
+                        Ok(()) => trace!(
+                            self.log,
+                            "Fork choice success";
+                            "location" => "block gossip"
+                        ),
+                        Err(e) => error!(
+                            self.log,
+                            "Fork choice failed";
+                            "error" => format!("{:?}", e),
+                            "location" => "block gossip"
+                        ),
+                    }
+
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::ParentUnknown { .. } => {
@@ -494,7 +499,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         match self.chain.process_attestation(msg.clone()) {
             Ok(outcome) => match outcome {
                 AttestationProcessingOutcome::Processed => {
-                    info!(
+                    debug!(
                         self.log,
                         "Processed attestation";
                         "source" => "gossip",
@@ -545,15 +550,17 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
     }
 }
 
-/// Wraps a Network Channel to employ various RPC/Sync related network functionality.
-pub struct NetworkContext {
+/// Wraps a Network Channel to employ various RPC related network functionality for the message
+/// handler. The handler doesn't manage it's own request Id's and can therefore only send
+/// responses or requests with 0 request Ids.
+pub struct HandlerNetworkContext {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage>,
     /// Logger for the `NetworkContext`.
     log: slog::Logger,
 }
 
-impl NetworkContext {
+impl HandlerNetworkContext {
     pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
         Self { network_send, log }
     }
@@ -565,7 +572,7 @@ impl NetworkContext {
             "reason" => format!("{:?}", reason),
             "peer_id" => format!("{:?}", peer_id),
         );
-        self.send_rpc_request(None, peer_id.clone(), RPCRequest::Goodbye(reason));
+        self.send_rpc_request(peer_id.clone(), RPCRequest::Goodbye(reason));
         self.network_send
             .try_send(NetworkMessage::Disconnect { peer_id })
             .unwrap_or_else(|_| {
@@ -576,14 +583,10 @@ impl NetworkContext {
             });
     }
 
-    pub fn send_rpc_request(
-        &mut self,
-        request_id: Option<RequestId>,
-        peer_id: PeerId,
-        rpc_request: RPCRequest,
-    ) {
-        // use 0 as the default request id, when an ID is not required.
-        let request_id = request_id.unwrap_or_else(|| 0);
+    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest) {
+        // the message handler cannot send requests with ids. Id's are managed by the sync
+        // manager.
+        let request_id = 0;
         self.send_rpc_event(peer_id, RPCEvent::Request(request_id, rpc_request));
     }
 

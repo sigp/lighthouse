@@ -48,10 +48,6 @@ lazy_static! {
         "beacon_block_processing_fork_choice_register_seconds",
         "Time spent registering the new block with fork choice (but not finding head)"
     );
-    pub static ref BLOCK_PROCESSING_FORK_CHOICE_FIND_HEAD: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_fork_choice_find_head_seconds",
-        "Time spent finding the new head after processing a new block"
-    );
 
     /*
      * Block Production
