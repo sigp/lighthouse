@@ -4,22 +4,18 @@ extern crate log;
 mod deploy_deposit_contract;
 mod eth1_genesis;
 mod parse_hex;
-mod pycli;
 mod refund_deposit_contract;
 mod transition_blocks;
 
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg, ArgMatches, SubCommand};
 use environment::EnvironmentBuilder;
 use log::Level;
 use parse_hex::run_parse_hex;
-use pycli::run_pycli;
 use std::fs::File;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transition_blocks::run_transition_blocks;
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
-
-type LocalEthSpec = MinimalEthSpec;
 
 fn main() {
     simple_logger::init_with_level(Level::Info).expect("logger should initialize");
@@ -55,7 +51,7 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .possible_values(&["minimal", "mainnet"])
-                        .default_value("minimal")
+                        .default_value("mainnet")
                         .help("Eth2 genesis time (seconds since UNIX epoch)."),
                 )
                 .arg(
@@ -134,6 +130,15 @@ fn main() {
                         .takes_value(true)
                         .default_value("0")
                         .help("The MIN_GENESIS_TIME constant."),
+                )
+                .arg(
+                    Arg::with_name("min-genesis-active-validator-count")
+                        .short("v")
+                        .long("min-genesis-active-validator-count")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("64")
+                        .help("The MIN_GENESIS_ACTIVE_VALIDATOR_COUNT constant."),
                 )
                 .arg(
                     Arg::with_name("eth1-endpoint")
@@ -222,22 +227,27 @@ fn main() {
                         .help("The URL to the eth1 JSON-RPC http API."),
                 )
         )
-        .subcommand(
-            SubCommand::with_name("pycli")
-                .about("TODO")
-                .arg(
-                    Arg::with_name("pycli-path")
-                        .long("pycli-path")
-                        .short("p")
-                        .value_name("PATH")
-                        .takes_value(true)
-                        .default_value("../../pycli")
-                        .help("Path to the pycli repository."),
-                ),
-        )
         .get_matches();
 
-    let env = EnvironmentBuilder::minimal()
+    macro_rules! run_with_spec {
+        ($env_builder: expr) => {
+            run($env_builder, &matches)
+        };
+    }
+
+    match matches.value_of("spec") {
+        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
+        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
+        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
+        spec => {
+            // This path should be unreachable due to slog having a `default_value`
+            unreachable!("Unknown spec configuration: {:?}", spec);
+        }
+    }
+}
+
+fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) {
+    let env = env_builder
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
         .async_logger("trace")
@@ -283,22 +293,19 @@ fn main() {
             };
             info!("Genesis state YAML file created. Exiting successfully.");
         }
-        ("transition-blocks", Some(matches)) => run_transition_blocks(matches)
+        ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(matches)
             .unwrap_or_else(|e| error!("Failed to transition blocks: {}", e)),
-        ("pretty-hex", Some(matches)) => {
-            run_parse_hex(matches).unwrap_or_else(|e| error!("Failed to pretty print hex: {}", e))
-        }
-        ("pycli", Some(matches)) => run_pycli::<LocalEthSpec>(matches)
-            .unwrap_or_else(|e| error!("Failed to run pycli: {}", e)),
+        ("pretty-hex", Some(matches)) => run_parse_hex::<T>(matches)
+            .unwrap_or_else(|e| error!("Failed to pretty print hex: {}", e)),
         ("deploy-deposit-contract", Some(matches)) => {
-            deploy_deposit_contract::run::<LocalEthSpec>(env, matches)
+            deploy_deposit_contract::run::<T>(env, matches)
                 .unwrap_or_else(|e| error!("Failed to run deploy-deposit-contract command: {}", e))
         }
         ("refund-deposit-contract", Some(matches)) => {
-            refund_deposit_contract::run::<LocalEthSpec>(env, matches)
+            refund_deposit_contract::run::<T>(env, matches)
                 .unwrap_or_else(|e| error!("Failed to run refund-deposit-contract command: {}", e))
         }
-        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<LocalEthSpec>(env, matches)
+        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, matches)
             .unwrap_or_else(|e| error!("Failed to run eth1-genesis command: {}", e)),
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
