@@ -33,7 +33,7 @@ fn main() {
                 .takes_value(true)
                 .possible_values(&["mainnet", "minimal", "interop"])
                 .global(true)
-                .default_value("minimal"),
+                .default_value("mainnet"),
         )
         .arg(
             Arg::with_name("logfile")
