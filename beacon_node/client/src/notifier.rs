@@ -14,16 +14,19 @@ use types::{EthSpec, Slot};
 /// Create a warning log whenever the peer count is at or below this value.
 pub const WARN_PEER_COUNT: usize = 1;
 
-const SECS_PER_MINUTE: u64 = 60;
-const SECS_PER_HOUR: u64 = 3600;
-const SECS_PER_DAY: u64 = 86400; // non-leap
-const SECS_PER_WEEK: u64 = 604800; // non-leap
-const DAYS_PER_WEEK: u64 = 7;
-const HOURS_PER_DAY: u64 = 24;
-const MINUTES_PER_HOUR: u64 = 60;
+const SECS_PER_MINUTE: f64 = 60.0;
+const SECS_PER_HOUR: f64 = 3600.0;
+const SECS_PER_DAY: f64 = 86400.0; // non-leap
+const SECS_PER_WEEK: f64 = 604800.0; // non-leap
+const DAYS_PER_WEEK: f64 = 7.0;
+const HOURS_PER_DAY: f64 = 24.0;
+const MINUTES_PER_HOUR: f64 = 60.0;
 
 /// How long to wait for the lock on `network.libp2p_service()` before we give up.
 const LIBP2P_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
+
+/// The number of historical observations that should be used to determine the average sync time.
+const SPEEDO_OBSERVATIONS: usize = 4;
 
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<T: BeaconChainTypes>(
@@ -47,7 +50,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     // Run this each slot.
     let interval_duration = slot_duration;
 
-    let previous_head_slot = Mutex::new(Slot::new(0));
+    let speedo = Mutex::new(Speedo::default());
 
     let interval_future = Interval::new(start_instant, interval_duration)
         .map_err(
@@ -82,13 +85,11 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             let finalized_root = head.beacon_state.finalized_checkpoint.root;
             let head_root = head.beacon_block_root;
 
-            let mut previous_head_slot = previous_head_slot.lock();
+            let mut speedo = speedo.lock();
+            speedo.observe(head_slot, Instant::now());
 
             // The next two lines take advantage of saturating subtraction on `Slot`.
             let head_distance = current_slot - head_slot;
-            let slots_since_last_update = head_slot - *previous_head_slot;
-
-            *previous_head_slot = head_slot;
 
             if connected_peer_count <= WARN_PEER_COUNT {
                 warn!(log, "Low peer count"; "peer_count" => peer_count_pretty(connected_peer_count));
@@ -116,7 +117,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     log,
                     "Syncing";
                     "peers" => peer_count_pretty(connected_peer_count),
-                    "speed" => sync_rate_pretty(slots_since_last_update, interval_duration.as_secs()),
+                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                    "speed" => sync_speed_pretty(speedo.slots_per_second()),
                     "distance" => distance
                 );
 
@@ -174,19 +176,21 @@ fn peer_count_pretty(peer_count: usize) -> String {
     }
 }
 
-/// Returns a nicely formated string describing the rate of slot imports per second.
-fn sync_rate_pretty(slots_since_last_update: Slot, update_interval_secs: u64) -> String {
-    if update_interval_secs == 0 {
-        return "Error".into();
-    }
-
-    if slots_since_last_update == 0 {
-        "No progress".into()
+/// Returns a nicely formatted string describing the rate of slot imports per second.
+fn sync_speed_pretty(slots_per_second: Option<f64>) -> String {
+    if let Some(slots_per_second) = slots_per_second {
+        format!("{:.2} slots/sec", slots_per_second)
     } else {
-        let distance = f64::from(slots_since_last_update.as_u64() as u32);
-        let time = f64::from(update_interval_secs as u32);
+        "--".into()
+    }
+}
 
-        format!("{:.2} slots/sec", distance / time)
+/// Returns a nicely formatted string how long will we reach the target slot.
+fn estimated_time_pretty(seconds_till_slot: Option<f64>) -> String {
+    if let Some(seconds_till_slot) = seconds_till_slot {
+        seconds_pretty(seconds_till_slot)
+    } else {
+        "--".into()
     }
 }
 
@@ -198,19 +202,106 @@ fn slot_distance_pretty(slot_span: Slot, slot_duration: Duration) -> String {
     }
 
     let secs = (slot_duration * slot_span.as_u64() as u32).as_secs();
+    seconds_pretty(secs as f64)
+}
+
+/// Returns a nicely formatted string describing the `slot_span` in terms of weeks, days, hours
+/// and/or minutes.
+fn seconds_pretty(secs: f64) -> String {
+    if secs <= 0.0 {
+        return "--".into();
+    }
 
     let weeks = secs / SECS_PER_WEEK;
     let days = secs / SECS_PER_DAY;
     let hours = secs / SECS_PER_HOUR;
     let minutes = secs / SECS_PER_MINUTE;
 
-    if weeks > 0 {
-        format!("{} weeks {} days", weeks, days % DAYS_PER_WEEK)
-    } else if days > 0 {
-        format!("{} days {} hrs", days, hours % HOURS_PER_DAY)
-    } else if hours > 0 {
-        format!("{} hrs {} mins", hours, minutes % MINUTES_PER_HOUR)
+    if weeks.floor() > 0.0 {
+        format!(
+            "{:.0} weeks {:.0} days",
+            weeks,
+            (days % DAYS_PER_WEEK).round()
+        )
+    } else if days.floor() > 0.0 {
+        format!(
+            "{:.0} days {:.0} hrs",
+            days,
+            (hours % HOURS_PER_DAY).round()
+        )
+    } else if hours.floor() > 0.0 {
+        format!(
+            "{:.0} hrs {:.0} mins",
+            hours,
+            (minutes % MINUTES_PER_HOUR).round()
+        )
     } else {
-        format!("{} mins", minutes)
+        format!("{:.0} mins", minutes.round())
+    }
+}
+
+/// "Speedo" is Australian for speedometer. This struct observes syncing times.
+#[derive(Default)]
+pub struct Speedo(Vec<(Slot, Instant)>);
+
+impl Speedo {
+    /// Observe that we were at some `slot` at the given `instant`.
+    pub fn observe(&mut self, slot: Slot, instant: Instant) {
+        if self.0.len() > SPEEDO_OBSERVATIONS {
+            self.0.remove(0);
+        }
+
+        self.0.push((slot, instant));
+    }
+
+    /// Returns the average of the speeds between each observation.
+    ///
+    /// Does not gracefully handle slots that are above `u32::max_value()`.
+    pub fn slots_per_second(&self) -> Option<f64> {
+        let speeds = self
+            .0
+            .windows(2)
+            .filter_map(|windows| {
+                let (slot_a, instant_a) = windows[0];
+                let (slot_b, instant_b) = windows[1];
+
+                // Taking advantage of saturating subtraction on `Slot`.
+                let distance = f64::from((slot_b - slot_a).as_u64() as u32);
+
+                let seconds = f64::from((instant_b - instant_a).as_millis() as u32) / 1_000.0;
+
+                if seconds > 0.0 {
+                    Some(distance / seconds)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<f64>>();
+
+        let count = speeds.len();
+        let sum: f64 = speeds.iter().sum();
+
+        if count > 0 {
+            Some(sum / f64::from(count as u32))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the time we should reach the given `slot`, judging by the latest observation and
+    /// historical average syncing time.
+    ///
+    /// Returns `None` if the slot is prior to our latest observed slot or we have not made any
+    /// observations.
+    pub fn estimated_time_till_slot(&self, target_slot: Slot) -> Option<f64> {
+        let (prev_slot, _) = self.0.last()?;
+        let slots_per_second = self.slots_per_second()?;
+
+        if target_slot > *prev_slot {
+            let distance = (target_slot - *prev_slot).as_u64() as f64;
+            Some(distance / slots_per_second)
+        } else {
+            None
+        }
     }
 }

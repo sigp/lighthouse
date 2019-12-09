@@ -407,6 +407,9 @@ pub struct YamlConfig {
     max_deposits: u32,
     max_voluntary_exits: u32,
 
+    // Eth1
+    eth1_follow_distance: u64,
+
     // Unused
     #[serde(skip_serializing)]
     early_derived_secret_penalty_max_future_epochs: u32,
@@ -503,6 +506,9 @@ impl YamlConfig {
             max_deposits: T::MaxDeposits::to_u32(),
             max_voluntary_exits: T::MaxVoluntaryExits::to_u32(),
 
+            // Eth1
+            eth1_follow_distance: spec.eth1_follow_distance,
+
             // Unused
             early_derived_secret_penalty_max_future_epochs: 0,
             max_seed_lookahead: 0,
@@ -580,6 +586,7 @@ impl YamlConfig {
             domain_voluntary_exit: self.domain_voluntary_exit,
             boot_nodes: chain_spec.boot_nodes.clone(),
             genesis_fork: chain_spec.genesis_fork.clone(),
+            eth1_follow_distance: self.eth1_follow_distance,
             ..*chain_spec
         })
     }
