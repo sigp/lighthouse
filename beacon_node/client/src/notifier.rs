@@ -174,7 +174,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     log,
                     "Syncing";
                     "peers" => peer_count_pretty(connected_peer_count),
-                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(head_slot)),
+                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
                     "speed" => sync_speed_pretty(speedo.slots_per_second()),
                     "distance" => distance
                 );
@@ -270,19 +270,19 @@ fn seconds_pretty(secs: f64) -> String {
     let hours = secs / SECS_PER_HOUR;
     let minutes = secs / SECS_PER_MINUTE;
 
-    if weeks > 0.0 {
+    if weeks.round() > 0.0 {
         format!(
             "{:.0} weeks {:.0} days",
             weeks,
             (days % DAYS_PER_WEEK).round()
         )
-    } else if days > 0.0 {
+    } else if days.round() > 0.0 {
         format!(
             "{:.0} days {:.0} hrs",
             days,
             (hours % HOURS_PER_DAY).round()
         )
-    } else if hours > 0.0 {
+    } else if hours.round() > 0.0 {
         format!(
             "{:.0} hrs {:.0} mins",
             hours,
