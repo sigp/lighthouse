@@ -270,19 +270,19 @@ fn seconds_pretty(secs: f64) -> String {
     let hours = secs / SECS_PER_HOUR;
     let minutes = secs / SECS_PER_MINUTE;
 
-    if weeks.round() > 0.0 {
+    if weeks.floor() > 0.0 {
         format!(
             "{:.0} weeks {:.0} days",
             weeks,
             (days % DAYS_PER_WEEK).round()
         )
-    } else if days.round() > 0.0 {
+    } else if days.floor() > 0.0 {
         format!(
             "{:.0} days {:.0} hrs",
             days,
             (hours % HOURS_PER_DAY).round()
         )
-    } else if hours.round() > 0.0 {
+    } else if hours.floor() > 0.0 {
         format!(
             "{:.0} hrs {:.0} mins",
             hours,
