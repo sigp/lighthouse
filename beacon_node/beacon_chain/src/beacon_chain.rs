@@ -250,6 +250,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ReverseBlockRootIterator::new((head.beacon_block_root, head.beacon_block.slot), iter)
     }
 
+    pub fn forwards_iter_block_roots(
+        &self,
+        start_slot: Slot,
+    ) -> <T::Store as Store<T::EthSpec>>::ForwardsBlockRootsIterator {
+        let local_head = self.head();
+        T::Store::forwards_block_roots_iterator(
+            self.store.clone(),
+            start_slot,
+            local_head.beacon_state,
+            local_head.beacon_block_root,
+            &self.spec,
+        )
+    }
+
     /// Traverse backwards from `block_root` to find the block roots of its ancestors.
     ///
     /// ## Notes
