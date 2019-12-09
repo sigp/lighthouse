@@ -208,6 +208,10 @@ fn slot_distance_pretty(slot_span: Slot, slot_duration: Duration) -> String {
 /// Returns a nicely formatted string describing the `slot_span` in terms of weeks, days, hours
 /// and/or minutes.
 fn seconds_pretty(secs: f64) -> String {
+    if secs <= 0.0 {
+        return "--".into();
+    }
+
     let weeks = secs / SECS_PER_WEEK;
     let days = secs / SECS_PER_DAY;
     let hours = secs / SECS_PER_HOUR;
