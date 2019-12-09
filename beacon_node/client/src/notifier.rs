@@ -258,19 +258,28 @@ impl Speedo {
     ///
     /// Does not gracefully handle slots that are above `u32::max_value()`.
     pub fn slots_per_second(&self) -> Option<f64> {
-        let speeds = self.0.windows(2).map(|windows| {
-            let (slot_a, instant_a) = windows[0];
-            let (slot_b, instant_b) = windows[1];
+        let speeds = self
+            .0
+            .windows(2)
+            .filter_map(|windows| {
+                let (slot_a, instant_a) = windows[0];
+                let (slot_b, instant_b) = windows[1];
 
-            // Taking advantage of saturating subtraction on `Slot`.
-            let distance = f64::from((slot_b - slot_a).as_u64() as u32);
-            let seconds = f64::from((instant_b - instant_a).as_secs() as u32);
+                // Taking advantage of saturating subtraction on `Slot`.
+                let distance = f64::from((slot_b - slot_a).as_u64() as u32);
 
-            distance / seconds
-        });
+                let seconds = f64::from((instant_b - instant_a).as_millis() as u32) / 1_000.0;
+
+                if seconds > 0.0 {
+                    Some(distance / seconds)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<f64>>();
 
         let count = speeds.len();
-        let sum: f64 = speeds.sum();
+        let sum: f64 = speeds.iter().sum();
 
         if count > 0 {
             Some(sum / f64::from(count as u32))
