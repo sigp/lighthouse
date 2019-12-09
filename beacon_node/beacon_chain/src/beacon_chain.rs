@@ -260,6 +260,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ReverseBlockRootIterator::new((head.beacon_block_root, head.beacon_block.slot), iter)
     }
 
+    pub fn forwards_iter_block_roots(
+        &self,
+        start_slot: Slot,
+    ) -> <T::Store as Store<T::EthSpec>>::ForwardsBlockRootsIterator {
+        let local_head = self.head();
+        T::Store::forwards_block_roots_iterator(
+            self.store.clone(),
+            start_slot,
+            local_head.beacon_state,
+            local_head.beacon_block_root,
+            &self.spec,
+        )
+    }
+
     /// Traverse backwards from `block_root` to find the block roots of its ancestors.
     ///
     /// ## Notes
@@ -888,7 +902,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Only log a warning if our head is in a reasonable place to verify this attestation.
             // This avoids excess logging during syncing.
             if head_epoch + 1 >= attestation_epoch {
-                warn!(
+                debug!(
                     self.log,
                     "Dropped attestation for unknown block";
                     "block" => format!("{}", attestation.data.beacon_block_root)
@@ -1333,23 +1347,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         metrics::stop_timer(fork_choice_register_timer);
-
-        let find_head_timer =
-            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_FIND_HEAD);
-
-        // Execute the fork choice algorithm, enthroning a new head if discovered.
-        //
-        // Note: in the future we may choose to run fork-choice less often, potentially based upon
-        // some heuristic around number of attestations seen for the block.
-        if let Err(e) = self.fork_choice() {
-            error!(
-                self.log,
-                "fork choice failed to find head";
-                "error" => format!("{:?}", e)
-            )
-        };
-
-        metrics::stop_timer(find_head_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
         metrics::observe(

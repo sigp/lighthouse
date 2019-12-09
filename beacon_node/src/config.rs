@@ -22,7 +22,7 @@ type Config = (ClientConfig, Eth2Config, Logger);
 
 /// Gets the fully-initialized global client and eth2 configuration objects.
 ///
-/// The top-level `clap` arguments should be provied as `cli_args`.
+/// The top-level `clap` arguments should be provided as `cli_args`.
 ///
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
