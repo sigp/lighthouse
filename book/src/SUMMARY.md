@@ -2,7 +2,7 @@
 
 * [Introduction](./intro.md)
 * [Become a Validator](./become-a-validator.md)
-* [Introduction](./intro.md)
+* [Installation](./installation.md)
     * [Docker](./docker.md)
 * [CLI](./cli.md)
     * [Testnets](./testnets.md)
