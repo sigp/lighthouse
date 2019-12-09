@@ -38,11 +38,25 @@ Start your beacon node with:
 $ lighthouse beacon --eth1 --http
 ```
 
-You've completed this step when you see the following (truncated) log:
+You're beacon node has started syncing when you see the following (truncated)
+log:
 
 ```
-Dec 03 08:25:06.928 INFO Beacon chain initialized ...
+Dec 09 12:57:18.026 INFO Syncing                                 distance: 16837 slots (2 days 8 hrs), ...
 ```
+
+It has finished syncing once you see the following (truncated) log:
+
+```
+Dec 09 12:27:06.010 INFO Synced                                  slot: 16835, ...
+```
+
+It's safest to wait until your node displays `Synced` or `Synced to current
+epoch` before proceeding to the next step so your validator doesn't activate
+before you've synced the chain. However, it generally takes 4-8+ hours after
+deposit for a validator to become active. If your `est_time` is less than 4
+hours, you _should_ be fine to just move to the next step. After all, this is a
+testnet and you're only risking Goerli ETH.
 
 > - The `--eth1` flag tells the beacon node that it should sync with an Ethereum
 > 1 node (e.g., Geth). This is only required if you wish to run a validator.
@@ -77,6 +91,7 @@ Dec 02 21:42:01.337 INFO Generated validator directories         count: 1, base_
 	<p>Upload the <code>eth1_deposit_data.rlp</code> file from your validator
 	directory (created in the previous step) to submit your 3.2 Goerli-ETH
 	deposit using Metamask.</p>
+	<p>Hint: it's generally in the <code>$HOME/.lighthouse/validators/0x...</code> directory</p>
 	<input id="fileInput" type="file" style="display: none">
 	<button id="uploadButton" class="btn btn-lg btn-primary btn-block"
 							  type="submit">Upload and Submit Deposit</button>
@@ -112,12 +127,16 @@ Start the validator client with:
 $ lighthouse validator
 ```
 
-You've completed this step (and the whole process) when you see the following
-(truncated) log:
+The validator client is running and has found your validator keys from step 3
+when you see the following log:
 
 ```
-Dec 03 08:39:29.294 INFO First duty assignment for validator ...
+Dec 09 13:08:59.171 INFO Loaded validator keypair store          voting_validators: 1
 ```
+
+If your beacon node hasn't finished syncing yet, you'll see some `ERRO`
+messages indicating that your node isn't synced yet. If your beacon node is
+making progress with syncing, you can safely ignore the errors for now.
 
 ## Next steps
 
