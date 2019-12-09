@@ -16,8 +16,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .long("deposit-value")
                                 .value_name("GWEI")
                                 .takes_value(true)
-                                .default_value("32000000000")
-                                .help("The deposit amount in Gwei (not Wei). Default is 32 ETH."),
+                                .default_value("3200000000")
+                                .help("The deposit amount in Gwei (not Wei). Default is 3.2 ETH."),
                         )
                         .arg(
                             Arg::with_name("send-deposits")
