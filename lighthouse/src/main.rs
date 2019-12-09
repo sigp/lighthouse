@@ -23,7 +23,10 @@ fn main() {
     let matches = App::new("Lighthouse")
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .about("Eth 2.0 Client")
+        .about(
+            "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
+             node, a validator client and utilities for managing validator accounts.",
+        )
         .arg(
             Arg::with_name("spec")
                 .short("s")
