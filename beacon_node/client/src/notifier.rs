@@ -26,64 +26,7 @@ const MINUTES_PER_HOUR: f64 = 60.0;
 const LIBP2P_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// The number of historical observations that should be used to determine the average sync time.
-const SPEEDO_OBSERVATIONS: usize = 16;
-
-/// "Speedo" is Australian for speedometer. This struct observes syncing times.
-#[derive(Default)]
-pub struct Speedo(Vec<(Slot, Instant)>);
-
-impl Speedo {
-    /// Observe that we were at some `slot` at the given `instant`.
-    pub fn observe(&mut self, slot: Slot, instant: Instant) {
-        if self.0.len() > SPEEDO_OBSERVATIONS {
-            self.0.remove(0);
-        }
-
-        self.0.push((slot, instant));
-    }
-
-    /// Returns the average of the speeds between each observation.
-    ///
-    /// Does not gracefully handle slots that are above `u32::max_value()`.
-    pub fn slots_per_second(&self) -> Option<f64> {
-        let speeds = self.0.windows(2).map(|windows| {
-            let (slot_a, instant_a) = windows[0];
-            let (slot_b, instant_b) = windows[1];
-
-            // Taking advantage of saturating subtraction on `Slot`.
-            let distance = f64::from((slot_b - slot_a).as_u64() as u32);
-            let seconds = f64::from((instant_b - instant_a).as_secs() as u32);
-
-            distance / seconds
-        });
-
-        let count = speeds.len();
-        let sum: f64 = speeds.sum();
-
-        if count > 0 {
-            Some(sum / f64::from(count as u32))
-        } else {
-            None
-        }
-    }
-
-    /// Returns the time we should reach the given `slot`, judging by the latest observation and
-    /// historical average syncing time.
-    ///
-    /// Returns `None` if the slot is prior to our latest observed slot or we have not made any
-    /// observations.
-    pub fn estimated_time_till_slot(&self, target_slot: Slot) -> Option<f64> {
-        let (prev_slot, _) = self.0.last()?;
-        let slots_per_second = self.slots_per_second()?;
-
-        if target_slot > *prev_slot {
-            let distance = (target_slot - *prev_slot).as_u64() as f64;
-            Some(distance / slots_per_second)
-        } else {
-            None
-        }
-    }
-}
+const SPEEDO_OBSERVATIONS: usize = 4;
 
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<T: BeaconChainTypes>(
@@ -290,5 +233,62 @@ fn seconds_pretty(secs: f64) -> String {
         )
     } else {
         format!("{:.0} mins", minutes.round())
+    }
+}
+
+/// "Speedo" is Australian for speedometer. This struct observes syncing times.
+#[derive(Default)]
+pub struct Speedo(Vec<(Slot, Instant)>);
+
+impl Speedo {
+    /// Observe that we were at some `slot` at the given `instant`.
+    pub fn observe(&mut self, slot: Slot, instant: Instant) {
+        if self.0.len() > SPEEDO_OBSERVATIONS {
+            self.0.remove(0);
+        }
+
+        self.0.push((slot, instant));
+    }
+
+    /// Returns the average of the speeds between each observation.
+    ///
+    /// Does not gracefully handle slots that are above `u32::max_value()`.
+    pub fn slots_per_second(&self) -> Option<f64> {
+        let speeds = self.0.windows(2).map(|windows| {
+            let (slot_a, instant_a) = windows[0];
+            let (slot_b, instant_b) = windows[1];
+
+            // Taking advantage of saturating subtraction on `Slot`.
+            let distance = f64::from((slot_b - slot_a).as_u64() as u32);
+            let seconds = f64::from((instant_b - instant_a).as_secs() as u32);
+
+            distance / seconds
+        });
+
+        let count = speeds.len();
+        let sum: f64 = speeds.sum();
+
+        if count > 0 {
+            Some(sum / f64::from(count as u32))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the time we should reach the given `slot`, judging by the latest observation and
+    /// historical average syncing time.
+    ///
+    /// Returns `None` if the slot is prior to our latest observed slot or we have not made any
+    /// observations.
+    pub fn estimated_time_till_slot(&self, target_slot: Slot) -> Option<f64> {
+        let (prev_slot, _) = self.0.last()?;
+        let slots_per_second = self.slots_per_second()?;
+
+        if target_slot > *prev_slot {
+            let distance = (target_slot - *prev_slot).as_u64() as f64;
+            Some(distance / slots_per_second)
+        } else {
+            None
+        }
     }
 }
