@@ -4,7 +4,7 @@ use exit_future::Signal;
 use futures::{future, Future, IntoFuture, Stream};
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
-use slog::{crit, error, info, trace, warn};
+use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -74,6 +74,34 @@ pub struct DutiesStore {
 }
 
 impl DutiesStore {
+    /// Returns the total number of validators that should propose in the given epoch.
+    fn proposer_count(&self, epoch: Epoch) -> usize {
+        self.store
+            .read()
+            .iter()
+            .filter(|(_validator_pubkey, validator_map)| {
+                validator_map
+                    .get(&epoch)
+                    .map(|duties| !duties.block_proposal_slots.is_empty())
+                    .unwrap_or_else(|| false)
+            })
+            .count()
+    }
+
+    /// Returns the total number of validators that should attest in the given epoch.
+    fn attester_count(&self, epoch: Epoch) -> usize {
+        self.store
+            .read()
+            .iter()
+            .filter(|(_validator_pubkey, validator_map)| {
+                validator_map
+                    .get(&epoch)
+                    .map(|duties| duties.attestation_slot.is_some())
+                    .unwrap_or_else(|| false)
+            })
+            .count()
+    }
+
     fn block_producers(&self, slot: Slot, slots_per_epoch: u64) -> Vec<PublicKey> {
         self.store
             .read()
@@ -219,7 +247,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
 pub struct Inner<T, E: EthSpec> {
     store: Arc<DutiesStore>,
     validator_store: ValidatorStore<T, E>,
-    slot_clock: T,
+    pub(crate) slot_clock: T,
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
 }
@@ -249,6 +277,21 @@ impl<T, E: EthSpec> Deref for DutiesService<T, E> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
+    /// Returns the total number of validators known to the duties service.
+    pub fn total_validator_count(&self) -> usize {
+        self.validator_store.num_voting_validators()
+    }
+
+    /// Returns the total number of validators that should propose in the given epoch.
+    pub fn proposer_count(&self, epoch: Epoch) -> usize {
+        self.store.proposer_count(epoch)
+    }
+
+    /// Returns the total number of validators that should attest in the given epoch.
+    pub fn attester_count(&self, epoch: Epoch) -> usize {
+        self.store.attester_count(epoch)
+    }
+
     /// Returns the pubkeys of the validators which are assigned to propose in the given slot.
     ///
     /// In normal cases, there should be 0 or 1 validators returned. In extreme cases (i.e., deep forking)
@@ -353,7 +396,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                     .map_err(move |e| {
                         error!(
                                 log,
-                                "Failed to get beacon node head";
+                                "Failed to contact beacon node";
                                 "error" => format!("{:?}", e)
                         )
                     })
@@ -427,7 +470,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                         .insert(epoch, duties.clone(), E::slots_per_epoch())
                     {
                         InsertOutcome::NewValidator => {
-                            info!(
+                            debug!(
                                 log,
                                 "First duty assignment for validator";
                                 "proposal_slots" => format!("{:?}", &duties.block_proposal_slots),
