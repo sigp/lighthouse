@@ -234,18 +234,17 @@ impl<E: EthSpec> Environment<E> {
         // Creating a backup if the logfile already exists.
         if path.exists() {
             let start = SystemTime::now();
-            let since_start = start
+            let timestamp = start
                 .duration_since(UNIX_EPOCH)
                 .expect("Time went backwards")
                 .as_secs();
-            let now = since_start.to_string();
             let file_stem = path
                 .file_stem()
                 .ok_or_else(|| "Invalid file name".to_string())?
                 .to_str()
                 .ok_or_else(|| "Failed to create str from filename".to_string())?;
             let file_ext = path.extension().unwrap_or_else(|| OsStr::new(""));
-            let backup_name = format!("{}_backup_{}", file_stem, now);
+            let backup_name = format!("{}_backup_{}", file_stem, timestamp);
             let backup_path = path.with_file_name(backup_name).with_extension(file_ext);
             FsRename(&path, &backup_path).map_err(|e| e.to_string())?;
         }
