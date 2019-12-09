@@ -69,17 +69,18 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
         let column_key = Self::get_key_for_col(col, key);
 
         metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
+        let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
 
-        let result = self
-            .db
+        self.db
             .get(self.read_options(), column_key)
-            .map_err(Into::into);
-
-        if let Ok(Some(bytes)) = &result {
-            metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, bytes.len() as i64)
-        }
-
-        result
+            .map_err(Into::into)
+            .map(|opt| {
+                opt.map(|bytes| {
+                    metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, bytes.len() as i64);
+                    metrics::stop_timer(timer);
+                    bytes
+                })
+            })
     }
 
     /// Store some `value` in `column`, indexed with `key`.
@@ -88,10 +89,14 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
 
         metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
         metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as i64);
+        let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
         self.db
             .put(self.write_options(), column_key, val)
             .map_err(Into::into)
+            .map(|()| {
+                metrics::stop_timer(timer);
+            })
     }
 
     /// Return `true` if `key` exists in `column`.

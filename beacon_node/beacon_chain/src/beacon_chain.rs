@@ -1504,7 +1504,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let previous_slot = self.head_info().slot;
             let new_slot = beacon_block.slot;
 
-            let is_reorg = self.head_info().block_root != beacon_block.parent_root;
+            // Note: this will declare a re-org if we skip `SLOTS_PER_HISTORICAL_ROOT` blocks
+            // between calls to fork choice without swapping between chains. This seems like an
+            // extreme-enough scenario that a warning is fine.
+            let is_reorg = self.head_info().block_root
+                != beacon_state
+                    .get_block_root(self.head_info().slot)
+                    .map(|root| *root)
+                    .unwrap_or_else(|_| Hash256::random());
 
             // If we switched to a new chain (instead of building atop the present chain).
             if is_reorg {
