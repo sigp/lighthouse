@@ -150,6 +150,14 @@ lazy_static! {
         try_create_histogram("beacon_persist_chain", "Time taken to update the canonical head");
 
     /*
+     * Checkpoint cache
+     */
+    pub static ref CHECKPOINT_CACHE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_checkpoint_cache_hits_total", "Count of times checkpoint cache fulfils request");
+    pub static ref CHECKPOINT_CACHE_MISSES: Result<IntCounter> =
+        try_create_int_counter("beacon_checkpoint_cache_misses_total", "Count of times checkpoint cache fulfils request");
+
+    /*
      * Chain Head
      */
     pub static ref UPDATE_HEAD_TIMES: Result<Histogram> =

@@ -2,7 +2,7 @@ use crate::*;
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
-use types::beacon_state::{BeaconTreeHashCache, CommitteeCache, CACHED_EPOCHS};
+use types::beacon_state::{CommitteeCache, CACHED_EPOCHS};
 
 pub fn store_full_state<S: Store<E>, E: EthSpec>(
     store: &S,
@@ -47,27 +47,14 @@ pub fn get_full_state<S: Store<E>, E: EthSpec>(
 pub struct StorageContainer<T: EthSpec> {
     state: BeaconState<T>,
     committee_caches: Vec<CommitteeCache>,
-    tree_hash_cache: BeaconTreeHashCache,
 }
 
 impl<T: EthSpec> StorageContainer<T> {
     /// Create a new instance for storing a `BeaconState`.
     pub fn new(state: &BeaconState<T>) -> Self {
-        let mut state = state.clone();
-
-        let mut committee_caches = vec![CommitteeCache::default(); CACHED_EPOCHS];
-
-        for i in 0..CACHED_EPOCHS {
-            std::mem::swap(&mut state.committee_caches[i], &mut committee_caches[i]);
-        }
-
-        let tree_hash_cache =
-            std::mem::replace(&mut state.tree_hash_cache, BeaconTreeHashCache::default());
-
         Self {
-            state,
-            committee_caches,
-            tree_hash_cache,
+            state: state.clone_without_caches(),
+            committee_caches: state.committee_caches.to_vec(),
         }
     }
 }
@@ -87,8 +74,6 @@ impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer<T> {
 
             state.committee_caches[i] = self.committee_caches.remove(i);
         }
-
-        state.tree_hash_cache = self.tree_hash_cache;
 
         Ok(state)
     }
