@@ -312,51 +312,47 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             "start_slot" => req.start_slot,
         );
 
-        //TODO: Optimize this
-        // Currently for skipped slots, the blocks returned could be less than the requested range.
-        // In the current implementation we read from the db then filter out out-of-range blocks.
-        // Improving the db schema to prevent this would be ideal.
-
-        //TODO: This really needs to be read forward for infinite streams
-        // We should be reading the first block from the db, sending, then reading the next... we
-        // need a forwards iterator!!
-
-        let mut blocks: Vec<BeaconBlock<T::EthSpec>> = self
+        let mut block_roots = self
             .chain
-            .rev_iter_block_roots()
-            .filter(|(_root, slot)| {
-                req.start_slot <= slot.as_u64() && req.start_slot + req.count > slot.as_u64()
-            })
-            .take_while(|(_root, slot)| req.start_slot <= slot.as_u64())
-            .filter_map(|(root, _slot)| {
-                if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
-                    Some(block)
-                } else {
-                    warn!(
-                        self.log,
-                        "Block in the chain is not in the store";
-                        "request_root" => format!("{:}", root),
+            .forwards_iter_block_roots(Slot::from(req.start_slot))
+            .take_while(|(_root, slot)| slot.as_u64() < req.start_slot + req.count)
+            .map(|(root, _slot)| root)
+            .collect::<Vec<_>>();
+
+        block_roots.dedup();
+
+        let mut blocks_sent = 0;
+        for root in block_roots {
+            if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
+                // Due to skip slots, blocks could be out of the range, we ensure they are in the
+                // range before sending
+                if block.slot >= req.start_slot && block.slot < req.start_slot + req.count {
+                    blocks_sent += 1;
+                    self.network.send_rpc_response(
+                        peer_id.clone(),
+                        request_id,
+                        RPCResponse::BlocksByRange(block.as_ssz_bytes()),
                     );
-                    None
                 }
-            })
-            .filter(|block| block.slot >= req.start_slot)
-            .collect();
+            } else {
+                error!(
+                    self.log,
+                    "Block in the chain is not in the store";
+                    "request_root" => format!("{:}", root),
+                );
+            }
+        }
 
-        blocks.reverse();
-        blocks.dedup_by_key(|brs| brs.slot);
-
-        if blocks.len() < (req.count as usize) {
-            debug!(
+        if blocks_sent < (req.count as usize) {
+            trace!(
                 self.log,
-                "Sending BlocksByRange Response";
+                "BlocksByRange Response Sent";
                 "peer" => format!("{:?}", peer_id),
                 "msg" => "Failed to return all requested blocks",
                 "start_slot" => req.start_slot,
                 "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
                 "requested" => req.count,
-                "returned" => blocks.len(),
-            );
+                "returned" => blocks_sent);
         } else {
             trace!(
                 self.log,
@@ -365,17 +361,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 "start_slot" => req.start_slot,
                 "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
                 "requested" => req.count,
-                "returned" => blocks.len(),
-            );
+                "returned" => blocks_sent);
         }
 
-        for block in blocks {
-            self.network.send_rpc_response(
-                peer_id.clone(),
-                request_id,
-                RPCResponse::BlocksByRange(block.as_ssz_bytes()),
-            );
-        }
         // send the stream terminator
         self.network.send_rpc_error_response(
             peer_id,
