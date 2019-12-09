@@ -2,7 +2,7 @@ const NETWORK = "5";
 const NETWORK_NAME = "Goerli Test Network";
 const DEPOSIT_CONTRACT = "0x13e4d66c7215d7b63fec7b52fc65e6655093d906";
 const DEPOSIT_AMOUNT_ETH = "3.2";
-const GAS_LIMIT = "400000";
+const GAS_LIMIT = "4000000";
 const DEPOSIT_DATA_BYTES = 420;
 
 let PREVIOUS_NON_ERROR_STATE = "";
