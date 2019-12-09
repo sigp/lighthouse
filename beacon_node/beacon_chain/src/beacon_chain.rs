@@ -902,7 +902,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Only log a warning if our head is in a reasonable place to verify this attestation.
             // This avoids excess logging during syncing.
             if head_epoch + 1 >= attestation_epoch {
-                warn!(
+                debug!(
                     self.log,
                     "Dropped attestation for unknown block";
                     "block" => format!("{}", attestation.data.beacon_block_root)
@@ -1504,14 +1504,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let previous_slot = self.head_info().slot;
             let new_slot = beacon_block.slot;
 
-            // Note: this will declare a re-org if we skip `SLOTS_PER_HISTORICAL_ROOT` blocks
-            // between calls to fork choice without swapping between chains. This seems like an
-            // extreme-enough scenario that a warning is fine.
-            let is_reorg = self.head_info().block_root
-                != beacon_state
-                    .get_block_root(self.head_info().slot)
-                    .map(|root| *root)
-                    .unwrap_or_else(|_| Hash256::random());
+            let is_reorg = self.head_info().block_root != beacon_block.parent_root;
 
             // If we switched to a new chain (instead of building atop the present chain).
             if is_reorg {
