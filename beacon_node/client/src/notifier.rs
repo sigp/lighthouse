@@ -72,12 +72,12 @@ impl Speedo {
     ///
     /// Returns `None` if the slot is prior to our latest observed slot or we have not made any
     /// observations.
-    pub fn estimated_time_till_slot(&self, slot: Slot) -> Option<f64> {
-        let (highest_slot, _) = self.0.last()?;
+    pub fn estimated_time_till_slot(&self, target_slot: Slot) -> Option<f64> {
+        let (prev_slot, _) = self.0.last()?;
         let slots_per_second = self.slots_per_second()?;
 
-        if slot > *highest_slot {
-            let distance = (*highest_slot - slot).as_u64() as f64;
+        if target_slot > *prev_slot {
+            let distance = (target_slot - *prev_slot).as_u64() as f64;
             Some(distance / slots_per_second)
         } else {
             None
