@@ -1,7 +1,7 @@
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
 use exit_future::Signal;
-use futures::{Future, IntoFuture, Stream};
+use futures::{future, Future, IntoFuture, Stream};
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
 use slog::{crit, error, info, trace, warn};
@@ -313,6 +313,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let service_1 = self.clone();
         let service_2 = self.clone();
         let service_3 = self.clone();
+        let service_4 = self.clone();
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
 
@@ -342,24 +343,56 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             })
             .and_then(move |epoch| {
                 let log = service_2.context.log.clone();
-                service_2.update_epoch(epoch).then(move |result| {
-                    if let Err(e) = result {
-                        error!(
-                            log,
-                            "Failed to get current epoch duties";
-                            "http_error" => format!("{:?}", e)
-                        );
-                    }
 
-                    let log = service_3.context.log.clone();
-                    service_3.update_epoch(epoch + 1).map_err(move |e| {
+                service_2
+                    .beacon_node
+                    .http
+                    .beacon()
+                    .get_head()
+                    .map(move |head| (epoch, head.slot.epoch(E::slots_per_epoch())))
+                    .map_err(move |e| {
+                        error!(
+                                log,
+                                "Failed to get beacon node head";
+                                "error" => format!("{:?}", e)
+                        )
+                    })
+            })
+            .and_then(move |(current_epoch, beacon_head_epoch)| {
+                let log = service_3.context.log.clone();
+
+                let future: Box<dyn Future<Item = (), Error = ()> + Send> =
+                    if beacon_head_epoch + 1 < current_epoch {
                         error!(
                             log,
-                            "Failed to get next epoch duties";
-                            "http_error" => format!("{:?}", e)
+                            "Beacon node is not synced";
+                            "node_head_epoch" => format!("{}", beacon_head_epoch),
+                            "current_epoch" => format!("{}", current_epoch),
                         );
-                    })
-                })
+
+                        Box::new(future::ok(()))
+                    } else {
+                        Box::new(service_3.update_epoch(current_epoch).then(move |result| {
+                            if let Err(e) = result {
+                                error!(
+                                    log,
+                                    "Failed to get current epoch duties";
+                                    "http_error" => format!("{:?}", e)
+                                );
+                            }
+
+                            let log = service_4.context.log.clone();
+                            service_4.update_epoch(current_epoch + 1).map_err(move |e| {
+                                error!(
+                                    log,
+                                    "Failed to get next epoch duties";
+                                    "http_error" => format!("{:?}", e)
+                                );
+                            })
+                        }))
+                    };
+
+                future
             })
             .map(|_| ())
     }
