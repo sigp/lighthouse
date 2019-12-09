@@ -441,12 +441,19 @@ where
         }
 
         // purge expired outbound substreams
-        while let Async::Ready(Some(stream_id)) = self
+        if let Async::Ready(Some(stream_id)) = self
             .outbound_substreams_delay
             .poll()
             .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
         {
             self.outbound_substreams.remove(stream_id.get_ref());
+            // notify the user
+            return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                RPCEvent::Error(
+                    stream_id.get_ref().clone(),
+                    RPCError::Custom("Stream timed out".into()),
+                ),
+            )));
         }
 
         // drive inbound streams that need to be processed

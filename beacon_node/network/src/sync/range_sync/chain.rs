@@ -381,7 +381,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             {
                 crit!(
                     log,
-                    "Current head slot is above the target head - Coding error";
+                    "Current head slot is above the target head";
                     "target_head_slot" => self.target_head_slot.as_u64(),
                     "new_start" => self.start_slot + self.last_processed_id * BLOCKS_PER_BATCH,
                 );
@@ -429,9 +429,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         peer_id: PeerId,
         log: &slog::Logger,
     ) {
-        // function should only be called on syncing chains
+        // do not request blocks if the chain is not syncing
         if let ChainSyncingState::Stopped = self.state {
-            crit!(log, "Peer added to a non-syncing chain"; "peer_id" => format!("{:?}", peer_id));
+            debug!(log, "Peer added to a non-syncing chain"; "peer_id" => format!("{:?}", peer_id));
             return;
         }
 

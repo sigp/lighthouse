@@ -70,7 +70,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
-        // firstly, remove any out of date chains
+        // firstly, remove any out-of-date chains
         self.chains.purge_finalized(local_finalized_slot);
         self.chains.purge_head(local_info.head_slot);
 
@@ -79,12 +79,12 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
         if remote_finalized_slot > local_info.head_slot {
             debug!(self.log, "Finalization sync peer joined"; "peer_id" => format!("{:?}", peer_id));
-            // finalized chain search
+            // Finalized chain search
 
             // Note: We keep current head chains. These can continue syncing whilst we complete
             // this new finalized chain.
 
-            // if a finalized chain already exists that matches, add this peer to the chain's peer
+            // If a finalized chain already exists that matches, add this peer to the chain's peer
             // pool.
             if let Some(chain) = self
                 .chains
