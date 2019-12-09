@@ -1,7 +1,8 @@
 # Summary
 
 * [Introduction](./intro.md)
-* [Installation](./installation.md)
+* [Become a Validator](./become-a-validator.md)
+* [Introduction](./intro.md)
     * [Docker](./docker.md)
 * [CLI](./cli.md)
     * [Testnets](./testnets.md)

@@ -306,8 +306,7 @@ impl Service {
         let log = self.log.clone();
         let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
 
-        loop_fn((), move |()| {
-            let exit = exit.clone();
+        let loop_future = loop_fn((), move |()| {
             let service = service.clone();
             let log_a = log.clone();
             let log_b = log.clone();
@@ -344,16 +343,11 @@ impl Service {
                         );
                     }
                     // Do not break the loop if there is an timer failure.
-                    Ok(())
+                    Ok(Loop::Continue(()))
                 })
-                .map(move |_| {
-                    if exit.is_live() {
-                        Loop::Continue(())
-                    } else {
-                        Loop::Break(())
-                    }
-                })
-        })
+        });
+
+        exit.until(loop_future).map(|_: Option<()>| ())
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured

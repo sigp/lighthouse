@@ -198,9 +198,9 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
 mod tests {
     use super::*;
     use tempdir::TempDir;
-    use types::{Eth1Data, Hash256, MinimalEthSpec, YamlConfig};
+    use types::{Eth1Data, Hash256, MainnetEthSpec, YamlConfig};
 
-    type E = MinimalEthSpec;
+    type E = MainnetEthSpec;
 
     #[test]
     fn hard_coded_works() {
