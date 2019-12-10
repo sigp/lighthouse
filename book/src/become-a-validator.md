@@ -38,7 +38,7 @@ Start your beacon node with:
 $ lighthouse beacon --eth1 --http
 ```
 
-You're beacon node has started syncing when you see the following (truncated)
+Your beacon node has started syncing when you see the following (truncated)
 log:
 
 ```
@@ -108,7 +108,7 @@ Dec 09 13:09:09.000 INFO Awaiting activation                     slot: 17787, ..
 If your beacon node hasn't finished syncing yet, you'll see some `ERRO`
 messages indicating that your node isn't synced yet. It is safest to wait for
 your node to sync before moving onto the next step, otherwise your validator
-may active before you're able to produce blocks and attestations. However, it
+may activate before you're able to produce blocks and attestations. However, it
 generally takes 4-8+ hours after deposit for a validator to become active. If
 your `est_time` is less than 4 hours, you _should_ be fine to just move to the
 next step. After all, this is a testnet and you're only risking Goerli ETH.
