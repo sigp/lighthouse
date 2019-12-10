@@ -45,6 +45,8 @@ log:
 Dec 09 12:57:18.026 INFO Syncing                                 distance: 16837 slots (2 days 8 hrs), ...
 ```
 
+Don't be overly concerned about the "distance" because "est_time" for syncing will be much lower.
+
 It has finished syncing once you see the following (truncated) log:
 
 ```
