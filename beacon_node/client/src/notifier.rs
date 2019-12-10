@@ -281,7 +281,7 @@ impl Speedo {
         let count = speeds.len();
         let sum: f64 = speeds.iter().sum();
 
-        if count > 0 {
+        if count > 0 && sum > 0.0 {
             Some(sum / f64::from(count as u32))
         } else {
             None
