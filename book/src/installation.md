@@ -34,6 +34,10 @@ needs to be on your `PATH` before you can run `$ lighthouse`.
 See ["Configuring the `PATH` environment variable"
 (rust-lang.org)](https://www.rust-lang.org/tools/install) for more information.
 
+### Compilation error
+
+Make sure you are running the latest version of Rust. If you have installed Rust using rustup, simply type `$ rustup update`.
+
 ### OpenSSL
 
 If you get a build failure relating to OpenSSL, try installing `openssl-dev` or
