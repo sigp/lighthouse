@@ -243,7 +243,7 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 .deposits()
                 .read()
                 .cache
-                .get_deposits(next..last, deposit_count, DEPOSIT_TREE_DEPTH)
+                .get_deposits(next, last, deposit_count, DEPOSIT_TREE_DEPTH)
                 .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
                 .map(|(_deposit_root, deposits)| deposits)
         }
