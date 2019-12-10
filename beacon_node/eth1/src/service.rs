@@ -614,6 +614,16 @@ fn download_eth1_block<'a>(
     cache: Arc<Inner>,
     block_number: u64,
 ) -> impl Future<Item = Eth1Block, Error = Error> + 'a {
+    let deposit_root = cache
+        .deposit_cache
+        .read()
+        .cache
+        .get_deposit_root_from_cache(block_number);
+    let deposit_count = cache
+        .deposit_cache
+        .read()
+        .cache
+        .get_deposit_count_from_cache(block_number);
     // Performs a `get_blockByNumber` call to an eth1 node.
     get_block(
         &cache.config.read().endpoint,
@@ -621,24 +631,7 @@ fn download_eth1_block<'a>(
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
     .map_err(Error::BlockDownloadFailed)
-    .join3(
-        // Perform 2x `eth_call` via an eth1 node to read the deposit contract root and count.
-        get_deposit_root(
-            &cache.config.read().endpoint,
-            &cache.config.read().deposit_contract_address,
-            block_number,
-            Duration::from_millis(GET_DEPOSIT_ROOT_TIMEOUT_MILLIS),
-        )
-        .map_err(Error::GetDepositRootFailed),
-        get_deposit_count(
-            &cache.config.read().endpoint,
-            &cache.config.read().deposit_contract_address,
-            block_number,
-            Duration::from_millis(GET_DEPOSIT_COUNT_TIMEOUT_MILLIS),
-        )
-        .map_err(Error::GetDepositCountFailed),
-    )
-    .map(|(http_block, deposit_root, deposit_count)| Eth1Block {
+    .map(move |http_block| Eth1Block {
         hash: http_block.hash,
         number: http_block.number,
         timestamp: http_block.timestamp,
