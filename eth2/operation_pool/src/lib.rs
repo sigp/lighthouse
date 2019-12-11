@@ -566,6 +566,7 @@ mod tests {
     #[cfg(not(debug_assertions))]
     mod release_tests {
         use super::*;
+        use attestation::earliest_attestation_validators;
 
         /// Create a signed attestation for use in tests.
         /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
