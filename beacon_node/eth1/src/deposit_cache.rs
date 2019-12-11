@@ -210,13 +210,18 @@ impl DepositCache {
     ///
     /// Fetches the `DepositLog` that was emitted at or just before `block_number`
     /// and returns the deposit count as `index + 1`.
+    ///
+    /// Returns 0 if no logs are present.
+    /// Note: This function assumes that `block_number` > `deposit_contract_deploy_block`
     pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
-        self.logs
-            .iter()
-            .take_while(|log| log.block_number >= block_number)
-            .collect::<Vec<_>>()
-            .last()
-            .map(|x| x.index + 1)
+        Some(
+            self.logs
+                .iter()
+                .take_while(|log| block_number >= log.block_number)
+                .collect::<Vec<_>>()
+                .last()
+                .map_or(0, |x| x.index + 1),
+        )
     }
 
     /// Gets the deposit root at block height = block_number.
@@ -224,7 +229,7 @@ impl DepositCache {
     /// Fetches the `DepositLog` that was emitted at or just before `block_number`
     /// and returns the deposit root at that state.
     pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
-        let index = self.get_deposit_count_from_cache(block_number)? - 1;
+        let index = self.get_deposit_count_from_cache(block_number)?;
         let roots = self.roots.get(0..index as usize)?;
         let tree = DepositDataTree::create(roots, index as usize, DEPOSIT_CONTRACT_TREE_DEPTH);
         Some(tree.root())
