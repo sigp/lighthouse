@@ -5,7 +5,7 @@ mod persistence;
 
 pub use persistence::PersistedOperationPool;
 
-use attestation::{earliest_attestation_validators, AttMaxCover};
+use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use max_cover::maximum_cover;
 use parking_lot::RwLock;
@@ -18,6 +18,7 @@ use state_processing::per_block_processing::{
     verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
     verify_proposer_slashing, VerifySignatures,
 };
+use state_processing::per_epoch_processing::ValidatorStatuses;
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
@@ -118,6 +119,9 @@ impl<T: EthSpec> OperationPool<T> {
         let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, state, spec);
         let curr_domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
         let reader = self.attestations.read();
+        let validator_statuses = ValidatorStatuses::new(state, spec)
+            .expect("should have returned valid validator statuses");
+        let total_active_balance = validator_statuses.total_balances.current_epoch;
         let valid_attestations = reader
             .iter()
             .filter(|(key, _)| {
@@ -135,7 +139,7 @@ impl<T: EthSpec> OperationPool<T> {
                 )
                 .is_ok()
             })
-            .map(|att| AttMaxCover::new(att, earliest_attestation_validators(att, state)));
+            .map(|att| AttMaxCover::new(att, state, spec, total_active_balance));
 
         maximum_cover(valid_attestations, T::MaxAttestations::to_usize())
     }

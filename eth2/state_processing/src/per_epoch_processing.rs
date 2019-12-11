@@ -1,7 +1,7 @@
 use errors::EpochProcessingError as Error;
 use tree_hash::TreeHash;
 use types::*;
-use validator_statuses::{TotalBalances, ValidatorStatuses};
+pub use validator_statuses::{TotalBalances, ValidatorStatuses};
 
 pub mod apply_rewards;
 pub mod errors;
