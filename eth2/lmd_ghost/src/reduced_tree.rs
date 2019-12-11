@@ -55,9 +55,16 @@ impl<T, E> fmt::Debug for ThreadSafeReducedTree<T, E> {
     }
 }
 
+impl<T, E> PartialEq for ThreadSafeReducedTree<T, E> {
+    /// This implementation ignores the `store`.
+    fn eq(&self, other: &Self) -> bool {
+        *self.core.read() == *other.core.read()
+    }
+}
+
 impl<T, E> LmdGhost<T, E> for ThreadSafeReducedTree<T, E>
 where
-    T: Store,
+    T: Store<E>,
     E: EthSpec,
 {
     fn new(store: Arc<T>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
@@ -121,8 +128,8 @@ where
     }
 
     /// Consume the `ReducedTree` object and return its ssz encoded bytes representation.
-    fn as_bytes(self) -> Vec<u8> {
-        self.core.into_inner().as_bytes()
+    fn as_bytes(&self) -> Vec<u8> {
+        self.core.read().as_bytes()
     }
 
     /// Create a new `ThreadSafeReducedTree` instance from a `store` and the
@@ -200,9 +207,18 @@ impl<T, E> fmt::Debug for ReducedTree<T, E> {
     }
 }
 
+impl<T, E> PartialEq for ReducedTree<T, E> {
+    /// This implementation ignores the `store` field.
+    fn eq(&self, other: &Self) -> bool {
+        self.nodes == other.nodes
+            && self.latest_votes == other.latest_votes
+            && self.root == other.root
+    }
+}
+
 impl<T, E> ReducedTree<T, E>
 where
-    T: Store,
+    T: Store<E>,
     E: EthSpec,
 {
     pub fn new(store: Arc<T>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
@@ -918,7 +934,7 @@ pub struct Vote {
 ///
 /// E.g., a `get` or `insert` to an out-of-bounds element will cause the Vec to grow (using
 /// Default) to the smallest size required to fulfill the request.
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct ElasticList<T>(Vec<T>);
 
 impl<T> ElasticList<T>
@@ -960,16 +976,15 @@ mod tests {
 
     #[test]
     fn test_reduced_tree_ssz() {
-        let store = Arc::new(MemoryStore::open());
-        let tree = ReducedTree::<MemoryStore, MinimalEthSpec>::new(
+        let store = Arc::new(MemoryStore::<MinimalEthSpec>::open());
+        let tree = ReducedTree::new(
             store.clone(),
             &BeaconBlock::empty(&MinimalEthSpec::default_spec()),
             Hash256::zero(),
         );
         let ssz_tree = ReducedTreeSsz::from_reduced_tree(&tree);
         let bytes = tree.as_bytes();
-        let recovered_tree =
-            ReducedTree::<MemoryStore, MinimalEthSpec>::from_bytes(&bytes, store.clone()).unwrap();
+        let recovered_tree = ReducedTree::from_bytes(&bytes, store.clone()).unwrap();
 
         let recovered_ssz = ReducedTreeSsz::from_reduced_tree(&recovered_tree);
         assert_eq!(ssz_tree, recovered_ssz);

@@ -35,7 +35,7 @@ pub fn verify_deposit_signature(deposit_data: &DepositData, spec: &ChainSpec) ->
 /// Errors if the state's `pubkey_cache` is not current.
 pub fn get_existing_validator_index<T: EthSpec>(
     state: &BeaconState<T>,
-    pub_key: &PublicKey,
+    pub_key: &PublicKeyBytes,
 ) -> Result<Option<u64>> {
     let validator_index = state.get_validator_index(pub_key)?;
     Ok(validator_index.map(|idx| idx as u64))

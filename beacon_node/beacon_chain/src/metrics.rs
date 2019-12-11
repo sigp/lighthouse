@@ -48,10 +48,6 @@ lazy_static! {
         "beacon_block_processing_fork_choice_register_seconds",
         "Time spent registering the new block with fork choice (but not finding head)"
     );
-    pub static ref BLOCK_PROCESSING_FORK_CHOICE_FIND_HEAD: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_fork_choice_find_head_seconds",
-        "Time spent finding the new head after processing a new block"
-    );
 
     /*
      * Block Production
@@ -148,6 +144,14 @@ lazy_static! {
      */
     pub static ref PERSIST_CHAIN: Result<Histogram> =
         try_create_histogram("beacon_persist_chain", "Time taken to update the canonical head");
+
+    /*
+     * Checkpoint cache
+     */
+    pub static ref CHECKPOINT_CACHE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_checkpoint_cache_hits_total", "Count of times checkpoint cache fulfils request");
+    pub static ref CHECKPOINT_CACHE_MISSES: Result<IntCounter> =
+        try_create_int_counter("beacon_checkpoint_cache_misses_total", "Count of times checkpoint cache fulfils request");
 
     /*
      * Chain Head

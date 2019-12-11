@@ -1,4 +1,5 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
+use crate::notifier::spawn_notifier;
 use crate::Client;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
@@ -15,29 +16,25 @@ use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_config::Eth2Config;
 use exit_future::Signal;
-use futures::{future, Future, IntoFuture, Stream};
+use futures::{future, Future, IntoFuture};
 use genesis::{
     generate_deterministic_keypairs, interop_genesis_state, state_from_ssz_file, Eth1GenesisService,
 };
 use lighthouse_bootstrap::Bootstrapper;
 use lmd_ghost::LmdGhost;
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
-use slog::{debug, error, info, warn};
+use slog::info;
+use ssz::Decode;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::timer::Interval;
-use types::{ChainSpec, EthSpec};
+use types::{BeaconState, ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
-/// The interval between notifier events.
-pub const NOTIFIER_INTERVAL_SECONDS: u64 = 15;
-/// Create a warning log whenever the peer count is at or below this value.
-pub const WARN_PEER_COUNT: usize = 1;
 /// Interval between polling the eth1 node for genesis information.
-pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 500;
+pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
 
 /// Builds a `Client` instance.
 ///
@@ -83,7 +80,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEve
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
@@ -148,7 +145,7 @@ where
                 })?;
                 let context = runtime_context
                     .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
-                    .service_context("beacon");
+                    .service_context("beacon".into());
                 let spec = chain_spec
                     .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
 
@@ -187,39 +184,33 @@ where
 
                             Box::new(future)
                         }
-                        ClientGenesis::DepositContract => {
-                            let genesis_service = Eth1GenesisService::new(
-                                // Some of the configuration options for `Eth1Config` are
-                                // hard-coded when listening for genesis from the deposit contract.
-                                //
-                                // The idea is that the `Eth1Config` supplied to this function
-                                // (`config`) is intended for block production duties (i.e.,
-                                // listening for deposit events and voting on eth1 data) and that
-                                // we can make listening for genesis more efficient if we modify
-                                // some params.
-                                Eth1Config {
-                                    // Truncating the block cache makes searching for genesis more
-                                    // complicated.
-                                    block_cache_truncation: None,
-                                    // Scan large ranges of blocks when awaiting genesis.
-                                    blocks_per_log_query: 1_000,
-                                    // Only perform a single log request each time the eth1 node is
-                                    // polled.
-                                    //
-                                    // For small testnets this makes finding genesis much faster,
-                                    // as it usually happens within 1,000 blocks.
-                                    max_log_requests_per_update: Some(1),
-                                    // Only perform a single block request each time the eth1 node
-                                    // is polled.
-                                    //
-                                    // For small testnets, this is much faster as they do not have
-                                    // a `MIN_GENESIS_SECONDS`, so after `MIN_GENESIS_VALIDATOR_COUNT`
-                                    // has been reached only a single block needs to be read.
-                                    max_blocks_per_update: Some(1),
-                                    ..config
-                                },
-                                context.log.clone(),
+                        ClientGenesis::SszBytes {
+                            genesis_state_bytes,
+                        } => {
+                            info!(
+                                context.log,
+                                "Starting from known genesis state";
                             );
+
+                            let result = BeaconState::from_ssz_bytes(&genesis_state_bytes)
+                                .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e));
+
+                            let future = result
+                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
+                                .into_future()
+                                .map(|v| (v, None));
+
+                            Box::new(future)
+                        }
+                        ClientGenesis::DepositContract => {
+                            info!(
+                                context.log,
+                                "Waiting for eth2 genesis from eth1";
+                                "eth1_node" => &config.endpoint
+                            );
+
+                            let genesis_service =
+                                Eth1GenesisService::new(config, context.log.clone());
 
                             let future = genesis_service
                                 .wait_for_genesis_state(
@@ -275,7 +266,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "libp2p_network requires a runtime_context")?
-            .service_context("network");
+            .service_context("network".into());
 
         let (network, network_send) =
             NetworkService::new(beacon_chain, config, &context.executor, context.log)
@@ -301,7 +292,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "http_server requires a runtime_context")?
-            .service_context("http");
+            .service_context("http".into());
         let network = self
             .libp2p_network
             .clone()
@@ -335,104 +326,31 @@ where
         Ok(self)
     }
 
-    /// Immediately starts the service that periodically logs about the libp2p peer count.
-    pub fn peer_count_notifier(mut self) -> Result<Self, String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or_else(|| "peer_count_notifier requires a runtime_context")?
-            .service_context("peer_notifier");
-        let log = context.log.clone();
-        let log_2 = context.log.clone();
-        let network = self
-            .libp2p_network
-            .clone()
-            .ok_or_else(|| "peer_notifier requires a libp2p network")?;
-
-        let (exit_signal, exit) = exit_future::signal();
-
-        self.exit_signals.push(exit_signal);
-
-        let interval_future = Interval::new(
-            Instant::now(),
-            Duration::from_secs(NOTIFIER_INTERVAL_SECONDS),
-        )
-        .map_err(move |e| error!(log_2, "Notifier timer failed"; "error" => format!("{:?}", e)))
-        .for_each(move |_| {
-            // NOTE: Panics if libp2p is poisoned.
-            let connected_peer_count = network.libp2p_service().lock().swarm.connected_peers();
-
-            debug!(log, "Connected peer status"; "peer_count" => connected_peer_count);
-
-            if connected_peer_count <= WARN_PEER_COUNT {
-                warn!(log, "Low peer count"; "peer_count" => connected_peer_count);
-            }
-
-            Ok(())
-        });
-
-        context
-            .executor
-            .spawn(exit.until(interval_future).map(|_| ()));
-
-        Ok(self)
-    }
-
     /// Immediately starts the service that periodically logs information each slot.
-    pub fn slot_notifier(mut self) -> Result<Self, String> {
+    pub fn notifier(mut self) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
             .ok_or_else(|| "slot_notifier requires a runtime_context")?
-            .service_context("slot_notifier");
-        let log = context.log.clone();
-        let log_2 = log.clone();
+            .service_context("slot_notifier".into());
         let beacon_chain = self
             .beacon_chain
             .clone()
-            .ok_or_else(|| "slot_notifier requires a libp2p network")?;
-        let spec = self
-            .chain_spec
+            .ok_or_else(|| "slot_notifier requires a beacon chain")?;
+        let network = self
+            .libp2p_network
             .clone()
-            .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?;
-        let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-        let duration_to_next_slot = beacon_chain
-            .slot_clock
-            .duration_to_next_slot()
-            .ok_or_else(|| "slot_notifier unable to determine time to next slot")?;
+            .ok_or_else(|| "slot_notifier requires a libp2p network")?;
+        let milliseconds_per_slot = self
+            .chain_spec
+            .as_ref()
+            .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
+            .milliseconds_per_slot;
 
-        let (exit_signal, exit) = exit_future::signal();
+        let exit_signal = spawn_notifier(context, beacon_chain, network, milliseconds_per_slot)
+            .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
         self.exit_signals.push(exit_signal);
-
-        let interval_future = Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
-            .map_err(move |e| error!(log_2, "Slot timer failed"; "error" => format!("{:?}", e)))
-            .for_each(move |_| {
-                let best_slot = beacon_chain.head().beacon_block.slot;
-                let latest_block_root = beacon_chain.head().beacon_block_root;
-
-                if let Ok(current_slot) = beacon_chain.slot() {
-                    info!(
-                        log,
-                        "Slot start";
-                        "skip_slots" => current_slot.saturating_sub(best_slot),
-                        "best_block_root" => format!("{}", latest_block_root),
-                        "best_block_slot" => best_slot,
-                        "slot" => current_slot,
-                    )
-                } else {
-                    error!(
-                        log,
-                        "Beacon chain running whilst slot clock is unavailable."
-                    );
-                };
-
-                Ok(())
-            });
-
-        context
-            .executor
-            .spawn(exit.until(interval_future).map(|_| ()));
 
         Ok(self)
     }
@@ -477,7 +395,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
@@ -498,7 +416,7 @@ where
                     .clone()
                     .ok_or_else(|| "beacon_chain requires a slot clock")?,
             )
-            .empty_reduced_tree_fork_choice()
+            .reduced_tree_fork_choice()
             .map_err(|e| format!("Failed to init fork choice: {}", e))?
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
@@ -524,7 +442,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
@@ -537,7 +455,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
-            .service_context("ws");
+            .service_context("ws".into());
 
         let (sender, exit_signal, listening_addr): (
             WebSocketSender<TEthSpec>,
@@ -564,7 +482,7 @@ where
 impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
-            DiskStore,
+            DiskStore<TEthSpec>,
             TStoreMigrator,
             TSlotClock,
             TLmdGhost,
@@ -575,26 +493,37 @@ impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandle
     >
 where
     TSlotClock: SlotClock + 'static,
-    TStoreMigrator: store::Migrate<DiskStore, TEthSpec> + 'static,
-    TLmdGhost: LmdGhost<DiskStore, TEthSpec> + 'static,
+    TStoreMigrator: store::Migrate<DiskStore<TEthSpec>, TEthSpec> + 'static,
+    TLmdGhost: LmdGhost<DiskStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Specifies that the `Client` should use a `DiskStore` database.
-    pub fn disk_store(mut self, hot_path: &Path, cold_path: &Path) -> Result<Self, String> {
+    pub fn disk_store(
+        mut self,
+        hot_path: &Path,
+        cold_path: &Path,
+        slots_per_restore_point: u64,
+    ) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
             .ok_or_else(|| "disk_store requires a log".to_string())?
-            .service_context("freezer_db");
+            .service_context("freezer_db".into());
         let spec = self
             .chain_spec
             .clone()
             .ok_or_else(|| "disk_store requires a chain spec".to_string())?;
 
-        let store = DiskStore::open(hot_path, cold_path, spec, context.log)
-            .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
+        let store = DiskStore::open(
+            hot_path,
+            cold_path,
+            slots_per_restore_point,
+            spec,
+            context.log,
+        )
+        .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
         self.store = Some(Arc::new(store));
         Ok(self)
     }
@@ -603,7 +532,7 @@ where
 impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
-            SimpleDiskStore,
+            SimpleDiskStore<TEthSpec>,
             TStoreMigrator,
             TSlotClock,
             TLmdGhost,
@@ -614,8 +543,8 @@ impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandle
     >
 where
     TSlotClock: SlotClock + 'static,
-    TStoreMigrator: store::Migrate<SimpleDiskStore, TEthSpec> + 'static,
-    TLmdGhost: LmdGhost<SimpleDiskStore, TEthSpec> + 'static,
+    TStoreMigrator: store::Migrate<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
+    TLmdGhost: LmdGhost<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -632,7 +561,7 @@ where
 impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
-            MemoryStore,
+            MemoryStore<TEthSpec>,
             NullMigrator,
             TSlotClock,
             TLmdGhost,
@@ -643,7 +572,7 @@ impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<MemoryStore, TEthSpec> + 'static,
+    TLmdGhost: LmdGhost<MemoryStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -662,7 +591,7 @@ where
 impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
-            DiskStore,
+            DiskStore<TEthSpec>,
             BackgroundMigrator<TEthSpec>,
             TSlotClock,
             TLmdGhost,
@@ -673,7 +602,7 @@ impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<DiskStore, TEthSpec> + 'static,
+    TLmdGhost: LmdGhost<DiskStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -700,7 +629,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
@@ -715,7 +644,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "caching_eth1_backend requires a runtime_context")?
-            .service_context("eth1_rpc");
+            .service_context("eth1_rpc".into());
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
@@ -726,6 +655,17 @@ where
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config.clone())?;
+
+            // This cache is not useful because it's first (earliest) block likely the block that
+            // triggered genesis.
+            //
+            // In order to vote we need to be able to go back at least 2 * `ETH1_FOLLOW_DISTANCE`
+            // from the genesis-triggering block.  Presently the block cache does not support
+            // importing blocks with decreasing block numbers, it only accepts them in increasing
+            // order. If this turns out to be a bottleneck we can update the block cache to allow
+            // adding earlier blocks too.
+            eth1_service_from_genesis.drop_block_cache();
+
             CachingEth1Backend::from_service(eth1_service_from_genesis, store)
         } else {
             CachingEth1Backend::new(config, context.log, store)
@@ -791,7 +731,7 @@ impl<TStore, TStoreMigrator, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
         >,
     >
 where
-    TStore: Store + 'static,
+    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,

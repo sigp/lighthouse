@@ -10,3 +10,8 @@ edition = "2018"
 node_test_rig = { path = "../node_test_rig" }
 types = { path = "../../eth2/types" }
 validator_client = { path = "../../validator_client" }
+parking_lot = "0.9.0"
+futures = "0.1.29"
+tokio = "0.1.22"
+eth1_test_rig = { path = "../eth1_test_rig" }
+env_logger = "0.7.1"

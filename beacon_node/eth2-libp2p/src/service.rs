@@ -12,13 +12,12 @@ use libp2p::core::{
     transport::boxed::Boxed, ConnectedPoint,
 };
 use libp2p::{core, secio, swarm::NetworkBehaviour, PeerId, Swarm, Transport};
-use slog::{crit, debug, info, trace, warn};
-use smallvec::SmallVec;
+use slog::{crit, debug, error, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
 use std::time::Duration;
-use std::time::Instant;
+use tokio::timer::DelayQueue;
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
 type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
@@ -26,7 +25,7 @@ type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
 const NETWORK_KEY_FILENAME: &str = "key";
 /// The time in milliseconds to wait before banning a peer. This allows for any Goodbye messages to be
 /// flushed and protocols to be negotiated.
-const BAN_PEER_TIMEOUT: u64 = 200;
+const BAN_PEER_WAIT_TIMEOUT: u64 = 200;
 
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service {
@@ -38,7 +37,10 @@ pub struct Service {
     pub local_peer_id: PeerId,
 
     /// A current list of peers to ban after a given timeout.
-    peers_to_ban: SmallVec<[(PeerId, Instant); 4]>,
+    peers_to_ban: DelayQueue<PeerId>,
+
+    /// A list of timeouts after which peers become unbanned.
+    peer_ban_timeout: DelayQueue<PeerId>,
 
     /// Indicates if the listening address have been verified and compared to the expected ENR.
     verified_listen_address: bool,
@@ -157,18 +159,21 @@ impl Service {
         Ok(Service {
             local_peer_id,
             swarm,
-            peers_to_ban: SmallVec::new(),
+            peers_to_ban: DelayQueue::new(),
+            peer_ban_timeout: DelayQueue::new(),
             verified_listen_address: false,
             log,
         })
     }
 
-    /// Adds a peer to be banned after a timeout period.
-    pub fn disconnect_and_ban_peer(&mut self, peer_id: PeerId) {
-        self.peers_to_ban.push((
-            peer_id,
-            Instant::now() + Duration::from_millis(BAN_PEER_TIMEOUT),
-        ));
+    /// Adds a peer to be banned for a period of time, specified by a timeout.
+    pub fn disconnect_and_ban_peer(&mut self, peer_id: PeerId, timeout: Duration) {
+        error!(self.log, "Disconnecting and banning peer"; "peer_id" => format!("{:?}", peer_id), "timeout" => format!("{:?}", timeout));
+        self.peers_to_ban.insert(
+            peer_id.clone(),
+            Duration::from_millis(BAN_PEER_WAIT_TIMEOUT),
+        );
+        self.peer_ban_timeout.insert(peer_id, timeout);
     }
 }
 
@@ -214,6 +219,48 @@ impl Stream for Service {
                 _ => break,
             }
         }
+
+        // check if peers need to be banned
+        loop {
+            match self.peers_to_ban.poll() {
+                Ok(Async::Ready(Some(peer_id))) => {
+                    let peer_id = peer_id.into_inner();
+                    Swarm::ban_peer_id(&mut self.swarm, peer_id.clone());
+                    // TODO: Correctly notify protocols of the disconnect
+                    // TODO: Also remove peer from the DHT: https://github.com/sigp/lighthouse/issues/629
+                    let dummy_connected_point = ConnectedPoint::Dialer {
+                        address: "/ip4/0.0.0.0"
+                            .parse::<Multiaddr>()
+                            .expect("valid multiaddr"),
+                    };
+                    self.swarm
+                        .inject_disconnected(&peer_id, dummy_connected_point);
+                    // inform the behaviour that the peer has been banned
+                    self.swarm.peer_banned(peer_id);
+                }
+                Ok(Async::NotReady) | Ok(Async::Ready(None)) => break,
+                Err(e) => {
+                    warn!(self.log, "Peer banning queue failed"; "error" => format!("{:?}", e));
+                }
+            }
+        }
+
+        // un-ban peer if it's timeout has expired
+        loop {
+            match self.peer_ban_timeout.poll() {
+                Ok(Async::Ready(Some(peer_id))) => {
+                    let peer_id = peer_id.into_inner();
+                    debug!(self.log, "Peer has been unbanned"; "peer" => format!("{:?}", peer_id));
+                    self.swarm.peer_unbanned(&peer_id);
+                    Swarm::unban_peer_id(&mut self.swarm, peer_id);
+                }
+                Ok(Async::NotReady) | Ok(Async::Ready(None)) => break,
+                Err(e) => {
+                    warn!(self.log, "Peer banning timeout queue failed"; "error" => format!("{:?}", e));
+                }
+            }
+        }
+
         // swarm is not ready
         // check to see if the address is different to the config. If so, update our ENR
         if !self.verified_listen_address {
@@ -223,28 +270,6 @@ impl Stream for Service {
                 if let Some(socket_addr) = multiaddr_to_socket_addr(multiaddr) {
                     self.swarm.update_local_enr_socket(socket_addr, true);
                 }
-            }
-        }
-
-        // check if there are peers to ban
-        while !self.peers_to_ban.is_empty() {
-            if self.peers_to_ban[0].1 < Instant::now() {
-                let (peer_id, _) = self.peers_to_ban.remove(0);
-                warn!(self.log, "Disconnecting and banning peer"; "peer_id" => format!("{:?}", peer_id));
-                Swarm::ban_peer_id(&mut self.swarm, peer_id.clone());
-                // TODO: Correctly notify protocols of the disconnect
-                // TODO: Also remove peer from the DHT: https://github.com/sigp/lighthouse/issues/629
-                let dummy_connected_point = ConnectedPoint::Dialer {
-                    address: "/ip4/0.0.0.0"
-                        .parse::<Multiaddr>()
-                        .expect("valid multiaddr"),
-                };
-                self.swarm
-                    .inject_disconnected(&peer_id, dummy_connected_point);
-                // inform the behaviour that the peer has been banned
-                self.swarm.peer_banned(peer_id);
-            } else {
-                break;
             }
         }
 

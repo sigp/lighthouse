@@ -25,6 +25,14 @@ lazy_static! {
         "store_disk_db_write_count_total",
         "Total number of writes to the on-disk DB"
     );
+    pub static ref DISK_DB_READ_TIMES: Result<Histogram> = try_create_histogram(
+        "store_disk_db_read_seconds",
+        "Time taken to write bytes to store."
+    );
+    pub static ref DISK_DB_WRITE_TIMES: Result<Histogram> = try_create_histogram(
+        "store_disk_db_write_seconds",
+        "Time taken to write bytes to store."
+    );
     pub static ref DISK_DB_EXISTS_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_exists_count_total",
         "Total number of checks if a key is in the on-disk DB"

@@ -5,12 +5,11 @@ authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dependencies]
-clap = "2.33.0"
 hex = "0.3"
 # rust-libp2p is presently being sourced from a Sigma Prime fork of the
 # `libp2p/rust-libp2p` repository.
-libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "1c1b3ba402eefbd31ad40c561545554ef66b58a7" }
-enr =  { git = "https://github.com/SigP/rust-libp2p/", rev = "1c1b3ba402eefbd31ad40c561545554ef66b58a7", features = ["serde"] }
+libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "3f9b030e29c9b31f9fe6f2ed27be4a813e2b3701" }
+enr =  { git = "https://github.com/SigP/rust-libp2p/", rev = "3f9b030e29c9b31f9fe6f2ed27be4a813e2b3701", features = ["serde"] }
 types = { path =  "../../eth2/types" }
 serde = "1.0.102"
 serde_derive = "1.0.102"
@@ -22,12 +21,12 @@ tokio = "0.1.22"
 futures = "0.1.29"
 error-chain = "0.12.1"
 dirs = "2.0.2"
-smallvec = "0.6.11"
 fnv = "1.0.6"
 unsigned-varint = "0.2.3"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
 tokio-io-timeout = "0.3.1"
+smallvec = "1.0.0"
 
 [dev-dependencies]
 slog-stdlog = "4.0.0"

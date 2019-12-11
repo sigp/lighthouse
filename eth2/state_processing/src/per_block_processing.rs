@@ -213,19 +213,35 @@ pub fn process_eth1_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     eth1_data: &Eth1Data,
 ) -> Result<(), Error> {
+    if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data) {
+        state.eth1_data = new_eth1_data;
+    }
+
     state.eth1_data_votes.push(eth1_data.clone())?;
 
+    Ok(())
+}
+
+/// Returns `Some(eth1_data)` if adding the given `eth1_data` to `state.eth1_data_votes` would
+/// result in a change to `state.eth1_data`.
+///
+/// Spec v0.9.1
+pub fn get_new_eth1_data<T: EthSpec>(
+    state: &BeaconState<T>,
+    eth1_data: &Eth1Data,
+) -> Option<Eth1Data> {
     let num_votes = state
         .eth1_data_votes
         .iter()
         .filter(|vote| *vote == eth1_data)
         .count();
 
-    if num_votes * 2 > T::SlotsPerEth1VotingPeriod::to_usize() {
-        state.eth1_data = eth1_data.clone();
+    // The +1 is to account for the `eth1_data` supplied to the function.
+    if 2 * (num_votes + 1) > T::SlotsPerEth1VotingPeriod::to_usize() {
+        Some(eth1_data.clone())
+    } else {
+        None
     }
-
-    Ok(())
 }
 
 /// Validates each `ProposerSlashing` and updates the state, short-circuiting on an invalid object.
@@ -424,7 +440,7 @@ pub fn process_deposit<T: EthSpec>(
     };
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
-    let validator_index = get_existing_validator_index(state, &pubkey)
+    let validator_index = get_existing_validator_index(state, &deposit.data.pubkey)
         .map_err(|e| e.into_with_index(deposit_index))?;
 
     let amount = deposit.data.amount;
@@ -441,7 +457,7 @@ pub fn process_deposit<T: EthSpec>(
 
         // Create a new validator.
         let validator = Validator {
-            pubkey,
+            pubkey: pubkey.into(),
             withdrawal_credentials: deposit.data.withdrawal_credentials,
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,

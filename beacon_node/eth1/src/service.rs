@@ -121,7 +121,7 @@ impl Default for Config {
             lowest_cached_block_number: 0,
             follow_distance: 128,
             block_cache_truncation: Some(4_096),
-            auto_update_interval_millis: 500,
+            auto_update_interval_millis: 7_000,
             blocks_per_log_query: 1_000,
             max_log_requests_per_update: None,
             max_blocks_per_update: None,
@@ -161,6 +161,26 @@ impl Service {
     /// Provides access to the deposit cache.
     pub fn deposits(&self) -> &RwLock<DepositUpdater> {
         &self.inner.deposit_cache
+    }
+
+    /// Drop the block cache, replacing it with an empty one.
+    pub fn drop_block_cache(&self) {
+        *(self.inner.block_cache.write()) = BlockCache::default();
+    }
+
+    /// Returns the timestamp of the earliest block in the cache (if any).
+    pub fn earliest_block_timestamp(&self) -> Option<u64> {
+        self.inner.block_cache.read().earliest_block_timestamp()
+    }
+
+    /// Returns the timestamp of the latest block in the cache (if any).
+    pub fn latest_block_timestamp(&self) -> Option<u64> {
+        self.inner.block_cache.read().latest_block_timestamp()
+    }
+
+    /// Returns the lowest block number stored.
+    pub fn lowest_block_number(&self) -> Option<u64> {
+        self.inner.block_cache.read().lowest_block_number()
     }
 
     /// Returns the number of currently cached blocks.
@@ -220,6 +240,8 @@ impl Service {
     {
         let log_a = self.log.clone();
         let log_b = self.log.clone();
+        let inner_1 = self.inner.clone();
+        let inner_2 = self.inner.clone();
 
         let deposit_future = self
             .update_deposit_cache()
@@ -229,6 +251,7 @@ impl Service {
                     Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => trace!(
                         log_a,
                         "Updated eth1 deposit cache";
+                        "cached_deposits" => inner_1.deposit_cache.read().cache.len(),
                         "logs_imported" => logs_imported,
                     ),
                     Err(e) => error!(
@@ -252,6 +275,7 @@ impl Service {
                     }) => trace!(
                         log_b,
                         "Updated eth1 block cache";
+                        "cached_blocks" => inner_2.block_cache.read().len(),
                         "blocks_imported" => blocks_imported,
                         "head_block" => head_block_number,
                     ),
@@ -282,8 +306,7 @@ impl Service {
         let log = self.log.clone();
         let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
 
-        loop_fn((), move |()| {
-            let exit = exit.clone();
+        let loop_future = loop_fn((), move |()| {
             let service = service.clone();
             let log_a = log.clone();
             let log_b = log.clone();
@@ -320,16 +343,11 @@ impl Service {
                         );
                     }
                     // Do not break the loop if there is an timer failure.
-                    Ok(())
+                    Ok(Loop::Continue(()))
                 })
-                .map(move |_| {
-                    if exit.is_live() {
-                        Loop::Continue(())
-                    } else {
-                        Loop::Break(())
-                    }
-                })
-        })
+        });
+
+        exit.until(loop_future).map(|_: Option<()>| ())
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured

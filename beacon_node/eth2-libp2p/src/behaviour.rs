@@ -172,7 +172,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
                     );
                     info.listen_addrs.truncate(MAX_IDENTIFY_ADDRESSES);
                 }
-                debug!(self.log, "Identified Peer"; "Peer" => format!("{}", peer_id),
+                debug!(self.log, "Identified Peer"; "peer" => format!("{}", peer_id),
                 "protocol_version" => info.protocol_version,
                 "agent_version" => info.agent_version,
                 "listening_ addresses" => format!("{:?}", info.listen_addrs),
@@ -239,6 +239,11 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     /// Notify discovery that the peer has been banned.
     pub fn peer_banned(&mut self, peer_id: PeerId) {
         self.discovery.peer_banned(peer_id);
+    }
+
+    /// Notify discovery that the peer has been unbanned.
+    pub fn peer_unbanned(&mut self, peer_id: &PeerId) {
+        self.discovery.peer_unbanned(peer_id);
     }
 
     /// Informs the discovery behaviour if a new IP/Port is set at the application layer
