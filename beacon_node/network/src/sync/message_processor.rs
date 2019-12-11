@@ -551,12 +551,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             // Verify the signature if we were able to get a proposer, otherwise, we eventually
             // return false.
             if let Ok(Ok(pubkey)) = pubkey_result {
-                let signature = SignatureSet::single(
-                    &block.signature,
-                    pubkey,
-                    block.signed_root(),
-                    domain,
-                );
+                let signature =
+                    SignatureSet::single(&block.signature, pubkey, block.signed_root(), domain);
 
                 // TODO: Downvote if the signature is invalid.
                 return signature.is_valid();
