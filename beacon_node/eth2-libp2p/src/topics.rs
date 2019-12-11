@@ -7,21 +7,23 @@ use serde_derive::{Deserialize, Serialize};
 pub const TOPIC_PREFIX: &str = "eth2";
 pub const TOPIC_ENCODING_POSTFIX: &str = "ssz";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
-pub const BEACON_ATTESTATION_TOPIC: &str = "beacon_attestation";
+pub const BEACON_AGGREGATE_AND_PROOF: &str = "beacon_aggregate_and_proof";
+pub const COMMITEE_INDEX_TOPIC: &str = "committee_index{}_beacon_attestation";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
-pub const SHARD_TOPIC_PREFIX: &str = "shard";
+/// The maximum number of attestation subnets.
+pub const ATTESTATION_SUBNET_COUNT: u64 = 64;
 
 /// Enum that brings these topics into the rust type system.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GossipTopic {
     BeaconBlock,
-    BeaconAttestation,
+    BeaconAggregateAndProof,
+    CommitteIndex
     VoluntaryExit,
     ProposerSlashing,
     AttesterSlashing,
-    Shard,
     Unknown(String),
 }
 
@@ -34,8 +36,8 @@ impl From<&str> for GossipTopic {
         {
             match topic_parts[2] {
                 BEACON_BLOCK_TOPIC => GossipTopic::BeaconBlock,
-                BEACON_ATTESTATION_TOPIC => GossipTopic::BeaconAttestation,
-                VOLUNTARY_EXIT_TOPIC => GossipTopic::VoluntaryExit,
+                BEACON_AGGREGATE_AND_PROOF => GossipTopic::BeaconAttestation,
+                committee if committe.split('_')=> GossipTopic::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipTopic::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipTopic::AttesterSlashing,
                 unknown_topic => GossipTopic::Unknown(unknown_topic.into()),
