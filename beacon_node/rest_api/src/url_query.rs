@@ -37,6 +37,15 @@ impl<'a> UrlQuery<'a> {
             })
     }
 
+    /// Returns the first `(key, value)` pair found where the `key` is in `keys`, if any.
+    ///
+    /// Returns `None` if no match is found.
+    pub fn first_of_opt(mut self, keys: &[&str]) -> Option<(String, String)> {
+        self.0
+            .find(|(key, _value)| keys.contains(&&**key))
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+    }
+
     /// Returns the value for `key`, if and only if `key` is the only key present in the query
     /// parameters.
     pub fn only_one(self, key: &str) -> Result<String, ApiError> {

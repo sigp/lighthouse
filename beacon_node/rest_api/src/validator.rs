@@ -8,8 +8,7 @@ use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
 use bls::PublicKeyBytes;
-use futures::future::Future;
-use futures::stream::Stream;
+use futures::{Future, Stream};
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use slog::{error, info, warn, Logger};

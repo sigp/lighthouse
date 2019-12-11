@@ -1,13 +1,14 @@
 use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, UrlQuery};
+use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use futures::{Future, Stream};
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
-use ssz_derive::Encode;
+use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::Store;
-use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot, Validator};
+use types::{BeaconBlock, BeaconState, EthSpec, Hash256, PublicKeyBytes, Slot, Validator};
 
 #[derive(Serialize, Deserialize, Encode)]
 pub struct HeadResponse {
@@ -147,37 +148,150 @@ pub fn get_fork<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&beacon_chain.head().beacon_state.fork)
 }
 
-/// HTTP handler to return the set of validators for an `Epoch`
+#[derive(Serialize, Encode)]
+pub struct ValidatorResponse {
+    pub pubkey: PublicKeyBytes,
+    pub validator_index: Option<usize>,
+    pub balance: Option<u64>,
+    pub validator: Option<Validator>,
+}
+
+/// HTTP handler to which accepts a query string of a list of validator pubkeys and maps it to a
+/// `ValidatorResponse`.
 ///
-/// The `Epoch` parameter can be any epoch number. If it is not specified,
-/// the current epoch is assumed.
+/// This method is limited to as many `pubkeys` that can fit in a URL. See `post_validators` for
+/// doing bulk requests.
 pub fn get_validators<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
-    let epoch = match UrlQuery::from_request(&req) {
-        // We have some parameters, so make sure it's the epoch one and parse it
-        Ok(query) => query
-            .only_one("epoch")?
-            .parse::<u64>()
-            .map(Epoch::from)
-            .map_err(|e| {
-                ApiError::BadRequest(format!("Invalid epoch parameter, must be a u64. {:?}", e))
-            })?,
-        // In this case, our url query did not contain any parameters, so we take the default
-        Err(_) => beacon_chain.epoch().map_err(|e| {
-            ApiError::ServerError(format!("Unable to determine current epoch: {:?}", e))
-        })?,
+    let query = UrlQuery::from_request(&req)?;
+
+    let validator_pubkeys = query
+        .all_of("validator_pubkeys")?
+        .iter()
+        .map(|validator_pubkey_str| parse_pubkey_bytes(validator_pubkey_str))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let state_root_opt = if let Some((_key, value)) = query.first_of_opt(&["state_root"]) {
+        Some(parse_root(&value)?)
+    } else {
+        None
     };
 
-    let all_validators = &beacon_chain.head().beacon_state.validators;
-    let active_vals: Vec<Validator> = all_validators
-        .iter()
-        .filter(|v| v.is_active_at(epoch))
-        .cloned()
-        .collect();
+    let validators =
+        validator_responses_by_pubkey(beacon_chain, state_root_opt, validator_pubkeys)?;
 
-    ResponseBuilder::new(&req)?.body(&active_vals)
+    ResponseBuilder::new(&req)?.body(&validators)
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
+pub struct BulkValidatorRequest {
+    /// If set to `None`, uses the canonical head state.
+    pub state_root: Option<Hash256>,
+    pub pubkeys: Vec<PublicKeyBytes>,
+}
+
+/// HTTP handler to which accepts a `BulkValidatorRequest` and returns a `ValidatorResponse` for
+/// each of the given `pubkeys`. When `state_root` is `None`, the canonical head is used.
+///
+/// This method allows for a basically unbounded list of `pubkeys`, where as the `get_validators`
+/// request is limited by the max number of pubkeys you can fit in a URL.
+pub fn post_validators<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> BoxFut {
+    let response_builder = ResponseBuilder::new(&req);
+
+    let future = req
+        .into_body()
+        .concat2()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+        .and_then(|chunks| {
+            serde_json::from_slice::<BulkValidatorRequest>(&chunks).map_err(|e| {
+                ApiError::BadRequest(format!(
+                    "Unable to parse JSON into BulkValidatorRequest: {:?}",
+                    e
+                ))
+            })
+        })
+        .and_then(|bulk_request| {
+            validator_responses_by_pubkey(
+                beacon_chain,
+                bulk_request.state_root,
+                bulk_request.pubkeys,
+            )
+        })
+        .and_then(|validators| response_builder?.body(&validators));
+
+    Box::new(future)
+}
+
+/// Maps a vec of `validator_pubkey` to a vec of `ValidatorResponse`, using the state at the given
+/// `state_root`. If `state_root.is_none()`, uses the canonial head state.
+fn validator_responses_by_pubkey<T: BeaconChainTypes>(
+    beacon_chain: Arc<BeaconChain<T>>,
+    state_root_opt: Option<Hash256>,
+    validator_pubkeys: Vec<PublicKeyBytes>,
+) -> Result<Vec<ValidatorResponse>, ApiError> {
+    let state = if let Some(state_root) = state_root_opt {
+        beacon_chain
+            .get_state(&state_root, None)
+            .map_err(|e| {
+                ApiError::ServerError(format!(
+                    "Database error when reading state root {}: {:?}",
+                    state_root, e
+                ))
+            })?
+            .ok_or_else(|| {
+                ApiError::NotFound(format!("No state exists with root: {}", state_root))
+            })?
+    } else {
+        beacon_chain.head().beacon_state
+    };
+
+    validator_pubkeys
+        .into_iter()
+        .map(|validator_pubkey| validator_response_by_pubkey(&state, validator_pubkey))
+        .collect::<Result<Vec<_>, ApiError>>()
+}
+
+/// Maps a `validator_pubkey` to a `ValidatorResponse`, using the given state.
+fn validator_response_by_pubkey<E: EthSpec>(
+    state: &BeaconState<E>,
+    validator_pubkey: PublicKeyBytes,
+) -> Result<ValidatorResponse, ApiError> {
+    let validator_index_opt = state
+        .get_validator_index(&validator_pubkey)
+        .map_err(|e| ApiError::ServerError(format!("Unable to read pubkey cache: {:?}", e)))?;
+
+    if let Some(validator_index) = validator_index_opt {
+        let balance = state.balances.get(validator_index).ok_or_else(|| {
+            ApiError::ServerError(format!("Invalid balances index: {:?}", validator_index))
+        })?;
+
+        let validator = state
+            .validators
+            .get(validator_index)
+            .ok_or_else(|| {
+                ApiError::ServerError(format!("Invalid validator index: {:?}", validator_index))
+            })?
+            .clone();
+
+        Ok(ValidatorResponse {
+            pubkey: validator_pubkey,
+            validator_index: Some(validator_index),
+            balance: Some(*balance),
+            validator: Some(validator),
+        })
+    } else {
+        Ok(ValidatorResponse {
+            pubkey: validator_pubkey,
+            validator_index: None,
+            balance: None,
+            validator: None,
+        })
+    }
 }
 
 #[derive(Serialize, Encode)]

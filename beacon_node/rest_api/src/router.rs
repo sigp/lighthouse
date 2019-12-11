@@ -90,6 +90,9 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/beacon/validators") => {
                 into_boxfut(beacon::get_validators::<T>(req, beacon_chain))
             }
+            (&Method::POST, "/beacon/validators") => {
+                into_boxfut(beacon::post_validators::<T>(req, beacon_chain))
+            }
             (&Method::GET, "/beacon/validators/indicies") => {
                 into_boxfut(helpers::implementation_pending_response(req))
             }
@@ -129,7 +132,6 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/beacon/state/genesis") => {
                 into_boxfut(beacon::get_genesis_state::<T>(req, beacon_chain))
             }
-            //TODO: Add aggreggate/filtered state lookups here, e.g. /beacon/validators/balances
 
             // Methods for bootstrap and checking configuration
             (&Method::GET, "/spec") => into_boxfut(spec::get_spec::<T>(req, beacon_chain)),
