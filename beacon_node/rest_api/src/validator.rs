@@ -22,6 +22,8 @@ use types::{Attestation, BeaconBlock, CommitteeIndex, Epoch, RelativeEpoch, Slot
 pub struct ValidatorDuty {
     /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
     pub validator_pubkey: PublicKeyBytes,
+    /// The validator's index in `state.validators`
+    pub validator_index: Option<usize>,
     /// The slot at which the validator must attest.
     pub attestation_slot: Option<Slot>,
     /// The index of the committee within `slot` of which the validator is a member.
@@ -173,6 +175,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
 
                 Ok(ValidatorDuty {
                     validator_pubkey,
+                    validator_index: Some(validator_index),
                     attestation_slot: duties.map(|d| d.slot),
                     attestation_committee_index: duties.map(|d| d.index),
                     attestation_committee_position: duties.map(|d| d.committee_position),
@@ -181,6 +184,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
             } else {
                 Ok(ValidatorDuty {
                     validator_pubkey,
+                    validator_index: None,
                     attestation_slot: None,
                     attestation_committee_index: None,
                     attestation_committee_position: None,
