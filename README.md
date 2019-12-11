@@ -4,7 +4,7 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 
 [![Build Status]][Build Link] [![Book Status]][Book Link] [![RustDoc Status]][RustDoc Link] [![Chat Badge]][Chat Link] [![Swagger Badge]][Swagger Link]
 
-[Build Status]: https://github.com/sigp/lighthouse/workflows/test-suite/badge.svg
+[Build Status]: https://github.com/sigp/lighthouse/workflows/test-suite/badge.svg?branch=master
 [Build Link]: https://github.com/sigp/lighthouse/actions
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
@@ -14,6 +14,8 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 [RustDoc Link]: http://lighthouse-docs.sigmaprime.io/
 [Swagger Badge]: https://img.shields.io/badge/Open%20API-0.2.0-success
 [Swagger Link]: https://app.swaggerhub.com/apis-docs/spble/lighthouse_rest_api/0.2.0
+
+[Documentation](http://lighthouse-book.sigmaprime.io/)
 
 ![terminalize](https://i.postimg.cc/kG11dpCW/lighthouse-cli-png.gif)
 

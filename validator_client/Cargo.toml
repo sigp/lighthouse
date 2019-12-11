@@ -24,7 +24,7 @@ slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_tr
 slog-async = "2.3.0"
 slog-term = "2.4.2"
 tokio = "0.1.22"
-tokio-timer = "0.2.11"
+tokio-timer = "0.2.12"
 error-chain = "0.12.1"
 bincode = "1.2.0"
 futures = "0.1.29"
@@ -35,7 +35,7 @@ parking_lot = "0.7"
 exit-future = "0.1.4"
 libc = "0.2.65"
 eth2_ssz_derive = { path = "../eth2/utils/ssz_derive" }
-hex = "0.4"
+hex = "0.3"
 deposit_contract = { path = "../eth2/utils/deposit_contract" }
 bls = { path = "../eth2/utils/bls" }
 remote_beacon_node = { path = "../eth2/utils/remote_beacon_node" }

@@ -2,7 +2,8 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
-use bls::{SignatureSet, SignedMessage};
+use bls::{G1Point, G1Ref, SignatureSet, SignedMessage};
+use std::borrow::Cow;
 use std::convert::TryInto;
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
@@ -26,6 +27,9 @@ pub enum Error {
     /// The public keys supplied do not match the number of objects requiring keys. Block validity
     /// was not determined.
     MismatchedPublicKeyLen { pubkey_len: usize, other_len: usize },
+    /// The public key bytes stored in the `BeaconState` were not valid. This is a serious internal
+    /// error.
+    BadBlsBytes { validator_index: u64 },
 }
 
 impl From<BeaconStateError> for Error {
@@ -42,10 +46,6 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
     let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
-    let block_proposer = &state
-        .validators
-        .get(proposer_index)
-        .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?;
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),
@@ -61,7 +61,7 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
 
     Ok(SignatureSet::single(
         &block.signature,
-        &block_proposer.pubkey,
+        validator_pubkey(state, proposer_index)?,
         message,
         domain,
     ))
@@ -73,7 +73,7 @@ pub fn randao_signature_set<'a, T: EthSpec>(
     block: &'a BeaconBlock<T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let block_proposer = &state.validators[state.get_beacon_proposer_index(block.slot, spec)?];
+    let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),
@@ -85,7 +85,7 @@ pub fn randao_signature_set<'a, T: EthSpec>(
 
     Ok(SignatureSet::single(
         &block.body.randao_reveal,
-        &block_proposer.pubkey,
+        validator_pubkey(state, proposer_index)?,
         message,
         domain,
     ))
@@ -97,14 +97,21 @@ pub fn proposer_slashing_signature_set<'a, T: EthSpec>(
     proposer_slashing: &'a ProposerSlashing,
     spec: &'a ChainSpec,
 ) -> Result<(SignatureSet<'a>, SignatureSet<'a>)> {
-    let proposer = state
-        .validators
-        .get(proposer_slashing.proposer_index as usize)
-        .ok_or_else(|| Error::ValidatorUnknown(proposer_slashing.proposer_index))?;
+    let proposer_index = proposer_slashing.proposer_index as usize;
 
     Ok((
-        block_header_signature_set(state, &proposer_slashing.header_1, &proposer.pubkey, spec)?,
-        block_header_signature_set(state, &proposer_slashing.header_2, &proposer.pubkey, spec)?,
+        block_header_signature_set(
+            state,
+            &proposer_slashing.header_1,
+            validator_pubkey(state, proposer_index)?,
+            spec,
+        )?,
+        block_header_signature_set(
+            state,
+            &proposer_slashing.header_2,
+            validator_pubkey(state, proposer_index)?,
+            spec,
+        )?,
     ))
 }
 
@@ -112,7 +119,7 @@ pub fn proposer_slashing_signature_set<'a, T: EthSpec>(
 fn block_header_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     header: &'a BeaconBlockHeader,
-    pubkey: &'a PublicKey,
+    pubkey: Cow<'a, G1Point>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
     let domain = spec.get_domain(
@@ -140,10 +147,13 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
 ) -> Result<SignatureSet<'a>> {
     let message = indexed_attestation.data.tree_hash_root();
 
-    let signed_message = SignedMessage::new(
-        get_pubkeys(state, &indexed_attestation.attesting_indices)?,
-        message,
-    );
+    let pubkeys = indexed_attestation
+        .attesting_indices
+        .into_iter()
+        .map(|&validator_idx| Ok(validator_pubkey(state, validator_idx as usize)?))
+        .collect::<Result<_>>()?;
+
+    let signed_message = SignedMessage::new(pubkeys, message);
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
@@ -200,7 +210,7 @@ pub fn deposit_signature_set<'a>(
     // with the fork zeroed.
     SignatureSet::single(
         signature,
-        pubkey,
+        pubkey.g1_ref(),
         message.clone(),
         spec.get_deposit_domain(),
     )
@@ -213,10 +223,7 @@ pub fn exit_signature_set<'a, T: EthSpec>(
     exit: &'a VoluntaryExit,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let validator = state
-        .validators
-        .get(exit.validator_index as usize)
-        .ok_or_else(|| Error::ValidatorUnknown(exit.validator_index))?;
+    let proposer_index = exit.validator_index as usize;
 
     let domain = spec.get_domain(exit.epoch, Domain::VoluntaryExit, &state.fork);
 
@@ -224,29 +231,27 @@ pub fn exit_signature_set<'a, T: EthSpec>(
 
     Ok(SignatureSet::single(
         &exit.signature,
-        &validator.pubkey,
+        validator_pubkey(state, proposer_index)?,
         message,
         domain,
     ))
 }
 
-/// Maps validator indices to public keys.
-fn get_pubkeys<'a, 'b, T, I>(
+/// Maps a validator index to a `PublicKey`.
+fn validator_pubkey<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
-    validator_indices: I,
-) -> Result<Vec<&'a PublicKey>>
-where
-    I: IntoIterator<Item = &'b u64>,
-    T: EthSpec,
-{
-    validator_indices
-        .into_iter()
-        .map(|&validator_idx| {
-            state
-                .validators
-                .get(validator_idx as usize)
-                .ok_or_else(|| Error::ValidatorUnknown(validator_idx))
-                .map(|validator| &validator.pubkey)
+    validator_index: usize,
+) -> Result<Cow<'a, G1Point>> {
+    let pubkey_bytes = &state
+        .validators
+        .get(validator_index)
+        .ok_or_else(|| Error::ValidatorUnknown(validator_index as u64))?
+        .pubkey;
+
+    pubkey_bytes
+        .try_into()
+        .map(|pubkey: PublicKey| Cow::Owned(pubkey.as_raw().point.clone()))
+        .map_err(|_| Error::BadBlsBytes {
+            validator_index: validator_index as u64,
         })
-        .collect()
 }

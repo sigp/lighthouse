@@ -28,7 +28,6 @@ serde_yaml = "0.8.11"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 slog-async = "2.3.0"
 tokio = "0.1.22"
-clap = "2.33.0"
 dirs = "2.0.2"
 exit-future = "0.1.4"
 futures = "0.1.29"
@@ -39,3 +38,4 @@ eth1 = { path = "../eth1" }
 genesis = { path = "../genesis" }
 environment = { path = "../../lighthouse/environment" }
 lighthouse_bootstrap = { path = "../../eth2/utils/lighthouse_bootstrap" }
+eth2_ssz = { path = "../../eth2/utils/ssz" }

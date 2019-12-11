@@ -1,15 +1,18 @@
-use super::methods::{RPCErrorResponse, RPCResponse, RequestId};
+#![allow(clippy::type_complexity)]
+#![allow(clippy::cognitive_complexity)]
+
+use super::methods::{RPCErrorResponse, RequestId};
 use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
 use core::marker::PhantomData;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade};
+use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade, UpgradeError};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use slog::{crit, debug, error, trace, warn};
+use slog::{crit, debug, error, trace};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::time::{Duration, Instant};
@@ -21,6 +24,9 @@ use tokio::timer::{delay_queue, DelayQueue};
 
 /// The time (in seconds) before a substream that is awaiting a response from the user times out.
 pub const RESPONSE_TIMEOUT: u64 = 10;
+
+/// The number of times to retry an outbound upgrade in the case of IO errors.
+const IO_ERROR_RETRIES: u8 = 3;
 
 /// Inbound requests are given a sequential `RequestId` to keep track of.
 type InboundRequestId = RequestId;
@@ -37,7 +43,7 @@ where
     listen_protocol: SubstreamProtocol<RPCProtocol>,
 
     /// If `Some`, something bad happened and we should shut down the handler with an error.
-    pending_error: Option<ProtocolsHandlerUpgrErr<RPCError>>,
+    pending_error: Option<(RequestId, ProtocolsHandlerUpgrErr<RPCError>)>,
 
     /// Queue of events to produce in `poll()`.
     events_out: SmallVec<[RPCEvent; 4]>,
@@ -77,6 +83,10 @@ where
 
     /// After the given duration has elapsed, an inactive connection will shutdown.
     inactive_timeout: Duration,
+
+    /// Try to negotiate the outbound upgrade a few times if there is an IO error before reporting the request as failed.
+    /// This keeps track of the number of attempts.
+    outbound_io_error_retries: u8,
 
     /// Logger for handling RPC streams
     log: slog::Logger,
@@ -147,6 +157,7 @@ where
             max_dial_negotiated: 8,
             keep_alive: KeepAlive::Yes,
             inactive_timeout,
+            outbound_io_error_retries: 0,
             log: log.clone(),
             _phantom: PhantomData,
         }
@@ -174,7 +185,6 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    #[inline]
     pub fn send_request(&mut self, rpc_event: RPCEvent) {
         self.keep_alive = KeepAlive::Yes;
 
@@ -194,21 +204,23 @@ where
     type OutboundProtocol = RPCRequest;
     type OutboundOpenInfo = RPCEvent; // Keep track of the id and the request
 
-    #[inline]
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
         self.listen_protocol.clone()
     }
 
-    #[inline]
     fn inject_fully_negotiated_inbound(
         &mut self,
         out: <RPCProtocol as InboundUpgrade<TSubstream>>::Output,
     ) {
+        // update the keep alive timeout if there are no more remaining outbound streams
+        if let KeepAlive::Until(_) = self.keep_alive {
+            self.keep_alive = KeepAlive::Until(Instant::now() + self.inactive_timeout);
+        }
+
         let (req, substream) = out;
         // drop the stream and return a 0 id for goodbye "requests"
         if let r @ RPCRequest::Goodbye(_) = req {
             self.events_out.push(RPCEvent::Request(0, r));
-            warn!(self.log, "Goodbye Received");
             return;
         }
 
@@ -226,7 +238,6 @@ where
         self.current_substream_id += 1;
     }
 
-    #[inline]
     fn inject_fully_negotiated_outbound(
         &mut self,
         out: <RPCRequest as OutboundUpgrade<TSubstream>>::Output,
@@ -245,14 +256,6 @@ where
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
         match rpc_event {
-            RPCEvent::Request(id, RPCRequest::Goodbye(_)) => {
-                // notify the application layer, that a goodbye has been sent, so the application can
-                // drop and remove the peer
-                self.events_out.push(RPCEvent::Response(
-                    id,
-                    RPCErrorResponse::Success(RPCResponse::Goodbye),
-                ));
-            }
             RPCEvent::Request(id, request) if request.expect_response() => {
                 // new outbound request. Store the stream and tag the output.
                 let delay_key = self
@@ -272,14 +275,11 @@ where
 
     // Note: If the substream has closed due to inactivity, or the substream is in the
     // wrong state a response will fail silently.
-    #[inline]
     fn inject_event(&mut self, rpc_event: Self::InEvent) {
         match rpc_event {
             RPCEvent::Request(_, _) => self.send_request(rpc_event),
             RPCEvent::Response(rpc_id, response) => {
                 // check if the stream matching the response still exists
-                trace!(self.log, "Checking for outbound stream");
-
                 // variables indicating if the response is an error response or a multi-part
                 // response
                 let res_is_error = response.is_error();
@@ -289,7 +289,6 @@ where
                     Some((substream_state, _)) => {
                         match std::mem::replace(substream_state, InboundSubstreamState::Poisoned) {
                             InboundSubstreamState::ResponseIdle(substream) => {
-                                trace!(self.log, "Stream is idle, sending message"; "message" => format!("{}", response));
                                 // close the stream if there is no response
                                 if let RPCErrorResponse::StreamTermination(_) = response {
                                     trace!(self.log, "Stream termination sent. Ending the stream");
@@ -307,7 +306,6 @@ where
                                 if res_is_multiple =>
                             {
                                 // the stream is in use, add the request to a pending queue
-                                trace!(self.log, "Adding message to queue"; "message" => format!("{}", response));
                                 (*self
                                     .queued_outbound_items
                                     .entry(rpc_id)
@@ -347,20 +345,34 @@ where
         }
     }
 
-    #[inline]
     fn inject_dial_upgrade_error(
         &mut self,
-        _: Self::OutboundOpenInfo,
+        request: Self::OutboundOpenInfo,
         error: ProtocolsHandlerUpgrErr<
             <Self::OutboundProtocol as OutboundUpgrade<Self::Substream>>::Error,
         >,
     ) {
+        if let ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error {
+            self.outbound_io_error_retries += 1;
+            if self.outbound_io_error_retries < IO_ERROR_RETRIES {
+                self.send_request(request);
+                return;
+            }
+        }
+        self.outbound_io_error_retries = 0;
+        // add the error
+        let request_id = {
+            if let RPCEvent::Request(id, _) = request {
+                id
+            } else {
+                0
+            }
+        };
         if self.pending_error.is_none() {
-            self.pending_error = Some(error);
+            self.pending_error = Some((request_id, error));
         }
     }
 
-    #[inline]
     fn connection_keep_alive(&self) -> KeepAlive {
         self.keep_alive
     }
@@ -371,11 +383,43 @@ where
         ProtocolsHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent>,
         Self::Error,
     > {
-        if let Some(err) = self.pending_error.take() {
-            // Returning an error here will result in dropping any peer that doesn't support any of
-            // the RPC protocols. For our immediate purposes we permit this and simply log that an
-            // upgrade was not supported.
-            warn!(self.log,"RPC Protocol was not supported"; "Error" => format!("{}", err));
+        if let Some((request_id, err)) = self.pending_error.take() {
+            // Returning an error here will result in dropping the peer.
+            match err {
+                ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(
+                    RPCError::InvalidProtocol(protocol_string),
+                )) => {
+                    // Peer does not support the protocol.
+                    // TODO: We currently will not drop the peer, for maximal compatibility with
+                    // other clients testing their software. In the future, we will need to decide
+                    // which protocols are a bare minimum to support before kicking the peer.
+                    error!(self.log, "Peer doesn't support the RPC protocol"; "protocol" => protocol_string);
+                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                        RPCEvent::Error(request_id, RPCError::InvalidProtocol(protocol_string)),
+                    )));
+                }
+                ProtocolsHandlerUpgrErr::Timeout | ProtocolsHandlerUpgrErr::Timer => {
+                    // negotiation timeout, mark the request as failed
+                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                        RPCEvent::Error(
+                            request_id,
+                            RPCError::Custom("Protocol negotiation timeout".into()),
+                        ),
+                    )));
+                }
+                ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(err)) => {
+                    // IO/Decode/Custom Error, report to the application
+                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                        RPCEvent::Error(request_id, err),
+                    )));
+                }
+                ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Select(err)) => {
+                    // Error during negotiation
+                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                        RPCEvent::Error(request_id, RPCError::Custom(format!("{}", err))),
+                    )));
+                }
+            }
         }
 
         // return any events that need to be reported
@@ -393,18 +437,23 @@ where
             .poll()
             .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
         {
-            trace!(self.log, "Closing expired inbound stream");
             self.inbound_substreams.remove(stream_id.get_ref());
         }
 
         // purge expired outbound substreams
-        while let Async::Ready(Some(stream_id)) = self
+        if let Async::Ready(Some(stream_id)) = self
             .outbound_substreams_delay
             .poll()
             .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
         {
-            trace!(self.log, "Closing expired outbound stream");
             self.outbound_substreams.remove(stream_id.get_ref());
+            // notify the user
+            return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                RPCEvent::Error(
+                    stream_id.get_ref().clone(),
+                    RPCError::Custom("Stream timed out".into()),
+                ),
+            )));
         }
 
         // drive inbound streams that need to be processed
@@ -412,7 +461,7 @@ where
             // Drain all queued items until all messages have been processed for this stream
             // TODO Improve this code logic
             let mut new_items_to_send = true;
-            while new_items_to_send == true {
+            while new_items_to_send {
                 new_items_to_send = false;
                 match self.inbound_substreams.entry(request_id) {
                     Entry::Occupied(mut entry) => {
@@ -427,7 +476,6 @@ where
                                 match substream.poll() {
                                     Ok(Async::Ready(raw_substream)) => {
                                         // completed the send
-                                        trace!(self.log, "RPC message sent");
 
                                         // close the stream if required
                                         if closing {
@@ -435,7 +483,6 @@ where
                                                 InboundSubstreamState::Closing(raw_substream)
                                         } else {
                                             // check for queued chunks and update the stream
-                                            trace!(self.log, "Checking for queued items");
                                             entry.get_mut().0 = apply_queued_responses(
                                                 raw_substream,
                                                 &mut self
@@ -463,7 +510,6 @@ where
                                 };
                             }
                             InboundSubstreamState::ResponseIdle(substream) => {
-                                trace!(self.log, "Idle stream searching queue");
                                 entry.get_mut().0 = apply_queued_responses(
                                     substream,
                                     &mut self.queued_outbound_items.get_mut(&request_id),
@@ -509,12 +555,11 @@ where
                             request,
                         } => match substream.poll() {
                             Ok(Async::Ready(Some(response))) => {
-                                trace!(self.log, "Message received"; "message" => format!("{}", response));
                                 if request.multiple_responses() {
                                     entry.get_mut().0 =
                                         OutboundSubstreamState::RequestPendingResponse {
                                             substream,
-                                            request: request,
+                                            request,
                                         };
                                     let delay_key = &entry.get().1;
                                     self.outbound_substreams_delay

@@ -23,7 +23,10 @@ fn main() {
     let matches = App::new("Lighthouse")
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .about("Eth 2.0 Client")
+        .about(
+            "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
+             node, a validator client and utilities for managing validator accounts.",
+        )
         .arg(
             Arg::with_name("spec")
                 .short("s")
@@ -33,7 +36,7 @@ fn main() {
                 .takes_value(true)
                 .possible_values(&["mainnet", "minimal", "interop"])
                 .global(true)
-                .default_value("minimal"),
+                .default_value("mainnet"),
         )
         .arg(
             Arg::with_name("logfile")
@@ -49,7 +52,7 @@ fn main() {
                 .help("The title of the spec constants for chain config.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
-                .default_value("trace"),
+                .default_value("info"),
         )
         .arg(
             Arg::with_name("datadir")
@@ -57,7 +60,7 @@ fn main() {
                 .short("d")
                 .value_name("DIR")
                 .global(true)
-                .help("Data directory for keys and databases.")
+                .help("Data directory for lighthouse keys and databases.")
                 .takes_value(true),
         )
         .subcommand(beacon_node::cli_app())
@@ -133,14 +136,12 @@ fn run<E: EthSpec>(
     // Creating a command which can run both might be useful future works.
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
-        let runtime_context = environment.core_context();
+        // Pass the entire `environment` to the account manager so it can run blocking operations.
+        account_manager::run(sub_matches, environment);
 
-        account_manager::run(sub_matches, runtime_context);
-
-        // Exit early if the account manager was run. It does not use the tokio executor, no need
-        // to wait for it to shutdown.
+        // Exit as soon as account manager returns control.
         return Ok(());
-    }
+    };
 
     let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("beacon_node") {
         let runtime_context = environment.core_context();

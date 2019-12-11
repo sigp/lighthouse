@@ -81,7 +81,7 @@ impl fmt::Display for PublicKey {
 
 impl fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_hex_string())
+        write!(f, "0x{}", self.as_hex_string())
     }
 }
 
