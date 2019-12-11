@@ -484,6 +484,7 @@ impl Service {
         let cache_3 = self.inner.clone();
         let cache_4 = self.inner.clone();
         let cache_5 = self.inner.clone();
+        let log = self.log.clone();
 
         let block_cache_truncation = self.config().block_cache_truncation;
         let max_blocks_per_update = self
@@ -545,18 +546,26 @@ impl Service {
             stream::unfold(
                 required_block_numbers,
                 move |mut block_numbers| match block_numbers.next() {
-                    Some(block_number) => Some(
-                        download_eth1_block(cache_2.clone(), block_number)
-                            .map(|v| (v, block_numbers)),
-                    ),
+                    Some(block_number) => {
+                        let cached = download_eth1_block(cache_2.clone(), block_number);
+                        let http = download_eth1_block_http(cache_2.clone(), block_number);
+                        Some(cached.join(http).map(|v| (v, block_numbers)))
+                    }
                     None => None,
                 },
             )
-            .fold(0, move |sum, eth1_block| {
+            .fold(0, move |sum, (eth1_block_cached, eth1_block_http)| {
+                debug!(
+                    log,
+                    "Comparing eth1_block deposit count";
+                    "equal" => eth1_block_cached.deposit_count == eth1_block_http.deposit_count,
+                    "original" => format!("{:?}", eth1_block_http.deposit_count),
+                    "cached" => format!("{:?}", eth1_block_cached.deposit_count),
+                );
                 cache_3
                     .block_cache
                     .write()
-                    .insert_root_or_child(eth1_block)
+                    .insert_root_or_child(eth1_block_http)
                     .map_err(Error::FailedToInsertEth1Block)?;
 
                 Ok(sum + 1)
@@ -632,6 +641,43 @@ fn download_eth1_block<'a>(
     )
     .map_err(Error::BlockDownloadFailed)
     .map(move |http_block| Eth1Block {
+        hash: http_block.hash,
+        number: http_block.number,
+        timestamp: http_block.timestamp,
+        deposit_root,
+        deposit_count,
+    })
+}
+
+fn download_eth1_block_http<'a>(
+    cache: Arc<Inner>,
+    block_number: u64,
+) -> impl Future<Item = Eth1Block, Error = Error> + 'a {
+    // Performs a `get_blockByNumber` call to an eth1 node.
+    get_block(
+        &cache.config.read().endpoint,
+        block_number,
+        Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
+    )
+    .map_err(Error::BlockDownloadFailed)
+    .join3(
+        // Perform 2x `eth_call` via an eth1 node to read the deposit contract root and count.
+        get_deposit_root(
+            &cache.config.read().endpoint,
+            &cache.config.read().deposit_contract_address,
+            block_number,
+            Duration::from_millis(GET_DEPOSIT_ROOT_TIMEOUT_MILLIS),
+        )
+        .map_err(Error::GetDepositRootFailed),
+        get_deposit_count(
+            &cache.config.read().endpoint,
+            &cache.config.read().deposit_contract_address,
+            block_number,
+            Duration::from_millis(GET_DEPOSIT_COUNT_TIMEOUT_MILLIS),
+        )
+        .map_err(Error::GetDepositCountFailed),
+    )
+    .map(|(http_block, deposit_root, deposit_count)| Eth1Block {
         hash: http_block.hash,
         number: http_block.number,
         timestamp: http_block.timestamp,
