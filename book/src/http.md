@@ -18,6 +18,7 @@ Endpoint | Description |
 | --- | -- |
 [`/beacon`](./http_beacon.md) | General information about the beacon chain.
 [`/validator`](./http_validator.md) | Provides functionality to validator clients.
+[`/consensus`](./http_consensus.md) | Proof-of-stake voting statistics.
 [`/network`](./http_network.md) | Information about the p2p network.
 
 _Please note: The OpenAPI format at

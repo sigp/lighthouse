@@ -1,5 +1,5 @@
 use crate::{
-    beacon, error::ApiError, helpers, metrics, network, node, spec, validator, BoxFut,
+    beacon, consensus, error::ApiError, helpers, metrics, network, node, spec, validator, BoxFut,
     NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -122,6 +122,10 @@ pub fn route<T: BeaconChainTypes>(
             }
             (&Method::GET, "/beacon/state/genesis") => {
                 into_boxfut(beacon::get_genesis_state::<T>(req, beacon_chain))
+            }
+
+            (&Method::GET, "/consensus/vote_count") => {
+                into_boxfut(consensus::get_vote_count::<T>(req, beacon_chain))
             }
 
             // Methods for bootstrap and checking configuration
