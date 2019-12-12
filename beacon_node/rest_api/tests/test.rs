@@ -336,7 +336,6 @@ fn check_duties<T: BeaconChainTypes>(
 }
 
 #[test]
-#[ignore]
 fn validator_block_post() {
     let mut env = build_env();
 
