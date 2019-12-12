@@ -236,7 +236,7 @@ impl<E: EthSpec> Environment<E> {
             let start = SystemTime::now();
             let timestamp = start
                 .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards")
+                .map_err(|e| e.to_string())?
                 .as_secs();
             let file_stem = path
                 .file_stem()
