@@ -123,11 +123,11 @@ impl<T: EthSpec> OperationPool<T> {
         let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, state, spec);
         let curr_domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
         let reader = self.attestations.read();
-        let act_indices = state
+        let active_indices = state
             .get_cached_active_validator_indices(RelativeEpoch::Current)
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
         let total_active_balance = state
-            .get_total_balance(&act_indices, spec)
+            .get_total_balance(&active_indices, spec)
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
         let valid_attestations = reader
             .iter()
