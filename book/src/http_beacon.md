@@ -12,10 +12,11 @@ HTTP Path | Description |
 [`/beacon/block_root`](#beaconblock_root) | Resolve a slot to a block root.
 [`/beacon/block`](#beaconblock) | Get a `BeaconBlock` by slot or root.
 [`/beacon/state_root`](#beaconstate_root) | Resolve a slot to a state root.
-[`/beacon/state`](#beaconstate) | Get a `BeaconState` by slot or root
-[`/beacon/validators`](#beaconvalidators) | Query for one or more validators
-[`/beacon/validators/all`](#beaconvalidatorsall) | Get all validators
-[`/beacon/validators/active`](#beaconvalidatorsactive) | Get all active validators
+[`/beacon/state`](#beaconstate) | Get a `BeaconState` by slot or root.
+[`/beacon/validators`](#beaconvalidators) | Query for one or more validators.
+[`/beacon/validators/all`](#beaconvalidatorsall) | Get all validators.
+[`/beacon/validators/active`](#beaconvalidatorsactive) | Get all active validators.
+[`/beacon/committees`](#beaconcommittees) | Get the shuffling for an epoch.
 
 ## `/beacon/head`
 
@@ -356,3 +357,75 @@ canonical head state will be used.
 ### Returns
 
 The return format is identical to the [`/beacon/validators`](#beaconvalidators) response body.
+
+## `/beacon/committees`
+
+Request the committees (a.k.a. "shuffling") for all slots and committee indices
+in a given `epoch`.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/beacon/committees`
+Method | GET
+JSON Encoding | Object
+Query Parameters | `epoch`
+Typical Responses | 200
+
+### Parameters
+
+The `epoch` (`Epoch`) query parameter is required and defines the epoch for
+which the committees will be returned. All slots contained within the response will
+be inside this epoch.
+
+### Returns
+
+A list of beacon committees.
+
+### Example Response
+
+```json
+[
+    {
+        "slot": 4768,
+        "index": 0,
+        "committee": [
+            1154,
+            492,
+            9667,
+            3089,
+            8987,
+            1421,
+            224,
+            11243,
+            2127,
+            2329,
+            188,
+            482,
+            486
+        ]
+    },
+    {
+        "slot": 4768,
+        "index": 1,
+        "committee": [
+            5929,
+            8482,
+            5528,
+            6130,
+            14343,
+            9777,
+            10808,
+            12739,
+            15234,
+            12819,
+            5423,
+            6320,
+            9991
+        ]
+    }
+]
+```
+
+_Truncated for brevity._

@@ -1,5 +1,6 @@
 use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
+use crate::validator::get_state_for_epoch;
 use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::{Future, Stream};
@@ -8,7 +9,10 @@ use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::Store;
-use types::{BeaconBlock, BeaconState, EthSpec, Hash256, PublicKeyBytes, Slot, Validator};
+use types::{
+    BeaconBlock, BeaconState, CommitteeIndex, EthSpec, Hash256, PublicKeyBytes, RelativeEpoch,
+    Slot, Validator,
+};
 
 #[derive(Serialize, Deserialize, Encode)]
 pub struct HeadResponse {
@@ -348,6 +352,46 @@ fn validator_response_by_pubkey<E: EthSpec>(
             validator: None,
         })
     }
+}
+
+#[derive(Default, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct Committee {
+    pub slot: Slot,
+    pub index: CommitteeIndex,
+    pub committee: Vec<usize>,
+}
+
+/// HTTP handler
+pub fn get_committees<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    let query = UrlQuery::from_request(&req)?;
+
+    let epoch = query.epoch()?;
+
+    let mut state = get_state_for_epoch(&beacon_chain, epoch)?;
+
+    let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(|e| {
+        ApiError::ServerError(format!("Failed to get state suitable for epoch: {:?}", e))
+    })?;
+
+    state
+        .build_committee_cache(relative_epoch, &beacon_chain.spec)
+        .map_err(|e| ApiError::ServerError(format!("Unable to build committee cache: {:?}", e)))?;
+
+    let committees = state
+        .get_beacon_committees_at_epoch(relative_epoch)
+        .map_err(|e| ApiError::ServerError(format!("Unable to get all committees: {:?}", e)))?
+        .into_iter()
+        .map(|c| Committee {
+            slot: c.slot,
+            index: c.index,
+            committee: c.committee.to_vec(),
+        })
+        .collect::<Vec<_>>();
+
+    ResponseBuilder::new(&req)?.body(&committees)
 }
 
 #[derive(Serialize, Encode)]
