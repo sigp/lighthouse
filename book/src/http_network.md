@@ -1,16 +1,17 @@
 # Lighthouse REST API: `/network`
 
-## Endpoints
+The `/network` endpoints provide information about the p2p network that
+Lighthouse uses to communicate with other beacon nodes.
 
-Table of endpoints:
+## Endpoints
 
 HTTP Path | Description |
 | --- | -- |
-[`/network/peer_id`](#network-peerid) | Get a node's libp2p `PeerId`.
-[`/network/peers`](#network-peers) | List a node's libp2p peers (as `PeerIds`).
-[`/network/enr`](#network-enr-address) | Get a node's discovery `ENR` address.
+[`/network/peer_id`](#networkpeer_id) | Get a node's libp2p `PeerId`.
+[`/network/peers`](#networkpeers) | List a node's libp2p peers (as `PeerIds`).
+[`/network/enr`](#networkenr) | Get a node's discovery `ENR` address.
 
-## Network Peer ID
+## `/network/peer_id`
 
 Requests the beacon node's local `PeerId`.
 
@@ -30,7 +31,7 @@ Typical Responses | 200
 "QmVFcULBYZecPdCKgGmpEYDqJLqvMecfhJadVBtB371Avd"
 ```
 
-## Network Peers
+## `/network/peers`
 
 Requests the beacon node for one `MultiAddr` for each connected peer.
 
@@ -53,7 +54,7 @@ Typical Responses | 200
 ]
 ```
 
-## Network ENR Address
+## `network/enr`
 
 Requests the beacon node for it's listening `ENR` address.
 

@@ -1,16 +1,17 @@
 # Lighthouse REST API: `/validator`
 
-## Endpoints
+The `/validator` endpoints provide the minimum functionality required for a validator
+client to connect to the beacon node and produce blocks and attestations.
 
-Table of endpoints:
+## Endpoints
 
 HTTP Path | Description |
 | --- | -- |
-[`/validator/duties`](#validator-duties) | Provides block and attestation production information for validators.
-[`/validator/duties/all`](#validator-duties-all) | Provides block and attestation production information for all validators.
-[`/validator/duties/active`](#validator-duties-active) | Provides block and attestation production information for all active validators.
+[`/validator/duties`](#validatorduties) | Provides block and attestation production information for validators.
+[`/validator/duties/all`](#validatordutiesall) | Provides block and attestation production information for all validators.
+[`/validator/duties/active`](#validatordutiesactive) | Provides block and attestation production information for all active validators.
 
-## Validator Duties
+## `/validator/duties`
 
 Request information about when a validator must produce blocks and attestations
 at some given `epoch`. The information returned always refers to the canonical
@@ -88,7 +89,7 @@ _Note: for demonstration purposes the second pubkey is some unknown pubkey._
 ]
 ```
 
-## All Validator Duties
+## `/validator/duties/all`
 
 Returns the duties for all validators, equivalent to calling [Validator
 Duties](#validator-duties) while providing all known validator public keys.
@@ -121,7 +122,7 @@ parameter. This parameter is required.
 
 The return format is identical to the [Validator Duties](#validator-duties) response body.
 
-## Active Validator Duties
+## `/validator/duties/active`
 
 Returns the duties for all active validators, equivalent to calling [Validator
 Duties](#validator-duties) while providing all known validator public keys that

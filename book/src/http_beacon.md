@@ -1,22 +1,23 @@
 # Lighthouse REST API: `/beacon`
 
-## Endpoints
+The `/beacon` endpoints provide information about the canonical head of the
+beacon chain and also historical information about beacon blocks and states.
 
-Table of endpoints:
+## Endpoints
 
 HTTP Path | Description |
 | --- | -- |
-[`/beacon/head`](#beacon-head) | Info about the block at the head of the chain.
-[`/beacon/heads`](#beacon-heads) | Returns a list of all known chain heads.
-[`/beacon/block_root`](#block-root) | Resolve a slot to a block root.
-[`/beacon/block`](#beacon-block) | Get a `BeaconBlock` by slot or root.
-[`/beacon/state_root`](#state-root) | Resolve a slot to a state root.
-[`/beacon/state`](#beacon-state) | Get a `BeaconState` by slot or root
-[`/beacon/validators`](#validators) | Query for one or more validators
-[`/beacon/validators/all`](#all-validators) | Get all validators
-[`/beacon/validators/active`](#active-validators) | Get all active validators
+[`/beacon/head`](#beaconhead) | Info about the block at the head of the chain.
+[`/beacon/heads`](#beaconheads) | Returns a list of all known chain heads.
+[`/beacon/block_root`](#beaconblock_root) | Resolve a slot to a block root.
+[`/beacon/block`](#beaconblock) | Get a `BeaconBlock` by slot or root.
+[`/beacon/state_root`](#beaconstate_root) | Resolve a slot to a state root.
+[`/beacon/state`](#beaconstate) | Get a `BeaconState` by slot or root
+[`/beacon/validators`](#beaconvalidators) | Query for one or more validators
+[`/beacon/validators/all`](#beaconvalidatorsall) | Get all validators
+[`/beacon/validators/active`](#beaconvalidatorsactive) | Get all active validators
 
-## Beacon Head
+## `/beacon/head`
 
 Requests information about the head of the beacon chain, from the node's
 perspective.
@@ -47,11 +48,10 @@ Typical Responses | 200
 }
 ```
 
-## Beacon Heads
+## `/beacon/heads`
 
 Returns the roots of all known head blocks. Only one of these roots is the
-canonical head and that is decided by the fork choice algorithm. See [Beacon
-Head](#beacon-head) for the canonical head.
+canonical head and that is decided by the fork choice algorithm. See [`/beacon/head`](#beaconhead) for the canonical head.
 
 ### HTTP Specification
 
@@ -74,11 +74,11 @@ Typical Responses | 200
     {
         "beacon_block_root": "0x41ed5b253c4fc841cba8a6d44acbe101866bc674c3cfa3c4e9f7388f465aa15b",
         "beacon_block_slot": 38375
-    },
+    }
 ]
 ```
 
-## Block Root
+## `/beacon/block_root`
 
 Returns the block root for the given slot in the canonical chain. If there
 is a re-org, the same slot may return a different root.
@@ -103,7 +103,7 @@ Typical Responses | 200, 404
 "0xc35ddf4e71c31774e0594bd7eb32dfe50b54dbc40abd594944254b4ec8895196"
 ```
 
-## Beacon Block
+## `/beacon/block`
 
 Request that the node return a beacon chain block that matches the provided
 criteria (a block `root` or beacon chain `slot`). Only one of the parameters
@@ -160,7 +160,7 @@ Returns an object containing a single [`BeaconBlock`](https://github.com/ethereu
 }
 ```
 
-## State Root
+## `/beacon/state_root`
 
 Returns the state root for the given slot in the canonical chain. If there
 is a re-org, the same slot may return a different root.
@@ -185,7 +185,7 @@ Typical Responses | 200, 404
 "0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f"
 ```
 
-## Beacon State
+## `/beacon/state`
 
 Request that the node return a beacon chain state that matches the provided
 criteria (a state `root` or beacon chain `slot`). Only one of the parameters
@@ -230,7 +230,7 @@ and its tree hash root.
 
 _Truncated for brevity._
 
-## Validators
+## `/beacon/validators`
 
 Request that the node returns information about one or more validator public
 keys. This request takes the form of a `POST` request to allow sending a large
@@ -309,7 +309,7 @@ _Note: for demonstration purposes the second pubkey is some unknown pubkey._
 ]
 ```
 
-## All Validators
+## `/beacon/validators/all`
 
 Returns all validators.
 
@@ -331,9 +331,9 @@ canonical head state will be used.
 
 ### Returns
 
-The return format is identical to the [Validators](#validators) response body.
+The return format is identical to the [`/beacon/validators`](#beaconvalidators) response body.
 
-## Active Validators
+## `/beacon/validators/active`
 
 Returns all validators that are active in the state defined by `state_root`.
 
@@ -355,4 +355,4 @@ canonical head state will be used.
 
 ### Returns
 
-The return format is identical to the [Validators](#validators) response body.
+The return format is identical to the [`/beacon/validators`](#beaconvalidators) response body.

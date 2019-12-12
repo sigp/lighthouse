@@ -1,15 +1,16 @@
 # Lighthouse REST API: `/consensus`
 
-## Endpoints
+The `/consensus` endpoints provide information on results of the proof-of-stake
+voting process used for finality/justification under Casper FFG.
 
-Table of endpoints:
+## Endpoints
 
 HTTP Path | Description |
 | --- | -- |
-[`/consensus/global_votes`](#global-votes) | A global vote count for a given epoch.
-[`/consensus/individual_votes`](#individual-votes) | A per-validator breakdown of votes in a given epoch.
+[`/consensus/global_votes`](#consensusglobal_votes) | A global vote count for a given epoch.
+[`/consensus/individual_votes`](#consensusindividual_votes) | A per-validator breakdown of votes in a given epoch.
 
-## Global Votes
+## `/consensus/global_votes`
 
 Returns a global count of votes for some given `epoch`. The results are included
 both for the current and previous (`epoch - 1`) epochs since both are required
@@ -106,12 +107,12 @@ A report on global validator voting participation.
 }
 ```
 
-## Individual Votes
+## `/consensus/individual_votes`
 
 Returns a per-validator summary of how that validator performed during the
 current epoch.
 
-The [Global Votes](#global-votes) endpoint is the summation of all of these
+The [Global Votes](#consensusglobal_votes) endpoint is the summation of all of these
 individual values, please see it for definitions of terms like "current_epoch",
 "previous_epoch" and "target_attester".
 

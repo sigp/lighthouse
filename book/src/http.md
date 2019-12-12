@@ -1,7 +1,5 @@
 # HTTP API
 
-
-
 By default, a Lighthouse `beacon_node` exposes a HTTP server on `localhost:5052`.
 
 The following CLI flags control the HTTP server:
