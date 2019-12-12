@@ -399,45 +399,6 @@ impl<T: EthSpec> BeaconState<T> {
         cache.get_beacon_committees_at_slot(slot)
     }
 
-    /// Compute the proposer (not necessarily for the Beacon chain) from a list of indices.
-    ///
-    /// Spec v0.9.1
-    // NOTE: be sure to test this bad boy.
-    pub fn compute_proposer_index(
-        &self,
-        indices: &[usize],
-        seed: &[u8],
-        spec: &ChainSpec,
-    ) -> Result<usize, Error> {
-        if indices.is_empty() {
-            return Err(Error::InsufficientValidators);
-        }
-
-        let mut i = 0;
-        loop {
-            let candidate_index = indices[compute_shuffled_index(
-                i % indices.len(),
-                indices.len(),
-                seed,
-                spec.shuffle_round_count,
-            )
-            .ok_or(Error::UnableToShuffle)?];
-            let random_byte = {
-                let mut preimage = seed.to_vec();
-                preimage.append(&mut int_to_bytes8((i / 32) as u64));
-                let hash = hash(&preimage);
-                hash[i % 32]
-            };
-            let effective_balance = self.validators[candidate_index].effective_balance;
-            if effective_balance * MAX_RANDOM_BYTE
-                >= spec.max_effective_balance * u64::from(random_byte)
-            {
-                return Ok(candidate_index);
-            }
-            i += 1;
-        }
-    }
-
     /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
     ///
     /// Note: a spec argument is not required as it utilizes the cache.
@@ -922,8 +883,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.tree_hash_cache = BeaconTreeHashCache::default();
     }
 
-    /// SCOTT
-    /// replaces computer_proposer_index
+    /// Updates the cache if the provided epoch does not match the one in the cache.
     pub fn update_proposer_indices_cache(
         &mut self,
         slot: Slot,
@@ -931,7 +891,10 @@ impl<T: EthSpec> BeaconState<T> {
     ) -> Result<(), Error> {
         let slots_per_epoch = T::slots_per_epoch();
         let epoch = slot.epoch(slots_per_epoch);
+
+        // Checking to see if epoch is something
         if let Some(cached_epoch) = self.proposer_indices_cache.epoch {
+            // If the cached_epoch is the same as the one in the argument, then we don't need to update.
             if cached_epoch == epoch {
                 return Ok(());
             }
@@ -943,11 +906,16 @@ impl<T: EthSpec> BeaconState<T> {
             return Err(Error::InsufficientValidators);
         }
 
+        // Using start_slot here just to make sure we are starting from the first slot in the epoch.
         let start_slot = epoch.start_slot(slots_per_epoch);
         let mut vector = vec![0; slots_per_epoch as usize];
+
+        // Iterating until we reach slots_per_epoch, caching the proposer index in the vector.
         for slot_index in 0..slots_per_epoch as usize {
             let seed = self.get_beacon_proposer_seed(start_slot + slot_index as u64, spec)?;
             let mut i = 0;
+
+            // This was previously in the compute_proposer_index
             loop {
                 let candidate_index = indices[compute_shuffled_index(
                     i % indices.len(),
@@ -975,6 +943,7 @@ impl<T: EthSpec> BeaconState<T> {
                 i += 1;
             }
         }
+
         self.proposer_indices_cache = ProposerIndicesCache::new(
             epoch,
             FixedVector::new(vector).expect("should be of same length"),
