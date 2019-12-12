@@ -1,6 +1,6 @@
 # HTTP API
 
-By default, a Lighthouse `beacon_node` exposes a HTTP server on `localhost:5052`.
+A Lighthouse beacon node can be configured to expose a HTTP server by supplying the `--http` flag. The default listen address is `localhost:5052`.
 
 The following CLI flags control the HTTP server:
 
@@ -22,7 +22,7 @@ Endpoint | Description |
 _Please note: The OpenAPI format at
 [SwaggerHub: Lighthouse REST
 API](https://app.swaggerhub.com/apis-docs/spble/lighthouse_rest_api/0.2.0) has
-been deprecated. This documentation is now the source of truth for the REST API._
+been **deprecated**. This documentation is now the source of truth for the REST API._
 
 ## Troubleshooting
 
