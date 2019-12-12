@@ -28,7 +28,6 @@ impl<T: EthSpec> ProposerIndicesCache<T> {
 
     pub fn get_proposer_index_for_slot(&self, slot: u64) -> Result<usize, Error> {
         if let Some(indices) = &self.indices {
-            dbg!(&indices);
             let slot_index = slot % indices.len() as u64;
             indices
                 .get(slot_index as usize)

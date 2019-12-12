@@ -49,7 +49,6 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     // 0th candidate should be chosen every time.
     let state = build_state(T::slots_per_epoch() as usize);
     for i in 0..T::slots_per_epoch() {
-        dbg!(i);
         test(&state, Slot::from(i), 0);
     }
 
@@ -57,7 +56,6 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     // 0th candidate should be chosen every time.
     let state = build_state(T::slots_per_epoch() as usize * 2);
     for i in 0..T::slots_per_epoch() {
-        dbg!(i);
         test(&state, Slot::from(i), 0);
     }
 
