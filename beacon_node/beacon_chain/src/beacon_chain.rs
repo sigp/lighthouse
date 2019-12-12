@@ -8,7 +8,6 @@ use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
-use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{debug, error, info, trace, warn, Logger};
@@ -16,8 +15,8 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
     errors::{
-        AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
-        ExitValidationError, ProposerSlashingValidationError,
+        AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
+        ProposerSlashingValidationError,
     },
     verify_attestation_for_state, VerifySignatures,
 };
@@ -1037,15 +1036,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             Ok(AttestationProcessingOutcome::Processed)
         }
-    }
-
-    /// Accept some deposit and queue it for inclusion in an appropriate block.
-    pub fn process_deposit(
-        &self,
-        index: u64,
-        deposit: Deposit,
-    ) -> Result<DepositInsertStatus, DepositValidationError> {
-        self.op_pool.insert_deposit(index, deposit)
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
