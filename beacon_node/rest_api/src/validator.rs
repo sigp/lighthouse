@@ -1,6 +1,5 @@
 use crate::helpers::{
-    check_content_type_for_json, parse_pubkey_bytes, publish_attestation_to_network,
-    publish_beacon_block_to_network,
+    check_content_type_for_json, publish_attestation_to_network, publish_beacon_block_to_network,
 };
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
@@ -15,7 +14,7 @@ use slog::{error, info, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, CommitteeIndex, Epoch, RelativeEpoch, Slot};
+use types::{Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, RelativeEpoch, Slot};
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorDuty {
@@ -72,17 +71,61 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
     Box::new(future)
 }
 
-/// Helper function to return duties for some validators and some epoch.
-fn return_validator_duties<T: BeaconChainTypes>(
+/// HTTP Handler to retrieve all validator duties for the given epoch.
+pub fn get_all_validator_duties<T: BeaconChainTypes>(
+    req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    let query = UrlQuery::from_request(&req)?;
+
+    let epoch = query.epoch()?;
+
+    let state = get_state_for_epoch(&beacon_chain, epoch)?;
+
+    let validator_pubkeys = state
+        .validators
+        .iter()
+        .map(|validator| validator.pubkey.clone())
+        .collect();
+
+    let duties = return_validator_duties(beacon_chain, epoch, validator_pubkeys)?;
+
+    ResponseBuilder::new(&req)?.body_no_ssz(&duties)
+}
+
+/// HTTP Handler to retrieve all active validator duties for the given epoch.
+pub fn get_active_validator_duties<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    let query = UrlQuery::from_request(&req)?;
+
+    let epoch = query.epoch()?;
+
+    let state = get_state_for_epoch(&beacon_chain, epoch)?;
+
+    let validator_pubkeys = state
+        .validators
+        .iter()
+        .filter(|validator| validator.is_active_at(state.current_epoch()))
+        .map(|validator| validator.pubkey.clone())
+        .collect();
+
+    let duties = return_validator_duties(beacon_chain, epoch, validator_pubkeys)?;
+
+    ResponseBuilder::new(&req)?.body_no_ssz(&duties)
+}
+
+/// Helper function to return the state that can be used to determine the duties for some `epoch`.
+fn get_state_for_epoch<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
     epoch: Epoch,
-    validator_pubkeys: Vec<PublicKeyBytes>,
-) -> Result<Vec<ValidatorDuty>, ApiError> {
+) -> Result<BeaconState<T::EthSpec>, ApiError> {
     let slots_per_epoch = T::EthSpec::slots_per_epoch();
     let head_epoch = beacon_chain.head().beacon_state.current_epoch();
 
-    let mut state = if RelativeEpoch::from_epoch(head_epoch, epoch).is_ok() {
-        beacon_chain.head().beacon_state
+    if RelativeEpoch::from_epoch(head_epoch, epoch).is_ok() {
+        Ok(beacon_chain.head().beacon_state)
     } else {
         let slot = if epoch > head_epoch {
             // Move to the first slot of the epoch prior to the request.
@@ -98,8 +141,17 @@ fn return_validator_duties<T: BeaconChainTypes>(
 
         beacon_chain.state_at_slot(slot).map_err(|e| {
             ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
-        })?
-    };
+        })
+    }
+}
+
+/// Helper function to get the duties for some `validator_pubkeys` in some `epoch`.
+fn return_validator_duties<T: BeaconChainTypes>(
+    beacon_chain: Arc<BeaconChain<T>>,
+    epoch: Epoch,
+    validator_pubkeys: Vec<PublicKeyBytes>,
+) -> Result<Vec<ValidatorDuty>, ApiError> {
+    let mut state = get_state_for_epoch(&beacon_chain, epoch)?;
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
         .map_err(|_| ApiError::ServerError(String::from("Loaded state is in the wrong epoch")))?;

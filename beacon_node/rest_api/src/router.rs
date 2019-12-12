@@ -95,6 +95,12 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::POST, "/validator/duties") => {
                 validator::post_validator_duties::<T>(req, beacon_chain)
             }
+            (&Method::GET, "/validator/duties/all") => {
+                into_boxfut(validator::get_all_validator_duties::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/validator/duties/active") => into_boxfut(
+                validator::get_active_validator_duties::<T>(req, beacon_chain),
+            ),
             (&Method::GET, "/validator/block") => {
                 into_boxfut(validator::get_new_beacon_block::<T>(req, beacon_chain, log))
             }
