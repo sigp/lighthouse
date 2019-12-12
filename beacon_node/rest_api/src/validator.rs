@@ -72,27 +72,7 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
     Box::new(future)
 }
 
-/// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch
-///
-/// The given `epoch` must be within one epoch of the current epoch.
-pub fn get_validator_duties<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let query = UrlQuery::from_request(&req)?;
-
-    let epoch = query.epoch()?;
-    let validator_pubkeys = query
-        .all_of("validator_pubkeys")?
-        .iter()
-        .map(|validator_pubkey_str| parse_pubkey_bytes(validator_pubkey_str))
-        .collect::<Result<_, _>>()?;
-
-    let duties = return_validator_duties(beacon_chain, epoch, validator_pubkeys)?;
-
-    ResponseBuilder::new(&req)?.body_no_ssz(&duties)
-}
-
+/// Helper function to return duties for some validators and some epoch.
 fn return_validator_duties<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     epoch: Epoch,

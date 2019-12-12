@@ -421,19 +421,10 @@ pub fn get_state_root<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&root)
 }
 
-/// HTTP handler to return the highest finalized slot.
-pub fn get_current_finalized_checkpoint<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let head_state = beacon_chain.head().beacon_state;
-
-    let checkpoint = head_state.finalized_checkpoint.clone();
-
-    ResponseBuilder::new(&req)?.body(&checkpoint)
-}
-
 /// HTTP handler to return a `BeaconState` at the genesis block.
+///
+/// This is an undocumented convenience method used during testing. For production, simply do a
+/// state request at slot 0.
 pub fn get_genesis_state<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,

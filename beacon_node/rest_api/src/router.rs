@@ -73,16 +73,7 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/beacon/block_root") => {
                 into_boxfut(beacon::get_block_root::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/blocks") => {
-                into_boxfut(helpers::implementation_pending_response(req))
-            }
             (&Method::GET, "/beacon/fork") => into_boxfut(beacon::get_fork::<T>(req, beacon_chain)),
-            (&Method::GET, "/beacon/attestations") => {
-                into_boxfut(helpers::implementation_pending_response(req))
-            }
-            (&Method::GET, "/beacon/attestations/pending") => {
-                into_boxfut(helpers::implementation_pending_response(req))
-            }
             (&Method::GET, "/beacon/genesis_time") => {
                 into_boxfut(beacon::get_genesis_time::<T>(req, beacon_chain))
             }
@@ -101,9 +92,6 @@ pub fn route<T: BeaconChainTypes>(
             }
 
             // Methods for Validator
-            (&Method::GET, "/validator/duties") => {
-                into_boxfut(validator::get_validator_duties::<T>(req, beacon_chain))
-            }
             (&Method::POST, "/validator/duties") => {
                 validator::post_validator_duties::<T>(req, beacon_chain)
             }
@@ -126,9 +114,6 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/beacon/state_root") => {
                 into_boxfut(beacon::get_state_root::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/state/current_finalized_checkpoint") => into_boxfut(
-                beacon::get_current_finalized_checkpoint::<T>(req, beacon_chain),
-            ),
             (&Method::GET, "/beacon/state/genesis") => {
                 into_boxfut(beacon::get_genesis_state::<T>(req, beacon_chain))
             }
