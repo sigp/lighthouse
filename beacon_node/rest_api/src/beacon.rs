@@ -185,6 +185,55 @@ pub fn get_validators<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&validators)
 }
 
+/// HTTP handler to return all validators, each as a `ValidatorResponse`.
+pub fn get_all_validators<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    let query = UrlQuery::from_request(&req)?;
+
+    let state_root_opt = if let Some((_key, value)) = query.first_of_opt(&["state_root"]) {
+        Some(parse_root(&value)?)
+    } else {
+        None
+    };
+
+    let state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+
+    let validators = state
+        .validators
+        .iter()
+        .map(|validator| validator_response_by_pubkey(&state, validator.pubkey.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    ResponseBuilder::new(&req)?.body(&validators)
+}
+
+/// HTTP handler to return all active validators, each as a `ValidatorResponse`.
+pub fn get_active_validators<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    let query = UrlQuery::from_request(&req)?;
+
+    let state_root_opt = if let Some((_key, value)) = query.first_of_opt(&["state_root"]) {
+        Some(parse_root(&value)?)
+    } else {
+        None
+    };
+
+    let state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+
+    let validators = state
+        .validators
+        .iter()
+        .filter(|validator| validator.is_active_at(state.current_epoch()))
+        .map(|validator| validator_response_by_pubkey(&state, validator.pubkey.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    ResponseBuilder::new(&req)?.body(&validators)
+}
+
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
 pub struct BulkValidatorRequest {
     /// If set to `None`, uses the canonical head state.
@@ -227,14 +276,13 @@ pub fn post_validators<T: BeaconChainTypes>(
     Box::new(future)
 }
 
-/// Maps a vec of `validator_pubkey` to a vec of `ValidatorResponse`, using the state at the given
-/// `state_root`. If `state_root.is_none()`, uses the canonial head state.
-fn validator_responses_by_pubkey<T: BeaconChainTypes>(
-    beacon_chain: Arc<BeaconChain<T>>,
+/// Returns either the state given by `state_root_opt`, or the canonical head state if it is
+/// `None`.
+fn get_state_from_root_opt<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
     state_root_opt: Option<Hash256>,
-    validator_pubkeys: Vec<PublicKeyBytes>,
-) -> Result<Vec<ValidatorResponse>, ApiError> {
-    let state = if let Some(state_root) = state_root_opt {
+) -> Result<BeaconState<T::EthSpec>, ApiError> {
+    if let Some(state_root) = state_root_opt {
         beacon_chain
             .get_state(&state_root, None)
             .map_err(|e| {
@@ -243,12 +291,20 @@ fn validator_responses_by_pubkey<T: BeaconChainTypes>(
                     state_root, e
                 ))
             })?
-            .ok_or_else(|| {
-                ApiError::NotFound(format!("No state exists with root: {}", state_root))
-            })?
+            .ok_or_else(|| ApiError::NotFound(format!("No state exists with root: {}", state_root)))
     } else {
-        beacon_chain.head().beacon_state
-    };
+        Ok(beacon_chain.head().beacon_state)
+    }
+}
+
+/// Maps a vec of `validator_pubkey` to a vec of `ValidatorResponse`, using the state at the given
+/// `state_root`. If `state_root.is_none()`, uses the canonial head state.
+fn validator_responses_by_pubkey<T: BeaconChainTypes>(
+    beacon_chain: Arc<BeaconChain<T>>,
+    state_root_opt: Option<Hash256>,
+    validator_pubkeys: Vec<PublicKeyBytes>,
+) -> Result<Vec<ValidatorResponse>, ApiError> {
+    let state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
 
     validator_pubkeys
         .into_iter()

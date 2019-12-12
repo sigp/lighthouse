@@ -93,11 +93,11 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::POST, "/beacon/validators") => {
                 into_boxfut(beacon::post_validators::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/validators/indicies") => {
-                into_boxfut(helpers::implementation_pending_response(req))
+            (&Method::GET, "/beacon/validators/all") => {
+                into_boxfut(beacon::get_all_validators::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/validators/pubkeys") => {
-                into_boxfut(helpers::implementation_pending_response(req))
+            (&Method::GET, "/beacon/validators/active") => {
+                into_boxfut(beacon::get_active_validators::<T>(req, beacon_chain))
             }
 
             // Methods for Validator
