@@ -62,7 +62,7 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
     ) {
         if self.att.data.slot == best_att.data.slot && self.att.data.index == best_att.data.index {
             self.fresh_validators_rewards
-                .retain(|k, _| covered_validators.contains_key(k))
+                .retain(|k, _| !covered_validators.contains_key(k))
         }
     }
 
