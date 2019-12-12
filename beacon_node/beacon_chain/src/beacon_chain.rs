@@ -39,13 +39,16 @@ use types::*;
 // Must be 32-bytes or panic.
 //
 //                          |-------must be this long------|
-pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
+pub const GRAFFITI: &str = "sigp/lighthouse-0.1.0-prerelease";
 
 /// If true, everytime a block is processed the pre-state, post-state and block are written to SSZ
 /// files in the temp directory.
 ///
 /// Only useful for testing.
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
+
+/// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
+const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -69,6 +72,8 @@ pub enum BlockProcessingOutcome {
     },
     /// Block is already known, no need to re-import.
     BlockIsAlreadyKnown,
+    /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
+    BlockSlotLimitReached,
     /// The block could not be applied to the state, it is invalid.
     PerBlockProcessingError(BlockProcessingError),
 }
@@ -1172,6 +1177,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if block.slot == 0 {
             return Ok(BlockProcessingOutcome::GenesisBlock);
+        }
+
+        if block.slot >= MAXIMUM_BLOCK_SLOT_NUMBER {
+            return Ok(BlockProcessingOutcome::BlockSlotLimitReached);
         }
 
         if block.slot <= finalized_slot {
