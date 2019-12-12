@@ -151,7 +151,7 @@ pub fn process_block_header<T: EthSpec>(
     state.latest_block_header = block.temporary_block_header();
 
     // Verify proposer is not slashed
-    let proposer_idx = state.get_beacon_proposer_index(block.slot, spec)?;
+    let proposer_idx = state.get_beacon_proposer_index(block.slot)?;
     let proposer = &state.validators[proposer_idx];
     verify!(
         !proposer.slashed,
@@ -352,7 +352,7 @@ pub fn process_attestations<T: EthSpec>(
         })?;
 
     // Update the state in series.
-    let proposer_index = state.get_beacon_proposer_index(state.slot, spec)? as u64;
+    let proposer_index = state.get_beacon_proposer_index(state.slot)? as u64;
     for attestation in attestations {
         let pending_attestation = PendingAttestation {
             aggregation_bits: attestation.aggregation_bits.clone(),

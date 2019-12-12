@@ -1,5 +1,6 @@
 use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
+use self::proposer_indices_cache::ProposerIndicesCache;
 use crate::test_utils::TestRandom;
 use crate::*;
 use cached_tree_hash::{CachedTreeHash, MultiTreeHashCache, TreeHashCache};
@@ -22,6 +23,7 @@ pub use eth_spec::*;
 #[macro_use]
 mod committee_cache;
 mod exit_cache;
+mod proposer_indices_cache;
 mod pubkey_cache;
 mod tests;
 
@@ -55,6 +57,8 @@ pub enum Error {
         cache_len: usize,
         registry_len: usize,
     },
+    ProposerIndicesCacheIncomplete,
+    ProposerIndicesCacheUninitialized,
     PreviousCommitteeCacheUninitialized,
     CurrentCommitteeCacheUninitialized,
     RelativeEpochError(RelativeEpochError),
@@ -192,6 +196,12 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     pub tree_hash_cache: BeaconTreeHashCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    pub proposer_indices_cache: ProposerIndicesCache<T>,
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -247,6 +257,7 @@ impl<T: EthSpec> BeaconState<T> {
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
             tree_hash_cache: BeaconTreeHashCache::default(),
+            proposer_indices_cache: ProposerIndicesCache::default(),
         }
     }
 
@@ -429,13 +440,12 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
     ///
+    /// Note: a spec argument is not required as it utilizes the cache.
     /// Spec v0.9.1
-    pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
-        let epoch = slot.epoch(T::slots_per_epoch());
-        let seed = self.get_beacon_proposer_seed(slot, spec)?;
-        let indices = self.get_active_validator_indices(epoch);
-
-        self.compute_proposer_index(&indices, &seed, spec)
+    pub fn get_beacon_proposer_index(&self, slot: Slot) -> Result<usize, Error> {
+        let slot = slot.into();
+        self.proposer_indices_cache
+            .get_proposer_index_for_slot(slot)
     }
 
     /// Compute the seed to use for the beacon proposer selection at the given `slot`.
@@ -757,6 +767,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.update_pubkey_cache()?;
         self.build_tree_hash_cache()?;
         self.exit_cache.build_from_registry(&self.validators, spec);
+        self.update_proposer_indices_cache(self.slot, spec)?;
 
         Ok(())
     }
@@ -768,6 +779,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_committee_cache(RelativeEpoch::Next);
         self.drop_pubkey_cache();
         self.drop_tree_hash_cache();
+        self.drop_proposer_indices_cache();
         self.exit_cache = ExitCache::default();
     }
 
@@ -860,7 +872,7 @@ impl<T: EthSpec> BeaconState<T> {
             .enumerate()
             .skip(self.pubkey_cache.len())
         {
-            let success = self.pubkey_cache.insert(validator.pubkey.clone().into(), i);
+            let success = self.pubkey_cache.insert(validator.pubkey.clone(), i);
             if !success {
                 return Err(Error::PubkeyCacheInconsistent);
             }
@@ -910,6 +922,71 @@ impl<T: EthSpec> BeaconState<T> {
         self.tree_hash_cache = BeaconTreeHashCache::default();
     }
 
+    /// SCOTT
+    /// replaces computer_proposer_index
+    pub fn update_proposer_indices_cache(
+        &mut self,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let slots_per_epoch = T::slots_per_epoch();
+        let epoch = slot.epoch(slots_per_epoch);
+        if let Some(cached_epoch) = self.proposer_indices_cache.epoch {
+            if cached_epoch == epoch {
+                return Ok(());
+            }
+        }
+
+        let indices = self.get_active_validator_indices(epoch);
+
+        if indices.is_empty() {
+            return Err(Error::InsufficientValidators);
+        }
+
+        let start_slot = epoch.start_slot(slots_per_epoch);
+        let mut vector = vec![0; slots_per_epoch as usize];
+        for slot_index in 0..slots_per_epoch as usize {
+            let seed = self.get_beacon_proposer_seed(start_slot + slot_index as u64, spec)?;
+            let mut i = 0;
+            loop {
+                let candidate_index = indices[compute_shuffled_index(
+                    i % indices.len(),
+                    indices.len(),
+                    &seed,
+                    spec.shuffle_round_count,
+                )
+                .ok_or(Error::UnableToShuffle)?];
+                let random_byte = {
+                    let mut preimage = seed.to_vec();
+                    preimage.append(&mut int_to_bytes8((i / 32) as u64));
+                    let hash = hash(&preimage);
+                    hash[i % 32]
+                };
+                let effective_balance = self.validators[candidate_index].effective_balance;
+                if effective_balance * MAX_RANDOM_BYTE
+                    >= spec.max_effective_balance * u64::from(random_byte)
+                {
+                    let elem = vector
+                        .get_mut(slot_index)
+                        .ok_or_else(|| Error::ProposerIndicesCacheIncomplete)?;
+                    *elem = candidate_index;
+                    break;
+                }
+                i += 1;
+            }
+        }
+        self.proposer_indices_cache = ProposerIndicesCache::new(
+            epoch,
+            FixedVector::new(vector).expect("should be of same length"),
+        );
+        Ok(())
+    }
+
+    /// Completely drops the proposer indices cache, replacing it with a new, empty cache.
+    pub fn drop_proposer_indices_cache(&mut self) {
+        self.proposer_indices_cache = ProposerIndicesCache::default();
+    }
+
     pub fn clone_without_caches(&self) -> Self {
         BeaconState {
             genesis_time: self.genesis_time,
@@ -940,6 +1017,7 @@ impl<T: EthSpec> BeaconState<T> {
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
             tree_hash_cache: BeaconTreeHashCache::default(),
+            proposer_indices_cache: ProposerIndicesCache::default(),
         }
     }
 }

@@ -13,7 +13,12 @@ fn test_beacon_proposer_index<T: EthSpec>() {
         let builder: TestingBeaconStateBuilder<T> =
             TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
         let (mut state, _keypairs) = builder.build();
-        state.build_committee_cache(relative_epoch, &spec).unwrap();
+        state
+            .build_committee_cache(relative_epoch, &spec)
+            .expect("built committee cache");
+        state
+            .update_proposer_indices_cache(state.slot, &spec)
+            .expect("built proposer indices cache");
 
         state
     };
@@ -35,7 +40,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     // Run a test on the state.
     let test = |state: &BeaconState<T>, slot: Slot, candidate_index: usize| {
         assert_eq!(
-            state.get_beacon_proposer_index(slot, &spec),
+            state.get_beacon_proposer_index(slot),
             Ok(ith_candidate(state, slot, candidate_index))
         );
     };
@@ -44,6 +49,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     // 0th candidate should be chosen every time.
     let state = build_state(T::slots_per_epoch() as usize);
     for i in 0..T::slots_per_epoch() {
+        dbg!(i);
         test(&state, Slot::from(i), 0);
     }
 
@@ -51,6 +57,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     // 0th candidate should be chosen every time.
     let state = build_state(T::slots_per_epoch() as usize * 2);
     for i in 0..T::slots_per_epoch() {
+        dbg!(i);
         test(&state, Slot::from(i), 0);
     }
 
@@ -58,6 +65,10 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     let mut state = build_state(T::slots_per_epoch() as usize * 2);
     let slot0_candidate0 = ith_candidate(&state, Slot::new(0), 0);
     state.validators[slot0_candidate0].effective_balance = 0;
+    state.drop_proposer_indices_cache();
+    state
+        .update_proposer_indices_cache(state.slot, &spec)
+        .expect("rekt");
     test(&state, Slot::new(0), 1);
     for i in 1..T::slots_per_epoch() {
         test(&state, Slot::from(i), 0);
@@ -92,13 +103,13 @@ fn test_cache_initialization<'a, T: EthSpec>(
     );
 
     // Build the cache.
-    state.build_committee_cache(relative_epoch, spec).unwrap();
+    state.build_all_caches(spec).unwrap();
 
     // Assert a call to a cache-using function passes.
-    let _ = state.get_beacon_proposer_index(slot, spec).unwrap();
+    let _ = state.get_beacon_proposer_index(slot).unwrap();
 
     // Drop the cache.
-    state.drop_committee_cache(relative_epoch);
+    state.drop_all_caches();
 
     // Assert a call to a cache-using function fail.
     assert_eq!(

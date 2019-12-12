@@ -607,9 +607,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )));
         }
 
-        state
-            .get_beacon_proposer_index(slot, &self.spec)
-            .map_err(Into::into)
+        state.get_beacon_proposer_index(slot).map_err(Into::into)
     }
 
     /// Returns the attestation slot and committee index for a given validator index.

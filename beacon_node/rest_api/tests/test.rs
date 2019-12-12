@@ -304,7 +304,7 @@ fn check_duties<T: BeaconChainTypes>(
             if !duty.block_proposal_slots.is_empty() {
                 for slot in &duty.block_proposal_slots {
                     let expected_proposer = state
-                        .get_beacon_proposer_index(*slot, spec)
+                        .get_beacon_proposer_index(*slot)
                         .expect("should know proposer");
                     assert_eq!(
                         expected_proposer, validator_index,
@@ -314,7 +314,7 @@ fn check_duties<T: BeaconChainTypes>(
             } else {
                 epoch.slot_iter(E::slots_per_epoch()).for_each(|slot| {
                     let slot_proposer = state
-                        .get_beacon_proposer_index(slot, spec)
+                        .get_beacon_proposer_index(slot)
                         .expect("should know proposer");
                     assert!(
                         slot_proposer != validator_index,
@@ -336,6 +336,7 @@ fn check_duties<T: BeaconChainTypes>(
 }
 
 #[test]
+#[ignore]
 fn validator_block_post() {
     let mut env = build_env();
 

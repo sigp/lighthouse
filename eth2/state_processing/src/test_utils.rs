@@ -58,7 +58,7 @@ impl<T: EthSpec> BlockBuilder<T> {
 
         builder.set_slot(state.slot);
 
-        let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
+        let proposer_index = state.get_beacon_proposer_index(state.slot).unwrap();
 
         let proposer_keypair = &keypairs[proposer_index];
 

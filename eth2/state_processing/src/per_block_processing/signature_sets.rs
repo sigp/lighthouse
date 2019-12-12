@@ -45,7 +45,7 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
     block_signed_root: Option<Hash256>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+    let proposer_index = state.get_beacon_proposer_index(block.slot)?;
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),
@@ -73,7 +73,7 @@ pub fn randao_signature_set<'a, T: EthSpec>(
     block: &'a BeaconBlock<T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+    let proposer_index = state.get_beacon_proposer_index(block.slot)?;
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),

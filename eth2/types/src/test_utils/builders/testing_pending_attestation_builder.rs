@@ -24,7 +24,7 @@ impl<T: EthSpec> TestingPendingAttestationBuilder<T> {
     ) -> Self {
         let data_builder = TestingAttestationDataBuilder::new(test_task, state, index, slot, spec);
 
-        let proposer_index = state.get_beacon_proposer_index(slot, spec).unwrap() as u64;
+        let proposer_index = state.get_beacon_proposer_index(slot).unwrap() as u64;
 
         let pending_attestation = PendingAttestation {
             aggregation_bits: BitList::with_capacity(T::MaxValidatorsPerCommittee::to_usize())

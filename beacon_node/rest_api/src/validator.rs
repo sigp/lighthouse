@@ -137,7 +137,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
         .slot_iter(T::EthSpec::slots_per_epoch())
         .map(|slot| {
             state
-                .get_beacon_proposer_index(slot, &beacon_chain.spec)
+                .get_beacon_proposer_index(slot)
                 .map(|i| (i, slot))
                 .map_err(|e| {
                     ApiError::ServerError(format!(

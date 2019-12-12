@@ -301,7 +301,7 @@ where
                 .block_proposer(slot)
                 .expect("should get block proposer from chain"),
             _ => state
-                .get_beacon_proposer_index(slot, &self.spec)
+                .get_beacon_proposer_index(slot)
                 .expect("should get block proposer from state"),
         };
 
