@@ -247,7 +247,7 @@ Path | `/beacon/validators`
 Method | POST
 JSON Encoding | Object
 Query Parameters | None
-Typical Responses | 200, 404
+Typical Responses | 200
 
 ### Request Body
 
@@ -324,12 +324,13 @@ Path | `/beacon/validators/all`
 Method | GET
 JSON Encoding | Object
 Query Parameters | `state_root` (optional)
-Typical Responses | 200, 404
+Typical Responses | 200
 
 ### Parameters
 
-The optional `state_root` query parameter indicates which `BeaconState` should be used to collect
-the information. When omitted, the canonical head state will be used.
+The optional `state_root` (`Bytes32`) query parameter indicates which
+`BeaconState` should be used to collect the information. When omitted, the
+canonical head state will be used.
 
 ### Returns
 
@@ -347,12 +348,13 @@ Path | `/beacon/validators/active`
 Method | GET
 JSON Encoding | Object
 Query Parameters | `state_root` (optional)
-Typical Responses | 200, 404
+Typical Responses | 200
 
 ### Parameters
 
-The optional `state_root` query parameter indicates which `BeaconState` should be used to collect
-the information. When omitted, the canonical head state will be used.
+The optional `state_root` (`Bytes32`) query parameter indicates which
+`BeaconState` should be used to collect the information. When omitted, the
+canonical head state will be used.
 
 ### Returns
 

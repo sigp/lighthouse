@@ -7,6 +7,10 @@ Table of endpoints:
 HTTP Path | Description |
 | --- | -- |
 [`/validator/duties`](#validator-duties) | Provides block and attestation production information for validators.
+[`/validator/duties/all`](#validator-duties-all) | Provides block and attestation production information for all validators.
+[`/validator/duties/active`](#validator-duties-active) | Provides block and attestation production information for all active validators.
+[`/validator/block`](#get-block) | (`GET`) Produces and returns a beacon block.
+[`/validator/block`](#post-block) | (`POST`) Verifies and potentially publishes a new beacon block.
 
 ## Validator Duties
 
@@ -22,7 +26,7 @@ Path | `/validator/duties`
 Method | POST
 JSON Encoding | Object
 Query Parameters | None
-Typical Responses | 200, 404
+Typical Responses | 200
 
 ### Request Body
 
@@ -85,3 +89,66 @@ _Note: for demonstration purposes the second pubkey is some unknown pubkey._
     }
 ]
 ```
+
+## All Validator Duties
+
+Returns the duties for all validators, equivalent to calling [Validator
+Duties](#validator-duties) while providing all known validator public keys.
+
+Considering that duties for non-active validators will just be `null`, it is
+generally more efficient to query using [Active Validator
+Duties](#active-validator-duties).
+
+This endpoint will only return validators that were in the beacon state
+in the given epoch. For example, if the query epoch is 10 and some validator
+deposit was included in epoch 11, that validator will not be included in the
+result.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/validator/duties/all`
+Method | GET
+JSON Encoding | Object
+Query Parameters | `epoch`
+Typical Responses | 200
+
+### Parameters
+
+The duties returned will all be inside the given `epoch` (`Epoch`) query
+parameter. This parameter is required.
+
+### Returns
+
+The return format is identical to the [Validator Duties](#validator-duties) response body.
+
+## Active Validator Duties
+
+Returns the duties for all active validators, equivalent to calling [Validator
+Duties](#validator-duties) while providing all known validator public keys that
+are active in the given epoch.
+
+This endpoint will only return validators that were in the beacon state
+in the given epoch. For example, if the query epoch is 10 and some validator
+deposit was included in epoch 11, that validator will not be included in the
+result.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/validator/duties/active`
+Method | GET
+JSON Encoding | Object
+Query Parameters | `epoch`
+Typical Responses | 200
+
+### Parameters
+
+The duties returned will all be inside the given `epoch` (`Epoch`) query
+parameter. This parameter is required.
+
+### Returns
+
+The return format is identical to the [Validator Duties](#validator-duties) response body.

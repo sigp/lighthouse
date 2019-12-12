@@ -26,7 +26,7 @@ Typical Responses | 200
 
 ### Example Response
 
-```
+```json
 "QmVFcULBYZecPdCKgGmpEYDqJLqvMecfhJadVBtB371Avd"
 ```
 
@@ -46,7 +46,7 @@ Typical Responses | 200
 
 ### Example Response
 
-```
+```json
 [
 	"QmaPGeXcfKFMU13d8VgbnnpeTxcvoFoD9bUpnRGMUJ1L9w",
 	"QmZt47cP8V96MgiS35WzHKpPbKVBMqr1eoBNTLhQPqpP3m"
@@ -69,6 +69,6 @@ Typical Responses | 200
 
 ### Example Response
 
-```
--IW4QPYyGkXJSuJ2Eji8b-m4PTNrW4YMdBsNOBrYAdCk8NLMJcddAiQlpcv6G_hdNjiLACOPTkqTBhUjnC0wtIIhyQkEgmlwhKwqAPqDdGNwgiMog3VkcIIjKIlzZWNwMjU2azGhA1sBKo0yCfw4Z_jbggwflNfftjwKACu-a-CoFAQHJnrm
+```json
+"-IW4QPYyGkXJSuJ2Eji8b-m4PTNrW4YMdBsNOBrYAdCk8NLMJcddAiQlpcv6G_hdNjiLACOPTkqTBhUjnC0wtIIhyQkEgmlwhKwqAPqDdGNwgiMog3VkcIIjKIlzZWNwMjU2azGhA1sBKo0yCfw4Z_jbggwflNfftjwKACu-a-CoFAQHJnrm"
 ```
