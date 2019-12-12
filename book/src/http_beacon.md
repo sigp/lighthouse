@@ -7,6 +7,7 @@ Table of endpoints:
 HTTP Path | Description |
 | --- | -- |
 [`/beacon/head`](#beacon-head) | Info about the block at the head of the chain.
+[`/beacon/heads`](#beacon-heads) | Returns a list of all known chain heads.
 [`/beacon/block_root`](#block-root) | Resolve a slot to a block root.
 [`/beacon/block`](#beacon-block) | Get a `BeaconBlock` by slot or root.
 [`/beacon/state_root`](#state-root) | Resolve a slot to a state root.
@@ -44,6 +45,37 @@ Typical Responses | 200
     "previous_justified_slot": 37856,
     "previous_justified_block_root": "0xbdae152b62acef1e5c332697567d2b89e358628790b8273729096da670b23e86"
 }
+```
+
+## Beacon Heads
+
+Returns the roots of all known head blocks. Only one of these roots is the
+canonical head and that is decided by the fork choice algorithm. See [Beacon
+Head](#beacon-head) for the canonical head.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/beacon/heads`
+Method | GET
+JSON Encoding | Object
+Query Parameters | None
+Typical Responses | 200
+
+### Example Response
+
+```
+[
+    {
+        "beacon_block_root": "0x226b2fd7c5f3d31dbb21444b96dfafe715f0017cd16545ecc4ffa87229496a69",
+        "beacon_block_slot": 38373
+    },
+    {
+        "beacon_block_root": "0x41ed5b253c4fc841cba8a6d44acbe101866bc674c3cfa3c4e9f7388f465aa15b",
+        "beacon_block_slot": 38375
+    },
+]
 ```
 
 ## Block Root
