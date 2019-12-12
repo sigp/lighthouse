@@ -66,7 +66,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     state.drop_proposer_indices_cache();
     state
         .update_proposer_indices_cache(state.slot, &spec)
-        .expect("rekt");
+        .unwrap()
     test(&state, Slot::new(0), 1);
     for i in 1..T::slots_per_epoch() {
         test(&state, Slot::from(i), 0);
