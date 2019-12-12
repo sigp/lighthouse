@@ -58,8 +58,8 @@ A set of duties for each given pubkey.
 {
     "epoch": 1203,
     "pubkeys": [
-        "98f87bc7c8fa10408425bbeeeb3dc387e3e0b4bd92f57775b60b39156a16f9ec80b273a64269332d97bdb7d93ae05a16",
-        "42f87bc7c8fa10408425bbeeeb3dc3874242b4bd92f57775b60b39142426f9ec80b273a64269332d97bdb7d93ae05a42"
+        "0x98f87bc7c8fa10408425bbeeeb3dc387e3e0b4bd92f57775b60b39156a16f9ec80b273a64269332d97bdb7d93ae05a16",
+        "0x42f87bc7c8fa10408425bbeeeb3dc3874242b4bd92f57775b60b39142426f9ec80b273a64269332d97bdb7d93ae05a42"
     ]
 }
 ```
@@ -71,15 +71,15 @@ _Note: for demonstration purposes the second pubkey is some unknown pubkey._
 ```json
 [
     {
-        "validator_pubkey": "98f87bc7c8fa10408425bbeeeb3dc387e3e0b4bd92f57775b60b39156a16f9ec80b273a64269332d97bdb7d93ae05a16",
+        "validator_pubkey": "0x98f87bc7c8fa10408425bbeeeb3dc387e3e0b4bd92f57775b60b39156a16f9ec80b273a64269332d97bdb7d93ae05a16",
         "validator_index": 14935,
         "attestation_slot": 38511,
         "attestation_committee_index": 3,
         "attestation_committee_position": 39,
-        "block_proposal_slots": [14936]
+        "block_proposal_slots": []
     },
     {
-        "validator_pubkey": "42f87bc7c8fa10408425bbeeeb3dc3874242b4bd92f57775b60b39142426f9ec80b273a64269332d97bdb7d93ae05a42",
+        "validator_pubkey": "0x42f87bc7c8fa10408425bbeeeb3dc3874242b4bd92f57775b60b39142426f9ec80b273a64269332d97bdb7d93ae05a42",
         "validator_index": null,
         "attestation_slot": null,
         "attestation_committee_index": null,
