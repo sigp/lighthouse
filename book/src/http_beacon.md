@@ -160,9 +160,6 @@ Returns an object containing a single [`BeaconBlock`](https://github.com/ethereu
 }
 ```
 
-
-_Truncated for brevity._
-
 ## State Root
 
 Returns the state root for the given slot in the canonical chain. If there

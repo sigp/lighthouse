@@ -124,8 +124,11 @@ pub fn route<T: BeaconChainTypes>(
                 into_boxfut(beacon::get_genesis_state::<T>(req, beacon_chain))
             }
 
-            (&Method::GET, "/consensus/vote_count") => {
+            (&Method::GET, "/consensus/global_votes") => {
                 into_boxfut(consensus::get_vote_count::<T>(req, beacon_chain))
+            }
+            (&Method::POST, "/consensus/individual_votes") => {
+                consensus::post_individual_votes::<T>(req, beacon_chain)
             }
 
             // Methods for bootstrap and checking configuration
