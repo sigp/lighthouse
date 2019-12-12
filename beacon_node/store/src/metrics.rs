@@ -8,24 +8,24 @@ lazy_static! {
      * General
      */
     pub static ref DISK_DB_SIZE: Result<IntGauge> =
-        try_create_int_gauge("store_disk_db_size", "Size of the main on-disk database (bytes)");
+        try_create_int_gauge("store_disk_db_size", "Size of the hot on-disk database (bytes)");
     pub static ref FREEZER_DB_SIZE: Result<IntGauge> =
         try_create_int_gauge("store_freezer_db_size", "Size of the on-disk freezer database (bytes)");
     pub static ref DISK_DB_WRITE_BYTES: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_write_bytes_total",
-        "Number of bytes attempted to be written to the main on-disk DB"
+        "Number of bytes attempted to be written to the hot on-disk DB"
     );
     pub static ref DISK_DB_READ_BYTES: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_read_bytes_total",
-        "Number of bytes read from the main on-disk DB"
+        "Number of bytes read from the hot on-disk DB"
     );
     pub static ref DISK_DB_READ_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_read_count_total",
-        "Total number of reads to the main on-disk DB"
+        "Total number of reads to the hot on-disk DB"
     );
     pub static ref DISK_DB_WRITE_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_write_count_total",
-        "Total number of writes to the main on-disk DB"
+        "Total number of writes to the hot on-disk DB"
     );
     pub static ref DISK_DB_READ_TIMES: Result<Histogram> = try_create_histogram(
         "store_disk_db_read_seconds",
@@ -37,11 +37,11 @@ lazy_static! {
     );
     pub static ref DISK_DB_EXISTS_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_exists_count_total",
-        "Total number of checks if a key is in the main on-disk DB"
+        "Total number of checks if a key is in the hot on-disk DB"
     );
     pub static ref DISK_DB_DELETE_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_delete_count_total",
-        "Total number of deletions from the main on-disk DB"
+        "Total number of deletions from the hot on-disk DB"
     );
     /*
      * Beacon State
