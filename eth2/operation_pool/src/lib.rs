@@ -10,18 +10,18 @@ use attestation_id::AttestationId;
 use max_cover::maximum_cover;
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::{
-    AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
-    ExitValidationError, ProposerSlashingValidationError,
+    AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
+    ProposerSlashingValidationError,
 };
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation_for_block_inclusion,
     verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
     verify_proposer_slashing, VerifySignatures,
 };
-use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
+use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
-    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, ChainSpec, Deposit, EthSpec,
+    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, ChainSpec, EthSpec,
     ProposerSlashing, Validator, VoluntaryExit,
 };
 
@@ -29,12 +29,6 @@ use types::{
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
-    /// Map from deposit index to deposit data.
-    // NOTE: We assume that there is only one deposit per index
-    // because the Eth1 data is updated (at most) once per epoch,
-    // and the spec doesn't seem to accommodate for re-orgs on a time-frame
-    // longer than an epoch
-    deposits: RwLock<BTreeMap<u64, Deposit>>,
     /// Map from two attestation IDs to a slashing for those IDs.
     attester_slashings: RwLock<HashMap<(AttestationId, AttestationId), AttesterSlashing<T>>>,
     /// Map from proposer index to slashing.
@@ -42,16 +36,6 @@ pub struct OperationPool<T: EthSpec + Default> {
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, VoluntaryExit>>,
     _phantom: PhantomData<T>,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum DepositInsertStatus {
-    /// The deposit was not already in the pool.
-    Fresh,
-    /// The deposit already existed in the pool.
-    Duplicate,
-    /// The deposit conflicted with an existing deposit, which was replaced.
-    Replaced(Box<Deposit>),
 }
 
 impl<T: EthSpec> OperationPool<T> {
@@ -153,58 +137,6 @@ impl<T: EthSpec> OperationPool<T> {
                 finalized_state.current_epoch() <= att.data.target.epoch + 1
             })
         });
-    }
-
-    /// Add a deposit to the pool.
-    ///
-    /// No two distinct deposits should be added with the same index.
-    // TODO: we need to rethink this entirely
-    pub fn insert_deposit(
-        &self,
-        index: u64,
-        deposit: Deposit,
-    ) -> Result<DepositInsertStatus, DepositValidationError> {
-        use DepositInsertStatus::*;
-
-        match self.deposits.write().entry(index) {
-            Entry::Vacant(entry) => {
-                entry.insert(deposit);
-                Ok(Fresh)
-            }
-            Entry::Occupied(mut entry) => {
-                if entry.get() == &deposit {
-                    Ok(Duplicate)
-                } else {
-                    Ok(Replaced(Box::new(entry.insert(deposit))))
-                }
-            }
-        }
-    }
-
-    /// Get an ordered list of deposits for inclusion in a block.
-    ///
-    /// Take at most the maximum number of deposits, beginning from the current deposit index.
-    pub fn get_deposits(&self, state: &BeaconState<T>) -> Vec<Deposit> {
-        // TODO: We need to update the Merkle proofs for existing deposits as more deposits
-        // are added. It probably makes sense to construct the proofs from scratch when forming
-        // a block, using fresh info from the ETH1 chain for the current deposit root.
-        let start_idx = state.eth1_deposit_index;
-        (start_idx..start_idx + T::MaxDeposits::to_u64())
-            .map(|idx| self.deposits.read().get(&idx).cloned())
-            .take_while(Option::is_some)
-            .flatten()
-            .collect()
-    }
-
-    /// Remove all deposits with index less than the deposit index of the latest finalised block.
-    pub fn prune_deposits(&self, state: &BeaconState<T>) -> BTreeMap<u64, Deposit> {
-        let deposits_keep = self.deposits.write().split_off(&state.eth1_deposit_index);
-        std::mem::replace(&mut self.deposits.write(), deposits_keep)
-    }
-
-    /// The number of deposits stored in the pool.
-    pub fn num_deposits(&self) -> usize {
-        self.deposits.read().len()
     }
 
     /// Insert a proposer slashing into the pool.
@@ -374,7 +306,6 @@ impl<T: EthSpec> OperationPool<T> {
     /// Prune all types of transactions given the latest finalized state.
     pub fn prune_all(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         self.prune_attestations(finalized_state);
-        self.prune_deposits(finalized_state);
         self.prune_proposer_slashings(finalized_state);
         self.prune_attester_slashings(finalized_state, spec);
         self.prune_voluntary_exits(finalized_state);
@@ -420,7 +351,6 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
 impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
     fn eq(&self, other: &Self) -> bool {
         *self.attestations.read() == *other.attestations.read()
-            && *self.deposits.read() == *other.deposits.read()
             && *self.attester_slashings.read() == *other.attester_slashings.read()
             && *self.proposer_slashings.read() == *other.proposer_slashings.read()
             && *self.voluntary_exits.read() == *other.voluntary_exits.read()
@@ -429,135 +359,6 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::DepositInsertStatus::*;
-    use super::*;
-    use rand::Rng;
-    use types::test_utils::*;
-    use types::*;
-
-    #[test]
-    fn insert_deposit() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
-        let deposit1 = make_deposit(rng);
-        let deposit2 = make_deposit(rng);
-        let index = rng.gen();
-
-        assert_eq!(op_pool.insert_deposit(index, deposit1.clone()), Ok(Fresh));
-        assert_eq!(
-            op_pool.insert_deposit(index, deposit1.clone()),
-            Ok(Duplicate)
-        );
-        assert_eq!(
-            op_pool.insert_deposit(index, deposit2),
-            Ok(Replaced(Box::new(deposit1)))
-        );
-    }
-
-    #[test]
-    fn get_deposits_max() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let (_, mut state) = test_state(rng);
-        let op_pool = OperationPool::new();
-        let start = 10000;
-        let max_deposits = <MainnetEthSpec as EthSpec>::MaxDeposits::to_u64();
-        let extra = 5;
-        let offset = 1;
-        assert!(offset <= extra);
-
-        let deposits = dummy_deposits(rng, start, max_deposits + extra);
-
-        for (i, deposit) in &deposits {
-            assert_eq!(op_pool.insert_deposit(*i, deposit.clone()), Ok(Fresh));
-        }
-
-        state.eth1_deposit_index = start + offset;
-        let deposits_for_block = op_pool.get_deposits(&state);
-
-        assert_eq!(deposits_for_block.len() as u64, max_deposits);
-        let expected = deposits[offset as usize..(offset + max_deposits) as usize]
-            .iter()
-            .map(|(_, d)| d.clone())
-            .collect::<Vec<_>>();
-        assert_eq!(deposits_for_block[..], expected[..]);
-    }
-
-    #[test]
-    fn prune_deposits() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
-
-        let start1 = 100;
-        // test is super slow in debug mode if this parameter is too high
-        let count = 5;
-        let gap = 25;
-        let start2 = start1 + count + gap;
-
-        let deposits1 = dummy_deposits(rng, start1, count);
-        let deposits2 = dummy_deposits(rng, start2, count);
-
-        for (i, d) in deposits1.into_iter().chain(deposits2) {
-            assert!(op_pool.insert_deposit(i, d).is_ok());
-        }
-
-        assert_eq!(op_pool.num_deposits(), 2 * count as usize);
-
-        let mut state = BeaconState::random_for_test(rng);
-        state.eth1_deposit_index = start1;
-
-        // Pruning the first bunch of deposits in batches of 5 should work.
-        let step = 5;
-        let mut pool_size = step + 2 * count as usize;
-        for i in (start1..=(start1 + count)).step_by(step) {
-            state.eth1_deposit_index = i;
-            op_pool.prune_deposits(&state);
-            pool_size -= step;
-            assert_eq!(op_pool.num_deposits(), pool_size);
-        }
-        assert_eq!(pool_size, count as usize);
-        // Pruning in the gap should do nothing.
-        for i in (start1 + count..start2).step_by(step) {
-            state.eth1_deposit_index = i;
-            op_pool.prune_deposits(&state);
-            assert_eq!(op_pool.num_deposits(), count as usize);
-        }
-        // Same again for the later deposits.
-        pool_size += step;
-        for i in (start2..=(start2 + count)).step_by(step) {
-            state.eth1_deposit_index = i;
-            op_pool.prune_deposits(&state);
-            pool_size -= step;
-            assert_eq!(op_pool.num_deposits(), pool_size);
-        }
-        assert_eq!(op_pool.num_deposits(), 0);
-    }
-
-    // Create a random deposit
-    fn make_deposit(rng: &mut XorShiftRng) -> Deposit {
-        Deposit::random_for_test(rng)
-    }
-
-    // Create `count` dummy deposits with sequential deposit IDs beginning from `start`.
-    fn dummy_deposits(rng: &mut XorShiftRng, start: u64, count: u64) -> Vec<(u64, Deposit)> {
-        let proto_deposit = make_deposit(rng);
-        (start..start + count)
-            .map(|index| {
-                let mut deposit = proto_deposit.clone();
-                deposit.data.amount = index * 1000;
-                (index, deposit)
-            })
-            .collect()
-    }
-
-    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState<MainnetEthSpec>) {
-        let spec = MainnetEthSpec::default_spec();
-
-        let mut state = BeaconState::random_for_test(rng);
-
-        state.fork = Fork::default();
-
-        (spec, state)
-    }
 
     #[cfg(not(debug_assertions))]
     mod release_tests {
