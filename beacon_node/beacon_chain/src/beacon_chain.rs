@@ -1322,8 +1322,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Store the block and state.
-        self.store.put(&block_root, &block)?;
+        // NOTE: we store the block *after* the state to guard against inconsistency in the event of
+        // a crash, as states are usually looked up from blocks, not the other way around. A better
+        // solution would be to use a database transaction (once our choice of database and API
+        // settles down).
+        // See: https://github.com/sigp/lighthouse/issues/692
         self.store.put_state(&state_root, &state)?;
+        self.store.put(&block_root, &block)?;
 
         metrics::stop_timer(db_write_timer);
 
