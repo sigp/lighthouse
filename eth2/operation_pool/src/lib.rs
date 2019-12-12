@@ -18,12 +18,11 @@ use state_processing::per_block_processing::{
     verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
     verify_proposer_slashing, VerifySignatures,
 };
-use state_processing::per_epoch_processing::ValidatorStatuses;
 use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
-    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, ChainSpec, Deposit, EthSpec,
-    ProposerSlashing, Validator, VoluntaryExit,
+    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
+    Deposit, EthSpec, ProposerSlashing, RelativeEpoch, Validator, VoluntaryExit,
 };
 
 #[derive(Default, Debug)]
@@ -43,6 +42,11 @@ pub struct OperationPool<T: EthSpec + Default> {
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, VoluntaryExit>>,
     _phantom: PhantomData<T>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum OpPoolError {
+    GetAttestationsTotalBalanceError(BeaconStateError),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -112,16 +116,19 @@ impl<T: EthSpec> OperationPool<T> {
         &self,
         state: &BeaconState<T>,
         spec: &ChainSpec,
-    ) -> Vec<Attestation<T>> {
+    ) -> Result<Vec<Attestation<T>>, OpPoolError> {
         // Attestations for the current fork, which may be from the current or previous epoch.
         let prev_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
         let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, state, spec);
         let curr_domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
         let reader = self.attestations.read();
-        let validator_statuses = ValidatorStatuses::new(state, spec)
-            .expect("should have returned valid validator statuses");
-        let total_active_balance = validator_statuses.total_balances.current_epoch;
+        let act_indices = state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)
+            .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
+        let total_active_balance = state
+            .get_total_balance(&act_indices, spec)
+            .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
         let valid_attestations = reader
             .iter()
             .filter(|(key, _)| {
@@ -139,9 +146,12 @@ impl<T: EthSpec> OperationPool<T> {
                 )
                 .is_ok()
             })
-            .map(|att| AttMaxCover::new(att, state, spec, total_active_balance));
+            .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec));
 
-        maximum_cover(valid_attestations, T::MaxAttestations::to_usize())
+        Ok(maximum_cover(
+            valid_attestations,
+            T::MaxAttestations::to_usize(),
+        ))
     }
 
     /// Remove attestations which are too old to be included in a block.
@@ -565,8 +575,8 @@ mod tests {
 
     #[cfg(not(debug_assertions))]
     mod release_tests {
+        use super::super::attestation::earliest_attestation_validators;
         use super::*;
-        use attestation::earliest_attestation_validators;
 
         /// Create a signed attestation for use in tests.
         /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
@@ -729,12 +739,17 @@ mod tests {
 
             // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
             state.slot -= 1;
-            assert_eq!(op_pool.get_attestations(state, spec).len(), 0);
+            let attest = op_pool
+                .get_attestations(state, spec)
+                .expect("should have a valid result");
+            assert_eq!(attest.len(), 0);
 
             // Then once the delay has elapsed, we should get a single aggregated attestation.
             state.slot += spec.min_attestation_inclusion_delay;
 
-            let block_attestations = op_pool.get_attestations(state, spec);
+            let block_attestations = op_pool
+                .get_attestations(state, spec)
+                .expect("should have valid attestations");
             assert_eq!(block_attestations.len(), committees.len());
 
             let agg_att = &block_attestations[0];
@@ -893,7 +908,9 @@ mod tests {
             assert!(op_pool.num_attestations() > max_attestations);
 
             state.slot += spec.min_attestation_inclusion_delay;
-            let best_attestations = op_pool.get_attestations(state, spec);
+            let best_attestations = op_pool
+                .get_attestations(state, spec)
+                .expect("should have valid best attestations");
             assert_eq!(best_attestations.len(), max_attestations);
 
             // All the best attestations should be signed by at least `big_step_size` (4) validators.

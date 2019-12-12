@@ -1,7 +1,6 @@
 use crate::max_cover::MaxCover;
 use state_processing::common::{get_attesting_indices, get_base_reward};
 use std::collections::HashMap;
-use std::convert::TryInto;
 use types::{Attestation, BeaconState, BitList, ChainSpec, EthSpec};
 
 pub struct AttMaxCover<'a, T: EthSpec> {
@@ -15,26 +14,27 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
     pub fn new(
         att: &'a Attestation<T>,
         state: &BeaconState<T>,
-        spec: &ChainSpec,
         total_active_balance: u64,
-    ) -> Self {
+        spec: &ChainSpec,
+    ) -> Option<Self> {
         let fresh_validators = earliest_attestation_validators(att, state);
         let indices = get_attesting_indices(state, &att.data, &fresh_validators)
             .expect("should have returned valid indices");
         let fresh_validators_rewards: HashMap<u64, u64> = indices
             .iter()
-            .cloned()
-            .map(|validator_index| validator_index as u64)
-            .zip(indices.iter().cloned().map(|validator_index| {
-                get_base_reward(state, validator_index, total_active_balance, spec)
-                    .expect("should have returned base reward for validator")
-                    / spec.proposer_reward_quotient
-            }))
+            .map(|i| *i as u64)
+            .flat_map(|validator_index| {
+                let reward =
+                    get_base_reward(state, validator_index as usize, total_active_balance, spec)
+                        .ok()?
+                        / spec.proposer_reward_quotient;
+                Some((validator_index, reward))
+            })
             .collect();
-        Self {
+        Some(Self {
             att,
             fresh_validators_rewards,
-        }
+        })
     }
 }
 
@@ -61,15 +61,13 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
         covered_validators: &HashMap<u64, u64>,
     ) {
         if self.att.data.slot == best_att.data.slot && self.att.data.index == best_att.data.index {
-            for key in covered_validators.keys() {
-                let _ = self.fresh_validators_rewards.remove(key);
-            }
+            self.fresh_validators_rewards
+                .retain(|k, _| covered_validators.contains_key(k))
         }
     }
 
     fn score(&self) -> usize {
-        let size: u64 = self.fresh_validators_rewards.values().sum();
-        (size as u64).try_into().unwrap()
+        self.fresh_validators_rewards.values().sum::<u64>() as usize
     }
 }
 
