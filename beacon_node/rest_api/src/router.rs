@@ -77,7 +77,6 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/beacon/genesis_time") => {
                 into_boxfut(beacon::get_genesis_time::<T>(req, beacon_chain))
             }
-
             (&Method::GET, "/beacon/validators") => {
                 into_boxfut(beacon::get_validators::<T>(req, beacon_chain))
             }
@@ -89,6 +88,18 @@ pub fn route<T: BeaconChainTypes>(
             }
             (&Method::GET, "/beacon/validators/active") => {
                 into_boxfut(beacon::get_active_validators::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/state") => {
+                into_boxfut(beacon::get_state::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/state_root") => {
+                into_boxfut(beacon::get_state_root::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/state/genesis") => {
+                into_boxfut(beacon::get_genesis_state::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/committees") => {
+                into_boxfut(beacon::get_committees::<T>(req, beacon_chain))
             }
 
             // Methods for Validator
@@ -112,16 +123,6 @@ pub fn route<T: BeaconChainTypes>(
             }
             (&Method::POST, "/validator/attestation") => {
                 validator::publish_attestation::<T>(req, beacon_chain, network_channel, log)
-            }
-
-            (&Method::GET, "/beacon/state") => {
-                into_boxfut(beacon::get_state::<T>(req, beacon_chain))
-            }
-            (&Method::GET, "/beacon/state_root") => {
-                into_boxfut(beacon::get_state_root::<T>(req, beacon_chain))
-            }
-            (&Method::GET, "/beacon/state/genesis") => {
-                into_boxfut(beacon::get_genesis_state::<T>(req, beacon_chain))
             }
 
             (&Method::GET, "/consensus/global_votes") => {

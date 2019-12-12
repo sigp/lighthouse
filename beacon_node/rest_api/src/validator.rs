@@ -117,7 +117,7 @@ pub fn get_active_validator_duties<T: BeaconChainTypes>(
 }
 
 /// Helper function to return the state that can be used to determine the duties for some `epoch`.
-fn get_state_for_epoch<T: BeaconChainTypes>(
+pub fn get_state_for_epoch<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     epoch: Epoch,
 ) -> Result<BeaconState<T::EthSpec>, ApiError> {
