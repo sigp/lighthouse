@@ -33,7 +33,7 @@ Typical Responses | 200
 
 ### Example Response
 
-```
+```json
 {
     "slot": 37923,
     "block_root": "0xe865d4805395a0776b8abe46d714a9e64914ab8dc5ff66624e5a1776bcc1684b",
@@ -65,7 +65,7 @@ Typical Responses | 200
 
 ### Example Response
 
-```
+```json
 [
     {
         "beacon_block_root": "0x226b2fd7c5f3d31dbb21444b96dfafe715f0017cd16545ecc4ffa87229496a69",
@@ -99,7 +99,7 @@ Typical Responses | 200, 404
 
 ### Example Response
 
-```
+```json
 "0xc35ddf4e71c31774e0594bd7eb32dfe50b54dbc40abd594944254b4ec8895196"
 ```
 
@@ -134,14 +134,29 @@ Returns an object containing a single [`BeaconBlock`](https://github.com/ethereu
 
 ### Example Response
 
-```
+```json
 {
-	root: "0x98e5edb27e53d238a9524590e62b1413",
-	beacon_block: {
-		slot: 42,
-		parent_root: "0xabfb96c38165791636acaf72c4529c0b",
-		...
-	},
+    "root": "0xc35ddf4e71c31774e0594bd7eb32dfe50b54dbc40abd594944254b4ec8895196",
+    "beacon_block": {
+        "slot": 0,
+        "parent_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "state_root": "0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f",
+        "body": {
+            "randao_reveal": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "eth1_data": {
+                "deposit_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "deposit_count": 0,
+                "block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "graffiti": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "proposer_slashings": [],
+            "attester_slashings": [],
+            "attestations": [],
+            "deposits": [],
+            "voluntary_exits": []
+        },
+        "signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }
 }
 ```
 
@@ -169,7 +184,7 @@ Typical Responses | 200, 404
 
 ### Example Response
 
-```
+```json
 "0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f"
 ```
 
@@ -206,14 +221,13 @@ and its tree hash root.
 
 ### Example Response
 
-```
+```json
 {
-	root: "0x68861c0151d232c75b8dfa24b8a07b65",
-	beacon_state: {
-		genesis_time: 1566444600,
-		slot: 42,
-		...
-	},
+    "root": "0x528e54ca5d4c957729a73f40fc513ae312e054c7295775c4a2b21f423416a72b",
+    "beacon_state": {
+        "genesis_time": 1575652800,
+        "slot": 18478
+	}
 }
 ```
 
@@ -235,9 +249,9 @@ JSON Encoding | Object
 Query Parameters | None
 Typical Responses | 200, 404
 
-### POST body
+### Request Body
 
-Expects the following object:
+Expects the following object in the POST request body:
 
 ```
 {
@@ -255,14 +269,29 @@ the canonical head state being used.
 
 Returns an object describing several aspects of the given validator.
 
-### Example Response
+### Example
 
+### Request Body
+
+```json
+{
+    "pubkeys": [
+        "98f87bc7c8fa10408425bbeeeb3dc387e3e0b4bd92f57775b60b39156a16f9ec80b273a64269332d97bdb7d93ae05a16",
+        "42f87bc7c8fa10408425bbeeeb3dc3874242b4bd92f57775b60b39142426f9ec80b273a64269332d97bdb7d93ae05a42"
+    ]
+}
 ```
+
+_Note: for demonstration purposes the second pubkey is some unknown pubkey._
+
+### Response Body
+
+```json
 [
     {
         "pubkey": "98f87bc7c8fa10408425bbeeeb3dc387e3e0b4bd92f57775b60b39156a16f9ec80b273a64269332d97bdb7d93ae05a16",
         "validator_index": 14935,
-        "balance": 3224668436,
+        "balance": 3224925535,
         "validator": {
             "pubkey": "98f87bc7c8fa10408425bbeeeb3dc387e3e0b4bd92f57775b60b39156a16f9ec80b273a64269332d97bdb7d93ae05a16",
             "withdrawal_credentials": "0x00b7bec22d5bda6b2cca1343d4f640d0e9ccc204a06a73703605c590d4c0d28e",
@@ -273,6 +302,12 @@ Returns an object describing several aspects of the given validator.
             "exit_epoch": 18446744073709551615,
             "withdrawable_epoch": 18446744073709551615
         }
+    },
+    {
+        "pubkey": "42f87bc7c8fa10408425bbeeeb3dc3874242b4bd92f57775b60b39142426f9ec80b273a64269332d97bdb7d93ae05a42",
+        "validator_index": null,
+        "balance": null,
+        "validator": null
     }
 ]
 ```
@@ -298,7 +333,7 @@ the information. When omitted, the canonical head state will be used.
 
 ### Returns
 
-The return format is identical to [Validators](#validators).
+The return format is identical to the [Validators](#validators) response body.
 
 ## Active Validators
 
@@ -321,4 +356,4 @@ the information. When omitted, the canonical head state will be used.
 
 ### Returns
 
-The return format is identical to [Validators](#validators).
+The return format is identical to the [Validators](#validators) response body.
