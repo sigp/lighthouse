@@ -315,6 +315,9 @@ where
             client_config
                 .create_db_path()
                 .expect("unable to read datadir"),
+            client_config
+                .create_freezer_db_path()
+                .expect("unable to read freezer DB dir"),
             eth2_config.clone(),
             context.log,
         )
