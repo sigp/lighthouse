@@ -9,8 +9,6 @@ HTTP Path | Description |
 [`/validator/duties`](#validator-duties) | Provides block and attestation production information for validators.
 [`/validator/duties/all`](#validator-duties-all) | Provides block and attestation production information for all validators.
 [`/validator/duties/active`](#validator-duties-active) | Provides block and attestation production information for all active validators.
-[`/validator/block`](#get-block) | (`GET`) Produces and returns a beacon block.
-[`/validator/block`](#post-block) | (`POST`) Verifies and potentially publishes a new beacon block.
 
 ## Validator Duties
 
