@@ -14,8 +14,9 @@ use types::{
     Slot, Validator,
 };
 
+/// Information about the block and state that are at head of the beacon chain.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub struct HeadResponse {
+pub struct CanonicalHeadResponse {
     pub slot: Slot,
     pub block_root: Hash256,
     pub state_root: Hash256,
@@ -34,7 +35,7 @@ pub fn get_head<T: BeaconChainTypes>(
 ) -> ApiResult {
     let chain_head = beacon_chain.head();
 
-    let head = HeadResponse {
+    let head = CanonicalHeadResponse {
         slot: chain_head.beacon_state.slot,
         block_root: chain_head.beacon_block_root,
         state_root: chain_head.beacon_state_root,
@@ -61,10 +62,12 @@ pub fn get_head<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&head)
 }
 
+/// Information about a block that is at the head of a chain. May or may not represent the
+/// canonical head.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct HeadBeaconBlock {
-    beacon_block_root: Hash256,
-    beacon_block_slot: Slot,
+    pub beacon_block_root: Hash256,
+    pub beacon_block_slot: Slot,
 }
 
 /// HTTP handler to return a list of head BeaconBlocks.
@@ -354,7 +357,7 @@ fn validator_response_by_pubkey<E: EthSpec>(
     }
 }
 
-#[derive(Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct Committee {
     pub slot: Slot,
     pub index: CommitteeIndex,
@@ -394,7 +397,7 @@ pub fn get_committees<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&committees)
 }
 
-#[derive(Serialize, Encode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "T: EthSpec")]
 pub struct StateResponse<T: EthSpec> {
     pub root: Hash256,

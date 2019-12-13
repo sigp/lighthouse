@@ -5,7 +5,9 @@ use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode,
 };
-use remote_beacon_node::{PublishStatus, ValidatorDuty, ValidatorResponse};
+use remote_beacon_node::{
+    Committee, HeadBeaconBlock, PublishStatus, ValidatorDuty, ValidatorResponse,
+};
 use std::convert::TryInto;
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -368,6 +370,23 @@ fn validator_block_post() {
         head.block_root, block_root,
         "the published block should become the head block"
     );
+
+    // Note: this heads check is not super useful for this test, however it is include so it get
+    // _some_ testing. If you remove this call, make sure it's tested somewhere else.
+    let heads = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_heads())
+        .expect("should get heads");
+
+    assert_eq!(heads.len(), 1, "there should be only one head");
+    assert_eq!(
+        heads,
+        vec![HeadBeaconBlock {
+            beacon_block_root: head.block_root,
+            beacon_block_slot: head.slot,
+        }],
+        "there should be only one head"
+    );
 }
 
 #[test]
@@ -723,6 +742,40 @@ fn get_active_validators() {
         .iter()
         .zip(validators)
         .for_each(|(response, validator)| compare_validator_response(state, response, validator));
+}
+
+#[test]
+fn get_committees() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+
+    let epoch = Epoch::new(0);
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_committees(epoch))
+        .expect("should fetch from http api");
+
+    let expected = chain
+        .head()
+        .beacon_state
+        .get_beacon_committees_at_epoch(RelativeEpoch::Current)
+        .expect("should get committees")
+        .iter()
+        .map(|c| Committee {
+            slot: c.slot,
+            index: c.index,
+            committee: c.committee.to_vec(),
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(result, expected, "result should be as expected");
 }
 
 fn compare_validator_response<T: EthSpec>(
