@@ -33,7 +33,7 @@ pub struct ValidatorDuty {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct BulkValidatorDutiesRequest {
+pub struct ValidatorDutiesRequest {
     pub epoch: Epoch,
     pub pubkeys: Vec<PublicKeyBytes>,
 }
@@ -52,9 +52,9 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
         .concat2()
         .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
         .and_then(|chunks| {
-            serde_json::from_slice::<BulkValidatorDutiesRequest>(&chunks).map_err(|e| {
+            serde_json::from_slice::<ValidatorDutiesRequest>(&chunks).map_err(|e| {
                 ApiError::BadRequest(format!(
-                    "Unable to parse JSON into BulkValidatorDutiesRequest: {:?}",
+                    "Unable to parse JSON into ValidatorDutiesRequest: {:?}",
                     e
                 ))
             })

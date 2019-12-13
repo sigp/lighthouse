@@ -145,7 +145,7 @@ pub fn post_individual_votes<T: BeaconChainTypes>(
         .and_then(|chunks| {
             serde_json::from_slice::<IndividualVotesRequest>(&chunks).map_err(|e| {
                 ApiError::BadRequest(format!(
-                    "Unable to parse JSON into BulkValidatorDutiesRequest: {:?}",
+                    "Unable to parse JSON into ValidatorDutiesRequest: {:?}",
                     e
                 ))
             })
