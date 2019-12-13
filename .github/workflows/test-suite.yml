@@ -54,5 +54,7 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Install ganache-cli
+      run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim
       run: cargo run --release --bin beacon_chain_sim
