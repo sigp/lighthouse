@@ -214,14 +214,25 @@ impl DepositCache {
     /// Returns 0 if no logs are present.
     /// Note: This function assumes that `block_number` > `deposit_contract_deploy_block`
     pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
-        Some(
-            self.logs
-                .iter()
-                .take_while(|log| block_number >= log.block_number)
-                .collect::<Vec<_>>()
-                .last()
-                .map_or(0, |x| x.index + 1),
-        )
+        // Return 0 if block_num queried is before first deposit
+        if let Some(first_deposit) = self.logs.first() {
+            if first_deposit.block_number > block_number {
+                return Some(0);
+            }
+        }
+        let index = self
+            .logs
+            .binary_search_by(|deposit| deposit.block_number.cmp(&block_number));
+        match index {
+            Ok(index) => return self.logs.get(index).map(|x| x.index + 1),
+            Err(prev) => {
+                return Some(
+                    self.logs
+                        .get(prev.saturating_sub(1))
+                        .map_or(0, |x| x.index + 1),
+                )
+            }
+        }
     }
 
     /// Gets the deposit root at block height = block_number.
