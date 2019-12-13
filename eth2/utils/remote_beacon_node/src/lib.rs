@@ -224,34 +224,7 @@ impl<E: EthSpec> Validator<E> {
     }
 
     /// Returns the duties required of the given validator pubkeys in the given epoch.
-    ///
-    /// ## Warning
-    ///
-    /// This method cannot request large amounts of validator duties because the query string fills
-    /// up the URL. I have seen requests of 1,024 fail. For large requests, use `get_duties_bulk`.
     pub fn get_duties(
-        &self,
-        epoch: Epoch,
-        validator_pubkeys: &[PublicKey],
-    ) -> impl Future<Item = Vec<ValidatorDuty>, Error = Error> {
-        let validator_pubkeys: Vec<String> =
-            validator_pubkeys.iter().map(pubkey_as_string).collect();
-
-        let client = self.0.clone();
-        self.url("duties").into_future().and_then(move |url| {
-            let mut query_params = validator_pubkeys
-                .into_iter()
-                .map(|pubkey| ("validator_pubkeys".to_string(), pubkey))
-                .collect::<Vec<_>>();
-
-            query_params.push(("epoch".into(), format!("{}", epoch.as_u64())));
-
-            client.json_get::<_>(url, query_params)
-        })
-    }
-
-    /// Returns the duties required of the given validator pubkeys in the given epoch.
-    pub fn get_duties_bulk(
         &self,
         epoch: Epoch,
         validator_pubkeys: &[PublicKey],
@@ -473,10 +446,6 @@ fn root_as_string(root: Hash256) -> String {
 
 fn signature_as_string(signature: &Signature) -> String {
     format!("0x{}", hex::encode(signature.as_ssz_bytes()))
-}
-
-fn pubkey_as_string(pubkey: &PublicKey) -> String {
-    format!("0x{}", hex::encode(pubkey.as_ssz_bytes()))
 }
 
 impl From<reqwest::Error> for Error {

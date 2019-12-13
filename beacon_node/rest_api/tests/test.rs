@@ -163,43 +163,6 @@ fn validator_produce_attestation() {
 }
 
 #[test]
-fn validator_duties_bulk() {
-    let mut env = build_env();
-
-    let spec = &E::default_spec();
-
-    let node = build_node(&mut env, testing_client_config());
-    let remote_node = node.remote_node().expect("should produce remote node");
-
-    let beacon_chain = node
-        .client
-        .beacon_chain()
-        .expect("client should have beacon chain");
-
-    let epoch = Epoch::new(0);
-
-    let validators = beacon_chain
-        .head()
-        .beacon_state
-        .validators
-        .iter()
-        .map(|v| (&v.pubkey).try_into().expect("pubkey should be valid"))
-        .collect::<Vec<_>>();
-
-    let duties = env
-        .runtime()
-        .block_on(
-            remote_node
-                .http
-                .validator()
-                .get_duties_bulk(epoch, &validators),
-        )
-        .expect("should fetch duties from http api");
-
-    check_duties(duties, epoch, validators, beacon_chain, spec);
-}
-
-#[test]
 fn validator_duties() {
     let mut env = build_env();
 
