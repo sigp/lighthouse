@@ -383,7 +383,7 @@ impl<E: EthSpec> Beacon<E> {
     /// Returns the root of the block at the given slot.
     pub fn get_block_root(&self, slot: Slot) -> impl Future<Item = Hash256, Error = Error> {
         let client = self.0.clone();
-        self.url("state_root").into_future().and_then(move |url| {
+        self.url("block_root").into_future().and_then(move |url| {
             client.json_get(url, vec![("slot".into(), format!("{}", slot.as_u64()))])
         })
     }
@@ -429,7 +429,7 @@ impl<E: EthSpec> Beacon<E> {
             .and_then(|mut success| success.json().map_err(Error::from))
     }
 
-    /// Returns the block and block root at the given slot.
+    /// Returns all validators.
     ///
     /// If `state_root` is `Some`, the query will use the given state instead of the default
     /// canonical head state.
@@ -446,6 +446,27 @@ impl<E: EthSpec> Beacon<E> {
         };
 
         self.url("validators/all")
+            .into_future()
+            .and_then(move |url| client.json_get(url, query_params))
+    }
+
+    /// Returns the active validators.
+    ///
+    /// If `state_root` is `Some`, the query will use the given state instead of the default
+    /// canonical head state.
+    pub fn get_active_validators(
+        &self,
+        state_root: Option<Hash256>,
+    ) -> impl Future<Item = Vec<ValidatorResponse>, Error = Error> {
+        let client = self.0.clone();
+
+        let query_params = if let Some(state_root) = state_root {
+            vec![("state_root".into(), root_as_string(state_root))]
+        } else {
+            vec![]
+        };
+
+        self.url("validators/active")
             .into_future()
             .and_then(move |url| client.json_get(url, query_params))
     }

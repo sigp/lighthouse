@@ -689,6 +689,42 @@ fn get_all_validators() {
         .for_each(|(response, validator)| compare_validator_response(state, response, validator));
 }
 
+#[test]
+fn get_active_validators() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+    let state = &chain.head().beacon_state;
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_active_validators(None))
+        .expect("should fetch from http api");
+
+    /*
+     * This test isn't comprehensive because all of the validators in the state are active (i.e.,
+     * there is no one to exclude.
+     *
+     * This should be fixed once we can generate more interesting scenarios with the
+     * `NodeTestRig`.
+     */
+
+    let validators = state
+        .validators
+        .iter()
+        .filter(|validator| validator.is_active_at(state.current_epoch()));
+
+    result
+        .iter()
+        .zip(validators)
+        .for_each(|(response, validator)| compare_validator_response(state, response, validator));
+}
+
 fn compare_validator_response<T: EthSpec>(
     state: &BeaconState<T>,
     response: &ValidatorResponse,
