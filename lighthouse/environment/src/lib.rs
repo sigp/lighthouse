@@ -228,7 +228,7 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Sets the logger (and all child loggers) to log to a file.
-    pub fn log_to_json_file(&mut self, path: PathBuf) -> Result<(), String> {
+    pub fn log_to_json_file(&mut self, path: PathBuf, debug_level: &str) -> Result<(), String> {
         let file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -237,8 +237,19 @@ impl<E: EthSpec> Environment<E> {
             .map_err(|e| format!("Unable to open logfile: {:?}", e))?;
 
         let drain = Mutex::new(slog_json::Json::default(file)).fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-        self.log = slog::Logger::root(drain, o!());
+        let drain = slog_async::Async::new(drain).build();
+
+        let drain = match debug_level {
+            "info" => drain.filter_level(Level::Info),
+            "debug" => drain.filter_level(Level::Debug),
+            "trace" => drain.filter_level(Level::Trace),
+            "warn" => drain.filter_level(Level::Warning),
+            "error" => drain.filter_level(Level::Error),
+            "crit" => drain.filter_level(Level::Critical),
+            unknown => return Err(format!("Unknown debug-level: {}", unknown)),
+        };
+
+        self.log = Logger::root(drain.fuse(), o!());
 
         info!(
             self.log,
