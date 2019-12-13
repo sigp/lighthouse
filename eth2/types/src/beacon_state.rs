@@ -402,6 +402,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
     ///
     /// Note: a spec argument is not required as it utilizes the cache.
+    ///
     /// Spec v0.9.1
     pub fn get_beacon_proposer_index(&self, slot: Slot) -> Result<usize, Error> {
         let slot = slot.into();
