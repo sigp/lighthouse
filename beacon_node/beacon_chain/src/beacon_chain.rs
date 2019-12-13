@@ -1209,13 +1209,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        if self.store.exists::<BeaconBlock<T::EthSpec>>(&block_root)? {
-            return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
-        }
-
         // Records the time taken to load the block and state from the database during block
         // processing.
         let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
+
+        if self.store.exists::<BeaconBlock<T::EthSpec>>(&block_root)? {
+            return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
+        }
 
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
