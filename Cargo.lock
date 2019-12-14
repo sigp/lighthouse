@@ -3873,6 +3873,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "store"
 version = "0.1.0"
 dependencies = [
+ "beacon_chain 0.1.0",
  "criterion 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "db-key 0.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz 0.1.2",

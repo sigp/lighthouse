@@ -6,6 +6,147 @@ use types::{
     typenum::Unsigned, BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot,
 };
 
+/// Specifies whether or not the `LeanReverseAncestorIter` should store block or state roots.
+#[derive(Clone, Copy)]
+enum LeanReverseAncestorIterTarget {
+    BlockRoots,
+    StateRoots,
+}
+
+/// Provides a "lean" reverse ancestor iterator which may serve `state.block_roots` or
+/// `state.state_roots`.
+///
+/// It is lean because:
+///
+///  - It does not hold a whole `BeaconState`, only the roots it needs.
+///  - It can store less than `SLOTS_PER_HISTORICAL_ROOT` values, making it a handly little cache
+///  of roots (e.g., you can store `n` roots in memory and only need to load from state when you go
+///  back more than `n` entries).
+///
+///  It does not presently take advantage of the freezer DB, it just loads states in their
+///  entirety. However, the fundamental design of this struct should make it rather partial to this
+///  optimization in the future.
+pub struct LeanReverseAncestorIter<E: EthSpec, U: Store<E>> {
+    roots: Vec<Hash256>,
+    next_state: (Hash256, Slot),
+    prev_slot: Slot,
+    store: Arc<U>,
+    target: LeanReverseAncestorIterTarget,
+    _phantom: PhantomData<E>,
+}
+
+impl<E: EthSpec, U: Store<E>> LeanReverseAncestorIter<E, U> {
+    /// Returns an iterator over all `state.block_roots` for all slots _prior_ to the given `state.slot` till genesis.
+    pub fn block_roots(store: Arc<U>, state: &BeaconState<E>, len: usize) -> Option<Self> {
+        Self::new(store, state, len, LeanReverseAncestorIterTarget::BlockRoots)
+    }
+
+    /// Returns an iterator over all `state.state_roots` for all slots _prior_ to the given `state.slot` till genesis.
+    pub fn state_roots(store: Arc<U>, state: &BeaconState<E>, len: usize) -> Option<Self> {
+        Self::new(store, state, len, LeanReverseAncestorIterTarget::StateRoots)
+    }
+
+    fn new(
+        store: Arc<U>,
+        state: &BeaconState<E>,
+        max_len: usize,
+        target: LeanReverseAncestorIterTarget,
+    ) -> Option<Self> {
+        if max_len > E::SlotsPerHistoricalRoot::to_usize() || max_len == 0 {
+            return None;
+        }
+
+        // First we try and use the backtrack state. This should reduce the amount state-replaying
+        // required.
+        let (mut next_state_root, mut next_state_slot) =
+            next_historical_root_backtrack_state_root(&state)?;
+
+        // This _shouldn't_ underflow, however in the case it does we advantage of saturation
+        // subtraction on `Slot`.
+        let mut len = (state.slot - next_state_slot).as_usize();
+
+        // When the `len` is short, the typical backtrack state root may be too far in the past and
+        // state roots will get skipped. In this case we just pick the earliest possible state
+        // (this may involve replaying some states).
+        if len > max_len {
+            // Taking advantage of saturating subtraction on `Slot`.
+            next_state_slot = state.slot - max_len as u64;
+            next_state_root = *state.get_state_root(next_state_slot).ok()?;
+            len = max_len;
+        }
+
+        let prev_slot = state.slot;
+        let mut roots = Vec::with_capacity(len);
+        for i in 0..len as u64 {
+            if prev_slot - i > 0 {
+                // Taking advantage of saturating subtraction.
+                let slot = prev_slot - (i + 1);
+
+                // This one-by-one copying of roots is not ideal, however it simplifies the
+                // routine greatly.
+                let root = match target {
+                    LeanReverseAncestorIterTarget::BlockRoots => state.get_block_root(slot),
+                    LeanReverseAncestorIterTarget::StateRoots => state.get_state_root(slot),
+                }
+                .ok()?;
+
+                roots.push(*root)
+            } else {
+                break;
+            }
+        }
+
+        Some(Self {
+            roots,
+            next_state: (next_state_root, next_state_slot),
+            prev_slot,
+            store,
+            target,
+            _phantom: PhantomData,
+        })
+    }
+}
+
+impl<E: EthSpec, U: Store<E>> Iterator for LeanReverseAncestorIter<E, U> {
+    type Item = (Hash256, Slot);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.prev_slot == 0 {
+            return None;
+        }
+
+        // dbg!(self.prev_slot);
+
+        if let Some(root) = self.roots.pop() {
+            self.prev_slot -= 1;
+
+            Some((root, self.prev_slot))
+        } else {
+            let (next_state_root, next_state_slot) = self.next_state;
+
+            let state = self
+                .store
+                .get_state(&next_state_root, Some(next_state_slot))
+                .ok()??;
+
+            std::mem::replace(
+                self,
+                LeanReverseAncestorIter::new(
+                    self.store.clone(),
+                    &state,
+                    // Note: regardless of the length of the current iterator, the new iterator
+                    // always has the full length. This will consume more memory for short
+                    // iterations but involve less DB reads for long iterations.
+                    E::SlotsPerHistoricalRoot::to_usize(),
+                    self.target,
+                )?,
+            );
+
+            self.next()
+        }
+    }
+}
+
 /// Implemented for types that have ancestors (e.g., blocks, states) that may be iterated over.
 ///
 /// ## Note
@@ -243,13 +384,24 @@ fn next_historical_root_backtrack_state<E: EthSpec, S: Store<E>>(
     store: &S,
     current_state: &BeaconState<E>,
 ) -> Option<BeaconState<E>> {
+    let (new_state_root, new_state_slot) =
+        next_historical_root_backtrack_state_root(current_state)?;
+    store
+        .get_state(&new_state_root, Some(new_state_slot))
+        .ok()?
+}
+
+/// Fetch the next state root to use whilst backtracking in `*RootsIterator`.
+fn next_historical_root_backtrack_state_root<E: EthSpec>(
+    current_state: &BeaconState<E>,
+) -> Option<(Hash256, Slot)> {
     // For compatibility with the freezer database's restore points, we load a state at
     // a restore point slot (thus avoiding replaying blocks). In the case where we're
     // not frozen, this just means we might not jump back by the maximum amount on
     // our first jump (i.e. at most 1 extra state load).
     let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot);
     let new_state_root = current_state.get_state_root(new_state_slot).ok()?;
-    store.get_state(new_state_root, Some(new_state_slot)).ok()?
+    Some((*new_state_root, new_state_slot))
 }
 
 /// Compute the slot of the last guaranteed restore point in the freezer database.
