@@ -115,8 +115,6 @@ impl<E: EthSpec, U: Store<E>> Iterator for LeanReverseAncestorIter<E, U> {
             return None;
         }
 
-        // dbg!(self.prev_slot);
-
         if let Some(root) = self.roots.pop() {
             self.prev_slot -= 1;
 
