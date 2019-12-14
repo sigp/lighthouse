@@ -1,11 +1,12 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType,
 };
-use store::iter::LeanReverseAncestorIter;
+use store::{iter::LeanReverseAncestorIter, Store};
 use types::{
-    test_utils::generate_deterministic_keypairs, EthSpec, Hash256, MinimalEthSpec, Slot, Unsigned,
+    test_utils::generate_deterministic_keypairs, BeaconBlock, EthSpec, Hash256, MinimalEthSpec,
+    Slot, Unsigned,
 };
 
 type E = MinimalEthSpec;
@@ -145,6 +146,28 @@ fn lean_ancestor_iterators_checks(
             x[0].1 - 1,
             "state root slots should be decreasing by one"
         )
+    });
+
+    block_roots.iter().for_each(|(root, slot)| {
+        let block: BeaconBlock<E> = harness
+            .chain
+            .store
+            .get(&root)
+            .expect("should read db")
+            .expect("should find block");
+
+        assert_eq!(*slot, block.slot, "the block root should be correct");
+    });
+
+    state_roots.iter().for_each(|(root, slot)| {
+        let state = harness
+            .chain
+            .store
+            .get_state(&root, None)
+            .expect("should read db")
+            .expect("should find state");
+
+        assert_eq!(*slot, state.slot, "the state root should be correct");
     });
 
     let head = &harness.chain.head();

@@ -23,6 +23,8 @@ enum LeanReverseAncestorIterTarget {
 ///  of roots (e.g., you can store `n` roots in memory and only need to load from state when you go
 ///  back more than `n` entries).
 ///
+///  ## Notes
+///
 ///  It does not presently take advantage of the freezer DB, it just loads states in their
 ///  entirety. However, the fundamental design of this struct should make it rather partial to this
 ///  optimization in the future.
@@ -90,12 +92,11 @@ impl<E: EthSpec, U: Store<E>> LeanReverseAncestorIter<E, U> {
             len = max_len;
         }
 
-        let prev_slot = state.slot;
         let mut roots = Vec::with_capacity(len);
-        for i in 0..len as u64 {
-            if prev_slot - i > 0 {
-                // Taking advantage of saturating subtraction.
-                let slot = prev_slot - (i + 1);
+        for i in (0..len as u64).rev() {
+            // Taking advantage of saturating subtraction.
+            if state.slot - i > 0 {
+                let slot = state.slot - (i + 1);
 
                 // This one-by-one copying of roots is not ideal, however it simplifies the
                 // routine greatly.
@@ -114,7 +115,7 @@ impl<E: EthSpec, U: Store<E>> LeanReverseAncestorIter<E, U> {
         Some(Self {
             roots,
             next_state: (next_state_root, next_state_slot),
-            prev_slot,
+            prev_slot: state.slot,
             store,
             target,
             _phantom: PhantomData,
