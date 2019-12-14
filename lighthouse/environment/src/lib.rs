@@ -230,7 +230,7 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Sets the logger (and all child loggers) to log to a file.
-      pub fn log_to_json_file(&mut self, path: PathBuf, debug_level: &str) -> Result<(), String> {
+    pub fn log_to_json_file(&mut self, path: PathBuf, debug_level: &str) -> Result<(), String> {
         // Creating a backup if the logfile already exists.
         if path.exists() {
             let start = SystemTime::now();
