@@ -3,7 +3,7 @@
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType,
 };
-use store::{iter::LeanReverseAncestorIter, Store};
+use store::{iter::AncestorRoots, Store};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconBlock, EthSpec, Hash256, MinimalEthSpec,
     Slot, Unsigned,
@@ -98,14 +98,13 @@ fn lean_ancestor_iterators_checks(
     let store = harness.chain.store.clone();
     let state = &harness.chain.head().beacon_state;
 
-    let block_roots: Vec<(Hash256, Slot)> =
-        LeanReverseAncestorIter::block_roots(store.clone(), state, len)
-            .expect("should create iter")
-            .collect();
-    let state_roots: Vec<(Hash256, Slot)> =
-        LeanReverseAncestorIter::state_roots(store.clone(), state, len)
-            .expect("should create iter")
-            .collect();
+    let mut block_ancestors =
+        AncestorRoots::block_roots(store.clone(), state, len).expect("should create block roots");
+    let mut state_ancestors =
+        AncestorRoots::state_roots(store.clone(), state, len).expect("should create state roots");
+
+    let block_roots: Vec<(Hash256, Slot)> = block_ancestors.iter().collect();
+    let state_roots: Vec<(Hash256, Slot)> = state_ancestors.iter().collect();
 
     assert_eq!(
         block_roots.len(),

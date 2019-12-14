@@ -6,29 +6,7 @@ use types::{
     typenum::Unsigned, BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot,
 };
 
-/// Specifies whether or not the `LeanReverseAncestorIter` should store block or state roots.
-#[derive(Clone, Copy)]
-enum LeanReverseAncestorIterTarget {
-    BlockRoots,
-    StateRoots,
-}
-
-/// Provides a "lean" reverse ancestor iterator which may serve `state.block_roots` or
-/// `state.state_roots`.
-///
-/// It is lean because:
-///
-///  - It does not hold a whole `BeaconState`, only the roots it needs.
-///  - It can store less than `SLOTS_PER_HISTORICAL_ROOT` values, making it a handly little cache
-///  of roots (e.g., you can store `n` roots in memory and only need to load from state when you go
-///  back more than `n` entries).
-///
-///  ## Notes
-///
-///  It does not presently take advantage of the freezer DB, it just loads states in their
-///  entirety. However, the fundamental design of this struct should make it rather partial to this
-///  optimization in the future.
-pub struct LeanReverseAncestorIter<E: EthSpec, U: Store<E>> {
+pub struct AncestorRoots<E: EthSpec, U: Store<E>> {
     roots: Vec<Hash256>,
     next_state: (Hash256, Slot),
     prev_slot: Slot,
@@ -37,7 +15,24 @@ pub struct LeanReverseAncestorIter<E: EthSpec, U: Store<E>> {
     _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec, U: Store<E>> LeanReverseAncestorIter<E, U> {
+impl<E: EthSpec, U: Store<E>> AncestorRoots<E, U> {
+    pub fn iter<'a>(&'a mut self) -> LeanReverseAncestorIter<'a, E, U> {
+        LeanReverseAncestorIter { cache: self }
+    }
+
+    pub fn empty(store: Arc<U>) -> Self {
+        Self {
+            roots: vec![],
+            next_state: (Hash256::zero(), Slot::new(0)),
+            // Setting slot to 0 should guarantee that `next()` will return `None`.
+            prev_slot: Slot::new(0),
+            store,
+            // This field should be meaningless if the iter always returns `None`.
+            target: LeanReverseAncestorIterTarget::BlockRoots,
+            _phantom: PhantomData,
+        }
+    }
+
     /// Returns an iterator over all `state.block_roots` for all slots _prior_ to the given `state.slot` till genesis.
     pub fn block_roots(store: Arc<U>, state: &BeaconState<E>, len: usize) -> Option<Self> {
         Self::new(store, state, len, LeanReverseAncestorIterTarget::BlockRoots)
@@ -62,15 +57,7 @@ impl<E: EthSpec, U: Store<E>> LeanReverseAncestorIter<E, U> {
         // iterator with mostly junk values that will simply return `None` on the first call to
         // `next()`.
         if state.slot == 0 {
-            return Some(Self {
-                roots: vec![],
-                next_state: (Hash256::random(), Slot::new(0)),
-                // Setting slot to 0 should guarantee that `next()` will return `None`.
-                prev_slot: Slot::new(0),
-                store,
-                target,
-                _phantom: PhantomData,
-            });
+            return Some(Self::empty(store));
         }
 
         // First we try and use the backtrack state. This should reduce the amount state-replaying
@@ -123,36 +110,72 @@ impl<E: EthSpec, U: Store<E>> LeanReverseAncestorIter<E, U> {
     }
 }
 
-impl<E: EthSpec, U: Store<E>> Iterator for LeanReverseAncestorIter<E, U> {
+/// Specifies whether or not the `LeanReverseAncestorIter` should store block or state roots.
+#[derive(Clone, Copy)]
+enum LeanReverseAncestorIterTarget {
+    BlockRoots,
+    StateRoots,
+}
+
+/// Provides a "lean" reverse ancestor iterator which may serve `state.block_roots` or
+/// `state.state_roots`.
+///
+/// It is lean because:
+///
+///  - It does not hold a whole `BeaconState`, only the roots it needs.
+///  - It can store less than `SLOTS_PER_HISTORICAL_ROOT` values, making it a handly little cache
+///  of roots (e.g., you can store `n` roots in memory and only need to load from state when you go
+///  back more than `n` entries).
+///
+///  ## Notes
+///
+///  It does not presently take advantage of the freezer DB, it just loads states in their
+///  entirety. However, the fundamental design of this struct should make it rather partial to this
+///  optimization in the future.
+pub struct LeanReverseAncestorIter<'a, E: EthSpec, U: Store<E>> {
+    cache: &'a mut AncestorRoots<E, U>,
+    /*
+    roots: Vec<Hash256>,
+    next_state: (Hash256, Slot),
+    prev_slot: Slot,
+    store: Arc<U>,
+    target: LeanReverseAncestorIterTarget,
+    _phantom: PhantomData<E>,
+    */
+}
+
+impl<'a, E: EthSpec, U: Store<E>> Iterator for LeanReverseAncestorIter<'a, E, U> {
     type Item = (Hash256, Slot);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.prev_slot == 0 {
+        let cache = &mut self.cache;
+
+        if cache.prev_slot == 0 {
             return None;
         }
 
-        if let Some(root) = self.roots.pop() {
-            self.prev_slot -= 1;
+        if let Some(root) = cache.roots.pop() {
+            cache.prev_slot -= 1;
 
-            Some((root, self.prev_slot))
+            Some((root, cache.prev_slot))
         } else {
-            let (next_state_root, next_state_slot) = self.next_state;
+            let (next_state_root, next_state_slot) = cache.next_state;
 
-            let state = self
+            let state = cache
                 .store
                 .get_state(&next_state_root, Some(next_state_slot))
                 .ok()??;
 
             std::mem::replace(
-                self,
-                LeanReverseAncestorIter::new(
-                    self.store.clone(),
+                *cache,
+                AncestorRoots::new(
+                    cache.store.clone(),
                     &state,
                     // Note: regardless of the length of the current iterator, the new iterator
                     // always has the full length. This will consume more memory for short
                     // iterations but involve less DB reads for long iterations.
                     E::SlotsPerHistoricalRoot::to_usize(),
-                    self.target,
+                    cache.target,
                 )?,
             );
 
