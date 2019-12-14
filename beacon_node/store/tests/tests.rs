@@ -1,4 +1,4 @@
-// #![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType,
@@ -21,22 +21,40 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<Minimal
     harness
 }
 
-#[test]
-fn lean_ancestor_iterators_genesis() {
-    let harness = get_harness(24);
-
-    let lengths = vec![
+/// Some lengths to test with.
+fn test_lengths() -> Vec<usize> {
+    vec![
         <E as EthSpec>::SlotsPerHistoricalRoot::to_usize(),
         <E as EthSpec>::SlotsPerHistoricalRoot::to_usize() - 1,
         <E as EthSpec>::SlotsPerHistoricalRoot::to_usize() / 2,
         3,
         2,
         1,
-    ];
+    ]
+}
 
-    for len in lengths {
+#[test]
+fn lean_ancestor_iterators_genesis() {
+    let harness = get_harness(24);
+
+    for len in test_lengths() {
         lean_ancestor_iterators_checks(&harness, 0, len);
     }
+}
+
+#[test]
+fn lean_ancestor_iterators_len_1() {
+    lean_ancestor_iterators_test(1);
+}
+
+#[test]
+fn lean_ancestor_iterators_len_2() {
+    lean_ancestor_iterators_test(2);
+}
+
+#[test]
+fn lean_ancestor_iterators_len_3() {
+    lean_ancestor_iterators_test(3);
 }
 
 #[test]
@@ -65,16 +83,7 @@ fn lean_ancestor_iterators_test(num_blocks_produced: usize) {
         AttestationStrategy::SomeValidators(vec![]),
     );
 
-    let lengths = vec![
-        <E as EthSpec>::SlotsPerHistoricalRoot::to_usize(),
-        <E as EthSpec>::SlotsPerHistoricalRoot::to_usize() - 1,
-        <E as EthSpec>::SlotsPerHistoricalRoot::to_usize() / 2,
-        3,
-        2,
-        1,
-    ];
-
-    for len in lengths {
+    for len in test_lengths() {
         lean_ancestor_iterators_checks(&harness, num_blocks_produced, len);
     }
 }
