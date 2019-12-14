@@ -348,6 +348,7 @@ pub struct YamlConfig {
     seconds_per_slot: u64,
     min_attestation_inclusion_delay: u64,
     min_seed_lookahead: u64,
+    max_seed_lookahead: u64,
     min_validator_withdrawability_delay: u64,
     persistent_committee_period: u64,
     min_epochs_to_inactivity_penalty: u64,
@@ -414,8 +415,6 @@ pub struct YamlConfig {
     #[serde(skip_serializing)]
     early_derived_secret_penalty_max_future_epochs: u32,
     #[serde(skip_serializing)]
-    max_seed_lookahead: u32,
-    #[serde(skip_serializing)]
     deposit_contract_address: String,
 
     // Phase 1
@@ -473,6 +472,7 @@ impl YamlConfig {
             seconds_per_slot: spec.milliseconds_per_slot / 1000,
             min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
             min_seed_lookahead: spec.min_seed_lookahead.into(),
+            max_seed_lookahead: spec.max_seed_lookahead.into(),
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay.into(),
             persistent_committee_period: spec.persistent_committee_period,
             min_epochs_to_inactivity_penalty: spec.min_epochs_to_inactivity_penalty,
@@ -511,7 +511,6 @@ impl YamlConfig {
 
             // Unused
             early_derived_secret_penalty_max_future_epochs: 0,
-            max_seed_lookahead: 0,
             deposit_contract_address: String::new(),
 
             // Phase 1
@@ -570,6 +569,7 @@ impl YamlConfig {
             milliseconds_per_slot: self.seconds_per_slot * 1000,
             min_attestation_inclusion_delay: self.min_attestation_inclusion_delay,
             min_seed_lookahead: Epoch::from(self.min_seed_lookahead),
+            max_seed_lookahead: Epoch::from(self.max_seed_lookahead),
             min_validator_withdrawability_delay: Epoch::from(
                 self.min_validator_withdrawability_delay,
             ),
