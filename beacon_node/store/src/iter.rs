@@ -56,6 +56,21 @@ impl<E: EthSpec, U: Store<E>> LeanReverseAncestorIter<E, U> {
             return None;
         }
 
+        // It is impossible to iterate through roots prior to genesis. If requested, we generate an
+        // iterator with mostly junk values that will simply return `None` on the first call to
+        // `next()`.
+        if state.slot == 0 {
+            return Some(Self {
+                roots: vec![],
+                next_state: (Hash256::random(), Slot::new(0)),
+                // Setting slot to 0 should guarantee that `next()` will return `None`.
+                prev_slot: Slot::new(0),
+                store,
+                target,
+                _phantom: PhantomData,
+            });
+        }
+
         // First we try and use the backtrack state. This should reduce the amount state-replaying
         // required.
         let (mut next_state_root, mut next_state_slot) =

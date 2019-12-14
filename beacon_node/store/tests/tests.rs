@@ -1,4 +1,4 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType,
@@ -22,9 +22,40 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<Minimal
 }
 
 #[test]
-fn lean_ancestor_iterators() {
-    let num_blocks_produced = <E as EthSpec>::SlotsPerHistoricalRoot::to_usize() * 3;
+fn lean_ancestor_iterators_genesis() {
+    let harness = get_harness(24);
 
+    let lengths = vec![
+        <E as EthSpec>::SlotsPerHistoricalRoot::to_usize(),
+        <E as EthSpec>::SlotsPerHistoricalRoot::to_usize() - 1,
+        <E as EthSpec>::SlotsPerHistoricalRoot::to_usize() / 2,
+        3,
+        2,
+        1,
+    ];
+
+    for len in lengths {
+        lean_ancestor_iterators_checks(&harness, 0, len);
+    }
+}
+
+#[test]
+fn lean_ancestor_iterators_len_half_historical_roots() {
+    lean_ancestor_iterators_test(<E as EthSpec>::SlotsPerHistoricalRoot::to_usize() / 2);
+}
+
+#[test]
+fn lean_ancestor_iterators_len_1_times_historical_roots() {
+    lean_ancestor_iterators_test(<E as EthSpec>::SlotsPerHistoricalRoot::to_usize());
+}
+
+#[test]
+fn lean_ancestor_iterators_len_3_times_historical_roots() {
+    lean_ancestor_iterators_test(<E as EthSpec>::SlotsPerHistoricalRoot::to_usize() * 3);
+}
+
+/// Run a test on the ancestor iterators given a chain of length `num_blocks_produced + 1`.
+fn lean_ancestor_iterators_test(num_blocks_produced: usize) {
     let harness = get_harness(24);
 
     harness.extend_chain(
@@ -44,11 +75,12 @@ fn lean_ancestor_iterators() {
     ];
 
     for len in lengths {
-        lean_ancestor_iterators_test(&harness, num_blocks_produced, len);
+        lean_ancestor_iterators_checks(&harness, num_blocks_produced, len);
     }
 }
 
-fn lean_ancestor_iterators_test(
+/// Generate iterators and check them against the harness.
+fn lean_ancestor_iterators_checks(
     harness: &BeaconChainHarness<HarnessType<MinimalEthSpec>>,
     num_blocks_produced: usize,
     len: usize,
@@ -76,6 +108,11 @@ fn lean_ancestor_iterators_test(
         num_blocks_produced as usize,
         "should contain all produced blocks"
     );
+
+    if state.slot == 0 {
+        // No need to run the following tests for the genesis case.
+        return;
+    }
 
     assert!(
         block_roots.iter().any(|(_root, slot)| *slot == 0),
