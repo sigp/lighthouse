@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
+mod notifier;
 mod validator_store;
 
 pub mod validator_directory;
@@ -22,6 +23,7 @@ use futures::{
     future::{self, loop_fn, Loop},
     Future, IntoFuture,
 };
+use notifier::spawn_notifier;
 use remote_beacon_node::RemoteBeaconNode;
 use slog::{error, info, Logger};
 use slot_clock::SlotClock;
@@ -258,7 +260,16 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
-        self.exit_signals = vec![duties_exit, fork_exit, block_exit, attestation_exit];
+        let notifier_exit =
+            spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
+
+        self.exit_signals = vec![
+            duties_exit,
+            fork_exit,
+            block_exit,
+            attestation_exit,
+            notifier_exit,
+        ];
 
         Ok(())
     }

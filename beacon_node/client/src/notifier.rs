@@ -297,7 +297,7 @@ impl Speedo {
         let (prev_slot, _) = self.0.last()?;
         let slots_per_second = self.slots_per_second()?;
 
-        if target_slot > *prev_slot {
+        if target_slot > *prev_slot && slots_per_second > 0.0 {
             let distance = (target_slot - *prev_slot).as_u64() as f64;
             Some(distance / slots_per_second)
         } else {
