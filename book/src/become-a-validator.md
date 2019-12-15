@@ -32,6 +32,9 @@ help menu.
 The beacon node is the core component of Eth2, it connects to other peers over
 the Internet and maintains a view of the chain.
 
+By default connections are made over port 9000. Make sure to open port 9000
+(both on your router and computer) for UDP and TCP.
+
 Start your beacon node with:
 
 ```bash
