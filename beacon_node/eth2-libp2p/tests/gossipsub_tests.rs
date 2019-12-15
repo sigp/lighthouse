@@ -83,7 +83,11 @@ fn test_gossipsub_full_mesh_publish() {
     // set up the logging. The level and enabled or not
     let log = common::build_log(Level::Info, false);
 
-    let num_nodes = 20;
+    // Note: This test does not propagate gossipsub messages.
+    // Having `num_nodes` > `mesh_n_high` may give inconsistent results
+    // as nodes may get pruned out of the mesh before the gossipsub message
+    // is published to them.
+    let num_nodes = 12;
     let mut nodes = common::build_full_mesh(log, num_nodes, Some(11320));
     let mut publishing_node = nodes.pop().unwrap();
     let pubsub_message = PubsubMessage::Block(vec![0; 4]);

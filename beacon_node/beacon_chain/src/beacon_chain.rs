@@ -39,13 +39,16 @@ use types::*;
 // Must be 32-bytes or panic.
 //
 //                          |-------must be this long------|
-pub const GRAFFITI: &str = "sigp/lighthouse-0.0.0-prerelease";
+pub const GRAFFITI: &str = "sigp/lighthouse-0.1.0-prerelease";
 
 /// If true, everytime a block is processed the pre-state, post-state and block are written to SSZ
 /// files in the temp directory.
 ///
 /// Only useful for testing.
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
+
+/// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
+const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -69,6 +72,8 @@ pub enum BlockProcessingOutcome {
     },
     /// Block is already known, no need to re-import.
     BlockIsAlreadyKnown,
+    /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
+    BlockSlotLimitReached,
     /// The block could not be applied to the state, it is invalid.
     PerBlockProcessingError(BlockProcessingError),
 }
@@ -1174,6 +1179,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BlockProcessingOutcome::GenesisBlock);
         }
 
+        if block.slot >= MAXIMUM_BLOCK_SLOT_NUMBER {
+            return Ok(BlockProcessingOutcome::BlockSlotLimitReached);
+        }
+
         if block.slot <= finalized_slot {
             return Ok(BlockProcessingOutcome::WouldRevertFinalizedSlot {
                 block_slot: block.slot,
@@ -1200,13 +1209,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        if self.store.exists::<BeaconBlock<T::EthSpec>>(&block_root)? {
-            return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
-        }
-
         // Records the time taken to load the block and state from the database during block
         // processing.
         let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
+
+        if self.store.exists::<BeaconBlock<T::EthSpec>>(&block_root)? {
+            return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
+        }
 
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
@@ -1322,8 +1331,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Store the block and state.
-        self.store.put(&block_root, &block)?;
+        // NOTE: we store the block *after* the state to guard against inconsistency in the event of
+        // a crash, as states are usually looked up from blocks, not the other way around. A better
+        // solution would be to use a database transaction (once our choice of database and API
+        // settles down).
+        // See: https://github.com/sigp/lighthouse/issues/692
         self.store.put_state(&state_root, &state)?;
+        self.store.put(&block_root, &block)?;
 
         metrics::stop_timer(db_write_timer);
 
