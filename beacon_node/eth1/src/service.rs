@@ -9,7 +9,7 @@ use crate::{
 };
 use exit_future::Exit;
 use futures::{
-    future::{loop_fn, ok, Either, Loop},
+    future::{loop_fn, Loop},
     stream, Future, Stream,
 };
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -493,10 +493,6 @@ impl Service {
         let cache_4 = self.inner.clone();
         let cache_5 = self.inner.clone();
         let cache_6 = self.inner.clone();
-        let log1 = self.log.clone();
-        let log2 = self.log.clone();
-        let log3 = self.log.clone();
-        let log4 = self.log.clone();
 
         let block_cache_truncation = self.config().block_cache_truncation;
         let max_blocks_per_update = self
@@ -510,9 +506,7 @@ impl Service {
             .highest_block_number()
             .map(|n| n + 1)
             .unwrap_or_else(|| self.config().lowest_cached_block_number);
-        debug!(log1, "Next required block";
-            "block" => next_required_block,
-        );
+
         get_new_block_numbers(
             &self.config().endpoint,
             next_required_block,
@@ -535,9 +529,6 @@ impl Service {
                         let max_size = block_cache_truncation
                             .map(|n| n as u64)
                             .unwrap_or_else(u64::max_value);
-                        debug!(log2, "Block cache truncation";
-                               "value" => max_size,
-                        );
                         if range_size > max_size {
                             // If the range of required blocks is larger than `max_size`, drop all
                             // existing blocks and download `max_size` count of blocks.
@@ -553,76 +544,48 @@ impl Service {
         })
         // Download the range of blocks and sequentially import them into the cache.
         .and_then(move |required_block_numbers| {
-            debug!(log3.clone(), "Required block numbers";
-                "block_numbers" => format!("{:?}", required_block_numbers),
-            );
             // Last processed block in deposit cache
             let latest_in_cache = cache_6
                 .deposit_cache
                 .read()
                 .last_processed_block
                 .unwrap_or(0);
-            if let Some(first_block_num) = required_block_numbers.first() {
-                debug!(log3,
-                    "Values in cache";
-                    "Latest in cache" =>  latest_in_cache,
-                );
-                if latest_in_cache < *first_block_num {
-                    return Either::A(ok::<BlockCacheUpdateOutcome, Error>(
-                        BlockCacheUpdateOutcome::WaitingForDepositCache,
-                    ));
-                }
-            }
+
             let required_block_numbers = required_block_numbers
                 .into_iter()
-                .take(max_blocks_per_update)
                 .filter(|x| *x <= latest_in_cache)
+                .take(max_blocks_per_update)
                 .collect::<Vec<_>>();
-            Either::B(
-                ok::<Vec<_>, Error>(required_block_numbers)
-                    .and_then(|required_block_numbers| {
-                        // Produce a stream from the list of required block numbers and return a future that
-                        // consumes the it.
-                        stream::unfold(
-                            required_block_numbers.into_iter(),
-                            move |mut block_numbers| match block_numbers.next() {
-                                Some(block_number) => {
-                                    debug!(log4, "Requesting block number";
-                                        "block_number" => block_number,
-                                    );
-                                    Some(
-                                        download_eth1_block(cache_2.clone(), block_number)
-                                            .map(|v| (v, block_numbers)),
-                                    )
-                                }
-                                None => None,
-                            },
-                        )
-                        .fold(0, move |sum, eth1_block| {
-                            // println!("Eth1 block downloaded: {:?}", eth1_block);
-                            cache_3
-                                .block_cache
-                                .write()
-                                .insert_root_or_child(eth1_block)
-                                .map_err(Error::FailedToInsertEth1Block)?;
-
-                            Ok(sum + 1)
-                        })
-                    })
-                    .and_then(move |blocks_imported| {
-                        // Prune the block cache, preventing it from growing too large.
-                        cache_4.prune_blocks();
-
-                        Ok(BlockCacheUpdateOutcome::Success {
-                            blocks_imported,
-                            head_block_number: cache_4
-                                .clone()
-                                .block_cache
-                                .read()
-                                .highest_block_number(),
-                        })
-                    }),
+            // Produce a stream from the list of required block numbers and return a future that
+            // consumes the it.
+            stream::unfold(
+                required_block_numbers.into_iter(),
+                move |mut block_numbers| match block_numbers.next() {
+                    Some(block_number) => Some(
+                        download_eth1_block(cache_2.clone(), block_number)
+                            .map(|v| (v, block_numbers)),
+                    ),
+                    None => None,
+                },
             )
+            .fold(0, move |sum, eth1_block| {
+                cache_3
+                    .block_cache
+                    .write()
+                    .insert_root_or_child(eth1_block)
+                    .map_err(Error::FailedToInsertEth1Block)?;
+
+                Ok(sum + 1)
+            })
+        })
+        .and_then(move |blocks_imported| {
+            // Prune the block cache, preventing it from growing too large.
+            cache_4.prune_blocks();
+
+            Ok(BlockCacheUpdateOutcome::Success {
+                blocks_imported,
+                head_block_number: cache_4.clone().block_cache.read().highest_block_number(),
+            })
         })
     }
 }
