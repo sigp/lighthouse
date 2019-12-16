@@ -8,6 +8,16 @@ pub struct DepositUpdater {
     pub last_processed_block: Option<u64>,
 }
 
+impl DepositUpdater {
+    pub fn new(deposit_contract_deploy_block: u64) -> Self {
+        let cache = DepositCache::new(deposit_contract_deploy_block);
+        DepositUpdater {
+            cache,
+            last_processed_block: None,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Inner {
     pub block_cache: RwLock<BlockCache>,

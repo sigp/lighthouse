@@ -74,13 +74,33 @@ impl DepositDataTree {
 /// Mirrors the merkle tree of deposits in the eth1 deposit contract.
 ///
 /// Provides `Deposit` objects with merkle proofs included.
-#[derive(Default)]
 pub struct DepositCache {
     logs: Vec<DepositLog>,
     roots: Vec<Hash256>,
+    deposit_contract_deploy_block: u64,
+}
+
+impl Default for DepositCache {
+    fn default() -> Self {
+        DepositCache {
+            logs: Vec::new(),
+            roots: Vec::new(),
+            deposit_contract_deploy_block: 1,
+        }
+    }
 }
 
 impl DepositCache {
+    /// Create new `DepositCache` given block number at which deposit
+    /// contract was deployed.
+    pub fn new(deposit_contract_deploy_block: u64) -> Self {
+        DepositCache {
+            logs: Vec::new(),
+            roots: Vec::new(),
+            deposit_contract_deploy_block,
+        }
+    }
+
     /// Returns the number of deposits available in the cache.
     pub fn len(&self) -> usize {
         self.logs.len()
@@ -210,10 +230,10 @@ impl DepositCache {
     ///
     /// Fetches the `DepositLog` that was emitted at or just before `block_number`
     /// and returns the deposit count as `index + 1`.
-    ///
-    /// Returns 0 if no logs are present.
-    /// Note: This function assumes that `block_number` > `deposit_contract_deploy_block`
     pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
+        if block_number < self.deposit_contract_deploy_block {
+            return None;
+        }
         // Return 0 if block_num queried is before first deposit
         if let Some(first_deposit) = self.logs.first() {
             if first_deposit.block_number > block_number {

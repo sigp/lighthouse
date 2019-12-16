@@ -763,7 +763,7 @@ mod fast {
             "should have imported n deposits"
         );
 
-        for block_num in 1..=get_block_number(runtime, &web3) {
+        for block_num in 0..=get_block_number(runtime, &web3) {
             let expected_deposit_count = blocking_deposit_count(runtime, &eth1, block_num);
             let expected_deposit_root = blocking_deposit_root(runtime, &eth1, block_num);
 
