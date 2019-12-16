@@ -1,21 +1,10 @@
+use crate::topics::GossipTopic;
 use enr::Enr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
-
-/// The gossipsub topic names.
-// These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
-// For example /eth2/beacon_block/ssz
-pub const TOPIC_PREFIX: &str = "eth2";
-pub const TOPIC_ENCODING_POSTFIX: &str = "ssz";
-pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
-pub const BEACON_ATTESTATION_TOPIC: &str = "beacon_attestation";
-pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
-pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
-pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
-pub const SHARD_TOPIC_PREFIX: &str = "shard";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -59,7 +48,7 @@ pub struct Config {
     pub client_version: String,
 
     /// List of extra topics to initially subscribe to as strings.
-    pub topics: Vec<String>,
+    pub topics: Vec<GossipTopic>,
 
     /// Introduces randomization in network propagation of messages. This should only be set for
     /// testing purposes and will likely be removed in future versions.
@@ -73,6 +62,15 @@ impl Default for Config {
         let mut network_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         network_dir.push(".lighthouse");
         network_dir.push("network");
+
+        let topics = vec![
+            GossipTopic::BeaconBlock,
+            GossipTopic::BeaconAttestation,
+            GossipTopic::VoluntaryExit,
+            GossipTopic::ProposerSlashing,
+            GossipTopic::AttesterSlashing,
+        ];
+
         Config {
             network_dir,
             listen_address: "127.0.0.1".parse().expect("valid ip address"),
@@ -91,7 +89,7 @@ impl Default for Config {
             boot_nodes: vec![],
             libp2p_nodes: vec![],
             client_version: version::version(),
-            topics: Vec::new(),
+            topics,
             propagation_percentage: None,
         }
     }
