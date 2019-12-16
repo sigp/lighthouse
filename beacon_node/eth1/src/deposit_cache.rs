@@ -85,7 +85,8 @@ impl Default for DepositCache {
         DepositCache {
             logs: Vec::new(),
             roots: Vec::new(),
-            deposit_contract_deploy_block: 1,
+            // 0 to be compatible with Service::Config. Should be ideally 1
+            deposit_contract_deploy_block: 0,
         }
     }
 }
@@ -231,6 +232,10 @@ impl DepositCache {
     /// Fetches the `DepositLog` that was emitted at or just before `block_number`
     /// and returns the deposit count as `index + 1`.
     pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
+        // Contract cannot be deployed in 0'th block
+        if block_number == 0 {
+            return None;
+        }
         if block_number < self.deposit_contract_deploy_block {
             return None;
         }

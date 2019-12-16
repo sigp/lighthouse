@@ -61,9 +61,6 @@ pub enum Error {
         block_range: Range<u64>,
         error: String,
     },
-    /// Deposit cache not in sync with eth1 node, can't update block cache until
-    /// deposit cache is synced.
-    DepositCacheNotSynced { latest_in_cache: u64 },
     /// There was an unexpected internal error.
     Internal(String),
 }
@@ -76,7 +73,6 @@ pub enum BlockCacheUpdateOutcome {
         blocks_imported: usize,
         head_block_number: Option<u64>,
     },
-    WaitingForDepositCache,
 }
 
 /// The success message for an Eth1 deposit cache update.
@@ -287,9 +283,6 @@ impl Service {
                         "blocks_imported" => blocks_imported,
                         "head_block" => head_block_number,
                     ),
-                    Ok(BlockCacheUpdateOutcome::WaitingForDepositCache) => {
-                        debug!(log_b, "Wating for deposit cache")
-                    }
                     Err(e) => error!(
                         log_b,
                         "Failed to update eth1 block cache";
