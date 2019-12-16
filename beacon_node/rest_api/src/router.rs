@@ -27,6 +27,7 @@ pub fn route<T: BeaconChainTypes>(
     eth2_config: Arc<Eth2Config>,
     local_log: slog::Logger,
     db_path: PathBuf,
+    freezer_db_path: PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     metrics::inc_counter(&metrics::REQUEST_COUNT);
     let timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
@@ -143,9 +144,12 @@ pub fn route<T: BeaconChainTypes>(
                 into_boxfut(spec::get_eth2_config::<T>(req, eth2_config))
             }
 
-            (&Method::GET, "/metrics") => {
-                into_boxfut(metrics::get_prometheus::<T>(req, beacon_chain, db_path))
-            }
+            (&Method::GET, "/metrics") => into_boxfut(metrics::get_prometheus::<T>(
+                req,
+                beacon_chain,
+                db_path,
+                freezer_db_path,
+            )),
 
             _ => Box::new(futures::future::err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
