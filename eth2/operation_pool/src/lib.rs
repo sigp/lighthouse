@@ -358,7 +358,7 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
 }
 
 // TODO: more tests
-#[cfg(not(debug_assertions))]
+#[cfg(all(test, not(debug_assertions)))]
 mod release_tests {
     use super::*;
     use types::test_utils::*;
