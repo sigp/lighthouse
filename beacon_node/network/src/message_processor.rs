@@ -356,21 +356,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             return;
         }
 
-        let forwards_block_root_iter = match self
+        let mut block_roots = self
             .chain
             .forwards_iter_block_roots(Slot::from(req.start_slot))
-        {
-            Ok(iter) => iter,
-            Err(e) => {
-                return error!(
-                    self.log,
-                    "Unable to obtain root iter";
-                    "error" => format!("{:?}", e)
-                )
-            }
-        };
-
-        let mut block_roots = forwards_block_root_iter
             .take_while(|(_root, slot)| slot.as_u64() < req.start_slot + req.count * req.step)
             .step_by(req.step as usize)
             .map(|(root, _slot)| root)
