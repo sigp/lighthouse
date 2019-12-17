@@ -17,7 +17,7 @@
 //!  the finalized slot of the chain is reached. Once reached, all peers within the pool are sent a
 //!  STATUS message to potentially start a head chain sync, or check if further finalized chains
 //!  need to be downloaded.
-//!
+//!  
 //!  A few interesting notes about finalized chain syncing:
 //!  - Only one finalized chain can sync at a time.
 //!  - The finalized chain with the largest peer pool takes priority.
