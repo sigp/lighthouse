@@ -123,14 +123,15 @@ impl Service {
             }
         }
 
-        let mut subscribed_topics = vec![];
+        let mut subscribed_topics: Vec<String> = vec![];
         for topic in config.topics {
-            let topic_hash: Topic = topic.into();
-            if swarm.subscribe(topic_hash.clone()) {
-                trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic_hash));
-                subscribed_topics.push(topic_hash);
+            let raw_topic: Topic = topic.into();
+            let topic_string = raw_topic.no_hash();
+            if swarm.subscribe(raw_topic.clone()) {
+                trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic_string));
+                subscribed_topics.push(topic_string.as_str().into());
             } else {
-                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_hash));
+                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_string));
             }
         }
         info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
