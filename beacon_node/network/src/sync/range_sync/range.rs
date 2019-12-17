@@ -1,3 +1,44 @@
+//! This contains the logic for the long range (batch) sync strategy.
+//!
+//! The general premise is to group peers by their self-proclaimed finalized blocks and head
+//! blocks. Once grouped, the peers become sources to download a specific `Chain`. A `Chain` is a
+//! collection of blocks that terminates at the specified target head.
+//!
+//! This sync strategy can be separated into two distinct forms:
+//!  - Finalized Chain Sync
+//!  - Head Chain Sync
+//!
+//!  ## Finalized chain sync
+//!
+//!  This occurs when a peer connects that claims to have a finalized head slot that is greater
+//!  than our own. In this case, we form a chain from our last finalized slot, to their claimed
+//!  finalized slot. Any peer that also claims to have this last finalized slot is added to a pool
+//!  of peers from which batches of blocks may be downloaded. Blocks are downloaded until
+//!  the finalized slot of the chain is reached. Once reached, all peers within the pool are sent a
+//!  STATUS message to potentially start a head chain sync, or check if further finalized chains
+//!  need to be downloaded.
+//!  
+//!  A few interesting notes about finalized chain syncing:
+//!  - Only one finalized chain can sync at a time.
+//!  - The finalized chain with the largest peer pool takes priority.
+//!  - As one finalized chain completes, others are checked to see if we they can be continued,
+//!  otherwise they are removed.
+//!
+//!  ## Head Chain Sync
+//!
+//!  If a peer joins and there is no active finalized chains being synced, and it's head is
+//!  beyond our `SLOT_IMPORT_TOLERANCE` a chain is formed starting from this peers finalized slot
+//!  (this has been necessarily downloaded by our node, otherwise we would start a finalized chain
+//!  sync) to this peers head slot. Any other peers that match this head slot and head root, are
+//!  added to this chain's peer pool, which will be downloaded in parallel.
+//!
+//!  Unlike finalized chains, head chains can be synced in parallel.
+//!
+//!  ## Batch Syncing
+//!
+//!  Each chain is downloaded in batches of blocks. The batched blocks are processed sequentially
+//!  and further batches are requested as current blocks are being processed.
+
 use super::chain::ProcessingResult;
 use super::chain_collection::{ChainCollection, SyncState};
 use crate::message_processor::PeerSyncInfo;
@@ -10,19 +51,20 @@ use std::collections::HashSet;
 use std::sync::Weak;
 use types::{BeaconBlock, EthSpec};
 
-//TODO: The code becomes cleaner if finalized_chains and head_chains were merged into a single
-// object. This will prevent code duplication. Rather than keeping the current syncing
-// finalized chain in index 0, it should be stored in this object under an option. Then lookups can
-// occur over the single object containing both finalized and head chains, which would then
-// behave similarly.
-
+/// The primary object dealing with long range/batch syncing. This contains all the active and
+/// non-active chains that need to be processed before the syncing is considered complete. This
+/// holds the current state of the long range sync.
 pub struct RangeSync<T: BeaconChainTypes> {
-    /// The beacon chain for processing
+    /// The beacon chain for processing.
     beacon_chain: Weak<BeaconChain<T>>,
+    /// A collection of chains that need to be downloaded. This stores any head or finalized chains
+    /// that need to be downloaded.
     chains: ChainCollection<T>,
-    /// Known peers to the RangeSync, that need to be re-status'd once finalized chains are
-    /// completed.
+    /// Peers that join whilst a finalized chain is being download, sit in this set. Once the
+    /// finalized chain(s) complete, these peer's get STATUS'ed to update their head slot before
+    /// the head chains are formed and downloaded.
     awaiting_head_peers: HashSet<PeerId>,
+    /// The syncing logger.
     log: slog::Logger,
 }
 
@@ -36,8 +78,11 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }
     }
 
-    // Notify the collection that a fully synced peer was found. This allows updating the state
-    // if we were awaiting a head state.
+    /// The `chains` collection stores the current state of syncing. Once a finalized chain
+    /// completes
+    ///
+    ///
+    /// if we were awaiting a head state.
     pub fn fully_synced_peer_found(&mut self) {
         self.chains.fully_synced_peer_found()
     }
