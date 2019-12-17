@@ -1,5 +1,13 @@
 # Become an Ethereum 2.0 Validator*
 
+---
+
+**The lighthouse testnet is currently down, we expect to raise a new one
+before the 22nd of December. See [Lighthouse Update #20](https://lighthouse.sigmaprime.io/update-20.html)
+for more information.**
+
+---
+
 _* Testnet validator_
 
 Running Lighthouse validator is easy if you're familiar with the terminal. It
