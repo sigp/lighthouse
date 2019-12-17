@@ -1,3 +1,4 @@
+use crate::metrics;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use exit_future::Exit;
@@ -340,7 +341,7 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 .deposits()
                 .read()
                 .cache
-                .get_deposits(next..last, deposit_count, DEPOSIT_TREE_DEPTH)
+                .get_deposits(next, last, deposit_count, DEPOSIT_TREE_DEPTH)
                 .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
                 .map(|(_deposit_root, deposits)| deposits)
         }
@@ -350,6 +351,8 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
 /// Produces an `Eth1Data` with all fields sourced from `rand::thread_rng()`.
 fn random_eth1_data() -> Eth1Data {
     let mut rng = rand::thread_rng();
+
+    metrics::inc_counter(&metrics::JUNK_ETH1_VOTES);
 
     macro_rules! rand_bytes {
         ($num_bytes: expr) => {{
