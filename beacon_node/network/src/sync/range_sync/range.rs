@@ -71,22 +71,30 @@ pub struct RangeSync<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> RangeSync<T> {
     pub fn new(beacon_chain: Weak<BeaconChain<T>>, log: slog::Logger) -> Self {
         RangeSync {
-            beacon_chain,
-            chains: ChainCollection::new(),
+            beacon_chain: beacon_chain.clone(),
+            chains: ChainCollection::new(beacon_chain),
             awaiting_head_peers: HashSet::new(),
             log,
         }
     }
 
     /// The `chains` collection stores the current state of syncing. Once a finalized chain
-    /// completes
+    /// completes, it's state is pre-emptively set to `SyncState::Head`. This ensures that
+    /// during the transition period of finalized to head, the sync manager doesn't start
+    /// requesting blocks from gossipsub.
     ///
-    ///
-    /// if we were awaiting a head state.
+    /// On re-status, a peer that has no head to download indicates that this state can be set to
+    /// idle as there are in fact no head chains to download. This function notifies the chain
+    /// collection that the state can safely be set to idle.
     pub fn fully_synced_peer_found(&mut self) {
         self.chains.fully_synced_peer_found()
     }
 
+    /// A useful peer has been added. The SyncManager has identified this peer as needing either
+    /// a finalized or head chain sync. This processes the peer and starts/resumes any chain that
+    /// may need to be synced as a result. A new peer, may increase the peer pool of a finalized
+    /// chain, this may result in a different finalized chain from syncing as finalized chains are
+    /// prioritised by peer-pool size.
     pub fn add_peer(
         &mut self,
         network: &mut SyncNetworkContext,
@@ -115,12 +123,11 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
-        // firstly, remove any out-of-date chains
-        self.chains.purge_finalized(local_finalized_slot);
-        self.chains.purge_head(local_info.head_slot);
-
         // remove peer from any chains
         self.remove_peer(network, &peer_id);
+
+        // remove any out-of-date chains
+        self.chains.purge_outdated_chains(network);
 
         if remote_finalized_slot > local_info.head_slot {
             debug!(self.log, "Finalization sync peer joined"; "peer_id" => format!("{:?}", peer_id));
@@ -142,8 +149,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 chain.peer_added(network, peer_id, &self.log);
 
                 // check if the new peer's addition will favour a new syncing chain.
-                self.chains
-                    .update_finalized(self.beacon_chain.clone(), network, &self.log);
+                self.chains.update_finalized(network, &self.log);
             } else {
                 // there is no finalized chain that matches this peer's last finalized target
                 // create a new finalized chain
@@ -155,8 +161,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     remote_finalized_slot,
                     peer_id,
                 );
-                self.chains
-                    .update_finalized(self.beacon_chain.clone(), network, &self.log);
+                self.chains.update_finalized(network, &self.log);
             }
         } else {
             if self.chains.is_finalizing_sync() {
@@ -190,11 +195,14 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     &self.log,
                 );
             }
-            self.chains
-                .update_finalized(self.beacon_chain.clone(), network, &self.log);
+            self.chains.update_finalized(network, &self.log);
         }
     }
 
+    /// A `BlocksByRange` response has been received from the network.
+    ///
+    /// This function finds the chain that made this request. Once found, processes the result.
+    /// This request could complete a chain or simply add to its progress.
     pub fn blocks_by_range_response(
         &mut self,
         network: &mut SyncNetworkContext,
@@ -207,7 +215,6 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         // `connected_peers` number of head chains, which should be relatively small and this
         // lookup should not be very expensive. However, we could add an extra index that maps the
         // request id to index of the vector to avoid O(N) searches and O(N) hash lookups.
-        // Note to future sync-rewriter/profiler: Michael approves of these O(N) searches.
 
         let chain_ref = &self.beacon_chain;
         let log_ref = &self.log;
@@ -222,8 +229,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 chain.status_peers(self.beacon_chain.clone(), network);
 
                 // update the state of the collection
-                self.chains
-                    .update_finalized(self.beacon_chain.clone(), network, &self.log);
+                self.chains.update_finalized(network, &self.log);
 
                 // set the state to a head sync, to inform the manager that we are awaiting a
                 // head chain.
@@ -252,8 +258,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         chain.status_peers(self.beacon_chain.clone(), network);
 
                         // update the state of the collection
-                        self.chains
-                            .update_finalized(self.beacon_chain.clone(), network, &self.log);
+                        self.chains.update_finalized(network, &self.log);
                     }
                     Some(_) => {}
                     None => {
@@ -266,6 +271,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }
     }
 
+    /// Public method to indicate the current state of the long range sync.
     pub fn is_syncing(&self) -> bool {
         match self.chains.sync_state() {
             SyncState::Finalized => true,
@@ -274,6 +280,8 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }
     }
 
+    /// A peer has disconnected. This removes the peer from any ongoing chains and mappings. A
+    /// disconnected peer could remove a chain
     pub fn peer_disconnect(&mut self, network: &mut SyncNetworkContext, peer_id: &PeerId) {
         // if the peer is in the awaiting head mapping, remove it
         self.awaiting_head_peers.remove(&peer_id);
@@ -282,8 +290,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         self.remove_peer(network, peer_id);
 
         // update the state of the collection
-        self.chains
-            .update_finalized(self.beacon_chain.clone(), network, &self.log);
+        self.chains.update_finalized(network, &self.log);
     }
 
     /// When a peer gets removed, both the head and finalized chains need to be searched to check which pool the peer is in. The chain may also have a batch or batches awaiting
@@ -316,13 +323,8 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }) {
             Some((index, ProcessingResult::RemoveChain)) => {
                 // the chain needed to be removed
-                let chain = self.chains.remove_chain(index);
-                debug!(self.log, "Chain was removed due batch failing"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
-                // the chain has been removed, re-status it's peers
-                chain.status_peers(self.beacon_chain.clone(), network);
-                // update the state of the collection
-                self.chains
-                    .update_finalized(self.beacon_chain.clone(), network, &self.log);
+                debug!(self.log, "Chain being removed due to failed batch");
+                self.chains.remove_chain(network, index, &self.log);
             }
             _ => {} // chain didn't need to be removed, ignore
         }
@@ -330,8 +332,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         // remove any chains that no longer have any peers
     }
 
-    // An RPC Error occurred, if it's a pending batch, re-request it if possible, if there have
-    // been too many attempts, remove the chain
+    /// An RPC error has occurred.
+    ///
+    /// Check to see if the request corresponds to a pending batch. If so, re-request it if possible, if there have
+    /// been too many failed attempts for the batch, remove the chain.
     pub fn inject_error(
         &mut self,
         network: &mut SyncNetworkContext,
@@ -345,13 +349,8 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }) {
             Some((_, ProcessingResult::KeepChain)) => {} // error handled chain persists
             Some((index, ProcessingResult::RemoveChain)) => {
-                let chain = self.chains.remove_chain(index);
-                debug!(self.log, "Chain was removed due to error"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
-                // the chain has failed, re-status it's peers
-                chain.status_peers(self.beacon_chain.clone(), network);
-                // update the state of the collection
-                self.chains
-                    .update_finalized(self.beacon_chain.clone(), network, &self.log);
+                debug!(self.log, "Chain being removed due to RPC error");
+                self.chains.remove_chain(network, index, &self.log)
             }
             None => {} // request wasn't in the finalized chains, check the head chains
         }
