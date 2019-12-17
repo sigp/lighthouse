@@ -133,7 +133,7 @@ mod auto_update {
 
         // NOTE: this test is sensitive to the response speed of the external web3 server. If
         // you're experiencing failures, try increasing the update_interval.
-        let update_interval = Duration::from_millis(2_000);
+        let update_interval = Duration::from_millis(3000);
 
         assert_eq!(
             service.block_cache_len(),
@@ -236,8 +236,11 @@ mod eth1_cache {
                 }
 
                 runtime
+                    .block_on(service.update_deposit_cache())
+                    .expect("should update deposit cache");
+                runtime
                     .block_on(service.update_block_cache())
-                    .expect("should update cache");
+                    .expect("should update block cache");
 
                 runtime
                     .block_on(service.update_block_cache())
@@ -295,8 +298,11 @@ mod eth1_cache {
         }
 
         runtime
+            .block_on(service.update_deposit_cache())
+            .expect("should update deposit cache");
+        runtime
             .block_on(service.update_block_cache())
-            .expect("should update cache");
+            .expect("should update block cache");
 
         assert_eq!(
             service.block_cache_len(),
@@ -340,8 +346,11 @@ mod eth1_cache {
                     .expect("should mine block")
             }
             runtime
+                .block_on(service.update_deposit_cache())
+                .expect("should update deposit cache");
+            runtime
                 .block_on(service.update_block_cache())
-                .expect("should update cache");
+                .expect("should update block cache");
         }
 
         assert_eq!(
@@ -381,14 +390,20 @@ mod eth1_cache {
                 .block_on(eth1.ganache.evm_mine())
                 .expect("should mine block")
         }
-
+        runtime
+            .block_on(
+                service
+                    .update_deposit_cache()
+                    .join(service.update_deposit_cache()),
+            )
+            .expect("should perform two simultaneous updates of deposit cache");
         runtime
             .block_on(
                 service
                     .update_block_cache()
                     .join(service.update_block_cache()),
             )
-            .expect("should perform two simultaneous updates");
+            .expect("should perform two simultaneous updates of block cache");
 
         assert!(service.block_cache_len() >= n, "should grow the cache");
     }
