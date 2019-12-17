@@ -246,12 +246,12 @@ impl Service {
             .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
             .then(move |result| {
                 match &result {
-                    Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => debug!(
+                    Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => trace!(
                         log_a,
                         "Updated eth1 deposit cache";
                         "cached_deposits" => inner_1.deposit_cache.read().cache.len(),
                         "logs_imported" => logs_imported,
-                        "latest_block" => inner_1.deposit_cache.read().last_processed_block,
+                        "last_processed_eth1_block" => inner_1.deposit_cache.read().last_processed_block,
                     ),
                     Err(e) => error!(
                         log_a,

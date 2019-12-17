@@ -231,6 +231,8 @@ impl DepositCache {
     ///
     /// Fetches the `DepositLog` that was emitted at or just before `block_number`
     /// and returns the deposit count as `index + 1`.
+    ///
+    /// Returns `None` if block number queried is 0 or less than deposit_contract_deployed block.
     pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
         // Contract cannot be deployed in 0'th block
         if block_number == 0 {
@@ -264,6 +266,9 @@ impl DepositCache {
     ///
     /// Fetches the `DepositLog` that was emitted at or just before `block_number`
     /// and returns the deposit root at that state.
+    ///
+    /// Note: This method can be potentially optimized by not recreating the `DepositDataTree`
+    /// at every invocation and caching the tree upto the last added deposit.
     pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
         let index = self.get_deposit_count_from_cache(block_number)?;
         let roots = self.roots.get(0..index as usize)?;
