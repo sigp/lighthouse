@@ -884,7 +884,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.tree_hash_cache = BeaconTreeHashCache::default();
     }
 
-    /// Updates the cache if the provided epoch does not match the one in the cache.
+    /// Builds the cache of updates it (if the provided epoch does not match the one currently in the cache).
     pub fn update_proposer_indices_cache(
         &mut self,
         slot: Slot,
@@ -893,7 +893,7 @@ impl<T: EthSpec> BeaconState<T> {
         let slots_per_epoch = T::slots_per_epoch();
         let epoch = slot.epoch(slots_per_epoch);
 
-        // Checking to see if epoch is something
+        // Checking to see if epoch is has already been cached
         if let Some(cached_epoch) = self.proposer_indices_cache.epoch {
             // If the cached_epoch is the same as the one in the argument, then we don't need to update.
             if cached_epoch == epoch {
