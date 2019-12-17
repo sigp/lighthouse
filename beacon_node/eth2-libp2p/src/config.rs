@@ -1,8 +1,9 @@
 use crate::topics::GossipTopic;
 use enr::Enr;
-use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
+use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId};
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -63,6 +64,7 @@ impl Default for Config {
         network_dir.push(".lighthouse");
         network_dir.push("network");
 
+        // The default topics that we will initially subscribe to
         let topics = vec![
             GossipTopic::BeaconBlock,
             GossipTopic::BeaconAttestation,
@@ -70,6 +72,15 @@ impl Default for Config {
             GossipTopic::ProposerSlashing,
             GossipTopic::AttesterSlashing,
         ];
+
+        // The function used to generate a gossipsub message id
+        // We use base64(SHA256(data)) for content addressing
+        let gossip_message_id = |message: &GossipsubMessage| {
+            MessageId(base64::encode_config(
+                &Sha256::digest(&message.data),
+                base64::URL_SAFE,
+            ))
+        };
 
         Config {
             network_dir,
@@ -85,6 +96,7 @@ impl Default for Config {
                 .max_transmit_size(1_048_576)
                 .heartbeat_interval(Duration::from_secs(20)) // TODO: Reduce for mainnet
                 .manual_propagation(true) // require validation before propagation
+                .message_id_fn(gossip_message_id)
                 .build(),
             boot_nodes: vec![],
             libp2p_nodes: vec![],
