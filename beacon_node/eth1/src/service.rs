@@ -112,8 +112,8 @@ impl Default for Config {
         Self {
             endpoint: "http://localhost:8545".into(),
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
-            deposit_contract_deploy_block: 0,
-            lowest_cached_block_number: 0,
+            deposit_contract_deploy_block: 1,
+            lowest_cached_block_number: 1,
             follow_distance: 128,
             block_cache_truncation: Some(4_096),
             auto_update_interval_millis: 7_000,
