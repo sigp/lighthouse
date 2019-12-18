@@ -84,6 +84,14 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     &mut state,
                     block,
                     None,
+                    BlockSignatureStrategy::VerifyIndividual,
+                    spec,
+                )?;
+
+                per_block_processing(
+                    &mut state,
+                    block,
+                    None,
                     BlockSignatureStrategy::VerifyBulk,
                     spec,
                 )?;
