@@ -70,7 +70,7 @@ impl DepositDataTree {
         (root, proof)
     }
 
-    /// Push a deposit into the merkle tree.
+    /// Add a deposit to the merkle tree.
     pub fn push_leaf(&mut self, leaf: Hash256) -> Result<(), Error> {
         self.tree
             .push_leaf(leaf, self.depth)
@@ -144,10 +144,6 @@ impl DepositCache {
         self.logs.get(i)
     }
 
-    pub fn print_map(&self) {
-        dbg!(&self.count_to_root);
-    }
-
     /// Adds `log` to self.
     ///
     /// This function enforces that `logs` are imported one-by-one with no gaps between
@@ -165,8 +161,6 @@ impl DepositCache {
             self.deposit_tree.push_leaf(deposit)?;
             self.count_to_root
                 .insert(self.roots.len() as u64, self.deposit_tree.root());
-            // dbg!(&self.count_to_root);
-
             Ok(())
         } else if log.index < self.logs.len() as u64 {
             if self.logs[log.index as usize] == log {
@@ -290,11 +284,8 @@ impl DepositCache {
 
     /// Gets the deposit root at block height = block_number.
     ///
-    /// Fetches the `DepositLog` that was emitted at or just before `block_number`
-    /// and returns the deposit root at that state.
-    ///
-    /// Note: This method can be potentially optimized by not recreating the `DepositDataTree`
-    /// at every invocation and caching the tree upto the last added deposit.
+    /// Fetches the `deposit_count` on or just before the queried `block_number`
+    /// and queries the `count_to_root` map to get the corresponding `deposit_root`.
     pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
         let index = self.get_deposit_count_from_cache(block_number)?;
         Some(self.count_to_root.get(&index)?.clone())
