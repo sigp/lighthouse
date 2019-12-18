@@ -1,6 +1,5 @@
 use crate::DepositLog;
 use eth2_hashing::hash;
-use std::collections::BTreeMap;
 use tree_hash::TreeHash;
 use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
@@ -90,21 +89,21 @@ pub struct DepositCache {
     /// An incremental merkle tree which represents the current state of the
     /// deposit contract tree.
     deposit_tree: DepositDataTree,
-    /// Map from `deposit_count` to `deposit_root`.
-    count_to_root: BTreeMap<u64, Hash256>,
+    /// Vector of deposit roots. `deposit_roots[i]` denotes `deposit_root` at
+    /// `deposit_index` `i`.
+    deposit_roots: Vec<Hash256>,
 }
 
 impl Default for DepositCache {
     fn default() -> Self {
         let deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
-        let mut count_to_root = BTreeMap::new();
-        count_to_root.insert(0, deposit_tree.root());
+        let deposit_roots = vec![deposit_tree.root()];
         DepositCache {
             logs: Vec::new(),
             roots: Vec::new(),
             deposit_contract_deploy_block: 1,
             deposit_tree,
-            count_to_root,
+            deposit_roots,
         }
     }
 }
@@ -159,8 +158,7 @@ impl DepositCache {
             self.roots.push(deposit);
             self.logs.push(log);
             self.deposit_tree.push_leaf(deposit)?;
-            self.count_to_root
-                .insert(self.roots.len() as u64, self.deposit_tree.root());
+            self.deposit_roots.push(self.deposit_tree.root());
             Ok(())
         } else if log.index < self.logs.len() as u64 {
             if self.logs[log.index as usize] == log {
@@ -285,10 +283,10 @@ impl DepositCache {
     /// Gets the deposit root at block height = block_number.
     ///
     /// Fetches the `deposit_count` on or just before the queried `block_number`
-    /// and queries the `count_to_root` map to get the corresponding `deposit_root`.
+    /// and queries the `deposit_roots` map to get the corresponding `deposit_root`.
     pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
         let index = self.get_deposit_count_from_cache(block_number)?;
-        Some(self.count_to_root.get(&index)?.clone())
+        Some(self.deposit_roots.get(index as usize)?.clone())
     }
 }
 
