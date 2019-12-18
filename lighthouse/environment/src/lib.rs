@@ -245,7 +245,12 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Sets the logger (and all child loggers) to log to a file.
-    pub fn log_to_json_file(&mut self, path: PathBuf, debug_level: &str) -> Result<(), String> {
+    pub fn log_to_json_file(
+        &mut self,
+        path: PathBuf,
+        debug_level: &str,
+        log_format: Option<&str>,
+    ) -> Result<(), String> {
         // Creating a backup if the logfile already exists.
         if path.exists() {
             let start = SystemTime::now();
@@ -271,8 +276,14 @@ impl<E: EthSpec> Environment<E> {
             .open(&path)
             .map_err(|e| format!("Unable to open logfile: {:?}", e))?;
 
-        let drain = Mutex::new(slog_json::Json::default(file)).fuse();
-        let drain = slog_async::Async::new(drain).build();
+        let log_format = log_format.unwrap_or("JSON");
+        let drain = match log_format.to_uppercase().as_str() {
+            "JSON" => {
+                let drain = Mutex::new(slog_json::Json::default(file)).fuse();
+                slog_async::Async::new(drain).build()
+            }
+            _ => return Err("Logging format provided is not supported".to_string()),
+        };
 
         let drain = match debug_level {
             "info" => drain.filter_level(Level::Info),

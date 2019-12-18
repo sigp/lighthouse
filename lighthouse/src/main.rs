@@ -42,14 +42,17 @@ fn main() {
             Arg::with_name("logfile")
                 .long("logfile")
                 .value_name("FILE")
-                .help("File path where output will be written.")
+                .help(
+                    "File path where output will be written. Default file logging format is JSON.",
+                )
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("log-format")
                 .long("log-format")
                 .value_name("FORMAT")
-                .help("Specifies the format used for logging (JSON, YAML...)")
+                .help("Specifies the format used for logging.")
+                .possible_values(&["JSON"])
                 .takes_value(true),
         )
         .arg(
@@ -119,7 +122,7 @@ fn run<E: EthSpec>(
         let path = log_path
             .parse::<PathBuf>()
             .map_err(|e| format!("Failed to parse log path: {:?}", e))?;
-        environment.log_to_json_file(path, debug_level)?;
+        environment.log_to_json_file(path, debug_level, log_format)?;
     }
 
     if std::mem::size_of::<usize>() != 8 {
