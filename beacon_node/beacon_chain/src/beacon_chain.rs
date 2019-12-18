@@ -1271,7 +1271,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &block,
             Some(block_root),
-            BlockSignatureStrategy::VerifyIndividual,
+            BlockSignatureStrategy::VerifyBulk,
             &self.spec,
         ) {
             Err(BlockProcessingError::BeaconStateError(e)) => {
