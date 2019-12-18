@@ -104,7 +104,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         debug_level: &str,
         log_format: Option<&str>,
     ) -> Result<Self, String> {
-        // Setting up initial logger to either be to JSON formatted or formatted for a terminal.
+        // Setting up the initial logger format and building it.
         let drain = if let Some(format) = log_format {
             match format.to_uppercase().as_str() {
                 "JSON" => {
