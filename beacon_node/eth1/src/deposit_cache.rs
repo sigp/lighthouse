@@ -1,9 +1,10 @@
 use crate::DepositLog;
 use eth2_hashing::hash;
+use std::collections::BTreeMap;
 use tree_hash::TreeHash;
 use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// A deposit log was added when a prior deposit was not already in the cache.
     ///
@@ -23,6 +24,8 @@ pub enum Error {
     ///
     /// E.g., you cannot request deposit 10 when the deposit count is 9.
     DepositCountInvalid { deposit_count: u64, range_end: u64 },
+    /// Error with the merkle tree for deposits.
+    DepositTreeError(merkle_proof::MerkleTreeError),
     /// An unexpected condition was encountered.
     InternalError(String),
 }
@@ -66,6 +69,15 @@ impl DepositDataTree {
         proof.push(Hash256::from_slice(&self.length_bytes()));
         (root, proof)
     }
+
+    /// Push a deposit into the merkle tree.
+    pub fn push_leaf(&mut self, leaf: Hash256) -> Result<(), Error> {
+        self.tree
+            .push_leaf(leaf, self.depth)
+            .map_err(Error::DepositTreeError)?;
+        self.mix_in_length += 1;
+        Ok(())
+    }
 }
 
 /// Mirrors the merkle tree of deposits in the eth1 deposit contract.
@@ -75,14 +87,24 @@ pub struct DepositCache {
     logs: Vec<DepositLog>,
     roots: Vec<Hash256>,
     deposit_contract_deploy_block: u64,
+    /// An incremental merkle tree which represents the current state of the
+    /// deposit contract tree.
+    deposit_tree: DepositDataTree,
+    /// Map from `deposit_count` to `deposit_root`.
+    count_to_root: BTreeMap<u64, Hash256>,
 }
 
 impl Default for DepositCache {
     fn default() -> Self {
+        let deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
+        let mut count_to_root = BTreeMap::new();
+        count_to_root.insert(0, deposit_tree.root());
         DepositCache {
             logs: Vec::new(),
             roots: Vec::new(),
             deposit_contract_deploy_block: 1,
+            deposit_tree,
+            count_to_root,
         }
     }
 }
@@ -92,9 +114,8 @@ impl DepositCache {
     /// contract was deployed.
     pub fn new(deposit_contract_deploy_block: u64) -> Self {
         DepositCache {
-            logs: Vec::new(),
-            roots: Vec::new(),
             deposit_contract_deploy_block,
+            ..Self::default()
         }
     }
 
@@ -123,6 +144,10 @@ impl DepositCache {
         self.logs.get(i)
     }
 
+    pub fn print_map(&self) {
+        dbg!(&self.count_to_root);
+    }
+
     /// Adds `log` to self.
     ///
     /// This function enforces that `logs` are imported one-by-one with no gaps between
@@ -134,9 +159,13 @@ impl DepositCache {
     /// - If a log with `log.index` is already known, but the given `log` is distinct to it.
     pub fn insert_log(&mut self, log: DepositLog) -> Result<(), Error> {
         if log.index == self.logs.len() as u64 {
-            self.roots
-                .push(Hash256::from_slice(&log.deposit_data.tree_hash_root()));
+            let deposit = Hash256::from_slice(&log.deposit_data.tree_hash_root());
+            self.roots.push(deposit);
             self.logs.push(log);
+            self.deposit_tree.push_leaf(deposit)?;
+            self.count_to_root
+                .insert(self.roots.len() as u64, self.deposit_tree.root());
+            // dbg!(&self.count_to_root);
 
             Ok(())
         } else if log.index < self.logs.len() as u64 {
@@ -268,9 +297,7 @@ impl DepositCache {
     /// at every invocation and caching the tree upto the last added deposit.
     pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
         let index = self.get_deposit_count_from_cache(block_number)?;
-        let roots = self.roots.get(0..index as usize)?;
-        let tree = DepositDataTree::create(roots, index as usize, DEPOSIT_TREE_DEPTH);
-        Some(tree.root())
+        Some(self.count_to_root.get(&index)?.clone())
     }
 }
 
