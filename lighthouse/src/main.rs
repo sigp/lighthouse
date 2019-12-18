@@ -43,7 +43,7 @@ fn main() {
                 .long("logfile")
                 .value_name("FILE")
                 .help("File path where output will be written.")
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("log-format")
