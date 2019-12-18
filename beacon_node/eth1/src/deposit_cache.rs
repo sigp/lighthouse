@@ -1,9 +1,7 @@
 use crate::DepositLog;
 use eth2_hashing::hash;
 use tree_hash::TreeHash;
-use types::{Deposit, Hash256};
-
-const DEPOSIT_CONTRACT_TREE_DEPTH: usize = 32;
+use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -84,8 +82,7 @@ impl Default for DepositCache {
         DepositCache {
             logs: Vec::new(),
             roots: Vec::new(),
-            // 0 to be compatible with Service::Config. Should be ideally 1
-            deposit_contract_deploy_block: 0,
+            deposit_contract_deploy_block: 1,
         }
     }
 }
@@ -272,7 +269,7 @@ impl DepositCache {
     pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
         let index = self.get_deposit_count_from_cache(block_number)?;
         let roots = self.roots.get(0..index as usize)?;
-        let tree = DepositDataTree::create(roots, index as usize, DEPOSIT_CONTRACT_TREE_DEPTH);
+        let tree = DepositDataTree::create(roots, index as usize, DEPOSIT_TREE_DEPTH);
         Some(tree.root())
     }
 }
