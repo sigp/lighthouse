@@ -99,12 +99,27 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// The logger is "async" because it has a dedicated thread that accepts logs and then
     /// asynchronously flushes them to stdout/files/etc. This means the thread that raised the log
     /// does not have to wait for the logs to be flushed.
-    pub fn async_logger(mut self, debug_level: &str) -> Result<Self, String> {
-        // Build the initial logger.
-        let decorator = slog_term::TermDecorator::new().build();
-        let decorator = logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build();
+    pub fn async_logger(
+        mut self,
+        debug_level: &str,
+        log_format: Option<&str>,
+    ) -> Result<Self, String> {
+        // Setting up initial logger to either be to JSON formatted or formatted for a terminal.
+        let drain = if let Some(format) = log_format {
+            match format.to_uppercase().as_str() {
+                "JSON" => {
+                    let drain = slog_json::Json::default(std::io::stdout()).fuse();
+                    slog_async::Async::new(drain).build()
+                }
+                _ => return Err("Logging format provided is not supported".to_string()),
+            }
+        } else {
+            let decorator = slog_term::TermDecorator::new().build();
+            let decorator =
+                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
+            let drain = slog_term::FullFormat::new(decorator).build().fuse();
+            slog_async::Async::new(drain).build()
+        };
 
         let drain = match debug_level {
             "info" => drain.filter_level(Level::Info),

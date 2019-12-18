@@ -43,6 +43,13 @@ fn main() {
                 .long("logfile")
                 .value_name("FILE")
                 .help("File path where output will be written.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("log-format")
+                .long("log-format")
+                .value_name("FORMAT")
+                .help("Specifies the format used for logging (JSON, YAML...)")
                 .takes_value(true),
         )
         .arg(
@@ -99,8 +106,10 @@ fn run<E: EthSpec>(
         .value_of("debug-level")
         .ok_or_else(|| "Expected --debug-level flag".to_string())?;
 
+    let log_format = matches.value_of("log-format");
+
     let mut environment = environment_builder
-        .async_logger(debug_level)?
+        .async_logger(debug_level, log_format)?
         .multi_threaded_tokio_runtime()?
         .build()?;
 
