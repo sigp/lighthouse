@@ -80,8 +80,10 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     .build_committee_cache(RelativeEpoch::Current, spec)
                     .unwrap();
 
+                // Using VerifyIndiviual to avoid bitrot. See https://github.com/sigp/lighthouse/issues/742.
                 per_block_processing(
-                    &mut state,
+                    // Cloning here to avoid conflicting with second per_block_processing called afterwards.
+                    &mut state.clone(),
                     block,
                     None,
                     BlockSignatureStrategy::VerifyIndividual,
