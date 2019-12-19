@@ -328,8 +328,6 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             }
             _ => {} // chain didn't need to be removed, ignore
         }
-
-        // remove any chains that no longer have any peers
     }
 
     /// An RPC error has occurred.
