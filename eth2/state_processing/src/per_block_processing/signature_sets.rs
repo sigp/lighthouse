@@ -14,7 +14,7 @@ use types::{
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     /// Signature verification failed. The block is invalid.
     SignatureInvalid,
