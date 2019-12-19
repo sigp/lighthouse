@@ -1,3 +1,4 @@
+use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
@@ -461,6 +462,12 @@ impl Service {
 
                 cache.last_processed_block = Some(block_range.end.saturating_sub(1));
 
+                metrics::set_gauge(&metrics::DEPOSIT_CACHE_LEN, cache.cache.len() as i64);
+                metrics::set_gauge(
+                    &metrics::HIGHEST_PROCESSED_DEPOSIT_BLOCK,
+                    cache.last_processed_block.unwrap_or_else(|| 0) as i64,
+                );
+
                 Ok(sum)
             })
             .map(|logs_imported| DepositCacheUpdateOutcome::Success { logs_imported })
@@ -559,12 +566,30 @@ impl Service {
                     .insert_root_or_child(eth1_block)
                     .map_err(Error::FailedToInsertEth1Block)?;
 
+                metrics::set_gauge(
+                    &metrics::BLOCK_CACHE_LEN,
+                    cache_3.block_cache.read().len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::LATEST_CACHED_BLOCK_TIMESTAMP,
+                    cache_3
+                        .block_cache
+                        .read()
+                        .latest_block_timestamp()
+                        .unwrap_or_else(|| 0) as i64,
+                );
+
                 Ok(sum + 1)
             })
         })
         .and_then(move |blocks_imported| {
             // Prune the block cache, preventing it from growing too large.
             cache_4.prune_blocks();
+
+            metrics::set_gauge(
+                &metrics::BLOCK_CACHE_LEN,
+                cache_4.block_cache.read().len() as i64,
+            );
 
             Ok(BlockCacheUpdateOutcome::Success {
                 blocks_imported,

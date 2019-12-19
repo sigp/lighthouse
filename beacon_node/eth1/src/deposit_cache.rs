@@ -1,6 +1,5 @@
 use crate::DepositLog;
 use eth2_hashing::hash;
-use std::ops::Range;
 use tree_hash::TreeHash;
 use types::{Deposit, Hash256};
 
@@ -143,24 +142,25 @@ impl DepositCache {
     ///
     /// ## Errors
     ///
-    /// - If `deposit_count` is larger than `range.end`.
+    /// - If `deposit_count` is larger than `end`.
     /// - There are not sufficient deposits in the tree to generate the proof.
     pub fn get_deposits(
         &self,
-        range: Range<u64>,
+        start: u64,
+        end: u64,
         deposit_count: u64,
         tree_depth: usize,
     ) -> Result<(Hash256, Vec<Deposit>), Error> {
-        if deposit_count < range.end {
+        if deposit_count < end {
             // It's invalid to ask for more deposits than should exist.
             Err(Error::DepositCountInvalid {
                 deposit_count,
-                range_end: range.end,
+                range_end: end,
             })
-        } else if range.end > self.logs.len() as u64 {
+        } else if end > self.logs.len() as u64 {
             // The range of requested deposits exceeds the deposits stored locally.
             Err(Error::InsufficientDeposits {
-                requested: range.end,
+                requested: end,
                 known_deposits: self.logs.len(),
             })
         } else if deposit_count > self.roots.len() as u64 {
@@ -187,7 +187,7 @@ impl DepositCache {
 
             let deposits = self
                 .logs
-                .get(range.start as usize..range.end as usize)
+                .get(start as usize..end as usize)
                 .ok_or_else(|| Error::InternalError("Unable to get known log".into()))?
                 .iter()
                 .map(|deposit_log| {
@@ -281,31 +281,31 @@ pub mod tests {
 
         // Get 0 deposits, with max deposit count.
         let (_, deposits) = tree
-            .get_deposits(0..0, n, TREE_DEPTH)
+            .get_deposits(0, 0, n, TREE_DEPTH)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
         // Get 0 deposits, with 0 deposit count.
         let (_, deposits) = tree
-            .get_deposits(0..0, 0, TREE_DEPTH)
+            .get_deposits(0, 0, 0, TREE_DEPTH)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
         // Get 0 deposits, with 0 deposit count, tree depth 0.
         let (_, deposits) = tree
-            .get_deposits(0..0, 0, 0)
+            .get_deposits(0, 0, 0, 0)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
         // Get all deposits, with max deposit count.
         let (full_root, deposits) = tree
-            .get_deposits(0..n, n, TREE_DEPTH)
+            .get_deposits(0, n, n, TREE_DEPTH)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), n as usize, "should return all deposits");
 
         // Get 4 deposits, with max deposit count.
         let (root, deposits) = tree
-            .get_deposits(0..4, n, TREE_DEPTH)
+            .get_deposits(0, 4, n, TREE_DEPTH)
             .expect("should get the four from the full tree");
         assert_eq!(
             deposits.len(),
@@ -318,18 +318,15 @@ pub mod tests {
         );
 
         // Get half of the deposits, with half deposit count.
+        let half = n / 2;
         let (half_root, deposits) = tree
-            .get_deposits(0..n / 2, n / 2, TREE_DEPTH)
+            .get_deposits(0, half, half, TREE_DEPTH)
             .expect("should get the half tree");
-        assert_eq!(
-            deposits.len(),
-            n as usize / 2,
-            "should return half deposits"
-        );
+        assert_eq!(deposits.len(), half as usize, "should return half deposits");
 
         // Get 4 deposits, with half deposit count.
         let (root, deposits) = tree
-            .get_deposits(0..4, n / 2, TREE_DEPTH)
+            .get_deposits(0, 4, n / 2, TREE_DEPTH)
             .expect("should get the half tree");
         assert_eq!(
             deposits.len(),
@@ -360,12 +357,12 @@ pub mod tests {
         }
 
         // Range too high.
-        assert!(tree.get_deposits(0..n + 1, n, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0, n + 1, n, TREE_DEPTH).is_err());
 
         // Count too high.
-        assert!(tree.get_deposits(0..n, n + 1, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0, n, n + 1, TREE_DEPTH).is_err());
 
         // Range higher than count.
-        assert!(tree.get_deposits(0..4, 2, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0, 4, 2, TREE_DEPTH).is_err());
     }
 }

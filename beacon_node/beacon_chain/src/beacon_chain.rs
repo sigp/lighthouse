@@ -8,7 +8,6 @@ use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use lmd_ghost::LmdGhost;
-use operation_pool::DepositInsertStatus;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{debug, error, info, trace, warn, Logger};
@@ -16,8 +15,8 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
     errors::{
-        AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
-        ExitValidationError, ProposerSlashingValidationError,
+        AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
+        ProposerSlashingValidationError,
     },
     verify_attestation_for_state, VerifySignatures,
 };
@@ -1052,15 +1051,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Accept some deposit and queue it for inclusion in an appropriate block.
-    pub fn process_deposit(
-        &self,
-        index: u64,
-        deposit: Deposit,
-    ) -> Result<DepositInsertStatus, DepositValidationError> {
-        self.op_pool.insert_deposit(index, deposit)
-    }
-
     /// Accept some exit and queue it for inclusion in an appropriate block.
     pub fn process_voluntary_exit(&self, exit: VoluntaryExit) -> Result<(), ExitValidationError> {
         match self.wall_clock_state() {
@@ -1222,13 +1212,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        if self.store.exists::<BeaconBlock<T::EthSpec>>(&block_root)? {
-            return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
-        }
-
         // Records the time taken to load the block and state from the database during block
         // processing.
         let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
+
+        if self.store.exists::<BeaconBlock<T::EthSpec>>(&block_root)? {
+            return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
+        }
 
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
@@ -1294,7 +1284,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &block,
             Some(block_root),
-            BlockSignatureStrategy::VerifyIndividual,
+            BlockSignatureStrategy::VerifyBulk,
             &self.spec,
         ) {
             Err(BlockProcessingError::BeaconStateError(e)) => {

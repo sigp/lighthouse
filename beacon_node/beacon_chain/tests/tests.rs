@@ -11,15 +11,11 @@ use beacon_chain::{
     },
     BlockProcessingOutcome,
 };
-use rand::Rng;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
 };
 use store::Store;
-use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use types::{
-    BeaconStateError, Deposit, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
-};
+use types::{BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 24;
@@ -334,15 +330,6 @@ fn roundtrip_operation_pool() {
         AttestationStrategy::AllValidators,
     );
     assert!(harness.chain.op_pool.num_attestations() > 0);
-
-    // Add some deposits
-    let rng = &mut XorShiftRng::from_seed([66; 16]);
-    for i in 0..rng.gen_range(1, VALIDATOR_COUNT) {
-        harness
-            .chain
-            .process_deposit(i as u64, Deposit::random_for_test(rng))
-            .unwrap();
-    }
 
     // TODO: could add some other operations
     harness.chain.persist().unwrap();

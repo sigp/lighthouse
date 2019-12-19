@@ -154,6 +154,12 @@ lazy_static! {
         try_create_int_counter("beacon_checkpoint_cache_misses_total", "Count of times checkpoint cache fulfils request");
 
     /*
+     * Eth1
+     */
+    pub static ref JUNK_ETH1_VOTES: Result<IntCounter> =
+        try_create_int_counter("beacon_eth1_junk_votes", "Count of times we have voted junk for eth1 dat");
+
+    /*
      * Chain Head
      */
     pub static ref UPDATE_HEAD_TIMES: Result<Histogram> =
