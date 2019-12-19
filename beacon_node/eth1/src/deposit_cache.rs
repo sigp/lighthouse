@@ -84,7 +84,7 @@ impl DepositDataTree {
 /// Provides `Deposit` objects with merkle proofs included.
 pub struct DepositCache {
     logs: Vec<DepositLog>,
-    roots: Vec<Hash256>,
+    leaves: Vec<Hash256>,
     deposit_contract_deploy_block: u64,
     /// An incremental merkle tree which represents the current state of the
     /// deposit contract tree.
@@ -100,7 +100,7 @@ impl Default for DepositCache {
         let deposit_roots = vec![deposit_tree.root()];
         DepositCache {
             logs: Vec::new(),
-            roots: Vec::new(),
+            leaves: Vec::new(),
             deposit_contract_deploy_block: 1,
             deposit_tree,
             deposit_roots,
@@ -155,7 +155,7 @@ impl DepositCache {
     pub fn insert_log(&mut self, log: DepositLog) -> Result<(), Error> {
         if log.index == self.logs.len() as u64 {
             let deposit = Hash256::from_slice(&log.deposit_data.tree_hash_root());
-            self.roots.push(deposit);
+            self.leaves.push(deposit);
             self.logs.push(log);
             self.deposit_tree.push_leaf(deposit)?;
             self.deposit_roots.push(self.deposit_tree.root());
@@ -204,7 +204,7 @@ impl DepositCache {
                 requested: end,
                 known_deposits: self.logs.len(),
             })
-        } else if deposit_count > self.roots.len() as u64 {
+        } else if deposit_count > self.leaves.len() as u64 {
             // There are not `deposit_count` known deposit roots, so we can't build the merkle tree
             // to prove into.
             Err(Error::InsufficientDeposits {
@@ -212,10 +212,10 @@ impl DepositCache {
                 known_deposits: self.logs.len(),
             })
         } else {
-            let roots = self
-                .roots
+            let leaves = self
+                .leaves
                 .get(0..deposit_count as usize)
-                .ok_or_else(|| Error::InternalError("Unable to get known root".into()))?;
+                .ok_or_else(|| Error::InternalError("Unable to get known leaves".into()))?;
 
             // Note: there is likely a more optimal solution than recreating the `DepositDataTree`
             // each time this function is called.
@@ -224,7 +224,7 @@ impl DepositCache {
             // last finalized eth1 deposit count. Then, that tree could be cloned and extended for
             // each of these calls.
 
-            let tree = DepositDataTree::create(roots, deposit_count as usize, tree_depth);
+            let tree = DepositDataTree::create(leaves, deposit_count as usize, tree_depth);
 
             let deposits = self
                 .logs
@@ -270,10 +270,10 @@ impl DepositCache {
             .binary_search_by(|deposit| deposit.block_number.cmp(&block_number));
         match index {
             Ok(index) => return self.logs.get(index).map(|x| x.index + 1),
-            Err(prev) => {
+            Err(next) => {
                 return Some(
                     self.logs
-                        .get(prev.saturating_sub(1))
+                        .get(next.saturating_sub(1))
                         .map_or(0, |x| x.index + 1),
                 )
             }
