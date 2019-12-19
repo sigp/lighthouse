@@ -8,8 +8,8 @@ use rand::{distributions::Alphanumeric, Rng};
 use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
-use std::net::TcpListener;
 use std::net::{IpAddr, Ipv4Addr};
+use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use types::{Epoch, EthSpec, Fork};
 
@@ -283,16 +283,16 @@ pub fn get_configs<E: EthSpec>(
                 .map_err(|e| format!("Invalid discovery address: {}", e))?
         }
         client_config.network.libp2p_port =
-            unused_port().map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
+            unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
         client_config.network.discovery_port =
-            unused_port().map_err(|e| format!("Failed to get port for discovery: {}", e))?;
+            unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.rest_api.port = 0;
         client_config.websocket_server.port = 0;
     }
 
     // ENR ip needs to be explicit for node to be discoverable
     if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
-        return Err("Discovery address cannot be 0.0.0.0. Specify discovery-addr".into());
+        return Err("Discovery address cannot be 0.0.0.0. Specify discovery-address".into());
     }
     Ok((client_config, eth2_config, log))
 }
@@ -572,7 +572,7 @@ fn random_string(len: usize) -> String {
         .collect::<String>()
 }
 
-/// A bit of hack to find an unused TCP port.
+/// A bit of hack to find an unused port.
 ///
 /// Does not guarantee that the given port is unused after the function exists, just that it was
 /// unused before the function started (i.e., it does not reserve a port).
@@ -585,16 +585,30 @@ fn random_string(len: usize) -> String {
 /// it doesn't allow binding to the same port even after the socket is closed.
 /// We might have to use SO_REUSEADDR socket option from `std::net2` crate in
 /// that case.
-pub fn unused_port() -> Result<u16> {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| format!("Failed to create TCP listener to find unused port: {:?}", e))?;
-
-    let local_addr = listener.local_addr().map_err(|e| {
-        format!(
-            "Failed to read TCP listener local_addr to find unused port: {:?}",
-            e
-        )
-    })?;
-
+pub fn unused_port(transport: &str) -> Result<u16> {
+    let local_addr = match transport {
+        "tcp" => {
+            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
+                format!("Failed to create TCP listener to find unused port: {:?}", e)
+            })?;
+            listener.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read TCP listener local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        "udp" => {
+            let socket = UdpSocket::bind("127.0.0.1:0")
+                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
+            socket.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read UDP socket local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        _ => return Err("Invalid transport to find unused port".into()),
+    };
     Ok(local_addr.port())
 }
