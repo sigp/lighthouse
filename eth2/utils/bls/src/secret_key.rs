@@ -5,7 +5,7 @@ use hex::encode as hex_encode;
 use milagro_bls::SecretKey as RawSecretKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::HexVisitor;
+use serde_hex::PrefixedHexVisitor;
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 
 /// A single BLS signature.
@@ -65,7 +65,7 @@ impl<'de> Deserialize<'de> for SecretKey {
     where
         D: Deserializer<'de>,
     {
-        let bytes = deserializer.deserialize_str(HexVisitor)?;
+        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
         let secret_key = SecretKey::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(secret_key)
