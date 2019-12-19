@@ -14,8 +14,9 @@ use types::{
     Slot, Validator,
 };
 
-#[derive(Serialize, Deserialize, Encode)]
-pub struct HeadResponse {
+/// Information about the block and state that are at head of the beacon chain.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct CanonicalHeadResponse {
     pub slot: Slot,
     pub block_root: Hash256,
     pub state_root: Hash256,
@@ -34,7 +35,7 @@ pub fn get_head<T: BeaconChainTypes>(
 ) -> ApiResult {
     let chain_head = beacon_chain.head();
 
-    let head = HeadResponse {
+    let head = CanonicalHeadResponse {
         slot: chain_head.beacon_state.slot,
         block_root: chain_head.beacon_block_root,
         state_root: chain_head.beacon_state_root,
@@ -61,10 +62,12 @@ pub fn get_head<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&head)
 }
 
-#[derive(Serialize, Deserialize, Encode)]
+/// Information about a block that is at the head of a chain. May or may not represent the
+/// canonical head.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct HeadBeaconBlock {
-    beacon_block_root: Hash256,
-    beacon_block_slot: Slot,
+    pub beacon_block_root: Hash256,
+    pub beacon_block_slot: Slot,
 }
 
 /// HTTP handler to return a list of head BeaconBlocks.
@@ -84,7 +87,7 @@ pub fn get_heads<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&heads)
 }
 
-#[derive(Serialize, Encode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "T: EthSpec")]
 pub struct BlockResponse<T: EthSpec> {
     pub root: Hash256,
@@ -152,7 +155,7 @@ pub fn get_fork<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&beacon_chain.head().beacon_state.fork)
 }
 
-#[derive(Serialize, Encode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ValidatorResponse {
     pub pubkey: PublicKeyBytes,
     pub validator_index: Option<usize>,
@@ -240,14 +243,14 @@ pub fn get_active_validators<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&validators)
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct BulkValidatorRequest {
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct ValidatorRequest {
     /// If set to `None`, uses the canonical head state.
     pub state_root: Option<Hash256>,
     pub pubkeys: Vec<PublicKeyBytes>,
 }
 
-/// HTTP handler to which accepts a `BulkValidatorRequest` and returns a `ValidatorResponse` for
+/// HTTP handler to which accepts a `ValidatorRequest` and returns a `ValidatorResponse` for
 /// each of the given `pubkeys`. When `state_root` is `None`, the canonical head is used.
 ///
 /// This method allows for a basically unbounded list of `pubkeys`, where as the `get_validators`
@@ -263,9 +266,9 @@ pub fn post_validators<T: BeaconChainTypes>(
         .concat2()
         .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
         .and_then(|chunks| {
-            serde_json::from_slice::<BulkValidatorRequest>(&chunks).map_err(|e| {
+            serde_json::from_slice::<ValidatorRequest>(&chunks).map_err(|e| {
                 ApiError::BadRequest(format!(
-                    "Unable to parse JSON into BulkValidatorRequest: {:?}",
+                    "Unable to parse JSON into ValidatorRequest: {:?}",
                     e
                 ))
             })
@@ -359,7 +362,7 @@ fn validator_response_by_pubkey<E: EthSpec>(
     }
 }
 
-#[derive(Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct Committee {
     pub slot: Slot,
     pub index: CommitteeIndex,
@@ -399,7 +402,7 @@ pub fn get_committees<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&committees)
 }
 
-#[derive(Serialize, Encode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "T: EthSpec")]
 pub struct StateResponse<T: EthSpec> {
     pub root: Hash256,
