@@ -1,6 +1,5 @@
 use crate::helpers::{
-    check_content_type_for_json, parse_pubkey_bytes, publish_attestation_to_network,
-    publish_beacon_block_to_network,
+    check_content_type_for_json, publish_attestation_to_network, publish_beacon_block_to_network,
 };
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
@@ -8,20 +7,21 @@ use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
 use bls::PublicKeyBytes;
-use futures::future::Future;
-use futures::stream::Stream;
+use futures::{Future, Stream};
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use slog::{error, info, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, CommitteeIndex, Epoch, RelativeEpoch, Slot};
+use types::{Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, RelativeEpoch, Slot};
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorDuty {
     /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
     pub validator_pubkey: PublicKeyBytes,
+    /// The validator's index in `state.validators`
+    pub validator_index: Option<usize>,
     /// The slot at which the validator must attest.
     pub attestation_slot: Option<Slot>,
     /// The index of the committee within `slot` of which the validator is a member.
@@ -33,7 +33,7 @@ pub struct ValidatorDuty {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct BulkValidatorDutiesRequest {
+pub struct ValidatorDutiesRequest {
     pub epoch: Epoch,
     pub pubkeys: Vec<PublicKeyBytes>,
 }
@@ -52,9 +52,9 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
         .concat2()
         .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
         .and_then(|chunks| {
-            serde_json::from_slice::<BulkValidatorDutiesRequest>(&chunks).map_err(|e| {
+            serde_json::from_slice::<ValidatorDutiesRequest>(&chunks).map_err(|e| {
                 ApiError::BadRequest(format!(
-                    "Unable to parse JSON into BulkValidatorDutiesRequest: {:?}",
+                    "Unable to parse JSON into ValidatorDutiesRequest: {:?}",
                     e
                 ))
             })
@@ -71,37 +71,61 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
     Box::new(future)
 }
 
-/// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch
-///
-/// The given `epoch` must be within one epoch of the current epoch.
-pub fn get_validator_duties<T: BeaconChainTypes>(
+/// HTTP Handler to retrieve all validator duties for the given epoch.
+pub fn get_all_validator_duties<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
     let query = UrlQuery::from_request(&req)?;
 
     let epoch = query.epoch()?;
-    let validator_pubkeys = query
-        .all_of("validator_pubkeys")?
+
+    let state = get_state_for_epoch(&beacon_chain, epoch)?;
+
+    let validator_pubkeys = state
+        .validators
         .iter()
-        .map(|validator_pubkey_str| parse_pubkey_bytes(validator_pubkey_str))
-        .collect::<Result<_, _>>()?;
+        .map(|validator| validator.pubkey.clone())
+        .collect();
 
     let duties = return_validator_duties(beacon_chain, epoch, validator_pubkeys)?;
 
     ResponseBuilder::new(&req)?.body_no_ssz(&duties)
 }
 
-fn return_validator_duties<T: BeaconChainTypes>(
+/// HTTP Handler to retrieve all active validator duties for the given epoch.
+pub fn get_active_validator_duties<T: BeaconChainTypes>(
+    req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    let query = UrlQuery::from_request(&req)?;
+
+    let epoch = query.epoch()?;
+
+    let state = get_state_for_epoch(&beacon_chain, epoch)?;
+
+    let validator_pubkeys = state
+        .validators
+        .iter()
+        .filter(|validator| validator.is_active_at(state.current_epoch()))
+        .map(|validator| validator.pubkey.clone())
+        .collect();
+
+    let duties = return_validator_duties(beacon_chain, epoch, validator_pubkeys)?;
+
+    ResponseBuilder::new(&req)?.body_no_ssz(&duties)
+}
+
+/// Helper function to return the state that can be used to determine the duties for some `epoch`.
+pub fn get_state_for_epoch<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
     epoch: Epoch,
-    validator_pubkeys: Vec<PublicKeyBytes>,
-) -> Result<Vec<ValidatorDuty>, ApiError> {
+) -> Result<BeaconState<T::EthSpec>, ApiError> {
     let slots_per_epoch = T::EthSpec::slots_per_epoch();
     let head_epoch = beacon_chain.head().beacon_state.current_epoch();
 
-    let mut state = if RelativeEpoch::from_epoch(head_epoch, epoch).is_ok() {
-        beacon_chain.head().beacon_state
+    if RelativeEpoch::from_epoch(head_epoch, epoch).is_ok() {
+        Ok(beacon_chain.head().beacon_state)
     } else {
         let slot = if epoch > head_epoch {
             // Move to the first slot of the epoch prior to the request.
@@ -117,8 +141,17 @@ fn return_validator_duties<T: BeaconChainTypes>(
 
         beacon_chain.state_at_slot(slot).map_err(|e| {
             ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
-        })?
-    };
+        })
+    }
+}
+
+/// Helper function to get the duties for some `validator_pubkeys` in some `epoch`.
+fn return_validator_duties<T: BeaconChainTypes>(
+    beacon_chain: Arc<BeaconChain<T>>,
+    epoch: Epoch,
+    validator_pubkeys: Vec<PublicKeyBytes>,
+) -> Result<Vec<ValidatorDuty>, ApiError> {
+    let mut state = get_state_for_epoch(&beacon_chain, epoch)?;
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
         .map_err(|_| ApiError::ServerError(String::from("Loaded state is in the wrong epoch")))?;
@@ -173,6 +206,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
 
                 Ok(ValidatorDuty {
                     validator_pubkey,
+                    validator_index: Some(validator_index),
                     attestation_slot: duties.map(|d| d.slot),
                     attestation_committee_index: duties.map(|d| d.index),
                     attestation_committee_position: duties.map(|d| d.committee_position),
@@ -181,6 +215,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
             } else {
                 Ok(ValidatorDuty {
                     validator_pubkey,
+                    validator_index: None,
                     attestation_slot: None,
                     attestation_committee_index: None,
                     attestation_committee_position: None,

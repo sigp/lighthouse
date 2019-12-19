@@ -450,7 +450,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .beacon_node
             .http
             .validator()
-            .get_duties_bulk(epoch, pubkeys.as_slice())
+            .get_duties(epoch, pubkeys.as_slice())
             .map(move |all_duties| (epoch, all_duties))
             .map_err(move |e| format!("Failed to get duties for epoch {}: {:?}", epoch, e))
             .and_then(move |(epoch, all_duties)| {
