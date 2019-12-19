@@ -33,7 +33,7 @@ Typical Responses | 200
 
 ## `/network/peers`
 
-Requests the beacon node for one `MultiAddr` for each connected peer.
+Requests one `MultiAddr` for each peer connected to the beacon node.
 
 ### HTTP Specification
 
@@ -56,7 +56,7 @@ Typical Responses | 200
 
 ## `network/enr`
 
-Requests the beacon node for it's listening `ENR` address.
+Requests the beacon node for its listening `ENR` address.
 
 ### HTTP Specification
 

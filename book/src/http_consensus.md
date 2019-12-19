@@ -47,16 +47,17 @@ The following fields are returned:
 
 - `current_epoch_active_gwei`: the total staked gwei that was active (i.e.,
 	able to vote) during the current epoch.
-- `previous_epoch_active_gwei`: as above, but during the previous epoch.
 - `current_epoch_attesting_gwei`: the total staked gwei that had one or more
     attestations included in a block during the current epoch (multiple
-	attestations by the same validator does not increase this figure).
+	attestations by the same validator do not increase this figure).
 - `current_epoch_target_attesting_gwei`: the total staked gwei that attested to
 	the majority-elected Casper FFG target epoch during the current epoch. This
 	figure must be equal to or less than `current_epoch_attesting_gwei`.
+- `previous_epoch_active_gwei`: as above, but during the previous epoch.
 - `previous_epoch_attesting_gwei`: see `current_epoch_attesting_gwei`.
 - `previous_epoch_target_attesting_gwei`: see `current_epoch_target_attesting_gwei`.
-- `previous_epoch_head_attesting_gwei`: see `previous_epoch_head_attesting_gwei`.
+- `previous_epoch_head_attesting_gwei`: the total staked gwei that attested to a
+	head beacon block that is in the canonical chain.
 
 From this data you can calculate some interesting figures:
 
@@ -121,15 +122,21 @@ individual values, please see it for definitions of terms like "current_epoch",
 | Property | Specification |
 | --- |--- |
 Path | `/consensus/individual_votes`
-Method | GET
+Method | POST
 JSON Encoding | Object
-Query Parameters | `epoch`
+Query Parameters | None
 Typical Responses | 200
 
-### Parameters
+### Request Body
 
-Requires the `epoch` (`Epoch`) query parameter to determine which epoch will be
-considered the current epoch.
+Expects the following object in the POST request body:
+
+```
+{
+	epoch: Epoch,
+	pubkeys: [PublicKey]
+}
+```
 
 ### Returns
 

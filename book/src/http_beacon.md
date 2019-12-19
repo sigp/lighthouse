@@ -131,7 +131,7 @@ canonical chain.
 
 ### Returns
 
-Returns an object containing a single [`BeaconBlock`](https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/core/0_beacon-chain.md#beaconblock) and it's signed root.
+Returns an object containing a single [`BeaconBlock`](https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/core/0_beacon-chain.md#beaconblock) and its signed root.
 
 ### Example Response
 
