@@ -68,7 +68,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
         // Processing requires the epoch cache.
         bulk_state.build_all_caches(spec).unwrap();
 
-        // Spawning a second state to call use the VerifyIndiviual strategy to avoid bitrot.
+        // Spawning a second state to call the VerifyIndiviual strategy to avoid bitrot.
         // See https://github.com/sigp/lighthouse/issues/742.
         let mut indiv_state = bulk_state.clone();
 
