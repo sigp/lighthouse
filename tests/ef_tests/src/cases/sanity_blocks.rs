@@ -84,7 +84,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     &mut state,
                     block,
                     None,
-                    BlockSignatureStrategy::VerifyIndividual,
+                    BlockSignatureStrategy::VerifyBulk,
                     spec,
                 )?;
 

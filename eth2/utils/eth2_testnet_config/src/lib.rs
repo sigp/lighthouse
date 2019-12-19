@@ -3,7 +3,7 @@
 //! https://github.com/eth2-clients/eth2-testnets/tree/master/nimbus/testnet1
 //!
 //! It is not accurate at the moment, we include extra files and we also don't support a few
-//! others. We are unable to confirm to the repo until we have the following PR merged:
+//! others. We are unable to conform to the repo until we have the following PR merged:
 //!
 //! https://github.com/sigp/lighthouse/pull/605
 
@@ -198,9 +198,9 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
 mod tests {
     use super::*;
     use tempdir::TempDir;
-    use types::{Eth1Data, Hash256, MinimalEthSpec, YamlConfig};
+    use types::{Eth1Data, Hash256, MainnetEthSpec, YamlConfig};
 
-    type E = MinimalEthSpec;
+    type E = MainnetEthSpec;
 
     #[test]
     fn hard_coded_works() {

@@ -17,6 +17,12 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         .parse::<u64>()
         .map_err(|e| format!("Failed to parse min_genesis_time: {}", e))?;
 
+    let min_genesis_active_validator_count = matches
+        .value_of("min-genesis-active-validator-count")
+        .ok_or_else(|| "min-genesis-active-validator-count not specified")?
+        .parse::<u64>()
+        .map_err(|e| format!("Failed to parse min-genesis-active-validator-count: {}", e))?;
+
     let confirmations = matches
         .value_of("confirmations")
         .ok_or_else(|| "Confirmations not specified")?
@@ -90,6 +96,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     let mut spec = lighthouse_testnet_spec(env.core_context().eth2_config.spec.clone());
     spec.min_genesis_time = min_genesis_time;
+    spec.min_genesis_active_validator_count = min_genesis_active_validator_count;
 
     let testnet_config: Eth2TestnetConfig<T> = Eth2TestnetConfig {
         deposit_contract_address: format!("{}", deposit_contract.address()),
@@ -111,13 +118,17 @@ pub fn lighthouse_testnet_spec(mut spec: ChainSpec) -> ChainSpec {
     spec.ejection_balance = 1_600_000_000;
     spec.effective_balance_increment = 100_000_000;
 
+    spec.eth1_follow_distance = 16;
+
     // This value must be at least 2x the `ETH1_FOLLOW_DISTANCE` otherwise `all_eth1_data` can
     // become a subset of `new_eth1_data` which may result in an Exception in the spec
     // implementation.
     //
     // This value determines the delay between the eth1 block that triggers genesis and the first
     // slot of that new chain.
-    spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2;
+    //
+    // With a follow distance of 16, this is 40mins.
+    spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2 * 5;
 
     spec
 }

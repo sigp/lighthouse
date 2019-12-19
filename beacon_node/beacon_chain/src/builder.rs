@@ -1,3 +1,4 @@
+use crate::checkpoint_cache::CheckPointCache;
 use crate::eth1_chain::CachingEth1Backend;
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
@@ -374,6 +375,7 @@ where
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
             head_tracker: self.head_tracker.unwrap_or_default(),
+            checkpoint_cache: CheckPointCache::default(),
             log: log.clone(),
         };
 

@@ -23,7 +23,7 @@ type Config = (ClientConfig, Eth2Config, Logger);
 
 /// Gets the fully-initialized global client and eth2 configuration objects.
 ///
-/// The top-level `clap` arguments should be provied as `cli_args`.
+/// The top-level `clap` arguments should be provided as `cli_args`.
 ///
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
@@ -36,6 +36,8 @@ pub fn get_configs<E: EthSpec>(
     let log = core_log.clone();
 
     let mut client_config = ClientConfig::default();
+
+    client_config.spec_constants = eth2_config.spec_constants.clone();
 
     // Read the `--datadir` flag.
     //
@@ -58,9 +60,23 @@ pub fn get_configs<E: EthSpec>(
     // Load the eth2 config, if it exists .
     let path = client_config.data_dir.join(ETH2_CONFIG_FILENAME);
     if path.exists() {
-        eth2_config = read_from_file(path.clone())
+        let loaded_eth2_config: Eth2Config = read_from_file(path.clone())
             .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
             .ok_or_else(|| format!("{:?} file does not exist", path))?;
+
+        // The loaded spec must be using the same spec constants (e.g., minimal, mainnet) as the
+        // client expects.
+        if loaded_eth2_config.spec_constants == client_config.spec_constants {
+            eth2_config = loaded_eth2_config
+        } else {
+            return Err(
+                format!(
+                    "Eth2 config loaded from disk does not match client spec version. Got {} expected {}",
+                    &loaded_eth2_config.spec_constants,
+                    &client_config.spec_constants
+                )
+            );
+        }
     }
 
     // Read the `--testnet-dir` flag.

@@ -172,7 +172,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
                     );
                     info.listen_addrs.truncate(MAX_IDENTIFY_ADDRESSES);
                 }
-                debug!(self.log, "Identified Peer"; "Peer" => format!("{}", peer_id),
+                debug!(self.log, "Identified Peer"; "peer" => format!("{}", peer_id),
                 "protocol_version" => info.protocol_version,
                 "agent_version" => info.agent_version,
                 "listening_ addresses" => format!("{:?}", info.listen_addrs),
