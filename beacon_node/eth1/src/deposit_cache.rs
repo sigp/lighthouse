@@ -1,9 +1,9 @@
 use crate::DepositLog;
 use eth2_hashing::hash;
 use tree_hash::TreeHash;
-use types::{Deposit, Hash256};
+use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// A deposit log was added when a prior deposit was not already in the cache.
     ///
@@ -23,6 +23,8 @@ pub enum Error {
     ///
     /// E.g., you cannot request deposit 10 when the deposit count is 9.
     DepositCountInvalid { deposit_count: u64, range_end: u64 },
+    /// Error with the merkle tree for deposits.
+    DepositTreeError(merkle_proof::MerkleTreeError),
     /// An unexpected condition was encountered.
     InternalError(String),
 }
@@ -66,18 +68,56 @@ impl DepositDataTree {
         proof.push(Hash256::from_slice(&self.length_bytes()));
         (root, proof)
     }
+
+    /// Add a deposit to the merkle tree.
+    pub fn push_leaf(&mut self, leaf: Hash256) -> Result<(), Error> {
+        self.tree
+            .push_leaf(leaf, self.depth)
+            .map_err(Error::DepositTreeError)?;
+        self.mix_in_length += 1;
+        Ok(())
+    }
 }
 
 /// Mirrors the merkle tree of deposits in the eth1 deposit contract.
 ///
 /// Provides `Deposit` objects with merkle proofs included.
-#[derive(Default)]
 pub struct DepositCache {
     logs: Vec<DepositLog>,
-    roots: Vec<Hash256>,
+    leaves: Vec<Hash256>,
+    deposit_contract_deploy_block: u64,
+    /// An incremental merkle tree which represents the current state of the
+    /// deposit contract tree.
+    deposit_tree: DepositDataTree,
+    /// Vector of deposit roots. `deposit_roots[i]` denotes `deposit_root` at
+    /// `deposit_index` `i`.
+    deposit_roots: Vec<Hash256>,
+}
+
+impl Default for DepositCache {
+    fn default() -> Self {
+        let deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
+        let deposit_roots = vec![deposit_tree.root()];
+        DepositCache {
+            logs: Vec::new(),
+            leaves: Vec::new(),
+            deposit_contract_deploy_block: 1,
+            deposit_tree,
+            deposit_roots,
+        }
+    }
 }
 
 impl DepositCache {
+    /// Create new `DepositCache` given block number at which deposit
+    /// contract was deployed.
+    pub fn new(deposit_contract_deploy_block: u64) -> Self {
+        DepositCache {
+            deposit_contract_deploy_block,
+            ..Self::default()
+        }
+    }
+
     /// Returns the number of deposits available in the cache.
     pub fn len(&self) -> usize {
         self.logs.len()
@@ -114,10 +154,11 @@ impl DepositCache {
     /// - If a log with `log.index` is already known, but the given `log` is distinct to it.
     pub fn insert_log(&mut self, log: DepositLog) -> Result<(), Error> {
         if log.index == self.logs.len() as u64 {
-            self.roots
-                .push(Hash256::from_slice(&log.deposit_data.tree_hash_root()));
+            let deposit = Hash256::from_slice(&log.deposit_data.tree_hash_root());
+            self.leaves.push(deposit);
             self.logs.push(log);
-
+            self.deposit_tree.push_leaf(deposit)?;
+            self.deposit_roots.push(self.deposit_tree.root());
             Ok(())
         } else if log.index < self.logs.len() as u64 {
             if self.logs[log.index as usize] == log {
@@ -163,7 +204,7 @@ impl DepositCache {
                 requested: end,
                 known_deposits: self.logs.len(),
             })
-        } else if deposit_count > self.roots.len() as u64 {
+        } else if deposit_count > self.leaves.len() as u64 {
             // There are not `deposit_count` known deposit roots, so we can't build the merkle tree
             // to prove into.
             Err(Error::InsufficientDeposits {
@@ -171,10 +212,10 @@ impl DepositCache {
                 known_deposits: self.logs.len(),
             })
         } else {
-            let roots = self
-                .roots
+            let leaves = self
+                .leaves
                 .get(0..deposit_count as usize)
-                .ok_or_else(|| Error::InternalError("Unable to get known root".into()))?;
+                .ok_or_else(|| Error::InternalError("Unable to get known leaves".into()))?;
 
             // Note: there is likely a more optimal solution than recreating the `DepositDataTree`
             // each time this function is called.
@@ -183,7 +224,7 @@ impl DepositCache {
             // last finalized eth1 deposit count. Then, that tree could be cloned and extended for
             // each of these calls.
 
-            let tree = DepositDataTree::create(roots, deposit_count as usize, tree_depth);
+            let tree = DepositDataTree::create(leaves, deposit_count as usize, tree_depth);
 
             let deposits = self
                 .logs
@@ -202,6 +243,50 @@ impl DepositCache {
 
             Ok((tree.root(), deposits))
         }
+    }
+
+    /// Gets the deposit count at block height = block_number.
+    ///
+    /// Fetches the `DepositLog` that was emitted at or just before `block_number`
+    /// and returns the deposit count as `index + 1`.
+    ///
+    /// Returns `None` if block number queried is 0 or less than deposit_contract_deployed block.
+    pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
+        // Contract cannot be deployed in 0'th block
+        if block_number == 0 {
+            return None;
+        }
+        if block_number < self.deposit_contract_deploy_block {
+            return None;
+        }
+        // Return 0 if block_num queried is before first deposit
+        if let Some(first_deposit) = self.logs.first() {
+            if first_deposit.block_number > block_number {
+                return Some(0);
+            }
+        }
+        let index = self
+            .logs
+            .binary_search_by(|deposit| deposit.block_number.cmp(&block_number));
+        match index {
+            Ok(index) => return self.logs.get(index).map(|x| x.index + 1),
+            Err(next) => {
+                return Some(
+                    self.logs
+                        .get(next.saturating_sub(1))
+                        .map_or(0, |x| x.index + 1),
+                )
+            }
+        }
+    }
+
+    /// Gets the deposit root at block height = block_number.
+    ///
+    /// Fetches the `deposit_count` on or just before the queried `block_number`
+    /// and queries the `deposit_roots` map to get the corresponding `deposit_root`.
+    pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
+        let index = self.get_deposit_count_from_cache(block_number)?;
+        Some(self.deposit_roots.get(index as usize)?.clone())
     }
 }
 
