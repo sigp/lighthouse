@@ -3,7 +3,7 @@ use milagro_bls::G1Point;
 use milagro_bls::PublicKey as RawPublicKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::{encode as hex_encode, HexVisitor};
+use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use std::default;
 use std::fmt;
@@ -124,7 +124,7 @@ impl<'de> Deserialize<'de> for FakePublicKey {
     where
         D: Deserializer<'de>,
     {
-        let bytes = deserializer.deserialize_str(HexVisitor)?;
+        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
         let pubkey = Self::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid pubkey ({:?})", e)))?;
         Ok(pubkey)

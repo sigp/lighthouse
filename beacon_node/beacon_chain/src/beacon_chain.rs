@@ -376,6 +376,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get(block_root)?)
     }
 
+    /// Returns the state at the given root, if any.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn get_state(
+        &self,
+        state_root: &Hash256,
+        slot: Option<Slot>,
+    ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
+        Ok(self.store.get_state(state_root, slot)?)
+    }
+
     /// Returns the block at the given root, if any.
     ///
     /// ## Errors
