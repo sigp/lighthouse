@@ -202,7 +202,8 @@ pub fn get_all_validators<T: BeaconChainTypes>(
         None
     };
 
-    let state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+    let mut state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+    state.update_pubkey_cache()?;
 
     let validators = state
         .validators
@@ -226,7 +227,8 @@ pub fn get_active_validators<T: BeaconChainTypes>(
         None
     };
 
-    let state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+    let mut state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+    state.update_pubkey_cache()?;
 
     let validators = state
         .validators
@@ -308,7 +310,8 @@ fn validator_responses_by_pubkey<T: BeaconChainTypes>(
     state_root_opt: Option<Hash256>,
     validator_pubkeys: Vec<PublicKeyBytes>,
 ) -> Result<Vec<ValidatorResponse>, ApiError> {
-    let state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+    let mut state = get_state_from_root_opt(&beacon_chain, state_root_opt)?;
+    state.update_pubkey_cache()?;
 
     validator_pubkeys
         .into_iter()
@@ -317,6 +320,8 @@ fn validator_responses_by_pubkey<T: BeaconChainTypes>(
 }
 
 /// Maps a `validator_pubkey` to a `ValidatorResponse`, using the given state.
+///
+/// The provided `state` must have a fully up-to-date pubkey cache.
 fn validator_response_by_pubkey<E: EthSpec>(
     state: &BeaconState<E>,
     validator_pubkey: PublicKeyBytes,
