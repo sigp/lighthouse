@@ -99,7 +99,7 @@ impl<'a> SszDecoderBuilder<'a> {
             let previous_offset = self
                 .offsets
                 .last()
-                .and_then(|o| Some(o.offset))
+                .map(|o| o.offset)
                 .unwrap_or_else(|| BYTES_PER_LENGTH_OFFSET);
 
             if (previous_offset > offset) || (offset > self.bytes.len()) {

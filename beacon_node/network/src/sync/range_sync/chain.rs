@@ -166,7 +166,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             let batch = self.pending_batches.get_mut(&request_id)?;
             // This is not a stream termination, simply add the block to the request
             batch.downloaded_blocks.push(block.clone());
-            return Some(ProcessingResult::KeepChain);
+            Some(ProcessingResult::KeepChain)
         } else {
             // A stream termination has been sent. This batch has ended. Process a completed batch.
             let batch = self.pending_batches.remove(&request_id)?;

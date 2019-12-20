@@ -386,7 +386,7 @@ pub fn process_deposits<T: EthSpec>(
 ) -> Result<(), BlockProcessingError> {
     let expected_deposit_len = std::cmp::min(
         T::MaxDeposits::to_u64(),
-        state.eth1_data.deposit_count - state.eth1_deposit_index,
+        u64::saturating_sub(state.eth1_data.deposit_count, state.eth1_deposit_index),
     );
     block_verify!(
         deposits.len() as u64 == expected_deposit_len,

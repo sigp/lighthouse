@@ -171,7 +171,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             );
 
             self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.head_slot
             > self.chain.slot().unwrap_or_else(|_| Slot::from(0u64)) + FUTURE_SLOT_TOLERANCE
         {
@@ -187,7 +187,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             "reason" => "different system clocks or genesis time"
             );
             self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.finalized_epoch <= local.finalized_epoch
             && remote.finalized_root != Hash256::zero()
             && local.finalized_root != Hash256::zero()
@@ -204,7 +204,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 "reason" => "different finalized chain"
             );
             self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.finalized_epoch < local.finalized_epoch {
             // The node has a lower finalized epoch, their chain is not useful to us. There are two
             // cases where a node can have a lower finalized epoch:
@@ -465,7 +465,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     // Inform the sync manager to find parents for this block
                     trace!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
-                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, Box::new(block.clone())));
+                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, Box::new(block)));
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::FutureSlot {

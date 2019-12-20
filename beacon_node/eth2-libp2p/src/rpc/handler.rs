@@ -450,7 +450,7 @@ where
             // notify the user
             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                 RPCEvent::Error(
-                    stream_id.get_ref().clone(),
+                    *stream_id.get_ref(),
                     RPCError::Custom("Stream timed out".into()),
                 ),
             )));

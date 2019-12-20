@@ -604,7 +604,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_state = &self.head().beacon_state;
 
         let mut state = if epoch(slot) == epoch(head_state.slot) {
-            self.head().beacon_state.clone()
+            self.head().beacon_state
         } else {
             self.state_at_slot(slot)?
         };
@@ -637,7 +637,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_state = &self.head().beacon_state;
 
         let mut state = if epoch == as_epoch(head_state.slot) {
-            self.head().beacon_state.clone()
+            self.head().beacon_state
         } else {
             self.state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))?
         };
@@ -1683,9 +1683,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut dump = vec![];
 
         let mut last_slot = CheckPoint {
-            beacon_block: self.head().beacon_block.clone(),
+            beacon_block: self.head().beacon_block,
             beacon_block_root: self.head().beacon_block_root,
-            beacon_state: self.head().beacon_state.clone(),
+            beacon_state: self.head().beacon_state,
             beacon_state_root: self.head().beacon_state_root,
         };
 

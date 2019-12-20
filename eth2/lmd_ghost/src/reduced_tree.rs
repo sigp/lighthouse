@@ -170,7 +170,9 @@ impl ReducedTreeSsz {
 
     pub fn to_reduced_tree<T, E>(self, store: Arc<T>) -> Result<ReducedTree<T, E>> {
         if self.node_hashes.len() != self.nodes.len() {
-            Error::InvalidReducedTreeSsz("node_hashes and nodes should have equal length".into());
+            return Err(Error::InvalidReducedTreeSsz(
+                "node_hashes and nodes should have equal length".into(),
+            ));
         }
         let nodes: HashMap<_, _> = self
             .node_hashes
@@ -705,7 +707,7 @@ where
             .ok()?
             .take_while(|(_, slot)| *slot >= self.root_slot())
             .find(|(root, _slot)| self.nodes.contains_key(root))
-            .and_then(|(root, _slot)| Some(root))
+            .map(|(root, _slot)| root)
     }
 
     /// For the two given block roots (`a_root` and `b_root`), find the first block they share in

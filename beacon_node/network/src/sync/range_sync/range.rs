@@ -131,7 +131,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
                 // add the peer to the head's pool
                 chain.peer_pool.insert(peer_id.clone());
-                chain.peer_added(network, peer_id.clone(), &self.log);
+                chain.peer_added(network, peer_id, &self.log);
             } else {
                 // There are no other head chains that match this peer's status, create a new one, and
                 let start_slot = std::cmp::min(local_info.head_slot, remote_finalized_slot);
@@ -245,41 +245,42 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain and re-status all the peers.
     fn remove_peer(&mut self, network: &mut SyncNetworkContext, peer_id: &PeerId) {
-        match self.chains.head_finalized_request(|chain| {
-            if chain.peer_pool.remove(&peer_id) {
-                // this chain contained the peer
-                let pending_batches_requests = chain
-                    .pending_batches
-                    .iter()
-                    .filter(|(_, batch)| batch.current_peer == *peer_id)
-                    .map(|(id, _)| id)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for request_id in pending_batches_requests {
-                    if let Some(batch) = chain.pending_batches.remove(&request_id) {
-                        if let ProcessingResult::RemoveChain = chain.failed_batch(network, batch) {
-                            // a single batch failed, remove the chain
-                            return Some(ProcessingResult::RemoveChain);
+        if let Some((index, ProcessingResult::RemoveChain)) =
+            self.chains.head_finalized_request(|chain| {
+                if chain.peer_pool.remove(&peer_id) {
+                    // this chain contained the peer
+                    let pending_batches_requests = chain
+                        .pending_batches
+                        .iter()
+                        .filter(|(_, batch)| batch.current_peer == *peer_id)
+                        .map(|(id, _)| id)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    for request_id in pending_batches_requests {
+                        if let Some(batch) = chain.pending_batches.remove(&request_id) {
+                            if let ProcessingResult::RemoveChain =
+                                chain.failed_batch(network, batch)
+                            {
+                                // a single batch failed, remove the chain
+                                return Some(ProcessingResult::RemoveChain);
+                            }
                         }
                     }
+                    // peer removed from chain, no batch failed
+                    Some(ProcessingResult::KeepChain)
+                } else {
+                    None
                 }
-                // peer removed from chain, no batch failed
-                Some(ProcessingResult::KeepChain)
-            } else {
-                None
-            }
-        }) {
-            Some((index, ProcessingResult::RemoveChain)) => {
-                // the chain needed to be removed
-                let chain = self.chains.remove_chain(index);
-                debug!(self.log, "Chain was removed due batch failing"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
-                // the chain has been removed, re-status it's peers
-                chain.status_peers(self.beacon_chain.clone(), network);
-                // update the state of the collection
-                self.chains
-                    .update_finalized(self.beacon_chain.clone(), network, &self.log);
-            }
-            _ => {} // chain didn't need to be removed, ignore
+            })
+        {
+            // the chain needed to be removed
+            let chain = self.chains.remove_chain(index);
+            debug!(self.log, "Chain was removed due batch failing"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
+            // the chain has been removed, re-status it's peers
+            chain.status_peers(self.beacon_chain.clone(), network);
+            // update the state of the collection
+            self.chains
+                .update_finalized(self.beacon_chain.clone(), network, &self.log);
         }
 
         // remove any chains that no longer have any peers

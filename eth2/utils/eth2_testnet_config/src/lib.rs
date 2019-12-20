@@ -237,13 +237,13 @@ mod tests {
         yaml_config: Option<YamlConfig>,
     ) {
         let temp_dir = TempDir::new("eth2_testnet_test").expect("should create temp dir");
-        let base_dir = PathBuf::from(temp_dir.path().join("my_testnet"));
+        let base_dir = temp_dir.path().join("my_testnet");
         let deposit_contract_address = "0xBB9bc244D798123fDe783fCc1C72d3Bb8C189413".to_string();
         let deposit_contract_deploy_block = 42;
 
         let testnet: Eth2TestnetConfig<E> = Eth2TestnetConfig {
-            deposit_contract_address: deposit_contract_address.clone(),
-            deposit_contract_deploy_block: deposit_contract_deploy_block,
+            deposit_contract_address,
+            deposit_contract_deploy_block,
             boot_enr,
             genesis_state,
             yaml_config,

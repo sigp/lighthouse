@@ -185,7 +185,7 @@ pub trait Field<E: EthSpec>: Copy {
             .values
             .first()
             .cloned()
-            .ok_or(ChunkError::MissingGenesisValue.into())
+            .ok_or_else(|| ChunkError::MissingGenesisValue.into())
     }
 
     /// Store the given `value` as the genesis value for this field, unless stored already.

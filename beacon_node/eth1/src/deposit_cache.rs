@@ -269,14 +269,12 @@ impl DepositCache {
             .logs
             .binary_search_by(|deposit| deposit.block_number.cmp(&block_number));
         match index {
-            Ok(index) => return self.logs.get(index).map(|x| x.index + 1),
-            Err(next) => {
-                return Some(
-                    self.logs
-                        .get(next.saturating_sub(1))
-                        .map_or(0, |x| x.index + 1),
-                )
-            }
+            Ok(index) => self.logs.get(index).map(|x| x.index + 1),
+            Err(next) => Some(
+                self.logs
+                    .get(next.saturating_sub(1))
+                    .map_or(0, |x| x.index + 1),
+            ),
         }
     }
 
@@ -286,7 +284,7 @@ impl DepositCache {
     /// and queries the `deposit_roots` map to get the corresponding `deposit_root`.
     pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
         let index = self.get_deposit_count_from_cache(block_number)?;
-        Some(self.deposit_roots.get(index as usize)?.clone())
+        Some(*self.deposit_roots.get(index as usize)?)
     }
 }
 

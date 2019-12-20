@@ -263,7 +263,7 @@ fn network_service(
                         id,
                         source,
                         message,
-                        topics: _,
+                        ..
                     } => {
                         message_handler_send
                             .try_send(HandlerMessage::PubsubMessage(id, source, message))

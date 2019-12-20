@@ -443,7 +443,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     /// Attempt to download the duties of all managed validators for the given `epoch`.
     fn update_epoch(self, epoch: Epoch) -> impl Future<Item = (), Error = String> {
         let service_1 = self.clone();
-        let service_2 = self.clone();
+        let service_2 = self;
 
         let pubkeys = service_1.validator_store.voting_pubkeys();
         service_1

@@ -260,8 +260,8 @@ pub fn get_configs<E: EthSpec>(
 
     if eth2_config.spec_constants != client_config.spec_constants {
         crit!(log, "Specification constants do not match.";
-              "client_config" => client_config.spec_constants.to_string(),
-              "eth2_config" => eth2_config.spec_constants.to_string()
+              "client_config" => client_config.spec_constants,
+              "eth2_config" => eth2_config.spec_constants
         );
         return Err("Specification constant mismatch".into());
     }
@@ -351,11 +351,8 @@ fn init_new_client<E: EthSpec>(
         .deposit_contract_deploy_block
         .saturating_sub(client_config.eth1.follow_distance * 2);
 
-    if let Some(boot_nodes) = eth2_testnet_config.boot_enr {
-        client_config
-            .network
-            .boot_nodes
-            .append(&mut boot_nodes.clone())
+    if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
+        client_config.network.boot_nodes.append(&mut boot_nodes)
     }
 
     if let Some(genesis_state) = eth2_testnet_config.genesis_state {
@@ -382,7 +379,7 @@ pub fn create_new_datadir(client_config: &ClientConfig, eth2_config: &Eth2Config
         return Err(format!(
             "Data dir already exists at {:?}",
             client_config.data_dir
-        ))?;
+        ));
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -423,11 +420,9 @@ fn process_testnet_subcommand(
     }
 
     // Deletes the existing datadir.
-    if cli_args.is_present("force") {
-        if client_config.data_dir.exists() {
-            fs::remove_dir_all(&client_config.data_dir)
-                .map_err(|e| format!("Unable to delete existing datadir: {:?}", e))?;
-        }
+    if cli_args.is_present("force") && client_config.data_dir.exists() {
+        fs::remove_dir_all(&client_config.data_dir)
+            .map_err(|e| format!("Unable to delete existing datadir: {:?}", e))?;
     }
 
     // Define a percentage of messages that should be propogated, useful for simulating bad network

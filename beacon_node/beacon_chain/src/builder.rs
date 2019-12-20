@@ -422,11 +422,8 @@ where
             .ok_or_else(|| "reduced_tree_fork_choice requires a store")?;
 
         let fork_choice = if let Some(persisted_beacon_chain) = &self.persisted_beacon_chain {
-            ForkChoice::from_ssz_container(
-                persisted_beacon_chain.fork_choice.clone(),
-                store.clone(),
-            )
-            .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
+            ForkChoice::from_ssz_container(persisted_beacon_chain.fork_choice.clone(), store)
+                .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
         } else {
             let finalized_checkpoint = &self
                 .finalized_checkpoint
@@ -615,7 +612,7 @@ mod test {
 
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
-            .store(store.clone())
+            .store(store)
             .store_migrator(NullMigrator)
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")

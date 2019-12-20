@@ -474,7 +474,7 @@ impl<E: EthSpec> HotColdDB<E> {
         let key = Self::restore_point_key(restore_point_index);
         RestorePointHash::db_get(&self.cold_db, &key)?
             .map(|r| r.state_root)
-            .ok_or(HotColdDbError::MissingRestorePointHash(restore_point_index).into())
+            .ok_or_else(|| HotColdDbError::MissingRestorePointHash(restore_point_index).into())
     }
 
     /// Store the state root of a restore point.
