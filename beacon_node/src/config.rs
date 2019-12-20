@@ -5,7 +5,7 @@ use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::recent_genesis_time;
 use rand::{distributions::Alphanumeric, Rng};
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use ssz::Encode;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
@@ -278,9 +278,7 @@ pub fn get_configs<E: EthSpec>(
      */
     if cli_args.is_present("zero-ports") {
         if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
-            client_config.network.discovery_address = "127.0.0.1"
-                .parse()
-                .map_err(|e| format!("Invalid discovery address: {}", e))?
+            client_config.network.discovery_address = "127.0.0.1".parse().expect("Valid IP address")
         }
         client_config.network.libp2p_port =
             unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
@@ -292,7 +290,11 @@ pub fn get_configs<E: EthSpec>(
 
     // ENR ip needs to be explicit for node to be discoverable
     if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
-        return Err("Discovery address cannot be 0.0.0.0. Specify discovery-address".into());
+        warn!(
+            log,
+            "Discovery address cannot be 0.0.0.0, Setting to to 127.0.0.1"
+        );
+        client_config.network.discovery_address = "127.0.0.1".parse().expect("Valid IP address")
     }
     Ok((client_config, eth2_config, log))
 }
