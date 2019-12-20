@@ -33,7 +33,7 @@ use node_test_rig::{
 };
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
-use types::MinimalEthSpec;
+use types::{EthSpec, MinimalEthSpec};
 
 pub type E = MinimalEthSpec;
 
@@ -50,7 +50,13 @@ fn main() {
                 std::process::exit(1)
             }
         },
-        ("syncing-sim", Some(matches)) => run_syncing_sim(matches),
+        ("syncing-sim", Some(matches)) => match run_syncing_sim(matches) {
+            Ok(()) => println!("Simulation exited successfully"),
+            Err(e) => {
+                eprintln!("Simulation exited with error: {}", e);
+                std::process::exit(1)
+            }
+        },
         _ => panic!("Invalid subcommand"),
     }
 }
@@ -86,8 +92,181 @@ fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
     )
 }
 
-fn run_syncing_sim(_matches: &ArgMatches) {
-    unimplemented!()
+fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
+    let nodes = matches
+        .value_of("nodes")
+        .ok_or_else(|| "Expected nodes parameter")?
+        .parse::<usize>()
+        .map_err(|e| format!("Unable to parse nodes value {}", e))?;
+    syncing_sim(nodes, 16, 4, "debug")
+}
+
+fn syncing_sim(
+    node_count: usize,
+    validators_per_node: usize,
+    speed_up_factor: u64,
+    log_level: &str,
+) -> Result<(), String> {
+    let mut env = EnvironmentBuilder::minimal()
+        .async_logger(log_level)?
+        .multi_threaded_tokio_runtime()?
+        .build()?;
+
+    let eth1_block_time = Duration::from_millis(15_000 / speed_up_factor);
+
+    let spec = &mut env.eth2_config.spec;
+    let end_after_checks = false;
+    let milliseconds_per_slot = spec.milliseconds_per_slot.clone();
+
+    spec.milliseconds_per_slot = spec.milliseconds_per_slot / speed_up_factor;
+    spec.eth1_follow_distance = 16;
+    spec.seconds_per_day = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
+    spec.min_genesis_time = 0;
+    spec.min_genesis_active_validator_count = 16;
+
+    let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+    let initial_validator_count = spec.min_genesis_active_validator_count as usize;
+    let total_validator_count = validators_per_node * node_count;
+    let deposit_amount = env.eth2_config.spec.max_effective_balance;
+    let slots_per_epoch = E::slots_per_epoch();
+
+    let context = env.core_context();
+    let executor = context.executor.clone();
+
+    let future = GanacheEth1Instance::new()
+        /*
+         * Deploy the deposit contract, spawn tasks to keep creating new blocks and deposit
+         * validators.
+         */
+        .map(move |ganache_eth1_instance| {
+            let deposit_contract = ganache_eth1_instance.deposit_contract;
+            let ganache = ganache_eth1_instance.ganache;
+            let eth1_endpoint = ganache.endpoint();
+            let deposit_contract_address = deposit_contract.address();
+
+            // Start a timer that produces eth1 blocks on an interval.
+            executor.spawn(
+                Interval::new(Instant::now(), eth1_block_time)
+                    .map_err(|_| eprintln!("Eth1 block timer failed"))
+                    .for_each(move |_| ganache.evm_mine().map_err(|_| ()))
+                    .map_err(|_| eprintln!("Eth1 evm_mine failed"))
+                    .map(|_| ()),
+            );
+
+            // Submit deposits to the deposit contract.
+            executor.spawn(
+                stream::unfold(0..total_validator_count, move |mut iter| {
+                    iter.next().map(|i| {
+                        println!("Submitting deposit for validator {}...", i);
+                        deposit_contract
+                            .deposit_deterministic_async::<E>(i, deposit_amount)
+                            .map(|_| ((), iter))
+                    })
+                })
+                .collect()
+                .map(|_| ())
+                .map_err(|e| eprintln!("Error submitting deposit: {}", e)),
+            );
+
+            let mut beacon_config = testing_client_config();
+
+            // beacon_config.genesis = ClientGenesis::DepositContract;
+            // beacon_config.eth1.endpoint = eth1_endpoint;
+            // beacon_config.eth1.deposit_contract_address = deposit_contract_address;
+            // beacon_config.eth1.deposit_contract_deploy_block = 0;
+            // beacon_config.eth1.lowest_cached_block_number = 0;
+            // beacon_config.eth1.follow_distance = 1;
+            // beacon_config.dummy_eth1_backend = false;
+            // beacon_config.sync_eth1_chain = true;
+
+            beacon_config
+        })
+        /*
+         * Create a new `LocalNetwork` with one beacon node.
+         */
+        .and_then(move |beacon_config| {
+            LocalNetwork::new(context, beacon_config.clone())
+                .map(|network| (network, beacon_config))
+        })
+        /*
+         * One by one, add beacon nodes to the network.
+         */
+        .and_then(move |(network, beacon_config)| {
+            let network_1 = network.clone();
+
+            stream::unfold(0..node_count - 1, move |mut iter| {
+                iter.next().map(|i| {
+                    let indices = (i * validators_per_node..(i + 1) * validators_per_node)
+                        .collect::<Vec<_>>();
+                    let bn_fut = network_1.add_beacon_node(beacon_config.clone());
+                    let vc_fut =
+                        network_1.add_validator_client(ValidatorConfig::default(), i, indices);
+                    let timeout_fut = tokio::timer::Delay::new(
+                        Instant::now()
+                            + Duration::from_millis(milliseconds_per_slot * slots_per_epoch * 2),
+                    )
+                    .map_err(|e| format!("Delay error: {:?}", e));
+                    bn_fut
+                        .join3(vc_fut, timeout_fut)
+                        .map(|((), (), ())| ((), iter))
+                })
+            })
+            .collect()
+            .map(|_| network)
+        })
+        /*
+         * Start the processes that will run checks on the network as it runs.
+         */
+        .and_then(move |network| {
+            // The `final_future` either completes immediately or never completes, depending on the value
+            // of `end_after_checks`.
+            let final_future: Box<dyn Future<Item = (), Error = String> + Send> =
+                if end_after_checks {
+                    Box::new(future::ok(()).map_err(|()| "".to_string()))
+                } else {
+                    Box::new(future::empty().map_err(|()| "".to_string()))
+                };
+
+            future::ok(())
+                // // Check that the chain finalizes at the first given opportunity.
+                // .join(checks::verify_first_finalization(
+                //     network.clone(),
+                //     slot_duration,
+                // ))
+                // // Check that the chain starts with the expected validator count.
+                // .join(checks::verify_initial_validator_count(
+                //     network.clone(),
+                //     slot_duration,
+                //     initial_validator_count,
+                // ))
+                // // Check that validators greater than `spec.min_genesis_active_validator_count` are
+                // // onboarded at the first possible opportunity.
+                // .join(checks::verify_validator_onboarding(
+                //     network.clone(),
+                //     slot_duration,
+                //     total_validator_count,
+                // ))
+                // // End now or run forever, depending on the `end_after_checks` flag.
+                .join(final_future)
+                .map(|_| network)
+        })
+        /*
+         * End the simulation by dropping the network. This will kill all running beacon nodes and
+         * validator clients.
+         */
+        .map(|network| {
+            println!(
+                "Simulation complete. Finished with {} beacon nodes and {} validator clients",
+                network.beacon_node_count(),
+                network.validator_client_count()
+            );
+
+            // Be explicit about dropping the network, as this kills all the nodes. This ensures
+            // all the checks have adequate time to pass.
+            drop(network)
+        });
+
+    env.runtime().block_on(future)
 }
 
 fn async_sim(
