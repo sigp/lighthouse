@@ -19,8 +19,11 @@
 //! changed without a recompile.
 
 mod checks;
+mod cli;
 mod local_network;
 
+use clap::ArgMatches;
+use cli::cli_app;
 use env_logger::{Builder, Env};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::{future, stream, Future, Stream};
@@ -38,25 +41,53 @@ fn main() {
     // Debugging output for libp2p and external crates.
     Builder::from_env(Env::default()).init();
 
-    let nodes = 4;
-    let validators_per_node = 20;
-    let log_level = "debug";
-    let speed_up_factor = 4;
+    let matches = cli_app().get_matches();
+    match matches.subcommand() {
+        ("beacon-chain-sim", Some(matches)) => match run_beacon_chain_sim(matches) {
+            Ok(()) => println!("Simulation exited successfully"),
+            Err(e) => {
+                eprintln!("Simulation exited with error: {}", e);
+                std::process::exit(1)
+            }
+        },
+        ("syncing-sim", Some(matches)) => run_syncing_sim(matches),
+        _ => panic!("Invalid subcommand"),
+    }
+}
+
+fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
+    let nodes = matches
+        .value_of("nodes")
+        .ok_or_else(|| "Expected nodes parameter")?
+        .parse::<usize>()
+        .map_err(|e| format!("Unable to parse nodes value {}", e))?;
+    let validators_per_node = matches
+        .value_of("validators")
+        .ok_or_else(|| "Expected validators parameter")?
+        .parse::<usize>()
+        .map_err(|e| format!("Unable to parse validators value {}", e))?;
+    let speed_up_factor = matches
+        .value_of("speedup")
+        .ok_or_else(|| "Expected speedup parameter")?
+        .parse::<u64>()
+        .map_err(|e| format!("Unable to parse speedup value {}", e))?;
+    let log_level = matches
+        .value_of("log-level")
+        .ok_or_else(|| "Expected log-level parameter")?;
+
     let end_after_checks = true;
 
-    match async_sim(
+    async_sim(
         nodes,
         validators_per_node,
         speed_up_factor,
         log_level,
         end_after_checks,
-    ) {
-        Ok(()) => println!("Simulation exited successfully"),
-        Err(e) => {
-            eprintln!("Simulation exited with error: {}", e);
-            std::process::exit(1)
-        }
-    }
+    )
+}
+
+fn run_syncing_sim(_matches: &ArgMatches) {
+    unimplemented!()
 }
 
 fn async_sim(
