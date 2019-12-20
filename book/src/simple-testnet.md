@@ -1,9 +1,11 @@
 # Simple Local Testnet
 
-First, [install Lighthouse](./installation.md). Then, get the current unix time
-in seconds; you can use [this website](https://www.epochconverter.com/) or `$
-date +%s`. It should look like this `1576803034` and you should use it wherever
-we put `<time>`.
+First, [install Lighthouse](./installation.md).
+
+Then, get the current unix time in seconds; you can use
+[epochconverter.com](https://www.epochconverter.com/) or `$ date +%s`. It
+should look like this `1576803034` and you should use it wherever we put
+`<time>`.
 
 > If you choose a time that's more than several minutes in the past the
 > validator client will refuse to produce blocks. We will loosen this
@@ -12,7 +14,7 @@ we put `<time>`.
 
 ## Starting a beacon node
 
-Start a new node (creating a fresh database and configuration in `$HOME/.lighthouse`), using:
+Start a new node with:
 
 ```bash
 $ lighthouse bn --http testnet -r quick 8 <time>
@@ -45,10 +47,8 @@ $ lighthouse vc testnet insecure 0 8
 
 ## Adding another beacon node
 
-You may connect another (non-validating) node to your local network using the
-lighthouse `bootstrap` command.
-
-In a new terminal window, run:
+You may connect another (non-validating) node to your local network by starting
+a new terminal and running:
 
 
 ```bash
