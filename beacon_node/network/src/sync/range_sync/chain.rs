@@ -1,4 +1,4 @@
-use crate::sync::message_processor::FUTURE_SLOT_TOLERANCE;
+use crate::message_processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
