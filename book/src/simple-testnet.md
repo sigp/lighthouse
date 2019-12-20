@@ -22,6 +22,7 @@ $ lighthouse bn --http testnet -r quick 8 <time>
 
 > Notes:
 >
+> - The `--http` flag starts the API so the validator can produce blocks.
 > - The `-r` flag creates a random data directory to avoid clashes with other
 >    nodes.
 > - `8` is number of validators with deposits in the genesis state.
