@@ -1,5 +1,5 @@
-use super::manager::SyncMessage;
 use crate::service::NetworkMessage;
+use crate::sync::SyncMessage;
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
@@ -77,7 +77,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         let sync_logger = log.new(o!("service"=> "sync"));
 
         // spawn the sync thread
-        let (sync_send, _sync_exit) = super::manager::spawn(
+        let (sync_send, _sync_exit) = crate::sync::manager::spawn(
             executor,
             Arc::downgrade(&beacon_chain),
             network_send.clone(),
@@ -503,7 +503,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                         self.log,
                         "Processed attestation";
                         "source" => "gossip",
-                        "outcome" => format!("{:?}", outcome)
+                        "outcome" => format!("{:?}", outcome),
+                        "peer" => format!("{:?}",peer_id),
+                        "data" => format!("{:?}", msg.data)
                     );
                 }
                 AttestationProcessingOutcome::UnknownHeadBlock { beacon_block_root } => {

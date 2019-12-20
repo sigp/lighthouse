@@ -1,5 +1,4 @@
 use crate::behaviour::{Behaviour, BehaviourEvent, PubsubMessage};
-use crate::config::*;
 use crate::error;
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
@@ -11,6 +10,7 @@ use libp2p::core::{
     identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, nodes::Substream,
     transport::boxed::Boxed, ConnectedPoint,
 };
+use libp2p::gossipsub::MessageId;
 use libp2p::{core, secio, swarm::NetworkBehaviour, PeerId, Swarm, Transport};
 use slog::{crit, debug, error, info, trace, warn};
 use std::fs::File;
@@ -123,38 +123,18 @@ impl Service {
             }
         }
 
-        // subscribe to default gossipsub topics
-        let mut topics = vec![];
-
-        /* Here we subscribe to all the required gossipsub topics required for interop.
-         * The topic builder adds the required prefix and postfix to the hardcoded topics that we
-         * must subscribe to.
-         */
-        let topic_builder = |topic| {
-            Topic::new(format!(
-                "/{}/{}/{}",
-                TOPIC_PREFIX, topic, TOPIC_ENCODING_POSTFIX,
-            ))
-        };
-        topics.push(topic_builder(BEACON_BLOCK_TOPIC));
-        topics.push(topic_builder(BEACON_ATTESTATION_TOPIC));
-        topics.push(topic_builder(VOLUNTARY_EXIT_TOPIC));
-        topics.push(topic_builder(PROPOSER_SLASHING_TOPIC));
-        topics.push(topic_builder(ATTESTER_SLASHING_TOPIC));
-
-        // Add any topics specified by the user
-        topics.append(&mut config.topics.iter().cloned().map(Topic::new).collect());
-
-        let mut subscribed_topics = vec![];
-        for topic in topics {
-            if swarm.subscribe(topic.clone()) {
-                trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic));
-                subscribed_topics.push(topic);
+        let mut subscribed_topics: Vec<String> = vec![];
+        for topic in config.topics {
+            let raw_topic: Topic = topic.into();
+            let topic_string = raw_topic.no_hash();
+            if swarm.subscribe(raw_topic.clone()) {
+                trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic_string));
+                subscribed_topics.push(topic_string.as_str().into());
             } else {
-                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}", topic));
+                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_string));
             }
         }
-        info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics.iter().map(|t| format!("{}", t)).collect::<Vec<String>>()));
+        info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
 
         Ok(Service {
             local_peer_id,
@@ -337,7 +317,7 @@ pub enum Libp2pEvent {
     PeerDisconnected(PeerId),
     /// Received pubsub message.
     PubsubMessage {
-        id: String,
+        id: MessageId,
         source: PeerId,
         topics: Vec<TopicHash>,
         message: PubsubMessage,

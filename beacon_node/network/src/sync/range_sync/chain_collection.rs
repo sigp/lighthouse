@@ -1,5 +1,5 @@
 use super::chain::{ChainSyncingState, ProcessingResult, SyncingChain};
-use crate::sync::message_processor::PeerSyncInfo;
+use crate::message_processor::PeerSyncInfo;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;
