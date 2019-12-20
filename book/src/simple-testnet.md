@@ -1,10 +1,9 @@
 # Simple Local Testnet
 
-First, setup a Lighthouse development environment and navigate to the
-`target/release` directory (this is where the binaries are located). Then, get
-the current unix time in seconds; you can use [this
-website](https://www.epochconverter.com/) or `$ date +%s`. It should look like
-this `1576803034` and you should use it wherever we put `<time>`.
+First, [install Lighthouse](./installation.md). Then, get the current unix time
+in seconds; you can use [this website](https://www.epochconverter.com/) or `$
+date +%s`. It should look like this `1576803034` and you should use it wherever
+we put `<time>`.
 
 > If you choose a time that's more than several minutes in the past the
 > validator client will refuse to produce blocks. We will loosen this
@@ -58,7 +57,7 @@ lighthouse bn -z --libp2p-addresses /ip4/127.0.0.1/tcp/9000 testnet -r quick 8 <
 
 > Notes:
 >
-> - The `z` (or `--zero-ports`) sets all listening ports to be zero, which then
+> - The `z` (or `--zero-ports`) flag sets all listening ports to be zero, which then
 >   means that the OS chooses random available ports. This avoids port
 >   collisions with the first node.
 > - The `--libp2p-addresses` flag instructs the new node to connect to the
