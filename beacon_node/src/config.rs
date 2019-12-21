@@ -301,8 +301,7 @@ fn load_from_datadir(client_config: &mut ClientConfig) -> Result<()> {
         .map_or(false, |path| path.exists())
     {
         return Err(
-            "No database found in datadir. Use 'lighthouse beacon testnet -f --datadir=/your/dir' to overwrite the existing \
-             datadir, or specify a different `--datadir`."
+            "No database found in datadir. Please make sure the directory provided is valid, or specify a different `--datadir`."
                 .into(),
         );
     }
