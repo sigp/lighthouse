@@ -353,10 +353,7 @@ fn init_new_client<E: EthSpec>(
         .saturating_sub(client_config.eth1.follow_distance * 2);
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
-        client_config
-            .network
-            .boot_nodes
-            .append(&mut boot_nodes)
+        client_config.network.boot_nodes.append(&mut boot_nodes)
     }
 
     if let Some(genesis_state) = eth2_testnet_config.genesis_state {
@@ -425,9 +422,9 @@ fn process_testnet_subcommand(
 
     // Deletes the existing datadir.
     if cli_args.is_present("force") && client_config.data_dir.exists() {
-    fs::remove_dir_all(&client_config.data_dir)
-        .map_err(|e| format!("Unable to delete existing datadir: {:?}", e))?;
-}
+        fs::remove_dir_all(&client_config.data_dir)
+            .map_err(|e| format!("Unable to delete existing datadir: {:?}", e))?;
+    }
 
     // Define a percentage of messages that should be propogated, useful for simulating bad network
     // conditions.
