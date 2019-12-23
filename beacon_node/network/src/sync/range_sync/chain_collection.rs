@@ -1,3 +1,8 @@
+//! This provides the logic for the finalized and head chains.
+//!
+//! Each chain type is stored in it's own vector. A variety of helper functions are given along
+//! with this struct to to simplify the logic of the other layers of sync.
+
 use super::chain::{ChainSyncingState, ProcessingResult, SyncingChain};
 use crate::message_processor::PeerSyncInfo;
 use crate::sync::network_context::SyncNetworkContext;
@@ -8,32 +13,47 @@ use std::sync::Weak;
 use types::EthSpec;
 use types::{Hash256, Slot};
 
+/// The state of the long range/batch sync.
 pub enum SyncState {
+    /// A finalized chain is being synced.
     Finalized,
+    /// There are no finalized chains and we are syncing one more head chains.
     Head,
+    /// There are no head or finalized chains and no long range sync is in progress.
     Idle,
 }
+
+/// A collection of finalized and head chains currently being processed.
 pub struct ChainCollection<T: BeaconChainTypes> {
+    /// The beacon chain for processing.
+    beacon_chain: Weak<BeaconChain<T>>,
+    /// The set of finalized chains being synced.
     finalized_chains: Vec<SyncingChain<T>>,
+    /// The set of head chains being synced.
     head_chains: Vec<SyncingChain<T>>,
+    /// The current sync state of the process.
     sync_state: SyncState,
 }
 
 impl<T: BeaconChainTypes> ChainCollection<T> {
-    pub fn new() -> Self {
+    pub fn new(beacon_chain: Weak<BeaconChain<T>>) -> Self {
         ChainCollection {
             sync_state: SyncState::Idle,
             finalized_chains: Vec::new(),
             head_chains: Vec::new(),
+            beacon_chain,
         }
     }
 
+    /// The current syncing state.
     pub fn sync_state(&self) -> &SyncState {
         &self.sync_state
     }
 
-    // if a finalized chain just completed, we assume we waiting for head syncing, unless a fully
-    // sync peer joins.
+    /// A fully synced peer has joined.
+    ///
+    /// We could be awaiting a head sync. If we are in the head syncing state, without any head
+    /// chains, then update the state to idle.
     pub fn fully_synced_peer_found(&mut self) {
         if let SyncState::Head = self.sync_state {
             if self.head_chains.is_empty() {
@@ -42,45 +62,13 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         }
     }
 
-    // after a finalized chain completes, the state should be waiting for a head chain
+    /// After a finalized chain completes this function is called. It ensures the state is set to
+    /// `SyncState::Head` indicating we are awaiting new peers to connect before we can consider
+    /// the state as idle.
     pub fn set_head_sync(&mut self) {
         if let SyncState::Idle = self.sync_state {
             self.sync_state = SyncState::Head;
         }
-    }
-
-    fn finalized_syncing_index(&self) -> Option<usize> {
-        self.finalized_chains
-            .iter()
-            .enumerate()
-            .find_map(|(index, chain)| {
-                if chain.state == ChainSyncingState::Syncing {
-                    Some(index)
-                } else {
-                    None
-                }
-            })
-    }
-
-    pub fn purge_finalized(&mut self, local_finalized_slot: Slot) {
-        self.finalized_chains
-            .retain(|chain| chain.target_head_slot > local_finalized_slot);
-    }
-
-    pub fn purge_head(&mut self, head_slot: Slot) {
-        self.head_chains
-            .retain(|chain| chain.target_head_slot > head_slot);
-    }
-
-    fn get_chain<'a>(
-        chain: &'a mut [SyncingChain<T>],
-        target_head_root: Hash256,
-        target_head_slot: Slot,
-    ) -> Option<&'a mut SyncingChain<T>> {
-        chain.iter_mut().find(|iter_chain| {
-            iter_chain.target_head_root == target_head_root
-                && iter_chain.target_head_slot == target_head_slot
-        })
     }
 
     /// Finds any finalized chain if it exists.
@@ -109,35 +97,23 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         )
     }
 
-    /// Checks if a new finalized state should become the syncing chain. Updates the state of the
-    /// collection.
-    pub fn update_finalized(
-        &mut self,
-        beacon_chain: Weak<BeaconChain<T>>,
-        network: &mut SyncNetworkContext,
-        log: &slog::Logger,
-    ) {
-        let local_info = match beacon_chain.upgrade() {
-            Some(chain) => PeerSyncInfo::from(&chain),
+    /// Updates the state of the chain collection.
+    ///
+    /// This removes any out-dated chains, swaps to any higher priority finalized chains and
+    /// updates the state of the collection.
+    pub fn update_finalized(&mut self, network: &mut SyncNetworkContext, log: &slog::Logger) {
+        let local_slot = match self.beacon_chain.upgrade() {
+            Some(chain) => PeerSyncInfo::from(&chain)
+                .finalized_epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
             None => {
                 warn!(log, "Beacon chain dropped. Chains not updated");
                 return;
             }
         };
 
-        let local_slot = local_info
-            .finalized_epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
-
         // Remove any outdated finalized chains
-        self.purge_finalized(local_slot);
-        self.finalized_chains
-            .retain(|chain| !chain.peer_pool.is_empty());
-
-        // Remove any outdated head chains
-        self.purge_head(local_info.head_slot);
-        self.finalized_chains
-            .retain(|chain| !chain.peer_pool.is_empty());
+        self.purge_outdated_chains(network);
 
         // Check if any chains become the new syncing chain
         if let Some(index) = self.finalized_syncing_index() {
@@ -172,7 +148,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             chain.start_syncing(network, local_slot, log);
             self.sync_state = SyncState::Finalized;
         } else {
-            // There are no finalized chains, update the state
+            // There are no finalized chains, update the state.
             if self.head_chains.is_empty() {
                 self.sync_state = SyncState::Idle;
             } else {
@@ -181,7 +157,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         }
     }
 
-    /// Add a new finalized chain to the collection
+    /// Add a new finalized chain to the collection.
     pub fn new_finalized_chain(
         &mut self,
         local_finalized_slot: Slot,
@@ -197,7 +173,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         ));
     }
 
-    /// Add a new finalized chain to the collection
+    /// Add a new finalized chain to the collection and starts syncing it.
     pub fn new_head_chain(
         &mut self,
         network: &mut SyncNetworkContext,
@@ -221,10 +197,14 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         self.head_chains.push(new_head_chain);
     }
 
+    /// Returns if `true` if any finalized chains exist, `false` otherwise.
     pub fn is_finalizing_sync(&self) -> bool {
         !self.finalized_chains.is_empty()
     }
 
+    /// Given a chain iterator, runs a given function on each chain until the function returns
+    /// `Some`. This allows the `RangeSync` struct to loop over chains and optionally remove the
+    /// chain from the collection if the function results in completing the chain.
     fn request_function<'a, F, I>(chain: I, mut func: F) -> Option<(usize, ProcessingResult)>
     where
         I: Iterator<Item = &'a mut SyncingChain<T>>,
@@ -235,6 +215,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .find_map(|(index, chain)| Some((index, func(chain)?)))
     }
 
+    /// Runs a function on all finalized chains.
     pub fn finalized_request<F>(&mut self, func: F) -> Option<(usize, ProcessingResult)>
     where
         F: FnMut(&mut SyncingChain<T>) -> Option<ProcessingResult>,
@@ -242,6 +223,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         ChainCollection::request_function(self.finalized_chains.iter_mut(), func)
     }
 
+    /// Runs a function on all head chains.
     pub fn head_request<F>(&mut self, func: F) -> Option<(usize, ProcessingResult)>
     where
         F: FnMut(&mut SyncingChain<T>) -> Option<ProcessingResult>,
@@ -249,7 +231,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         ChainCollection::request_function(self.head_chains.iter_mut(), func)
     }
 
-    #[allow(dead_code)]
+    /// Runs a function on all finalized and head chains.
     pub fn head_finalized_request<F>(&mut self, func: F) -> Option<(usize, ProcessingResult)>
     where
         F: FnMut(&mut SyncingChain<T>) -> Option<ProcessingResult>,
@@ -262,10 +244,53 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         )
     }
 
+    /// Removes any outdated finalized or head chains.
+    ///
+    /// This removes chains with no peers, or chains whose start block slot is less than our current
+    /// finalized block slot.
+    pub fn purge_outdated_chains(&mut self, network: &mut SyncNetworkContext) {
+        // Remove any chains that have no peers
+        self.finalized_chains
+            .retain(|chain| !chain.peer_pool.is_empty());
+        self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
+
+        let local_info = match self.beacon_chain.upgrade() {
+            Some(chain) => PeerSyncInfo::from(&chain),
+            None => {
+                return;
+            }
+        };
+
+        let local_finalized_slot = local_info
+            .finalized_epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
+
+        // Remove chains that are out-dated and re-status their peers
+        let beacon_chain_clone = self.beacon_chain.clone();
+        self.finalized_chains.retain(|chain| {
+            if chain.target_head_slot <= local_finalized_slot {
+                chain.status_peers(beacon_chain_clone.clone(), network);
+                false
+            } else {
+                true
+            }
+        });
+        self.head_chains.retain(|chain| {
+            if chain.target_head_slot <= local_finalized_slot {
+                chain.status_peers(beacon_chain_clone.clone(), network);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    /// Removes and returns a finalized chain from the collection.
     pub fn remove_finalized_chain(&mut self, index: usize) -> SyncingChain<T> {
         self.finalized_chains.swap_remove(index)
     }
 
+    /// Removes and returns a head chain from the collection.
     pub fn remove_head_chain(&mut self, index: usize) -> SyncingChain<T> {
         self.head_chains.swap_remove(index)
     }
@@ -273,12 +298,55 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// Removes a chain from either finalized or head chains based on the index. Using a request
     /// iterates of finalized chains before head chains. Thus an index that is greater than the
     /// finalized chain length, indicates a head chain.
-    pub fn remove_chain(&mut self, index: usize) -> SyncingChain<T> {
-        if index >= self.finalized_chains.len() {
+    ///
+    /// This will re-status the chains peers on removal. The index must exist.
+    pub fn remove_chain(
+        &mut self,
+        network: &mut SyncNetworkContext,
+        index: usize,
+        log: &slog::Logger,
+    ) {
+        let chain = if index >= self.finalized_chains.len() {
             let index = index - self.finalized_chains.len();
-            self.head_chains.swap_remove(index)
+            let chain = self.head_chains.swap_remove(index);
+            chain.status_peers(self.beacon_chain.clone(), network);
+            chain
         } else {
-            self.finalized_chains.swap_remove(index)
-        }
+            let chain = self.finalized_chains.swap_remove(index);
+            chain.status_peers(self.beacon_chain.clone(), network);
+            chain
+        };
+
+        debug!(log, "Chain was removed"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
+
+        // update the state
+        self.update_finalized(network, log);
+    }
+
+    /// Returns the index of finalized chain that is currently syncing. Returns `None` if no
+    /// finalized chain is currently syncing.
+    fn finalized_syncing_index(&self) -> Option<usize> {
+        self.finalized_chains
+            .iter()
+            .enumerate()
+            .find_map(|(index, chain)| {
+                if chain.state == ChainSyncingState::Syncing {
+                    Some(index)
+                } else {
+                    None
+                }
+            })
+    }
+
+    /// Returns a chain given the target head root and slot.
+    fn get_chain<'a>(
+        chain: &'a mut [SyncingChain<T>],
+        target_head_root: Hash256,
+        target_head_slot: Slot,
+    ) -> Option<&'a mut SyncingChain<T>> {
+        chain.iter_mut().find(|iter_chain| {
+            iter_chain.target_head_root == target_head_root
+                && iter_chain.target_head_slot == target_head_slot
+        })
     }
 }
