@@ -40,7 +40,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .value_name("SPEEDUP")
                         .takes_value(true)
                         .default_value("4")
-                        .help("Speed up factor for eth1 blocks production"),
+                        .help("Speed up factor for eth1 blocks and slot production"),
                 ),
         )
         .subcommand(
@@ -54,6 +54,24 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .takes_value(true)
                         .default_value("4")
                         .help("Number of beacon nodes instances to spin up"),
+                )
+                .arg(
+                    Arg::with_name("speedup")
+                        .short("s")
+                        .long("speedup")
+                        .value_name("SPEEDUP")
+                        .takes_value(true)
+                        .default_value("4")
+                        .help("Speed up factor for eth1 blocks and slot production"),
+                )
+                .arg(
+                    Arg::with_name("epochs")
+                        .short("e")
+                        .long("epochs")
+                        .value_name("EPOCHS")
+                        .takes_value(true)
+                        .default_value("10")
+                        .help("Epoch delay for new beacon node to start syncing"),
                 ),
         )
 }

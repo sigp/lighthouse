@@ -98,7 +98,17 @@ fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
         .ok_or_else(|| "Expected nodes parameter")?
         .parse::<usize>()
         .map_err(|e| format!("Unable to parse nodes value {}", e))?;
-    syncing_sim(nodes, 16, 4, "debug")
+    let epochs = matches
+        .value_of("epochs")
+        .ok_or_else(|| "Expected epochs parameter")?
+        .parse::<u64>()
+        .map_err(|e| format!("Unable to parse epochs value {}", e))?;
+    let speed_up_factor = matches
+        .value_of("speedup")
+        .ok_or_else(|| "Expected speedup parameter")?
+        .parse::<u64>()
+        .map_err(|e| format!("Unable to parse speedup value {}", e))?;
+    syncing_sim(nodes, 16, speed_up_factor, epochs, "debug")
 }
 
 fn syncing_sim(
