@@ -1,7 +1,7 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
-use super::message_processor::status_message;
+use crate::message_processor::status_message;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::methods::*;
