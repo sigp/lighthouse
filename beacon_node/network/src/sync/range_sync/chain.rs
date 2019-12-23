@@ -244,7 +244,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         if self.state == ChainSyncingState::Syncing {
             // pre-emptively request more blocks from peers whilst we process current blocks,
-            self.send_range_request(network, current_peer);
+            self.send_range_request(network, current_peer, log);
         }
 
         // Try and process batches sequentially in the ordered list.
@@ -441,7 +441,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         for peer_id in peers {
             // send a blocks by range request to the peer
-            self.send_range_request(network, peer_id);
+            self.send_range_request(network, peer_id, log);
         }
 
         self.state = ChainSyncingState::Syncing;
@@ -463,7 +463,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
 
         // find the next batch and request it from the peer
-        self.send_range_request(network, peer_id);
+        self.send_range_request(network, peer_id, log);
     }
 
     /// Sends a STATUS message to all peers in the peer pool.
@@ -474,9 +474,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Requests the next required batch from the provided peer.
-    fn send_range_request(&mut self, network: &mut SyncNetworkContext, peer_id: PeerId) {
+    fn send_range_request(
+        &mut self,
+        network: &mut SyncNetworkContext,
+        peer_id: PeerId,
+        log: &slog::Logger,
+    ) {
         // find the next pending batch and request it from the peer
         if let Some(batch) = self.get_next_batch(peer_id) {
+            debug!(log, "Requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => batch.id, "peer" => format!("{:?}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
             // send the batch
             self.send_batch(network, batch);
         }
