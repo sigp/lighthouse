@@ -47,12 +47,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             SubCommand::with_name("syncing-sim")
                 .about("Run the syncing simulation")
                 .arg(
-                    Arg::with_name("nodes")
-                        .short("n")
-                        .long("nodes")
-                        .value_name("NUM_NODES")
+                    Arg::with_name("strategy")
+                        .short("s")
+                        .long("strategy")
+                        .value_name("strategy")
                         .takes_value(true)
-                        .default_value("4")
+                        .default_value("0")
                         .help("Number of beacon nodes instances to spin up"),
                 )
                 .arg(
@@ -61,7 +61,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .long("speedup")
                         .value_name("SPEEDUP")
                         .takes_value(true)
-                        .default_value("4")
+                        .default_value("15")
                         .help("Speed up factor for eth1 blocks and slot production"),
                 )
                 .arg(
@@ -70,7 +70,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .long("epochs")
                         .value_name("EPOCHS")
                         .takes_value(true)
-                        .default_value("10")
+                        .default_value("3")
                         .help("Epoch delay for new beacon node to start syncing"),
                 ),
         )
