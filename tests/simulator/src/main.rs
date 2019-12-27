@@ -21,6 +21,7 @@
 mod checks;
 mod cli;
 mod local_network;
+mod sync_sim;
 
 use clap::ArgMatches;
 use cli::cli_app;
@@ -32,6 +33,7 @@ use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
 };
 use std::time::{Duration, Instant};
+use sync_sim::{verify_sync, SyncStrategy};
 use tokio::timer::Interval;
 use types::{EthSpec, MinimalEthSpec};
 
@@ -93,9 +95,9 @@ fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
 }
 
 fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
-    let nodes = matches
-        .value_of("nodes")
-        .ok_or_else(|| "Expected nodes parameter")?
+    let strategy = matches
+        .value_of("strategy")
+        .ok_or_else(|| "Expected strategy index")?
         .parse::<usize>()
         .map_err(|e| format!("Unable to parse nodes value {}", e))?;
     let epochs = matches
@@ -108,12 +110,16 @@ fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
         .ok_or_else(|| "Expected speedup parameter")?
         .parse::<u64>()
         .map_err(|e| format!("Unable to parse speedup value {}", e))?;
-    syncing_sim(nodes, 16, speed_up_factor, epochs, "debug")
+    syncing_sim(
+        SyncStrategy::get_strategy(strategy).expect("Invalid strategy index"),
+        speed_up_factor,
+        epochs,
+        "debug",
+    )
 }
 
 fn syncing_sim(
-    node_count: usize,
-    validators_per_node: usize,
+    strategy: SyncStrategy,
     speed_up_factor: u64,
     epochs: u64,
     log_level: &str,
@@ -123,50 +129,30 @@ fn syncing_sim(
         .multi_threaded_tokio_runtime()?
         .build()?;
 
-    let eth1_block_time = Duration::from_millis(15_000 / speed_up_factor);
-
     let spec = &mut env.eth2_config.spec;
-    let end_after_checks = false;
+    let end_after_checks = true;
     let milliseconds_per_slot = spec.milliseconds_per_slot.clone();
 
     spec.milliseconds_per_slot = spec.milliseconds_per_slot / speed_up_factor;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = 16;
 
+    let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+
     let slots_per_epoch = E::slots_per_epoch();
 
     let context = env.core_context();
     // let executor = context.executor.clone();
     let beacon_config = testing_client_config();
+    let num_validators = 8;
     let future = LocalNetwork::new(context, beacon_config.clone())
-        .map(|network| (network, beacon_config))
         /*
-         * One by one, add beacon nodes to the network.
+         * Add a validator client which handles all validators from the interop genesis state.
          */
-        .and_then(move |(network, beacon_config)| {
-            let network_1 = network.clone();
-
-            stream::unfold(0..node_count - 1, move |mut iter| {
-                iter.next().map(|i| {
-                    let indices = (i * validators_per_node..(i + 1) * validators_per_node)
-                        .collect::<Vec<_>>();
-                    let bn_fut = network_1.add_beacon_node(beacon_config.clone());
-                    let vc_fut =
-                        network_1.add_validator_client(ValidatorConfig::default(), i, indices);
-                    let timeout_fut = tokio::timer::Delay::new(
-                        Instant::now()
-                            + Duration::from_millis(
-                                milliseconds_per_slot * slots_per_epoch * epochs,
-                            ),
-                    )
-                    .map_err(|e| format!("Delay error: {:?}", e));
-                    bn_fut
-                        .join3(vc_fut, timeout_fut)
-                        .map(|((), (), ())| ((), iter))
-                })
-            })
-            .collect()
-            .map(|_| network)
+        .and_then(move |network| {
+            network
+                .add_validator_client(ValidatorConfig::default(), 0, (0..num_validators).collect())
+                .map(|_| network)
         })
         /*
          * Start the processes that will run checks on the network as it runs.
@@ -182,7 +168,14 @@ fn syncing_sim(
                 };
 
             future::ok(())
-                // Check that the chain finalizes at the first given opportunity.
+                // Check that the chain syncs.
+                .join(verify_sync(
+                    network.clone(),
+                    beacon_config.clone(),
+                    slot_duration,
+                    Duration::from_millis(milliseconds_per_slot * slots_per_epoch * epochs),
+                    strategy,
+                ))
                 .join(final_future)
                 .map(|_| network)
         })
