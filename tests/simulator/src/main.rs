@@ -85,7 +85,7 @@ fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let end_after_checks = true;
 
-    async_sim(
+    beacon_chain_sim(
         nodes,
         validators_per_node,
         speed_up_factor,
@@ -192,7 +192,7 @@ fn syncing_sim(
     env.runtime().block_on(future)
 }
 
-fn async_sim(
+fn beacon_chain_sim(
     node_count: usize,
     validators_per_node: usize,
     speed_up_factor: u64,
