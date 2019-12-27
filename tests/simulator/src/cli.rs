@@ -47,15 +47,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             SubCommand::with_name("syncing-sim")
                 .about("Run the syncing simulation")
                 .arg(
-                    Arg::with_name("strategy")
-                        .short("s")
-                        .long("strategy")
-                        .value_name("strategy")
-                        .takes_value(true)
-                        .default_value("0")
-                        .help("Number of beacon nodes instances to spin up"),
-                )
-                .arg(
                     Arg::with_name("speedup")
                         .short("s")
                         .long("speedup")
@@ -65,13 +56,30 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .help("Speed up factor for eth1 blocks and slot production"),
                 )
                 .arg(
-                    Arg::with_name("epochs")
-                        .short("e")
-                        .long("epochs")
-                        .value_name("EPOCHS")
+                    Arg::with_name("log-level")
+                        .short("l")
+                        .long("log-level")
+                        .value_name("LOG_LEVEL")
                         .takes_value(true)
-                        .default_value("3")
+                        .default_value("debug")
+                        .help("Logging level"),
+                )
+                .arg(
+                    Arg::with_name("initial_delay")
+                        .short("i")
+                        .long("initial_delay")
+                        .value_name("INITIAL_DELAY")
+                        .takes_value(true)
+                        .default_value("50")
                         .help("Epoch delay for new beacon node to start syncing"),
+                )
+                .arg(
+                    Arg::with_name("sync_delay")
+                        .long("sync_delay")
+                        .value_name("SYNC_DELAY")
+                        .takes_value(true)
+                        .default_value("10")
+                        .help("Epoch delay for newly added beacon nodes get synced"),
                 ),
         )
 }

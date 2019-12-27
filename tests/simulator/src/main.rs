@@ -33,9 +33,9 @@ use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
 };
 use std::time::{Duration, Instant};
-use sync_sim::{verify_sync, SyncStrategy};
+use sync_sim::verify_one_node_sync;
 use tokio::timer::Interval;
-use types::{EthSpec, MinimalEthSpec};
+use types::MinimalEthSpec;
 
 pub type E = MinimalEthSpec;
 
@@ -95,33 +95,31 @@ fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
 }
 
 fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
-    let strategy = matches
-        .value_of("strategy")
-        .ok_or_else(|| "Expected strategy index")?
-        .parse::<usize>()
-        .map_err(|e| format!("Unable to parse nodes value {}", e))?;
-    let epochs = matches
-        .value_of("epochs")
-        .ok_or_else(|| "Expected epochs parameter")?
+    let initial_delay = matches
+        .value_of("initial_delay")
+        .ok_or_else(|| "Expected initial_delay parameter")?
         .parse::<u64>()
-        .map_err(|e| format!("Unable to parse epochs value {}", e))?;
+        .map_err(|e| format!("Unable to parse initial_delay value {}", e))?;
+    let sync_delay = matches
+        .value_of("sync_delay")
+        .ok_or_else(|| "Expected sync_delay parameter")?
+        .parse::<u64>()
+        .map_err(|e| format!("Unable to parse sync_delay value {}", e))?;
     let speed_up_factor = matches
         .value_of("speedup")
         .ok_or_else(|| "Expected speedup parameter")?
         .parse::<u64>()
         .map_err(|e| format!("Unable to parse speedup value {}", e))?;
-    syncing_sim(
-        SyncStrategy::get_strategy(strategy).expect("Invalid strategy index"),
-        speed_up_factor,
-        epochs,
-        "debug",
-    )
+    let log_level = matches
+        .value_of("log-level")
+        .ok_or_else(|| "Expected log-level parameter")?;
+    syncing_sim(speed_up_factor, initial_delay, sync_delay, log_level)
 }
 
 fn syncing_sim(
-    strategy: SyncStrategy,
     speed_up_factor: u64,
-    epochs: u64,
+    initial_delay: u64,
+    sync_delay: u64,
     log_level: &str,
 ) -> Result<(), String> {
     let mut env = EnvironmentBuilder::minimal()
@@ -131,7 +129,6 @@ fn syncing_sim(
 
     let spec = &mut env.eth2_config.spec;
     let end_after_checks = true;
-    let milliseconds_per_slot = spec.milliseconds_per_slot.clone();
 
     spec.milliseconds_per_slot = spec.milliseconds_per_slot / speed_up_factor;
     spec.min_genesis_time = 0;
@@ -139,15 +136,12 @@ fn syncing_sim(
 
     let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
 
-    let slots_per_epoch = E::slots_per_epoch();
-
     let context = env.core_context();
-    // let executor = context.executor.clone();
     let beacon_config = testing_client_config();
     let num_validators = 8;
     let future = LocalNetwork::new(context, beacon_config.clone())
         /*
-         * Add a validator client which handles all validators from the interop genesis state.
+         * Add a validator client which handles all validators from the genesis state.
          */
         .and_then(move |network| {
             network
@@ -168,13 +162,13 @@ fn syncing_sim(
                 };
 
             future::ok(())
-                // Check that the chain syncs.
-                .join(verify_sync(
+                // Check syncing with one node
+                .join(verify_one_node_sync(
                     network.clone(),
                     beacon_config.clone(),
                     slot_duration,
-                    Duration::from_millis(milliseconds_per_slot * slots_per_epoch * epochs),
-                    strategy,
+                    initial_delay,
+                    sync_delay,
                 ))
                 .join(final_future)
                 .map(|_| network)
