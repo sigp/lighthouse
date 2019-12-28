@@ -107,6 +107,7 @@ pub struct HeadInfo {
     pub block_root: Hash256,
     pub state_root: Hash256,
     pub finalized_checkpoint: types::Checkpoint,
+    pub fork: Fork,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -488,6 +489,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block_root: head.beacon_block_root,
             state_root: head.beacon_state_root,
             finalized_checkpoint: head.beacon_state.finalized_checkpoint.clone(),
+            fork: head.beacon_state.fork.clone(),
         })
     }
 
