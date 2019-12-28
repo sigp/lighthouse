@@ -461,7 +461,12 @@ where
         honest_fork_blocks: usize,
         faulty_fork_blocks: usize,
     ) -> (Hash256, Hash256) {
-        let initial_head_slot = self.chain.head().beacon_block.slot;
+        let initial_head_slot = self
+            .chain
+            .head()
+            .expect("should get head")
+            .beacon_block
+            .slot;
 
         // Move to the next slot so we may produce some more blocks on the head.
         self.advance_slot();
