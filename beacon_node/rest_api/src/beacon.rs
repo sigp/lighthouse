@@ -33,7 +33,7 @@ pub fn get_head<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
-    let chain_head = beacon_chain.head();
+    let chain_head = beacon_chain.head()?;
 
     let head = CanonicalHeadResponse {
         slot: chain_head.beacon_state.slot,
@@ -106,7 +106,7 @@ pub fn get_block<T: BeaconChainTypes>(
         ("slot", value) => {
             let target = parse_slot(&value)?;
 
-            block_root_at_slot(&beacon_chain, target).ok_or_else(|| {
+            block_root_at_slot(&beacon_chain, target)?.ok_or_else(|| {
                 ApiError::NotFound(format!("Unable to find BeaconBlock for slot {:?}", target))
             })?
         }
@@ -140,7 +140,7 @@ pub fn get_block_root<T: BeaconChainTypes>(
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let target = parse_slot(&slot_string)?;
 
-    let root = block_root_at_slot(&beacon_chain, target).ok_or_else(|| {
+    let root = block_root_at_slot(&beacon_chain, target)?.ok_or_else(|| {
         ApiError::NotFound(format!("Unable to find BeaconBlock for slot {:?}", target))
     })?;
 
@@ -152,7 +152,7 @@ pub fn get_fork<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
-    ResponseBuilder::new(&req)?.body(&beacon_chain.head().beacon_state.fork)
+    ResponseBuilder::new(&req)?.body(&beacon_chain.head()?.beacon_state.fork)
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -302,7 +302,7 @@ fn get_state_from_root_opt<T: BeaconChainTypes>(
             })?
             .ok_or_else(|| ApiError::NotFound(format!("No state exists with root: {}", state_root)))
     } else {
-        Ok(beacon_chain.head().beacon_state)
+        Ok(beacon_chain.head()?.beacon_state)
     }
 }
 
@@ -417,7 +417,7 @@ pub fn get_state<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
-    let head_state = beacon_chain.head().beacon_state;
+    let head_state = beacon_chain.head()?.beacon_state;
 
     let (key, value) = match UrlQuery::from_request(&req) {
         Ok(query) => {
@@ -491,5 +491,5 @@ pub fn get_genesis_time<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
-    ResponseBuilder::new(&req)?.body(&beacon_chain.head().beacon_state.genesis_time)
+    ResponseBuilder::new(&req)?.body(&beacon_chain.head()?.beacon_state.genesis_time)
 }
