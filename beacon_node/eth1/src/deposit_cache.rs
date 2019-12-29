@@ -1,5 +1,6 @@
 use crate::DepositLog;
 use eth2_hashing::hash;
+use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
@@ -79,19 +80,51 @@ impl DepositDataTree {
     }
 }
 
+#[derive(Encode, Decode)]
+pub struct SszDepositCache {
+    logs: Vec<DepositLog>,
+    leaves: Vec<Hash256>,
+    deposit_contract_deploy_block: u64,
+    deposit_roots: Vec<Hash256>,
+}
+
+impl SszDepositCache {
+    pub fn from_deposit_cache(cache: &DepositCache) -> Self {
+        Self {
+            logs: cache.logs.clone(),
+            leaves: cache.leaves.clone(),
+            deposit_contract_deploy_block: cache.deposit_contract_deploy_block,
+            deposit_roots: cache.deposit_roots.clone(),
+        }
+    }
+
+    pub fn to_deposit_cache(&self) -> Result<DepositCache, String> {
+        let deposit_tree =
+            DepositDataTree::create(&self.leaves, self.leaves.len(), DEPOSIT_TREE_DEPTH);
+        // TODO: check for conditions where vec sizes are inconsistent.
+        Ok(DepositCache {
+            logs: self.logs.clone(),
+            leaves: self.leaves.clone(),
+            deposit_contract_deploy_block: self.deposit_contract_deploy_block,
+            deposit_tree,
+            deposit_roots: self.deposit_roots.clone(),
+        })
+    }
+}
+
 /// Mirrors the merkle tree of deposits in the eth1 deposit contract.
 ///
 /// Provides `Deposit` objects with merkle proofs included.
 pub struct DepositCache {
-    logs: Vec<DepositLog>,
-    leaves: Vec<Hash256>,
-    deposit_contract_deploy_block: u64,
+    pub logs: Vec<DepositLog>,
+    pub leaves: Vec<Hash256>,
+    pub deposit_contract_deploy_block: u64,
     /// An incremental merkle tree which represents the current state of the
     /// deposit contract tree.
-    deposit_tree: DepositDataTree,
+    pub deposit_tree: DepositDataTree,
     /// Vector of deposit roots. `deposit_roots[i]` denotes `deposit_root` at
     /// `deposit_index` `i`.
-    deposit_roots: Vec<Hash256>,
+    pub deposit_roots: Vec<Hash256>,
 }
 
 impl Default for DepositCache {

@@ -1,6 +1,11 @@
 use crate::Config;
-use crate::{block_cache::BlockCache, deposit_cache::DepositCache};
+use crate::{
+    block_cache::{BlockCache, SszBlockCache},
+    deposit_cache::{DepositCache, SszDepositCache},
+};
 use parking_lot::RwLock;
+use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 
 #[derive(Default)]
 pub struct DepositUpdater {
@@ -33,5 +38,46 @@ impl Inner {
         if let Some(block_cache_truncation) = self.config.read().block_cache_truncation {
             self.block_cache.write().truncate(block_cache_truncation);
         }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let ssz_eth1_cache = SszEth1Cache::from_inner(&self);
+        ssz_eth1_cache.as_ssz_bytes()
+    }
+
+    pub fn from_bytes(bytes: &[u8], config: Config) -> Result<Self, String> {
+        let ssz_cache = SszEth1Cache::from_ssz_bytes(bytes)
+            .map_err(|e| format!("Ssz decoding error: {:?}", e))?;
+        Ok(ssz_cache.to_inner(config)?)
+    }
+}
+
+#[derive(Encode, Decode)]
+pub struct SszEth1Cache {
+    block_cache: SszBlockCache,
+    deposit_cache: SszDepositCache,
+    last_processed_block: Option<u64>,
+}
+
+impl SszEth1Cache {
+    pub fn from_inner(inner: &Inner) -> Self {
+        let deposit_updater = inner.deposit_cache.read();
+        let block_cache = inner.block_cache.read();
+        Self {
+            block_cache: SszBlockCache::from_block_cache(&block_cache),
+            deposit_cache: SszDepositCache::from_deposit_cache(&deposit_updater.cache),
+            last_processed_block: deposit_updater.last_processed_block,
+        }
+    }
+
+    pub fn to_inner(&self, config: Config) -> Result<Inner, String> {
+        Ok(Inner {
+            block_cache: RwLock::new(self.block_cache.to_block_cache()?),
+            deposit_cache: RwLock::new(DepositUpdater {
+                cache: self.deposit_cache.to_deposit_cache()?,
+                last_processed_block: self.last_processed_block,
+            }),
+            config: RwLock::new(config),
+        })
     }
 }

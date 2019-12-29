@@ -1,3 +1,4 @@
+use ssz_derive::{Decode, Encode};
 use std::ops::RangeInclusive;
 use types::{Eth1Data, Hash256};
 
@@ -17,7 +18,7 @@ pub enum Error {
 /// A block of the eth1 chain.
 ///
 /// Contains all information required to add a `BlockCache` entry.
-#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Encode, Decode)]
 pub struct Eth1Block {
     pub hash: Hash256,
     pub timestamp: u64,
@@ -36,11 +37,30 @@ impl Eth1Block {
     }
 }
 
+#[derive(Encode, Decode)]
+pub struct SszBlockCache {
+    block_cache: Vec<Eth1Block>,
+}
+
+impl SszBlockCache {
+    pub fn from_block_cache(cache: &BlockCache) -> Self {
+        Self {
+            block_cache: cache.blocks.clone(),
+        }
+    }
+
+    pub fn to_block_cache(&self) -> Result<BlockCache, String> {
+        Ok(BlockCache {
+            blocks: self.block_cache.clone(),
+        })
+    }
+}
+
 /// Stores block and deposit contract information and provides queries based upon the block
 /// timestamp.
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct BlockCache {
-    blocks: Vec<Eth1Block>,
+    pub blocks: Vec<Eth1Block>,
 }
 
 impl BlockCache {
