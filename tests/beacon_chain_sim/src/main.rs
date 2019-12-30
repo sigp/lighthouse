@@ -19,6 +19,7 @@ extern crate clap;
 mod checks;
 mod local_network;
 
+use clap::{App, Arg};
 use env_logger::{Builder, Env};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::{future, stream, Future, Stream};
@@ -29,7 +30,6 @@ use node_test_rig::{
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
 use types::MinimalEthSpec;
-use clap::{App, Arg};
 
 pub type E = MinimalEthSpec;
 
@@ -53,27 +53,35 @@ fn main() {
              As the simulation runs, there are checks made to ensure that all components 
              are running correctly. If any of these checks fail, the simulation will 
              exit immediately.",
-             )
-        .arg(Arg::with_name("nodes")
-             .short("n")
-             .long("nodes")
-             .takes_value(true)
-             .help("Number of beacon nodes (default 4)"))
-        .arg(Arg::with_name("validators_per_node")
-             .short("v")
-             .long("validators_per_node")
-             .takes_value(true)
-             .help("Number of validators (default 20)"))
-        .arg(Arg::with_name("speed_up_factor")
-             .short("s")
-             .long("speed_up_factor")
-             .takes_value(true)
-             .help("Speed up factor (default 4)"))
-        .arg(Arg::with_name("end_after_checks")
-             .short("e")
-             .long("end_after_checks")
-             .takes_value(false)
-             .help("End after checks (default false)"))
+        )
+        .arg(
+            Arg::with_name("nodes")
+                .short("n")
+                .long("nodes")
+                .takes_value(true)
+                .help("Number of beacon nodes (default 4)"),
+        )
+        .arg(
+            Arg::with_name("validators_per_node")
+                .short("v")
+                .long("validators_per_node")
+                .takes_value(true)
+                .help("Number of validators (default 20)"),
+        )
+        .arg(
+            Arg::with_name("speed_up_factor")
+                .short("s")
+                .long("speed_up_factor")
+                .takes_value(true)
+                .help("Speed up factor (default 4)"),
+        )
+        .arg(
+            Arg::with_name("end_after_checks")
+                .short("e")
+                .long("end_after_checks")
+                .takes_value(false)
+                .help("End after checks (default false)"),
+        )
         .get_matches();
 
     let nodes = value_t!(matches, "nodes", usize).unwrap_or(4);
