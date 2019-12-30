@@ -57,7 +57,7 @@ where
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -87,7 +87,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     genesis_block_root: Option<Hash256>,
     op_pool: Option<OperationPool<T::EthSpec>>,
     fork_choice: Option<ForkChoice<T>>,
-    eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
+    eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
     persisted_beacon_chain: Option<PersistedBeaconChain<T>>,
@@ -113,7 +113,7 @@ where
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -407,7 +407,7 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -519,7 +519,7 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -561,7 +561,7 @@ where
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` event handler to `NullEventHandler`.
