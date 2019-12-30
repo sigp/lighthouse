@@ -121,13 +121,13 @@ where
     }
 
     pub fn from_ssz_container(
-        ssz_container: SszEth1,
+        ssz_container: &SszEth1,
         config: Eth1Config,
         store: Arc<S>,
-        log: Logger,
+        log: &Logger,
     ) -> Result<Self, String> {
         let backend =
-            Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, store, log)?;
+            Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, store, log.clone())?;
         Ok(Self {
             use_dummy_backend: ssz_container.use_dummy_backend,
             backend,

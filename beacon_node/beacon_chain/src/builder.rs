@@ -1,5 +1,5 @@
 use crate::checkpoint_cache::CheckPointCache;
-use crate::eth1_chain::CachingEth1Backend;
+use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
@@ -173,7 +173,7 @@ where
     /// Attempt to load an existing chain from the builder's `Store`.
     ///
     /// May initialize several components; including the op_pool and finalized checkpoints.
-    pub fn resume_from_db(mut self) -> Result<Self, String> {
+    pub fn resume_from_db(mut self, config: Eth1Config) -> Result<Self, String> {
         let log = self
             .log
             .as_ref()
@@ -224,6 +224,11 @@ where
             HeadTracker::from_ssz_container(&p.ssz_head_tracker)
                 .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
         );
+
+        self.eth1_chain = match &p.eth1_cache {
+            Some(cache) => Some(Eth1Chain::from_ssz_container(cache, config, store, log)?),
+            None => None,
+        };
         self.persisted_beacon_chain = Some(p);
 
         Ok(self)
