@@ -4,6 +4,7 @@ use crate::{
     events::NullEventHandler,
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
+use eth1::Config as Eth1Config;
 use genesis::interop_genesis_state;
 use lmd_ghost::ThreadSafeReducedTree;
 use rayon::prelude::*;
@@ -175,7 +176,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .custom_spec(spec.clone())
             .store(store.clone())
             .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
-            .resume_from_db()
+            .resume_from_db(Eth1Config::default())
             .expect("should resume beacon chain from db")
             .dummy_eth1_backend()
             .expect("should build dummy backend")
