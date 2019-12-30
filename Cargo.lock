@@ -238,6 +238,7 @@ dependencies = [
 name = "beacon_chain_sim"
 version = "0.1.0"
 dependencies = [
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth1_test_rig 0.1.0",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",

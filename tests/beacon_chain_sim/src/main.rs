@@ -6,17 +6,15 @@
 //! As the simulation runs, there are checks made to ensure that all components are running
 //! correctly. If any of these checks fail, the simulation will exit immediately.
 //!
-//! By default, the simulation will end as soon as all checks have finished. It may be configured
-//! to run indefinitely by setting `end_after_checks = false`.
-//!
 //! ## Future works
 //!
 //! Presently all the beacon nodes and validator clients all log to stdout. Additionally, the
 //! simulation uses `println` to communicate some info. It might be nice if the nodes logged to
 //! easy-to-find files and stdout only contained info from the simulation.
 //!
-//! It would also be nice to add a CLI using `clap` so that the variables in `main()` can be
-//! changed without a recompile.
+
+#[macro_use]
+extern crate clap;
 
 mod checks;
 mod local_network;
@@ -31,6 +29,7 @@ use node_test_rig::{
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
 use types::MinimalEthSpec;
+use clap::{App, Arg};
 
 pub type E = MinimalEthSpec;
 
@@ -38,11 +37,57 @@ fn main() {
     // Debugging output for libp2p and external crates.
     Builder::from_env(Env::default()).init();
 
-    let nodes = 4;
-    let validators_per_node = 20;
     let log_level = "debug";
-    let speed_up_factor = 4;
-    let end_after_checks = true;
+
+    // Parse the CLI parameters.
+    let matches = App::new("beacon_chain_sim")
+        .version(crate_version!())
+        .author("Sigma Prime <contact@sigmaprime.io>")
+        .about(
+            "Lighthouse Beacon Chain Simulator creates `n` beacon node and validator clients,
+             each with `v` validators. A deposit contract is deployed at the start of the 
+             simulation using a local `ganache-cli` instance (you must have `ganache-cli` 
+             installed and avaliable on your path). All beacon nodes independently listen 
+             for genesis from the deposit contract, then start operating.
+  
+             As the simulation runs, there are checks made to ensure that all components 
+             are running correctly. If any of these checks fail, the simulation will 
+             exit immediately.",
+             )
+        .arg(Arg::with_name("nodes")
+             .short("n")
+             .long("nodes")
+             .takes_value(true)
+             .help("Number of beacon nodes (default 4)"))
+        .arg(Arg::with_name("validators_per_node")
+             .short("v")
+             .long("validators_per_node")
+             .takes_value(true)
+             .help("Number of validators (default 20)"))
+        .arg(Arg::with_name("speed_up_factor")
+             .short("s")
+             .long("speed_up_factor")
+             .takes_value(true)
+             .help("Speed up factor (default 4)"))
+        .arg(Arg::with_name("end_after_checks")
+             .short("e")
+             .long("end_after_checks")
+             .takes_value(false)
+             .help("End after checks (default false)"))
+        .get_matches();
+
+    let nodes = value_t!(matches, "nodes", usize).unwrap_or(4);
+    let validators_per_node = value_t!(matches, "validators_per_node", usize).unwrap_or(20);
+    let speed_up_factor = value_t!(matches, "nodes", u64).unwrap_or(4);
+    let mut end_after_checks = false;
+    if matches.is_present("end_after_checks") {
+        end_after_checks = true;
+    }
+
+    println!("Beacon Chain Simulator:");
+    println!(" nodes:{}", nodes);
+    println!(" validators_per_node:{}", validators_per_node);
+    println!(" end_after_checks:{}", end_after_checks);
 
     match async_sim(
         nodes,
