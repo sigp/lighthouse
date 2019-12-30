@@ -37,7 +37,7 @@ impl Eth1Block {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
 pub struct SszBlockCache {
     block_cache: Vec<Eth1Block>,
 }

@@ -80,7 +80,7 @@ impl DepositDataTree {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
 pub struct SszDepositCache {
     logs: Vec<DepositLog>,
     leaves: Vec<Hash256>,
