@@ -6,6 +6,7 @@ use futures::Future;
 use integer_sqrt::IntegerSquareRoot;
 use rand::prelude::*;
 use slog::{crit, debug, error, trace, Logger};
+use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::get_new_eth1_data;
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
@@ -48,23 +49,31 @@ pub enum Error {
     UnknownPreviousEth1BlockHash,
 }
 
+#[derive(Encode, Decode, Clone)]
+pub struct SszEth1 {
+    use_dummy_backend: bool,
+    backend_bytes: Vec<u8>,
+}
+
 /// Holds an `Eth1ChainBackend` and serves requests from the `BeaconChain`.
-pub struct Eth1Chain<T, E>
+pub struct Eth1Chain<T, E, S>
 where
-    T: Eth1ChainBackend<E>,
+    T: Eth1ChainBackend<E, S>,
     E: EthSpec,
+    S: Store<E>,
 {
     backend: T,
     /// When `true`, the backend will be ignored and dummy data from the 2019 Canada interop method
     /// will be used instead.
     pub use_dummy_backend: bool,
-    _phantom: PhantomData<E>,
+    _phantom: PhantomData<(E, S)>,
 }
 
-impl<T, E> Eth1Chain<T, E>
+impl<T, E, S> Eth1Chain<T, E, S>
 where
-    T: Eth1ChainBackend<E>,
+    T: Eth1ChainBackend<E, S>,
     E: EthSpec,
+    S: Store<E>,
 {
     pub fn new(backend: T) -> Self {
         Self {
@@ -82,7 +91,8 @@ where
         spec: &ChainSpec,
     ) -> Result<Eth1Data, Error> {
         if self.use_dummy_backend {
-            DummyEth1ChainBackend::default().eth1_data(state, spec)
+            let dummy_backend: DummyEth1ChainBackend<E, S> = DummyEth1ChainBackend::default();
+            dummy_backend.eth1_data(state, spec)
         } else {
             self.backend.eth1_data(state, spec)
         }
@@ -103,14 +113,37 @@ where
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
         if self.use_dummy_backend {
-            DummyEth1ChainBackend::default().queued_deposits(state, eth1_data_vote, spec)
+            let dummy_backend: DummyEth1ChainBackend<E, S> = DummyEth1ChainBackend::default();
+            dummy_backend.queued_deposits(state, eth1_data_vote, spec)
         } else {
             self.backend.queued_deposits(state, eth1_data_vote, spec)
         }
     }
+
+    pub fn from_ssz_container(
+        ssz_container: SszEth1,
+        config: Eth1Config,
+        store: Arc<S>,
+        log: Logger,
+    ) -> Result<Self, String> {
+        let backend =
+            Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, store, log)?;
+        Ok(Self {
+            use_dummy_backend: ssz_container.use_dummy_backend,
+            backend,
+            _phantom: PhantomData,
+        })
+    }
+
+    pub fn as_ssz_container(&self) -> SszEth1 {
+        SszEth1 {
+            use_dummy_backend: self.use_dummy_backend,
+            backend_bytes: self.backend.as_bytes(),
+        }
+    }
 }
 
-pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
+pub trait Eth1ChainBackend<T: EthSpec, S: Store<T>>: Sized + Send + Sync {
     /// Returns the `Eth1Data` that should be included in a block being produced for the given
     /// `state`.
     fn eth1_data(&self, beacon_state: &BeaconState<T>, spec: &ChainSpec)
@@ -129,6 +162,15 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
         eth1_data_vote: &Eth1Data,
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error>;
+
+    fn as_bytes(&self) -> Vec<u8>;
+
+    fn from_bytes(
+        bytes: &[u8],
+        config: Eth1Config,
+        store: Arc<S>,
+        log: Logger,
+    ) -> Result<Self, String>;
 }
 
 /// Provides a simple, testing-only backend that generates deterministic, meaningless eth1 data.
@@ -136,9 +178,9 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
 /// Never creates deposits, therefore the validator set is static.
 ///
 /// This was used in the 2019 Canada interop workshops.
-pub struct DummyEth1ChainBackend<T: EthSpec>(PhantomData<T>);
+pub struct DummyEth1ChainBackend<T: EthSpec, S: Store<T>>(PhantomData<(T, S)>);
 
-impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
+impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T, S> for DummyEth1ChainBackend<T, S> {
     /// Produce some deterministic junk based upon the current epoch.
     fn eth1_data(&self, state: &BeaconState<T>, _spec: &ChainSpec) -> Result<Eth1Data, Error> {
         let current_epoch = state.current_epoch();
@@ -164,9 +206,22 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
     ) -> Result<Vec<Deposit>, Error> {
         Ok(vec![])
     }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    fn from_bytes(
+        bytes: &[u8],
+        config: Eth1Config,
+        store: Arc<S>,
+        log: Logger,
+    ) -> Result<Self, String> {
+        Ok(Self(PhantomData))
+    }
 }
 
-impl<T: EthSpec> Default for DummyEth1ChainBackend<T> {
+impl<T: EthSpec, S: Store<T>> Default for DummyEth1ChainBackend<T, S> {
     fn default() -> Self {
         Self(PhantomData)
     }
@@ -214,7 +269,7 @@ impl<T: EthSpec, S: Store<T>> CachingEth1Backend<T, S> {
     }
 }
 
-impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
+impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T, S> for CachingEth1Backend<T, S> {
     fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
         // Note: we do not return random junk if this function call fails as it would be caused by
         // an internal error.
@@ -345,6 +400,25 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
                 .map(|(_deposit_root, deposits)| deposits)
         }
+    }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        self.core.as_bytes()
+    }
+
+    fn from_bytes(
+        bytes: &[u8],
+        config: Eth1Config,
+        store: Arc<S>,
+        log: Logger,
+    ) -> Result<Self, String> {
+        let inner = HttpService::from_bytes(bytes, config, log.clone())?;
+        Ok(Self {
+            core: inner,
+            store,
+            log,
+            _phantom: PhantomData,
+        })
     }
 }
 
@@ -584,7 +658,7 @@ mod test {
         use store::MemoryStore;
         use types::test_utils::{generate_deterministic_keypair, TestingDepositBuilder};
 
-        fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E, MemoryStore<E>>, E> {
+        fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E, MemoryStore<E>>, E, MemoryStore<E>> {
             let eth1_config = Eth1Config {
                 ..Eth1Config::default()
             };
