@@ -151,10 +151,12 @@ impl Service {
         }
     }
 
+    /// Return byte representation of deposit and block caches.
     pub fn as_bytes(&self) -> Vec<u8> {
         self.inner.as_bytes()
     }
 
+    /// Recover the deposit and block caches from encoded bytes.
     pub fn from_bytes(bytes: &[u8], config: Config, log: Logger) -> Result<Self, String> {
         let inner = Inner::from_bytes(bytes, config)?;
         Ok(Self {

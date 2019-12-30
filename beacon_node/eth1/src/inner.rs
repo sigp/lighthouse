@@ -40,11 +40,13 @@ impl Inner {
         }
     }
 
+    /// Encode the eth1 block and deposit cache as bytes.
     pub fn as_bytes(&self) -> Vec<u8> {
         let ssz_eth1_cache = SszEth1Cache::from_inner(&self);
         ssz_eth1_cache.as_ssz_bytes()
     }
 
+    /// Recover `Inner` given byte representation of eth1 deposit and block caches.
     pub fn from_bytes(bytes: &[u8], config: Config) -> Result<Self, String> {
         let ssz_cache = SszEth1Cache::from_ssz_bytes(bytes)
             .map_err(|e| format!("Ssz decoding error: {:?}", e))?;
@@ -52,7 +54,7 @@ impl Inner {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
 pub struct SszEth1Cache {
     block_cache: SszBlockCache,
     deposit_cache: SszDepositCache,

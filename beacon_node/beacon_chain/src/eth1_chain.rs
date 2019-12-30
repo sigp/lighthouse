@@ -120,6 +120,9 @@ where
         }
     }
 
+    /// Instantiate `Eth1Chain` from a persisted `SszEth1`.
+    ///
+    /// The `Eth1Chain` will have the same caches as the persisted `SszEth1`.
     pub fn from_ssz_container(
         ssz_container: &SszEth1,
         config: Eth1Config,
@@ -135,6 +138,7 @@ where
         })
     }
 
+    /// Return a `SszEth1` containing the state of `Eth1Chain`.
     pub fn as_ssz_container(&self) -> SszEth1 {
         SszEth1 {
             use_dummy_backend: self.use_dummy_backend,
@@ -163,8 +167,10 @@ pub trait Eth1ChainBackend<T: EthSpec, S: Store<T>>: Sized + Send + Sync {
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error>;
 
+    /// Encode the `Eth1ChainBackend` instance to bytes.
     fn as_bytes(&self) -> Vec<u8>;
 
+    /// Create a `Eth1ChainBackend` instance given encoded bytes.
     fn from_bytes(
         bytes: &[u8],
         config: Eth1Config,
@@ -207,15 +213,17 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T, S> for DummyEth1ChainBackend<T
         Ok(vec![])
     }
 
+    /// Return empty Vec<u8> for dummy backend.
     fn as_bytes(&self) -> Vec<u8> {
         Vec::new()
     }
 
+    /// Create dummy eth1 backend.
     fn from_bytes(
-        bytes: &[u8],
-        config: Eth1Config,
-        store: Arc<S>,
-        log: Logger,
+        _bytes: &[u8],
+        _config: Eth1Config,
+        _store: Arc<S>,
+        _log: Logger,
     ) -> Result<Self, String> {
         Ok(Self(PhantomData))
     }
@@ -402,10 +410,12 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T, S> for CachingEth1Backend<T, S
         }
     }
 
+    /// Return encoded byte representation of the block and deposit caches.
     fn as_bytes(&self) -> Vec<u8> {
         self.core.as_bytes()
     }
 
+    /// Recover the cached backend from encoded bytes.
     fn from_bytes(
         bytes: &[u8],
         config: Eth1Config,
