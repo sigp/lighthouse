@@ -26,7 +26,7 @@ $ lighthouse bn --http testnet -r quick 8 <time>
 > - The `-r` flag creates a random data directory to avoid clashes with other
 >    nodes.
 > - `8` is number of validators with deposits in the genesis state.
-> - See `$ lighthouse bn testnet minimal --help` for more configuration options,
+> - See `$ lighthouse bn testnet --help` for more configuration options,
 >   including `minimal`/`mainnet` specification.
 
 ## Starting a validator client
