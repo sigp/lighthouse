@@ -33,7 +33,7 @@ use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
 };
 use std::time::{Duration, Instant};
-use sync_sim::verify_one_node_sync;
+use sync_sim::*;
 use tokio::timer::Interval;
 use types::MinimalEthSpec;
 
@@ -163,7 +163,7 @@ fn syncing_sim(
 
             future::ok(())
                 // Check syncing with one node
-                .join(verify_one_node_sync(
+                .join(verify_in_between_sync(
                     network.clone(),
                     beacon_config.clone(),
                     slot_duration,
