@@ -63,7 +63,7 @@ impl<T: BeaconChainTypes> Service<T> {
             _ => Vec::new(),
         };
         for enr in enrs {
-            libp2p_service.lock().swarm.discovery_mut().add_enr(enr);
+            libp2p_service.lock().swarm.add_enr(enr);
         }
 
         let libp2p_exit = spawn_service(
@@ -143,7 +143,6 @@ impl<T: BeaconChainTypes> Service<T> {
             .libp2p_service()
             .lock()
             .swarm
-            .discovery_mut()
             .enr_entries()
             .map(|x| x.clone())
             .collect();
@@ -422,12 +421,7 @@ mod tests {
 
         // Add enrs manually to dht
         for enr in enrs.iter() {
-            service
-                .libp2p_service()
-                .lock()
-                .swarm
-                .discovery_mut()
-                .add_enr(enr.clone());
+            service.libp2p_service().lock().swarm.add_enr(enr.clone());
         }
         assert_eq!(
             enrs.len(),
@@ -435,7 +429,6 @@ mod tests {
                 .libp2p_service()
                 .lock()
                 .swarm
-                .discovery_mut()
                 .enr_entries()
                 .collect::<Vec<_>>()
                 .len(),
@@ -458,7 +451,6 @@ mod tests {
                 .libp2p_service()
                 .lock()
                 .swarm
-                .discovery_mut()
                 .enr_entries()
                 .collect::<Vec<_>>()
                 .len(),
