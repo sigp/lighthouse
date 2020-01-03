@@ -48,9 +48,6 @@ members = [
     "lighthouse/environment"
 ]
 
-# TODO: remove this once @agemanning adds a permanent fix.
-protobuf = "=2.8.1"
-
 [patch]
 [patch.crates-io]
 tree_hash = { path = "eth2/utils/tree_hash" }
