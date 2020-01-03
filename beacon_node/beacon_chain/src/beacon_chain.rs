@@ -538,7 +538,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     });
                 }
 
-                match per_slot_processing(&mut state, &self.spec) {
+                // Note: supplying some `state_root` when it is known would be a cheap and easy
+                // optimization.
+                match per_slot_processing(&mut state, None, &self.spec) {
                     Ok(()) => (),
                     Err(e) => {
                         warn!(
@@ -914,7 +916,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .start_slot(T::EthSpec::slots_per_epoch())
                     .as_u64()
             {
-                per_slot_processing(&mut state, &self.spec)?;
+                per_slot_processing(&mut state, None, &self.spec)?;
             }
 
             state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
@@ -1285,7 +1287,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if i > 0 {
                 intermediate_states.push(state.clone());
             }
-            per_slot_processing(&mut state, &self.spec)?;
+
+            let state_root = if i == 0 {
+                Some(parent_block.state_root)
+            } else {
+                None
+            };
+
+            per_slot_processing(&mut state, state_root, &self.spec)?;
         }
 
         metrics::stop_timer(catchup_timer);
@@ -1453,8 +1462,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or_else(|| BlockProductionError::NoEth1ChainConnection)?;
 
         // If required, transition the new state to the present slot.
+        //
+        // Note: supplying some `state_root` when it it is known would be a cheap and easy
+        // optimization.
         while state.slot < produce_at_slot {
-            per_slot_processing(&mut state, &self.spec)?;
+            per_slot_processing(&mut state, None, &self.spec)?;
         }
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;

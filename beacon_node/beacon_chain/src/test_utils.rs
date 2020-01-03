@@ -287,7 +287,7 @@ where
         }
 
         while state.slot < slot {
-            per_slot_processing(&mut state, &self.spec)
+            per_slot_processing(&mut state, None, &self.spec)
                 .expect("should be able to advance state to slot");
         }
 
