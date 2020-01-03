@@ -32,6 +32,7 @@ pub fn get_prometheus<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
     db_path: PathBuf,
+    freezer_db_path: PathBuf,
 ) -> ApiResult {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
@@ -53,7 +54,7 @@ pub fn get_prometheus<T: BeaconChainTypes>(
     // a string that can be returned via HTTP.
 
     slot_clock::scrape_for_metrics::<T::EthSpec, T::SlotClock>(&beacon_chain.slot_clock);
-    store::scrape_for_metrics(&db_path);
+    store::scrape_for_metrics(&db_path, &freezer_db_path);
     beacon_chain::scrape_for_metrics(&beacon_chain);
 
     encoder

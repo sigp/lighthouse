@@ -1,11 +1,14 @@
 use clap::{App, Arg, SubCommand};
+use store::StoreConfig;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
         .visible_aliases(&["b", "bn", "beacon"])
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .about("Eth 2.0 Client")
+        .about("The primary component which connects to the Ethereum 2.0 P2P network and \
+                downloads, verifies and stores blocks. Provides a HTTP API for querying \
+                the beacon chain and publishing messages to the network.")
         /*
          * Configuration directory locations.
          */
@@ -186,7 +189,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("HTTP-ENDPOINT")
                 .help("Specifies the server for a web3 connection to the Eth1 chain.")
                 .takes_value(true)
-                .default_value("http://localhost:8545")
+                .default_value("https://goerli.public.sigp.io")
+        )
+        .arg(
+            Arg::with_name("slots-per-restore-point")
+                .long("slots-per-restore-point")
+                .value_name("SLOT_COUNT")
+                .help("Specifies how often a freezer DB restore point should be stored. \
+                       DO NOT CHANGE AFTER INITIALIZATION.")
+                .takes_value(true)
+                .default_value(
+                    Box::leak(
+                        format!("{}", StoreConfig::default().slots_per_restore_point)
+                            .into_boxed_str()
+                    )
+                )
         )
         /*
          * The "testnet" sub-command.

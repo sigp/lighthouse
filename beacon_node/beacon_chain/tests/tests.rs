@@ -11,10 +11,11 @@ use beacon_chain::{
     },
     BlockProcessingOutcome,
 };
-use rand::Rng;
+use state_processing::{
+    per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
+};
 use store::Store;
-use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use types::{Deposit, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
+use types::{BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 24;
@@ -30,6 +31,30 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<Minimal
     harness.advance_slot();
 
     harness
+}
+
+#[test]
+fn massive_skips() {
+    let harness = get_harness(8);
+    let spec = &MinimalEthSpec::default_spec();
+    let mut state = harness.chain.head().beacon_state;
+
+    // Run per_slot_processing until it returns an error.
+    let error = loop {
+        match per_slot_processing(&mut state, None, spec) {
+            Ok(_) => continue,
+            Err(e) => break e,
+        }
+    };
+
+    assert!(state.slot > 1, "the state should skip at least one slot");
+    assert_eq!(
+        error,
+        SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
+            BeaconStateError::InsufficientValidators
+        )),
+        "should return error indicating that validators have been slashed out"
+    )
 }
 
 #[test]
@@ -306,15 +331,6 @@ fn roundtrip_operation_pool() {
     );
     assert!(harness.chain.op_pool.num_attestations() > 0);
 
-    // Add some deposits
-    let rng = &mut XorShiftRng::from_seed([66; 16]);
-    for i in 0..rng.gen_range(1, VALIDATOR_COUNT) {
-        harness
-            .chain
-            .process_deposit(i as u64, Deposit::random_for_test(rng))
-            .unwrap();
-    }
-
     // TODO: could add some other operations
     harness.chain.persist().unwrap();
 
@@ -493,6 +509,11 @@ fn run_skip_slot_test(skip_slots: u64) {
             block_root: harness_a.chain.head().beacon_block_root
         })
     );
+
+    harness_b
+        .chain
+        .fork_choice()
+        .expect("should run fork choice");
 
     assert_eq!(
         harness_b.chain.head().beacon_block.slot,

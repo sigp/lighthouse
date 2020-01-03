@@ -5,7 +5,7 @@ use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, Multiaddr, PeerId, Swarm, Topic};
+use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, PeerId, Swarm, Topic};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
@@ -16,6 +16,9 @@ use store::Store;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
 use types::Hash256;
+
+/// The time in seconds that a peer will be banned and prevented from reconnecting.
+const BAN_PEER_TIMEOUT: u64 = 30;
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service<T: BeaconChainTypes> {
@@ -253,7 +256,10 @@ fn network_service(
                         }
                     }
                     NetworkMessage::Disconnect { peer_id } => {
-                        libp2p_service.lock().disconnect_and_ban_peer(peer_id);
+                        libp2p_service.lock().disconnect_and_ban_peer(
+                            peer_id,
+                            std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
+                        );
                     }
                 },
                 Ok(Async::NotReady) => break,
@@ -266,30 +272,30 @@ fn network_service(
             }
         }
 
+        // poll the swarm
+        let mut peers_to_ban = Vec::new();
         loop {
-            // poll the swarm
-            let mut locked_service = libp2p_service.lock();
-            match locked_service.poll() {
+            match libp2p_service.lock().poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
                         trace!(log, "Received RPC"; "rpc" => format!("{}", rpc_event));
 
                         // if we received a Goodbye message, drop and ban the peer
                         if let RPCEvent::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
-                            locked_service.disconnect_and_ban_peer(peer_id.clone());
+                            peers_to_ban.push(peer_id.clone());
                         };
                         message_handler_send
                             .try_send(HandlerMessage::RPC(peer_id, rpc_event))
                             .map_err(|_| "Failed to send RPC to handler")?;
                     }
                     Libp2pEvent::PeerDialed(peer_id) => {
-                        debug!(log, "Peer Dialed"; "PeerID" => format!("{:?}", peer_id));
+                        debug!(log, "Peer Dialed"; "peer_id" => format!("{:?}", peer_id));
                         message_handler_send
                             .try_send(HandlerMessage::PeerDialed(peer_id))
                             .map_err(|_| "Failed to send PeerDialed to handler")?;
                     }
                     Libp2pEvent::PeerDisconnected(peer_id) => {
-                        debug!(log, "Peer Disconnected";  "PeerID" => format!("{:?}", peer_id));
+                        debug!(log, "Peer Disconnected";  "peer_id" => format!("{:?}", peer_id));
                         message_handler_send
                             .try_send(HandlerMessage::PeerDisconnected(peer_id))
                             .map_err(|_| "Failed to send PeerDisconnected to handler")?;
@@ -298,7 +304,7 @@ fn network_service(
                         id,
                         source,
                         message,
-                        ..
+                        topics: _,
                     } => {
                         message_handler_send
                             .try_send(HandlerMessage::PubsubMessage(id, source, message))
@@ -310,6 +316,14 @@ fn network_service(
                 Ok(Async::NotReady) => break,
                 Err(_) => break,
             }
+        }
+
+        // ban and disconnect any peers that sent Goodbye requests
+        while let Some(peer_id) = peers_to_ban.pop() {
+            libp2p_service.lock().disconnect_and_ban_peer(
+                peer_id.clone(),
+                std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
+            );
         }
 
         Ok(Async::NotReady)
@@ -329,7 +343,7 @@ pub enum NetworkMessage {
     /// Propagate a received gossipsub message.
     Propagate {
         propagation_source: PeerId,
-        message_id: String,
+        message_id: MessageId,
     },
     /// Disconnect and bans a peer id.
     Disconnect { peer_id: PeerId },

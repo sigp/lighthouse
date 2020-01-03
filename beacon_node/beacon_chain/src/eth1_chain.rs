@@ -1,3 +1,4 @@
+use crate::metrics;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use exit_future::Exit;
@@ -184,7 +185,7 @@ pub struct CachingEth1Backend<T: EthSpec, S> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: EthSpec, S: Store> CachingEth1Backend<T, S> {
+impl<T: EthSpec, S: Store<T>> CachingEth1Backend<T, S> {
     /// Instantiates `self` with empty caches.
     ///
     /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
@@ -213,7 +214,7 @@ impl<T: EthSpec, S: Store> CachingEth1Backend<T, S> {
     }
 }
 
-impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
+impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
     fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
         // Note: we do not return random junk if this function call fails as it would be caused by
         // an internal error.
@@ -340,7 +341,7 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 .deposits()
                 .read()
                 .cache
-                .get_deposits(next..last, deposit_count, DEPOSIT_TREE_DEPTH)
+                .get_deposits(next, last, deposit_count, DEPOSIT_TREE_DEPTH)
                 .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
                 .map(|(_deposit_root, deposits)| deposits)
         }
@@ -350,6 +351,8 @@ impl<T: EthSpec, S: Store> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
 /// Produces an `Eth1Data` with all fields sourced from `rand::thread_rng()`.
 fn random_eth1_data() -> Eth1Data {
     let mut rng = rand::thread_rng();
+
+    metrics::inc_counter(&metrics::JUNK_ETH1_VOTES);
 
     macro_rules! rand_bytes {
         ($num_bytes: expr) => {{
@@ -372,7 +375,7 @@ fn random_eth1_data() -> Eth1Data {
 
 /// Returns `state.eth1_data.block_hash` at the start of eth1 voting period defined by
 /// `state.slot`.
-fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
+fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store<T>>(
     store: Arc<S>,
     state: &BeaconState<T>,
 ) -> Result<Hash256, Error> {
@@ -392,7 +395,7 @@ fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store>(
             .map_err(Error::UnableToGetPreviousStateRoot)?;
 
         store
-            .get_state::<T>(&prev_state_root, Some(slot))
+            .get_state(&prev_state_root, Some(slot))
             .map_err(Error::StoreError)?
             .map(|state| state.eth1_data.block_hash)
             .ok_or_else(|| Error::PreviousStateNotInDB(*prev_state_root))
@@ -581,7 +584,7 @@ mod test {
         use store::MemoryStore;
         use types::test_utils::{generate_deterministic_keypair, TestingDepositBuilder};
 
-        fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E, MemoryStore>, E> {
+        fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E, MemoryStore<E>>, E> {
             let eth1_config = Eth1Config {
                 ..Eth1Config::default()
             };

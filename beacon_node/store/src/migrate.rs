@@ -23,14 +23,14 @@ pub trait Migrate<S, E: EthSpec>: Send + Sync + 'static {
 /// Migrator that does nothing, for stores that don't need migration.
 pub struct NullMigrator;
 
-impl<E: EthSpec> Migrate<SimpleDiskStore, E> for NullMigrator {
-    fn new(_: Arc<SimpleDiskStore>) -> Self {
+impl<E: EthSpec> Migrate<SimpleDiskStore<E>, E> for NullMigrator {
+    fn new(_: Arc<SimpleDiskStore<E>>) -> Self {
         NullMigrator
     }
 }
 
-impl<E: EthSpec> Migrate<MemoryStore, E> for NullMigrator {
-    fn new(_: Arc<MemoryStore>) -> Self {
+impl<E: EthSpec> Migrate<MemoryStore<E>, E> for NullMigrator {
+    fn new(_: Arc<MemoryStore<E>>) -> Self {
         NullMigrator
     }
 }
@@ -40,7 +40,7 @@ impl<E: EthSpec> Migrate<MemoryStore, E> for NullMigrator {
 /// Mostly useful for tests.
 pub struct BlockingMigrator<S>(Arc<S>);
 
-impl<E: EthSpec, S: Store> Migrate<S, E> for BlockingMigrator<S> {
+impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
     fn new(db: Arc<S>) -> Self {
         BlockingMigrator(db)
     }
@@ -60,15 +60,15 @@ impl<E: EthSpec, S: Store> Migrate<S, E> for BlockingMigrator<S> {
 
 /// Migrator that runs a background thread to migrate state from the hot to the cold database.
 pub struct BackgroundMigrator<E: EthSpec> {
-    db: Arc<DiskStore>,
+    db: Arc<DiskStore<E>>,
     tx_thread: Mutex<(
         mpsc::Sender<(Hash256, BeaconState<E>)>,
         thread::JoinHandle<()>,
     )>,
 }
 
-impl<E: EthSpec> Migrate<DiskStore, E> for BackgroundMigrator<E> {
-    fn new(db: Arc<DiskStore>) -> Self {
+impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
+    fn new(db: Arc<DiskStore<E>>) -> Self {
         let tx_thread = Mutex::new(Self::spawn_thread(db.clone()));
         Self { db, tx_thread }
     }
@@ -119,7 +119,7 @@ impl<E: EthSpec> BackgroundMigrator<E> {
     ///
     /// Return a channel handle for sending new finalized states to the thread.
     fn spawn_thread(
-        db: Arc<DiskStore>,
+        db: Arc<DiskStore<E>>,
     ) -> (
         mpsc::Sender<(Hash256, BeaconState<E>)>,
         thread::JoinHandle<()>,

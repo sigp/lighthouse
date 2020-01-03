@@ -268,7 +268,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// returns `None`.
     ///
     /// Requires a fully up-to-date `pubkey_cache`, returns an error if this is not the case.
-    pub fn get_validator_index(&self, pubkey: &PublicKey) -> Result<Option<usize>, Error> {
+    pub fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
         if self.pubkey_cache.len() == self.validators.len() {
             Ok(self.pubkey_cache.get(pubkey))
         } else {
@@ -386,6 +386,19 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_beacon_committees_at_slot(&self, slot: Slot) -> Result<Vec<BeaconCommittee>, Error> {
         let cache = self.committee_cache_at_slot(slot)?;
         cache.get_beacon_committees_at_slot(slot)
+    }
+
+    /// Get all of the Beacon committees at a given relative epoch.
+    ///
+    /// Utilises the committee cache.
+    ///
+    /// Spec v0.9.1
+    pub fn get_beacon_committees_at_epoch(
+        &self,
+        relative_epoch: RelativeEpoch,
+    ) -> Result<Vec<BeaconCommittee>, Error> {
+        let cache = self.committee_cache(relative_epoch)?;
+        cache.get_all_beacon_committees()
     }
 
     /// Compute the proposer (not necessarily for the Beacon chain) from a list of indices.
@@ -574,6 +587,14 @@ impl<T: EthSpec> BeaconState<T> {
         let i =
             self.get_latest_state_roots_index(self.slot - Slot::from(self.state_roots.len()))?;
         Ok(&self.state_roots[i])
+    }
+
+    /// Gets the oldest (earliest slot) block root.
+    ///
+    /// Spec v0.9.1
+    pub fn get_oldest_block_root(&self) -> Result<&Hash256, Error> {
+        let i = self.get_latest_block_roots_index(self.slot - self.block_roots.len() as u64)?;
+        Ok(&self.block_roots[i])
     }
 
     /// Sets the latest state root for slot.
@@ -852,7 +873,7 @@ impl<T: EthSpec> BeaconState<T> {
             .enumerate()
             .skip(self.pubkey_cache.len())
         {
-            let success = self.pubkey_cache.insert(validator.pubkey.clone(), i);
+            let success = self.pubkey_cache.insert(validator.pubkey.clone().into(), i);
             if !success {
                 return Err(Error::PubkeyCacheInconsistent);
             }
@@ -900,6 +921,39 @@ impl<T: EthSpec> BeaconState<T> {
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
     pub fn drop_tree_hash_cache(&mut self) {
         self.tree_hash_cache = BeaconTreeHashCache::default();
+    }
+
+    pub fn clone_without_caches(&self) -> Self {
+        BeaconState {
+            genesis_time: self.genesis_time,
+            slot: self.slot,
+            fork: self.fork.clone(),
+            latest_block_header: self.latest_block_header.clone(),
+            block_roots: self.block_roots.clone(),
+            state_roots: self.state_roots.clone(),
+            historical_roots: self.historical_roots.clone(),
+            eth1_data: self.eth1_data.clone(),
+            eth1_data_votes: self.eth1_data_votes.clone(),
+            eth1_deposit_index: self.eth1_deposit_index,
+            validators: self.validators.clone(),
+            balances: self.balances.clone(),
+            randao_mixes: self.randao_mixes.clone(),
+            slashings: self.slashings.clone(),
+            previous_epoch_attestations: self.previous_epoch_attestations.clone(),
+            current_epoch_attestations: self.current_epoch_attestations.clone(),
+            justification_bits: self.justification_bits.clone(),
+            previous_justified_checkpoint: self.previous_justified_checkpoint.clone(),
+            current_justified_checkpoint: self.current_justified_checkpoint.clone(),
+            finalized_checkpoint: self.finalized_checkpoint.clone(),
+            committee_caches: [
+                CommitteeCache::default(),
+                CommitteeCache::default(),
+                CommitteeCache::default(),
+            ],
+            pubkey_cache: PubkeyCache::default(),
+            exit_cache: ExitCache::default(),
+            tree_hash_cache: BeaconTreeHashCache::default(),
+        }
     }
 }
 

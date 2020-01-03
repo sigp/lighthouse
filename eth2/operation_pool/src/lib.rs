@@ -10,18 +10,18 @@ use attestation_id::AttestationId;
 use max_cover::maximum_cover;
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::{
-    AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
-    ExitValidationError, ProposerSlashingValidationError,
+    AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
+    ProposerSlashingValidationError,
 };
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation_for_block_inclusion,
     verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
     verify_proposer_slashing, VerifySignatures,
 };
-use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
+use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
-    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, ChainSpec, Deposit, EthSpec,
+    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, ChainSpec, EthSpec,
     ProposerSlashing, Validator, VoluntaryExit,
 };
 
@@ -29,12 +29,6 @@ use types::{
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
-    /// Map from deposit index to deposit data.
-    // NOTE: We assume that there is only one deposit per index
-    // because the Eth1 data is updated (at most) once per epoch,
-    // and the spec doesn't seem to accommodate for re-orgs on a time-frame
-    // longer than an epoch
-    deposits: RwLock<BTreeMap<u64, Deposit>>,
     /// Map from two attestation IDs to a slashing for those IDs.
     attester_slashings: RwLock<HashMap<(AttestationId, AttestationId), AttesterSlashing<T>>>,
     /// Map from proposer index to slashing.
@@ -42,16 +36,6 @@ pub struct OperationPool<T: EthSpec + Default> {
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, VoluntaryExit>>,
     _phantom: PhantomData<T>,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum DepositInsertStatus {
-    /// The deposit was not already in the pool.
-    Fresh,
-    /// The deposit already existed in the pool.
-    Duplicate,
-    /// The deposit conflicted with an existing deposit, which was replaced.
-    Replaced(Box<Deposit>),
 }
 
 impl<T: EthSpec> OperationPool<T> {
@@ -153,58 +137,6 @@ impl<T: EthSpec> OperationPool<T> {
                 finalized_state.current_epoch() <= att.data.target.epoch + 1
             })
         });
-    }
-
-    /// Add a deposit to the pool.
-    ///
-    /// No two distinct deposits should be added with the same index.
-    // TODO: we need to rethink this entirely
-    pub fn insert_deposit(
-        &self,
-        index: u64,
-        deposit: Deposit,
-    ) -> Result<DepositInsertStatus, DepositValidationError> {
-        use DepositInsertStatus::*;
-
-        match self.deposits.write().entry(index) {
-            Entry::Vacant(entry) => {
-                entry.insert(deposit);
-                Ok(Fresh)
-            }
-            Entry::Occupied(mut entry) => {
-                if entry.get() == &deposit {
-                    Ok(Duplicate)
-                } else {
-                    Ok(Replaced(Box::new(entry.insert(deposit))))
-                }
-            }
-        }
-    }
-
-    /// Get an ordered list of deposits for inclusion in a block.
-    ///
-    /// Take at most the maximum number of deposits, beginning from the current deposit index.
-    pub fn get_deposits(&self, state: &BeaconState<T>) -> Vec<Deposit> {
-        // TODO: We need to update the Merkle proofs for existing deposits as more deposits
-        // are added. It probably makes sense to construct the proofs from scratch when forming
-        // a block, using fresh info from the ETH1 chain for the current deposit root.
-        let start_idx = state.eth1_deposit_index;
-        (start_idx..start_idx + T::MaxDeposits::to_u64())
-            .map(|idx| self.deposits.read().get(&idx).cloned())
-            .take_while(Option::is_some)
-            .flatten()
-            .collect()
-    }
-
-    /// Remove all deposits with index less than the deposit index of the latest finalised block.
-    pub fn prune_deposits(&self, state: &BeaconState<T>) -> BTreeMap<u64, Deposit> {
-        let deposits_keep = self.deposits.write().split_off(&state.eth1_deposit_index);
-        std::mem::replace(&mut self.deposits.write(), deposits_keep)
-    }
-
-    /// The number of deposits stored in the pool.
-    pub fn num_deposits(&self) -> usize {
-        self.deposits.read().len()
     }
 
     /// Insert a proposer slashing into the pool.
@@ -374,7 +306,6 @@ impl<T: EthSpec> OperationPool<T> {
     /// Prune all types of transactions given the latest finalized state.
     pub fn prune_all(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
         self.prune_attestations(finalized_state);
-        self.prune_deposits(finalized_state);
         self.prune_proposer_slashings(finalized_state);
         self.prune_attester_slashings(finalized_state, spec);
         self.prune_voluntary_exits(finalized_state);
@@ -420,483 +351,344 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
 impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
     fn eq(&self, other: &Self) -> bool {
         *self.attestations.read() == *other.attestations.read()
-            && *self.deposits.read() == *other.deposits.read()
             && *self.attester_slashings.read() == *other.attester_slashings.read()
             && *self.proposer_slashings.read() == *other.proposer_slashings.read()
             && *self.voluntary_exits.read() == *other.voluntary_exits.read()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::DepositInsertStatus::*;
+// TODO: more tests
+#[cfg(all(test, not(debug_assertions)))]
+mod release_tests {
     use super::*;
-    use rand::Rng;
     use types::test_utils::*;
     use types::*;
 
-    #[test]
-    fn insert_deposit() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
-        let deposit1 = make_deposit(rng);
-        let deposit2 = make_deposit(rng);
-        let index = rng.gen();
-
-        assert_eq!(op_pool.insert_deposit(index, deposit1.clone()), Ok(Fresh));
-        assert_eq!(
-            op_pool.insert_deposit(index, deposit1.clone()),
-            Ok(Duplicate)
+    /// Create a signed attestation for use in tests.
+    /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
+    fn signed_attestation<R: std::slice::SliceIndex<[usize], Output = [usize]>, E: EthSpec>(
+        committee: &[usize],
+        index: u64,
+        keypairs: &[Keypair],
+        signing_range: R,
+        slot: Slot,
+        state: &BeaconState<E>,
+        spec: &ChainSpec,
+        extra_signer: Option<usize>,
+    ) -> Attestation<E> {
+        let mut builder = TestingAttestationBuilder::new(
+            AttestationTestTask::Valid,
+            state,
+            committee,
+            slot,
+            index,
+            spec,
         );
-        assert_eq!(
-            op_pool.insert_deposit(index, deposit2),
-            Ok(Replaced(Box::new(deposit1)))
+        let signers = &committee[signing_range];
+        let committee_keys = signers.iter().map(|&i| &keypairs[i].sk).collect::<Vec<_>>();
+        builder.sign(
+            AttestationTestTask::Valid,
+            signers,
+            &committee_keys,
+            &state.fork,
+            spec,
         );
-    }
-
-    #[test]
-    fn get_deposits_max() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let (_, mut state) = test_state(rng);
-        let op_pool = OperationPool::new();
-        let start = 10000;
-        let max_deposits = <MainnetEthSpec as EthSpec>::MaxDeposits::to_u64();
-        let extra = 5;
-        let offset = 1;
-        assert!(offset <= extra);
-
-        let deposits = dummy_deposits(rng, start, max_deposits + extra);
-
-        for (i, deposit) in &deposits {
-            assert_eq!(op_pool.insert_deposit(*i, deposit.clone()), Ok(Fresh));
-        }
-
-        state.eth1_deposit_index = start + offset;
-        let deposits_for_block = op_pool.get_deposits(&state);
-
-        assert_eq!(deposits_for_block.len() as u64, max_deposits);
-        let expected = deposits[offset as usize..(offset + max_deposits) as usize]
-            .iter()
-            .map(|(_, d)| d.clone())
-            .collect::<Vec<_>>();
-        assert_eq!(deposits_for_block[..], expected[..]);
-    }
-
-    #[test]
-    fn prune_deposits() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
-
-        let start1 = 100;
-        // test is super slow in debug mode if this parameter is too high
-        let count = 5;
-        let gap = 25;
-        let start2 = start1 + count + gap;
-
-        let deposits1 = dummy_deposits(rng, start1, count);
-        let deposits2 = dummy_deposits(rng, start2, count);
-
-        for (i, d) in deposits1.into_iter().chain(deposits2) {
-            assert!(op_pool.insert_deposit(i, d).is_ok());
-        }
-
-        assert_eq!(op_pool.num_deposits(), 2 * count as usize);
-
-        let mut state = BeaconState::random_for_test(rng);
-        state.eth1_deposit_index = start1;
-
-        // Pruning the first bunch of deposits in batches of 5 should work.
-        let step = 5;
-        let mut pool_size = step + 2 * count as usize;
-        for i in (start1..=(start1 + count)).step_by(step) {
-            state.eth1_deposit_index = i;
-            op_pool.prune_deposits(&state);
-            pool_size -= step;
-            assert_eq!(op_pool.num_deposits(), pool_size);
-        }
-        assert_eq!(pool_size, count as usize);
-        // Pruning in the gap should do nothing.
-        for i in (start1 + count..start2).step_by(step) {
-            state.eth1_deposit_index = i;
-            op_pool.prune_deposits(&state);
-            assert_eq!(op_pool.num_deposits(), count as usize);
-        }
-        // Same again for the later deposits.
-        pool_size += step;
-        for i in (start2..=(start2 + count)).step_by(step) {
-            state.eth1_deposit_index = i;
-            op_pool.prune_deposits(&state);
-            pool_size -= step;
-            assert_eq!(op_pool.num_deposits(), pool_size);
-        }
-        assert_eq!(op_pool.num_deposits(), 0);
-    }
-
-    // Create a random deposit
-    fn make_deposit(rng: &mut XorShiftRng) -> Deposit {
-        Deposit::random_for_test(rng)
-    }
-
-    // Create `count` dummy deposits with sequential deposit IDs beginning from `start`.
-    fn dummy_deposits(rng: &mut XorShiftRng, start: u64, count: u64) -> Vec<(u64, Deposit)> {
-        let proto_deposit = make_deposit(rng);
-        (start..start + count)
-            .map(|index| {
-                let mut deposit = proto_deposit.clone();
-                deposit.data.amount = index * 1000;
-                (index, deposit)
-            })
-            .collect()
-    }
-
-    fn test_state(rng: &mut XorShiftRng) -> (ChainSpec, BeaconState<MainnetEthSpec>) {
-        let spec = MainnetEthSpec::default_spec();
-
-        let mut state = BeaconState::random_for_test(rng);
-
-        state.fork = Fork::default();
-
-        (spec, state)
-    }
-
-    #[cfg(not(debug_assertions))]
-    mod release_tests {
-        use super::*;
-
-        /// Create a signed attestation for use in tests.
-        /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
-        fn signed_attestation<R: std::slice::SliceIndex<[usize], Output = [usize]>, E: EthSpec>(
-            committee: &[usize],
-            index: u64,
-            keypairs: &[Keypair],
-            signing_range: R,
-            slot: Slot,
-            state: &BeaconState<E>,
-            spec: &ChainSpec,
-            extra_signer: Option<usize>,
-        ) -> Attestation<E> {
-            let mut builder = TestingAttestationBuilder::new(
-                AttestationTestTask::Valid,
-                state,
-                committee,
-                slot,
-                index,
-                spec,
-            );
-            let signers = &committee[signing_range];
-            let committee_keys = signers.iter().map(|&i| &keypairs[i].sk).collect::<Vec<_>>();
+        extra_signer.map(|c_idx| {
+            let validator_index = committee[c_idx];
             builder.sign(
                 AttestationTestTask::Valid,
-                signers,
-                &committee_keys,
+                &[validator_index],
+                &[&keypairs[validator_index].sk],
                 &state.fork,
                 spec,
+            )
+        });
+        builder.build()
+    }
+
+    /// Test state for attestation-related tests.
+    fn attestation_test_state<E: EthSpec>(
+        num_committees: usize,
+    ) -> (BeaconState<E>, Vec<Keypair>, ChainSpec) {
+        let spec = E::default_spec();
+
+        let num_validators =
+            num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
+        let mut state_builder =
+            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(num_validators, &spec);
+        let slot_offset = 1000 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
+        let slot = spec.genesis_slot + slot_offset;
+        state_builder.teleport_to_slot(slot);
+        state_builder.build_caches(&spec).unwrap();
+        let (state, keypairs) = state_builder.build();
+        (state, keypairs, MainnetEthSpec::default_spec())
+    }
+
+    #[test]
+    fn test_earliest_attestation() {
+        let (ref mut state, ref keypairs, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
+        let slot = state.slot - 1;
+        let committees = state
+            .get_beacon_committees_at_slot(slot)
+            .unwrap()
+            .into_iter()
+            .map(BeaconCommittee::into_owned)
+            .collect::<Vec<_>>();
+
+        for bc in committees {
+            let att1 = signed_attestation(
+                &bc.committee,
+                bc.index,
+                keypairs,
+                ..2,
+                slot,
+                state,
+                spec,
+                None,
             );
-            extra_signer.map(|c_idx| {
-                let validator_index = committee[c_idx];
-                builder.sign(
-                    AttestationTestTask::Valid,
-                    &[validator_index],
-                    &[&keypairs[validator_index].sk],
-                    &state.fork,
-                    spec,
-                )
-            });
-            builder.build()
-        }
-
-        /// Test state for attestation-related tests.
-        fn attestation_test_state<E: EthSpec>(
-            num_committees: usize,
-        ) -> (BeaconState<E>, Vec<Keypair>, ChainSpec) {
-            let spec = E::default_spec();
-
-            let num_validators =
-                num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
-            let mut state_builder = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
-                num_validators,
-                &spec,
+            let att2 = signed_attestation(
+                &bc.committee,
+                bc.index,
+                keypairs,
+                ..,
+                slot,
+                state,
+                spec,
+                None,
             );
-            let slot_offset = 1000 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
-            let slot = spec.genesis_slot + slot_offset;
-            state_builder.teleport_to_slot(slot);
-            state_builder.build_caches(&spec).unwrap();
-            let (state, keypairs) = state_builder.build();
-            (state, keypairs, MainnetEthSpec::default_spec())
-        }
-
-        #[test]
-        fn test_earliest_attestation() {
-            let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<MainnetEthSpec>(1);
-            let slot = state.slot - 1;
-            let committees = state
-                .get_beacon_committees_at_slot(slot)
-                .unwrap()
-                .into_iter()
-                .map(BeaconCommittee::into_owned)
-                .collect::<Vec<_>>();
-
-            for bc in committees {
-                let att1 = signed_attestation(
-                    &bc.committee,
-                    bc.index,
-                    keypairs,
-                    ..2,
-                    slot,
-                    state,
-                    spec,
-                    None,
-                );
-                let att2 = signed_attestation(
-                    &bc.committee,
-                    bc.index,
-                    keypairs,
-                    ..,
-                    slot,
-                    state,
-                    spec,
-                    None,
-                );
-
-                assert_eq!(
-                    att1.aggregation_bits.num_set_bits(),
-                    earliest_attestation_validators(&att1, state).num_set_bits()
-                );
-                state
-                    .current_epoch_attestations
-                    .push(PendingAttestation {
-                        aggregation_bits: att1.aggregation_bits.clone(),
-                        data: att1.data.clone(),
-                        inclusion_delay: 0,
-                        proposer_index: 0,
-                    })
-                    .unwrap();
-
-                assert_eq!(
-                    bc.committee.len() - 2,
-                    earliest_attestation_validators(&att2, state).num_set_bits()
-                );
-            }
-        }
-
-        /// End-to-end test of basic attestation handling.
-        #[test]
-        fn attestation_aggregation_insert_get_prune() {
-            let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<MainnetEthSpec>(1);
-
-            let op_pool = OperationPool::new();
-
-            let slot = state.slot - 1;
-            let committees = state
-                .get_beacon_committees_at_slot(slot)
-                .unwrap()
-                .into_iter()
-                .map(BeaconCommittee::into_owned)
-                .collect::<Vec<_>>();
 
             assert_eq!(
-                committees.len(),
-                1,
-                "we expect just one committee with this many validators"
+                att1.aggregation_bits.num_set_bits(),
+                earliest_attestation_validators(&att1, state).num_set_bits()
             );
+            state
+                .current_epoch_attestations
+                .push(PendingAttestation {
+                    aggregation_bits: att1.aggregation_bits.clone(),
+                    data: att1.data.clone(),
+                    inclusion_delay: 0,
+                    proposer_index: 0,
+                })
+                .unwrap();
 
-            for bc in &committees {
-                let step_size = 2;
-                for i in (0..bc.committee.len()).step_by(step_size) {
-                    let att = signed_attestation(
-                        &bc.committee,
-                        bc.index,
-                        keypairs,
-                        i..i + step_size,
-                        slot,
-                        state,
-                        spec,
-                        None,
-                    );
-                    op_pool.insert_attestation(att, state, spec).unwrap();
-                }
-            }
-
-            assert_eq!(op_pool.attestations.read().len(), committees.len());
-            assert_eq!(op_pool.num_attestations(), committees.len());
-
-            // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
-            state.slot -= 1;
-            assert_eq!(op_pool.get_attestations(state, spec).len(), 0);
-
-            // Then once the delay has elapsed, we should get a single aggregated attestation.
-            state.slot += spec.min_attestation_inclusion_delay;
-
-            let block_attestations = op_pool.get_attestations(state, spec);
-            assert_eq!(block_attestations.len(), committees.len());
-
-            let agg_att = &block_attestations[0];
             assert_eq!(
-                agg_att.aggregation_bits.num_set_bits(),
-                spec.target_committee_size as usize
+                bc.committee.len() - 2,
+                earliest_attestation_validators(&att2, state).num_set_bits()
             );
-
-            // Prune attestations shouldn't do anything at this point.
-            op_pool.prune_attestations(state);
-            assert_eq!(op_pool.num_attestations(), committees.len());
-
-            // But once we advance to more than an epoch after the attestation, it should prune it
-            // out of existence.
-            state.slot += 2 * MainnetEthSpec::slots_per_epoch();
-            op_pool.prune_attestations(state);
-            assert_eq!(op_pool.num_attestations(), 0);
         }
+    }
 
-        /// Adding an attestation already in the pool should not increase the size of the pool.
-        #[test]
-        fn attestation_duplicate() {
-            let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<MainnetEthSpec>(1);
+    /// End-to-end test of basic attestation handling.
+    #[test]
+    fn attestation_aggregation_insert_get_prune() {
+        let (ref mut state, ref keypairs, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-            let op_pool = OperationPool::new();
+        let op_pool = OperationPool::new();
 
-            let slot = state.slot - 1;
-            let committees = state
-                .get_beacon_committees_at_slot(slot)
-                .unwrap()
-                .into_iter()
-                .map(BeaconCommittee::into_owned)
-                .collect::<Vec<_>>();
+        let slot = state.slot - 1;
+        let committees = state
+            .get_beacon_committees_at_slot(slot)
+            .unwrap()
+            .into_iter()
+            .map(BeaconCommittee::into_owned)
+            .collect::<Vec<_>>();
 
-            for bc in &committees {
+        assert_eq!(
+            committees.len(),
+            1,
+            "we expect just one committee with this many validators"
+        );
+
+        for bc in &committees {
+            let step_size = 2;
+            for i in (0..bc.committee.len()).step_by(step_size) {
                 let att = signed_attestation(
                     &bc.committee,
                     bc.index,
                     keypairs,
-                    ..,
+                    i..i + step_size,
                     slot,
                     state,
                     spec,
                     None,
                 );
-                op_pool
-                    .insert_attestation(att.clone(), state, spec)
-                    .unwrap();
                 op_pool.insert_attestation(att, state, spec).unwrap();
             }
-
-            assert_eq!(op_pool.num_attestations(), committees.len());
         }
 
-        /// Adding lots of attestations that only intersect pairwise should lead to two aggregate
-        /// attestations.
-        #[test]
-        fn attestation_pairwise_overlapping() {
-            let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<MainnetEthSpec>(1);
+        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        assert_eq!(op_pool.num_attestations(), committees.len());
 
-            let op_pool = OperationPool::new();
+        // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
+        state.slot -= 1;
+        assert_eq!(op_pool.get_attestations(state, spec).len(), 0);
 
-            let slot = state.slot - 1;
-            let committees = state
-                .get_beacon_committees_at_slot(slot)
-                .unwrap()
-                .into_iter()
-                .map(BeaconCommittee::into_owned)
-                .collect::<Vec<_>>();
+        // Then once the delay has elapsed, we should get a single aggregated attestation.
+        state.slot += spec.min_attestation_inclusion_delay;
 
-            let step_size = 2;
-            for bc in &committees {
-                // Create attestations that overlap on `step_size` validators, like:
-                // {0,1,2,3}, {2,3,4,5}, {4,5,6,7}, ...
-                for i in (0..bc.committee.len() - step_size).step_by(step_size) {
-                    let att = signed_attestation(
-                        &bc.committee,
-                        bc.index,
-                        keypairs,
-                        i..i + 2 * step_size,
-                        slot,
-                        state,
-                        spec,
-                        None,
-                    );
-                    op_pool.insert_attestation(att, state, spec).unwrap();
-                }
-            }
+        let block_attestations = op_pool.get_attestations(state, spec);
+        assert_eq!(block_attestations.len(), committees.len());
 
-            // The attestations should get aggregated into two attestations that comprise all
-            // validators.
-            assert_eq!(op_pool.attestations.read().len(), committees.len());
-            assert_eq!(op_pool.num_attestations(), 2 * committees.len());
-        }
+        let agg_att = &block_attestations[0];
+        assert_eq!(
+            agg_att.aggregation_bits.num_set_bits(),
+            spec.target_committee_size as usize
+        );
 
-        /// Create a bunch of attestations signed by a small number of validators, and another
-        /// bunch signed by a larger number, such that there are at least `max_attestations`
-        /// signed by the larger number. Then, check that `get_attestations` only returns the
-        /// high-quality attestations. To ensure that no aggregation occurs, ALL attestations
-        /// are also signed by the 0th member of the committee.
-        #[test]
-        fn attestation_get_max() {
-            let small_step_size = 2;
-            let big_step_size = 4;
+        // Prune attestations shouldn't do anything at this point.
+        op_pool.prune_attestations(state);
+        assert_eq!(op_pool.num_attestations(), committees.len());
 
-            let (ref mut state, ref keypairs, ref spec) =
-                attestation_test_state::<MainnetEthSpec>(big_step_size);
-
-            let op_pool = OperationPool::new();
-
-            let slot = state.slot - 1;
-            let committees = state
-                .get_beacon_committees_at_slot(slot)
-                .unwrap()
-                .into_iter()
-                .map(BeaconCommittee::into_owned)
-                .collect::<Vec<_>>();
-
-            let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
-            let target_committee_size = spec.target_committee_size as usize;
-
-            let insert_attestations = |bc: &OwnedBeaconCommittee, step_size| {
-                for i in (0..target_committee_size).step_by(step_size) {
-                    let att = signed_attestation(
-                        &bc.committee,
-                        bc.index,
-                        keypairs,
-                        i..i + step_size,
-                        slot,
-                        state,
-                        spec,
-                        if i == 0 { None } else { Some(0) },
-                    );
-                    op_pool.insert_attestation(att, state, spec).unwrap();
-                }
-            };
-
-            for committee in &committees {
-                assert_eq!(committee.committee.len(), target_committee_size);
-                // Attestations signed by only 2-3 validators
-                insert_attestations(committee, small_step_size);
-                // Attestations signed by 4+ validators
-                insert_attestations(committee, big_step_size);
-            }
-
-            let num_small = target_committee_size / small_step_size;
-            let num_big = target_committee_size / big_step_size;
-
-            assert_eq!(op_pool.attestations.read().len(), committees.len());
-            assert_eq!(
-                op_pool.num_attestations(),
-                (num_small + num_big) * committees.len()
-            );
-            assert!(op_pool.num_attestations() > max_attestations);
-
-            state.slot += spec.min_attestation_inclusion_delay;
-            let best_attestations = op_pool.get_attestations(state, spec);
-            assert_eq!(best_attestations.len(), max_attestations);
-
-            // All the best attestations should be signed by at least `big_step_size` (4) validators.
-            for att in &best_attestations {
-                assert!(att.aggregation_bits.num_set_bits() >= big_step_size);
-            }
-        }
+        // But once we advance to more than an epoch after the attestation, it should prune it
+        // out of existence.
+        state.slot += 2 * MainnetEthSpec::slots_per_epoch();
+        op_pool.prune_attestations(state);
+        assert_eq!(op_pool.num_attestations(), 0);
     }
 
-    // TODO: more tests
+    /// Adding an attestation already in the pool should not increase the size of the pool.
+    #[test]
+    fn attestation_duplicate() {
+        let (ref mut state, ref keypairs, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
+
+        let op_pool = OperationPool::new();
+
+        let slot = state.slot - 1;
+        let committees = state
+            .get_beacon_committees_at_slot(slot)
+            .unwrap()
+            .into_iter()
+            .map(BeaconCommittee::into_owned)
+            .collect::<Vec<_>>();
+
+        for bc in &committees {
+            let att = signed_attestation(
+                &bc.committee,
+                bc.index,
+                keypairs,
+                ..,
+                slot,
+                state,
+                spec,
+                None,
+            );
+            op_pool
+                .insert_attestation(att.clone(), state, spec)
+                .unwrap();
+            op_pool.insert_attestation(att, state, spec).unwrap();
+        }
+
+        assert_eq!(op_pool.num_attestations(), committees.len());
+    }
+
+    /// Adding lots of attestations that only intersect pairwise should lead to two aggregate
+    /// attestations.
+    #[test]
+    fn attestation_pairwise_overlapping() {
+        let (ref mut state, ref keypairs, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
+
+        let op_pool = OperationPool::new();
+
+        let slot = state.slot - 1;
+        let committees = state
+            .get_beacon_committees_at_slot(slot)
+            .unwrap()
+            .into_iter()
+            .map(BeaconCommittee::into_owned)
+            .collect::<Vec<_>>();
+
+        let step_size = 2;
+        for bc in &committees {
+            // Create attestations that overlap on `step_size` validators, like:
+            // {0,1,2,3}, {2,3,4,5}, {4,5,6,7}, ...
+            for i in (0..bc.committee.len() - step_size).step_by(step_size) {
+                let att = signed_attestation(
+                    &bc.committee,
+                    bc.index,
+                    keypairs,
+                    i..i + 2 * step_size,
+                    slot,
+                    state,
+                    spec,
+                    None,
+                );
+                op_pool.insert_attestation(att, state, spec).unwrap();
+            }
+        }
+
+        // The attestations should get aggregated into two attestations that comprise all
+        // validators.
+        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        assert_eq!(op_pool.num_attestations(), 2 * committees.len());
+    }
+
+    /// Create a bunch of attestations signed by a small number of validators, and another
+    /// bunch signed by a larger number, such that there are at least `max_attestations`
+    /// signed by the larger number. Then, check that `get_attestations` only returns the
+    /// high-quality attestations. To ensure that no aggregation occurs, ALL attestations
+    /// are also signed by the 0th member of the committee.
+    #[test]
+    fn attestation_get_max() {
+        let small_step_size = 2;
+        let big_step_size = 4;
+
+        let (ref mut state, ref keypairs, ref spec) =
+            attestation_test_state::<MainnetEthSpec>(big_step_size);
+
+        let op_pool = OperationPool::new();
+
+        let slot = state.slot - 1;
+        let committees = state
+            .get_beacon_committees_at_slot(slot)
+            .unwrap()
+            .into_iter()
+            .map(BeaconCommittee::into_owned)
+            .collect::<Vec<_>>();
+
+        let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
+        let target_committee_size = spec.target_committee_size as usize;
+
+        let insert_attestations = |bc: &OwnedBeaconCommittee, step_size| {
+            for i in (0..target_committee_size).step_by(step_size) {
+                let att = signed_attestation(
+                    &bc.committee,
+                    bc.index,
+                    keypairs,
+                    i..i + step_size,
+                    slot,
+                    state,
+                    spec,
+                    if i == 0 { None } else { Some(0) },
+                );
+                op_pool.insert_attestation(att, state, spec).unwrap();
+            }
+        };
+
+        for committee in &committees {
+            assert_eq!(committee.committee.len(), target_committee_size);
+            // Attestations signed by only 2-3 validators
+            insert_attestations(committee, small_step_size);
+            // Attestations signed by 4+ validators
+            insert_attestations(committee, big_step_size);
+        }
+
+        let num_small = target_committee_size / small_step_size;
+        let num_big = target_committee_size / big_step_size;
+
+        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        assert_eq!(
+            op_pool.num_attestations(),
+            (num_small + num_big) * committees.len()
+        );
+        assert!(op_pool.num_attestations() > max_attestations);
+
+        state.slot += spec.min_attestation_inclusion_delay;
+        let best_attestations = op_pool.get_attestations(state, spec);
+        assert_eq!(best_attestations.len(), max_attestations);
+
+        // All the best attestations should be signed by at least `big_step_size` (4) validators.
+        for att in &best_attestations {
+            assert!(att.aggregation_bits.num_set_bits() >= big_step_size);
+        }
+    }
 }

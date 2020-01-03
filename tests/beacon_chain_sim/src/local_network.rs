@@ -8,6 +8,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use types::EthSpec;
 
+const BOOTNODE_PORT: u16 = 42424;
+
 /// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
     context: RuntimeContext<E>,
@@ -42,8 +44,11 @@ impl<E: EthSpec> LocalNetwork<E> {
     /// Creates a new network with a single `BeaconNode`.
     pub fn new(
         context: RuntimeContext<E>,
-        beacon_config: ClientConfig,
+        mut beacon_config: ClientConfig,
     ) -> impl Future<Item = Self, Error = String> {
+        // Fix bootnode ports
+        beacon_config.network.discovery_port = BOOTNODE_PORT;
+        beacon_config.network.libp2p_port = BOOTNODE_PORT;
         LocalBeaconNode::production(context.service_context("boot_node".into()), beacon_config).map(
             |beacon_node| Self {
                 inner: Arc::new(Inner {

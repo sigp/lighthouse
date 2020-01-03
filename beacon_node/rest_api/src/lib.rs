@@ -6,6 +6,7 @@ extern crate network as client_network;
 
 mod beacon;
 pub mod config;
+mod consensus;
 mod error;
 mod helpers;
 mod metrics;
@@ -37,10 +38,13 @@ use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
 use url_query::UrlQuery;
 
-pub use crate::helpers::parse_pubkey;
-pub use beacon::{BlockResponse, HeadResponse, StateResponse};
+pub use crate::helpers::parse_pubkey_bytes;
+pub use beacon::{
+    BlockResponse, CanonicalHeadResponse, Committee, HeadBeaconBlock, StateResponse,
+    ValidatorRequest, ValidatorResponse,
+};
 pub use config::Config;
-pub use validator::{BulkValidatorDutiesRequest, ValidatorDuty};
+pub use validator::{ValidatorDutiesRequest, ValidatorDuty};
 
 pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 pub type NetworkChannel = Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>;
@@ -56,6 +60,7 @@ pub fn start_server<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,
     db_path: PathBuf,
+    freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
     log: slog::Logger,
 ) -> Result<(exit_future::Signal, SocketAddr), hyper::Error> {
@@ -70,6 +75,7 @@ pub fn start_server<T: BeaconChainTypes>(
         let network_service = network_info.network_service.clone();
         let network_channel = Arc::new(RwLock::new(network_info.network_chan.clone()));
         let db_path = db_path.clone();
+        let freezer_db_path = freezer_db_path.clone();
 
         service_fn(move |req: Request<Body>| {
             router::route(
@@ -80,6 +86,7 @@ pub fn start_server<T: BeaconChainTypes>(
                 eth2_config.clone(),
                 log.clone(),
                 db_path.clone(),
+                freezer_db_path.clone(),
             )
         })
     });
@@ -97,7 +104,7 @@ pub fn start_server<T: BeaconChainTypes>(
     let (exit_signal, exit) = exit_future::signal();
     let inner_log = log.clone();
     let server_exit = exit.and_then(move |_| {
-        info!(inner_log, "API service shutdown");
+        info!(inner_log, "HTTP service shutdown");
         Ok(())
     });
     // Configure the `hyper` server to gracefully shutdown when the shutdown channel is triggered.
@@ -107,13 +114,13 @@ pub fn start_server<T: BeaconChainTypes>(
         .map_err(move |e| {
             warn!(
             inner_log,
-            "API failed to start, Unable to bind"; "address" => format!("{:?}", e)
+            "HTTP server failed to start, Unable to bind"; "address" => format!("{:?}", e)
             )
         });
 
     info!(
         log,
-        "REST API started";
+        "HTTP API started";
         "address" => format!("{}", actual_listen_addr.ip()),
         "port" => actual_listen_addr.port(),
     );

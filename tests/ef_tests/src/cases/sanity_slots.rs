@@ -66,7 +66,7 @@ impl<E: EthSpec> Case for SanitySlots<E> {
         state.build_all_caches(spec).unwrap();
 
         let mut result = (0..self.slots)
-            .try_for_each(|_| per_slot_processing(&mut state, spec))
+            .try_for_each(|_| per_slot_processing(&mut state, None, spec))
             .map(|_| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)

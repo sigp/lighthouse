@@ -2,36 +2,41 @@ use crate::*;
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
-use types::beacon_state::{BeaconTreeHashCache, CommitteeCache, CACHED_EPOCHS};
+use types::beacon_state::{CommitteeCache, CACHED_EPOCHS};
 
-pub fn store_full_state<S: Store, E: EthSpec>(
+pub fn store_full_state<S: Store<E>, E: EthSpec>(
     store: &S,
     state_root: &Hash256,
     state: &BeaconState<E>,
 ) -> Result<(), Error> {
-    let timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_TIMES);
+    let total_timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_TIMES);
+    let overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_OVERHEAD_TIMES);
 
     let bytes = StorageContainer::new(state).as_ssz_bytes();
+    metrics::stop_timer(overhead_timer);
+
     let result = store.put_bytes(DBColumn::BeaconState.into(), state_root.as_bytes(), &bytes);
 
-    metrics::stop_timer(timer);
+    metrics::stop_timer(total_timer);
     metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
     metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as i64);
 
     result
 }
 
-pub fn get_full_state<S: Store, E: EthSpec>(
+pub fn get_full_state<S: Store<E>, E: EthSpec>(
     store: &S,
     state_root: &Hash256,
 ) -> Result<Option<BeaconState<E>>, Error> {
-    let timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
+    let total_timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
 
     match store.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
         Some(bytes) => {
+            let overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_READ_OVERHEAD_TIMES);
             let container = StorageContainer::from_ssz_bytes(&bytes)?;
 
-            metrics::stop_timer(timer);
+            metrics::stop_timer(overhead_timer);
+            metrics::stop_timer(total_timer);
             metrics::inc_counter(&metrics::BEACON_STATE_READ_COUNT);
             metrics::inc_counter_by(&metrics::BEACON_STATE_READ_BYTES, bytes.len() as i64);
 
@@ -44,48 +49,36 @@ pub fn get_full_state<S: Store, E: EthSpec>(
 /// A container for storing `BeaconState` components.
 // TODO: would be more space efficient with the caches stored separately and referenced by hash
 #[derive(Encode, Decode)]
-struct StorageContainer {
-    state_bytes: Vec<u8>,
-    committee_caches_bytes: Vec<Vec<u8>>,
-    tree_hash_cache_bytes: Vec<u8>,
+pub struct StorageContainer<T: EthSpec> {
+    state: BeaconState<T>,
+    committee_caches: Vec<CommitteeCache>,
 }
 
-impl StorageContainer {
+impl<T: EthSpec> StorageContainer<T> {
     /// Create a new instance for storing a `BeaconState`.
-    pub fn new<T: EthSpec>(state: &BeaconState<T>) -> Self {
-        let mut committee_caches_bytes = vec![];
-
-        for cache in state.committee_caches[..].iter() {
-            committee_caches_bytes.push(cache.as_ssz_bytes());
-        }
-
-        let tree_hash_cache_bytes = state.tree_hash_cache.as_ssz_bytes();
-
+    pub fn new(state: &BeaconState<T>) -> Self {
         Self {
-            state_bytes: state.as_ssz_bytes(),
-            committee_caches_bytes,
-            tree_hash_cache_bytes,
+            state: state.clone_without_caches(),
+            committee_caches: state.committee_caches.to_vec(),
         }
     }
 }
 
-impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer {
+impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer<T> {
     type Error = Error;
 
-    fn try_into(self) -> Result<BeaconState<T>, Error> {
-        let mut state: BeaconState<T> = BeaconState::from_ssz_bytes(&self.state_bytes)?;
+    fn try_into(mut self) -> Result<BeaconState<T>, Error> {
+        let mut state = self.state;
 
-        for i in 0..CACHED_EPOCHS {
-            let bytes = &self.committee_caches_bytes.get(i).ok_or_else(|| {
-                Error::SszDecodeError(DecodeError::BytesInvalid(
+        for i in (0..CACHED_EPOCHS).rev() {
+            if i >= self.committee_caches.len() {
+                return Err(Error::SszDecodeError(DecodeError::BytesInvalid(
                     "Insufficient committees for BeaconState".to_string(),
-                ))
-            })?;
+                )));
+            };
 
-            state.committee_caches[i] = CommitteeCache::from_ssz_bytes(bytes)?;
+            state.committee_caches[i] = self.committee_caches.remove(i);
         }
-
-        state.tree_hash_cache = BeaconTreeHashCache::from_ssz_bytes(&self.tree_hash_cache_bytes)?;
 
         Ok(state)
     }

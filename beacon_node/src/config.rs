@@ -5,10 +5,11 @@ use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::recent_genesis_time;
 use rand::{distributions::Alphanumeric, Rng};
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use ssz::Encode;
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
+use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use types::{Epoch, EthSpec, Fork};
 
@@ -22,11 +23,12 @@ type Config = (ClientConfig, Eth2Config, Logger);
 
 /// Gets the fully-initialized global client and eth2 configuration objects.
 ///
-/// The top-level `clap` arguments should be provied as `cli_args`.
+/// The top-level `clap` arguments should be provided as `cli_args`.
 ///
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
+#[allow(clippy::cognitive_complexity)]
 pub fn get_configs<E: EthSpec>(
     cli_args: &ArgMatches,
     mut eth2_config: Eth2Config,
@@ -36,13 +38,15 @@ pub fn get_configs<E: EthSpec>(
 
     let mut client_config = ClientConfig::default();
 
+    client_config.spec_constants = eth2_config.spec_constants.clone();
+
     // Read the `--datadir` flag.
     //
     // If it's not present, try and find the home directory (`~`) and push the default data
     // directory onto it.
     client_config.data_dir = cli_args
         .value_of("datadir")
-        .map(PathBuf::from)
+        .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
         .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(BEACON_NODE_DIR)))
         .unwrap_or_else(|| PathBuf::from("."));
 
@@ -57,9 +61,23 @@ pub fn get_configs<E: EthSpec>(
     // Load the eth2 config, if it exists .
     let path = client_config.data_dir.join(ETH2_CONFIG_FILENAME);
     if path.exists() {
-        eth2_config = read_from_file(path.clone())
+        let loaded_eth2_config: Eth2Config = read_from_file(path.clone())
             .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
             .ok_or_else(|| format!("{:?} file does not exist", path))?;
+
+        // The loaded spec must be using the same spec constants (e.g., minimal, mainnet) as the
+        // client expects.
+        if loaded_eth2_config.spec_constants == client_config.spec_constants {
+            eth2_config = loaded_eth2_config
+        } else {
+            return Err(
+                format!(
+                    "Eth2 config loaded from disk does not match client spec version. Got {} expected {}",
+                    &loaded_eth2_config.spec_constants,
+                    &client_config.spec_constants
+                )
+            );
+        }
     }
 
     // Read the `--testnet-dir` flag.
@@ -233,7 +251,13 @@ pub fn get_configs<E: EthSpec>(
     };
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
-        client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
+        client_config.store.freezer_db_path = Some(PathBuf::from(freezer_dir));
+    }
+
+    if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
+        client_config.store.slots_per_restore_point = slots_per_restore_point
+            .parse()
+            .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
     }
 
     if eth2_config.spec_constants != client_config.spec_constants {
@@ -248,14 +272,31 @@ pub fn get_configs<E: EthSpec>(
      * Zero-ports
      *
      * Replaces previously set flags.
+     * Libp2p and discovery ports are set explicitly by selecting
+     * a random free port so that we aren't needlessly updating ENR
+     * from lighthouse.
+     * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        client_config.network.libp2p_port = 0;
-        client_config.network.discovery_port = 0;
+        if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
+            client_config.network.discovery_address = "127.0.0.1".parse().expect("Valid IP address")
+        }
+        client_config.network.libp2p_port =
+            unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
+        client_config.network.discovery_port =
+            unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.rest_api.port = 0;
         client_config.websocket_server.port = 0;
     }
 
+    // ENR ip needs to be explicit for node to be discoverable
+    if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
+        warn!(
+            log,
+            "Discovery address cannot be 0.0.0.0, Setting to to 127.0.0.1"
+        );
+        client_config.network.discovery_address = "127.0.0.1".parse().expect("Valid IP address")
+    }
     Ok((client_config, eth2_config, log))
 }
 
@@ -278,8 +319,7 @@ fn load_from_datadir(client_config: &mut ClientConfig) -> Result<()> {
         .map_or(false, |path| path.exists())
     {
         return Err(
-            "No database found in datadir. Use 'testnet -f' to overwrite the existing \
-             datadir, or specify a different `--datadir`."
+            "No database found in datadir. Please make sure the directory provided is valid, or specify a different `--datadir`."
                 .into(),
         );
     }
@@ -329,11 +369,8 @@ fn init_new_client<E: EthSpec>(
         .deposit_contract_deploy_block
         .saturating_sub(client_config.eth1.follow_distance * 2);
 
-    if let Some(boot_nodes) = eth2_testnet_config.boot_enr {
-        client_config
-            .network
-            .boot_nodes
-            .append(&mut boot_nodes.clone())
+    if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
+        client_config.network.boot_nodes.append(&mut boot_nodes)
     }
 
     if let Some(genesis_state) = eth2_testnet_config.genesis_state {
@@ -360,7 +397,7 @@ pub fn create_new_datadir(client_config: &ClientConfig, eth2_config: &Eth2Config
         return Err(format!(
             "Data dir already exists at {:?}",
             client_config.data_dir
-        ))?;
+        ));
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -401,11 +438,9 @@ fn process_testnet_subcommand(
     }
 
     // Deletes the existing datadir.
-    if cli_args.is_present("force") {
-        if client_config.data_dir.exists() {
-            fs::remove_dir_all(&client_config.data_dir)
-                .map_err(|e| format!("Unable to delete existing datadir: {:?}", e))?;
-        }
+    if cli_args.is_present("force") && client_config.data_dir.exists() {
+        fs::remove_dir_all(&client_config.data_dir)
+            .map_err(|e| format!("Unable to delete existing datadir: {:?}", e))?;
     }
 
     // Define a percentage of messages that should be propogated, useful for simulating bad network
@@ -532,4 +567,45 @@ fn random_string(len: usize) -> String {
         .sample_iter(&Alphanumeric)
         .take(len)
         .collect::<String>()
+}
+
+/// A bit of hack to find an unused port.
+///
+/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// unused before the function started (i.e., it does not reserve a port).
+///
+/// Used for passing unused ports to libp2 so that lighthouse won't have to update
+/// its own ENR.
+///
+/// NOTE: It is possible that libp2p/discv5 is unable to bind to the
+/// ports returned by this function as the OS has a buffer period where
+/// it doesn't allow binding to the same port even after the socket is closed.
+/// We might have to use SO_REUSEADDR socket option from `std::net2` crate in
+/// that case.
+pub fn unused_port(transport: &str) -> Result<u16> {
+    let local_addr = match transport {
+        "tcp" => {
+            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
+                format!("Failed to create TCP listener to find unused port: {:?}", e)
+            })?;
+            listener.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read TCP listener local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        "udp" => {
+            let socket = UdpSocket::bind("127.0.0.1:0")
+                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
+            socket.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read UDP socket local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        _ => return Err("Invalid transport to find unused port".into()),
+    };
+    Ok(local_addr.port())
 }

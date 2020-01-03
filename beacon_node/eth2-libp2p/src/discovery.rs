@@ -21,7 +21,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Delay;
 
 /// Maximum seconds before searching for extra peers.
-const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 60;
+const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
 /// Initial delay between peer searches.
 const INITIAL_SEARCH_DELAY: u64 = 5;
 /// Local ENR storage filename.
@@ -39,7 +39,7 @@ pub struct Discovery<TSubstream> {
     /// The target number of connected peers on the libp2p interface.
     max_peers: usize,
 
-    /// directory to save ENR to
+    /// The directory where the ENR is stored.
     enr_dir: String,
 
     /// The delay between peer discovery searches.
@@ -110,24 +110,6 @@ impl<TSubstream> Discovery<TSubstream> {
         })
     }
 
-    /// Allows the application layer to update the `IP` and `port` of the local ENR. The second
-    /// parameter defines whether the port is a TCP port. If false, this is interpreted as a UDP
-    /// port.
-    pub fn update_local_enr(&mut self, socket: std::net::SocketAddr, is_tcp: bool) {
-        // discv5 checks to see if an update is necessary before performing it, so we do not
-        // need to check here
-        if self.discovery.update_local_enr_socket(socket, is_tcp) {
-            let enr = self.discovery.local_enr();
-            info!(
-            self.log,
-            "ENR Updated";
-            "enr" => enr.to_base64(),
-            "seq" => enr.seq(),
-            "address" => format!("{:?}", socket));
-            save_enr_to_disc(Path::new(&self.enr_dir), enr, &self.log)
-        }
-    }
-
     /// Return the nodes local ENR.
     pub fn local_enr(&self) -> &Enr {
         self.discovery.local_enr()
@@ -158,14 +140,12 @@ impl<TSubstream> Discovery<TSubstream> {
     /// The peer has been banned. Add this peer to the banned list to prevent any future
     /// re-connections.
     // TODO: Remove the peer from the DHT if present
-    // TODO: Implement a timeout, after which we unban the peer
     pub fn peer_banned(&mut self, peer_id: PeerId) {
         self.banned_peers.insert(peer_id);
     }
 
-    /// Returns an iterator over all enr entries in the DHT.
-    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
-        self.discovery.enr_entries()
+    pub fn peer_unbanned(&mut self, peer_id: &PeerId) {
+        self.banned_peers.remove(peer_id);
     }
 
     /// Returns an iterator over all enr entries in the DHT.
@@ -179,18 +159,6 @@ impl<TSubstream> Discovery<TSubstream> {
         let random_node = NodeId::random();
         debug!(self.log, "Searching for peers");
         self.discovery.find_node(random_node);
-
-        // update the time until next discovery
-        let delay = {
-            if self.past_discovery_delay < MAX_TIME_BETWEEN_PEER_SEARCHES {
-                self.past_discovery_delay *= 2;
-                self.past_discovery_delay
-            } else {
-                MAX_TIME_BETWEEN_PEER_SEARCHES
-            }
-        };
-        self.peer_discovery_delay
-            .reset(Instant::now() + Duration::from_secs(delay));
     }
 }
 
@@ -259,6 +227,10 @@ where
                     if self.connected_peers.len() < self.max_peers {
                         self.find_peers();
                     }
+                    // Set to maximum, and update to earlier, once we get our results back.
+                    self.peer_discovery_delay.reset(
+                        Instant::now() + Duration::from_secs(MAX_TIME_BETWEEN_PEER_SEARCHES),
+                    );
                 }
                 Ok(Async::NotReady) => break,
                 Err(e) => {
@@ -290,6 +262,17 @@ where
                         }
                         Discv5Event::FindNodeResult { closer_peers, .. } => {
                             debug!(self.log, "Discovery query completed"; "peers_found" => closer_peers.len());
+                            // update the time to the next query
+                            if self.past_discovery_delay < MAX_TIME_BETWEEN_PEER_SEARCHES {
+                                self.past_discovery_delay *= 2;
+                            }
+                            let delay = std::cmp::max(
+                                self.past_discovery_delay,
+                                MAX_TIME_BETWEEN_PEER_SEARCHES,
+                            );
+                            self.peer_discovery_delay
+                                .reset(Instant::now() + Duration::from_secs(delay));
+
                             if closer_peers.is_empty() {
                                 debug!(self.log, "Discovery random query found no peers");
                             }
