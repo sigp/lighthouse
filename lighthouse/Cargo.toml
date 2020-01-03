@@ -19,3 +19,5 @@ environment = { path = "./environment" }
 futures = "0.1.25"
 validator_client = { "path" = "../validator_client" }
 account_manager = { "path" = "../account_manager" }
+# TODO: remove this once @agemanning adds a permanent fix.
+protobuf = "=2.8.1"
