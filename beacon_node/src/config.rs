@@ -5,10 +5,11 @@ use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::recent_genesis_time;
 use rand::{distributions::Alphanumeric, Rng};
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use ssz::Encode;
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
+use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use types::{Epoch, EthSpec, Fork};
 
@@ -271,14 +272,31 @@ pub fn get_configs<E: EthSpec>(
      * Zero-ports
      *
      * Replaces previously set flags.
+     * Libp2p and discovery ports are set explicitly by selecting
+     * a random free port so that we aren't needlessly updating ENR
+     * from lighthouse.
+     * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        client_config.network.libp2p_port = 0;
-        client_config.network.discovery_port = 0;
+        if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
+            client_config.network.discovery_address = "127.0.0.1".parse().expect("Valid IP address")
+        }
+        client_config.network.libp2p_port =
+            unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
+        client_config.network.discovery_port =
+            unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.rest_api.port = 0;
         client_config.websocket_server.port = 0;
     }
 
+    // ENR ip needs to be explicit for node to be discoverable
+    if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
+        warn!(
+            log,
+            "Discovery address cannot be 0.0.0.0, Setting to to 127.0.0.1"
+        );
+        client_config.network.discovery_address = "127.0.0.1".parse().expect("Valid IP address")
+    }
     Ok((client_config, eth2_config, log))
 }
 
@@ -549,4 +567,45 @@ fn random_string(len: usize) -> String {
         .sample_iter(&Alphanumeric)
         .take(len)
         .collect::<String>()
+}
+
+/// A bit of hack to find an unused port.
+///
+/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// unused before the function started (i.e., it does not reserve a port).
+///
+/// Used for passing unused ports to libp2 so that lighthouse won't have to update
+/// its own ENR.
+///
+/// NOTE: It is possible that libp2p/discv5 is unable to bind to the
+/// ports returned by this function as the OS has a buffer period where
+/// it doesn't allow binding to the same port even after the socket is closed.
+/// We might have to use SO_REUSEADDR socket option from `std::net2` crate in
+/// that case.
+pub fn unused_port(transport: &str) -> Result<u16> {
+    let local_addr = match transport {
+        "tcp" => {
+            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
+                format!("Failed to create TCP listener to find unused port: {:?}", e)
+            })?;
+            listener.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read TCP listener local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        "udp" => {
+            let socket = UdpSocket::bind("127.0.0.1:0")
+                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
+            socket.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read UDP socket local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        _ => return Err("Invalid transport to find unused port".into()),
+    };
+    Ok(local_addr.port())
 }
