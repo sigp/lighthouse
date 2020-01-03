@@ -73,7 +73,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
             .iter()
             .try_for_each(|block| {
                 while state.slot < block.slot {
-                    per_slot_processing(&mut state, spec).unwrap();
+                    per_slot_processing(&mut state, None, spec).unwrap();
                 }
 
                 state
