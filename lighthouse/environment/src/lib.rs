@@ -15,7 +15,6 @@ use std::cell::RefCell;
 use std::ffi::OsStr;
 use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -279,7 +278,7 @@ impl<E: EthSpec> Environment<E> {
         let log_format = log_format.unwrap_or("JSON");
         let drain = match log_format.to_uppercase().as_str() {
             "JSON" => {
-                let drain = Mutex::new(slog_json::Json::default(file)).fuse();
+                let drain = slog_json::Json::default(file).fuse();
                 slog_async::Async::new(drain).build()
             }
             _ => return Err("Logging format provided is not supported".to_string()),
