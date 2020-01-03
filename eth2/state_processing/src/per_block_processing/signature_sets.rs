@@ -249,7 +249,7 @@ fn validator_pubkey<'a, T: EthSpec>(
         .pubkey;
 
     pubkey_bytes
-        .try_into()
+        .cached_decompress()
         .map(|pubkey: PublicKey| Cow::Owned(pubkey.as_raw().point.clone()))
         .map_err(|_| Error::BadBlsBytes {
             validator_index: validator_index as u64,
