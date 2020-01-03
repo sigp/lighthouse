@@ -3,7 +3,6 @@ use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::GossipTopic;
 use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
-use crate::{BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC};
 use enr::Enr;
 use futures::prelude::*;
 use libp2p::{
