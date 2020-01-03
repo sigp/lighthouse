@@ -41,7 +41,7 @@ fn massive_skips() {
 
     // Run per_slot_processing until it returns an error.
     let error = loop {
-        match per_slot_processing(&mut state, spec) {
+        match per_slot_processing(&mut state, None, spec) {
             Ok(_) => continue,
             Err(e) => break e,
         }

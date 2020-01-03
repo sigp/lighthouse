@@ -216,7 +216,7 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
             // Ensure the next epoch state caches are built in case of an epoch transition.
             state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
-            state_processing::per_slot_processing(&mut state, spec)?;
+            state_processing::per_slot_processing(&mut state, None, spec)?;
         }
 
         // Note: this is an expensive operation. Once the tree hash cache is implement it may be
