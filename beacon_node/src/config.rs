@@ -27,6 +27,7 @@ type Config = (ClientConfig, Eth2Config, Logger);
 /// The output of this function depends primarily upon the given `cli_args`, however it's behaviour
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
+#[allow(clippy::cognitive_complexity)]
 pub fn get_configs<E: EthSpec>(
     cli_args: &ArgMatches,
     mut eth2_config: Eth2Config,
@@ -44,7 +45,7 @@ pub fn get_configs<E: EthSpec>(
     // directory onto it.
     client_config.data_dir = cli_args
         .value_of("datadir")
-        .map(PathBuf::from)
+        .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
         .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(BEACON_NODE_DIR)))
         .unwrap_or_else(|| PathBuf::from("."));
 
@@ -300,8 +301,7 @@ fn load_from_datadir(client_config: &mut ClientConfig) -> Result<()> {
         .map_or(false, |path| path.exists())
     {
         return Err(
-            "No database found in datadir. Use 'testnet -f' to overwrite the existing \
-             datadir, or specify a different `--datadir`."
+            "No database found in datadir. Please make sure the directory provided is valid, or specify a different `--datadir`."
                 .into(),
         );
     }
@@ -351,11 +351,8 @@ fn init_new_client<E: EthSpec>(
         .deposit_contract_deploy_block
         .saturating_sub(client_config.eth1.follow_distance * 2);
 
-    if let Some(boot_nodes) = eth2_testnet_config.boot_enr {
-        client_config
-            .network
-            .boot_nodes
-            .append(&mut boot_nodes.clone())
+    if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
+        client_config.network.boot_nodes.append(&mut boot_nodes)
     }
 
     if let Some(genesis_state) = eth2_testnet_config.genesis_state {
@@ -382,7 +379,7 @@ pub fn create_new_datadir(client_config: &ClientConfig, eth2_config: &Eth2Config
         return Err(format!(
             "Data dir already exists at {:?}",
             client_config.data_dir
-        ))?;
+        ));
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -423,11 +420,9 @@ fn process_testnet_subcommand(
     }
 
     // Deletes the existing datadir.
-    if cli_args.is_present("force") {
-        if client_config.data_dir.exists() {
-            fs::remove_dir_all(&client_config.data_dir)
-                .map_err(|e| format!("Unable to delete existing datadir: {:?}", e))?;
-        }
+    if cli_args.is_present("force") && client_config.data_dir.exists() {
+        fs::remove_dir_all(&client_config.data_dir)
+            .map_err(|e| format!("Unable to delete existing datadir: {:?}", e))?;
     }
 
     // Define a percentage of messages that should be propogated, useful for simulating bad network
