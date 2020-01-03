@@ -1,5 +1,5 @@
-use super::manager::SyncMessage;
 use crate::service::NetworkMessage;
+use crate::sync::SyncMessage;
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
@@ -77,7 +77,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         let sync_logger = log.new(o!("service"=> "sync"));
 
         // spawn the sync thread
-        let (sync_send, _sync_exit) = super::manager::spawn(
+        let (sync_send, _sync_exit) = crate::sync::manager::spawn(
             executor,
             Arc::downgrade(&beacon_chain),
             network_send.clone(),
@@ -310,12 +310,22 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             "peer" => format!("{:?}", peer_id),
             "count" => req.count,
             "start_slot" => req.start_slot,
+            "step" => req.step,
         );
+
+        if req.step == 0 {
+            warn!(self.log,
+                "Peer sent invalid range request";
+                "error" => "Step sent was 0");
+            self.network.disconnect(peer_id, GoodbyeReason::Fault);
+            return;
+        }
 
         let mut block_roots = self
             .chain
             .forwards_iter_block_roots(Slot::from(req.start_slot))
-            .take_while(|(_root, slot)| slot.as_u64() < req.start_slot + req.count)
+            .take_while(|(_root, slot)| slot.as_u64() < req.start_slot + req.count * req.step)
+            .step_by(req.step as usize)
             .map(|(root, _slot)| root)
             .collect::<Vec<_>>();
 
@@ -326,7 +336,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
                 // Due to skip slots, blocks could be out of the range, we ensure they are in the
                 // range before sending
-                if block.slot >= req.start_slot && block.slot < req.start_slot + req.count {
+                if block.slot >= req.start_slot
+                    && block.slot < req.start_slot + req.count * req.step
+                {
                     blocks_sent += 1;
                     self.network.send_rpc_response(
                         peer_id.clone(),
@@ -503,7 +515,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                         self.log,
                         "Processed attestation";
                         "source" => "gossip",
-                        "outcome" => format!("{:?}", outcome)
+                        "outcome" => format!("{:?}", outcome),
+                        "peer" => format!("{:?}",peer_id),
+                        "data" => format!("{:?}", msg.data)
                     );
                 }
                 AttestationProcessingOutcome::UnknownHeadBlock { beacon_block_root } => {

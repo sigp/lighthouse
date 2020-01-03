@@ -424,7 +424,7 @@ impl<E: EthSpec> HotColdDB<E> {
 
         for block in blocks {
             while state.slot < block.slot {
-                per_slot_processing(&mut state, &self.spec)
+                per_slot_processing(&mut state, None, &self.spec)
                     .map_err(HotColdDbError::BlockReplaySlotError)?;
             }
             per_block_processing(
@@ -438,7 +438,7 @@ impl<E: EthSpec> HotColdDB<E> {
         }
 
         while state.slot < target_slot {
-            per_slot_processing(&mut state, &self.spec)
+            per_slot_processing(&mut state, None, &self.spec)
                 .map_err(HotColdDbError::BlockReplaySlotError)?;
         }
 

@@ -1,7 +1,6 @@
 use errors::EpochProcessingError as Error;
 use tree_hash::TreeHash;
 use types::*;
-use validator_statuses::{TotalBalances, ValidatorStatuses};
 
 pub mod apply_rewards;
 pub mod errors;
@@ -13,6 +12,7 @@ pub mod validator_statuses;
 pub use apply_rewards::process_rewards_and_penalties;
 pub use process_slashings::process_slashings;
 pub use registry_updates::process_registry_updates;
+pub use validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 
 /// Performs per-epoch processing on some BeaconState.
 ///

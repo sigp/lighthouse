@@ -56,7 +56,7 @@ fn do_transition<T: EthSpec>(
 
     // Transition the parent state to the block slot.
     for i in pre_state.slot.as_u64()..block.slot.as_u64() {
-        per_slot_processing(&mut pre_state, spec)
+        per_slot_processing(&mut pre_state, None, spec)
             .map_err(|e| format!("Failed to advance slot on iteration {}: {:?}", i, e))?;
     }
 
