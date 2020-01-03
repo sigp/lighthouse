@@ -5,6 +5,8 @@ use node_test_rig::ClientConfig;
 use std::time::Duration;
 use types::{Epoch, EthSpec};
 
+/// Verify one node added after `initial_delay` epochs is in sync
+/// after `sync_delay` epochs.
 pub fn verify_one_node_sync<E: EthSpec>(
     network: LocalNetwork<E>,
     beacon_config: ClientConfig,
@@ -27,9 +29,13 @@ pub fn verify_one_node_sync<E: EthSpec>(
         epoch_delay(Epoch::new(sync_delay), slot_duration, E::slots_per_epoch()).map(|_| network)
     })
     .and_then(move |network| network.bootnode_epoch().map(|e| (e, network)))
-    .and_then(move |(epoch, network)| verify_all_finalized_at(network, epoch))
+    .and_then(move |(epoch, network)| {
+        verify_all_finalized_at(network, epoch).map_err(|e| format!("One node sync error: {}", e))
+    })
 }
 
+/// Verify two nodes added after `initial_delay` epochs are in sync
+/// after `sync_delay` epochs.
 pub fn verify_two_nodes_sync<E: EthSpec>(
     network: LocalNetwork<E>,
     beacon_config: ClientConfig,
@@ -55,10 +61,14 @@ pub fn verify_two_nodes_sync<E: EthSpec>(
         epoch_delay(Epoch::new(sync_delay), slot_duration, E::slots_per_epoch()).map(|_| network)
     })
     .and_then(move |network| network.bootnode_epoch().map(|e| (e, network)))
-    .and_then(move |(epoch, network)| verify_all_finalized_at(network, epoch))
+    .and_then(move |(epoch, network)| {
+        verify_all_finalized_at(network, epoch).map_err(|e| format!("Two node sync error: {}", e))
+    })
 }
 
-/// Add 2 syncing nodes, add another node while the first two are syncing
+/// Add 2 syncing nodes after `initial_delay` epochs,
+/// Add another node after `sync_delay - 5` epochs and verify all are
+/// in sync after `sync_delay + 5` epochs.
 pub fn verify_in_between_sync<E: EthSpec>(
     network: LocalNetwork<E>,
     beacon_config: ClientConfig,
@@ -103,5 +113,48 @@ pub fn verify_in_between_sync<E: EthSpec>(
         .map(|_| network)
     })
     .and_then(move |network| network.bootnode_epoch().map(|e| (e, network)))
-    .and_then(move |(epoch, network)| verify_all_finalized_at(network, epoch))
+    .and_then(move |(epoch, network)| {
+        verify_all_finalized_at(network, epoch).map_err(|e| format!("In between sync error: {}", e))
+    })
+}
+
+/// Run syncing strategies one after other.
+pub fn verify_syncing<E: EthSpec>(
+    network: LocalNetwork<E>,
+    beacon_config: ClientConfig,
+    slot_duration: Duration,
+    initial_delay: u64,
+    sync_delay: u64,
+) -> impl Future<Item = (), Error = String> {
+    verify_one_node_sync(
+        network.clone(),
+        beacon_config.clone(),
+        slot_duration,
+        initial_delay,
+        sync_delay,
+    )
+    .map(|_| println!("Completed one node sync"))
+    .and_then(move |_| {
+        verify_two_nodes_sync(
+            network.clone(),
+            beacon_config.clone(),
+            slot_duration,
+            initial_delay,
+            sync_delay,
+        )
+        .map(|_| {
+            println!("Completed two node sync");
+            (network, beacon_config)
+        })
+    })
+    .and_then(move |(network, beacon_config)| {
+        verify_in_between_sync(
+            network,
+            beacon_config,
+            slot_duration,
+            initial_delay,
+            sync_delay,
+        )
+        .map(|_| println!("Completed in between sync"))
+    })
 }

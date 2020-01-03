@@ -162,8 +162,8 @@ fn syncing_sim(
                 };
 
             future::ok(())
-                // Check syncing with one node
-                .join(verify_in_between_sync(
+                // Check all syncing strategies one after other.
+                .join(verify_syncing(
                     network.clone(),
                     beacon_config.clone(),
                     slot_duration,
