@@ -4,6 +4,7 @@ use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
 use crate::{BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC};
+use enr::Enr;
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
@@ -81,10 +82,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 
     pub fn discovery(&self) -> &Discovery<TSubstream> {
         &self.discovery
-    }
-
-    pub fn discovery_mut(&mut self) -> &mut Discovery<TSubstream> {
-        &mut self.discovery
     }
 
     pub fn gs(&self) -> &Gossipsub<TSubstream> {
@@ -248,6 +245,16 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     /// Informs the discovery behaviour if a new IP/Port is set at the application layer
     pub fn update_local_enr_socket(&mut self, socket: std::net::SocketAddr, is_tcp: bool) {
         self.discovery.update_local_enr(socket, is_tcp);
+    }
+
+    /// Returns an iterator over all enr entries in the DHT.
+    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
+        self.discovery.enr_entries()
+    }
+
+    /// Add an ENR to the routing table of the discovery mechanism.
+    pub fn add_enr(&mut self, enr: Enr) {
+        self.discovery.add_enr(enr);
     }
 }
 
