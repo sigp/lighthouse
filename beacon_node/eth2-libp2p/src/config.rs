@@ -95,7 +95,8 @@ impl Default for Config {
             gs_config: GossipsubConfigBuilder::new()
                 .max_transmit_size(1_048_576)
                 .heartbeat_interval(Duration::from_secs(20)) // TODO: Reduce for mainnet
-                .manual_propagation(true) // require validation before propagation
+                .manual_propagation() // require validation before propagation
+                .no_source_id()
                 .message_id_fn(gossip_message_id)
                 .build(),
             boot_nodes: vec![],
