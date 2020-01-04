@@ -129,6 +129,10 @@ fn return_validator_duties<T: BeaconChainTypes>(
     state
         .update_pubkey_cache()
         .map_err(|e| ApiError::ServerError(format!("Unable to build pubkey cache: {:?}", e)))?;
+    state.update_proposer_indices_cache(
+        epoch.start_slot(T::EthSpec::slots_per_epoch()),
+        &beacon_chain.spec,
+    )?;
 
     // Get a list of all validators for this epoch.
     //

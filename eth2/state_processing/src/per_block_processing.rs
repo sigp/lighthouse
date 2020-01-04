@@ -94,6 +94,7 @@ pub fn per_block_processing<T: EthSpec>(
     // Ensure the current and previous epoch caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
+    state.update_proposer_indices_cache(state.slot, spec)?;
 
     process_randao(&mut state, &block, verify_signatures, &spec)?;
     process_eth1_data(&mut state, &block.body.eth1_data)?;

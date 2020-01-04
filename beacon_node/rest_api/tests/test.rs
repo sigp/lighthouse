@@ -263,7 +263,7 @@ fn check_duties<T: BeaconChainTypes>(
         "there should be a duty for each validator"
     );
 
-    let state = beacon_chain
+    let mut state = beacon_chain
         .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
         .expect("should get state at slot");
 
@@ -303,6 +303,9 @@ fn check_duties<T: BeaconChainTypes>(
 
             if !duty.block_proposal_slots.is_empty() {
                 for slot in &duty.block_proposal_slots {
+                    state
+                        .update_proposer_indices_cache(*slot, &spec)
+                        .expect("should update proposer indices cache");
                     let expected_proposer = state
                         .get_beacon_proposer_index(*slot)
                         .expect("should know proposer");

@@ -58,6 +58,11 @@ pub enum Error {
         registry_len: usize,
     },
     ProposerIndicesCacheIncomplete,
+    // Epoch was not initialized
+    ProposerIndicesEpochCacheUninitialized,
+    // Slot requested has not been cached
+    ProposerIndicesCacheMismatch,
+    // Indices were not initalized
     ProposerIndicesCacheUninitialized,
     PreviousCommitteeCacheUninitialized,
     CurrentCommitteeCacheUninitialized,
@@ -884,7 +889,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.tree_hash_cache = BeaconTreeHashCache::default();
     }
 
-    /// Builds the cache of updates it (if the provided epoch does not match the one currently in the cache).
+    /// Updates the cache.
     pub fn update_proposer_indices_cache(
         &mut self,
         slot: Slot,

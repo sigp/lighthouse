@@ -598,6 +598,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        state.update_proposer_indices_cache(slot, &self.spec)?;
 
         if epoch(state.slot) != epoch(slot) {
             return Err(Error::InvariantViolated(format!(
@@ -1262,6 +1263,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        state.update_proposer_indices_cache(state.slot, &self.spec)?;
 
         metrics::stop_timer(committee_timer);
 

@@ -427,6 +427,7 @@ impl<E: EthSpec> HotColdDB<E> {
                 per_slot_processing(&mut state, &self.spec)
                     .map_err(HotColdDbError::BlockReplaySlotError)?;
             }
+            state.update_proposer_indices_cache(block.slot, &self.spec)?;
             per_block_processing(
                 &mut state,
                 &block,
