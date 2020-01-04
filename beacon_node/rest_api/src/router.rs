@@ -1,5 +1,5 @@
 use crate::{
-    beacon, error::ApiError, helpers, metrics, network, node, spec, validator, BoxFut,
+    beacon, consensus, error::ApiError, helpers, metrics, network, node, spec, validator, BoxFut,
     NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -27,6 +27,7 @@ pub fn route<T: BeaconChainTypes>(
     eth2_config: Arc<Eth2Config>,
     local_log: slog::Logger,
     db_path: PathBuf,
+    freezer_db_path: PathBuf,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     metrics::inc_counter(&metrics::REQUEST_COUNT);
     let timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
@@ -64,45 +65,56 @@ pub fn route<T: BeaconChainTypes>(
 
             // Methods for Beacon Node
             (&Method::GET, "/beacon/head") => into_boxfut(beacon::get_head::<T>(req, beacon_chain)),
+            (&Method::GET, "/beacon/heads") => {
+                into_boxfut(beacon::get_heads::<T>(req, beacon_chain))
+            }
             (&Method::GET, "/beacon/block") => {
                 into_boxfut(beacon::get_block::<T>(req, beacon_chain))
             }
             (&Method::GET, "/beacon/block_root") => {
                 into_boxfut(beacon::get_block_root::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/blocks") => {
-                into_boxfut(helpers::implementation_pending_response(req))
-            }
             (&Method::GET, "/beacon/fork") => into_boxfut(beacon::get_fork::<T>(req, beacon_chain)),
-            (&Method::GET, "/beacon/attestations") => {
-                into_boxfut(helpers::implementation_pending_response(req))
-            }
-            (&Method::GET, "/beacon/attestations/pending") => {
-                into_boxfut(helpers::implementation_pending_response(req))
-            }
             (&Method::GET, "/beacon/genesis_time") => {
                 into_boxfut(beacon::get_genesis_time::<T>(req, beacon_chain))
             }
-
             (&Method::GET, "/beacon/validators") => {
                 into_boxfut(beacon::get_validators::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/validators/indicies") => {
-                into_boxfut(helpers::implementation_pending_response(req))
+            (&Method::POST, "/beacon/validators") => {
+                into_boxfut(beacon::post_validators::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/validators/pubkeys") => {
-                into_boxfut(helpers::implementation_pending_response(req))
+            (&Method::GET, "/beacon/validators/all") => {
+                into_boxfut(beacon::get_all_validators::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/validators/active") => {
+                into_boxfut(beacon::get_active_validators::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/state") => {
+                into_boxfut(beacon::get_state::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/state_root") => {
+                into_boxfut(beacon::get_state_root::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/state/genesis") => {
+                into_boxfut(beacon::get_genesis_state::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/committees") => {
+                into_boxfut(beacon::get_committees::<T>(req, beacon_chain))
             }
 
             // Methods for Validator
-            (&Method::GET, "/validator/duties") => {
-                into_boxfut(validator::get_validator_duties::<T>(req, beacon_chain))
-            }
             (&Method::POST, "/validator/duties") => {
                 validator::post_validator_duties::<T>(req, beacon_chain)
             }
+            (&Method::GET, "/validator/duties/all") => {
+                into_boxfut(validator::get_all_validator_duties::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/validator/duties/active") => into_boxfut(
+                validator::get_active_validator_duties::<T>(req, beacon_chain),
+            ),
             (&Method::GET, "/validator/block") => {
-                into_boxfut(validator::get_new_beacon_block::<T>(req, beacon_chain))
+                into_boxfut(validator::get_new_beacon_block::<T>(req, beacon_chain, log))
             }
             (&Method::POST, "/validator/block") => {
                 validator::publish_beacon_block::<T>(req, beacon_chain, network_channel, log)
@@ -114,19 +126,12 @@ pub fn route<T: BeaconChainTypes>(
                 validator::publish_attestation::<T>(req, beacon_chain, network_channel, log)
             }
 
-            (&Method::GET, "/beacon/state") => {
-                into_boxfut(beacon::get_state::<T>(req, beacon_chain))
+            (&Method::GET, "/consensus/global_votes") => {
+                into_boxfut(consensus::get_vote_count::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/state_root") => {
-                into_boxfut(beacon::get_state_root::<T>(req, beacon_chain))
+            (&Method::POST, "/consensus/individual_votes") => {
+                consensus::post_individual_votes::<T>(req, beacon_chain)
             }
-            (&Method::GET, "/beacon/state/current_finalized_checkpoint") => into_boxfut(
-                beacon::get_current_finalized_checkpoint::<T>(req, beacon_chain),
-            ),
-            (&Method::GET, "/beacon/state/genesis") => {
-                into_boxfut(beacon::get_genesis_state::<T>(req, beacon_chain))
-            }
-            //TODO: Add aggreggate/filtered state lookups here, e.g. /beacon/validators/balances
 
             // Methods for bootstrap and checking configuration
             (&Method::GET, "/spec") => into_boxfut(spec::get_spec::<T>(req, beacon_chain)),
@@ -140,9 +145,12 @@ pub fn route<T: BeaconChainTypes>(
                 into_boxfut(spec::get_eth2_config::<T>(req, eth2_config))
             }
 
-            (&Method::GET, "/metrics") => {
-                into_boxfut(metrics::get_prometheus::<T>(req, beacon_chain, db_path))
-            }
+            (&Method::GET, "/metrics") => into_boxfut(metrics::get_prometheus::<T>(
+                req,
+                beacon_chain,
+                db_path,
+                freezer_db_path,
+            )),
 
             _ => Box::new(futures::future::err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
@@ -154,7 +162,7 @@ pub fn route<T: BeaconChainTypes>(
     // (e.g., a response with a 404 or 500 status).
     request_result.then(move |result| match result {
         Ok(response) => {
-            debug!(local_log, "Request successful: {:?}", path);
+            debug!(local_log, "HTTP API request successful"; "path" => path);
             metrics::inc_counter(&metrics::SUCCESS_COUNT);
             metrics::stop_timer(timer);
 
@@ -163,7 +171,7 @@ pub fn route<T: BeaconChainTypes>(
         Err(e) => {
             let error_response = e.into();
 
-            debug!(local_log, "Request failure: {:?}", path);
+            debug!(local_log, "HTTP API request failure"; "path" => path);
             metrics::stop_timer(timer);
 
             Ok(error_response)

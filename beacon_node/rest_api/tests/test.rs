@@ -3,14 +3,17 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
-    testing_client_config, ClientGenesis, LocalBeaconNode,
+    testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode,
 };
-use remote_beacon_node::{PublishStatus, ValidatorDuty};
+use remote_beacon_node::{
+    Committee, HeadBeaconBlock, PublishStatus, ValidatorDuty, ValidatorResponse,
+};
+use std::convert::TryInto;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec,
-    MinimalEthSpec, PublicKey, RelativeEpoch, Signature, Slot,
+    test_utils::generate_deterministic_keypair, BeaconBlock, BeaconState, ChainSpec, Domain, Epoch,
+    EthSpec, MinimalEthSpec, PublicKey, RelativeEpoch, Signature, Slot, Validator,
 };
 use version;
 
@@ -24,6 +27,13 @@ fn build_env() -> Environment<E> {
         .expect("should start tokio runtime")
         .build()
         .expect("environment should build")
+}
+
+fn build_node<E: EthSpec>(env: &mut Environment<E>, config: ClientConfig) -> LocalBeaconNode<E> {
+    let context = env.core_context();
+    env.runtime()
+        .block_on(LocalBeaconNode::production(context, config))
+        .expect("should block until node created")
 }
 
 /// Returns the randao reveal for the given slot (assuming the given `beacon_chain` uses
@@ -64,7 +74,7 @@ fn validator_produce_attestation() {
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env, testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -155,49 +165,12 @@ fn validator_produce_attestation() {
 }
 
 #[test]
-fn validator_duties_bulk() {
-    let mut env = build_env();
-
-    let spec = &E::default_spec();
-
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
-    let remote_node = node.remote_node().expect("should produce remote node");
-
-    let beacon_chain = node
-        .client
-        .beacon_chain()
-        .expect("client should have beacon chain");
-
-    let epoch = Epoch::new(0);
-
-    let validators = beacon_chain
-        .head()
-        .beacon_state
-        .validators
-        .iter()
-        .map(|v| v.pubkey.clone())
-        .collect::<Vec<_>>();
-
-    let duties = env
-        .runtime()
-        .block_on(
-            remote_node
-                .http
-                .validator()
-                .get_duties_bulk(epoch, &validators),
-        )
-        .expect("should fetch duties from http api");
-
-    check_duties(duties, epoch, validators, beacon_chain, spec);
-}
-
-#[test]
 fn validator_duties() {
     let mut env = build_env();
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env, testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -205,14 +178,14 @@ fn validator_duties() {
         .beacon_chain()
         .expect("client should have beacon chain");
 
-    let epoch = Epoch::new(0);
+    let mut epoch = Epoch::new(0);
 
     let validators = beacon_chain
         .head()
         .beacon_state
         .validators
         .iter()
-        .map(|v| v.pubkey.clone())
+        .map(|v| (&v.pubkey).try_into().expect("pubkey should be valid"))
         .collect::<Vec<_>>();
 
     let duties = env
@@ -220,7 +193,26 @@ fn validator_duties() {
         .block_on(remote_node.http.validator().get_duties(epoch, &validators))
         .expect("should fetch duties from http api");
 
+    // 1. Check at the current epoch.
+    check_duties(
+        duties,
+        epoch,
+        validators.clone(),
+        beacon_chain.clone(),
+        spec,
+    );
+
+    epoch += 4;
+    let duties = env
+        .runtime()
+        .block_on(remote_node.http.validator().get_duties(epoch, &validators))
+        .expect("should fetch duties from http api");
+
+    // 2. Check with a long skip forward.
     check_duties(duties, epoch, validators, beacon_chain, spec);
+
+    // TODO: test an epoch in the past. Blocked because the `LocalBeaconNode` cannot produce a
+    // chain, yet.
 }
 
 fn check_duties<T: BeaconChainTypes>(
@@ -236,16 +228,24 @@ fn check_duties<T: BeaconChainTypes>(
         "there should be a duty for each validator"
     );
 
-    let state = beacon_chain.head().beacon_state.clone();
+    let state = beacon_chain
+        .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+        .expect("should get state at slot");
 
     validators
         .iter()
         .zip(duties.iter())
         .for_each(|(validator, duty)| {
-            assert_eq!(*validator, duty.validator_pubkey, "pubkey should match");
+            assert_eq!(
+                *validator,
+                (&duty.validator_pubkey)
+                    .try_into()
+                    .expect("should be valid pubkey"),
+                "pubkey should match"
+            );
 
             let validator_index = state
-                .get_validator_index(validator)
+                .get_validator_index(&validator.clone().into())
                 .expect("should have pubkey cache")
                 .expect("pubkey should exist");
 
@@ -266,14 +266,16 @@ fn check_duties<T: BeaconChainTypes>(
                 "attestation index should match"
             );
 
-            if let Some(slot) = duty.block_proposal_slot {
-                let expected_proposer = state
-                    .get_beacon_proposer_index(slot, spec)
-                    .expect("should know proposer");
-                assert_eq!(
-                    expected_proposer, validator_index,
-                    "should get correct proposal slot"
-                );
+            if !duty.block_proposal_slots.is_empty() {
+                for slot in &duty.block_proposal_slots {
+                    let expected_proposer = state
+                        .get_beacon_proposer_index(*slot, spec)
+                        .expect("should know proposer");
+                    assert_eq!(
+                        expected_proposer, validator_index,
+                        "should get correct proposal slot"
+                    );
+                }
             } else {
                 epoch.slot_iter(E::slots_per_epoch()).for_each(|slot| {
                     let slot_proposer = state
@@ -286,6 +288,16 @@ fn check_duties<T: BeaconChainTypes>(
                 })
             }
         });
+
+    // Validator duties should include a proposer for every slot of the epoch.
+    let mut all_proposer_slots: Vec<Slot> = duties
+        .iter()
+        .flat_map(|duty| duty.block_proposal_slots.clone())
+        .collect();
+    all_proposer_slots.sort();
+
+    let all_slots: Vec<Slot> = epoch.slot_iter(E::slots_per_epoch()).collect();
+    assert_eq!(all_proposer_slots, all_slots);
 }
 
 #[test]
@@ -300,7 +312,7 @@ fn validator_block_post() {
         genesis_time: 13_371_337,
     };
 
-    let node = LocalBeaconNode::production(env.core_context(), config);
+    let node = build_node(&mut env, config);
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -358,6 +370,23 @@ fn validator_block_post() {
         head.block_root, block_root,
         "the published block should become the head block"
     );
+
+    // Note: this heads check is not super useful for this test, however it is include so it get
+    // _some_ testing. If you remove this call, make sure it's tested somewhere else.
+    let heads = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_heads())
+        .expect("should get heads");
+
+    assert_eq!(heads.len(), 1, "there should be only one head");
+    assert_eq!(
+        heads,
+        vec![HeadBeaconBlock {
+            beacon_block_root: head.block_root,
+            beacon_block_slot: head.slot,
+        }],
+        "there should be only one head"
+    );
 }
 
 #[test]
@@ -366,7 +395,7 @@ fn validator_block_get() {
 
     let spec = &E::default_spec();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env, testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let beacon_chain = node
@@ -404,7 +433,7 @@ fn validator_block_get() {
 fn beacon_state() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env, testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let (state_by_slot, root) = env
@@ -448,7 +477,7 @@ fn beacon_state() {
 fn beacon_block() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env, testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let (block_by_slot, root) = env
@@ -492,7 +521,7 @@ fn beacon_block() {
 fn genesis_time() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env, testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let genesis_time = env
@@ -516,7 +545,7 @@ fn genesis_time() {
 fn fork() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env, testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let fork = env
@@ -540,7 +569,7 @@ fn fork() {
 fn eth2_config() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env, testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let eth2_config = env
@@ -564,7 +593,7 @@ fn eth2_config() {
 fn get_version() {
     let mut env = build_env();
 
-    let node = LocalBeaconNode::production(env.core_context(), testing_client_config());
+    let node = build_node(&mut env, testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let version = env
@@ -573,4 +602,195 @@ fn get_version() {
         .expect("should fetch eth2 config from http api");
 
     assert_eq!(version::version(), version, "result should be as expected");
+}
+
+#[test]
+fn get_genesis_state_root() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let slot = Slot::new(0);
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_state_root(slot))
+        .expect("should fetch from http api");
+
+    let expected = node
+        .client
+        .beacon_chain()
+        .expect("should have beacon chain")
+        .rev_iter_state_roots()
+        .find(|(_cur_root, cur_slot)| slot == *cur_slot)
+        .map(|(cur_root, _)| cur_root)
+        .expect("chain should have state root at slot");
+
+    assert_eq!(result, expected, "result should be as expected");
+}
+
+#[test]
+fn get_genesis_block_root() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let slot = Slot::new(0);
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_block_root(slot))
+        .expect("should fetch from http api");
+
+    let expected = node
+        .client
+        .beacon_chain()
+        .expect("should have beacon chain")
+        .rev_iter_block_roots()
+        .find(|(_cur_root, cur_slot)| slot == *cur_slot)
+        .map(|(cur_root, _)| cur_root)
+        .expect("chain should have state root at slot");
+
+    assert_eq!(result, expected, "result should be as expected");
+}
+
+#[test]
+fn get_validators() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+    let state = &chain.head().beacon_state;
+
+    let validators = state.validators.iter().take(2).collect::<Vec<_>>();
+    let pubkeys = validators
+        .iter()
+        .map(|v| (&v.pubkey).try_into().expect("should decode pubkey bytes"))
+        .collect();
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_validators(pubkeys, None))
+        .expect("should fetch from http api");
+
+    result
+        .iter()
+        .zip(validators.iter())
+        .for_each(|(response, validator)| compare_validator_response(state, response, validator));
+}
+
+#[test]
+fn get_all_validators() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+    let state = &chain.head().beacon_state;
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_all_validators(None))
+        .expect("should fetch from http api");
+
+    result
+        .iter()
+        .zip(state.validators.iter())
+        .for_each(|(response, validator)| compare_validator_response(state, response, validator));
+}
+
+#[test]
+fn get_active_validators() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+    let state = &chain.head().beacon_state;
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_active_validators(None))
+        .expect("should fetch from http api");
+
+    /*
+     * This test isn't comprehensive because all of the validators in the state are active (i.e.,
+     * there is no one to exclude.
+     *
+     * This should be fixed once we can generate more interesting scenarios with the
+     * `NodeTestRig`.
+     */
+
+    let validators = state
+        .validators
+        .iter()
+        .filter(|validator| validator.is_active_at(state.current_epoch()));
+
+    result
+        .iter()
+        .zip(validators)
+        .for_each(|(response, validator)| compare_validator_response(state, response, validator));
+}
+
+#[test]
+fn get_committees() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+
+    let epoch = Epoch::new(0);
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_committees(epoch))
+        .expect("should fetch from http api");
+
+    let expected = chain
+        .head()
+        .beacon_state
+        .get_beacon_committees_at_epoch(RelativeEpoch::Current)
+        .expect("should get committees")
+        .iter()
+        .map(|c| Committee {
+            slot: c.slot,
+            index: c.index,
+            committee: c.committee.to_vec(),
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(result, expected, "result should be as expected");
+}
+
+fn compare_validator_response<T: EthSpec>(
+    state: &BeaconState<T>,
+    response: &ValidatorResponse,
+    validator: &Validator,
+) {
+    let response_validator = response.validator.clone().expect("should have validator");
+    let i = response
+        .validator_index
+        .expect("should have validator index");
+    let balance = response.balance.expect("should have balance");
+
+    assert_eq!(response.pubkey, validator.pubkey, "pubkey");
+    assert_eq!(response_validator, *validator, "validator");
+    assert_eq!(state.balances[i], balance, "balances");
+    assert_eq!(state.validators[i], *validator, "validator index");
 }

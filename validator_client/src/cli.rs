@@ -4,7 +4,8 @@ use clap::{App, Arg, SubCommand};
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("validator_client")
         .visible_aliases(&["v", "vc", "validator"])
-        .about("Ethereum 2.0 Validator Client")
+        .about("When connected to a beacon node, performs the duties of a staked \
+                validator (e.g., proposing blocks and attestations).")
         .arg(
             Arg::with_name("server")
                 .long("server")

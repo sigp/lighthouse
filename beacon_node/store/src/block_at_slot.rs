@@ -1,7 +1,7 @@
 use super::*;
 use ssz::{Decode, DecodeError};
 
-fn get_block_bytes<T: Store, E: EthSpec>(
+fn get_block_bytes<T: Store<E>, E: EthSpec>(
     store: &T,
     root: Hash256,
 ) -> Result<Option<Vec<u8>>, Error> {
@@ -23,7 +23,7 @@ fn read_parent_root_from_block_bytes(bytes: &[u8]) -> Result<Hash256, DecodeErro
     Hash256::from_ssz_bytes(slice)
 }
 
-pub fn get_block_at_preceeding_slot<T: Store, E: EthSpec>(
+pub fn get_block_at_preceeding_slot<T: Store<E>, E: EthSpec>(
     store: &T,
     slot: Slot,
     start_root: Hash256,
@@ -36,7 +36,7 @@ pub fn get_block_at_preceeding_slot<T: Store, E: EthSpec>(
     )
 }
 
-fn get_at_preceeding_slot<T: Store, E: EthSpec>(
+fn get_at_preceeding_slot<T: Store<E>, E: EthSpec>(
     store: &T,
     slot: Slot,
     mut root: Hash256,
@@ -107,7 +107,7 @@ mod tests {
     }
 
     fn build_chain(
-        store: &impl Store,
+        store: &impl Store<MinimalEthSpec>,
         slots: &[usize],
         spec: &ChainSpec,
     ) -> Vec<(Hash256, BeaconBlock)> {
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn chain_with_skips() {
-        let store = MemoryStore::open();
+        let store = MemoryStore::<MinimalEthSpec>::open();
         let spec = MinimalEthSpec::default_spec();
 
         let slots = vec![0, 1, 2, 5];
@@ -181,14 +181,14 @@ mod tests {
         // Slot that doesn't exist
         let (source_root, _source_block) = &blocks_and_roots[3];
         assert!(store
-            .get_block_at_preceeding_slot::<MinimalEthSpec>(*source_root, Slot::new(3))
+            .get_block_at_preceeding_slot(*source_root, Slot::new(3))
             .unwrap()
             .is_none());
 
         // Slot too high
         let (source_root, _source_block) = &blocks_and_roots[3];
         assert!(store
-            .get_block_at_preceeding_slot::<MinimalEthSpec>(*source_root, Slot::new(3))
+            .get_block_at_preceeding_slot(*source_root, Slot::new(3))
             .unwrap()
             .is_none());
     }

@@ -1,9 +1,8 @@
+use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
-    http::{
-        get_block, get_block_number, get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
-    },
+    http::{get_block, get_block_number, get_deposit_logs_in_range},
     inner::{DepositUpdater, Inner},
     DepositLog,
 };
@@ -26,14 +25,10 @@ const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getBlockByNumber call.
 const GET_BLOCK_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
-/// Timeout when doing an eth_call to read the deposit contract root.
-const GET_DEPOSIT_ROOT_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
-/// Timeout when doing an eth_call to read the deposit contract deposit count.
-const GET_DEPOSIT_COUNT_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getLogs to read the deposit contract logs.
 const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// The remote node is less synced that we expect, it is not useful until has done more
     /// syncing.
@@ -117,11 +112,11 @@ impl Default for Config {
         Self {
             endpoint: "http://localhost:8545".into(),
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
-            deposit_contract_deploy_block: 0,
-            lowest_cached_block_number: 0,
+            deposit_contract_deploy_block: 1,
+            lowest_cached_block_number: 1,
             follow_distance: 128,
             block_cache_truncation: Some(4_096),
-            auto_update_interval_millis: 500,
+            auto_update_interval_millis: 7_000,
             blocks_per_log_query: 1_000,
             max_log_requests_per_update: None,
             max_blocks_per_update: None,
@@ -146,6 +141,9 @@ impl Service {
     pub fn new(config: Config, log: Logger) -> Self {
         Self {
             inner: Arc::new(Inner {
+                deposit_cache: RwLock::new(DepositUpdater::new(
+                    config.deposit_contract_deploy_block,
+                )),
                 config: RwLock::new(config),
                 ..Inner::default()
             }),
@@ -161,6 +159,26 @@ impl Service {
     /// Provides access to the deposit cache.
     pub fn deposits(&self) -> &RwLock<DepositUpdater> {
         &self.inner.deposit_cache
+    }
+
+    /// Drop the block cache, replacing it with an empty one.
+    pub fn drop_block_cache(&self) {
+        *(self.inner.block_cache.write()) = BlockCache::default();
+    }
+
+    /// Returns the timestamp of the earliest block in the cache (if any).
+    pub fn earliest_block_timestamp(&self) -> Option<u64> {
+        self.inner.block_cache.read().earliest_block_timestamp()
+    }
+
+    /// Returns the timestamp of the latest block in the cache (if any).
+    pub fn latest_block_timestamp(&self) -> Option<u64> {
+        self.inner.block_cache.read().latest_block_timestamp()
+    }
+
+    /// Returns the lowest block number stored.
+    pub fn lowest_block_number(&self) -> Option<u64> {
+        self.inner.block_cache.read().lowest_block_number()
     }
 
     /// Returns the number of currently cached blocks.
@@ -220,6 +238,8 @@ impl Service {
     {
         let log_a = self.log.clone();
         let log_b = self.log.clone();
+        let inner_1 = self.inner.clone();
+        let inner_2 = self.inner.clone();
 
         let deposit_future = self
             .update_deposit_cache()
@@ -229,7 +249,9 @@ impl Service {
                     Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => trace!(
                         log_a,
                         "Updated eth1 deposit cache";
+                        "cached_deposits" => inner_1.deposit_cache.read().cache.len(),
                         "logs_imported" => logs_imported,
+                        "last_processed_eth1_block" => inner_1.deposit_cache.read().last_processed_block,
                     ),
                     Err(e) => error!(
                         log_a,
@@ -252,6 +274,7 @@ impl Service {
                     }) => trace!(
                         log_b,
                         "Updated eth1 block cache";
+                        "cached_blocks" => inner_2.block_cache.read().len(),
                         "blocks_imported" => blocks_imported,
                         "head_block" => head_block_number,
                     ),
@@ -282,8 +305,7 @@ impl Service {
         let log = self.log.clone();
         let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
 
-        loop_fn((), move |()| {
-            let exit = exit.clone();
+        let loop_future = loop_fn((), move |()| {
             let service = service.clone();
             let log_a = log.clone();
             let log_b = log.clone();
@@ -320,16 +342,11 @@ impl Service {
                         );
                     }
                     // Do not break the loop if there is an timer failure.
-                    Ok(())
+                    Ok(Loop::Continue(()))
                 })
-                .map(move |_| {
-                    if exit.is_live() {
-                        Loop::Continue(())
-                    } else {
-                        Loop::Break(())
-                    }
-                })
-        })
+        });
+
+        exit.until(loop_future).map(|_: Option<()>| ())
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured
@@ -443,6 +460,12 @@ impl Service {
 
                 cache.last_processed_block = Some(block_range.end.saturating_sub(1));
 
+                metrics::set_gauge(&metrics::DEPOSIT_CACHE_LEN, cache.cache.len() as i64);
+                metrics::set_gauge(
+                    &metrics::HIGHEST_PROCESSED_DEPOSIT_BLOCK,
+                    cache.last_processed_block.unwrap_or_else(|| 0) as i64,
+                );
+
                 Ok(sum)
             })
             .map(|logs_imported| DepositCacheUpdateOutcome::Success { logs_imported })
@@ -466,6 +489,7 @@ impl Service {
         let cache_3 = self.inner.clone();
         let cache_4 = self.inner.clone();
         let cache_5 = self.inner.clone();
+        let cache_6 = self.inner.clone();
 
         let block_cache_truncation = self.config().block_cache_truncation;
         let max_blocks_per_update = self
@@ -502,7 +526,6 @@ impl Service {
                         let max_size = block_cache_truncation
                             .map(|n| n as u64)
                             .unwrap_or_else(u64::max_value);
-
                         if range_size > max_size {
                             // If the range of required blocks is larger than `max_size`, drop all
                             // existing blocks and download `max_size` count of blocks.
@@ -518,14 +541,22 @@ impl Service {
         })
         // Download the range of blocks and sequentially import them into the cache.
         .and_then(move |required_block_numbers| {
+            // Last processed block in deposit cache
+            let latest_in_cache = cache_6
+                .deposit_cache
+                .read()
+                .last_processed_block
+                .unwrap_or(0);
+
             let required_block_numbers = required_block_numbers
                 .into_iter()
-                .take(max_blocks_per_update);
-
+                .filter(|x| *x <= latest_in_cache)
+                .take(max_blocks_per_update)
+                .collect::<Vec<_>>();
             // Produce a stream from the list of required block numbers and return a future that
             // consumes the it.
             stream::unfold(
-                required_block_numbers,
+                required_block_numbers.into_iter(),
                 move |mut block_numbers| match block_numbers.next() {
                     Some(block_number) => Some(
                         download_eth1_block(cache_2.clone(), block_number)
@@ -541,12 +572,30 @@ impl Service {
                     .insert_root_or_child(eth1_block)
                     .map_err(Error::FailedToInsertEth1Block)?;
 
+                metrics::set_gauge(
+                    &metrics::BLOCK_CACHE_LEN,
+                    cache_3.block_cache.read().len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::LATEST_CACHED_BLOCK_TIMESTAMP,
+                    cache_3
+                        .block_cache
+                        .read()
+                        .latest_block_timestamp()
+                        .unwrap_or_else(|| 0) as i64,
+                );
+
                 Ok(sum + 1)
             })
         })
         .and_then(move |blocks_imported| {
             // Prune the block cache, preventing it from growing too large.
             cache_4.prune_blocks();
+
+            metrics::set_gauge(
+                &metrics::BLOCK_CACHE_LEN,
+                cache_4.block_cache.read().len() as i64,
+            );
 
             Ok(BlockCacheUpdateOutcome::Success {
                 blocks_imported,
@@ -596,6 +645,16 @@ fn download_eth1_block<'a>(
     cache: Arc<Inner>,
     block_number: u64,
 ) -> impl Future<Item = Eth1Block, Error = Error> + 'a {
+    let deposit_root = cache
+        .deposit_cache
+        .read()
+        .cache
+        .get_deposit_root_from_cache(block_number);
+    let deposit_count = cache
+        .deposit_cache
+        .read()
+        .cache
+        .get_deposit_count_from_cache(block_number);
     // Performs a `get_blockByNumber` call to an eth1 node.
     get_block(
         &cache.config.read().endpoint,
@@ -603,24 +662,7 @@ fn download_eth1_block<'a>(
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
     .map_err(Error::BlockDownloadFailed)
-    .join3(
-        // Perform 2x `eth_call` via an eth1 node to read the deposit contract root and count.
-        get_deposit_root(
-            &cache.config.read().endpoint,
-            &cache.config.read().deposit_contract_address,
-            block_number,
-            Duration::from_millis(GET_DEPOSIT_ROOT_TIMEOUT_MILLIS),
-        )
-        .map_err(Error::GetDepositRootFailed),
-        get_deposit_count(
-            &cache.config.read().endpoint,
-            &cache.config.read().deposit_contract_address,
-            block_number,
-            Duration::from_millis(GET_DEPOSIT_COUNT_TIMEOUT_MILLIS),
-        )
-        .map_err(Error::GetDepositCountFailed),
-    )
-    .map(|(http_block, deposit_root, deposit_count)| Eth1Block {
+    .map(move |http_block| Eth1Block {
         hash: http_block.hash,
         number: http_block.number,
         timestamp: http_block.timestamp,

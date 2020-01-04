@@ -1,9 +1,9 @@
 use clap::ArgMatches;
 use serde::Serialize;
 use ssz::Decode;
-use types::{BeaconBlock, BeaconState, MinimalEthSpec};
+use types::{BeaconBlock, BeaconState, EthSpec};
 
-pub fn run_parse_hex(matches: &ArgMatches) -> Result<(), String> {
+pub fn run_parse_hex<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let type_str = matches
         .value_of("type")
         .ok_or_else(|| "No type supplied".to_string())?;
@@ -22,8 +22,8 @@ pub fn run_parse_hex(matches: &ArgMatches) -> Result<(), String> {
     info!("Type: {:?}", type_str);
 
     match type_str {
-        "block" => decode_and_print::<BeaconBlock<MinimalEthSpec>>(&hex)?,
-        "state" => decode_and_print::<BeaconState<MinimalEthSpec>>(&hex)?,
+        "block" => decode_and_print::<BeaconBlock<T>>(&hex)?,
+        "state" => decode_and_print::<BeaconState<T>>(&hex)?,
         other => return Err(format!("Unknown type: {}", other)),
     };
 

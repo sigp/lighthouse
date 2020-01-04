@@ -12,9 +12,11 @@ use futures::{sync::oneshot, Future};
 use slog::{info, o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::cell::RefCell;
-use std::fs::OpenOptions;
+use std::ffi::OsStr;
+use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 
@@ -149,7 +151,7 @@ impl<E: EthSpec> RuntimeContext<E> {
     /// Returns a sub-context of this context.
     ///
     /// The generated service will have the `service_name` in all it's logs.
-    pub fn service_context(&self, service_name: &'static str) -> Self {
+    pub fn service_context(&self, service_name: String) -> Self {
         Self {
             executor: self.executor.clone(),
             log: self.log.new(o!("service" => service_name)),
@@ -170,7 +172,7 @@ pub struct Environment<E: EthSpec> {
     runtime: Runtime,
     log: Logger,
     eth_spec_instance: E,
-    eth2_config: Eth2Config,
+    pub eth2_config: Eth2Config,
 }
 
 impl<E: EthSpec> Environment<E> {
@@ -228,7 +230,25 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Sets the logger (and all child loggers) to log to a file.
-    pub fn log_to_json_file(&mut self, path: PathBuf) -> Result<(), String> {
+    pub fn log_to_json_file(&mut self, path: PathBuf, debug_level: &str) -> Result<(), String> {
+        // Creating a backup if the logfile already exists.
+        if path.exists() {
+            let start = SystemTime::now();
+            let timestamp = start
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_secs();
+            let file_stem = path
+                .file_stem()
+                .ok_or_else(|| "Invalid file name".to_string())?
+                .to_str()
+                .ok_or_else(|| "Failed to create str from filename".to_string())?;
+            let file_ext = path.extension().unwrap_or_else(|| OsStr::new(""));
+            let backup_name = format!("{}_backup_{}", file_stem, timestamp);
+            let backup_path = path.with_file_name(backup_name).with_extension(file_ext);
+            FsRename(&path, &backup_path).map_err(|e| e.to_string())?;
+        }
+
         let file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -237,8 +257,19 @@ impl<E: EthSpec> Environment<E> {
             .map_err(|e| format!("Unable to open logfile: {:?}", e))?;
 
         let drain = Mutex::new(slog_json::Json::default(file)).fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-        self.log = slog::Logger::root(drain, o!());
+        let drain = slog_async::Async::new(drain).build();
+
+        let drain = match debug_level {
+            "info" => drain.filter_level(Level::Info),
+            "debug" => drain.filter_level(Level::Debug),
+            "trace" => drain.filter_level(Level::Trace),
+            "warn" => drain.filter_level(Level::Warning),
+            "error" => drain.filter_level(Level::Error),
+            "crit" => drain.filter_level(Level::Critical),
+            unknown => return Err(format!("Unknown debug-level: {}", unknown)),
+        };
+
+        self.log = Logger::root(drain.fuse(), o!());
 
         info!(
             self.log,

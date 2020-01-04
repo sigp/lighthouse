@@ -1,8 +1,8 @@
 //! This handles the various supported encoding mechanism for the Eth 2.0 RPC.
 
 use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
-use bytes::BufMut;
-use bytes::BytesMut;
+use libp2p::bytes::BufMut;
+use libp2p::bytes::BytesMut;
 use tokio::codec::{Decoder, Encoder};
 
 pub trait OutboundCodec: Encoder + Decoder {
@@ -13,6 +13,9 @@ pub trait OutboundCodec: Encoder + Decoder {
         src: &mut BytesMut,
     ) -> Result<Option<Self::ErrorType>, <Self as Decoder>::Error>;
 }
+
+/* Global Inbound Codec */
+// This deals with Decoding RPC Requests from other peers and encoding our responses
 
 pub struct BaseInboundCodec<TCodec>
 where
@@ -31,15 +34,16 @@ where
     }
 }
 
+/* Global Outbound Codec */
+// This deals with Decoding RPC Responses from other peers and encoding our requests
 pub struct BaseOutboundCodec<TOutboundCodec>
 where
     TOutboundCodec: OutboundCodec,
 {
-    /// Inner codec for handling various encodings
+    /// Inner codec for handling various encodings.
     inner: TOutboundCodec,
-    /// Optimisation for decoding. True if the response code has been read and we are awaiting a
-    /// response.
-    response_code: Option<u8>,
+    /// Keeps track of the current response code for a chunk.
+    current_response_code: Option<u8>,
 }
 
 impl<TOutboundCodec> BaseOutboundCodec<TOutboundCodec>
@@ -49,11 +53,16 @@ where
     pub fn new(codec: TOutboundCodec) -> Self {
         BaseOutboundCodec {
             inner: codec,
-            response_code: None,
+            current_response_code: None,
         }
     }
 }
 
+/* Implementation of the Encoding/Decoding for the global codecs */
+
+/* Base Inbound Codec */
+
+// This Encodes RPC Responses sent to external peers
 impl<TCodec> Encoder for BaseInboundCodec<TCodec>
 where
     TCodec: Decoder + Encoder<Item = RPCErrorResponse>,
@@ -64,11 +73,15 @@ where
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         dst.clear();
         dst.reserve(1);
-        dst.put_u8(item.as_u8());
+        dst.put_u8(
+            item.as_u8()
+                .expect("Should never encode a stream termination"),
+        );
         self.inner.encode(item, dst)
     }
 }
 
+// This Decodes RPC Requests from external peers
 impl<TCodec> Decoder for BaseInboundCodec<TCodec>
 where
     TCodec: Encoder + Decoder<Item = RPCRequest>,
@@ -81,6 +94,9 @@ where
     }
 }
 
+/* Base Outbound Codec */
+
+// This Encodes RPC Requests sent to external peers
 impl<TCodec> Encoder for BaseOutboundCodec<TCodec>
 where
     TCodec: OutboundCodec + Encoder<Item = RPCRequest>,
@@ -93,6 +109,7 @@ where
     }
 }
 
+// This decodes RPC Responses received from external peers
 impl<TCodec> Decoder for BaseOutboundCodec<TCodec>
 where
     TCodec: OutboundCodec<ErrorType = ErrorMessage> + Decoder<Item = RPCResponse>,
@@ -102,34 +119,36 @@ where
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // if we have only received the response code, wait for more bytes
-        if src.len() == 1 {
+        if src.len() <= 1 {
             return Ok(None);
         }
         // using the response code determine which kind of payload needs to be decoded.
-        let response_code = {
-            if let Some(resp_code) = self.response_code {
-                resp_code
-            } else {
-                let resp_byte = src.split_to(1);
-                let mut resp_code_byte = [0; 1];
-                resp_code_byte.copy_from_slice(&resp_byte);
+        let response_code = self.current_response_code.unwrap_or_else(|| {
+            let resp_code = src.split_to(1)[0];
+            self.current_response_code = Some(resp_code);
+            resp_code
+        });
 
-                let resp_code = u8::from_be_bytes(resp_code_byte);
-                self.response_code = Some(resp_code);
-                resp_code
+        let inner_result = {
+            if RPCErrorResponse::is_response(response_code) {
+                // decode an actual response and mutates the buffer if enough bytes have been read
+                // returning the result.
+                self.inner
+                    .decode(src)
+                    .map(|r| r.map(RPCErrorResponse::Success))
+            } else {
+                // decode an error
+                self.inner
+                    .decode_error(src)
+                    .map(|r| r.map(|resp| RPCErrorResponse::from_error(response_code, resp)))
             }
         };
-
-        if RPCErrorResponse::is_response(response_code) {
-            // decode an actual response
-            self.inner
-                .decode(src)
-                .map(|r| r.map(RPCErrorResponse::Success))
-        } else {
-            // decode an error
-            self.inner
-                .decode_error(src)
-                .map(|r| r.map(|resp| RPCErrorResponse::from_error(response_code, resp)))
+        // if the inner decoder was capable of decoding a chunk, we need to reset the current
+        // response code for the next chunk
+        if let Ok(Some(_)) = inner_result {
+            self.current_response_code = None;
         }
+        // return the result
+        inner_result
     }
 }

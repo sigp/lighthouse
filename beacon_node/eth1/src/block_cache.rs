@@ -54,6 +54,21 @@ impl BlockCache {
         self.blocks.is_empty()
     }
 
+    /// Returns the timestamp of the earliest block in the cache (if any).
+    pub fn earliest_block_timestamp(&self) -> Option<u64> {
+        self.blocks.first().map(|block| block.timestamp)
+    }
+
+    /// Returns the timestamp of the latest block in the cache (if any).
+    pub fn latest_block_timestamp(&self) -> Option<u64> {
+        self.blocks.last().map(|block| block.timestamp)
+    }
+
+    /// Returns the lowest block number stored.
+    pub fn lowest_block_number(&self) -> Option<u64> {
+        self.blocks.first().map(|block| block.number)
+    }
+
     /// Returns the highest block number stored.
     pub fn highest_block_number(&self) -> Option<u64> {
         self.blocks.last().map(|block| block.number)
@@ -177,10 +192,7 @@ mod tests {
     }
 
     fn get_blocks(n: usize, interval_secs: u64) -> Vec<Eth1Block> {
-        (0..n as u64)
-            .into_iter()
-            .map(|i| get_block(i, interval_secs))
-            .collect()
+        (0..n as u64).map(|i| get_block(i, interval_secs)).collect()
     }
 
     fn insert(cache: &mut BlockCache, s: Eth1Block) -> Result<(), Error> {
@@ -198,16 +210,16 @@ mod tests {
             insert(&mut cache, block.clone()).expect("should add consecutive blocks");
         }
 
-        for len in vec![0, 1, 2, 3, 4, 8, 15, 16] {
+        for len in &[0, 1, 2, 3, 4, 8, 15, 16] {
             let mut cache = cache.clone();
 
-            cache.truncate(len);
+            cache.truncate(*len);
 
             assert_eq!(
                 cache.blocks.len(),
-                len,
+                *len,
                 "should truncate to length: {}",
-                len
+                *len
             );
         }
 

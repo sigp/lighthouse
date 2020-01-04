@@ -11,10 +11,8 @@
 //! There is no ABI parsing here, all function signatures and topics are hard-coded as constants.
 
 use futures::{Future, Stream};
-use libflate::gzip::Decoder;
 use reqwest::{header::CONTENT_TYPE, r#async::ClientBuilder, StatusCode};
 use serde_json::{json, Value};
-use std::io::prelude::*;
 use std::ops::Range;
 use std::time::Duration;
 use types::Hash256;
@@ -23,7 +21,7 @@ use types::Hash256;
 pub const DEPOSIT_EVENT_TOPIC: &str =
     "0x649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5";
 /// `keccak("get_deposit_root()")[0..4]`
-pub const DEPOSIT_ROOT_FN_SIGNATURE: &str = "0x863a311b";
+pub const DEPOSIT_ROOT_FN_SIGNATURE: &str = "0xc5f2892f";
 /// `keccak("get_deposit_count()")[0..4]`
 pub const DEPOSIT_COUNT_FN_SIGNATURE: &str = "0x621fd130";
 
@@ -137,19 +135,21 @@ pub fn get_deposit_count(
         block_number,
         timeout,
     )
-    .and_then(|result| result.ok_or_else(|| "No response to deposit count".to_string()))
-    .and_then(|bytes| {
-        if bytes.is_empty() {
-            Ok(None)
-        } else if bytes.len() == DEPOSIT_COUNT_RESPONSE_BYTES {
-            let mut array = [0; 8];
-            array.copy_from_slice(&bytes[32 + 32..32 + 32 + 8]);
-            Ok(Some(u64::from_le_bytes(array)))
-        } else {
-            Err(format!(
-                "Deposit count response was not {} bytes: {:?}",
-                DEPOSIT_COUNT_RESPONSE_BYTES, bytes
-            ))
+    .and_then(|result| match result {
+        None => Err(format!("Deposit root response was none")),
+        Some(bytes) => {
+            if bytes.is_empty() {
+                Ok(None)
+            } else if bytes.len() == DEPOSIT_COUNT_RESPONSE_BYTES {
+                let mut array = [0; 8];
+                array.copy_from_slice(&bytes[32 + 32..32 + 32 + 8]);
+                Ok(Some(u64::from_le_bytes(array)))
+            } else {
+                Err(format!(
+                    "Deposit count response was not {} bytes: {:?}",
+                    DEPOSIT_COUNT_RESPONSE_BYTES, bytes
+                ))
+            }
         }
     })
 }
@@ -172,17 +172,19 @@ pub fn get_deposit_root(
         block_number,
         timeout,
     )
-    .and_then(|result| result.ok_or_else(|| "No response to deposit root".to_string()))
-    .and_then(|bytes| {
-        if bytes.is_empty() {
-            Ok(None)
-        } else if bytes.len() == DEPOSIT_ROOT_BYTES {
-            Ok(Some(Hash256::from_slice(&bytes)))
-        } else {
-            Err(format!(
-                "Deposit root response was not {} bytes: {:?}",
-                DEPOSIT_ROOT_BYTES, bytes
-            ))
+    .and_then(|result| match result {
+        None => Err(format!("Deposit root response was none")),
+        Some(bytes) => {
+            if bytes.is_empty() {
+                Ok(None)
+            } else if bytes.len() == DEPOSIT_ROOT_BYTES {
+                Ok(Some(Hash256::from_slice(&bytes)))
+            } else {
+                Err(format!(
+                    "Deposit root response was not {} bytes: {:?}",
+                    DEPOSIT_ROOT_BYTES, bytes
+                ))
+            }
         }
     })
 }
@@ -342,24 +344,6 @@ pub fn send_rpc_request(
                 .and_then(move |bytes| match encoding.as_str() {
                     "application/json" => Ok(bytes),
                     "application/json; charset=utf-8" => Ok(bytes),
-                    // Note: gzip is not presently working because we always seem to get an empty
-                    // response from the server.
-                    //
-                    // I expect this is some simple-to-solve issue for someone who is familiar with
-                    // the eth1 JSON RPC.
-                    //
-                    // Some public-facing web3 servers use gzip to compress their traffic, it would
-                    // be good to support this.
-                    "application/x-gzip" => {
-                        let mut decoder = Decoder::new(&bytes[..])
-                            .map_err(|e| format!("Failed to create gzip decoder: {}", e))?;
-                        let mut decompressed = vec![];
-                        decoder
-                            .read_to_end(&mut decompressed)
-                            .map_err(|e| format!("Failed to decompress gzip data: {}", e))?;
-
-                        Ok(decompressed)
-                    }
                     other => Err(format!("Unsupported encoding: {}", other)),
                 })
                 .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
@@ -369,12 +353,18 @@ pub fn send_rpc_request(
 
 /// Accepts an entire HTTP body (as a string) and returns the `result` field, as a serde `Value`.
 fn response_result(response: &str) -> Result<Option<Value>, String> {
-    Ok(serde_json::from_str::<Value>(&response)
-        .map_err(|e| format!("Failed to parse response: {:?}", e))?
-        .get("result")
-        .cloned()
-        .map(Some)
-        .unwrap_or_else(|| None))
+    let json = serde_json::from_str::<Value>(&response)
+        .map_err(|e| format!("Failed to parse response: {:?}", e))?;
+
+    if let Some(error) = json.get("error") {
+        Err(format!("Eth1 node returned error: {}", error))
+    } else {
+        Ok(json
+            .get("result")
+            .cloned()
+            .map(Some)
+            .unwrap_or_else(|| None))
+    }
 }
 
 /// Parses a `0x`-prefixed, **big-endian** hex string as a u64.

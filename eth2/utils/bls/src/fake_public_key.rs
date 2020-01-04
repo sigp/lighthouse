@@ -3,7 +3,7 @@ use milagro_bls::G1Point;
 use milagro_bls::PublicKey as RawPublicKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_hex::{encode as hex_encode, HexVisitor};
+use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use std::default;
 use std::fmt;
@@ -13,7 +13,7 @@ use std::hash::{Hash, Hasher};
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, Clone, Eq)]
+#[derive(Clone, Eq)]
 pub struct FakePublicKey {
     bytes: Vec<u8>,
     /// Never used, only use for compatibility with "real" `PublicKey`.
@@ -93,6 +93,12 @@ impl fmt::Display for FakePublicKey {
     }
 }
 
+impl fmt::Debug for FakePublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "0x{}", self.as_hex_string())
+    }
+}
+
 impl default::Default for FakePublicKey {
     fn default() -> Self {
         let secret_key = SecretKey::random();
@@ -118,7 +124,7 @@ impl<'de> Deserialize<'de> for FakePublicKey {
     where
         D: Deserializer<'de>,
     {
-        let bytes = deserializer.deserialize_str(HexVisitor)?;
+        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
         let pubkey = Self::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid pubkey ({:?})", e)))?;
         Ok(pubkey)

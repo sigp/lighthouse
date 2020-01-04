@@ -8,13 +8,12 @@ use types::*;
 ///
 /// Operations are stored in arbitrary order, so it's not a good idea to compare instances
 /// of this type (or its encoded form) for equality. Convert back to an `OperationPool` first.
-#[derive(Encode, Decode)]
+#[derive(Clone, Encode, Decode)]
 pub struct PersistedOperationPool<T: EthSpec> {
     /// Mapping from attestation ID to attestation mappings.
     // We could save space by not storing the attestation ID, but it might
     // be difficult to make that roundtrip due to eager aggregation.
     attestations: Vec<(AttestationId, Vec<Attestation<T>>)>,
-    deposits: Vec<(u64, Deposit)>,
     /// Attester slashings.
     attester_slashings: Vec<AttesterSlashing<T>>,
     /// Proposer slashings.
@@ -31,13 +30,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             .read()
             .iter()
             .map(|(att_id, att)| (att_id.clone(), att.clone()))
-            .collect();
-
-        let deposits = operation_pool
-            .deposits
-            .read()
-            .iter()
-            .map(|(index, d)| (*index, d.clone()))
             .collect();
 
         let attester_slashings = operation_pool
@@ -63,7 +55,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
 
         Self {
             attestations,
-            deposits,
             attester_slashings,
             proposer_slashings,
             voluntary_exits,
@@ -73,7 +64,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
     /// Reconstruct an `OperationPool`.
     pub fn into_operation_pool(self, state: &BeaconState<T>, spec: &ChainSpec) -> OperationPool<T> {
         let attestations = RwLock::new(self.attestations.into_iter().collect());
-        let deposits = RwLock::new(self.deposits.into_iter().collect());
         let attester_slashings = RwLock::new(
             self.attester_slashings
                 .into_iter()
@@ -100,7 +90,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
 
         OperationPool {
             attestations,
-            deposits,
             attester_slashings,
             proposer_slashings,
             voluntary_exits,

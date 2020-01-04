@@ -1,0 +1,17 @@
+[package]
+name = "eth2_testnet_config"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dev-dependencies]
+tempdir = "0.3"
+
+[dependencies]
+serde = "1.0"
+serde_yaml = "0.8"
+types = { path = "../../types"}
+eth2-libp2p = { path = "../../../beacon_node/eth2-libp2p"}
+eth2_ssz = { path = "../ssz"}

@@ -22,7 +22,6 @@ eth2_ssz = { path = "../../eth2/utils/ssz" }
 eth2_ssz_derive = { path = "../../eth2/utils/ssz_derive" }
 state_processing = { path = "../../eth2/state_processing" }
 types = { path = "../../eth2/types" }
-clap = "2.33"
 http = "0.1"
 hyper = "0.12"
 exit-future = "0.1.4"

@@ -1,6 +1,7 @@
 # Summary
 
 * [Introduction](./intro.md)
+* [Become a Validator](./become-a-validator.md)
 * [Installation](./installation.md)
     * [Docker](./docker.md)
 * [CLI](./cli.md)
@@ -8,6 +9,10 @@
 	* [Simple Local Testnet](./simple-testnet.md)
 * [API](./api.md)
 	* [HTTP (RESTful JSON)](./http.md)
+	    * [/beacon](./http_beacon.md)
+	    * [/validator](./http_validator.md)
+	    * [/consensus](./http_consensus.md)
+	    * [/network](./http_network.md)
 	* [WebSocket](./websockets.md)
 * [Contributing](./contributing.md)
 	* [Development Environment](./setup.md)
