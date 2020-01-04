@@ -79,6 +79,9 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                 state
                     .build_committee_cache(RelativeEpoch::Current, spec)
                     .unwrap();
+                state
+                    .update_proposer_indices_cache(state.slot, spec)
+                    .unwrap();
 
                 per_block_processing(
                     &mut state,
