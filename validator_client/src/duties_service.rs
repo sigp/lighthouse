@@ -54,6 +54,7 @@ impl TryInto<ValidatorDuty> for remote_beacon_node::ValidatorDuty {
 }
 
 /// The outcome of inserting some `ValidatorDuty` into the `DutiesStore`.
+#[derive(PartialEq, Debug, Clone)]
 enum InsertOutcome {
     /// These are the first duties received for this validator.
     NewValidator,
@@ -566,7 +567,7 @@ mod test {
             attestation_slot: None,
             attestation_committee_index: None,
             attestation_committee_position: None,
-            block_proposal_slot: None,
+            block_proposal_slots: vec![],
         };
         let epoch = slot.epoch(slots_per_epoch);
 
@@ -585,7 +586,7 @@ mod test {
         let slots_per_epoch = 6;
         let slot = Slot::from(4u64);
         let attestation_slot = Slot::from(0u64);
-        let block_proposal_slot = Slot::from(5u64);
+        let block_proposal_slots = Slot::from(5u64);
 
         let pubkey = PublicKey::default();
         let duty = ValidatorDuty {
@@ -593,7 +594,7 @@ mod test {
             attestation_slot: Some(attestation_slot),
             attestation_committee_index: None,
             attestation_committee_position: None,
-            block_proposal_slot: Some(block_proposal_slot),
+            block_proposal_slots: vec![block_proposal_slots],
         };
         let epoch = slot.epoch(slots_per_epoch);
 
@@ -603,9 +604,9 @@ mod test {
         assert_eq!(outcome, InsertOutcome::Identical);
         let res = duties.attesters(attestation_slot, slots_per_epoch);
         assert_eq!(res, vec![duty]);
-        let res = duties.attesters(block_proposal_slot, slots_per_epoch);
+        let res = duties.attesters(block_proposal_slots, slots_per_epoch);
         assert!(res.is_empty());
-        let res = duties.block_producers(block_proposal_slot, slots_per_epoch);
+        let res = duties.block_producers(block_proposal_slots, slots_per_epoch);
         assert_eq!(res, vec![pubkey]);
         let res = duties.block_producers(attestation_slot, slots_per_epoch);
         assert!(res.is_empty());
@@ -623,7 +624,7 @@ mod test {
                 attestation_slot: Some(Slot::from(i as u64)),
                 attestation_committee_index: None,
                 attestation_committee_position: None,
-                block_proposal_slot: Some(Slot::from(i as u64)),
+                block_proposal_slots: vec![Slot::from(i as u64)],
             })
             .collect();
 
@@ -652,7 +653,7 @@ mod test {
                 attestation_slot: Some(Slot::from(i as u64)),
                 attestation_committee_index: None,
                 attestation_committee_position: None,
-                block_proposal_slot: Some(Slot::from(i as u64)),
+                block_proposal_slots: vec![Slot::from(i as u64)],
             })
             .collect();
 
@@ -672,7 +673,7 @@ mod test {
         let slots_per_epoch = 6;
         let slot = Slot::from(8u64);
         let attestation_slot = Slot::from(6u64);
-        let block_proposal_slot = Slot::from(11u64);
+        let block_proposal_slots = Slot::from(11u64);
 
         let pubkey = PublicKey::default();
         let duty = ValidatorDuty {
@@ -680,7 +681,7 @@ mod test {
             attestation_slot: Some(attestation_slot),
             attestation_committee_index: None,
             attestation_committee_position: None,
-            block_proposal_slot: Some(block_proposal_slot),
+            block_proposal_slots: vec![block_proposal_slots],
         };
         let epoch = slot.epoch(slots_per_epoch);
 
@@ -693,14 +694,14 @@ mod test {
 
         let res = duties.attesters(attestation_slot, slots_per_epoch);
         assert_eq!(res, vec![duty.clone()]);
-        let res = duties.block_producers(block_proposal_slot, slots_per_epoch);
+        let res = duties.block_producers(block_proposal_slots, slots_per_epoch);
         assert_eq!(res, vec![pubkey.clone()]);
 
         duties.prune(epoch);
 
         let res = duties.attesters(attestation_slot, slots_per_epoch);
         assert_eq!(res, vec![duty.clone()]);
-        let res = duties.block_producers(block_proposal_slot, slots_per_epoch);
+        let res = duties.block_producers(block_proposal_slots, slots_per_epoch);
         assert_eq!(res, vec![pubkey.clone()]);
 
         duties.prune(epoch + 1);
@@ -713,7 +714,7 @@ mod test {
         let slots_per_epoch = 6;
         let slot = Slot::from(8u64);
         let attestation_slot = Slot::from(6u64);
-        let block_proposal_slot = Slot::from(11u64);
+        let block_proposal_slots = Slot::from(11u64);
 
         let pubkey = PublicKey::default();
         let duty = ValidatorDuty {
@@ -721,7 +722,7 @@ mod test {
             attestation_slot: Some(attestation_slot),
             attestation_committee_index: None,
             attestation_committee_position: None,
-            block_proposal_slot: Some(block_proposal_slot),
+            block_proposal_slots: vec![block_proposal_slots],
         };
         let epoch = slot.epoch(slots_per_epoch);
 
@@ -735,7 +736,7 @@ mod test {
             attestation_slot: Some(attestation_slot + 1),
             attestation_committee_index: None,
             attestation_committee_position: None,
-            block_proposal_slot: Some(block_proposal_slot),
+            block_proposal_slots: vec![block_proposal_slots],
         };
 
         let outcome = duties.insert(epoch, duty.clone(), slots_per_epoch);

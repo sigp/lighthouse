@@ -458,6 +458,7 @@ mod tests {
         client_config.websocket_server.port = 0;
 
         client_config.dummy_eth1_backend = true;
+        client_config.rest_api.enabled = true;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -495,7 +496,7 @@ mod tests {
         let fork_service = ForkServiceBuilder::new()
             .slot_clock(slot_clock)
             .beacon_node(remote_beacon_node)
-            .runtime_context(env.core_context().service_context("fork service"))
+            .runtime_context(env.core_context().service_context("fork".to_string()))
             .build()
             .expect("should build fork service");
         fork_service
@@ -760,21 +761,21 @@ mod tests {
         // Block slot earlier than first entry: expected to fail.
         let slot = 0;
         let block = block_builder(slot);
-        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        let res = validator_store.sign_block(&pubkeys[0], block);
         assert_eq!(res, None);
 
         // Conflicting block with slot 3: expected to fail.
         let slot = 3 * slots_per_epoch;
         let mut block = block_builder(slot);
         block.parent_root = Hash256::random();
-        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        let res = validator_store.sign_block(&pubkeys[0], block);
         assert_eq!(res, None);
 
         // Conflicting block with slot 3: expected to fail.
         let slot = 3 * slots_per_epoch;
         let mut block = block_builder(slot);
         block.state_root = Hash256::random();
-        let res = validator_store.sign_block(&pubkeys[0], block.clone());
+        let res = validator_store.sign_block(&pubkeys[0], block);
         assert_eq!(res, None);
     }
 }
