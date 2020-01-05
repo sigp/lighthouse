@@ -228,6 +228,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let service_2 = self.clone();
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
+        let current_epoch = self
+            .slot_clock
+            .now()
+            .expect("should return the current slot")
+            .epoch(E::slots_per_epoch());
 
         self.beacon_node
             .http
@@ -253,6 +258,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                         &duty.validator_pubkey,
                                         validator_committee_position,
                                         &mut attestation,
+                                        current_epoch,
                                     )
                                     .is_none()
                                 {

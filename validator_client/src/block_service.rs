@@ -191,6 +191,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     let service_1 = service.clone();
                     let service_2 = service.clone();
                     let service_3 = service.clone();
+                    let current_slot = self.slot_clock.now().expect("should have the current slot");
 
                     block_producers.next().map(move |validator_pubkey| {
                         service_1
@@ -214,7 +215,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             .and_then(move |block| {
                                 service_2
                                     .validator_store
-                                    .sign_block(&validator_pubkey, block)
+                                    .sign_block(&validator_pubkey, block, current_slot)
                                     .ok_or_else(|| "Unable to sign block".to_string())
                             })
                             .and_then(move |block| {
