@@ -100,8 +100,8 @@ fn test_cache_initialization<'a, T: EthSpec>(
         )))
     );
 
-    // Build the cache.
-    state.build_all_caches(spec).unwrap();
+    // Build the caches.
+    state.build_committee_cache(relative_epoch, spec).unwrap();
     state
         .update_proposer_indices_cache(slot, spec)
         .expect("Should update proposer indices cache");
@@ -109,7 +109,7 @@ fn test_cache_initialization<'a, T: EthSpec>(
     // Assert a call to a cache-using function passes.
     let _ = state.get_beacon_proposer_index(slot).unwrap();
 
-    // Drop the cache.
+    // Drop the caches.
     state.drop_all_caches();
 
     // Assert a call to a cache-using function fail.
@@ -132,11 +132,8 @@ fn cache_initialization() {
     state.slot =
         (MinimalEthSpec::genesis_epoch() + 1).start_slot(MinimalEthSpec::slots_per_epoch());
 
-    dbg!("first");
     test_cache_initialization(&mut state, RelativeEpoch::Previous, &spec);
-    dbg!("second");
     test_cache_initialization(&mut state, RelativeEpoch::Current, &spec);
-    dbg!("third");
     test_cache_initialization(&mut state, RelativeEpoch::Next, &spec);
 }
 
