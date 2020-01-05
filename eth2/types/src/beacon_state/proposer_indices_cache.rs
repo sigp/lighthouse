@@ -28,22 +28,23 @@ impl<T: EthSpec> ProposerIndicesCache<T> {
     }
 
     pub fn get_proposer_index_for_slot(&self, slot: u64) -> Result<usize, Error> {
-        if let Some(epoch) = self.epoch {
-            if Slot::new(slot).epoch(T::slots_per_epoch()) == epoch {
-                if let Some(indices) = &self.indices {
-                    let slot_index = slot % T::slots_per_epoch() as u64;
-                    indices
-                        .get(slot_index as usize)
+        self.epoch
+            .ok_or(Error::ProposerIndicesEpochCacheUninitialized)
+            .and_then(|epoch| {
+                if Slot::new(slot).epoch(T::slots_per_epoch()) == epoch {
+                    self.indices
+                        .as_ref()
                         .ok_or(Error::ProposerIndicesCacheIncomplete)
-                        .map(|i| *i)
+                        .and_then(|indices| {
+                            let slot_index = slot % T::slots_per_epoch() as u64;
+                            indices
+                                .get(slot_index as usize)
+                                .ok_or(Error::ProposerIndicesCacheIncomplete)
+                                .map(|i| *i)
+                        })
                 } else {
-                    Err(Error::ProposerIndicesCacheUninitialized)
+                    Err(Error::ProposerIndicesCacheMismatch)
                 }
-            } else {
-                Err(Error::ProposerIndicesCacheMismatch)
-            }
-        } else {
-            Err(Error::ProposerIndicesEpochCacheUninitialized)
-        }
+            })
     }
 }
