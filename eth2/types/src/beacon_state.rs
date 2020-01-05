@@ -889,7 +889,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.tree_hash_cache = BeaconTreeHashCache::default();
     }
 
-    /// Updates the cache.
+    /// Updates the proposer indices cache, or build it if not already built.
     pub fn update_proposer_indices_cache(
         &mut self,
         slot: Slot,
@@ -921,7 +921,6 @@ impl<T: EthSpec> BeaconState<T> {
             let seed = self.get_beacon_proposer_seed(start_slot + slot_index as u64, spec)?;
             let mut i = 0;
 
-            // This was previously in the compute_proposer_index
             loop {
                 let candidate_index = indices[compute_shuffled_index(
                     i % indices.len(),
