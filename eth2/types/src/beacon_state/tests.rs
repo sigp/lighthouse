@@ -63,7 +63,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     let mut state = build_state(T::slots_per_epoch() as usize * 2);
     let slot0_candidate0 = ith_candidate(&state, Slot::new(0), 0);
     state.validators[slot0_candidate0].effective_balance = 0;
-    state.drop_proposer_indices_cache();
+
     state
         .update_proposer_indices_cache(state.slot, &spec)
         .unwrap();
