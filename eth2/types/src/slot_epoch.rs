@@ -51,8 +51,8 @@ impl Slot {
 }
 
 impl Epoch {
-    pub fn new(slot: u64) -> Epoch {
-        Epoch(slot)
+    pub fn new(epoch: u64) -> Epoch {
+        Epoch(epoch)
     }
 
     pub fn max_value() -> Epoch {
