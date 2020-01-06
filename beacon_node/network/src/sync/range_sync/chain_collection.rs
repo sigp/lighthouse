@@ -8,7 +8,7 @@ use crate::message_processor::PeerSyncInfo;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;
-use slog::{debug, warn};
+use slog::{debug, error, warn};
 use std::sync::Weak;
 use types::EthSpec;
 use types::{Hash256, Slot};
@@ -103,9 +103,22 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// updates the state of the collection.
     pub fn update_finalized(&mut self, network: &mut SyncNetworkContext, log: &slog::Logger) {
         let local_slot = match self.beacon_chain.upgrade() {
-            Some(chain) => PeerSyncInfo::from(&chain)
-                .finalized_epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
+            Some(chain) => {
+                let local = match PeerSyncInfo::from_chain(&chain) {
+                    Some(local) => local,
+                    None => {
+                        return error!(
+                            log,
+                            "Failed to get peer sync info";
+                            "msg" => "likely due to head lock contention"
+                        )
+                    }
+                };
+
+                local
+                    .finalized_epoch
+                    .start_slot(T::EthSpec::slots_per_epoch())
+            }
             None => {
                 warn!(log, "Beacon chain dropped. Chains not updated");
                 return;
@@ -113,7 +126,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         };
 
         // Remove any outdated finalized chains
-        self.purge_outdated_chains(network);
+        self.purge_outdated_chains(network, log);
 
         // Check if any chains become the new syncing chain
         if let Some(index) = self.finalized_syncing_index() {
@@ -248,14 +261,23 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ///
     /// This removes chains with no peers, or chains whose start block slot is less than our current
     /// finalized block slot.
-    pub fn purge_outdated_chains(&mut self, network: &mut SyncNetworkContext) {
+    pub fn purge_outdated_chains(&mut self, network: &mut SyncNetworkContext, log: &slog::Logger) {
         // Remove any chains that have no peers
         self.finalized_chains
             .retain(|chain| !chain.peer_pool.is_empty());
         self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
 
         let local_info = match self.beacon_chain.upgrade() {
-            Some(chain) => PeerSyncInfo::from(&chain),
+            Some(chain) => match PeerSyncInfo::from_chain(&chain) {
+                Some(local) => local,
+                None => {
+                    return error!(
+                        log,
+                        "Failed to get peer sync info";
+                        "msg" => "likely due to head lock contention"
+                    )
+                }
+            },
             None => {
                 return;
             }

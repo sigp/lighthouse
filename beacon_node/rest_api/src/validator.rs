@@ -122,10 +122,10 @@ pub fn get_state_for_epoch<T: BeaconChainTypes>(
     epoch: Epoch,
 ) -> Result<BeaconState<T::EthSpec>, ApiError> {
     let slots_per_epoch = T::EthSpec::slots_per_epoch();
-    let head_epoch = beacon_chain.head().beacon_state.current_epoch();
+    let head_epoch = beacon_chain.head()?.beacon_state.current_epoch();
 
     if RelativeEpoch::from_epoch(head_epoch, epoch).is_ok() {
-        Ok(beacon_chain.head().beacon_state)
+        Ok(beacon_chain.head()?.beacon_state)
     } else {
         let slot = if epoch > head_epoch {
             // Move to the first slot of the epoch prior to the request.
@@ -308,7 +308,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
                             // - Excessive time between block produce and publish.
                             // - A validator is using another beacon node to produce blocks and
                             // submitting them here.
-                            if beacon_chain.head().beacon_block_root != block_root {
+                            if beacon_chain.head()?.beacon_block_root != block_root {
                                 warn!(
                                     log,
                                     "Block from validator is not head";
