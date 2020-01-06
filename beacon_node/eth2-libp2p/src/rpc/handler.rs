@@ -601,7 +601,7 @@ where
                             request,
                         } => match substream.poll() {
                             Ok(Async::Ready(Some(response))) => {
-                                if request.multiple_responses() {
+                                if request.multiple_responses() && !response.is_error() {
                                     entry.get_mut().0 =
                                         OutboundSubstreamState::RequestPendingResponse {
                                             substream,
@@ -611,10 +611,13 @@ where
                                     self.outbound_substreams_delay
                                         .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
                                 } else {
+                                    // either this is a single response request or we received an
+                                    // error
                                     trace!(self.log, "Closing single stream request");
                                     // only expect a single response, close the stream
                                     entry.get_mut().0 = OutboundSubstreamState::Closing(substream);
                                 }
+
                                 return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                                     RPCEvent::Response(request_id, response),
                                 )));
