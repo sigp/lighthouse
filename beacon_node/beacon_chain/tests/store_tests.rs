@@ -262,11 +262,12 @@ fn epoch_boundary_state_attestation_processing() {
             AttestationStrategy::SomeValidators(timely_validators.clone()),
         );
 
+        let head = harness.chain.head().expect("head ok");
         late_attestations.extend(harness.get_free_attestations(
             &AttestationStrategy::SomeValidators(late_validators.clone()),
-            &harness.chain.head().beacon_state,
-            harness.chain.head().beacon_block_root,
-            harness.chain.head().beacon_block.slot,
+            &head.beacon_state,
+            head.beacon_block_root,
+            head.beacon_block.slot,
         ));
 
         harness.advance_slot();
@@ -294,7 +295,12 @@ fn epoch_boundary_state_attestation_processing() {
         assert_eq!(epoch_boundary_state, ebs_of_ebs);
 
         // If the attestation is pre-finalization it should be rejected.
-        let finalized_epoch = harness.chain.head_info().finalized_checkpoint.epoch;
+        let finalized_epoch = harness
+            .chain
+            .head_info()
+            .expect("head ok")
+            .finalized_checkpoint
+            .epoch;
         let res = harness
             .chain
             .process_attestation_internal(attestation.clone());
