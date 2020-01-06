@@ -1,3 +1,4 @@
+mod proto_array;
 mod reduced_tree;
 
 use std::sync::Arc;
