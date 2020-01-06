@@ -1,6 +1,6 @@
 # Contributors Guide
 
-Lighthouse is an open-source Ethereum 2.0 client. We we're community driven and
+Lighthouse is an open-source Ethereum 2.0 client. We're community driven and
 welcome all contribution. We aim to provide a constructive, respectful and fun
 environment for collaboration.
 
@@ -31,7 +31,7 @@ same. We operate like a typical open-source project operating on GitHub: the
 repository [Issues](https://github.com/sigp/lighthouse/issues) is where we
 track what needs to be done and [Pull
 Requests](https://github.com/sigp/lighthouse/pulls) is where code gets
-reviewed. We use [gitter](https://gitter.im/sigp/lighthouse) to chat
+reviewed. We use [discord](https://discord.gg/cyAszAh) to chat
 informally.
 
 ### General Work-Flow
@@ -48,7 +48,7 @@ questions.
    your changes in to the main repository.
 4. Wait for the repository maintainers to **review your changes** to ensure the
    issue is addressed satisfactorily. Optionally, mention your PR on
-[gitter](https://gitter.im/sigp/lighthouse).
+[discord](https://discord.gg/cyAszAh).
 5. If the issue is addressed the repository maintainers will **merge your
    pull-request** and you'll be an official contributor!
 
@@ -76,18 +76,19 @@ https://github.com/sigp/lighthouse.git` (pro-tip: [use SSH](https://help.github.
    name of your branch isn't critical but it should be short and instructive.
 E.g., if you're fixing a bug with serialization, you could name your branch
 `fix_serialization_bug`.
-4. Commit your changes and push them to your fork with `$ git push origin
+4. Make sure you sign your commits. See [relevant doc](https://help.github.com/en/github/authenticating-to-github/about-commit-signature-verification).
+5. Commit your changes and push them to your fork with `$ git push origin
    your_feature_name`.
-5. Go to your fork on github.com and use the web interface to create a pull
+6. Go to your fork on github.com and use the web interface to create a pull
    request into the sigp/lighthouse repo.
 
 From there, the repository maintainers will review the PR and either accept it
 or provide some constructive feedback.
 
-There's great
+There's a great
 [guide](https://akrabat.com/the-beginners-guide-to-contributing-to-a-github-project/)
 by Rob Allen that provides much more detail on each of these steps, if you're
-having trouble. As always, jump on [gitter](https://gitter.im/sigp/lighthouse)
+having trouble. As always, jump on [discord](https://discord.gg/cyAszAh)
 if you get stuck.
 
 

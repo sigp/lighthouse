@@ -42,9 +42,6 @@ pub struct Service {
     /// A list of timeouts after which peers become unbanned.
     peer_ban_timeout: DelayQueue<PeerId>,
 
-    /// Indicates if the listening address have been verified and compared to the expected ENR.
-    verified_listen_address: bool,
-
     /// The libp2p logger handle.
     pub log: slog::Logger,
 }
@@ -141,7 +138,6 @@ impl Service {
             swarm,
             peers_to_ban: DelayQueue::new(),
             peer_ban_timeout: DelayQueue::new(),
-            verified_listen_address: false,
             log,
         })
     }
@@ -241,43 +237,7 @@ impl Stream for Service {
             }
         }
 
-        // swarm is not ready
-        // check to see if the address is different to the config. If so, update our ENR
-        if !self.verified_listen_address {
-            let multiaddr = Swarm::listeners(&self.swarm).next();
-            if let Some(multiaddr) = multiaddr {
-                self.verified_listen_address = true;
-                if let Some(socket_addr) = multiaddr_to_socket_addr(multiaddr) {
-                    self.swarm.update_local_enr_socket(socket_addr, true);
-                }
-            }
-        }
-
         Ok(Async::NotReady)
-    }
-}
-
-/// Converts a multiaddr to a `SocketAddr` if the multiaddr has the TCP/IP form. Libp2p currently
-/// only supports TCP, so the UDP case is currently ignored.
-fn multiaddr_to_socket_addr(multiaddr: &Multiaddr) -> Option<std::net::SocketAddr> {
-    let protocols = multiaddr.iter().collect::<Vec<_>>();
-    // assume the IP protocol
-    match protocols[0] {
-        Protocol::Ip4(address) => {
-            if let Protocol::Tcp(port) = protocols[1] {
-                Some(std::net::SocketAddr::new(address.into(), port))
-            } else {
-                None
-            }
-        }
-        Protocol::Ip6(address) => {
-            if let Protocol::Tcp(port) = protocols[1] {
-                Some(std::net::SocketAddr::new(address.into(), port))
-            } else {
-                None
-            }
-        }
-        _ => None,
     }
 }
 
