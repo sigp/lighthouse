@@ -96,7 +96,7 @@ fn randomised_skips() {
         }
     }
 
-    let state = &harness.chain.head().beacon_state;
+    let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(state.slot, num_slots, "head should be at the current slot");
 
@@ -166,6 +166,7 @@ fn randao_genesis_storage() {
     let genesis_value = *harness
         .chain
         .head()
+        .expect("should get head")
         .beacon_state
         .get_randao_mix(Epoch::new(0))
         .expect("randao mix ok");
@@ -181,6 +182,7 @@ fn randao_genesis_storage() {
     assert!(harness
         .chain
         .head()
+        .expect("should get head")
         .beacon_state
         .randao_mixes
         .iter()
@@ -197,6 +199,7 @@ fn randao_genesis_storage() {
     assert!(harness
         .chain
         .head()
+        .expect("should get head")
         .beacon_state
         .randao_mixes
         .iter()
@@ -238,7 +241,7 @@ fn split_slot_restore() {
 
 /// Check that the head state's slot matches `expected_slot`.
 fn check_slot(harness: &TestHarness, expected_slot: u64) {
-    let state = &harness.chain.head().beacon_state;
+    let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
         state.slot, expected_slot,
@@ -248,7 +251,7 @@ fn check_slot(harness: &TestHarness, expected_slot: u64) {
 
 /// Check that the chain has finalized under best-case assumptions, and check the head slot.
 fn check_finalization(harness: &TestHarness, expected_slot: u64) {
-    let state = &harness.chain.head().beacon_state;
+    let state = &harness.chain.head().expect("should get head").beacon_state;
 
     check_slot(harness, expected_slot);
 
@@ -271,6 +274,7 @@ fn check_split_slot(harness: &TestHarness, store: Arc<DiskStore<E>>) {
         harness
             .chain
             .head()
+            .expect("should get head")
             .beacon_state
             .finalized_checkpoint
             .epoch
@@ -314,7 +318,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
         .map(|checkpoint| (checkpoint.beacon_block_root, checkpoint.beacon_block.slot))
         .collect::<Vec<_>>();
 
-    let head = harness.chain.head();
+    let head = harness.chain.head().expect("should get head");
     let mut forward_block_roots = Store::forwards_block_roots_iterator(
         harness.chain.store.clone(),
         Slot::new(0),
@@ -343,6 +347,7 @@ fn check_iterators(harness: &TestHarness) {
         harness
             .chain
             .rev_iter_state_roots()
+            .expect("should get iter")
             .last()
             .map(|(_, slot)| slot),
         Some(Slot::new(0))
@@ -351,6 +356,7 @@ fn check_iterators(harness: &TestHarness) {
         harness
             .chain
             .rev_iter_block_roots()
+            .expect("should get iter")
             .last()
             .map(|(_, slot)| slot),
         Some(Slot::new(0))
