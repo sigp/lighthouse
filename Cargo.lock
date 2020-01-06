@@ -2350,6 +2350,7 @@ dependencies = [
  "environment 0.1.0",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "logging 0.1.0",
+ "protobuf 2.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "slog 2.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "slog-async 2.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "slog-term 2.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
