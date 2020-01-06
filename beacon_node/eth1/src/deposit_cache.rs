@@ -101,13 +101,14 @@ impl SszDepositCache {
     pub fn to_deposit_cache(&self) -> Result<DepositCache, String> {
         let deposit_tree =
             DepositDataTree::create(&self.leaves, self.leaves.len(), DEPOSIT_TREE_DEPTH);
-        // Check for invalid SszDepositCache
-        if self.deposit_roots.len() != self.logs.len() {
+        // Check for invalid SszDepositCache conditions
+        if self.leaves.len() != self.logs.len() {
             return Err("Invalid SszDepositCache: logs and leaves should have equal length".into());
         }
-        if self.logs.len() != self.deposit_roots.len() {
+        // `deposit_roots` also includes the zero root
+        if self.leaves.len() + 1 != self.deposit_roots.len() {
             return Err(
-                "Invalid SszDepositCache: leaves and deposit_roots should have equal lengths"
+                "Invalid SszDepositCache: deposit_roots length must be only one more than leaves"
                     .into(),
             );
         }
