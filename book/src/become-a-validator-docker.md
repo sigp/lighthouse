@@ -31,6 +31,7 @@ documented
 
 ```bash
 DEBUG_LEVEL=info
+START_GETH=true
 START_VALIDATOR=true
 VALIDATOR_COUNT=1
 VOTING_ETH1_NODE=http://127.0.0.1:8545
@@ -47,6 +48,11 @@ Start the docker-compose environment (you may need to use `sudo`):
 ```bash
 $ docker-compose up
 ```
+
+> Note: the docker-compose setup includes a fast-synced geth node. You can
+> expect the `beacon_node` to display `403: Forbidden` errors whilst the geth
+> nodes gets synced. This will only happen on the first start of the compose
+> environment.
 
 ### Installation complete!
 
