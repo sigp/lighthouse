@@ -60,7 +60,7 @@ impl SszBlockCache {
 /// timestamp.
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct BlockCache {
-    pub blocks: Vec<Eth1Block>,
+    blocks: Vec<Eth1Block>,
 }
 
 impl BlockCache {

@@ -116,15 +116,15 @@ impl SszDepositCache {
 ///
 /// Provides `Deposit` objects with merkle proofs included.
 pub struct DepositCache {
-    pub logs: Vec<DepositLog>,
-    pub leaves: Vec<Hash256>,
-    pub deposit_contract_deploy_block: u64,
+    logs: Vec<DepositLog>,
+    leaves: Vec<Hash256>,
+    deposit_contract_deploy_block: u64,
     /// An incremental merkle tree which represents the current state of the
     /// deposit contract tree.
-    pub deposit_tree: DepositDataTree,
+    deposit_tree: DepositDataTree,
     /// Vector of deposit roots. `deposit_roots[i]` denotes `deposit_root` at
     /// `deposit_index` `i`.
-    pub deposit_roots: Vec<Hash256>,
+    deposit_roots: Vec<Hash256>,
 }
 
 impl Default for DepositCache {

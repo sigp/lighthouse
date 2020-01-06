@@ -1,5 +1,5 @@
 use crate::checkpoint_cache::CheckPointCache;
-use crate::eth1_chain::{CachingEth1Backend, SszEth1};
+use crate::eth1_chain::CachingEth1Backend;
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
