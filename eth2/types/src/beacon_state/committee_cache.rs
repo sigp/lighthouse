@@ -141,6 +141,21 @@ impl CommitteeCache {
             .collect()
     }
 
+    /// Returns all committees for `self.initialized_epoch`.
+    pub fn get_all_beacon_committees(&self) -> Result<Vec<BeaconCommittee>, Error> {
+        let initialized_epoch = self
+            .initialized_epoch
+            .ok_or_else(|| Error::CommitteeCacheUninitialized(None))?;
+
+        initialized_epoch.slot_iter(self.slots_per_epoch).try_fold(
+            Vec::with_capacity(self.slots_per_epoch as usize),
+            |mut vec, slot| {
+                vec.append(&mut self.get_beacon_committees_at_slot(slot)?);
+                Ok(vec)
+            },
+        )
+    }
+
     /// Returns the `AttestationDuty` for the given `validator_index`.
     ///
     /// Returns `None` if the `validator_index` does not exist, does not have duties or `Self` is

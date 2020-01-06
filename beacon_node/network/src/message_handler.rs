@@ -1,12 +1,12 @@
 #![allow(clippy::unit_arg)]
 use crate::error;
 use crate::service::NetworkMessage;
-use crate::sync::MessageProcessor;
+use crate::MessageProcessor;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     behaviour::PubsubMessage,
     rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
-    PeerId, RPCEvent,
+    MessageId, PeerId, RPCEvent,
 };
 use futures::future::Future;
 use futures::stream::Stream;
@@ -41,7 +41,7 @@ pub enum HandlerMessage {
     RPC(PeerId, RPCEvent),
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
     /// message and the message itself.
-    PubsubMessage(String, PeerId, PubsubMessage),
+    PubsubMessage(MessageId, PeerId, PubsubMessage),
 }
 
 impl<T: BeaconChainTypes> MessageHandler<T> {
@@ -220,7 +220,7 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
     }
 
     /// Handle RPC messages
-    fn handle_gossip(&mut self, id: String, peer_id: PeerId, gossip_message: PubsubMessage) {
+    fn handle_gossip(&mut self, id: MessageId, peer_id: PeerId, gossip_message: PubsubMessage) {
         match gossip_message {
             PubsubMessage::Block(message) => match self.decode_gossip_block(message) {
                 Ok(block) => {
@@ -292,7 +292,7 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
     }
 
     /// Informs the network service that the message should be forwarded to other peers.
-    fn propagate_message(&mut self, message_id: String, propagation_source: PeerId) {
+    fn propagate_message(&mut self, message_id: MessageId, propagation_source: PeerId) {
         self.network_send
             .try_send(NetworkMessage::Propagate {
                 propagation_source,
