@@ -82,9 +82,10 @@ macro_rules! bytes_struct {
                  potentially not a valid "]
         #[doc = $small_name]
         #[doc = " (e.g., from the deposit contract)."]
+        #[derive(Clone)]
         pub struct $name {
             bytes: [u8; $byte_size],
-            decompressed: parking_lot::RwLock<Option<$type>>
+            decompressed: Option<$type>
         }
     };
     ($name: ident, $type: ty, $byte_size: expr, $small_name: expr) => {
@@ -95,14 +96,14 @@ macro_rules! bytes_struct {
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
                 Ok(Self {
                     bytes: Self::get_bytes(bytes)?,
-                    decompressed: parking_lot::RwLock::new(None)
+                    decompressed: None
                 })
             }
 
             pub fn empty() -> Self {
                 Self {
                     bytes: [0; $byte_size],
-                    decompressed: parking_lot::RwLock::new(None)
+                    decompressed: None
                 }
             }
 
@@ -123,17 +124,13 @@ macro_rules! bytes_struct {
                 }
             }
 
-            pub fn cached_decompress(&self) -> Result<$type, ssz::DecodeError> {
-                let read = self.decompressed.upgradable_read();
+            pub fn decompress(&mut self) -> Result<(), ssz::DecodeError> {
+                self.decompressed = Some(<&Self as std::convert::TryInto<$type>>::try_into(self)?);
+                Ok(())
+            }
 
-                if let Some(decompressed) = &*read {
-                    Ok(decompressed.clone())
-                } else {
-                    let decompressed = <&Self as std::convert::TryInto<$type>>::try_into(self)?;
-                    let mut write = parking_lot::RwLockUpgradableReadGuard::upgrade(read);
-                    *write = Some(decompressed.clone());
-                    Ok(decompressed)
-                }
+            pub fn decompressed(&self) -> &Option<$type> {
+                &self.decompressed
             }
         }
 
@@ -146,15 +143,6 @@ macro_rules! bytes_struct {
         impl PartialEq for $name {
             fn eq(&self, other: &Self) -> bool {
                 &self.bytes[..] == &other.bytes[..]
-            }
-        }
-
-        impl Clone for $name {
-            fn clone(&self) -> Self {
-                Self {
-                    bytes: self.bytes.clone(),
-                    decompressed: parking_lot::RwLock::new(self.decompressed.read().clone())
-                }
             }
         }
 
