@@ -289,7 +289,7 @@ where
                 let res_is_multiple = response.multiple_responses();
 
                 match self.inbound_substreams.get_mut(&rpc_id) {
-                    Some((substream_state, delay_key)) => {
+                    Some((substream_state, _)) => {
                         match std::mem::replace(substream_state, InboundSubstreamState::Poisoned) {
                             InboundSubstreamState::ResponseIdle(substream) => {
                                 // close the stream if there is no response
@@ -442,11 +442,11 @@ where
             let rpc_id = stream_id.get_ref();
 
             // handle a stream timeout for various states
-            if let Some((substream_state, delay_key)) = self.inbound_substreams.get_mut(rpc_id) {
+            if let Some((substream_state, _)) = self.inbound_substreams.get_mut(rpc_id) {
                 // When terminating a stream, report the stream termination to the requesting user via
                 // an RPC error
                 let error = RPCErrorResponse::ServerError(ErrorMessage {
-                    error_message: "Request timed out",
+                    error_message: "Request timed out".as_bytes().to_vec(),
                 });
                 // The stream termination type is irrelevant, this will terminate the
                 // stream
@@ -459,7 +459,7 @@ where
                             // if the stream is not closing, add an error to the stream queue and exit
                             let queue = self
                                 .queued_outbound_items
-                                .entry(rpc_id)
+                                .entry(*rpc_id)
                                 .or_insert_with(Vec::new);
                             queue.push(error);
                             queue.push(stream_termination);
