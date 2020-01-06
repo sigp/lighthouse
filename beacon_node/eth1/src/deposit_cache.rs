@@ -101,7 +101,16 @@ impl SszDepositCache {
     pub fn to_deposit_cache(&self) -> Result<DepositCache, String> {
         let deposit_tree =
             DepositDataTree::create(&self.leaves, self.leaves.len(), DEPOSIT_TREE_DEPTH);
-        // TODO: check for conditions where vec sizes are inconsistent.
+        // Check for invalid SszDepositCache
+        if self.deposit_roots.len() != self.logs.len() {
+            return Err("Invalid SszDepositCache: logs and leaves should have equal length".into());
+        }
+        if self.logs.len() != self.deposit_roots.len() {
+            return Err(
+                "Invalid SszDepositCache: leaves and deposit_roots should have equal lengths"
+                    .into(),
+            );
+        }
         Ok(DepositCache {
             logs: self.logs.clone(),
             leaves: self.leaves.clone(),
