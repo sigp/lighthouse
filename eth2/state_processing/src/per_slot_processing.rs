@@ -9,12 +9,17 @@ pub enum Error {
 
 /// Advances a state forward by one slot, performing per-epoch processing if required.
 ///
+/// If the root of the supplied `state` is known, then it can be passed as `state_root`. If
+/// `state_root` is `None`, the root of `state` will be computed using a cached tree hash.
+/// Providing the `state_root` makes this function several orders of magniude faster.
+///
 /// Spec v0.9.1
 pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
+    state_root: Option<Hash256>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    cache_state(state)?;
+    cache_state(state, state_root)?;
 
     if state.slot > spec.genesis_slot && (state.slot + 1) % T::slots_per_epoch() == 0 {
         per_epoch_processing(state, spec)?;
@@ -25,8 +30,15 @@ pub fn per_slot_processing<T: EthSpec>(
     Ok(())
 }
 
-fn cache_state<T: EthSpec>(state: &mut BeaconState<T>) -> Result<(), Error> {
-    let previous_state_root = state.update_tree_hash_cache()?;
+fn cache_state<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    state_root: Option<Hash256>,
+) -> Result<(), Error> {
+    let previous_state_root = if let Some(root) = state_root {
+        root
+    } else {
+        state.update_tree_hash_cache()?
+    };
 
     // Note: increment the state slot here to allow use of our `state_root` and `block_root`
     // getter/setter functions.

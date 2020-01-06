@@ -192,10 +192,7 @@ mod tests {
     }
 
     fn get_blocks(n: usize, interval_secs: u64) -> Vec<Eth1Block> {
-        (0..n as u64)
-            .into_iter()
-            .map(|i| get_block(i, interval_secs))
-            .collect()
+        (0..n as u64).map(|i| get_block(i, interval_secs)).collect()
     }
 
     fn insert(cache: &mut BlockCache, s: Eth1Block) -> Result<(), Error> {
@@ -213,16 +210,16 @@ mod tests {
             insert(&mut cache, block.clone()).expect("should add consecutive blocks");
         }
 
-        for len in vec![0, 1, 2, 3, 4, 8, 15, 16] {
+        for len in &[0, 1, 2, 3, 4, 8, 15, 16] {
             let mut cache = cache.clone();
 
-            cache.truncate(len);
+            cache.truncate(*len);
 
             assert_eq!(
                 cache.blocks.len(),
-                len,
+                *len,
                 "should truncate to length: {}",
-                len
+                *len
             );
         }
 

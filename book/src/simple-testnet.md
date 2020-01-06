@@ -1,33 +1,32 @@
 # Simple Local Testnet
 
-With a functional [development environment](./setup.md), starting a local multi-node
-testnet is easy:
+First, [install Lighthouse](./installation.md).
 
-1. Start the first node: `$ lighthouse bn testnet -f recent 8`
-1. Start a validator client: `$ lighthouse bn testnet -b insecure 0 8`
-1. Start more nodes with `$ lighthouse bn -b 10 testnet -f bootstrap
-   http://localhost:5052`
-   - Increment the `-b` value by `10` for each additional node.
+Then, get the current unix time in seconds; you can use
+[epochconverter.com](https://www.epochconverter.com/) or `$ date +%s`. It
+should look like this `1576803034` and you should use it wherever we put
+`<time>`.
 
-## Detailed Instructions
-
-First, setup a Lighthouse development environment and navigate to the
-`target/release` directory (this is where the binaries are located).
+> If you choose a time that's more than several minutes in the past the
+> validator client will refuse to produce blocks. We will loosen this
+> restriction in the future, the issue is tracked
+> [here](https://github.com/sigp/lighthouse/issues/714).
 
 ## Starting a beacon node
 
-Start a new node (creating a fresh database and configuration in `$HOME/.lighthouse`), using:
+Start a new node with:
 
 ```bash
-$ lighthouse bn testnet -f recent 8
+$ lighthouse bn --http testnet -r quick 8 <time>
 ```
 
 > Notes:
 >
-> - The `-f` flag ignores any existing database or configuration, backing them
->   up before re-initializing.
+> - The `--http` flag starts the API so the validator can produce blocks.
+> - The `-r` flag creates a random data directory to avoid clashes with other
+>    nodes.
 > - `8` is number of validators with deposits in the genesis state.
-> - See `$ lighthouse bn testnet recent --help` for more configuration options,
+> - See `$ lighthouse bn testnet --help` for more configuration options,
 >   including `minimal`/`mainnet` specification.
 
 ## Starting a validator client
@@ -35,13 +34,11 @@ $ lighthouse bn testnet -f recent 8
 In a new terminal window, start the validator client with:
 
 ```bash
-$ lighthouse vc testnet -b insecure 0 8
+$ lighthouse vc testnet insecure 0 8
 ```
 
 > Notes:
 >
-> - The `-b` flag means the validator client will "bootstrap" specs and config
->   from the beacon node.
 > - The `insecure` command uses predictable, well-known private keys. Since
 >   this is just a local testnet, these are fine.
 > - The `0 8` indicates that this validator client should manage 8 validators,
@@ -51,23 +48,18 @@ $ lighthouse vc testnet -b insecure 0 8
 
 ## Adding another beacon node
 
-You may connect another (non-validating) node to your local network using the
-lighthouse `bootstrap` command.
-
-In a new terminal window, run:
+You may connect another (non-validating) node to your local network by starting
+a new terminal and running:
 
 
 ```bash
-$ lighthouse bn -b 10 testnet -r bootstrap
+lighthouse bn -z --libp2p-addresses /ip4/127.0.0.1/tcp/9000 testnet -r quick 8 <time>
 ```
 
 > Notes:
 >
-> - The `-b` (or `--port-bump`) increases all the listening TCP/UDP ports of
->   the new node to `10` higher. Your first node's HTTP server was at TCP
->   `5052` but this one will be at `5062`.
-> - The `-r` flag creates a new data directory with a random string appended
->   (avoids data directory collisions between nodes).
-> - The default bootstrap HTTP address is `http://localhost:5052`. The new node
->   will download configuration via HTTP before starting sync via libp2p.
-> - See `$ lighthouse bn testnet bootstrap --help` for more configuration.
+> - The `z` (or `--zero-ports`) flag sets all listening ports to be zero, which then
+>   means that the OS chooses random available ports. This avoids port
+>   collisions with the first node.
+> - The `--libp2p-addresses` flag instructs the new node to connect to the
+>   first node.

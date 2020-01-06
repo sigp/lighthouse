@@ -12,13 +12,14 @@ to work on.
 
 To start contributing,
 
-1. Setup a [development environment](./setup.md).
-2. Browse through the [open issues](https://github.com/sigp/lighthouse/issues)
+1. Read our [how to contribute](https://github.com/sigp/lighthouse/blob/master/CONTRIBUTING.md) document.
+2. Setup a [development environment](./setup.md).
+3. Browse through the [open issues](https://github.com/sigp/lighthouse/issues)
    (tip: look for the [good first
    issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
    tag).
-3. Comment on an issue before starting work.
-4. Share your work via a pull-request.
+4. Comment on an issue before starting work.
+5. Share your work via a pull-request.
 
 If you have questions, please reach out via
 [Discord](https://discord.gg/cyAszAh).

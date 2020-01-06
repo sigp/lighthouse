@@ -69,7 +69,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 usize::max_value()
             };
 
-            let head = beacon_chain.head();
+            let head = beacon_chain.head()
+                .map_err(|e| error!(
+                    log,
+                    "Failed to get beacon chain head";
+                    "error" => format!("{:?}", e)
+                ))?;
 
             let head_slot = head.beacon_block.slot;
             let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
