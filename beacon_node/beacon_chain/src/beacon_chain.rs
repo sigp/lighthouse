@@ -1470,6 +1470,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        state.update_proposer_indices_cache(state.slot, &self.spec)?;
 
         let parent_root = if state.slot > 0 {
             *state
