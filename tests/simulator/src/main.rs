@@ -84,12 +84,14 @@ fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
         .ok_or_else(|| "Expected log-level parameter")?;
 
     let end_after_checks = true;
+    let log_format = None;
 
     beacon_chain_sim(
         nodes,
         validators_per_node,
         speed_up_factor,
         log_level,
+        log_format,
         end_after_checks,
     )
 }
@@ -113,7 +115,15 @@ fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
     let log_level = matches
         .value_of("log-level")
         .ok_or_else(|| "Expected log-level parameter")?;
-    syncing_sim(speed_up_factor, initial_delay, sync_delay, log_level)
+
+    let log_format = None;
+    syncing_sim(
+        speed_up_factor,
+        initial_delay,
+        sync_delay,
+        log_level,
+        log_format,
+    )
 }
 
 fn syncing_sim(
@@ -121,9 +131,10 @@ fn syncing_sim(
     initial_delay: u64,
     sync_delay: u64,
     log_level: &str,
+    log_format: &str,
 ) -> Result<(), String> {
     let mut env = EnvironmentBuilder::minimal()
-        .async_logger(log_level)?
+        .async_logger(log_level, log_format)?
         .multi_threaded_tokio_runtime()?
         .build()?;
 
@@ -197,10 +208,11 @@ fn beacon_chain_sim(
     validators_per_node: usize,
     speed_up_factor: u64,
     log_level: &str,
+    log_format: Option<&str>,
     end_after_checks: bool,
 ) -> Result<(), String> {
     let mut env = EnvironmentBuilder::minimal()
-        .async_logger(log_level)?
+        .async_logger(log_level, log_format)?
         .multi_threaded_tokio_runtime()?
         .build()?;
 

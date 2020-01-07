@@ -3,6 +3,7 @@ use crate::eth1_chain::CachingEth1Backend;
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::{
     BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
     ForkChoice,
@@ -10,7 +11,6 @@ use crate::{
 use eth1::Config as Eth1Config;
 use lmd_ghost::{LmdGhost, ThreadSafeReducedTree};
 use operation_pool::OperationPool;
-use parking_lot::RwLock;
 use slog::{info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
@@ -364,7 +364,7 @@ where
                 .op_pool
                 .ok_or_else(|| "Cannot build without op pool".to_string())?,
             eth1_chain: self.eth1_chain,
-            canonical_head: RwLock::new(canonical_head),
+            canonical_head: TimeoutRwLock::new(canonical_head),
             genesis_block_root: self
                 .genesis_block_root
                 .ok_or_else(|| "Cannot build without a genesis block root".to_string())?,
@@ -379,12 +379,16 @@ where
             log: log.clone(),
         };
 
+        let head = beacon_chain
+            .head()
+            .map_err(|e| format!("Failed to get head: {:?}", e))?;
+
         info!(
             log,
             "Beacon chain initialized";
-            "head_state" => format!("{}", beacon_chain.head().beacon_state_root),
-            "head_block" => format!("{}", beacon_chain.head().beacon_block_root),
-            "head_slot" => format!("{}", beacon_chain.head().beacon_block.slot),
+            "head_state" => format!("{}", head.beacon_state_root),
+            "head_block" => format!("{}", head.beacon_block_root),
+            "head_slot" => format!("{}", head.beacon_block.slot),
         );
 
         Ok(beacon_chain)
@@ -629,7 +633,8 @@ mod test {
             .build()
             .expect("should build");
 
-        let head = chain.head();
+        let head = chain.head().expect("should get head");
+
         let state = head.beacon_state;
         let block = head.beacon_block;
 

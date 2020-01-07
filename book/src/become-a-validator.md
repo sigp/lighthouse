@@ -2,8 +2,8 @@
 
 ---
 
-**The lighthouse testnet is currently down, we expect to raise a new one
-before the 22nd of December. See [Lighthouse Update #20](https://lighthouse.sigmaprime.io/update-20.html)
+**The lighthouse testnet is currently down, we expect to raise a new one soon.
+See [Lighthouse Update #20](https://lighthouse.sigmaprime.io/update-20.html)
 for more information.**
 
 ---
