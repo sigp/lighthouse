@@ -46,35 +46,20 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     Arg::with_name("speedup")
                         .short("s")
                         .long("speedup")
-                        .value_name("SPEEDUP")
                         .takes_value(true)
-                        .default_value("15")
                         .help("Speed up factor for eth1 blocks and slot production"),
-                )
-                .arg(
-                    Arg::with_name("log-level")
-                        .short("l")
-                        .long("log-level")
-                        .value_name("LOG_LEVEL")
-                        .takes_value(true)
-                        .default_value("debug")
-                        .help("Logging level"),
                 )
                 .arg(
                     Arg::with_name("initial_delay")
                         .short("i")
                         .long("initial_delay")
-                        .value_name("INITIAL_DELAY")
                         .takes_value(true)
-                        .default_value("50")
                         .help("Epoch delay for new beacon node to start syncing"),
                 )
                 .arg(
                     Arg::with_name("sync_delay")
                         .long("sync_delay")
-                        .value_name("SYNC_DELAY")
                         .takes_value(true)
-                        .default_value("10")
                         .help("Epoch delay for newly added beacon nodes get synced"),
                 ),
         )

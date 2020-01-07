@@ -89,25 +89,16 @@ fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
 }
 
 fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
-    let initial_delay = matches
-        .value_of("initial_delay")
-        .ok_or_else(|| "Expected initial_delay parameter")?
-        .parse::<u64>()
-        .map_err(|e| format!("Unable to parse initial_delay value {}", e))?;
-    let sync_delay = matches
-        .value_of("sync_delay")
-        .ok_or_else(|| "Expected sync_delay parameter")?
-        .parse::<u64>()
-        .map_err(|e| format!("Unable to parse sync_delay value {}", e))?;
-    let speed_up_factor = matches
-        .value_of("speedup")
-        .ok_or_else(|| "Expected speedup parameter")?
-        .parse::<u64>()
-        .map_err(|e| format!("Unable to parse speedup value {}", e))?;
-    let log_level = matches
-        .value_of("log-level")
-        .ok_or_else(|| "Expected log-level parameter")?;
+    let initial_delay = value_t!(matches, "initial_delay", u64).unwrap_or(50);
+    let sync_delay = value_t!(matches, "sync_delay", u64).unwrap_or(10);
+    let speed_up_factor = value_t!(matches, "speedup", u64).unwrap_or(15);
 
+    println!("Syncing Simulator:");
+    println!(" initial_delay:{}", initial_delay);
+    println!(" sync delay:{}", sync_delay);
+    println!(" speed up factor:{}", speed_up_factor);
+
+    let log_level = "debug";
     let log_format = None;
 
     syncing_sim(
