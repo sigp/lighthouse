@@ -37,7 +37,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .short("e")
                         .long("end_after_checks")
                         .takes_value(false)
-                        .help("End after checks (default false)"))
+                        .help("End after checks (default true)"))
         )
         .subcommand(
             SubCommand::with_name("syncing-sim")

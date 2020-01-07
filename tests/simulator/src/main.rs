@@ -65,9 +65,9 @@ fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
     let nodes = value_t!(matches, "nodes", usize).unwrap_or(4);
     let validators_per_node = value_t!(matches, "validators_per_node", usize).unwrap_or(20);
     let speed_up_factor = value_t!(matches, "nodes", u64).unwrap_or(4);
-    let mut end_after_checks = false;
+    let mut end_after_checks = true;
     if matches.is_present("end_after_checks") {
-        end_after_checks = true;
+        end_after_checks = false;
     }
 
     println!("Beacon Chain Simulator:");
