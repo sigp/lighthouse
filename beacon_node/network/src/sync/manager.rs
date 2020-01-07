@@ -16,36 +16,11 @@
 //! further peers connect, this process is run in parallel with those peers, until our head is
 //! within `SLOT_IMPORT_TOLERANCE` of all connected peers.
 //!
-//! Batch Syncing
+//! ## Batch Syncing
 //!
-//! This syncing process start by requesting `BLOCKS_PER_REQUEST` blocks from a peer with an
-//! unknown chain (with a greater slot height) starting from our current head slot. If the earliest
-//! block returned is known to us, then the group of blocks returned form part of a known chain,
-//! and we process this batch of blocks, before requesting more batches forward and processing
-//! those in turn until we reach the peer's chain's head. If the first batch doesn't contain a
-//! block we know of, we must iteratively request blocks backwards (until our latest finalized head
-//! slot) until we find a common ancestor before we can start processing the blocks. If no common
-//! ancestor is found, the peer has a chain which is not part of our finalized head slot and we
-//! drop the peer and the downloaded blocks.
-//! Once we are fully synced with all known peers, the state of the manager becomes `Regular` which
-//! then allows for parent lookups of propagated blocks.
+//! See `RangeSync` for further details.
 //!
-//! A schematic version of this logic with two chain variations looks like the following.
-//!
-//! |----------------------|---------------------------------|
-//! ^finalized head        ^current local head               ^remotes head
-//!
-//!
-//! An example of the remotes chain diverging before our current head.
-//! |---------------------------|
-//!          ^---------------------------------------------|
-//!          ^chain diverges    |initial batch|            ^remotes head
-//!
-//! In this example, we cannot process the initial batch as it is not on a known chain. We must
-//! then backwards sync until we reach a common chain to begin forwarding batch syncing.
-//!
-//!
-//! Parent Lookup
+//! ## Parent Lookup
 //!
 //! When a block with an unknown parent is received and we are in `Regular` sync mode, the block is
 //! queued for lookup. A round-robin approach is used to request the parent from the known list of
@@ -58,9 +33,9 @@
 //! if an attestation references an unknown block) this manager can search for the block and
 //! subsequently search for parents if needed.
 
-use super::message_processor::PeerSyncInfo;
 use super::network_context::SyncNetworkContext;
 use super::range_sync::RangeSync;
+use crate::message_processor::PeerSyncInfo;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
@@ -254,7 +229,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         };
 
-        let local = PeerSyncInfo::from(&chain);
+        let local = match PeerSyncInfo::from_chain(&chain) {
+            Some(local) => local,
+            None => {
+                return error!(
+                    self.log,
+                    "Failed to get peer sync info";
+                    "msg" => "likely due to head lock contention"
+                )
+            }
+        };
 
         // If a peer is within SLOT_IMPORT_TOLERANCE from our head slot, ignore a batch/range sync,
         // consider it a fully-sync'd peer.

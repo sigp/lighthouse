@@ -249,7 +249,7 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) {
     let env = env_builder
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .async_logger("trace")
+        .async_logger("trace", None)
         .expect("should start null logger")
         .build()
         .expect("should build env");

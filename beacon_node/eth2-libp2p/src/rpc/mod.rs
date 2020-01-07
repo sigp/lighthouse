@@ -66,7 +66,7 @@ pub struct RPC<TSubstream> {
     /// Queue of events to processed.
     events: Vec<NetworkBehaviourAction<RPCEvent, RPCMessage>>,
     /// Pins the generic substream.
-    marker: PhantomData<(TSubstream)>,
+    marker: PhantomData<TSubstream>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }

@@ -1,7 +1,7 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
-use super::message_processor::status_message;
+use crate::message_processor::status_message;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::methods::*;
@@ -43,7 +43,9 @@ impl SyncNetworkContext {
             "peer" => format!("{:?}", peer_id)
         );
         if let Some(chain) = chain.upgrade() {
-            let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message(&chain)));
+            if let Some(status_message) = status_message(&chain) {
+                let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message));
+            }
         }
     }
 

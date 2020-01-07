@@ -1,5 +1,5 @@
 use crate::{
-    beacon, error::ApiError, helpers, metrics, network, node, spec, validator, BoxFut,
+    beacon, consensus, error::ApiError, helpers, metrics, network, node, spec, validator, BoxFut,
     NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -74,37 +74,45 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/beacon/block_root") => {
                 into_boxfut(beacon::get_block_root::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/blocks") => {
-                into_boxfut(helpers::implementation_pending_response(req))
-            }
             (&Method::GET, "/beacon/fork") => into_boxfut(beacon::get_fork::<T>(req, beacon_chain)),
-            (&Method::GET, "/beacon/attestations") => {
-                into_boxfut(helpers::implementation_pending_response(req))
-            }
-            (&Method::GET, "/beacon/attestations/pending") => {
-                into_boxfut(helpers::implementation_pending_response(req))
-            }
             (&Method::GET, "/beacon/genesis_time") => {
                 into_boxfut(beacon::get_genesis_time::<T>(req, beacon_chain))
             }
-
             (&Method::GET, "/beacon/validators") => {
                 into_boxfut(beacon::get_validators::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/validators/indicies") => {
-                into_boxfut(helpers::implementation_pending_response(req))
+            (&Method::POST, "/beacon/validators") => {
+                into_boxfut(beacon::post_validators::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/validators/pubkeys") => {
-                into_boxfut(helpers::implementation_pending_response(req))
+            (&Method::GET, "/beacon/validators/all") => {
+                into_boxfut(beacon::get_all_validators::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/validators/active") => {
+                into_boxfut(beacon::get_active_validators::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/state") => {
+                into_boxfut(beacon::get_state::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/state_root") => {
+                into_boxfut(beacon::get_state_root::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/state/genesis") => {
+                into_boxfut(beacon::get_genesis_state::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/beacon/committees") => {
+                into_boxfut(beacon::get_committees::<T>(req, beacon_chain))
             }
 
             // Methods for Validator
-            (&Method::GET, "/validator/duties") => {
-                into_boxfut(validator::get_validator_duties::<T>(req, beacon_chain))
-            }
             (&Method::POST, "/validator/duties") => {
                 validator::post_validator_duties::<T>(req, beacon_chain)
             }
+            (&Method::GET, "/validator/duties/all") => {
+                into_boxfut(validator::get_all_validator_duties::<T>(req, beacon_chain))
+            }
+            (&Method::GET, "/validator/duties/active") => into_boxfut(
+                validator::get_active_validator_duties::<T>(req, beacon_chain),
+            ),
             (&Method::GET, "/validator/block") => {
                 into_boxfut(validator::get_new_beacon_block::<T>(req, beacon_chain, log))
             }
@@ -118,19 +126,12 @@ pub fn route<T: BeaconChainTypes>(
                 validator::publish_attestation::<T>(req, beacon_chain, network_channel, log)
             }
 
-            (&Method::GET, "/beacon/state") => {
-                into_boxfut(beacon::get_state::<T>(req, beacon_chain))
+            (&Method::GET, "/consensus/global_votes") => {
+                into_boxfut(consensus::get_vote_count::<T>(req, beacon_chain))
             }
-            (&Method::GET, "/beacon/state_root") => {
-                into_boxfut(beacon::get_state_root::<T>(req, beacon_chain))
+            (&Method::POST, "/consensus/individual_votes") => {
+                consensus::post_individual_votes::<T>(req, beacon_chain)
             }
-            (&Method::GET, "/beacon/state/current_finalized_checkpoint") => into_boxfut(
-                beacon::get_current_finalized_checkpoint::<T>(req, beacon_chain),
-            ),
-            (&Method::GET, "/beacon/state/genesis") => {
-                into_boxfut(beacon::get_genesis_state::<T>(req, beacon_chain))
-            }
-            //TODO: Add aggreggate/filtered state lookups here, e.g. /beacon/validators/balances
 
             // Methods for bootstrap and checking configuration
             (&Method::GET, "/spec") => into_boxfut(spec::get_spec::<T>(req, beacon_chain)),

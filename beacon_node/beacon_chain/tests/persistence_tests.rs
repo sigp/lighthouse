@@ -59,7 +59,14 @@ fn finalizes_after_resuming_from_db() {
     );
 
     assert!(
-        harness.chain.head().beacon_state.finalized_checkpoint.epoch > 0,
+        harness
+            .chain
+            .head()
+            .expect("should read head")
+            .beacon_state
+            .finalized_checkpoint
+            .epoch
+            > 0,
         "the chain should have already finalized"
     );
 
@@ -95,7 +102,11 @@ fn finalizes_after_resuming_from_db() {
         AttestationStrategy::AllValidators,
     );
 
-    let state = &resumed_harness.chain.head().beacon_state;
+    let state = &resumed_harness
+        .chain
+        .head()
+        .expect("should read head")
+        .beacon_state;
     assert_eq!(
         state.slot, num_blocks_produced,
         "head should be at the current slot"

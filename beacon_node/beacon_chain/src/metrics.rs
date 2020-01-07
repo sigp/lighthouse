@@ -199,10 +199,9 @@ lazy_static! {
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
 /// head state info, etc) and update the Prometheus `DEFAULT_REGISTRY`.
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
-    scrape_head_state::<T>(
-        &beacon_chain.head().beacon_state,
-        beacon_chain.head().beacon_state_root,
-    );
+    if let Ok(head) = beacon_chain.head() {
+        scrape_head_state::<T>(&head.beacon_state, head.beacon_state_root)
+    }
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.

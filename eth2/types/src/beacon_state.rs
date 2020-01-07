@@ -388,6 +388,19 @@ impl<T: EthSpec> BeaconState<T> {
         cache.get_beacon_committees_at_slot(slot)
     }
 
+    /// Get all of the Beacon committees at a given relative epoch.
+    ///
+    /// Utilises the committee cache.
+    ///
+    /// Spec v0.9.1
+    pub fn get_beacon_committees_at_epoch(
+        &self,
+        relative_epoch: RelativeEpoch,
+    ) -> Result<Vec<BeaconCommittee>, Error> {
+        let cache = self.committee_cache(relative_epoch)?;
+        cache.get_all_beacon_committees()
+    }
+
     /// Compute the proposer (not necessarily for the Beacon chain) from a list of indices.
     ///
     /// Spec v0.9.1
