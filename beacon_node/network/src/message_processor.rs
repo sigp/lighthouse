@@ -659,7 +659,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         // work for most attestations that get passed around the network.
         if let Ok(head) = &self.chain.head() {
             // Convert the attestation to an indexed attestation.
-            if let Ok(indexed_attestation) = get_indexed_attestation(&head.beacon_state, &attestation) {
+            if let Ok(indexed_attestation) =
+                get_indexed_attestation(&head.beacon_state, &attestation)
+            {
                 // Validate the signature and return true if it is valid. Otherwise, we move on and read
                 // the database to make certain we have the correct state.
                 if let Ok(signature) = indexed_attestation_signature_set(
