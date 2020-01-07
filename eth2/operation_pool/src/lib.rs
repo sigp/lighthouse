@@ -998,8 +998,9 @@ mod tests {
             for att in &best_attestations {
                 // Code taken from attestation.rs, modified to sum over the attestation indices.
                 // using aggregation_bits instead of earliest_attestation_validators() for indices.
-                let indices =
-                    get_attesting_indices(state, &att.data, &att.aggregation_bits).unwrap();
+                let fresh_validators = earliest_attestation_validators(att, state);
+                let indices = get_attesting_indices(state, &att.data, &fresh_validators).unwrap();
+
                 let rewards = indices.iter().fold(0u64, |sum, validator_index| {
                     let reward = get_base_reward(
                         state,
@@ -1012,7 +1013,7 @@ mod tests {
                     sum + reward
                 });
 
-                // Check that rewards are in descreasing order
+                // Check that rewards are in decreasing order
                 assert!(prev_reward >= rewards);
 
                 prev_reward = rewards;
