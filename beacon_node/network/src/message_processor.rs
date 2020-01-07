@@ -529,22 +529,26 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 .store
                 .get::<BeaconBlock<T::EthSpec>>(&block.parent_root)
         {
-            // Check if the parent block's state root is equal to the current state, if it is, then
-            // we can validate the block using the state in our chain head. This saves us from
-            // having to make an unecessary database read.
-            let state_res = if self.chain.head().beacon_state_root == parent_block.state_root {
-                Ok(Some(self.chain.head().beacon_state.clone()))
-            } else {
-                self.chain
-                    .store
-                    .get_state(&parent_block.state_root, Some(block.slot))
-            };
+            if let Ok(head) = self.chain.head() {
+                // Check if the parent block's state root is equal to the current state, if it is, then
+                // we can validate the block using the state in our chain head. This saves us from
+                // having to make an unecessary database read.
+                let state_res = if head.beacon_state_root == parent_block.state_root {
+                    Ok(Some(head.beacon_state.clone()))
+                } else {
+                    self.chain
+                        .store
+                        .get_state(&parent_block.state_root, Some(block.slot))
+                };
 
-            // If we are unable to find a state for the block, we eventually return false. This
-            // should never be the case though.
-            match state_res {
-                Ok(Some(state)) => Some((parent_block, state)),
-                _ => None,
+                // If we are unable to find a state for the block, we eventually return false. This
+                // should never be the case though.
+                match state_res {
+                    Ok(Some(state)) => Some((parent_block, state)),
+                    _ => None,
+                }
+            } else {
+                None
             }
         } else {
             None
@@ -560,7 +564,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 // If the block is more than one epoch in the future, we must fast-forward to the
                 // state and compute the committee.
                 for _ in state.slot.as_u64()..block.slot.as_u64() {
-                    if per_slot_processing(&mut state, &self.chain.spec).is_err() {
+                    if per_slot_processing(&mut state, None, &self.chain.spec).is_err() {
                         // Return false if something goes wrong.
                         return false;
                     }
@@ -653,22 +657,22 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         // Attempt to validate the attestation's signature against the head state.
         // In this case, we do not read anything from the database, which should be fast and will
         // work for most attestations that get passed around the network.
-        let head_state = &self.chain.head().beacon_state;
-
-        // Convert the attestation to an indexed attestation.
-        if let Ok(indexed_attestation) = get_indexed_attestation(&head_state, &attestation) {
-            // Validate the signature and return true if it is valid. Otherwise, we move on and read
-            // the database to make certain we have the correct state.
-            if let Ok(signature) = indexed_attestation_signature_set(
-                &head_state,
-                &indexed_attestation.signature,
-                &indexed_attestation,
-                &self.chain.spec,
-            ) {
-                // An invalid signature here does not necessarily mean the attestation is invalid.
-                // It could be the case that our state has a different validator registry.
-                if signature.is_valid() {
-                    return true;
+        if let Ok(head) = &self.chain.head() {
+            // Convert the attestation to an indexed attestation.
+            if let Ok(indexed_attestation) = get_indexed_attestation(&head.beacon_state, &attestation) {
+                // Validate the signature and return true if it is valid. Otherwise, we move on and read
+                // the database to make certain we have the correct state.
+                if let Ok(signature) = indexed_attestation_signature_set(
+                    &head.beacon_state,
+                    &indexed_attestation.signature,
+                    &indexed_attestation,
+                    &self.chain.spec,
+                ) {
+                    // An invalid signature here does not necessarily mean the attestation is invalid.
+                    // It could be the case that our state has a different validator registry.
+                    if signature.is_valid() {
+                        return true;
+                    }
                 }
             }
         }
