@@ -1,10 +1,8 @@
 use crate::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKeyBytes;
-use eth2_libp2p::{PubsubMessage, Topic};
-use eth2_libp2p::{
-    BEACON_ATTESTATION_TOPIC, BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX, TOPIC_PREFIX,
-};
+use eth2_libp2p::GossipTopic;
+use eth2_libp2p::PubsubMessage;
 use hex;
 use http::header;
 use hyper::{Body, Request};
@@ -122,12 +120,12 @@ pub fn parse_pubkey_bytes(string: &str) -> Result<PublicKeyBytes, ApiError> {
 pub fn block_root_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     target: Slot,
-) -> Option<Hash256> {
-    beacon_chain
-        .rev_iter_block_roots()
+) -> Result<Option<Hash256>, ApiError> {
+    Ok(beacon_chain
+        .rev_iter_block_roots()?
         .take_while(|(_root, slot)| *slot >= target)
         .find(|(_root, slot)| *slot == target)
-        .map(|(root, _slot)| root)
+        .map(|(root, _slot)| root))
 }
 
 /// Returns a `BeaconState` and it's root in the canonical chain of `beacon_chain` at the given
@@ -139,15 +137,15 @@ pub fn state_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     slot: Slot,
 ) -> Result<(Hash256, BeaconState<T::EthSpec>), ApiError> {
-    let head_state = &beacon_chain.head().beacon_state;
+    let head_state = &beacon_chain.head()?.beacon_state;
 
     if head_state.slot == slot {
         // The request slot is the same as the best block (head) slot.
 
         // I'm not sure if this `.clone()` will be optimized out. If not, it seems unnecessary.
         Ok((
-            beacon_chain.head().beacon_state_root,
-            beacon_chain.head().beacon_state.clone(),
+            beacon_chain.head()?.beacon_state_root,
+            beacon_chain.head()?.beacon_state.clone(),
         ))
     } else {
         let root = state_root_at_slot(beacon_chain, slot)?;
@@ -170,7 +168,7 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     slot: Slot,
 ) -> Result<Hash256, ApiError> {
-    let head_state = &beacon_chain.head().beacon_state;
+    let head_state = &beacon_chain.head()?.beacon_state;
     let current_slot = beacon_chain
         .slot()
         .map_err(|_| ApiError::ServerError("Unable to read slot clock".to_string()))?;
@@ -194,7 +192,7 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         // 2. The request slot is the same as the best block (head) slot.
         //
         // The head state root is stored in memory, return a reference.
-        Ok(beacon_chain.head().beacon_state_root)
+        Ok(beacon_chain.head()?.beacon_state_root)
     } else if head_state.slot > slot {
         // 3. The request slot is prior to the head slot.
         //
@@ -211,14 +209,14 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         //
         // Use `per_slot_processing` to advance the head state to the present slot,
         // assuming that all slots do not contain a block (i.e., they are skipped slots).
-        let mut state = beacon_chain.head().beacon_state.clone();
+        let mut state = beacon_chain.head()?.beacon_state.clone();
         let spec = &T::EthSpec::default_spec();
 
         for _ in state.slot.as_u64()..slot.as_u64() {
             // Ensure the next epoch state caches are built in case of an epoch transition.
             state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
-            state_processing::per_slot_processing(&mut state, spec)?;
+            state_processing::per_slot_processing(&mut state, None, spec)?;
         }
 
         // Note: this is an expensive operation. Once the tree hash cache is implement it may be
@@ -238,16 +236,12 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     block: BeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // create the network topic to send on
-    let topic_string = format!(
-        "/{}/{}/{}",
-        TOPIC_PREFIX, BEACON_BLOCK_TOPIC, TOPIC_ENCODING_POSTFIX
-    );
-    let topic = Topic::new(topic_string);
+    let topic = GossipTopic::BeaconBlock;
     let message = PubsubMessage::Block(block.as_ssz_bytes());
 
     // Publish the block to the p2p network via gossipsub.
     if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
-        topics: vec![topic],
+        topics: vec![topic.into()],
         message,
     }) {
         return Err(ApiError::ServerError(format!(
@@ -264,16 +258,12 @@ pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
     attestation: Attestation<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // create the network topic to send on
-    let topic_string = format!(
-        "/{}/{}/{}",
-        TOPIC_PREFIX, BEACON_ATTESTATION_TOPIC, TOPIC_ENCODING_POSTFIX
-    );
-    let topic = Topic::new(topic_string);
+    let topic = GossipTopic::BeaconAttestation;
     let message = PubsubMessage::Attestation(attestation.as_ssz_bytes());
 
     // Publish the attestation to the p2p network via gossipsub.
     if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
-        topics: vec![topic],
+        topics: vec![topic.into()],
         message,
     }) {
         return Err(ApiError::ServerError(format!(

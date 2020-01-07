@@ -154,6 +154,12 @@ lazy_static! {
         try_create_int_counter("beacon_checkpoint_cache_misses_total", "Count of times checkpoint cache fulfils request");
 
     /*
+     * Eth1
+     */
+    pub static ref JUNK_ETH1_VOTES: Result<IntCounter> =
+        try_create_int_counter("beacon_eth1_junk_votes", "Count of times we have voted junk for eth1 dat");
+
+    /*
      * Chain Head
      */
     pub static ref UPDATE_HEAD_TIMES: Result<Histogram> =
@@ -193,10 +199,9 @@ lazy_static! {
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
 /// head state info, etc) and update the Prometheus `DEFAULT_REGISTRY`.
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
-    scrape_head_state::<T>(
-        &beacon_chain.head().beacon_state,
-        beacon_chain.head().beacon_state_root,
-    );
+    if let Ok(head) = beacon_chain.head() {
+        scrape_head_state::<T>(&head.beacon_state, head.beacon_state_root)
+    }
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.

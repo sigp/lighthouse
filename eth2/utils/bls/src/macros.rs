@@ -161,7 +161,7 @@ macro_rules! bytes_struct {
             where
                 S: serde::ser::Serializer,
             {
-                serializer.serialize_str(&hex::encode(ssz::ssz_encode(self)))
+                serializer.serialize_str(&serde_hex::encode(ssz::ssz_encode(self)))
             }
         }
 
@@ -171,7 +171,7 @@ macro_rules! bytes_struct {
             where
                 D: serde::de::Deserializer<'de>,
             {
-                let bytes = deserializer.deserialize_str(serde_hex::HexVisitor)?;
+                let bytes = deserializer.deserialize_str(serde_hex::PrefixedHexVisitor)?;
                 let signature = Self::from_ssz_bytes(&bytes[..])
                     .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
                 Ok(signature)

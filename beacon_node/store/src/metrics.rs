@@ -1,29 +1,31 @@
 pub use lighthouse_metrics::{set_gauge, try_create_int_gauge, *};
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 
 lazy_static! {
     /*
      * General
      */
     pub static ref DISK_DB_SIZE: Result<IntGauge> =
-        try_create_int_gauge("store_disk_db_size", "Size of the on-disk database (bytes)");
+        try_create_int_gauge("store_disk_db_size", "Size of the hot on-disk database (bytes)");
+    pub static ref FREEZER_DB_SIZE: Result<IntGauge> =
+        try_create_int_gauge("store_freezer_db_size", "Size of the on-disk freezer database (bytes)");
     pub static ref DISK_DB_WRITE_BYTES: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_write_bytes_total",
-        "Number of bytes attempted to be written to the on-disk DB"
+        "Number of bytes attempted to be written to the hot on-disk DB"
     );
     pub static ref DISK_DB_READ_BYTES: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_read_bytes_total",
-        "Number of bytes read from the on-disk DB"
+        "Number of bytes read from the hot on-disk DB"
     );
     pub static ref DISK_DB_READ_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_read_count_total",
-        "Total number of reads to the on-disk DB"
+        "Total number of reads to the hot on-disk DB"
     );
     pub static ref DISK_DB_WRITE_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_write_count_total",
-        "Total number of writes to the on-disk DB"
+        "Total number of writes to the hot on-disk DB"
     );
     pub static ref DISK_DB_READ_TIMES: Result<Histogram> = try_create_histogram(
         "store_disk_db_read_seconds",
@@ -35,16 +37,20 @@ lazy_static! {
     );
     pub static ref DISK_DB_EXISTS_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_exists_count_total",
-        "Total number of checks if a key is in the on-disk DB"
+        "Total number of checks if a key is in the hot on-disk DB"
     );
     pub static ref DISK_DB_DELETE_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_disk_db_delete_count_total",
-        "Total number of deletions from the on-disk DB"
+        "Total number of deletions from the hot on-disk DB"
     );
     /*
      * Beacon State
      */
     pub static ref BEACON_STATE_READ_TIMES: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_read_seconds",
+        "Total time required to read a BeaconState from the database"
+    );
+    pub static ref BEACON_STATE_READ_OVERHEAD_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_state_read_overhead_seconds",
         "Overhead on reading a beacon state from the DB (e.g., decoding)"
     );
@@ -57,6 +63,10 @@ lazy_static! {
         "Total number of beacon state bytes read from the DB"
     );
     pub static ref BEACON_STATE_WRITE_TIMES: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_write_seconds",
+        "Total time required to write a BeaconState to the database"
+    );
+    pub static ref BEACON_STATE_WRITE_OVERHEAD_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_state_write_overhead_seconds",
         "Overhead on writing a beacon state to the DB (e.g., encoding)"
     );
@@ -98,15 +108,21 @@ lazy_static! {
 }
 
 /// Updates the global metrics registry with store-related information.
-pub fn scrape_for_metrics(db_path: &PathBuf) {
-    let db_size = if let Ok(iter) = fs::read_dir(db_path) {
+pub fn scrape_for_metrics(db_path: &Path, freezer_db_path: &Path) {
+    let db_size = size_of_dir(db_path);
+    set_gauge(&DISK_DB_SIZE, db_size as i64);
+    let freezer_db_size = size_of_dir(freezer_db_path);
+    set_gauge(&FREEZER_DB_SIZE, freezer_db_size as i64);
+}
+
+fn size_of_dir(path: &Path) -> u64 {
+    if let Ok(iter) = fs::read_dir(path) {
         iter.filter_map(std::result::Result::ok)
             .map(size_of_dir_entry)
             .sum()
     } else {
         0
-    };
-    set_gauge(&DISK_DB_SIZE, db_size as i64);
+    }
 }
 
 fn size_of_dir_entry(dir: fs::DirEntry) -> u64 {

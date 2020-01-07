@@ -19,7 +19,10 @@ use types::{
 };
 use url::Url;
 
-pub use rest_api::{BulkValidatorDutiesRequest, HeadResponse, ValidatorDuty};
+pub use rest_api::{
+    CanonicalHeadResponse, Committee, HeadBeaconBlock, ValidatorDutiesRequest, ValidatorDuty,
+    ValidatorRequest, ValidatorResponse,
+};
 
 // Setting a long timeout for debug ensures that crypto-heavy operations can still succeed.
 #[cfg(debug_assertions)]
@@ -224,41 +227,14 @@ impl<E: EthSpec> Validator<E> {
     }
 
     /// Returns the duties required of the given validator pubkeys in the given epoch.
-    ///
-    /// ## Warning
-    ///
-    /// This method cannot request large amounts of validator duties because the query string fills
-    /// up the URL. I have seen requests of 1,024 fail. For large requests, use `get_duties_bulk`.
     pub fn get_duties(
         &self,
         epoch: Epoch,
         validator_pubkeys: &[PublicKey],
     ) -> impl Future<Item = Vec<ValidatorDuty>, Error = Error> {
-        let validator_pubkeys: Vec<String> =
-            validator_pubkeys.iter().map(pubkey_as_string).collect();
-
-        let client = self.0.clone();
-        self.url("duties").into_future().and_then(move |url| {
-            let mut query_params = validator_pubkeys
-                .into_iter()
-                .map(|pubkey| ("validator_pubkeys".to_string(), pubkey))
-                .collect::<Vec<_>>();
-
-            query_params.push(("epoch".into(), format!("{}", epoch.as_u64())));
-
-            client.json_get::<_>(url, query_params)
-        })
-    }
-
-    /// Returns the duties required of the given validator pubkeys in the given epoch.
-    pub fn get_duties_bulk(
-        &self,
-        epoch: Epoch,
-        validator_pubkeys: &[PublicKey],
-    ) -> impl Future<Item = Vec<ValidatorDuty>, Error = Error> {
         let client = self.0.clone();
 
-        let bulk_request = BulkValidatorDutiesRequest {
+        let bulk_request = ValidatorDutiesRequest {
             epoch,
             pubkeys: validator_pubkeys
                 .iter()
@@ -329,6 +305,7 @@ impl<E: EthSpec> Beacon<E> {
             .map_err(Into::into)
     }
 
+    /// Returns the genesis time.
     pub fn get_genesis_time(&self) -> impl Future<Item = u64, Error = Error> {
         let client = self.0.clone();
         self.url("genesis_time")
@@ -336,6 +313,7 @@ impl<E: EthSpec> Beacon<E> {
             .and_then(move |url| client.json_get(url, vec![]))
     }
 
+    /// Returns the fork at the head of the beacon chain.
     pub fn get_fork(&self) -> impl Future<Item = Fork, Error = Error> {
         let client = self.0.clone();
         self.url("fork")
@@ -343,11 +321,20 @@ impl<E: EthSpec> Beacon<E> {
             .and_then(move |url| client.json_get(url, vec![]))
     }
 
-    pub fn get_head(&self) -> impl Future<Item = HeadResponse, Error = Error> {
+    /// Returns info about the head of the canonical beacon chain.
+    pub fn get_head(&self) -> impl Future<Item = CanonicalHeadResponse, Error = Error> {
         let client = self.0.clone();
         self.url("head")
             .into_future()
-            .and_then(move |url| client.json_get::<HeadResponse>(url, vec![]))
+            .and_then(move |url| client.json_get::<CanonicalHeadResponse>(url, vec![]))
+    }
+
+    /// Returns the set of known beacon chain head blocks. One of these will be the canonical head.
+    pub fn get_heads(&self) -> impl Future<Item = Vec<HeadBeaconBlock>, Error = Error> {
+        let client = self.0.clone();
+        self.url("heads")
+            .into_future()
+            .and_then(move |url| client.json_get(url, vec![]))
     }
 
     /// Returns the block and block root at the given slot.
@@ -397,6 +384,22 @@ impl<E: EthSpec> Beacon<E> {
         self.get_state("root".to_string(), root_as_string(root))
     }
 
+    /// Returns the root of the state at the given slot.
+    pub fn get_state_root(&self, slot: Slot) -> impl Future<Item = Hash256, Error = Error> {
+        let client = self.0.clone();
+        self.url("state_root").into_future().and_then(move |url| {
+            client.json_get(url, vec![("slot".into(), format!("{}", slot.as_u64()))])
+        })
+    }
+
+    /// Returns the root of the block at the given slot.
+    pub fn get_block_root(&self, slot: Slot) -> impl Future<Item = Hash256, Error = Error> {
+        let client = self.0.clone();
+        self.url("block_root").into_future().and_then(move |url| {
+            client.json_get(url, vec![("slot".into(), format!("{}", slot.as_u64()))])
+        })
+    }
+
     /// Returns the state and state root at the given slot.
     fn get_state(
         &self,
@@ -410,6 +413,86 @@ impl<E: EthSpec> Beacon<E> {
                 client.json_get::<StateResponse<E>>(url, vec![(query_key, query_param)])
             })
             .map(|response| (response.beacon_state, response.root))
+    }
+
+    /// Returns the block and block root at the given slot.
+    ///
+    /// If `state_root` is `Some`, the query will use the given state instead of the default
+    /// canonical head state.
+    pub fn get_validators(
+        &self,
+        validator_pubkeys: Vec<PublicKey>,
+        state_root: Option<Hash256>,
+    ) -> impl Future<Item = Vec<ValidatorResponse>, Error = Error> {
+        let client = self.0.clone();
+
+        let bulk_request = ValidatorRequest {
+            state_root,
+            pubkeys: validator_pubkeys
+                .iter()
+                .map(|pubkey| pubkey.clone().into())
+                .collect(),
+        };
+
+        self.url("validators")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, bulk_request))
+            .and_then(|response| error_for_status(response).map_err(Error::from))
+            .and_then(|mut success| success.json().map_err(Error::from))
+    }
+
+    /// Returns all validators.
+    ///
+    /// If `state_root` is `Some`, the query will use the given state instead of the default
+    /// canonical head state.
+    pub fn get_all_validators(
+        &self,
+        state_root: Option<Hash256>,
+    ) -> impl Future<Item = Vec<ValidatorResponse>, Error = Error> {
+        let client = self.0.clone();
+
+        let query_params = if let Some(state_root) = state_root {
+            vec![("state_root".into(), root_as_string(state_root))]
+        } else {
+            vec![]
+        };
+
+        self.url("validators/all")
+            .into_future()
+            .and_then(move |url| client.json_get(url, query_params))
+    }
+
+    /// Returns the active validators.
+    ///
+    /// If `state_root` is `Some`, the query will use the given state instead of the default
+    /// canonical head state.
+    pub fn get_active_validators(
+        &self,
+        state_root: Option<Hash256>,
+    ) -> impl Future<Item = Vec<ValidatorResponse>, Error = Error> {
+        let client = self.0.clone();
+
+        let query_params = if let Some(state_root) = state_root {
+            vec![("state_root".into(), root_as_string(state_root))]
+        } else {
+            vec![]
+        };
+
+        self.url("validators/active")
+            .into_future()
+            .and_then(move |url| client.json_get(url, query_params))
+    }
+
+    /// Returns committees at the given epoch.
+    pub fn get_committees(
+        &self,
+        epoch: Epoch,
+    ) -> impl Future<Item = Vec<Committee>, Error = Error> {
+        let client = self.0.clone();
+
+        self.url("committees").into_future().and_then(move |url| {
+            client.json_get(url, vec![("epoch".into(), format!("{}", epoch.as_u64()))])
+        })
     }
 }
 
@@ -473,10 +556,6 @@ fn root_as_string(root: Hash256) -> String {
 
 fn signature_as_string(signature: &Signature) -> String {
     format!("0x{}", hex::encode(signature.as_ssz_bytes()))
-}
-
-fn pubkey_as_string(pubkey: &PublicKey) -> String {
-    format!("0x{}", hex::encode(pubkey.as_ssz_bytes()))
 }
 
 impl From<reqwest::Error> for Error {
