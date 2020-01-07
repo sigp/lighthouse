@@ -51,6 +51,9 @@ pub struct HotColdDB<E: EthSpec> {
 
 #[derive(Debug, PartialEq)]
 pub enum HotColdDBError {
+    /// Recoverable error indicating that the database freeze point couldn't be updated
+    /// due to the finalized block not lying on an epoch boundary (should be infrequent).
+    FreezeSlotUnaligned(Slot),
     FreezeSlotError {
         current_split_slot: Slot,
         proposed_split_slot: Slot,
@@ -140,11 +143,15 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         // boundary (in order for the hot state summary scheme to work).
         let current_split_slot = store.get_split_slot();
 
-        if frozen_head.slot < current_split_slot || frozen_head.slot % E::slots_per_epoch() != 0 {
+        if frozen_head.slot < current_split_slot {
             Err(HotColdDBError::FreezeSlotError {
                 current_split_slot,
                 proposed_split_slot: frozen_head.slot,
             })?;
+        }
+
+        if frozen_head.slot % E::slots_per_epoch() != 0 {
+            Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot))?;
         }
 
         // 1. Copy all of the states between the head and the split slot, from the hot DB
