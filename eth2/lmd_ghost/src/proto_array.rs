@@ -125,6 +125,7 @@ impl ProtoArray {
             };
         }
 
+        // back-prop best-child/target updates
         for i in (start..d.len()).rev() {
             if let Some(best_child) = self.get_best_child(i)? {
                 // TODO: array access safety
@@ -144,7 +145,6 @@ impl ProtoArray {
                         if self.weights[i] > self.weights[best_child_of_parent] {
                             self.best_child[parent] = Some(i)
                         }
-                        // Do thing
                     }
                 } else {
                     // TODO: what is this?
@@ -225,21 +225,42 @@ impl ProtoArray {
             // TODO: safe array access.
             self.best_descendant[i].saturating_sub(start);
 
-            if let Some(parent) = self.parents[i] {
+            self.parents[i] = if let Some(parent) = self.parents[i] {
                 if parent < start {
-                    parent = None
+                    None
                 } else {
-                    // TODO: what happens if this becomes negative?? Safety issue.
-                    parent -= start
+                    Some(parent.saturating_sub(start))
                 }
-            }
+            } else {
+                None
+            };
 
-            self.indices
-                .get_mut(n.block_root)
-                .ok_or_else(|| Error::NodeUnknown(n.block_root))? -= start
+            *self
+                .indices
+                .get_mut(&node.block_root)
+                .ok_or_else(|| Error::NodeUnknown(node.block_root))? -= start
         }
 
         Ok(())
+    }
+
+    pub fn head_fn(&self) -> Result<Hash256, Error> {
+        let mut i = *self
+            .indices
+            .get(&self.dag.finalized)
+            .ok_or_else(|| Error::FinalizedNodeUnknown(self.dag.finalized))?;
+
+        loop {
+            // TODO: safe array access.
+            if let Some(best_child) = self.best_child[i] {
+                i = best_child;
+            } else {
+                break;
+            }
+        }
+
+        // TODO: safe array access.
+        Ok(self.nodes[i].block_root)
     }
 
     fn check_consistency(&self) -> Result<(), Error> {
