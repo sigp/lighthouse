@@ -32,8 +32,6 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
     /// The Eth2 RPC specified in the wire-0 protocol.
     eth2_rpc: RPC<TSubstream>,
     /// Keep regular connection to peers and disconnect if absent.
-    // TODO: Remove Libp2p ping in favour of discv5 ping.
-    ping: Ping<TSubstream>,
     // TODO: Using id for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.
     identify: Identify<TSubstream>,
@@ -60,12 +58,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         let local_peer_id = local_key.public().clone().into_peer_id();
         let behaviour_log = log.new(o!());
 
-        let ping_config = PingConfig::new()
-            .with_timeout(Duration::from_secs(30))
-            .with_interval(Duration::from_secs(20))
-            .with_max_failures(NonZeroU32::new(2).expect("2 != 0"))
-            .with_keep_alive(false);
-
         let identify = Identify::new(
             "lighthouse/libp2p".into(),
             version::version(),
@@ -76,7 +68,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
             eth2_rpc: RPC::new(log.clone()),
             gossipsub: Gossipsub::new(local_peer_id.clone(), net_conf.gs_config.clone()),
             discovery: Discovery::new(local_key, net_conf, log)?,
-            ping: Ping::new(ping_config),
             identify,
             seen_gossip_messages: LruCache::new(256),
             events: Vec::new(),
@@ -140,14 +131,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<RPCMessage
                 self.events.push(BehaviourEvent::RPC(peer_id, rpc_event))
             }
         }
-    }
-}
-
-impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<PingEvent>
-    for Behaviour<TSubstream>
-{
-    fn inject_event(&mut self, _event: PingEvent) {
-        // not interested in ping responses at the moment.
     }
 }
 
