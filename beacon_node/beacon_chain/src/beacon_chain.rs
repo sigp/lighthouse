@@ -171,8 +171,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
             let beacon_state_root = beacon_block.state_root;
             let beacon_state = self
-                .store
-                .get_state(&beacon_state_root, Some(beacon_block.slot))?
+                .get_state_caching(&beacon_state_root, Some(beacon_block.slot))?
                 .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
 
             CheckPoint {
@@ -429,7 +428,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    fn get_state_caching(
+    pub fn get_state_caching(
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
@@ -450,8 +449,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    #[allow(unused)]
-    fn get_state_caching_only_with_committee_caches(
+    pub fn get_state_caching_only_with_committee_caches(
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
@@ -1703,8 +1701,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .process_finalization(&finalized_block, finalized_block_root)?;
 
             let finalized_state = self
-                .store
-                .get_state(&finalized_block.state_root, Some(finalized_block.slot))?
+                .get_state_caching_only_with_committee_caches(
+                    &finalized_block.state_root,
+                    Some(finalized_block.slot),
+                )?
                 .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
 
             self.op_pool.prune_all(&finalized_state, &self.spec);

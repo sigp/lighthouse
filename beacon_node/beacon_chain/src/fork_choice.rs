@@ -141,8 +141,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             };
 
             let mut state: BeaconState<T::EthSpec> = chain
-                .store
-                .get_state(&block.state_root, Some(block.slot))?
+                .get_state_caching_only_with_committee_caches(&block.state_root, Some(block.slot))?
                 .ok_or_else(|| Error::MissingState(block.state_root))?;
 
             // Fast-forward the state to the start slot of the epoch where it was justified.

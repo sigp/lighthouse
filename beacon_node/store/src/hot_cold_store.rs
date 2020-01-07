@@ -317,9 +317,14 @@ impl<E: EthSpec> HotColdDB<E> {
                     HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
                 })?;
 
-            let blocks = self.load_blocks_to_replay(state.slot, slot, latest_block_root)?;
-
-            self.replay_blocks(state, blocks, slot).map(Some)
+            // Optimization to avoid even *thinking* about replaying blocks if we're already
+            // on an epoch boundary.
+            if slot % E::slots_per_epoch() == 0 {
+                Ok(Some(state))
+            } else {
+                let blocks = self.load_blocks_to_replay(state.slot, slot, latest_block_root)?;
+                self.replay_blocks(state, blocks, slot).map(Some)
+            }
         } else {
             Ok(None)
         }
