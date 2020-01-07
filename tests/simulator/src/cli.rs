@@ -2,46 +2,42 @@ use clap::{App, Arg, SubCommand};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("simulator")
+        .version(crate_version!())
+        .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Options for interacting with simulator")
         .subcommand(
             SubCommand::with_name("beacon-chain-sim")
-                .about("Run the beacon chain simulation")
-                .arg(
-                    Arg::with_name("nodes")
+            .about(
+                "Lighthouse Beacon Chain Simulator creates `n` beacon node and validator clients,
+                    each with `v` validators. A deposit contract is deployed at the start of the
+                    simulation using a local `ganache-cli` instance (you must have `ganache-cli`
+                    installed and avaliable on your path). All beacon nodes independently listen
+                    for genesis from the deposit contract, then start operating.
+
+                    As the simulation runs, there are checks made to ensure that all components
+                    are running correctly. If any of these checks fail, the simulation will
+                    exit immediately.",
+                    )
+                    .arg(Arg::with_name("nodes")
                         .short("n")
                         .long("nodes")
-                        .value_name("NUM_NODES")
                         .takes_value(true)
-                        .default_value("4")
-                        .help("Number of beacon nodes instances to spin up"),
-                )
-                .arg(
-                    Arg::with_name("validators")
+                        .help("Number of beacon nodes (default 4)"))
+                    .arg(Arg::with_name("validators_per_node")
                         .short("v")
-                        .long("validators")
-                        .value_name("VALIDATORS_PER_NODE")
+                        .long("validators_per_node")
                         .takes_value(true)
-                        .default_value("20")
-                        .help("Number of validators per node"),
-                )
-                .arg(
-                    Arg::with_name("log-level")
-                        .short("l")
-                        .long("log-level")
-                        .value_name("LOG_LEVEL")
-                        .takes_value(true)
-                        .default_value("debug")
-                        .help("Logging level"),
-                )
-                .arg(
-                    Arg::with_name("speedup")
+                        .help("Number of validators (default 20)"))
+                    .arg(Arg::with_name("speed_up_factor")
                         .short("s")
-                        .long("speedup")
-                        .value_name("SPEEDUP")
+                        .long("speed_up_factor")
                         .takes_value(true)
-                        .default_value("4")
-                        .help("Speed up factor for eth1 blocks and slot production"),
-                ),
+                        .help("Speed up factor (default 4)"))
+                    .arg(Arg::with_name("end_after_checks")
+                        .short("e")
+                        .long("end_after_checks")
+                        .takes_value(false)
+                        .help("End after checks (default false)"))
         )
         .subcommand(
             SubCommand::with_name("syncing-sim")

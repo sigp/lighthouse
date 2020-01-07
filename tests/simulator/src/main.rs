@@ -6,17 +6,15 @@
 //! As the simulation runs, there are checks made to ensure that all components are running
 //! correctly. If any of these checks fail, the simulation will exit immediately.
 //!
-//! By default, the simulation will end as soon as all checks have finished. It may be configured
-//! to run indefinitely by setting `end_after_checks = false`.
-//!
 //! ## Future works
 //!
 //! Presently all the beacon nodes and validator clients all log to stdout. Additionally, the
 //! simulation uses `println` to communicate some info. It might be nice if the nodes logged to
 //! easy-to-find files and stdout only contained info from the simulation.
 //!
-//! It would also be nice to add a CLI using `clap` so that the variables in `main()` can be
-//! changed without a recompile.
+
+#[macro_use]
+extern crate clap;
 
 mod checks;
 mod cli;
@@ -64,26 +62,20 @@ fn main() {
 }
 
 fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
-    let nodes = matches
-        .value_of("nodes")
-        .ok_or_else(|| "Expected nodes parameter")?
-        .parse::<usize>()
-        .map_err(|e| format!("Unable to parse nodes value {}", e))?;
-    let validators_per_node = matches
-        .value_of("validators")
-        .ok_or_else(|| "Expected validators parameter")?
-        .parse::<usize>()
-        .map_err(|e| format!("Unable to parse validators value {}", e))?;
-    let speed_up_factor = matches
-        .value_of("speedup")
-        .ok_or_else(|| "Expected speedup parameter")?
-        .parse::<u64>()
-        .map_err(|e| format!("Unable to parse speedup value {}", e))?;
-    let log_level = matches
-        .value_of("log-level")
-        .ok_or_else(|| "Expected log-level parameter")?;
+    let nodes = value_t!(matches, "nodes", usize).unwrap_or(4);
+    let validators_per_node = value_t!(matches, "validators_per_node", usize).unwrap_or(20);
+    let speed_up_factor = value_t!(matches, "nodes", u64).unwrap_or(4);
+    let mut end_after_checks = false;
+    if matches.is_present("end_after_checks") {
+        end_after_checks = true;
+    }
 
-    let end_after_checks = true;
+    println!("Beacon Chain Simulator:");
+    println!(" nodes:{}", nodes);
+    println!(" validators_per_node:{}", validators_per_node);
+    println!(" end_after_checks:{}", end_after_checks);
+
+    let log_level = "debug";
     let log_format = None;
 
     beacon_chain_sim(
@@ -117,6 +109,7 @@ fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
         .ok_or_else(|| "Expected log-level parameter")?;
 
     let log_format = None;
+
     syncing_sim(
         speed_up_factor,
         initial_delay,
@@ -131,7 +124,7 @@ fn syncing_sim(
     initial_delay: u64,
     sync_delay: u64,
     log_level: &str,
-    log_format: &str,
+    log_format: Option<&str>,
 ) -> Result<(), String> {
     let mut env = EnvironmentBuilder::minimal()
         .async_logger(log_level, log_format)?
