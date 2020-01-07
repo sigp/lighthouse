@@ -1,15 +1,83 @@
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use types::Hash256;
 
 pub const PRUNE_THRESHOLD: usize = 200;
 
+#[derive(Default)]
+pub struct VoteTracker {
+    previous: Hash256,
+    current: Hash256,
+}
+
+pub struct BalanceSnapshot {
+    state_root: Hash256,
+    balances: Vec<u64>,
+}
+
+pub struct ProtoArrayForkChoice {
+    proto_array: RwLock<ProtoArray>,
+    votes: RwLock<ElasticList<VoteTracker>>,
+    balances: RwLock<BalanceSnapshot>,
+}
+
+impl ProtoArrayForkChoice {
+    pub fn process_attestation(&self, validator_index: usize, block_root: Hash256) {
+        self.votes.write().get_mut(validator_index).current = block_root;
+    }
+
+    pub fn process_block(&self, block_root: Hash256, parent_root: Hash256) -> Result<(), Error> {
+        let node = DagNode {
+            block_root,
+            parent: Some(parent_root),
+        };
+
+        self.proto_array.write().on_new_node(node)
+    }
+
+    fn find_head<F>(
+        &self,
+        start_block_root: Hash256,
+        latest_balances: BalanceSnapshot,
+    ) -> SuperResult<Hash256> {
+        let current_balances = self.balances.write();
+        let votes = self.votes.read();
+
+        let mut score_changes = vec![];
+
+        if current_balances.state_root != latest_balances.state_root {
+            // Note: here we make an assumption that the size of the validator registry never
+            // reduces.
+            for (i, latest) in latest_balances.balances.iter().enumerate() {
+                if let Some(current) = current_balances.balances.get(i) {
+                    if latest != current {
+                        let vote = votes.get(i);
+
+                        if vote != VoteTracker::default() {
+                            score_changes.push(ScoreChange {
+                                target: vote.previous,
+                                score_delta,
+                            })
+                        }
+                    }
+                }
+            }
+
+            // Update the thing
+            current_balances = latest_balances
+        }
+    }
+
+    pub fn update_finalized_root(&self, finalized_root: Hash256) -> Result<(), Error> {
+        let mut proto_array = self.proto_array.write();
+        proto_array.finalized_root = finalized_root;
+        proto_array.prune()
+    }
+}
+
 pub struct DagNode {
     block_root: Hash256,
     parent: Option<Hash256>,
-}
-
-pub struct Dag {
-    finalized: Hash256,
 }
 
 pub struct ScoreChange {
@@ -18,7 +86,7 @@ pub struct ScoreChange {
 }
 
 pub struct ProtoArray {
-    dag: Dag,
+    finalized_root: Hash256,
     /// Maps the index of some parent node to the index of its best-weighted child.
     best_child: Vec<Option<usize>>, // TODO: non-zero usize?
     /// Maps the index of some node to it's weight.
@@ -80,8 +148,8 @@ impl ProtoArray {
 
         let start = *self
             .indices
-            .get(&self.dag.finalized)
-            .ok_or_else(|| Error::FinalizedNodeUnknown(self.dag.finalized))?;
+            .get(&self.finalized_root)
+            .ok_or_else(|| Error::FinalizedNodeUnknown(self.finalized_root))?;
 
         // Provides safety for later calls in this function.
         if start >= d.len() {
@@ -194,8 +262,8 @@ impl ProtoArray {
     pub fn prune(&mut self) -> Result<(), Error> {
         let start = *self
             .indices
-            .get(&self.dag.finalized)
-            .ok_or_else(|| Error::FinalizedNodeUnknown(self.dag.finalized))?;
+            .get(&self.finalized_root)
+            .ok_or_else(|| Error::FinalizedNodeUnknown(self.finalized_root))?;
 
         // Small pruning does not help more than it costs to do.
         if start < 200 {
@@ -247,8 +315,8 @@ impl ProtoArray {
     pub fn head_fn(&self) -> Result<Hash256, Error> {
         let mut i = *self
             .indices
-            .get(&self.dag.finalized)
-            .ok_or_else(|| Error::FinalizedNodeUnknown(self.dag.finalized))?;
+            .get(&self.finalized_root)
+            .ok_or_else(|| Error::FinalizedNodeUnknown(self.finalized_root))?;
 
         loop {
             // TODO: safe array access.
@@ -279,5 +347,46 @@ impl ProtoArray {
         }
 
         Ok(())
+    }
+}
+
+/// A Vec-wrapper which will grow to match any request.
+///
+/// E.g., a `get` or `insert` to an out-of-bounds element will cause the Vec to grow (using
+/// Default) to the smallest size required to fulfill the request.
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct ElasticList<T>(Vec<T>);
+
+impl<T> ElasticList<T>
+where
+    T: Default,
+{
+    fn ensure(&mut self, i: usize) {
+        if self.0.len() <= i {
+            self.0.resize_with(i + 1, Default::default);
+        }
+    }
+
+    pub fn exists(&self, i: usize) -> bool {
+        i < self.0.len()
+    }
+
+    pub fn get(&mut self, i: usize) -> &T {
+        self.ensure(i);
+        &self.0[i]
+    }
+
+    pub fn get_ref(&self, i: usize) -> Option<&T> {
+        self.0.get(i)
+    }
+
+    pub fn get_mut(&mut self, i: usize) -> &mut T {
+        self.ensure(i);
+        &mut self.0[i]
+    }
+
+    pub fn insert(&mut self, i: usize, element: T) {
+        self.ensure(i);
+        self.0[i] = element;
     }
 }
