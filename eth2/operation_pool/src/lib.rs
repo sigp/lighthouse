@@ -720,7 +720,7 @@ mod release_tests {
     }
 
     #[test]
-    fn attestation_get_max_reward() {
+    fn attestation_rewards() {
         let small_step_size = 2;
         let big_step_size = 4;
 
