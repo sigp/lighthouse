@@ -73,9 +73,11 @@ If you see any `ERRO` (error) logs, please reach out on
 [Discord](https://discord.gg/cyAszAh) or [create an
 issue](https://github.com/sigp/lighthouse/issues/new).
 
+Don't forget to checkout the open-source block explorer for the Lighthouse
+testnet at
+[lighthouse-testnet3.beaconcha.in](https://lighthouse-testnet3.beaconcha.in/).
+
 Happy staking!
-
-
 
 
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
