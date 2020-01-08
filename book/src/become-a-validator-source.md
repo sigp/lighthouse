@@ -48,10 +48,6 @@ Dec 09 12:27:06.010 INFO Synced                                  slot: 16835, ..
 > - The `--http` flag enables the HTTP API for the validator client.
 > - The `--eth1` flag tells the beacon node that it should sync with an Ethereum
 >   1 node (e.g., Geth). This is only required if you wish to run a validator.
-> - We are hosting a public Goerli archive node and have set this as the
->   default, but you can specify your own Eth1 node using the `--eth1-endpoint`
->   flag. Presently we require the node to be a full archive node, but we're
->   working to [fix](https://github.com/sigp/lighthouse/issues/637) this.
 
 ## 3. Generate your validator key
 
