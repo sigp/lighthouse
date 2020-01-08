@@ -11,6 +11,7 @@
 extern crate lazy_static;
 
 mod block_at_slot;
+pub mod block_root_tree;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
@@ -28,6 +29,7 @@ pub mod migrate;
 
 use std::sync::Arc;
 
+pub use self::block_root_tree::{BlockRootTree, SszBlockRootTree};
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::HotColdDB as DiskStore;
 pub use self::leveldb_store::LevelDB as SimpleDiskStore;
@@ -128,6 +130,29 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         end_block_root: Hash256,
         spec: &ChainSpec,
     ) -> Self::ForwardsBlockRootsIterator;
+
+    /// Load the most recent ancestor state of `state_root` which lies on an epoch boundary.
+    ///
+    /// If `state_root` corresponds to an epoch boundary state, then that state itself should be
+    /// returned.
+    fn load_epoch_boundary_state(
+        &self,
+        state_root: &Hash256,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        // The default implementation is not very efficient, but isn't used in prod.
+        // See `HotColdDB` for the optimized implementation.
+        if let Some(state) = self.get_state(state_root, None)? {
+            let epoch_boundary_slot = state.slot / E::slots_per_epoch() * E::slots_per_epoch();
+            if state.slot == epoch_boundary_slot {
+                Ok(Some(state))
+            } else {
+                let epoch_boundary_state_root = state.get_state_root(epoch_boundary_slot)?;
+                self.get_state(epoch_boundary_state_root, Some(epoch_boundary_slot))
+            }
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// A unique column identifier.
@@ -140,8 +165,8 @@ pub enum DBColumn {
     BeaconChain,
     /// For the table mapping restore point numbers to state roots.
     BeaconRestorePoint,
-    /// For the mapping from state roots to their slots.
-    BeaconStateSlot,
+    /// For the mapping from state roots to their slots or summaries.
+    BeaconStateSummary,
     BeaconBlockRoots,
     BeaconStateRoots,
     BeaconHistoricalRoots,
@@ -157,7 +182,7 @@ impl Into<&'static str> for DBColumn {
             DBColumn::BeaconState => "ste",
             DBColumn::BeaconChain => "bch",
             DBColumn::BeaconRestorePoint => "brp",
-            DBColumn::BeaconStateSlot => "bss",
+            DBColumn::BeaconStateSummary => "bss",
             DBColumn::BeaconBlockRoots => "bbr",
             DBColumn::BeaconStateRoots => "bsr",
             DBColumn::BeaconHistoricalRoots => "bhr",

@@ -4,7 +4,7 @@ use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, Multiaddr, PeerId, Swarm, Topic};
+use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, PeerId, Swarm, Topic};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
@@ -263,7 +263,7 @@ fn network_service(
                         id,
                         source,
                         message,
-                        ..
+                        topics: _,
                     } => {
                         message_handler_send
                             .try_send(HandlerMessage::PubsubMessage(id, source, message))
@@ -302,7 +302,7 @@ pub enum NetworkMessage {
     /// Propagate a received gossipsub message.
     Propagate {
         propagation_source: PeerId,
-        message_id: String,
+        message_id: MessageId,
     },
     /// Disconnect and bans a peer id.
     Disconnect { peer_id: PeerId },

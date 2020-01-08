@@ -6,6 +6,7 @@ use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
 use std::time::Duration;
+use store::block_root_tree::BlockRootTreeError;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -49,11 +50,14 @@ pub enum BeaconChainError {
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
     SszTypesError(SszTypesError),
+    CanonicalHeadLockTimeout,
+    BlockRootTreeError(BlockRootTreeError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
 easy_from_to!(SszTypesError, BeaconChainError);
+easy_from_to!(BlockRootTreeError, BeaconChainError);
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {

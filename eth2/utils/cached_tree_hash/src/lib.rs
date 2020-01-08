@@ -10,7 +10,7 @@ pub use crate::multi_cache::MultiTreeHashCache;
 use ethereum_types::H256 as Hash256;
 use tree_hash::TreeHash;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     /// Attempting to provide more than 2^depth leaves to a Merkle tree is disallowed.
     TooManyLeaves,

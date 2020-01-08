@@ -11,10 +11,8 @@
 //! There is no ABI parsing here, all function signatures and topics are hard-coded as constants.
 
 use futures::{Future, Stream};
-use libflate::gzip::Decoder;
 use reqwest::{header::CONTENT_TYPE, r#async::ClientBuilder, StatusCode};
 use serde_json::{json, Value};
-use std::io::prelude::*;
 use std::ops::Range;
 use std::time::Duration;
 use types::Hash256;
@@ -346,24 +344,6 @@ pub fn send_rpc_request(
                 .and_then(move |bytes| match encoding.as_str() {
                     "application/json" => Ok(bytes),
                     "application/json; charset=utf-8" => Ok(bytes),
-                    // Note: gzip is not presently working because we always seem to get an empty
-                    // response from the server.
-                    //
-                    // I expect this is some simple-to-solve issue for someone who is familiar with
-                    // the eth1 JSON RPC.
-                    //
-                    // Some public-facing web3 servers use gzip to compress their traffic, it would
-                    // be good to support this.
-                    "application/x-gzip" => {
-                        let mut decoder = Decoder::new(&bytes[..])
-                            .map_err(|e| format!("Failed to create gzip decoder: {}", e))?;
-                        let mut decompressed = vec![];
-                        decoder
-                            .read_to_end(&mut decompressed)
-                            .map_err(|e| format!("Failed to decompress gzip data: {}", e))?;
-
-                        Ok(decompressed)
-                    }
                     other => Err(format!("Unsupported encoding: {}", other)),
                 })
                 .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())

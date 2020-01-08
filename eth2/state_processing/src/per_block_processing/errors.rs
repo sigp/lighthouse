@@ -7,7 +7,7 @@ use types::*;
 /// Any of the `...Error` variants indicate that at some point during block (and block operation)
 /// verification, there was an error. There is no indication as to _where_ that error happened
 /// (e.g., when processing attestations instead of when processing deposits).
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum BlockProcessingError {
     RandaoSignatureInvalid,
     BulkSignatureVerificationFailed,
@@ -122,7 +122,7 @@ pub type AttestationValidationError = BlockOperationError<AttestationInvalid>;
 pub type DepositValidationError = BlockOperationError<DepositInvalid>;
 pub type ExitValidationError = BlockOperationError<ExitInvalid>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum BlockOperationError<T> {
     Invalid(T),
     BeaconStateError(BeaconStateError),
@@ -153,7 +153,7 @@ impl<T> From<ssz_types::Error> for BlockOperationError<T> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum HeaderInvalid {
     ProposalSignatureInvalid,
     StateSlotMismatch,
@@ -161,7 +161,7 @@ pub enum HeaderInvalid {
     ProposerSlashed(usize),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ProposerSlashingInvalid {
     /// The proposer index is not a known validator.
     ProposerUnknown(u64),
@@ -179,7 +179,7 @@ pub enum ProposerSlashingInvalid {
     BadProposal2Signature,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum AttesterSlashingInvalid {
     /// The attestations were not in conflict.
     NotSlashable,
@@ -196,7 +196,7 @@ pub enum AttesterSlashingInvalid {
 }
 
 /// Describes why an object is invalid.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum AttestationInvalid {
     /// Commmittee index exceeds number of committees in that slot.
     BadCommitteeIndex,
@@ -251,7 +251,7 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum IndexedAttestationInvalid {
     /// The number of indices exceeds the global maximum.
     ///
@@ -270,7 +270,7 @@ pub enum IndexedAttestationInvalid {
     SignatureSetError(SignatureSetError),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum DepositInvalid {
     /// The signature (proof-of-possession) does not match the given pubkey.
     BadSignature,
@@ -281,7 +281,7 @@ pub enum DepositInvalid {
     BadMerkleProof,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ExitInvalid {
     /// The specified validator is not active.
     NotActive(u64),
