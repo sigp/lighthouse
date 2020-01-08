@@ -14,6 +14,7 @@ mod head_tracker;
 mod metrics;
 mod persisted_beacon_chain;
 pub mod test_utils;
+mod timeout_rw_lock;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,

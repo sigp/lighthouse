@@ -45,9 +45,9 @@ impl From<StatusMessage> for PeerSyncInfo {
     }
 }
 
-impl<T: BeaconChainTypes> From<&Arc<BeaconChain<T>>> for PeerSyncInfo {
-    fn from(chain: &Arc<BeaconChain<T>>) -> PeerSyncInfo {
-        Self::from(status_message(chain))
+impl PeerSyncInfo {
+    pub fn from_chain<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>) -> Option<PeerSyncInfo> {
+        Some(Self::from(status_message(chain)?))
     }
 }
 
@@ -119,8 +119,10 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ///
     /// Sends a `Status` message to the peer.
     pub fn on_connect(&mut self, peer_id: PeerId) {
-        self.network
-            .send_rpc_request(peer_id, RPCRequest::Status(status_message(&self.chain)));
+        if let Some(status_message) = status_message(&self.chain) {
+            self.network
+                .send_rpc_request(peer_id, RPCRequest::Status(status_message));
+        }
     }
 
     /// Handle a `Status` request.
@@ -135,12 +137,14 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         // ignore status responses if we are shutting down
         trace!(self.log, "StatusRequest"; "peer" => format!("{:?}", peer_id));
 
-        // Say status back.
-        self.network.send_rpc_response(
-            peer_id.clone(),
-            request_id,
-            RPCResponse::Status(status_message(&self.chain)),
-        );
+        if let Some(status_message) = status_message(&self.chain) {
+            // Say status back.
+            self.network.send_rpc_response(
+                peer_id.clone(),
+                request_id,
+                RPCResponse::Status(status_message),
+            );
+        }
 
         self.process_status(peer_id, status);
     }
@@ -158,7 +162,16 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     /// Disconnects the peer if required.
     fn process_status(&mut self, peer_id: PeerId, status: StatusMessage) {
         let remote = PeerSyncInfo::from(status);
-        let local = PeerSyncInfo::from(&self.chain);
+        let local = match PeerSyncInfo::from_chain(&self.chain) {
+            Some(local) => local,
+            None => {
+                return error!(
+                    self.log,
+                    "Failed to get peer sync info";
+                    "msg" => "likely due to head lock contention"
+                )
+            }
+        };
 
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
@@ -191,8 +204,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         } else if remote.finalized_epoch <= local.finalized_epoch
             && remote.finalized_root != Hash256::zero()
             && local.finalized_root != Hash256::zero()
-            && (self.chain.root_at_slot(start_slot(remote.finalized_epoch))
-                != Some(remote.finalized_root))
+            && self
+                .chain
+                .root_at_slot(start_slot(remote.finalized_epoch))
+                .map(|root_opt| root_opt != Some(remote.finalized_root))
+                .unwrap_or_else(|_| false)
         {
             // The remotes finalized epoch is less than or greater than ours, but the block root is
             // different to the one in our chain.
@@ -321,9 +337,21 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             return;
         }
 
-        let mut block_roots = self
+        let forwards_block_root_iter = match self
             .chain
             .forwards_iter_block_roots(Slot::from(req.start_slot))
+        {
+            Ok(iter) => iter,
+            Err(e) => {
+                return error!(
+                    self.log,
+                    "Unable to obtain root iter";
+                    "error" => format!("{:?}", e)
+                )
+            }
+        };
+
+        let mut block_roots = forwards_block_root_iter
             .take_while(|(_root, slot)| slot.as_u64() < req.start_slot + req.count * req.step)
             .step_by(req.step as usize)
             .map(|(root, _slot)| root)
@@ -552,16 +580,18 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
 }
 
 /// Build a `StatusMessage` representing the state of the given `beacon_chain`.
-pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> StatusMessage {
-    let state = &beacon_chain.head().beacon_state;
+pub(crate) fn status_message<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+) -> Option<StatusMessage> {
+    let head_info = beacon_chain.head_info().ok()?;
 
-    StatusMessage {
-        fork_version: state.fork.current_version,
-        finalized_root: state.finalized_checkpoint.root,
-        finalized_epoch: state.finalized_checkpoint.epoch,
-        head_root: beacon_chain.head().beacon_block_root,
-        head_slot: state.slot,
-    }
+    Some(StatusMessage {
+        fork_version: head_info.fork.current_version,
+        finalized_root: head_info.finalized_checkpoint.root,
+        finalized_epoch: head_info.finalized_checkpoint.epoch,
+        head_root: head_info.block_root,
+        head_slot: head_info.slot,
+    })
 }
 
 /// Wraps a Network Channel to employ various RPC related network functionality for the message

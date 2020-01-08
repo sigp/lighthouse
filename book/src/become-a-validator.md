@@ -2,14 +2,6 @@
 
 _* Testnet validator_
 
----
-
-**The lighthouse testnet is currently down, we expect to raise a new one
-soon. See [Lighthouse Update #20](https://lighthouse.sigmaprime.io/update-20.html)
-for more information.**
-
----
-
 Running Lighthouse validator is easy if you're familiar with the terminal. It
 runs on Linux, MacOS and Windows and we have a Docker work-flow.
 
