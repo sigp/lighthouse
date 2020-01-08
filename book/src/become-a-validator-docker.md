@@ -25,7 +25,7 @@ $ cd lighthouse-docker
 
 ### 2. Configure the docker environment
 
-Then, create a `.env` file with the following contents (these values are
+Then, create a file named `.env` with the following contents (these values are
 documented
 [here](https://github.com/sigp/lighthouse-docker/blob/master/default.env)):
 
@@ -38,7 +38,7 @@ VOTING_ETH1_NODE=http://geth:8545
 DEPOSIT_VALUE=3200000000
 ```
 
-_This file should live in the `lighthouse-docker` directory alongside the
+_This `.env` file should live in the `lighthouse-docker` directory alongside the
 `docker-compose.yml` file_.
 
 ### 3. Start Lighthouse
@@ -50,20 +50,18 @@ $ docker-compose up
 ```
 
 > Note: the docker-compose setup includes a fast-synced geth node. You can
-> expect the `beacon_node` to some eth1-related errors whilst the geth node
+> expect the `beacon_node` to log some eth1-related errors whilst the geth node
 > boots and becomes synced. This will only happen on the first start of the
 > compose environment or if geth loses sync.
 
 ### Installation complete!
 
-You can now go to [Become a Validator: Step 2](become-a-validator.html#2-submit-your-deposit-to-goerli).
-
-#### Before you go...
-
-In Step 2 you'll need to locate your `eth1_deposit_data.rlp` file from your
-`.lighthouse/validators` directory.
+In the next step you'll need to locate your `eth1_deposit_data.rlp` file from
+your `.lighthouse/validators` directory.
 
 The `./lighthouse` directory is in the root of the `lighthouse-docker`
 repository. For example, if you ran Step 1 in `/home/karlm/` then you can find
 your validator directory in
 `/home/karlm/lighthouse-docker/.lighthouse/validators/`.
+
+You can now go to [Become a Validator: Step 2](become-a-validator.html#2-submit-your-deposit-to-goerli).

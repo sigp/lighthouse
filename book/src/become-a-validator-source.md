@@ -14,10 +14,9 @@ following three commands:
 You've completed this step when you can run `$ lighthouse --help` and see the
 help menu.
 
-> - If you're not familiar with Rust or you'd like more detailed instructions, see
->   the [Installation Guide](./installation.md).
-> - The [Docker Guide](./docker.md) is great if you have Docker installed and would
->   like to avoid installing Rust.
+> - If you're not familiar with Rust or you'd like more detailed instructions,
+>   see the [Installation Guide](./installation.md) which contains a
+>   [Troubleshooting](installation.html#troubleshooting) section.
 
 ## 2. Start your Beacon Node
 
@@ -105,13 +104,11 @@ next step. After all, this is a testnet and you're only risking Goerli ETH.
 
 ## Installation complete!
 
-You can now go to [Become a Validator: Step 2](become-a-validator.html#2-submit-your-deposit-to-goerli).
-
-#### Before you go...
-
-In Step 2 you'll need to locate your `eth1_deposit_data.rlp` file from your
-`.lighthouse/validators` directory.
+In the next step you'll need to locate your `eth1_deposit_data.rlp` file from
+your `.lighthouse/validators` directory.
 
 The `./lighthouse` directory is in your `$HOME` directory. For example, if
 you're in Linux and your user is `karlm`, you can find your validator directory
 in `/home/karlm/.lighthouse/validators/`.
+
+You can now go to [Become a Validator: Step 2](become-a-validator.html#2-submit-your-deposit-to-goerli).

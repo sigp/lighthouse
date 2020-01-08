@@ -9,6 +9,10 @@ contains a full-featured `docker-compose` environment.
 
 ## Obtaining the Docker image
 
+There are two ways to obtain the docker image, either via Docker Hub or
+building the image from source. Once you have obtained the docker image via one
+of these methods, proceed to [Using the Docker image](#using-the-docker-image).
+
 ### Docker Hub
 
 Lighthouse maintains the
@@ -27,20 +31,28 @@ $ docker run sigp/lighthouse lighthouse --help
 
 ### Building the Docker Image
 
-To use the image, first build the `Dockerfile` in the repository root (this
-will likely take several minutes):
+To build the image from source, navigate to
+the root of the repository and run:
 
 ```bash
 $ docker build . -t lighthouse:local
 ```
 
-Once it's built, test it with:
+The build will likely take several minutes. Once it's built, test it with:
 
 ```bash
 $ docker run lighthouse:local lighthouse --help
 ```
 
 ## Using the Docker image
+
+You can run a Docker beacon node with the following command:
+
+```bash
+$ docker run -p 9000:9000 -p 5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse beacon --http
+```
+
+> The `-p` and `-v` and values are described below.
 
 ### Volumes
 
@@ -65,5 +77,9 @@ Use the `-p` flag to do this:
 $ docker run -p 9000:9000 sigp/lighthouse lighthouse beacon
 ```
 
-If you use the `-http` flag you may also want to expose the HTTP port with `-p
+If you use the `--http` flag you may also want to expose the HTTP port with `-p
 5052:5052`.
+
+```bash
+$ docker run -p 9000:9000 -p 5052:5052 sigp/lighthouse lighthouse beacon --http
+```
