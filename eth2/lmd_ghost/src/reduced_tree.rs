@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::{iter::BlockRootsIterator, Error as StoreError, Store};
-use types::{BeaconBlock, BeaconState, EthSpec, Hash256, Slot};
+use store::{BlockRootTree, Error as StoreError, Store};
+use types::{BeaconBlock, EthSpec, Hash256, Slot};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -67,9 +67,19 @@ where
     T: Store<E>,
     E: EthSpec,
 {
-    fn new(store: Arc<T>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
+    fn new(
+        store: Arc<T>,
+        block_root_tree: Arc<BlockRootTree>,
+        genesis_block: &BeaconBlock<E>,
+        genesis_root: Hash256,
+    ) -> Self {
         ThreadSafeReducedTree {
-            core: RwLock::new(ReducedTree::new(store, genesis_block, genesis_root)),
+            core: RwLock::new(ReducedTree::new(
+                store,
+                block_root_tree,
+                genesis_block,
+                genesis_root,
+            )),
         }
     }
 
@@ -136,10 +146,14 @@ where
     /// encoded ssz bytes representation.
     ///
     /// Returns an error if ssz bytes are not a valid `ReducedTreeSsz` object.
-    fn from_bytes(bytes: &[u8], store: Arc<T>) -> SuperResult<Self> {
+    fn from_bytes(
+        bytes: &[u8],
+        store: Arc<T>,
+        block_root_tree: Arc<BlockRootTree>,
+    ) -> SuperResult<Self> {
         Ok(ThreadSafeReducedTree {
             core: RwLock::new(
-                ReducedTree::from_bytes(bytes, store)
+                ReducedTree::from_bytes(bytes, store, block_root_tree)
                     .map_err(|e| format!("Cannot decode ssz bytes {:?}", e))?,
             ),
         })
@@ -168,7 +182,11 @@ impl ReducedTreeSsz {
         }
     }
 
-    pub fn to_reduced_tree<T, E>(self, store: Arc<T>) -> Result<ReducedTree<T, E>> {
+    pub fn to_reduced_tree<T, E>(
+        self,
+        store: Arc<T>,
+        block_root_tree: Arc<BlockRootTree>,
+    ) -> Result<ReducedTree<T, E>> {
         if self.node_hashes.len() != self.nodes.len() {
             Error::InvalidReducedTreeSsz("node_hashes and nodes should have equal length".into());
         }
@@ -181,6 +199,7 @@ impl ReducedTreeSsz {
         let root = (self.root_hash, self.root_slot);
         Ok(ReducedTree {
             store,
+            block_root_tree,
             nodes,
             latest_votes,
             root,
@@ -192,6 +211,7 @@ impl ReducedTreeSsz {
 #[derive(Clone)]
 struct ReducedTree<T, E> {
     store: Arc<T>,
+    block_root_tree: Arc<BlockRootTree>,
     /// Stores all nodes of the tree, keyed by the block hash contained in the node.
     nodes: HashMap<Hash256, Node>,
     /// Maps validator indices to their latest votes.
@@ -221,20 +241,20 @@ where
     T: Store<E>,
     E: EthSpec,
 {
-    pub fn new(store: Arc<T>, genesis_block: &BeaconBlock<E>, genesis_root: Hash256) -> Self {
+    pub fn new(
+        store: Arc<T>,
+        block_root_tree: Arc<BlockRootTree>,
+        genesis_block: &BeaconBlock<E>,
+        genesis_root: Hash256,
+    ) -> Self {
         let mut nodes = HashMap::new();
 
         // Insert the genesis node.
-        nodes.insert(
-            genesis_root,
-            Node {
-                block_hash: genesis_root,
-                ..Node::default()
-            },
-        );
+        nodes.insert(genesis_root, Node::new(genesis_root));
 
         Self {
             store,
+            block_root_tree,
             nodes,
             latest_votes: ElasticList::default(),
             root: (genesis_root, genesis_block.slot),
@@ -504,9 +524,8 @@ where
             node.add_voter(validator_index);
         } else {
             let node = Node {
-                block_hash: hash,
                 voters: vec![validator_index],
-                ..Node::default()
+                ..Node::new(hash)
             };
 
             self.add_node(node)?;
@@ -517,10 +536,7 @@ where
 
     fn maybe_add_weightless_node(&mut self, slot: Slot, hash: Hash256) -> Result<()> {
         if slot > self.root_slot() && !self.nodes.contains_key(&hash) {
-            let node = Node {
-                block_hash: hash,
-                ..Node::default()
-            };
+            let node = Node::new(hash);
 
             self.add_node(node)?;
 
@@ -540,12 +556,10 @@ where
         ancestor: Hash256,
         descendant: Hash256,
     ) -> Result<Option<Hash256>> {
-        Ok(std::iter::once(descendant)
-            .chain(
-                self.iter_ancestors(descendant)?
-                    .take_while(|(_, slot)| *slot >= self.root_slot())
-                    .map(|(block_hash, _)| block_hash),
-            )
+        Ok(self
+            .iter_ancestors(descendant, true)
+            .take_while(|(_, slot)| *slot >= self.root_slot())
+            .map(|(block_hash, _)| block_hash)
             .tuple_windows()
             .find_map(|(successor, block_hash)| {
                 if block_hash == ancestor {
@@ -574,7 +588,7 @@ where
         //
         // If this node has no ancestor in the tree, exit early.
         let mut prev_in_tree = self
-            .find_prev_in_tree(node.block_hash)
+            .find_prev_in_tree(&node)
             .ok_or_else(|| Error::NotInTree(node.block_hash))
             .and_then(|hash| self.get_node(hash))?
             .clone();
@@ -599,6 +613,7 @@ where
                 if let Some(successor) =
                     self.find_ancestor_successor_opt(node.block_hash, child_hash)?
                 {
+                    let successor_slot = self.get_block(successor)?.slot;
                     let child = self.get_mut_node(child_hash)?;
 
                     // Graft `child` to `node`.
@@ -606,7 +621,7 @@ where
                     // Graft `node` to `child`.
                     node.children.push(ChildLink {
                         hash: child_hash,
-                        successor_slot: self.get_block(successor)?.slot,
+                        successor_slot,
                     });
                     // Detach `child` from `prev_in_tree`, replacing it with `node`.
                     prev_in_tree.replace_child_hash(child_hash, node.block_hash)?;
@@ -640,7 +655,6 @@ where
                         // block, has `prev_in_tree` as the parent and has both `node` and `child`
                         // as children.
                         let common_ancestor = Node {
-                            block_hash: ancestor_hash,
                             parent_hash: Some(prev_in_tree.block_hash),
                             children: vec![
                                 ChildLink {
@@ -656,7 +670,7 @@ where
                                         .find_ancestor_successor_slot(ancestor_hash, child_hash)?,
                                 },
                             ],
-                            ..Node::default()
+                            ..Node::new(ancestor_hash)
                         };
 
                         let child = self.get_mut_node(child_hash)?;
@@ -698,24 +712,23 @@ where
         Ok(())
     }
 
-    /// For the given block `hash`, find it's highest (by slot) ancestor that exists in the reduced
+    /// For the given block `hash`, find its highest (by slot) ancestor that exists in the reduced
     /// tree.
-    fn find_prev_in_tree(&mut self, hash: Hash256) -> Option<Hash256> {
-        self.iter_ancestors(hash)
-            .ok()?
+    fn find_prev_in_tree(&mut self, node: &Node) -> Option<Hash256> {
+        self.iter_ancestors(node.block_hash, false)
             .take_while(|(_, slot)| *slot >= self.root_slot())
-            .find(|(root, _slot)| self.nodes.contains_key(root))
-            .and_then(|(root, _slot)| Some(root))
+            .find(|(root, _)| self.nodes.contains_key(root))
+            .map(|(root, _)| root)
     }
 
     /// For the two given block roots (`a_root` and `b_root`), find the first block they share in
     /// the tree. Viz, find the block that these two distinct blocks forked from.
     fn find_highest_common_ancestor(&self, a_root: Hash256, b_root: Hash256) -> Result<Hash256> {
         let mut a_iter = self
-            .iter_ancestors(a_root)?
+            .iter_ancestors(a_root, false)
             .take_while(|(_, slot)| *slot >= self.root_slot());
         let mut b_iter = self
-            .iter_ancestors(b_root)?
+            .iter_ancestors(b_root, false)
             .take_while(|(_, slot)| *slot >= self.root_slot());
 
         // Combines the `next()` fns on the `a_iter` and `b_iter` and returns the roots of two
@@ -753,11 +766,17 @@ where
         }
     }
 
-    fn iter_ancestors(&self, child: Hash256) -> Result<BlockRootsIterator<E, T>> {
-        let block = self.get_block(child)?;
-        let state = self.get_state(block.state_root, block.slot)?;
-
-        Ok(BlockRootsIterator::owned(self.store.clone(), state))
+    /// Return an iterator from the given `block_root` back to finalization.
+    ///
+    /// If `include_latest` is true, then the hash and slot for `block_root` will be included.
+    pub fn iter_ancestors<'a>(
+        &'a self,
+        block_root: Hash256,
+        include_latest: bool,
+    ) -> impl Iterator<Item = (Hash256, Slot)> + 'a {
+        self.block_root_tree
+            .every_slot_iter_from(block_root)
+            .skip(if include_latest { 0 } else { 1 })
     }
 
     /// Verify the integrity of `self`. Returns `Ok(())` if the tree has integrity, otherwise returns `Err(description)`.
@@ -842,28 +861,26 @@ where
             .ok_or_else(|| Error::MissingBlock(block_root))
     }
 
-    fn get_state(&self, state_root: Hash256, slot: Slot) -> Result<BeaconState<E>> {
-        self.store
-            .get_state(&state_root, Some(slot))?
-            .ok_or_else(|| Error::MissingState(state_root))
-    }
-
     fn root_slot(&self) -> Slot {
         self.root.1
     }
 
     fn as_bytes(&self) -> Vec<u8> {
-        let reduced_tree_ssz: ReducedTreeSsz = ReducedTreeSsz::from_reduced_tree(&self);
+        let reduced_tree_ssz = ReducedTreeSsz::from_reduced_tree(&self);
         reduced_tree_ssz.as_ssz_bytes()
     }
 
-    fn from_bytes(bytes: &[u8], store: Arc<T>) -> Result<Self> {
+    fn from_bytes(
+        bytes: &[u8],
+        store: Arc<T>,
+        block_root_tree: Arc<BlockRootTree>,
+    ) -> Result<Self> {
         let reduced_tree_ssz = ReducedTreeSsz::from_ssz_bytes(bytes)?;
-        Ok(reduced_tree_ssz.to_reduced_tree(store)?)
+        Ok(reduced_tree_ssz.to_reduced_tree(store, block_root_tree)?)
     }
 }
 
-#[derive(Default, Clone, Debug, PartialEq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Node {
     /// Hash of the parent node in the reduced tree (not necessarily parent block).
     pub parent_hash: Option<Hash256>,
@@ -884,6 +901,16 @@ pub struct ChildLink {
 }
 
 impl Node {
+    pub fn new(block_hash: Hash256) -> Self {
+        Self {
+            parent_hash: None,
+            children: vec![],
+            weight: 0,
+            block_hash,
+            voters: vec![],
+        }
+    }
+
     /// Replace a child with a new child, whilst preserving the successor slot.
     ///
     /// The new child should have the same ancestor successor block as the old one.
@@ -977,14 +1004,17 @@ mod tests {
     #[test]
     fn test_reduced_tree_ssz() {
         let store = Arc::new(MemoryStore::<MinimalEthSpec>::open());
+        let block_root_tree = Arc::new(BlockRootTree::new(Hash256::zero(), Slot::new(0)));
         let tree = ReducedTree::new(
             store.clone(),
+            block_root_tree.clone(),
             &BeaconBlock::empty(&MinimalEthSpec::default_spec()),
             Hash256::zero(),
         );
         let ssz_tree = ReducedTreeSsz::from_reduced_tree(&tree);
         let bytes = tree.as_bytes();
-        let recovered_tree = ReducedTree::from_bytes(&bytes, store.clone()).unwrap();
+        let recovered_tree =
+            ReducedTree::from_bytes(&bytes, store.clone(), block_root_tree).unwrap();
 
         let recovered_ssz = ReducedTreeSsz::from_reduced_tree(&recovered_tree);
         assert_eq!(ssz_tree, recovered_ssz);

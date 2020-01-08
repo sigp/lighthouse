@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 use ssz_derive::{Decode, Encode};
 use state_processing::{common::get_attesting_indices, per_slot_processing};
 use std::sync::Arc;
-use store::{Error as StoreError, Store};
+use store::{BlockRootTree, Error as StoreError, Store};
 use types::{
     Attestation, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, Slot,
 };
@@ -22,7 +22,6 @@ pub enum Error {
 }
 
 pub struct ForkChoice<T: BeaconChainTypes> {
-    store: Arc<T::Store>,
     backend: T::LmdGhost,
     /// Used for resolving the `0x00..00` alias back to genesis.
     ///
@@ -36,7 +35,6 @@ pub struct ForkChoice<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> PartialEq for ForkChoice<T> {
-    /// This implementation ignores the `store`.
     fn eq(&self, other: &Self) -> bool {
         self.backend == other.backend
             && self.genesis_block_root == other.genesis_block_root
@@ -50,18 +48,12 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     ///
     /// "Genesis" does not necessarily need to be the absolute genesis, it can be some finalized
     /// block.
-    pub fn new(
-        store: Arc<T::Store>,
-        backend: T::LmdGhost,
-        genesis_block_root: Hash256,
-        genesis_slot: Slot,
-    ) -> Self {
+    pub fn new(backend: T::LmdGhost, genesis_block_root: Hash256, genesis_slot: Slot) -> Self {
         let justified_checkpoint = Checkpoint {
             epoch: genesis_slot.epoch(T::EthSpec::slots_per_epoch()),
             root: genesis_block_root,
         };
         Self {
-            store: store.clone(),
             backend,
             genesis_block_root,
             justified_checkpoint: RwLock::new(justified_checkpoint.clone()),
@@ -149,8 +141,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             };
 
             let mut state: BeaconState<T::EthSpec> = chain
-                .store
-                .get_state(&block.state_root, Some(block.slot))?
+                .get_state_caching_only_with_committee_caches(&block.state_root, Some(block.slot))?
                 .ok_or_else(|| Error::MissingState(block.state_root))?;
 
             // Fast-forward the state to the start slot of the epoch where it was justified.
@@ -201,10 +192,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         for attestation in &block.body.attestations {
             // If the `data.beacon_block_root` block is not known to us, simply ignore the latest
             // vote.
-            if let Some(block) = self
-                .store
-                .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)?
-            {
+            if let Some(block) = chain.get_block_caching(&attestation.data.beacon_block_root)? {
                 self.process_attestation(state, attestation, &block)?;
             }
         }
@@ -316,11 +304,14 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Instantiates `Self` from a prior `SszForkChoice`.
     ///
     /// The created `Self` will have the same state as the `Self` that created the `SszForkChoice`.
-    pub fn from_ssz_container(ssz_container: SszForkChoice, store: Arc<T::Store>) -> Result<Self> {
-        let backend = LmdGhost::from_bytes(&ssz_container.backend_bytes, store.clone())?;
+    pub fn from_ssz_container(
+        ssz_container: SszForkChoice,
+        store: Arc<T::Store>,
+        block_root_tree: Arc<BlockRootTree>,
+    ) -> Result<Self> {
+        let backend = LmdGhost::from_bytes(&ssz_container.backend_bytes, store, block_root_tree)?;
 
         Ok(Self {
-            store,
             backend,
             genesis_block_root: ssz_container.genesis_block_root,
             justified_checkpoint: RwLock::new(ssz_container.justified_checkpoint),

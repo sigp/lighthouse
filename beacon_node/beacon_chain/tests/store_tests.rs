@@ -6,6 +6,7 @@ extern crate lazy_static;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
+use beacon_chain::AttestationProcessingOutcome;
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
@@ -237,6 +238,86 @@ fn split_slot_restore() {
     let store = get_store(&db_path);
 
     assert_eq!(store.get_split_slot(), split_slot);
+}
+
+// Check attestation processing and `load_epoch_boundary_state` in the presence of a split DB.
+// This is a bit of a monster test in that it tests lots of different things, but until they're
+// tested elsewhere, this is as good a place as any.
+#[test]
+fn epoch_boundary_state_attestation_processing() {
+    let num_blocks_produced = E::slots_per_epoch() * 5;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), VALIDATOR_COUNT);
+
+    let late_validators = vec![0, 1];
+    let timely_validators = (2..VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let mut late_attestations = vec![];
+
+    for _ in 0..num_blocks_produced {
+        harness.extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(timely_validators.clone()),
+        );
+
+        let head = harness.chain.head().expect("head ok");
+        late_attestations.extend(harness.get_free_attestations(
+            &AttestationStrategy::SomeValidators(late_validators.clone()),
+            &head.beacon_state,
+            head.beacon_block_root,
+            head.beacon_block.slot,
+        ));
+
+        harness.advance_slot();
+    }
+
+    check_finalization(&harness, num_blocks_produced);
+    check_split_slot(&harness, store.clone());
+    check_chain_dump(&harness, num_blocks_produced + 1);
+    check_iterators(&harness);
+
+    let mut checked_pre_fin = false;
+
+    for attestation in late_attestations {
+        // load_epoch_boundary_state is idempotent!
+        let block_root = attestation.data.beacon_block_root;
+        let block: BeaconBlock<E> = store.get(&block_root).unwrap().expect("block exists");
+        let epoch_boundary_state = store
+            .load_epoch_boundary_state(&block.state_root)
+            .expect("no error")
+            .expect("epoch boundary state exists");
+        let ebs_of_ebs = store
+            .load_epoch_boundary_state(&epoch_boundary_state.canonical_root())
+            .expect("no error")
+            .expect("ebs of ebs exists");
+        assert_eq!(epoch_boundary_state, ebs_of_ebs);
+
+        // If the attestation is pre-finalization it should be rejected.
+        let finalized_epoch = harness
+            .chain
+            .head_info()
+            .expect("head ok")
+            .finalized_checkpoint
+            .epoch;
+        let res = harness
+            .chain
+            .process_attestation_internal(attestation.clone());
+        if attestation.data.slot <= finalized_epoch.start_slot(E::slots_per_epoch()) {
+            checked_pre_fin = true;
+            assert_eq!(
+                res,
+                Ok(AttestationProcessingOutcome::FinalizedSlot {
+                    attestation: attestation.data.target.epoch,
+                    finalized: finalized_epoch,
+                })
+            );
+        } else {
+            assert_eq!(res, Ok(AttestationProcessingOutcome::Processed));
+        }
+    }
+    assert!(checked_pre_fin);
 }
 
 /// Check that the head state's slot matches `expected_slot`.
