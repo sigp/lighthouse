@@ -1,5 +1,5 @@
 use crate::error;
-use crate::message_handler::{HandlerMessage, MessageHandler};
+use crate::message_handler::{MessageHandler, RouterMessage};
 use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
@@ -122,7 +122,7 @@ impl<T: BeaconChainTypes> Service<T> {
 fn spawn_service(
     libp2p_service: Arc<Mutex<LibP2PService>>,
     network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
-    message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
+    message_handler_send: mpsc::UnboundedSender<RouterMessage>,
     executor: &TaskExecutor,
     log: slog::Logger,
     propagation_percentage: Option<u8>,
@@ -153,7 +153,7 @@ fn spawn_service(
 fn network_service(
     libp2p_service: Arc<Mutex<LibP2PService>>,
     mut network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
-    mut message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
+    mut message_handler_send: mpsc::UnboundedSender<RouterMessage>,
     log: slog::Logger,
     propagation_percentage: Option<u8>,
 ) -> impl futures::Future<Item = (), Error = eth2_libp2p::error::Error> {
@@ -244,19 +244,19 @@ fn network_service(
                             peers_to_ban.push(peer_id.clone());
                         };
                         message_handler_send
-                            .try_send(HandlerMessage::RPC(peer_id, rpc_event))
+                            .try_send(RouterMessage::RPC(peer_id, rpc_event))
                             .map_err(|_| "Failed to send RPC to handler")?;
                     }
                     Libp2pEvent::PeerDialed(peer_id) => {
                         debug!(log, "Peer Dialed"; "peer_id" => format!("{:?}", peer_id));
                         message_handler_send
-                            .try_send(HandlerMessage::PeerDialed(peer_id))
+                            .try_send(RouterMessage::PeerDialed(peer_id))
                             .map_err(|_| "Failed to send PeerDialed to handler")?;
                     }
                     Libp2pEvent::PeerDisconnected(peer_id) => {
                         debug!(log, "Peer Disconnected";  "peer_id" => format!("{:?}", peer_id));
                         message_handler_send
-                            .try_send(HandlerMessage::PeerDisconnected(peer_id))
+                            .try_send(RouterMessage::PeerDisconnected(peer_id))
                             .map_err(|_| "Failed to send PeerDisconnected to handler")?;
                     }
                     Libp2pEvent::PubsubMessage {
@@ -266,7 +266,7 @@ fn network_service(
                         topics: _,
                     } => {
                         message_handler_send
-                            .try_send(HandlerMessage::PubsubMessage(id, source, message))
+                            .try_send(RouterMessage::PubsubMessage(id, source, message))
                             .map_err(|_| "Failed to send pubsub message to handler")?;
                     }
                     Libp2pEvent::PeerSubscribed(_, _) => {}

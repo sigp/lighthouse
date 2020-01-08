@@ -4,7 +4,7 @@
 //! with this struct to to simplify the logic of the other layers of sync.
 
 use super::chain::{ChainSyncingState, ProcessingResult, SyncingChain};
-use crate::message_processor::PeerSyncInfo;
+use crate::router::processor::PeerSyncInfo;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;

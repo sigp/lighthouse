@@ -1,7 +1,12 @@
+//! This module handles incoming network messages.
+//!
+//! It routes the messages to appropriate services, such as the Sync
+//! and processes those that are
+
 #![allow(clippy::unit_arg)]
 use crate::error;
 use crate::service::NetworkMessage;
-use crate::MessageProcessor;
+use crate::Processor;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     behaviour::PubsubMessage,
@@ -20,19 +25,19 @@ use types::{Attestation, AttesterSlashing, BeaconBlock, ProposerSlashing, Volunt
 /// functionality of this struct is to validate an decode messages from the network before
 /// passing them to the internal message processor. The message processor spawns a syncing thread
 /// which manages which blocks need to be requested and processed.
-pub struct MessageHandler<T: BeaconChainTypes> {
+pub struct Router<T: BeaconChainTypes> {
     /// A channel to the network service to allow for gossip propagation.
     network_send: mpsc::UnboundedSender<NetworkMessage>,
     /// Processes validated and decoded messages from the network. Has direct access to the
     /// sync manager.
-    message_processor: MessageProcessor<T>,
-    /// The `MessageHandler` logger.
+    processor: Processor<T>,
+    /// The `Router` logger.
     log: slog::Logger,
 }
 
 /// Types of messages the handler can receive.
 #[derive(Debug)]
-pub enum HandlerMessage {
+pub enum RouterMessage {
     /// We have initiated a connection to a new peer.
     PeerDialed(PeerId),
     /// Peer has disconnected,
@@ -44,27 +49,26 @@ pub enum HandlerMessage {
     PubsubMessage(MessageId, PeerId, PubsubMessage),
 }
 
-impl<T: BeaconChainTypes> MessageHandler<T> {
-    /// Initializes and runs the MessageHandler.
+impl<T: BeaconChainTypes> Router<T> {
+    /// Initializes and runs the Router.
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,
         network_send: mpsc::UnboundedSender<NetworkMessage>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
-    ) -> error::Result<mpsc::UnboundedSender<HandlerMessage>> {
+    ) -> error::Result<mpsc::UnboundedSender<RouterMessage>> {
         let message_handler_log = log.new(o!("service"=> "msg_handler"));
         trace!(message_handler_log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
         // Initialise a message instance, which itself spawns the syncing thread.
-        let message_processor =
-            MessageProcessor::new(executor, beacon_chain, network_send.clone(), &log);
+        let processor = Processor::new(executor, beacon_chain, network_send.clone(), &log);
 
         // generate the Message handler
-        let mut handler = MessageHandler {
+        let mut handler = Router {
             network_send,
-            message_processor,
+            processor,
             log: message_handler_log,
         };
 
@@ -81,22 +85,22 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
     }
 
     /// Handle all messages incoming from the network service.
-    fn handle_message(&mut self, message: HandlerMessage) {
+    fn handle_message(&mut self, message: RouterMessage) {
         match message {
             // we have initiated a connection to a peer
-            HandlerMessage::PeerDialed(peer_id) => {
-                self.message_processor.on_connect(peer_id);
+            RouterMessage::PeerDialed(peer_id) => {
+                self.processor.on_connect(peer_id);
             }
             // A peer has disconnected
-            HandlerMessage::PeerDisconnected(peer_id) => {
-                self.message_processor.on_disconnect(peer_id);
+            RouterMessage::PeerDisconnected(peer_id) => {
+                self.processor.on_disconnect(peer_id);
             }
             // An RPC message request/response has been received
-            HandlerMessage::RPC(peer_id, rpc_event) => {
+            RouterMessage::RPC(peer_id, rpc_event) => {
                 self.handle_rpc_message(peer_id, rpc_event);
             }
             // An RPC message request/response has been received
-            HandlerMessage::PubsubMessage(id, peer_id, gossip) => {
+            RouterMessage::PubsubMessage(id, peer_id, gossip) => {
                 self.handle_gossip(id, peer_id, gossip);
             }
         }
@@ -117,7 +121,7 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
     fn handle_rpc_request(&mut self, peer_id: PeerId, request_id: RequestId, request: RPCRequest) {
         match request {
             RPCRequest::Status(status_message) => {
-                self.message_processor
+                self.processor
                     .on_status_request(peer_id, request_id, status_message)
             }
             RPCRequest::Goodbye(goodbye_reason) => {
@@ -126,13 +130,13 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
                     "peer" => format!("{:?}", peer_id),
                     "reason" => format!("{:?}", goodbye_reason),
                 );
-                self.message_processor.on_disconnect(peer_id);
+                self.processor.on_disconnect(peer_id);
             }
             RPCRequest::BlocksByRange(request) => self
-                .message_processor
+                .processor
                 .on_blocks_by_range_request(peer_id, request_id, request),
             RPCRequest::BlocksByRoot(request) => self
-                .message_processor
+                .processor
                 .on_blocks_by_root_request(peer_id, request_id, request),
         }
     }
@@ -162,13 +166,12 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
             RPCErrorResponse::Success(response) => {
                 match response {
                     RPCResponse::Status(status_message) => {
-                        self.message_processor
-                            .on_status_response(peer_id, status_message);
+                        self.processor.on_status_response(peer_id, status_message);
                     }
                     RPCResponse::BlocksByRange(response) => {
                         match self.decode_beacon_block(response) {
                             Ok(beacon_block) => {
-                                self.message_processor.on_blocks_by_range_response(
+                                self.processor.on_blocks_by_range_response(
                                     peer_id,
                                     request_id,
                                     Some(beacon_block),
@@ -183,7 +186,7 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
                     RPCResponse::BlocksByRoot(response) => {
                         match self.decode_beacon_block(response) {
                             Ok(beacon_block) => {
-                                self.message_processor.on_blocks_by_root_response(
+                                self.processor.on_blocks_by_root_response(
                                     peer_id,
                                     request_id,
                                     Some(beacon_block),
@@ -201,11 +204,11 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
                 // have received a stream termination, notify the processing functions
                 match response_type {
                     ResponseTermination::BlocksByRange => {
-                        self.message_processor
+                        self.processor
                             .on_blocks_by_range_response(peer_id, request_id, None);
                     }
                     ResponseTermination::BlocksByRoot => {
-                        self.message_processor
+                        self.processor
                             .on_blocks_by_root_response(peer_id, request_id, None);
                     }
                 }
@@ -216,7 +219,7 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
     /// Handle various RPC errors
     fn handle_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
         warn!(self.log, "RPC Error"; "Peer" => format!("{:?}", peer_id), "request_id" => format!("{}", request_id), "Error" => format!("{:?}", error));
-        self.message_processor.on_rpc_error(peer_id, request_id);
+        self.processor.on_rpc_error(peer_id, request_id);
     }
 
     /// Handle RPC messages
@@ -224,9 +227,7 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
         match gossip_message {
             PubsubMessage::Block(message) => match self.decode_gossip_block(message) {
                 Ok(block) => {
-                    let should_forward_on = self
-                        .message_processor
-                        .on_block_gossip(peer_id.clone(), block);
+                    let should_forward_on = self.processor.on_block_gossip(peer_id.clone(), block);
                     // TODO: Apply more sophisticated validation and decoding logic
                     if should_forward_on {
                         self.propagate_message(id, peer_id.clone());
@@ -240,8 +241,7 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
                 Ok(attestation) => {
                     // TODO: Apply more sophisticated validation and decoding logic
                     self.propagate_message(id, peer_id.clone());
-                    self.message_processor
-                        .on_attestation_gossip(peer_id, attestation);
+                    self.processor.on_attestation_gossip(peer_id, attestation);
                 }
                 Err(e) => {
                     debug!(self.log, "Invalid gossiped attestation"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));

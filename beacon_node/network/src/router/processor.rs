@@ -53,7 +53,7 @@ impl PeerSyncInfo {
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.
-pub struct MessageProcessor<T: BeaconChainTypes> {
+pub struct Processor<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
     /// A channel to the syncing thread.
@@ -66,8 +66,8 @@ pub struct MessageProcessor<T: BeaconChainTypes> {
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes> MessageProcessor<T> {
-    /// Instantiate a `MessageProcessor` instance
+impl<T: BeaconChainTypes> Processor<T> {
+    /// Instantiate a `Processor` instance
     pub fn new(
         executor: &tokio::runtime::TaskExecutor,
         beacon_chain: Arc<BeaconChain<T>>,
@@ -84,7 +84,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             sync_logger,
         );
 
-        MessageProcessor {
+        Processor {
             chain: beacon_chain,
             sync_send,
             _sync_exit,

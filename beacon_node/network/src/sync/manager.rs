@@ -35,7 +35,7 @@
 
 use super::network_context::SyncNetworkContext;
 use super::range_sync::RangeSync;
-use crate::message_processor::PeerSyncInfo;
+use crate::router::processor::PeerSyncInfo;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;

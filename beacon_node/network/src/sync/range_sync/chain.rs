@@ -1,4 +1,4 @@
-use crate::message_processor::FUTURE_SLOT_TOLERANCE;
+use crate::router::processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::batch::{Batch, PendingBatches};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
