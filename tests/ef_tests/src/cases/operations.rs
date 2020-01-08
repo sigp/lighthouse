@@ -174,8 +174,10 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();
 
-        // Processing requires the epoch cache.
-        state.build_all_caches(spec).unwrap();
+        // Processing requires the committee caches.
+        state
+            .build_all_committee_caches(spec)
+            .expect("committee caches OK");
 
         let mut result = self.operation.apply_to(&mut state, spec).map(|()| state);
 
