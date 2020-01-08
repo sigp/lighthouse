@@ -54,6 +54,23 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
                         "epoch" => format!("{}", epoch),
                         "slot" => format!("{}", slot),
                     );
+
+                    if total_validators <= 5 {
+                        let mut validators = duties_service.attesters_for_epoch(epoch);
+                        validators.sort_by(|a, b| {
+                            let a = a.as_hex_string();
+                            let b = b.as_hex_string();
+                            a.cmp(&b)
+                        });
+                        for (i, validator) in validators.iter().enumerate() {
+                            info!(
+                                log_2,
+                                "Validators' public key";
+                                "public_key" => format!("{:?}", validator),
+                                "number" => i,
+                            );
+                        }
+                    }
                 } else if attesting_validators > 0 {
                     info!(
                         log_2,
@@ -64,6 +81,23 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
                         "epoch" => format!("{}", epoch),
                         "slot" => format!("{}", slot),
                     );
+
+                    if attesting_validators <= 5 {
+                        let mut validators = duties_service.attesters_for_epoch(epoch);
+                        validators.sort_by(|a, b| {
+                            let a = a.as_hex_string();
+                            let b = b.as_hex_string();
+                            a.cmp(&b)
+                        });
+                        for (i, validator) in validators.iter().enumerate() {
+                            info!(
+                                log_2,
+                                "Active validators' public key";
+                                "public_key" => format!("{:?}", validator),
+                                "number" => i,
+                            );
+                        }
+                    }
                 } else {
                     info!(
                         log_2,

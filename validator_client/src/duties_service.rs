@@ -102,15 +102,26 @@ impl DutiesStore {
             .count()
     }
 
+    fn attesters_for_epoch(&self, epoch: Epoch) -> Vec<PublicKey> {
+        self.store
+            .read()
+            .iter()
+            .flat_map(|(_validator_pubkey, validator_map)| {
+                validator_map
+                    .get(&epoch)
+                    .map(|duties| duties.validator_pubkey.clone())
+            })
+            .collect()
+    }
+
     fn block_producers(&self, slot: Slot, slots_per_epoch: u64) -> Vec<PublicKey> {
+        let epoch = slot.epoch(slots_per_epoch);
         self.store
             .read()
             .iter()
             // As long as a `HashMap` iterator does not return duplicate keys, neither will this
             // function.
             .filter_map(|(_validator_pubkey, validator_map)| {
-                let epoch = slot.epoch(slots_per_epoch);
-
                 validator_map.get(&epoch).and_then(|duties| {
                     if duties.block_proposal_slots.contains(&slot) {
                         Some(duties.validator_pubkey.clone())
@@ -123,14 +134,13 @@ impl DutiesStore {
     }
 
     fn attesters(&self, slot: Slot, slots_per_epoch: u64) -> Vec<ValidatorDuty> {
+        let epoch = slot.epoch(slots_per_epoch);
         self.store
             .read()
             .iter()
             // As long as a `HashMap` iterator does not return duplicate keys, neither will this
             // function.
             .filter_map(|(_validator_pubkey, validator_map)| {
-                let epoch = slot.epoch(slots_per_epoch);
-
                 validator_map.get(&epoch).and_then(|duties| {
                     if duties.attestation_slot == Some(slot) {
                         Some(duties)
@@ -290,6 +300,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     /// Returns the total number of validators that should attest in the given epoch.
     pub fn attester_count(&self, epoch: Epoch) -> usize {
         self.store.attester_count(epoch)
+    }
+
+    /// Returns the total number of validators that should attest in the given epoch.
+    pub fn attesters_for_epoch(&self, epoch: Epoch) -> Vec<PublicKey> {
+        self.store.attesters_for_epoch(epoch)
     }
 
     /// Returns the pubkeys of the validators which are assigned to propose in the given slot.
