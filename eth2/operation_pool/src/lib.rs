@@ -578,6 +578,7 @@ mod tests {
         use super::super::attestation::earliest_attestation_validators;
         use super::*;
         use state_processing::common::{get_attesting_indices, get_base_reward};
+        use std::collections::BTreeSet;
 
         /// Create a signed attestation for use in tests.
         /// Signed by all validators in `committee[signing_range]` and `committee[extra_signer]`.
@@ -992,31 +993,36 @@ mod tests {
                 .unwrap();
             let total_active_balance = state.get_total_balance(&active_indices, spec).unwrap();
 
+            // Set of indices covered by previous attestations in `best_attestations`.
+            let mut seen_indices = BTreeSet::new();
             // Used for asserting that rewards are in decreasing order.
             let mut prev_reward = u64::max_value();
 
             for att in &best_attestations {
-                // Code taken from attestation.rs, modified to sum over the attestation indices.
-                // using aggregation_bits instead of earliest_attestation_validators() for indices.
-                let fresh_validators = earliest_attestation_validators(att, state);
-                let indices = get_attesting_indices(state, &att.data, &fresh_validators).unwrap();
+                let fresh_validators_bitlist = earliest_attestation_validators(att, state);
+                let att_indices =
+                    get_attesting_indices(state, &att.data, &fresh_validators_bitlist).unwrap();
+                let fresh_indices = &att_indices - &seen_indices;
 
-                let rewards = indices.iter().fold(0u64, |sum, validator_index| {
-                    let reward = get_base_reward(
-                        state,
-                        *validator_index as usize,
-                        total_active_balance,
-                        spec,
-                    )
-                    .unwrap()
-                        / spec.proposer_reward_quotient;
-                    sum + reward
-                });
+                let rewards = fresh_indices
+                    .iter()
+                    .map(|validator_index| {
+                        get_base_reward(
+                            state,
+                            *validator_index as usize,
+                            total_active_balance,
+                            spec,
+                        )
+                        .unwrap()
+                            / spec.proposer_reward_quotient
+                    })
+                    .sum();
 
                 // Check that rewards are in decreasing order
                 assert!(prev_reward >= rewards);
 
                 prev_reward = rewards;
+                seen_indices.extend(fresh_indices);
             }
         }
     }
