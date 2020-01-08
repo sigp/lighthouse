@@ -23,6 +23,7 @@ use state_processing::per_block_processing::{
 use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
 };
+use std::borrow::Cow;
 use std::fs;
 use std::io::prelude::*;
 use std::sync::Arc;
@@ -1411,12 +1412,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // A block that was just imported is likely to be referenced by the next block that we
         // import.
-        self.checkpoint_cache.insert(&CheckPoint {
+        self.checkpoint_cache.insert(Cow::Owned(CheckPoint {
             beacon_block_root: block_root,
             beacon_block: block,
             beacon_state_root: state_root,
             beacon_state: state,
-        });
+        }));
 
         metrics::stop_timer(full_timer);
 
@@ -1626,7 +1627,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Store the head in the checkpoint cache.
                 //
                 // The head block is likely to be referenced by the next imported block.
-                self.checkpoint_cache.insert(&new_head);
+                self.checkpoint_cache.insert(Cow::Borrowed(&new_head));
 
                 // Update the checkpoint that stores the head of the chain at the time it received the
                 // block.
