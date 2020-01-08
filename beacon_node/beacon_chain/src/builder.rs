@@ -16,7 +16,7 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use store::Store;
+use store::{BlockRootTree, Store};
 use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -92,6 +92,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     persisted_beacon_chain: Option<PersistedBeaconChain<T>>,
     head_tracker: Option<HeadTracker>,
+    block_root_tree: Option<Arc<BlockRootTree>>,
     spec: ChainSpec,
     log: Option<Logger>,
 }
@@ -134,6 +135,7 @@ where
             slot_clock: None,
             persisted_beacon_chain: None,
             head_tracker: None,
+            block_root_tree: None,
             spec: TEthSpec::default_spec(),
             log: None,
         }
@@ -224,6 +226,7 @@ where
             HeadTracker::from_ssz_container(&p.ssz_head_tracker)
                 .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
         );
+        self.block_root_tree = Some(Arc::new(p.block_root_tree.clone().into()));
         self.persisted_beacon_chain = Some(p);
 
         Ok(self)
@@ -265,6 +268,11 @@ where
                 e
             )
         })?;
+
+        self.block_root_tree = Some(Arc::new(BlockRootTree::new(
+            beacon_block_root,
+            beacon_block.slot,
+        )));
 
         self.finalized_checkpoint = Some(CheckPoint {
             beacon_block_root,
@@ -375,6 +383,9 @@ where
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
             head_tracker: self.head_tracker.unwrap_or_default(),
+            block_root_tree: self
+                .block_root_tree
+                .ok_or_else(|| "Cannot build without a block root tree".to_string())?,
             checkpoint_cache: CheckPointCache::default(),
             log: log.clone(),
         };
@@ -425,10 +436,16 @@ where
             .clone()
             .ok_or_else(|| "reduced_tree_fork_choice requires a store")?;
 
+        let block_root_tree = self
+            .block_root_tree
+            .clone()
+            .ok_or_else(|| "reduced_tree_fork_choice requires a block root tree")?;
+
         let fork_choice = if let Some(persisted_beacon_chain) = &self.persisted_beacon_chain {
             ForkChoice::from_ssz_container(
                 persisted_beacon_chain.fork_choice.clone(),
                 store.clone(),
+                block_root_tree,
             )
             .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
         } else {
@@ -442,11 +459,12 @@ where
 
             let backend = ThreadSafeReducedTree::new(
                 store.clone(),
+                block_root_tree,
                 &finalized_checkpoint.beacon_block,
                 finalized_checkpoint.beacon_block_root,
             );
 
-            ForkChoice::new(store, backend, genesis_block_root, self.spec.genesis_slot)
+            ForkChoice::new(backend, genesis_block_root, self.spec.genesis_slot)
         };
 
         self.fork_choice = Some(fork_choice);

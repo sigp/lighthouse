@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
 };
-use store::{Error as DBError, Migrate, Store};
+use store::{BlockRootTree, Error as DBError, Migrate, Store};
 use tree_hash::TreeHash;
 use types::*;
 
@@ -149,6 +149,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) head_tracker: HeadTracker,
     /// Provides a small cache of `BeaconState` and `BeaconBlock`.
     pub(crate) checkpoint_cache: CheckPointCache<T::EthSpec>,
+    /// Cache of block roots for all known forks post-finalization.
+    pub block_root_tree: Arc<BlockRootTree>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
 }
@@ -170,8 +172,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
             let beacon_state_root = beacon_block.state_root;
             let beacon_state = self
-                .store
-                .get_state(&beacon_state_root, Some(beacon_block.slot))?
+                .get_state_caching(&beacon_state_root, Some(beacon_block.slot))?
                 .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
 
             CheckPoint {
@@ -189,6 +190,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
             fork_choice: self.fork_choice.as_ssz_container(),
+            block_root_tree: self.block_root_tree.as_ssz_container(),
         };
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
@@ -411,7 +413,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    fn get_block_caching(
+    pub fn get_block_caching(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
@@ -427,7 +429,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    fn get_state_caching(
+    pub fn get_state_caching(
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
@@ -448,7 +450,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    fn get_state_caching_only_with_committee_caches(
+    pub fn get_state_caching_only_with_committee_caches(
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
@@ -888,37 +890,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let result = if let Some(attestation_head_block) =
             self.get_block_caching(&attestation.data.beacon_block_root)?
         {
-            // Use the `data.beacon_block_root` to load the state from the latest non-skipped
-            // slot preceding the attestation's creation.
-            //
-            // This state is guaranteed to be in the same chain as the attestation, but it's
-            // not guaranteed to be from the same slot or epoch as the attestation.
-            let mut state: BeaconState<T::EthSpec> = self
-                .get_state_caching_only_with_committee_caches(
-                    &attestation_head_block.state_root,
-                    Some(attestation_head_block.slot),
-                )?
-                .ok_or_else(|| Error::MissingBeaconState(attestation_head_block.state_root))?;
-
-            // Ensure the state loaded from the database matches the state of the attestation
-            // head block.
-            //
-            // The state needs to be advanced from the current slot through to the epoch in
-            // which the attestation was created in. It would be an error to try and use
-            // `state.get_attestation_data_slot(..)` because the state matching the
-            // `data.beacon_block_root` isn't necessarily in a nearby epoch to the attestation
-            // (e.g., if there were lots of skip slots since the head of the chain and the
-            // epoch creation epoch).
-            for _ in state.slot.as_u64()
-                ..attestation
-                    .data
-                    .target
-                    .epoch
-                    .start_slot(T::EthSpec::slots_per_epoch())
-                    .as_u64()
+            // If the attestation points to a block in the same epoch in which it was made,
+            // then it is sufficient to load the state from that epoch's boundary, because
+            // the epoch-variable fields like the justified checkpoints cannot have changed
+            // between the epoch boundary and when the attestation was made. If conversely,
+            // the attestation points to a block in a prior epoch, then it is necessary to
+            // load the full state corresponding to its block, and transition it to the
+            // attestation's epoch.
+            let attestation_epoch = attestation.data.target.epoch;
+            let slots_per_epoch = T::EthSpec::slots_per_epoch();
+            let mut state = if attestation_epoch
+                == attestation_head_block.slot.epoch(slots_per_epoch)
             {
-                per_slot_processing(&mut state, None, &self.spec)?;
-            }
+                self.store
+                    .load_epoch_boundary_state(&attestation_head_block.state_root)?
+                    .ok_or_else(|| Error::MissingBeaconState(attestation_head_block.state_root))?
+            } else {
+                let mut state = self
+                    .store
+                    .get_state(
+                        &attestation_head_block.state_root,
+                        Some(attestation_head_block.slot),
+                    )?
+                    .ok_or_else(|| Error::MissingBeaconState(attestation_head_block.state_root))?;
+
+                // Fastforward the state to the epoch in which the attestation was made.
+                // NOTE: this looks like a potential DoS vector, we should probably limit
+                // the amount we're willing to fastforward without a valid signature.
+                for _ in state.slot.as_u64()..attestation_epoch.start_slot(slots_per_epoch).as_u64()
+                {
+                    per_slot_processing(&mut state, None, &self.spec)?;
+                }
+
+                state
+            };
 
             state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
@@ -1242,13 +1247,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
+        // Check if the block is already known. We know it is post-finalization, so it is
+        // sufficient to check the block root tree.
+        if self.block_root_tree.is_known_block_root(&block_root) {
+            return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
+        }
+
         // Records the time taken to load the block and state from the database during block
         // processing.
         let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
-
-        if self.store.exists::<BeaconBlock<T::EthSpec>>(&block_root)? {
-            return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
-        }
 
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
@@ -1380,6 +1387,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.put(&block_root, &block)?;
 
         metrics::stop_timer(db_write_timer);
+
+        self.block_root_tree
+            .add_block_root(block_root, block.parent_root, block.slot)?;
 
         self.head_tracker.register_block(block_root, &block);
 
@@ -1692,8 +1702,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .process_finalization(&finalized_block, finalized_block_root)?;
 
             let finalized_state = self
-                .store
-                .get_state(&finalized_block.state_root, Some(finalized_block.slot))?
+                .get_state_caching_only_with_committee_caches(
+                    &finalized_block.state_root,
+                    Some(finalized_block.slot),
+                )?
                 .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
 
             self.op_pool.prune_all(&finalized_state, &self.spec);
@@ -1704,6 +1716,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 finalized_block.state_root,
                 finalized_state,
                 max_finality_distance,
+            );
+
+            // Prune in-memory block root tree.
+            self.block_root_tree.prune_to(
+                finalized_block_root,
+                self.heads().into_iter().map(|(block_root, _)| block_root),
             );
 
             let _ = self.event_handler.register(EventKind::BeaconFinalization {
