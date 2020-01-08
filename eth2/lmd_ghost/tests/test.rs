@@ -130,6 +130,7 @@ impl ForkedHarness {
 
         ThreadSafeReducedTree::new(
             Arc::new(store),
+            self.harness.chain.block_root_tree.clone(),
             &self.genesis_block,
             self.genesis_block_root,
         )

@@ -3948,6 +3948,7 @@ dependencies = [
  "db-key 0.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz 0.1.2",
  "eth2_ssz_derive 0.1.0",
+ "itertools 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "leveldb 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "lighthouse_metrics 0.1.0",
