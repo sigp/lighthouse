@@ -302,7 +302,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         self.store.attester_count(epoch)
     }
 
-    /// Returns the total number of validators that should attest in the given epoch.
+    /// Returns the public keys of the validators that should attest in the given epoch.
     pub fn attesters_for_epoch(&self, epoch: Epoch) -> Vec<PublicKey> {
         self.store.attesters_for_epoch(epoch)
     }
