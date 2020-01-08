@@ -1,6 +1,7 @@
 use crate::checkpoint::CheckPoint;
 use crate::metrics;
 use parking_lot::RwLock;
+use std::borrow::Cow;
 use types::{BeaconBlock, BeaconState, EthSpec, Hash256};
 
 const CACHE_SIZE: usize = 4;
@@ -34,7 +35,7 @@ impl<T: EthSpec> Default for CheckPointCache<T> {
 }
 
 impl<T: EthSpec> CheckPointCache<T> {
-    pub fn insert(&self, checkpoint: &CheckPoint<T>) {
+    pub fn insert(&self, checkpoint: Cow<CheckPoint<T>>) {
         if self
             .inner
             .read()
@@ -50,10 +51,10 @@ impl<T: EthSpec> CheckPointCache<T> {
         let mut inner = self.inner.write();
 
         if inner.checkpoints.len() < inner.limit {
-            inner.checkpoints.push(checkpoint.clone())
+            inner.checkpoints.push(checkpoint.into_owned())
         } else {
             let i = inner.oldest; // to satisfy the borrow checker.
-            inner.checkpoints[i] = checkpoint.clone();
+            inner.checkpoints[i] = checkpoint.into_owned();
             inner.oldest += 1;
             inner.oldest %= inner.limit;
         }
