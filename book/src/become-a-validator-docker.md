@@ -50,9 +50,9 @@ $ docker-compose up
 ```
 
 > Note: the docker-compose setup includes a fast-synced geth node. You can
-> expect the `beacon_node` to display `403: Forbidden` errors whilst the geth
-> nodes gets synced. This will only happen on the first start of the compose
-> environment or if geth loses sync.
+> expect the `beacon_node` to some eth1-related errors whilst the geth node
+> boots and becomes synced. This will only happen on the first start of the
+> compose environment or if geth loses sync.
 
 ### Installation complete!
 
