@@ -564,6 +564,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         batch.retries += 1;
 
+        // TODO: Handle partially downloaded batches. Update this when building a new batch
+        // processor thread.
+
         if batch.retries > MAX_BATCH_RETRIES {
             // chain is unrecoverable, remove it
             ProcessingResult::RemoveChain
