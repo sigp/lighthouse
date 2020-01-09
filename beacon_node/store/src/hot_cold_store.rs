@@ -73,6 +73,7 @@ pub enum HotColdDBError {
     InvalidSlotsPerRestorePoint {
         slots_per_restore_point: u64,
         slots_per_historical_root: u64,
+        slots_per_epoch: u64,
     },
     RestorePointBlockHashError(BeaconStateError),
 }
@@ -640,19 +641,32 @@ impl<E: EthSpec> HotColdDB<E> {
         .map_err(Into::into)
     }
 
-    /// Check that the restore point frequency is a divisor of the slots per historical root.
+    /// Check that the restore point frequency is valid.
     ///
-    /// This ensures that we have at least one restore point within range of our state
+    /// Specifically, check that it is:
+    /// (1) A divisor of the number of slots per historical root, and
+    /// (2) Divisible by the number of slots per epoch
+    ///
+    ///
+    /// (1) ensures that we have at least one restore point within range of our state
     /// root history when iterating backwards (and allows for more frequent restore points if
     /// desired).
+    ///
+    /// (2) ensures that restore points align with hot state summaries, making it
+    /// quick to migrate hot to cold.
     fn verify_slots_per_restore_point(slots_per_restore_point: u64) -> Result<(), HotColdDBError> {
         let slots_per_historical_root = E::SlotsPerHistoricalRoot::to_u64();
-        if slots_per_restore_point > 0 && slots_per_historical_root % slots_per_restore_point == 0 {
+        let slots_per_epoch = E::slots_per_epoch();
+        if slots_per_restore_point > 0
+            && slots_per_historical_root % slots_per_restore_point == 0
+            && slots_per_restore_point % slots_per_epoch == 0
+        {
             Ok(())
         } else {
             Err(HotColdDBError::InvalidSlotsPerRestorePoint {
                 slots_per_restore_point,
                 slots_per_historical_root,
+                slots_per_epoch,
             })
         }
     }
