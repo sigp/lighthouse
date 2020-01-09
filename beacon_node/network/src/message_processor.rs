@@ -384,7 +384,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         }
 
         if blocks_sent < (req.count as usize) {
-            trace!(
+            debug!(
                 self.log,
                 "BlocksByRange Response Sent";
                 "peer" => format!("{:?}", peer_id),
@@ -394,7 +394,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 "requested" => req.count,
                 "returned" => blocks_sent);
         } else {
-            trace!(
+            debug!(
                 self.log,
                 "Sending BlocksByRange Response";
                 "peer" => format!("{:?}", peer_id),
