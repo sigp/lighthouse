@@ -551,7 +551,7 @@ impl<E: EthSpec> HotColdDB<E> {
 
     /// Fetch the slot of the most recently stored restore point.
     pub fn get_latest_restore_point_slot(&self) -> Slot {
-        self.get_split_slot() / self.slots_per_restore_point * self.slots_per_restore_point
+        (self.get_split_slot() - 1) / self.slots_per_restore_point * self.slots_per_restore_point
     }
 
     /// Load the split point from disk.
