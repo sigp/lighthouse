@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Delay;
+use types::{typenum::U64, BitVector};
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
@@ -154,6 +155,11 @@ impl<TSubstream> Discovery<TSubstream> {
         let random_node = NodeId::random();
         debug!(self.log, "Searching for peers");
         self.discovery.find_node(random_node);
+    }
+
+    /// Update node ENR.
+    fn update_enr_bitfield(&mut self, bitfield: BitVector<U64>) {
+        self.discovery.update_enr_bitfield(&bitfield.into_bytes());
     }
 }
 
