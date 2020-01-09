@@ -498,17 +498,14 @@ impl<E: EthSpec> HotColdDB<E> {
 
     /// Replay `blocks` on top of `state` until `target_slot` is reached.
     ///
-    /// Will skip slots as necessary.
+    /// Will skip slots as necessary. The returned state is not guaranteed
+    /// to have any caches built, beyond those immediately required by block processing.
     fn replay_blocks(
         &self,
         mut state: BeaconState<E>,
         blocks: Vec<BeaconBlock<E>>,
         target_slot: Slot,
     ) -> Result<BeaconState<E>, Error> {
-        state
-            .build_all_caches(&self.spec)
-            .map_err(HotColdDBError::BlockReplayBeaconError)?;
-
         let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
             if i > 0 {
                 let prev_block = &blocks[i - 1];
