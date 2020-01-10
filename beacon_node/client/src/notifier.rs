@@ -161,6 +161,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             };
 
             Ok(())
+        })
+        .then(|_| {
+            Ok(())
         });
 
     let (exit_signal, exit) = exit_future::signal();
