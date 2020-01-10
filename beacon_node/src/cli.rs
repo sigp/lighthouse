@@ -189,7 +189,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("HTTP-ENDPOINT")
                 .help("Specifies the server for a web3 connection to the Eth1 chain.")
                 .takes_value(true)
-                .default_value("https://goerli.public.sigp.io")
+                .default_value("http://127.0.0.1:8545")
         )
         .arg(
             Arg::with_name("slots-per-restore-point")

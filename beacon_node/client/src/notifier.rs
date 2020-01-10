@@ -122,9 +122,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     log,
                     "Syncing";
                     "peers" => peer_count_pretty(connected_peer_count),
-                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                    "distance" => distance,
                     "speed" => sync_speed_pretty(speedo.slots_per_second()),
-                    "distance" => distance
+                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
                 );
 
                 return Ok(());
