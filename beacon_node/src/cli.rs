@@ -1,5 +1,4 @@
 use clap::{App, Arg, SubCommand};
-use store::StoreConfig;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -196,14 +195,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
                 .help("Specifies how often a freezer DB restore point should be stored. \
-                       DO NOT CHANGE AFTER INITIALIZATION.")
+                       DO NOT DECREASE AFTER INITIALIZATION. [default: 2048 (mainnet) or 64 (minimal)]")
                 .takes_value(true)
-                .default_value(
-                    Box::leak(
-                        format!("{}", StoreConfig::default().slots_per_restore_point)
-                            .into_boxed_str()
-                    )
-                )
         )
         /*
          * The "testnet" sub-command.
