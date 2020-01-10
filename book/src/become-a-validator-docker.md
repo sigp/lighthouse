@@ -50,7 +50,7 @@ $ docker-compose up
 ```
 
 Watch the output of this command for the `Saved new validator to disk` log, as
-the `voting_pubkey` is primary identifier for your new validator. This is
+the `voting_pubkey` is the primary identifier for your new validator. This is
 useful for finding your validator in block explorers. Here's an example of the
 log:
 
