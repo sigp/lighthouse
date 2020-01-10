@@ -202,10 +202,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // blocks for the peer.
         debug!(log, "Completed batch received"; "id"=>batch.id, "blocks"=>batch.downloaded_blocks.len(), "awaiting_batches" => self.completed_batches.len());
 
-        // The peer that completed this batch, may be re-requested if this batch doesn't complete
-        // the chain and there is no error in processing
-        let current_peer = batch.current_peer.clone();
-
         // verify the range of received blocks
         // Note that the order of blocks is verified in block processing
         if let Some(last_slot) = batch.downloaded_blocks.last().map(|b| b.slot) {
@@ -498,7 +494,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .find(|batch| &batch.current_peer == peer)
                 .is_none()
             {
-                return Some(*peer);
+                return Some(peer.clone());
             }
         }
         None

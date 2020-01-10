@@ -306,6 +306,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain and re-status all the peers.
     fn remove_peer(&mut self, network: &mut SyncNetworkContext, peer_id: &PeerId) {
+        let log_ref = &self.log;
         match self.chains.head_finalized_request(|chain| {
             if chain.peer_pool.remove(&peer_id) {
                 // this chain contained the peer
@@ -318,7 +319,9 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     .collect::<Vec<_>>();
                 for request_id in pending_batches_requests {
                     if let Some(batch) = chain.pending_batches.remove(&request_id) {
-                        if let ProcessingResult::RemoveChain = chain.failed_batch(network, batch) {
+                        if let ProcessingResult::RemoveChain =
+                            chain.failed_batch(network, batch, log_ref)
+                        {
                             // a single batch failed, remove the chain
                             return Some(ProcessingResult::RemoveChain);
                         }
