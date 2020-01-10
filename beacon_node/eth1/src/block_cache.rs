@@ -37,28 +37,9 @@ impl Eth1Block {
     }
 }
 
-#[derive(Encode, Decode, Clone)]
-pub struct SszBlockCache {
-    block_cache: Vec<Eth1Block>,
-}
-
-impl SszBlockCache {
-    pub fn from_block_cache(cache: &BlockCache) -> Self {
-        Self {
-            block_cache: cache.blocks.clone(),
-        }
-    }
-
-    pub fn to_block_cache(&self) -> Result<BlockCache, String> {
-        Ok(BlockCache {
-            blocks: self.block_cache.clone(),
-        })
-    }
-}
-
 /// Stores block and deposit contract information and provides queries based upon the block
 /// timestamp.
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct BlockCache {
     blocks: Vec<Eth1Block>,
 }

@@ -1,6 +1,6 @@
 use crate::Config;
 use crate::{
-    block_cache::{BlockCache, SszBlockCache},
+    block_cache::BlockCache,
     deposit_cache::{DepositCache, SszDepositCache},
 };
 use parking_lot::RwLock;
@@ -56,7 +56,7 @@ impl Inner {
 
 #[derive(Encode, Decode, Clone)]
 pub struct SszEth1Cache {
-    block_cache: SszBlockCache,
+    block_cache: BlockCache,
     deposit_cache: SszDepositCache,
     last_processed_block: Option<u64>,
 }
@@ -66,7 +66,7 @@ impl SszEth1Cache {
         let deposit_updater = inner.deposit_cache.read();
         let block_cache = inner.block_cache.read();
         Self {
-            block_cache: SszBlockCache::from_block_cache(&block_cache),
+            block_cache: (*block_cache).clone(),
             deposit_cache: SszDepositCache::from_deposit_cache(&deposit_updater.cache),
             last_processed_block: deposit_updater.last_processed_block,
         }
@@ -74,7 +74,7 @@ impl SszEth1Cache {
 
     pub fn to_inner(&self, config: Config) -> Result<Inner, String> {
         Ok(Inner {
-            block_cache: RwLock::new(self.block_cache.to_block_cache()?),
+            block_cache: RwLock::new(self.block_cache.clone()),
             deposit_cache: RwLock::new(DepositUpdater {
                 cache: self.deposit_cache.to_deposit_cache()?,
                 last_processed_block: self.last_processed_block,
