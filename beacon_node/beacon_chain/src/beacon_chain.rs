@@ -39,7 +39,7 @@ use types::*;
 // Must be 32-bytes or panic.
 //
 //                          |-------must be this long------|
-pub const GRAFFITI: &str = "sigp/lighthouse-0.1.0-prerelease";
+pub const GRAFFITI: &str = "sigp/lighthouse-0.1.1-prerelease";
 
 /// If true, everytime a block is processed the pre-state, post-state and block are written to SSZ
 /// files in the temp directory.

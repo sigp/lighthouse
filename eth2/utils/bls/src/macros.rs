@@ -83,7 +83,10 @@ macro_rules! bytes_struct {
         #[doc = $small_name]
         #[doc = " (e.g., from the deposit contract)."]
         #[derive(Clone)]
-        pub struct $name([u8; $byte_size]);
+        pub struct $name {
+            bytes: [u8; $byte_size],
+            decompressed: Option<$type>
+        }
     };
     ($name: ident, $type: ty, $byte_size: expr, $small_name: expr) => {
         bytes_struct!($name, $type, $byte_size, $small_name, stringify!($type),
@@ -91,15 +94,21 @@ macro_rules! bytes_struct {
 
         impl $name {
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-                Ok(Self(Self::get_bytes(bytes)?))
+                Ok(Self {
+                    bytes: Self::get_bytes(bytes)?,
+                    decompressed: None
+                })
             }
 
             pub fn empty() -> Self {
-                Self([0; $byte_size])
+                Self {
+                    bytes: [0; $byte_size],
+                    decompressed: None
+                }
             }
 
             pub fn as_bytes(&self) -> Vec<u8> {
-                self.0.to_vec()
+                self.bytes.to_vec()
             }
 
             fn get_bytes(bytes: &[u8]) -> Result<[u8; $byte_size], ssz::DecodeError> {
@@ -114,23 +123,32 @@ macro_rules! bytes_struct {
                     Ok(result)
                 }
             }
+
+            pub fn decompress(&mut self) -> Result<(), ssz::DecodeError> {
+                self.decompressed = Some(<&Self as std::convert::TryInto<$type>>::try_into(self)?);
+                Ok(())
+            }
+
+            pub fn decompressed(&self) -> &Option<$type> {
+                &self.decompressed
+            }
         }
 
         impl std::fmt::Debug for $name {
             fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                self.0[..].fmt(formatter)
+                self.bytes[..].fmt(formatter)
             }
         }
 
         impl PartialEq for $name {
             fn eq(&self, other: &Self) -> bool {
-                &self.0[..] == &other.0[..]
+                &self.bytes[..] == &other.bytes[..]
             }
         }
 
         impl std::hash::Hash for $name {
             fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                self.0.hash(state)
+                self.bytes.hash(state)
             }
         }
 
@@ -140,7 +158,7 @@ macro_rules! bytes_struct {
             type Error = ssz::DecodeError;
 
             fn try_into(self) -> Result<$type, Self::Error> {
-                <$type>::from_bytes(&self.0[..])
+                <$type>::from_bytes(&self.bytes[..])
             }
         }
 

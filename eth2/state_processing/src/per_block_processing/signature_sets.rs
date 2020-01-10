@@ -248,10 +248,14 @@ fn validator_pubkey<'a, T: EthSpec>(
         .ok_or_else(|| Error::ValidatorUnknown(validator_index as u64))?
         .pubkey;
 
-    pubkey_bytes
-        .try_into()
-        .map(|pubkey: PublicKey| Cow::Owned(pubkey.as_raw().point.clone()))
-        .map_err(|_| Error::BadBlsBytes {
-            validator_index: validator_index as u64,
-        })
+    if let Some(pubkey) = pubkey_bytes.decompressed() {
+        Ok(Cow::Borrowed(&pubkey.as_raw().point))
+    } else {
+        pubkey_bytes
+            .try_into()
+            .map(|pubkey: PublicKey| Cow::Owned(pubkey.as_raw().point.clone()))
+            .map_err(|_| Error::BadBlsBytes {
+                validator_index: validator_index as u64,
+            })
+    }
 }
