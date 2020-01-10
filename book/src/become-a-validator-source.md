@@ -19,11 +19,12 @@ help menu.
 ## 2. Start an Eth1 client
 
 As Eth2 relies upon the Eth1 chain for validator on-boarding and eventually
-Eth1 may use the Eth2 chain as a finality gadget. As such, all Eth2 validators
-must have a connection to an Eth1 node. We provide instructions for using Geth
-(this is, by chance, what we ended up testing with), but you could use any
-client that implements the JSON RPC via HTTP. At least for Geth, a fast-synced
-node is sufficient.
+Eth1 may use the Eth2 chain as a finality gadget, all Eth2 validators must have
+a connection to an Eth1 node.
+
+We provide instructions for using Geth (this is, by chance, what we ended up
+testing with), but you could use any client that implements the JSON RPC via
+HTTP. At least for Geth, a fast-synced node is sufficient.
 
 ### Starting Geth
 
