@@ -50,10 +50,11 @@ Your beacon node has started syncing when you see the following (truncated)
 log:
 
 ```
-Dec 09 12:57:18.026 INFO Syncing                                 distance: 16837 slots (2 days 8 hrs), ...
+Dec 09 12:57:18.026 INFO Syncing                                 est_time: 2 hrs ...
 ```
 
-Don't be overly concerned about the "distance" because "est_time" for syncing will be much lower.
+The `distance` value reports the time since eth2 genesis, whilst the `est_time`
+reports an estimate of how long it will take your node to become synced.
 
 It has finished syncing once you see the following (truncated) log:
 
