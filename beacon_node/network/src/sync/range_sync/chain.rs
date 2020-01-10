@@ -244,7 +244,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         if self.state == ChainSyncingState::Syncing {
             // pre-emptively request more blocks from peers whilst we process current blocks,
-            self.send_range_request(network, current_peer, log);
+            self.send_range_request(network, log);
         }
 
         // Try and process batches sequentially in the ordered list.
@@ -439,9 +439,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .cloned()
             .collect::<Vec<_>>();
 
-        for peer_id in peers {
+        for _ in 0..peers.len() {
             // send a blocks by range request to the peer
-            self.send_range_request(network, peer_id, log);
+            self.send_range_request(network, log);
         }
 
         self.state = ChainSyncingState::Syncing;
@@ -463,7 +463,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
 
         // find the next batch and request it from the peer
-        self.send_range_request(network, peer_id, log);
+        self.send_range_request(network, log);
     }
 
     /// Sends a STATUS message to all peers in the peer pool.
@@ -473,19 +473,35 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    /// Requests the next required batch from the provided peer.
-    fn send_range_request(
-        &mut self,
-        network: &mut SyncNetworkContext,
-        peer_id: PeerId,
-        log: &slog::Logger,
-    ) {
+    /// Requests the next required batch from a peer.
+    fn send_range_request(&mut self, network: &mut SyncNetworkContext, log: &slog::Logger) {
         // find the next pending batch and request it from the peer
-        if let Some(batch) = self.get_next_batch(peer_id) {
-            debug!(log, "Requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => batch.id, "peer" => format!("{:?}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
-            // send the batch
-            self.send_batch(network, batch);
+        if let Some(peer_id) = self.get_next_peer() {
+            if let Some(batch) = self.get_next_batch(peer_id) {
+                debug!(log, "Requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => batch.id, "peer" => format!("{:?}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
+                // send the batch
+                self.send_batch(network, batch);
+            }
+        } else {
+            debug!(log, "No peer available for next batch.")
         }
+    }
+
+    /// Returns a peer if there exists a peer which does not currently have a pending request.
+    ///
+    /// This is used to create the next request.
+    fn get_next_peer(&self) -> Option<PeerId> {
+        for peer in self.peer_pool.iter() {
+            if self
+                .pending_batches
+                .values()
+                .find(|batch| &batch.current_peer == peer)
+                .is_none()
+            {
+                return Some(*peer);
+            }
+        }
+        None
     }
 
     /// Requests the provided batch from the provided peer.
@@ -546,7 +562,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch) = self.pending_batches.remove(&request_id) {
             warn!(log, "Batch failed. RPC Error"; "id" => batch.id, "retries" => batch.retries, "peer" => format!("{:?}", peer_id));
 
-            Some(self.failed_batch(network, batch))
+            Some(self.failed_batch(network, batch, log))
         } else {
             None
         }
@@ -561,6 +577,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext,
         mut batch: Batch<T::EthSpec>,
+        log: &Logger,
     ) -> ProcessingResult {
         batch.retries += 1;
 
@@ -580,6 +597,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .unwrap_or_else(|| current_peer);
 
             batch.current_peer = new_peer.clone();
+            debug!(log, "Re-Requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => batch.id, "peer" => format!("{:?}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
             self.send_batch(network, batch);
             ProcessingResult::KeepChain
         }
