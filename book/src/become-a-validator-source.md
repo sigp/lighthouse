@@ -74,6 +74,9 @@ Generate new validator BLS keypairs using:
 $ lighthouse account validator new random
 ```
 
+Take note of the `voting_pubkey` of the new validator. This will be the primary
+identifier of the validator. This is how you can find your validator in block
+explorers.
 
 You've completed this step when you see the equivalent line:
 

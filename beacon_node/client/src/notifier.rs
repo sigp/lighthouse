@@ -37,6 +37,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 ) -> Result<Signal, String> {
     let log_1 = context.log.clone();
     let log_2 = context.log.clone();
+    let log_3 = context.log.clone();
 
     let slot_duration = Duration::from_millis(milliseconds_per_slot);
     let duration_to_next_slot = beacon_chain
@@ -161,6 +162,16 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             };
 
             Ok(())
+        })
+        .then(move |result| {
+            match result {
+                Ok(()) => Ok(()),
+                Err(e) => Ok(error!(
+                    log_3,
+                    "Notifier failed to notify";
+                    "error" => format!("{:?}", e)
+                ))
+            }
         });
 
     let (exit_signal, exit) = exit_future::signal();
