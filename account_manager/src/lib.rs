@@ -130,6 +130,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
         &methods,
         deposit_value,
         &context.eth2_config.spec,
+        &env.core_context().log,
     )?;
 
     if matches.is_present("send-deposits") {
@@ -249,6 +250,7 @@ fn make_validators(
     methods: &[KeygenMethod],
     deposit_value: u64,
     spec: &ChainSpec,
+    log: &Logger,
 ) -> Result<Vec<ValidatorDirectory>, String> {
     methods
         .par_iter()
@@ -262,11 +264,25 @@ fn make_validators(
                 KeygenMethod::ThreadRandom => builder.thread_random_keypairs(),
             };
 
-            builder
+            let validator = builder
                 .create_directory(datadir.clone())?
                 .write_keypair_files()?
                 .write_eth1_data_file()?
-                .build()
+                .build()?;
+
+            let pubkey = &validator
+                .voting_keypair
+                .as_ref()
+                .ok_or_else(|| "Generated validator must have voting keypair".to_string())?
+                .pk;
+
+            info!(
+                log,
+                "Saved new validator to disk";
+                "voting_pubkey" => format!("{:?}", pubkey)
+            );
+
+            Ok(validator)
         })
         .collect()
 }
