@@ -55,7 +55,7 @@ useful for finding your validator in block explorers. Here's an example of the
 log:
 
 ```bash
-validator_client_1  |  Jan 10 12:06:05.632 INFO Saved new validator to disk             voting_pubkey: 0x0x8fc28504448783b10b0a7f5a321505b07ad2ad8d6a8430b8868a0fcdedee43766bee725855506626085776e020dfa472
+validator_client_1  |  Jan 10 12:06:05.632 INFO Saved new validator to disk             voting_pubkey: 0x8fc28504448783b10b0a7f5a321505b07ad2ad8d6a8430b8868a0fcdedee43766bee725855506626085776e020dfa472
 ```
 
 > Note: the docker-compose setup includes a fast-synced geth node. You can
