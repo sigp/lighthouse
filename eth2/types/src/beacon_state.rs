@@ -28,7 +28,7 @@ mod tests;
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     EpochOutOfBounds,
     SlotOutOfBounds,
@@ -58,6 +58,7 @@ pub enum Error {
     PreviousCommitteeCacheUninitialized,
     CurrentCommitteeCacheUninitialized,
     RelativeEpochError(RelativeEpochError),
+    ExitCacheUninitialized,
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SszTypesError(ssz_types::Error),
     CachedTreeHashError(cached_tree_hash::Error),
@@ -465,6 +466,21 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(hash(&preimage))
     }
 
+    /// Get the canonical root of the `latest_block_header`, filling in its state root if necessary.
+    ///
+    /// It needs filling in on all slots where there isn't a skip.
+    ///
+    /// Spec v0.9.1
+    pub fn get_latest_block_root(&self, current_state_root: Hash256) -> Hash256 {
+        if self.latest_block_header.state_root.is_zero() {
+            let mut latest_block_header = self.latest_block_header.clone();
+            latest_block_header.state_root = current_state_root;
+            latest_block_header.canonical_root()
+        } else {
+            self.latest_block_header.canonical_root()
+        }
+    }
+
     /// Safely obtains the index for latest block roots, given some `slot`.
     ///
     /// Spec v0.9.1
@@ -765,14 +781,20 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Build all the caches, if they need to be built.
     pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+        self.build_all_committee_caches(spec)?;
+        self.update_pubkey_cache()?;
+        self.build_tree_hash_cache()?;
+        self.exit_cache.build(&self.validators, spec)?;
+        self.decompress_validator_pubkeys()?;
+
+        Ok(())
+    }
+
+    /// Build all committee caches, if they need to be built.
+    pub fn build_all_committee_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_committee_cache(RelativeEpoch::Previous, spec)?;
         self.build_committee_cache(RelativeEpoch::Current, spec)?;
         self.build_committee_cache(RelativeEpoch::Next, spec)?;
-        self.update_pubkey_cache()?;
-        self.build_tree_hash_cache()?;
-        self.exit_cache.build_from_registry(&self.validators, spec);
-        self.decompress_validator_pubkeys()?;
-
         Ok(())
     }
 

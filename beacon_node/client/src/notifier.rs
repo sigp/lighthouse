@@ -69,7 +69,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 usize::max_value()
             };
 
-            let head = beacon_chain.head();
+            let head = beacon_chain.head()
+                .map_err(|e| error!(
+                    log,
+                    "Failed to get beacon chain head";
+                    "error" => format!("{:?}", e)
+                ))?;
 
             let head_slot = head.beacon_block.slot;
             let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
@@ -117,9 +122,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     log,
                     "Syncing";
                     "peers" => peer_count_pretty(connected_peer_count),
-                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                    "distance" => distance,
                     "speed" => sync_speed_pretty(speedo.slots_per_second()),
-                    "distance" => distance
+                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
                 );
 
                 return Ok(());

@@ -43,7 +43,9 @@ impl SyncNetworkContext {
             "peer" => format!("{:?}", peer_id)
         );
         if let Some(chain) = chain.upgrade() {
-            let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message(&chain)));
+            if let Some(status_message) = status_message(&chain) {
+                let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message));
+            }
         }
     }
 

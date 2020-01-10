@@ -120,7 +120,7 @@ impl<'a, E: EthSpec, S: Store<E>> ParentRootBlockIterator<'a, E, S> {
 }
 
 impl<'a, E: EthSpec, S: Store<E>> Iterator for ParentRootBlockIterator<'a, E, S> {
-    type Item = BeaconBlock<E>;
+    type Item = (Hash256, BeaconBlock<E>);
 
     fn next(&mut self) -> Option<Self::Item> {
         // Stop once we reach the zero parent, otherwise we'll keep returning the genesis
@@ -128,9 +128,10 @@ impl<'a, E: EthSpec, S: Store<E>> Iterator for ParentRootBlockIterator<'a, E, S>
         if self.next_block_root.is_zero() {
             None
         } else {
-            let block: BeaconBlock<E> = self.store.get(&self.next_block_root).ok()??;
+            let block_root = self.next_block_root;
+            let block: BeaconBlock<E> = self.store.get(&block_root).ok()??;
             self.next_block_root = block.parent_root;
-            Some(block)
+            Some((block_root, block))
         }
     }
 }
