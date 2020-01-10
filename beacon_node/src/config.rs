@@ -258,6 +258,11 @@ pub fn get_configs<E: EthSpec>(
         client_config.store.slots_per_restore_point = slots_per_restore_point
             .parse()
             .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
+    } else {
+        client_config.store.slots_per_restore_point = std::cmp::min(
+            E::slots_per_historical_root() as u64,
+            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
+        );
     }
 
     if eth2_config.spec_constants != client_config.spec_constants {
