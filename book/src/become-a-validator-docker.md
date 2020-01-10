@@ -49,6 +49,15 @@ Start the docker-compose environment (you may need to use `sudo`):
 $ docker-compose up
 ```
 
+Watch the output of this command for the `Saved new validator to disk` log, as
+the `voting_pubkey` is the primary identifier for your new validator. This is
+useful for finding your validator in block explorers. Here's an example of the
+log:
+
+```bash
+validator_client_1  |  Jan 10 12:06:05.632 INFO Saved new validator to disk             voting_pubkey: 0x8fc28504448783b10b0a7f5a321505b07ad2ad8d6a8430b8868a0fcdedee43766bee725855506626085776e020dfa472
+```
+
 > Note: the docker-compose setup includes a fast-synced geth node. You can
 > expect the `beacon_node` to log some eth1-related errors whilst the geth node
 > boots and becomes synced. This will only happen on the first start of the
