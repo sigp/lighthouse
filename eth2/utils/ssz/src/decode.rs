@@ -3,7 +3,7 @@ use super::*;
 pub mod impls;
 
 /// Returned when SSZ decoding fails.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum DecodeError {
     /// The bytes supplied were too short to be decoded into the specified type.
     InvalidByteLength { len: usize, expected: usize },

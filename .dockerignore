@@ -1,2 +1,5 @@
 tests/ef_tests/eth2.0-spec-tests
 target/
+*.tar.gz
+*.data
+.git
