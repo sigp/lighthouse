@@ -1,19 +1,18 @@
 /// TODO:
 ///
-/// - Start head_fn from a specific root (the justified one not always the finalized one).\
-/// - Only update votes if they are latest votes.
 /// - Allow for filtering the block tree as per spec (this probably means storing fin/just epochs
 /// in the proto_array)
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use types::Hash256;
+use types::{Epoch, Hash256};
 
 pub const PRUNE_THRESHOLD: usize = 200;
 
 #[derive(Default, PartialEq, Clone)]
 pub struct VoteTracker {
-    current: Hash256,
-    next: Hash256,
+    current_root: Hash256,
+    next_root: Hash256,
+    next_epoch: Epoch,
 }
 
 pub struct BalanceSnapshot {
@@ -28,9 +27,14 @@ pub struct ProtoArrayForkChoice {
 }
 
 impl ProtoArrayForkChoice {
-    pub fn process_attestation(&self, validator_index: usize, block_root: Hash256) {
-        // TODO: only update if the vote is later than the current vote.
-        self.votes.write().get_mut(validator_index).current = block_root;
+    pub fn process_attestation(&self, validator_index: usize, block_root: Hash256, epoch: Epoch) {
+        let mut votes = self.votes.write();
+
+        if epoch > votes.get(validator_index).next_epoch {
+            let vote = votes.get_mut(validator_index);
+            vote.current_root = block_root;
+            vote.next_epoch = epoch;
+        }
     }
 
     pub fn process_block(&self, block_root: Hash256, parent_root: Hash256) -> Result<(), Error> {
@@ -63,7 +67,7 @@ impl ProtoArrayForkChoice {
         let mut proto_array = self.proto_array.write();
 
         proto_array.apply_score_changes(score_changes)?;
-        proto_array.head_fn()
+        proto_array.head_fn(&start_block_root)
     }
 
     pub fn update_finalized_root(&self, finalized_root: Hash256) -> Result<(), Error> {
@@ -83,7 +87,7 @@ fn balance_change_deltas(
     for (val_index, vote) in votes.iter_mut().enumerate() {
         // There is no need to create a score change if the validator has never voted or both their
         // votes are for the zero hash (alias to the genesis block).
-        if vote.current == Hash256::zero() && vote.next == Hash256::zero() {
+        if vote.current_root == Hash256::zero() && vote.next_root == Hash256::zero() {
             continue;
         }
 
@@ -106,10 +110,10 @@ fn balance_change_deltas(
             .copied()
             .unwrap_or_else(|| 0);
 
-        if vote.current != vote.next || old_balance != new_balance {
-            *score_changes.entry(vote.current).or_insert(0) -= old_balance as i64;
-            *score_changes.entry(vote.next).or_insert(0) += new_balance as i64;
-            vote.current = vote.next;
+        if vote.current_root != vote.next_root || old_balance != new_balance {
+            *score_changes.entry(vote.current_root).or_insert(0) -= old_balance as i64;
+            *score_changes.entry(vote.next_root).or_insert(0) += new_balance as i64;
+            vote.current_root = vote.next_root;
         }
     }
 
@@ -144,6 +148,7 @@ pub enum Error {
     BalanceUnknown(usize),
     NodeUnknown(Hash256),
     FinalizedNodeUnknown(Hash256),
+    JustifiedNodeUnknown(Hash256),
     StartOutOfBounds,
     IndexOutOfBounds,
     BestChildOutOfBounds { i: usize, len: usize },
@@ -354,11 +359,11 @@ impl ProtoArray {
         Ok(())
     }
 
-    pub fn head_fn(&self) -> Result<Hash256, Error> {
+    pub fn head_fn(&self, justified_root: &Hash256) -> Result<Hash256, Error> {
         let mut i = *self
             .indices
-            .get(&self.finalized_root)
-            .ok_or_else(|| Error::FinalizedNodeUnknown(self.finalized_root))?;
+            .get(justified_root)
+            .ok_or_else(|| Error::JustifiedNodeUnknown(self.finalized_root))?;
 
         loop {
             // TODO: safe array access.
