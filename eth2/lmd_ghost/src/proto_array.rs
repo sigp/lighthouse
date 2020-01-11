@@ -8,6 +8,21 @@ use types::{Epoch, Hash256};
 
 pub const PRUNE_THRESHOLD: usize = 200;
 
+pub enum Error {
+    BalanceUnknown(usize),
+    NodeUnknown(Hash256),
+    FinalizedNodeUnknown(Hash256),
+    JustifiedNodeUnknown(Hash256),
+    StartOutOfBounds,
+    IndexOutOfBounds,
+    BestChildOutOfBounds { i: usize, len: usize },
+    ParentOutOfBounds { i: usize, len: usize },
+    BestChildInconsistent,
+    WeightsInconsistent,
+    ParentsInconsistent,
+    BestDescendantInconsistent,
+}
+
 #[derive(Default, PartialEq, Clone)]
 pub struct VoteTracker {
     current_root: Hash256,
@@ -37,18 +52,28 @@ impl ProtoArrayForkChoice {
         }
     }
 
-    pub fn process_block(&self, block_root: Hash256, parent_root: Hash256) -> Result<(), Error> {
+    pub fn process_block(
+        &self,
+        root: Hash256,
+        finalized_epoch: Epoch,
+        justified_epoch: Epoch,
+        parent_root: Hash256,
+    ) -> Result<(), Error> {
         let node = DagNode {
-            block_root,
+            root,
+            justified_epoch,
+            finalized_epoch,
             parent: Some(parent_root),
         };
 
         self.proto_array.write().on_new_node(node)
     }
 
-    fn find_head<F>(
+    pub fn find_head<F>(
         &self,
         start_block_root: Hash256,
+        justified_epoch: Epoch,
+        finalized_epoch: Epoch,
         latest_balances: BalanceSnapshot,
     ) -> Result<Hash256, Error> {
         // Take a clone of votes to prevent a corruption in the case that `balance_change_deltas`
@@ -67,6 +92,8 @@ impl ProtoArrayForkChoice {
         let mut proto_array = self.proto_array.write();
 
         proto_array.apply_score_changes(score_changes)?;
+        // TODO: only run filter tree if the just/fin epochs change.
+        proto_array.filter_tree(justified_epoch, finalized_epoch)?;
         proto_array.head_fn(&start_block_root)
     }
 
@@ -121,13 +148,21 @@ fn balance_change_deltas(
 }
 
 pub struct DagNode {
-    block_root: Hash256,
+    root: Hash256,
+    justified_epoch: Epoch,
+    finalized_epoch: Epoch,
     parent: Option<Hash256>,
 }
 
 pub struct ScoreChange {
     target: Hash256,
     score_delta: i64,
+}
+
+#[derive(Clone, Copy)]
+pub struct Epochs {
+    justified: Epoch,
+    finalized: Epoch,
 }
 
 pub struct ProtoArray {
@@ -138,25 +173,13 @@ pub struct ProtoArray {
     weights: Vec<u64>,
     /// Maps the index of a node to the index of its parent.
     parents: Vec<Option<usize>>, // TODO: non-zero usize with +1 offset?
+    /// Maps the index of a node to its finalized and justified epochs.
+    epochs: Vec<Epochs>,
     /// Maps the index of a node to the index of its best-weighted descendant.
     best_descendant: Vec<usize>, // TODO: do I understand this correctly?
+    // TODO: a `DagNode` stores epochs when we don't need them here.
     nodes: Vec<DagNode>,
     indices: HashMap<Hash256, usize>,
-}
-
-pub enum Error {
-    BalanceUnknown(usize),
-    NodeUnknown(Hash256),
-    FinalizedNodeUnknown(Hash256),
-    JustifiedNodeUnknown(Hash256),
-    StartOutOfBounds,
-    IndexOutOfBounds,
-    BestChildOutOfBounds { i: usize, len: usize },
-    ParentOutOfBounds { i: usize, len: usize },
-    BestChildInconsistent,
-    WeightsInconsistent,
-    ParentsInconsistent,
-    BestDescendantInconsistent,
 }
 
 impl ProtoArray {
@@ -242,6 +265,7 @@ impl ProtoArray {
 
         // back-prop best-child/target updates
         for i in (start..d.len()).rev() {
+            // TODO: is this a viable way to build the best descendant?
             if let Some(best_child) = self.get_best_child(i)? {
                 // TODO: array access safety
                 self.best_descendant[i] = self.best_descendant[best_child]
@@ -253,7 +277,8 @@ impl ProtoArray {
 
             if let Some(parent) = self.get_parent(i)? {
                 if let Some(best_child_of_parent) = self.get_best_child(parent)? {
-                    // TODO: does it suffice to just check the deltas?
+                    // TODO: does it suffice to compare the deltas?
+                    // TODO: what about tie breaking via hash?
                     // TODO: array access safety
                     if best_child_of_parent != i && d[i] >= d[best_child_of_parent] {
                         // TODO: array access safety
@@ -274,7 +299,7 @@ impl ProtoArray {
 
     pub fn on_new_node(&mut self, block: DagNode) -> Result<(), Error> {
         let i = self.nodes.len();
-        self.indices.insert(block.block_root, i);
+        self.indices.insert(block.root, i);
 
         // A new node does not have a best child (or any child at all).
         self.best_child.push(None);
@@ -299,6 +324,10 @@ impl ProtoArray {
             self.parents.push(None)
         }
 
+        self.epochs.push(Epochs {
+            justified: block.justified_epoch,
+            finalized: block.finalized_epoch,
+        });
         // The new node points to itself as best-descendant, since it is a leaf.
         self.best_descendant.push(i);
         self.nodes.push(block);
@@ -313,7 +342,7 @@ impl ProtoArray {
             .ok_or_else(|| Error::FinalizedNodeUnknown(self.finalized_root))?;
 
         // Small pruning does not help more than it costs to do.
-        if start < 200 {
+        if start < PRUNE_THRESHOLD {
             return Ok(());
         }
 
@@ -324,7 +353,7 @@ impl ProtoArray {
 
         for i in 0..start {
             // TODO: safe array access.
-            let key = self.nodes[i].block_root;
+            let key = self.nodes[i].root;
             self.indices.remove(&key);
         }
 
@@ -352,8 +381,8 @@ impl ProtoArray {
 
             *self
                 .indices
-                .get_mut(&node.block_root)
-                .ok_or_else(|| Error::NodeUnknown(node.block_root))? -= start
+                .get_mut(&node.root)
+                .ok_or_else(|| Error::NodeUnknown(node.root))? -= start
         }
 
         Ok(())
@@ -375,7 +404,24 @@ impl ProtoArray {
         }
 
         // TODO: safe array access.
-        Ok(self.nodes[i].block_root)
+        Ok(self.nodes[i].root)
+    }
+
+    fn filter_tree(&mut self, justified: Epoch, finalized: Epoch) -> Result<(), Error> {
+        for (i, node_epochs) in self.epochs.iter().copied().enumerate().rev() {
+            if node_epochs.justified == justified && node_epochs.finalized == finalized {
+                continue;
+            }
+
+            if let Some(parent) = self.get_parent(i)? {
+                if let Some(parent_best_child) = self.get_best_child(parent)? {
+                    if parent_best_child == i {
+                        self.best_child[parent] = None
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn check_consistency(&self) -> Result<(), Error> {
