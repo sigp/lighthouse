@@ -18,7 +18,8 @@ use types::{BeaconBlock, EthSpec, Hash256, Slot};
 /// responder will fill the response up to the max request size, assuming they have the bandwidth
 /// to do so.
 //TODO: Make this dynamic based on peer's bandwidth
-const BLOCKS_PER_BATCH: u64 = 50;
+//TODO: This is lower due to current thread design. Modify once rebuilt.
+const BLOCKS_PER_BATCH: u64 = 150;
 
 /// The number of times to retry a batch before the chain is considered failed and removed.
 const MAX_BATCH_RETRIES: u8 = 5;
@@ -26,7 +27,7 @@ const MAX_BATCH_RETRIES: u8 = 5;
 /// A collection of sequential blocks that are requested from peers in a single RPC request.
 #[derive(PartialEq)]
 pub struct Batch<T: EthSpec> {
-    /// The ID of the batch, batches are ID's sequentially.
+    /// The ID of the batch, these are sequential.
     id: u64,
     /// The requested start slot of the batch, inclusive.
     start_slot: Slot,
