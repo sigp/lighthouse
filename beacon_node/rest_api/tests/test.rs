@@ -814,3 +814,5 @@ fn compare_validator_response<T: EthSpec>(
     assert_eq!(state.balances[i], balance, "balances");
     assert_eq!(state.validators[i], *validator, "validator index");
 }
+
+// Add tests for slashing insertion (proposer and attesters)

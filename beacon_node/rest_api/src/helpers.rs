@@ -14,7 +14,7 @@ use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
 use types::{
     Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
-    Signature, Slot,
+    Signature, Slot, BeaconBlockHeader,
 };
 
 /// Parse a slot.
@@ -112,6 +112,20 @@ pub fn parse_pubkey_bytes(string: &str) -> Result<PublicKeyBytes, ApiError> {
         ))
     }
 }
+
+pub fn parse_block_header(string: &str) -> Result<BeaconBlockHeader, ApiError> {
+    const PREFIX: &str = "0x";
+
+    Ok(BeaconBlockHeader {
+        slot: Slot::from(0u64),
+        parent_root: Hash256::random(),
+        state_root: Hash256::random(),
+        body_root: Hash256::random(),
+        signature: Signature::empty_signature(),
+    })
+}
+
+/// Parse a Proposer Slashing
 
 /// Returns the root of the `BeaconBlock` in the canonical chain of `beacon_chain` at the given
 /// `slot`, if possible.
