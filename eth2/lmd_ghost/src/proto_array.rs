@@ -1,13 +1,19 @@
+/// TODO:
+///
+/// - Start head_fn from a specific root (the justified one not always the finalized one).\
+/// - Only update votes if they are latest votes.
+/// - Allow for filtering the block tree as per spec (this probably means storing fin/just epochs
+/// in the proto_array)
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use types::Hash256;
 
 pub const PRUNE_THRESHOLD: usize = 200;
 
-#[derive(Default)]
+#[derive(Default, PartialEq, Clone)]
 pub struct VoteTracker {
-    previous: Hash256,
     current: Hash256,
+    next: Hash256,
 }
 
 pub struct BalanceSnapshot {
@@ -23,6 +29,7 @@ pub struct ProtoArrayForkChoice {
 
 impl ProtoArrayForkChoice {
     pub fn process_attestation(&self, validator_index: usize, block_root: Hash256) {
+        // TODO: only update if the vote is later than the current vote.
         self.votes.write().get_mut(validator_index).current = block_root;
     }
 
@@ -39,40 +46,74 @@ impl ProtoArrayForkChoice {
         &self,
         start_block_root: Hash256,
         latest_balances: BalanceSnapshot,
-    ) -> SuperResult<Hash256> {
-        let current_balances = self.balances.write();
-        let votes = self.votes.read();
+    ) -> Result<Hash256, Error> {
+        // Take a clone of votes to prevent a corruption in the case that `balance_change_deltas`
+        // returns an error.
+        let mut votes = self.votes.read().clone();
 
-        let mut score_changes = vec![];
+        let score_changes =
+            balance_change_deltas(&mut votes, &self.balances.read(), &latest_balances)?
+                .into_iter()
+                .map(|(target, score_delta)| ScoreChange {
+                    target,
+                    score_delta,
+                })
+                .collect();
 
-        if current_balances.state_root != latest_balances.state_root {
-            // Note: here we make an assumption that the size of the validator registry never
-            // reduces.
-            for (i, latest) in latest_balances.balances.iter().enumerate() {
-                if let Some(current) = current_balances.balances.get(i) {
-                    if latest != current {
-                        let vote = votes.get(i);
+        let mut proto_array = self.proto_array.write();
 
-                        if vote != VoteTracker::default() {
-                            score_changes.push(ScoreChange {
-                                target: vote.previous,
-                                score_delta,
-                            })
-                        }
-                    }
-                }
-            }
-
-            // Update the thing
-            current_balances = latest_balances
-        }
+        proto_array.apply_score_changes(score_changes)?;
+        proto_array.head_fn()
     }
 
     pub fn update_finalized_root(&self, finalized_root: Hash256) -> Result<(), Error> {
         let mut proto_array = self.proto_array.write();
         proto_array.finalized_root = finalized_root;
-        proto_array.prune()
+        proto_array.maybe_prune()
     }
+}
+
+fn balance_change_deltas(
+    votes: &mut ElasticList<VoteTracker>,
+    old_balances: &BalanceSnapshot,
+    new_balances: &BalanceSnapshot,
+) -> Result<HashMap<Hash256, i64>, Error> {
+    let mut score_changes = HashMap::new();
+
+    for (val_index, vote) in votes.iter_mut().enumerate() {
+        // There is no need to create a score change if the validator has never voted or both their
+        // votes are for the zero hash (alias to the genesis block).
+        if vote.current == Hash256::zero() && vote.next == Hash256::zero() {
+            continue;
+        }
+
+        // If the validator was not included in the _old_ balances (i.e., it did not exist yet)
+        // then say its balance was zero.
+        let old_balance = old_balances
+            .balances
+            .get(val_index)
+            .copied()
+            .unwrap_or_else(|| 0);
+
+        // If the validators vote is not known in the _new_ balances, then use a balance of zero.
+        //
+        // It is possible that there is a vote for an unknown validator if we change our justified
+        // state to a new state with a higher epoch that is on a different fork (that fork may have
+        // on-boarded less validators than the prior fork).
+        let new_balance = new_balances
+            .balances
+            .get(val_index)
+            .copied()
+            .unwrap_or_else(|| 0);
+
+        if vote.current != vote.next || old_balance != new_balance {
+            *score_changes.entry(vote.current).or_insert(0) -= old_balance as i64;
+            *score_changes.entry(vote.next).or_insert(0) += new_balance as i64;
+            vote.current = vote.next;
+        }
+    }
+
+    Ok(score_changes)
 }
 
 pub struct DagNode {
@@ -100,6 +141,7 @@ pub struct ProtoArray {
 }
 
 pub enum Error {
+    BalanceUnknown(usize),
     NodeUnknown(Hash256),
     FinalizedNodeUnknown(Hash256),
     StartOutOfBounds,
@@ -140,7 +182,7 @@ impl ProtoArray {
             .ok_or_else(|| Error::BestChildOutOfBounds { i, len })
     }
 
-    pub fn apply_score_changes(mut self, changes: Vec<ScoreChange>) -> Result<(), Error> {
+    pub fn apply_score_changes(&mut self, changes: Vec<ScoreChange>) -> Result<(), Error> {
         // Check to ensure that the length of all internal arrays is consistent.
         self.check_consistency()?;
 
@@ -259,7 +301,7 @@ impl ProtoArray {
         Ok(())
     }
 
-    pub fn prune(&mut self) -> Result<(), Error> {
+    pub fn maybe_prune(&mut self) -> Result<(), Error> {
         let start = *self
             .indices
             .get(&self.finalized_root)
@@ -388,5 +430,9 @@ where
     pub fn insert(&mut self, i: usize, element: T) {
         self.ensure(i);
         self.0[i] = element;
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.0.iter_mut()
     }
 }
