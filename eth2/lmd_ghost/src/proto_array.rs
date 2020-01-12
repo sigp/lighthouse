@@ -3,12 +3,12 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use store::Store;
-use types::{BeaconBlock, Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot};
 
 pub const PRUNE_THRESHOLD: usize = 200;
 
+#[derive(Clone, PartialEq, Debug)]
 pub enum Error {
-    BalanceUnknown(usize),
     NodeUnknown(Hash256),
     FinalizedNodeUnknown(Hash256),
     JustifiedNodeUnknown(Hash256),
@@ -33,15 +33,10 @@ pub struct VoteTracker {
     next_epoch: Epoch,
 }
 
-#[derive(PartialEq)]
-pub struct BalanceSnapshot {
-    balances: Vec<u64>,
-}
-
 pub struct ProtoArrayForkChoice {
     proto_array: RwLock<ProtoArray>,
     votes: RwLock<ElasticList<VoteTracker>>,
-    balances: RwLock<BalanceSnapshot>,
+    balances: RwLock<Vec<u64>>,
 }
 
 impl PartialEq for ProtoArrayForkChoice {
@@ -60,34 +55,85 @@ impl<S: Store<E>, E: EthSpec> LmdGhost<S, E> for ProtoArrayForkChoice {
     fn process_attestation(
         &self,
         validator_index: usize,
-        block_hash: Hash256,
+        block_root: Hash256,
         block_slot: Slot,
     ) -> Result<(), String> {
-        unimplemented!()
+        let mut votes = self.votes.write();
+
+        let epoch = block_slot.epoch(E::slots_per_epoch());
+
+        if epoch > votes.get(validator_index).next_epoch {
+            let vote = votes.get_mut(validator_index);
+            vote.current_root = block_root;
+            vote.next_epoch = epoch;
+        }
+
+        Ok(())
     }
 
-    fn process_block(&self, block: &BeaconBlock<E>, block_hash: Hash256) -> Result<(), String> {
-        unimplemented!()
+    fn process_block(
+        &self,
+        block: &BeaconBlock<E>,
+        block_root: Hash256,
+        state: &BeaconState<E>,
+    ) -> Result<(), String> {
+        self.proto_array
+            .write()
+            .on_new_block(
+                block_root,
+                Some(block.parent_root),
+                state.current_justified_checkpoint.epoch,
+                state.finalized_checkpoint.epoch,
+            )
+            .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
     fn find_head<F>(
         &self,
-        start_block_slot: Slot,
-        start_block_root: Hash256,
-        weight: F,
-    ) -> Result<Hash256, String>
-    where
-        F: Fn(usize) -> Option<u64> + Copy,
-    {
-        unimplemented!()
+        justified_epoch: Epoch,
+        justified_root: Hash256,
+        finalized_epoch: Epoch,
+        finalized_root: Hash256,
+        justified_state_balances: &[u64],
+    ) -> Result<Hash256, String> {
+        let mut proto_array = self.proto_array.write();
+        let mut votes = self.votes.write();
+        let old_balances = self.balances.write();
+
+        let new_balances = justified_state_balances;
+
+        let score_changes = balance_change_deltas(&mut votes, &old_balances, &new_balances)
+            .map_err(|e| format!("find_head balance_change_deltas failed: {:?}", e))?
+            .into_iter()
+            .map(|(target, score_delta)| ScoreChange {
+                target,
+                score_delta,
+            })
+            .collect::<Vec<_>>();
+
+        proto_array
+            .maybe_prune(finalized_epoch, finalized_root)
+            .map_err(|e| format!("find_head maybe_prune failed: {:?}", e))?;
+        proto_array
+            .apply_score_changes(&score_changes, justified_epoch)
+            .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
+
+        *self.balances.write() = new_balances.to_vec();
+
+        proto_array
+            .find_head(&justified_root)
+            .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
     fn update_finalized_root(
         &self,
-        finalized_block: &BeaconBlock<E>,
-        finalized_block_root: Hash256,
+        finalized_epoch: Epoch,
+        finalized_root: Hash256,
     ) -> Result<(), String> {
-        unimplemented!()
+        self.proto_array
+            .write()
+            .maybe_prune(finalized_epoch, finalized_root)
+            .map_err(|e| format!("find_head maybe_prune failed: {:?}", e))
     }
 
     fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
@@ -107,67 +153,10 @@ impl<S: Store<E>, E: EthSpec> LmdGhost<S, E> for ProtoArrayForkChoice {
     }
 }
 
-impl ProtoArrayForkChoice {
-    pub fn process_attestation(&self, validator_index: usize, block_root: Hash256, epoch: Epoch) {
-        let mut votes = self.votes.write();
-
-        if epoch > votes.get(validator_index).next_epoch {
-            let vote = votes.get_mut(validator_index);
-            vote.current_root = block_root;
-            vote.next_epoch = epoch;
-        }
-    }
-
-    pub fn process_block(
-        &self,
-        root: Hash256,
-        finalized_epoch: Epoch,
-        justified_epoch: Epoch,
-        parent_root: Hash256,
-    ) -> Result<(), Error> {
-        let block = DagNode {
-            root,
-            justified_epoch,
-            finalized_epoch,
-            parent: Some(parent_root),
-        };
-
-        self.proto_array.write().on_new_block(block)
-    }
-
-    pub fn find_head<F>(
-        &self,
-        justified_epoch: Epoch,
-        justified_root: Hash256,
-        finalized_epoch: Epoch,
-        finalized_root: Hash256,
-        latest_balances: BalanceSnapshot,
-    ) -> Result<Hash256, Error> {
-        // Take a clone of votes to prevent a corruption in the case that `balance_change_deltas`
-        // returns an error.
-        let mut votes = self.votes.read().clone();
-
-        let score_changes =
-            balance_change_deltas(&mut votes, &self.balances.read(), &latest_balances)?
-                .into_iter()
-                .map(|(target, score_delta)| ScoreChange {
-                    target,
-                    score_delta,
-                })
-                .collect::<Vec<_>>();
-
-        let mut proto_array = self.proto_array.write();
-
-        proto_array.maybe_prune(finalized_epoch, finalized_root)?;
-        proto_array.apply_score_changes(&score_changes, justified_epoch)?;
-        proto_array.find_head(&justified_root)
-    }
-}
-
 fn balance_change_deltas(
     votes: &mut ElasticList<VoteTracker>,
-    old_balances: &BalanceSnapshot,
-    new_balances: &BalanceSnapshot,
+    old_balances: &[u64],
+    new_balances: &[u64],
 ) -> Result<HashMap<Hash256, i64>, Error> {
     let mut score_changes = HashMap::new();
 
@@ -180,22 +169,14 @@ fn balance_change_deltas(
 
         // If the validator was not included in the _old_ balances (i.e., it did not exist yet)
         // then say its balance was zero.
-        let old_balance = old_balances
-            .balances
-            .get(val_index)
-            .copied()
-            .unwrap_or_else(|| 0);
+        let old_balance = old_balances.get(val_index).copied().unwrap_or_else(|| 0);
 
         // If the validators vote is not known in the _new_ balances, then use a balance of zero.
         //
         // It is possible that there is a vote for an unknown validator if we change our justified
         // state to a new state with a higher epoch that is on a different fork (that fork may have
         // on-boarded less validators than the prior fork).
-        let new_balance = new_balances
-            .balances
-            .get(val_index)
-            .copied()
-            .unwrap_or_else(|| 0);
+        let new_balance = new_balances.get(val_index).copied().unwrap_or_else(|| 0);
 
         if vote.current_root != vote.next_root || old_balance != new_balance {
             *score_changes.entry(vote.current_root).or_insert(0) -= old_balance as i64;
@@ -205,13 +186,6 @@ fn balance_change_deltas(
     }
 
     Ok(score_changes)
-}
-
-pub struct DagNode {
-    root: Hash256,
-    justified_epoch: Epoch,
-    finalized_epoch: Epoch,
-    parent: Option<Hash256>,
 }
 
 pub struct ScoreChange {
@@ -351,16 +325,20 @@ impl ProtoArray {
         Ok(())
     }
 
-    pub fn on_new_block(&mut self, block: DagNode) -> Result<(), Error> {
+    pub fn on_new_block(
+        &mut self,
+        root: Hash256,
+        parent: Option<Hash256>,
+        justified_epoch: Epoch,
+        finalized_epoch: Epoch,
+    ) -> Result<(), Error> {
         let node_index = self.nodes.len();
 
         let node = ProtoNode {
-            root: block.root,
-            parent: block
-                .parent
-                .and_then(|parent_root| self.indices.get(&parent_root).copied()),
-            justified_epoch: block.justified_epoch,
-            finalized_epoch: block.finalized_epoch,
+            root,
+            parent: parent.and_then(|parent_root| self.indices.get(&parent_root).copied()),
+            justified_epoch,
+            finalized_epoch,
             weight: 0,
             best_child: None,
             best_descendant: None,
