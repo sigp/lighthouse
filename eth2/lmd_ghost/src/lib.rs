@@ -5,6 +5,7 @@ use std::sync::Arc;
 use store::Store;
 use types::{BeaconBlock, EthSpec, Hash256, Slot};
 
+pub use proto_array::ProtoArrayForkChoice;
 pub use reduced_tree::ThreadSafeReducedTree;
 
 pub type Result<T> = std::result::Result<T, String>;
