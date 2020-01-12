@@ -13,6 +13,8 @@ pub enum Error {
     NodeUnknown(Hash256),
     FinalizedNodeUnknown(Hash256),
     JustifiedNodeUnknown(Hash256),
+    InvalidFinalizedRootChange,
+    RevertedFinalizedEpoch,
     StartOutOfBounds,
     IndexOutOfBounds,
     BestChildOutOfBounds { i: usize, len: usize },
@@ -74,6 +76,7 @@ impl ProtoArrayForkChoice {
         start_block_root: Hash256,
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
+        finalized_root: Hash256,
         latest_balances: BalanceSnapshot,
     ) -> Result<Hash256, Error> {
         // Take a clone of votes to prevent a corruption in the case that `balance_change_deltas`
@@ -91,16 +94,9 @@ impl ProtoArrayForkChoice {
 
         let mut proto_array = self.proto_array.write();
 
+        proto_array.update_ffg(justified_epoch, finalized_epoch, finalized_root)?;
         proto_array.apply_score_changes(score_changes)?;
-        // TODO: only run filter tree if the just/fin epochs change.
-        proto_array.filter_tree(justified_epoch, finalized_epoch)?;
         proto_array.head_fn(&start_block_root)
-    }
-
-    pub fn update_finalized_root(&self, finalized_root: Hash256) -> Result<(), Error> {
-        let mut proto_array = self.proto_array.write();
-        proto_array.finalized_root = finalized_root;
-        proto_array.maybe_prune()
     }
 }
 
@@ -166,6 +162,8 @@ pub struct Epochs {
 }
 
 pub struct ProtoArray {
+    justified_epoch: Epoch,
+    finalized_epoch: Epoch,
     finalized_root: Hash256,
     /// Maps the index of some parent node to the index of its best-weighted child.
     best_child: Vec<Option<usize>>, // TODO: non-zero usize?
@@ -178,7 +176,7 @@ pub struct ProtoArray {
     /// Maps the index of a node to the index of its best-weighted descendant.
     best_descendant: Vec<usize>, // TODO: do I understand this correctly?
     // TODO: a `DagNode` stores epochs when we don't need them here.
-    nodes: Vec<DagNode>,
+    roots: Vec<Hash256>,
     indices: HashMap<Hash256, usize>,
 }
 
@@ -214,7 +212,7 @@ impl ProtoArray {
         // Check to ensure that the length of all internal arrays is consistent.
         self.check_consistency()?;
 
-        let mut d: Vec<i64> = vec![0; self.nodes.len()];
+        let mut d: Vec<i64> = vec![0; self.roots.len()];
 
         let start = *self
             .indices
@@ -298,7 +296,7 @@ impl ProtoArray {
     }
 
     pub fn on_new_node(&mut self, block: DagNode) -> Result<(), Error> {
-        let i = self.nodes.len();
+        let i = self.roots.len();
         self.indices.insert(block.root, i);
 
         // A new node does not have a best child (or any child at all).
@@ -310,6 +308,7 @@ impl ProtoArray {
             if let Some(parent_index) = self.indices.get(&parent).copied() {
                 self.parents.push(Some(parent_index));
 
+                // TODO: don't set best child unless the fin/just states match.
                 // If it is the first child, it is also the best.
                 let best_child_of_parent = self.get_best_child_mut(parent_index)?;
                 if best_child_of_parent.is_none() {
@@ -330,12 +329,12 @@ impl ProtoArray {
         });
         // The new node points to itself as best-descendant, since it is a leaf.
         self.best_descendant.push(i);
-        self.nodes.push(block);
+        self.roots.push(block.root);
 
         Ok(())
     }
 
-    pub fn maybe_prune(&mut self) -> Result<(), Error> {
+    fn maybe_prune(&mut self) -> Result<(), Error> {
         let start = *self
             .indices
             .get(&self.finalized_root)
@@ -353,14 +352,14 @@ impl ProtoArray {
 
         for i in 0..start {
             // TODO: safe array access.
-            let key = self.nodes[i].root;
+            let key = self.roots[i];
             self.indices.remove(&key);
         }
 
-        self.nodes = self.nodes.split_off(start);
+        self.roots = self.roots.split_off(start);
 
         // Adjust indices back to zero
-        for (i, node) in self.nodes.iter().enumerate() {
+        for (i, root) in self.roots.iter().enumerate() {
             // TODO: safe array access.
             if let Some(best_child) = self.best_child[i] {
                 best_child.saturating_sub(start);
@@ -381,8 +380,8 @@ impl ProtoArray {
 
             *self
                 .indices
-                .get_mut(&node.root)
-                .ok_or_else(|| Error::NodeUnknown(node.root))? -= start
+                .get_mut(&root)
+                .ok_or_else(|| Error::NodeUnknown(*root))? -= start
         }
 
         Ok(())
@@ -404,28 +403,57 @@ impl ProtoArray {
         }
 
         // TODO: safe array access.
-        Ok(self.nodes[i].root)
+        Ok(self.roots[i])
     }
 
-    fn filter_tree(&mut self, justified: Epoch, finalized: Epoch) -> Result<(), Error> {
-        for (i, node_epochs) in self.epochs.iter().copied().enumerate().rev() {
-            if node_epochs.justified == justified && node_epochs.finalized == finalized {
-                continue;
-            }
+    fn update_ffg(
+        &mut self,
+        justified_epoch: Epoch,
+        finalized_epoch: Epoch,
+        finalized_root: Hash256,
+    ) -> Result<(), Error> {
+        if finalized_epoch == self.finalized_epoch && self.finalized_root != finalized_root {
+            return Err(Error::InvalidFinalizedRootChange);
+        }
 
-            if let Some(parent) = self.get_parent(i)? {
-                if let Some(parent_best_child) = self.get_best_child(parent)? {
-                    if parent_best_child == i {
-                        self.best_child[parent] = None
+        if finalized_epoch < self.finalized_epoch {
+            return Err(Error::RevertedFinalizedEpoch);
+        }
+
+        let finalized_changed = self.finalized_epoch != finalized_epoch;
+        let justified_changed = self.justified_epoch != justified_epoch;
+
+        self.justified_epoch = justified_epoch;
+        self.finalized_epoch = finalized_epoch;
+        self.finalized_root = finalized_root;
+
+        if finalized_changed {
+            self.maybe_prune()?;
+        }
+
+        if justified_changed || finalized_changed {
+            for (i, node_epochs) in self.epochs.iter().copied().enumerate().rev() {
+                if node_epochs.justified == self.justified_epoch
+                    && node_epochs.finalized == self.finalized_epoch
+                {
+                    continue;
+                }
+
+                if let Some(parent) = self.get_parent(i)? {
+                    if let Some(parent_best_child) = self.get_best_child(parent)? {
+                        if parent_best_child == i {
+                            self.best_child[parent] = None
+                        }
                     }
                 }
             }
         }
+
         Ok(())
     }
 
     fn check_consistency(&self) -> Result<(), Error> {
-        let num_nodes = self.nodes.len();
+        let num_nodes = self.roots.len();
         if self.best_child.len() != num_nodes {
             return Err(Error::BestChildInconsistent);
         }
