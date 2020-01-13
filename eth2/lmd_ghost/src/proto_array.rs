@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot};
 
-pub const PRUNE_THRESHOLD: usize = 200;
+pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Error {
@@ -53,6 +53,7 @@ impl LmdGhost for ProtoArrayForkChoice {
         finalized_root: Hash256,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
+            prune_threshold: DEFAULT_PRUNE_THRESHOLD,
             ffg_update_required: false,
             justified_epoch,
             finalized_epoch,
@@ -267,6 +268,9 @@ impl ProtoNode {
 
 #[derive(PartialEq)]
 pub struct ProtoArray {
+    /// Do not attempt to prune the tree unless it has at least this many nodes. Small prunes
+    /// simply waste time.
+    prune_threshold: usize,
     /// Set to true when the Casper FFG justified/finalized epochs should be checked to ensure the
     /// tree is filtered as per eth2 specs.
     ffg_update_required: bool,
@@ -278,6 +282,20 @@ pub struct ProtoArray {
 }
 
 impl ProtoArray {
+    /// Iterate backwards through the array, touching all nodes and their parents and potentially
+    /// the best-child of each parent.
+    ///
+    /// The structure of the `self.nodes` array ensures that the child of each node is always
+    /// touched before it's parent.
+    ///
+    /// For each node, the following is done:
+    ///
+    /// - Update the nodes weight with the corresponding delta.
+    /// - Back-propgrate each nodes delta to its parents delta.
+    /// - Compare the current node with the parents best-child, updating it if the current node
+    /// should become the best child.
+    /// - Update the parents best-descendant with the current node or its best-descendant, if
+    /// required.
     pub fn apply_score_changes(
         &mut self,
         mut deltas: Vec<i64>,
@@ -290,11 +308,16 @@ impl ProtoArray {
             });
         }
 
+        // The `self.ffg_update_required` flag indicates if it is necessary to check the
+        // finalized/justified epoch of all nodes against the epochs in `self`.
+        //
+        // This behaviour is equivalent to the `filter_block_tree` function in the spec.
         self.ffg_update_required = justified_epoch != self.justified_epoch;
         if self.ffg_update_required {
             self.justified_epoch = justified_epoch;
         }
 
+        // Iterate backwards through all indices in `self.nodes`.
         for node_index in (0..self.nodes.len()).rev() {
             let node = &mut self
                 .nodes
@@ -313,7 +336,17 @@ impl ProtoArray {
                 .copied()
                 .ok_or_else(|| Error::InvalidNodeDelta(node_index))?;
 
+            // Apply the delta to the node.
             if node_delta < 0 {
+                // Note: I am conflicted about wether to use `saturating_sub` or `checked_sub`
+                // here.
+                //
+                // I can't think of any valid reason why `node_delta.abs()` should be greater than
+                // `node.weight`, so I have chosen `checked_sub` to try and fail-fast if there is
+                // some error.
+                //
+                // However, I am not fully convinced that some valid case for `saturating_sub` does
+                // not exist.
                 node.weight = node
                     .weight
                     .checked_sub(node_delta.abs() as u64)
@@ -325,14 +358,14 @@ impl ProtoArray {
                     .ok_or_else(|| Error::DeltaOverflow(node_index))?;
             }
 
+            // If the node has a parent, try to update its best-child and best-descendant.
             if let Some(parent_index) = node.parent {
-                if parent_index > 0 {
-                    let parent_delta = deltas
-                        .get_mut(parent_index)
-                        .ok_or_else(|| Error::InvalidParentDelta(parent_index))?;
+                let parent_delta = deltas
+                    .get_mut(parent_index)
+                    .ok_or_else(|| Error::InvalidParentDelta(parent_index))?;
 
-                    *parent_delta += node_delta;
-                }
+                // Back-propogate the nodes delta to its parent.
+                *parent_delta += node_delta;
 
                 let is_viable_for_head = self
                     .nodes
@@ -340,11 +373,10 @@ impl ProtoArray {
                     .map(|node| self.node_is_viable_for_head(node))
                     .ok_or_else(|| Error::InvalidNodeIndex(parent_index))?;
 
+                // If the given node is _not viable_ for the head and we are required to check
+                // for FFG changes, then remove the child if it is currently the parents
+                // best-child.
                 if !is_viable_for_head {
-                    // If the given node is not viable for the head and we are required to check
-                    // for FFG changes, then check to see if the child is presently set to the best
-                    // child for the parent. If so, remove the best-child link because this node is
-                    // not viable.
                     if self.ffg_update_required {
                         let parent_best_child = self
                             .nodes
@@ -366,6 +398,11 @@ impl ProtoArray {
                     continue;
                 }
 
+                // If the parent has a best-child, see if the current node is better. If it doesn't
+                // have a best child, set it to ours.
+                //
+                // Note: this code only runs if the node is viable for the head due to `continue`
+                // call in previous statement.
                 if let Some(parent_best_child_index) = self
                     .nodes
                     .get(parent_index)
@@ -384,15 +421,25 @@ impl ProtoArray {
                         .get(parent_best_child_index)
                         .ok_or_else(|| Error::InvalidBestChildIndex(parent_best_child_index))?;
 
-                    if self
+                    let node_is_better_than_current_best_child = self
                         .nodes
                         .get(node_index)
                         .ok_or_else(|| Error::InvalidNodeIndex(node_index))?
-                        .is_better_then(parent_best_child)
-                    {
+                        .is_better_then(parent_best_child);
+
+                    let current_best_child_is_viable =
+                        self.node_is_viable_for_head(parent_best_child);
+
+                    // There are two conditions for replacing a best child:
+                    //
+                    // - The node is better than the present best-child.
+                    // - The present best-child in no longer viable (viz., it has been filtered out).
+                    if node_is_better_than_current_best_child || !current_best_child_is_viable {
                         self.set_best_child(parent_index, node_index)?;
                     }
                 } else {
+                    // If the best child is `None`, simply set it to the current node (noting that
+                    // this code only runs if the current node is viable for the head).
                     self.set_best_child(parent_index, node_index)?;
                 };
             }
@@ -403,6 +450,9 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// Register a new block with the fork choice.
+    ///
+    /// It is only sane to supply a `None` parent for the genesis block.
     pub fn on_new_block(
         &mut self,
         root: Hash256,
@@ -452,6 +502,14 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// Follows the best-descendant links to find the best-block (i.e., head-block).
+    ///
+    /// ## Notes
+    ///
+    /// The result of this function is not guaranteed to be accurate if `Self::on_new_block` has
+    /// been called without a subsequent `Self::apply_score_changes` call. This is because
+    /// `on_new_block` does not attempt to walk backwards through the tree and update the
+    /// best-child/best-descendant links.
     pub fn find_head(&self, justified_root: &Hash256) -> Result<Hash256, Error> {
         let justified_index = self
             .indices
@@ -484,16 +542,34 @@ impl ProtoArray {
         Ok(best_node.root)
     }
 
+    /// Update the tree with new finalization information. The tree is only actually pruned if both
+    /// of the two following criteria are met:
+    ///
+    /// - The supplied finalized epoch and root are different to the current values.
+    /// - The number of nodes in `self` is at least `self.prune_threshold`.
+    ///
+    /// # Errors
+    ///
+    /// Returns errors if:
+    ///
+    /// - The finalized epoch is less than the current one.
+    /// - The finalized epoch is equal to the current one, but the finalized root is different.
+    /// - There is some internal error relating to invalid indices inside `self`.
     pub fn maybe_prune(
         &mut self,
         finalized_epoch: Epoch,
         finalized_root: Hash256,
     ) -> Result<(), Error> {
         if finalized_epoch == self.finalized_epoch && finalized_root == self.finalized_root {
+            // Nothing to do.
             return Ok(());
         } else if finalized_epoch == self.finalized_epoch && self.finalized_root != finalized_root {
+            // It's illegal to swap finalized roots on the same epoch (this is reverting a
+            // finalized block).
             return Err(Error::InvalidFinalizedRootChange);
         } else if finalized_epoch < self.finalized_epoch {
+            // It's illegal to swap to an earlier finalized root (this is assumed to be reverting a
+            // finalized block).
             return Err(Error::RevertedFinalizedEpoch);
         } else {
             self.finalized_epoch = finalized_epoch;
@@ -507,10 +583,11 @@ impl ProtoArray {
             .ok_or_else(|| Error::FinalizedNodeUnknown(self.finalized_root))?;
 
         // Pruning at small numbers incurs more cost than benefit.
-        if finalized_index < PRUNE_THRESHOLD {
+        if finalized_index < self.prune_threshold {
             return Ok(());
         }
 
+        // Remove the `self.indices` key/values for all the to-be-deleted nodes.
         for node_index in 0..finalized_index {
             let root = &self
                 .nodes
@@ -520,8 +597,11 @@ impl ProtoArray {
             self.indices.remove(root);
         }
 
+        // Drop all the nodes prior to finalization.
         self.nodes = self.nodes.split_off(finalized_index);
 
+        // Iterate through all the existing nodes and adjust their indicies to match the new layout
+        // of `self.nodes`.
         self.nodes.iter_mut().try_for_each(|node| {
             if let Some(parent) = node.parent {
                 // If `node.parent` is less than `finalized_index`, set it to `None`.
@@ -548,6 +628,8 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// Sets the node at `parent_index` to have a best-child pointing to `child_index`. Also
+    /// updates the best-descendant.
     fn set_best_child(&mut self, parent_index: usize, child_index: usize) -> Result<(), Error> {
         let child_best_descendant = self
             .nodes
@@ -570,6 +652,12 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// This is the equivalent to the `filter_block_tree` function in the eth2 spec:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.10.0/specs/phase0/fork-choice.md#filter_block_tree
+    ///
+    /// Any node that has a different finalized or justified epoch should not be viable for the
+    /// head.
     fn node_is_viable_for_head(&self, node: &ProtoNode) -> bool {
         node.justified_epoch == self.justified_epoch && node.finalized_epoch == self.finalized_epoch
     }
