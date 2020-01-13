@@ -1,3 +1,6 @@
+// use lmd_ghost::ProtoArrayForkChoice;
+
+/*
 #![cfg(not(debug_assertions))]
 
 #[macro_use]
@@ -397,3 +400,4 @@ fn update_finalized_root_honest() {
 
     test_update_finalized_root(&harness.honest_roots)
 }
+*/

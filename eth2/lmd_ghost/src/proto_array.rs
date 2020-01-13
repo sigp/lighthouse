@@ -192,28 +192,35 @@ fn compute_deltas(
             // If the current vote is for the zero-hash there's no need to subtract the balance
             // from it. Additionally, the zero-hash will most likley not exist in `indices`.
             if vote.current_root != Hash256::zero() {
-                let current_delta_index = *indices
-                    .get(&vote.current_root)
-                    .ok_or_else(|| Error::NodeUnknown(vote.current_root))?;
+                // We ignore the vote if it is not known in `indices`. We assume that it is outside
+                // of our tree (i.e., pre-finalization) and therefore not interesting.
+                if let Some(current_delta_index) = indices.get(&vote.current_root).copied() {
+                    let delta = deltas
+                        .get_mut(current_delta_index)
+                        .ok_or_else(|| Error::InvalidNodeDelta(current_delta_index))?
+                        .checked_sub(old_balance as i64)
+                        .ok_or_else(|| Error::DeltaOverflow(current_delta_index))?;
 
-                deltas
-                    .get_mut(current_delta_index)
-                    .ok_or_else(|| Error::InvalidNodeDelta(current_delta_index))?
-                    .checked_sub(old_balance as i64)
-                    .ok_or_else(|| Error::DeltaOverflow(current_delta_index))?;
+                    // Array access safe due to check on previous line.
+                    deltas[current_delta_index] = delta;
+                }
             }
 
             // If the next vote is for the zero-hash there's no need to add the balance
             // to it. Additionally, the zero-hash will most likley not exist in `indices`.
             if vote.next_root != Hash256::zero() {
-                let next_delta_index = *indices
-                    .get(&vote.next_root)
-                    .ok_or_else(|| Error::NodeUnknown(vote.next_root))?;
-                deltas
-                    .get_mut(next_delta_index)
-                    .ok_or_else(|| Error::InvalidNodeDelta(next_delta_index))?
-                    .checked_add(new_balance as i64)
-                    .ok_or_else(|| Error::DeltaOverflow(next_delta_index))?;
+                // We ignore the vote if it is not known in `indices`. We assume that it is outside
+                // of our tree (i.e., pre-finalization) and therefore not interesting.
+                if let Some(next_delta_index) = indices.get(&vote.next_root).copied() {
+                    let delta = deltas
+                        .get(next_delta_index)
+                        .ok_or_else(|| Error::InvalidNodeDelta(next_delta_index))?
+                        .checked_add(new_balance as i64)
+                        .ok_or_else(|| Error::DeltaOverflow(next_delta_index))?;
+
+                    // Array access safe due to check on previous line.
+                    deltas[next_delta_index] = delta;
+                }
             }
 
             vote.current_root = vote.next_root;
@@ -538,6 +545,10 @@ where
         }
     }
 
+    pub fn push(&mut self, val: T) {
+        self.0.push(val)
+    }
+
     pub fn get(&mut self, i: usize) -> &T {
         self.ensure(i);
         &self.0[i]
@@ -550,5 +561,133 @@ where
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.0.iter_mut()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
+    fn hash_from_index(i: usize) -> Hash256 {
+        Hash256::from_low_u64_be(i as u64 + 1)
+    }
+
+    #[test]
+    fn compute_deltas_zero_hash() {
+        let validator_count: usize = 16;
+
+        let mut indices = HashMap::new();
+        let mut votes = ElasticList::default();
+        let mut old_balances = vec![];
+        let mut new_balances = vec![];
+
+        for i in 0..validator_count {
+            indices.insert(hash_from_index(i), i);
+            votes.push(VoteTracker {
+                current_root: Hash256::zero(),
+                next_root: Hash256::zero(),
+                next_epoch: Epoch::new(0),
+            });
+            old_balances.push(0);
+            new_balances.push(0);
+        }
+
+        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
+            .expect("should compute deltas");
+
+        assert_eq!(
+            deltas.len(),
+            validator_count,
+            "deltas should have expected length"
+        );
+        assert_eq!(
+            deltas,
+            vec![0; validator_count],
+            "deltas should all be zero"
+        );
+    }
+
+    #[test]
+    fn compute_deltas_all_voted_the_same() {
+        const BALANCE: u64 = 42;
+
+        let validator_count: usize = 16;
+
+        let mut indices = HashMap::new();
+        let mut votes = ElasticList::default();
+        let mut old_balances = vec![];
+        let mut new_balances = vec![];
+
+        for i in 0..validator_count {
+            indices.insert(hash_from_index(i), i);
+            votes.push(VoteTracker {
+                current_root: Hash256::zero(),
+                next_root: hash_from_index(0),
+                next_epoch: Epoch::new(0),
+            });
+            old_balances.push(BALANCE);
+            new_balances.push(BALANCE);
+        }
+
+        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
+            .expect("should compute deltas");
+
+        assert_eq!(
+            deltas.len(),
+            validator_count,
+            "deltas should have expected length"
+        );
+
+        for (i, delta) in deltas.into_iter().enumerate() {
+            if i == 0 {
+                assert_eq!(
+                    delta,
+                    BALANCE as i64 * validator_count as i64,
+                    "zero'th root should have a delta"
+                );
+            } else {
+                assert_eq!(delta, 0, "all other deltas should be zero");
+            }
+        }
+    }
+
+    #[test]
+    fn compute_deltas_different_votes() {
+        const BALANCE: u64 = 42;
+
+        let validator_count: usize = 16;
+
+        let mut indices = HashMap::new();
+        let mut votes = ElasticList::default();
+        let mut old_balances = vec![];
+        let mut new_balances = vec![];
+
+        for i in 0..validator_count {
+            indices.insert(hash_from_index(i), i);
+            votes.push(VoteTracker {
+                current_root: Hash256::zero(),
+                next_root: hash_from_index(i),
+                next_epoch: Epoch::new(0),
+            });
+            old_balances.push(BALANCE);
+            new_balances.push(BALANCE);
+        }
+
+        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
+            .expect("should compute deltas");
+
+        assert_eq!(
+            deltas.len(),
+            validator_count,
+            "deltas should have expected length"
+        );
+
+        for delta in deltas.into_iter() {
+            assert_eq!(
+                delta, BALANCE as i64,
+                "each root should have the same delta"
+            );
+        }
     }
 }
