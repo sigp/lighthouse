@@ -1657,8 +1657,8 @@ mod test_proto_array_fork_choice {
         //          7
         //          |
         //          8
-        //          |
-        //          9
+        //         /
+        //         9
         fork_choice
             .process_block(get_hash(7), get_hash(5), Epoch::new(1), Epoch::new(0))
             .expect("should process block");
@@ -1685,8 +1685,8 @@ mod test_proto_array_fork_choice {
         //          7
         //          |
         //          8
-        //          |
-        //          9
+        //         /
+        //         9
         assert_eq!(
             fork_choice
                 .find_head(
@@ -1719,8 +1719,8 @@ mod test_proto_array_fork_choice {
         //          7
         //          |
         //          8
-        //          |
-        //  head -> 9
+        //         /
+        // head-> 9
         assert_eq!(
             fork_choice
                 .find_head(
@@ -1734,5 +1734,128 @@ mod test_proto_array_fork_choice {
             get_hash(9),
             "should find get_hash(9)"
         );
+
+        // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 9 is
+        // the head.
+        //
+        // << Change justified epoch to 1 >>
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6
+        //          |
+        //          7
+        //          |
+        //          8
+        //         /
+        //        9 <- +2 votes
+        fork_choice
+            .process_attestation(0, get_hash(9), Epoch::new(4))
+            .expect("should process attestation");
+        fork_choice
+            .process_attestation(1, get_hash(9), Epoch::new(4))
+            .expect("should process attestation");
+
+        // Add block 10
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6
+        //          |
+        //          7
+        //          |
+        //          8
+        //         / \
+        //        9  10
+        fork_choice
+            .process_block(get_hash(10), get_hash(8), Epoch::new(1), Epoch::new(0))
+            .expect("should process block");
+
+        // Double-check the head is still 9 (no diagram this time)
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(1),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(9),
+            "should find get_hash(9)"
+        );
+
+        // Introduce 2 more validators into the system
+        let balances = vec![1; 4];
+
+        // Have the two new validators vote for 10
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6
+        //          |
+        //          7
+        //          |
+        //          8
+        //         / \
+        //        9  10 <- +2 votes
+        fork_choice
+            .process_attestation(2, get_hash(10), Epoch::new(4))
+            .expect("should process attestation");
+        fork_choice
+            .process_attestation(3, get_hash(10), Epoch::new(4))
+            .expect("should process attestation");
+
+        // Check the head is now 10.
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6
+        //          |
+        //          7
+        //          |
+        //          8
+        //         / \
+        //        9  10 <- head
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(1),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(10),
+            "should find get_hash(10)"
+        );
+
+        // TODO: play with the validator balances and watch the head move about.
     }
 }
