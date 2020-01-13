@@ -22,6 +22,7 @@ pub enum Error {
     IndexOverflow(&'static str),
     InvalidDeltaLen { deltas: usize, indices: usize },
     RevertedFinalizedEpoch,
+    InvalidFindHeadStartRoot,
 }
 
 #[derive(Default, PartialEq, Clone)]
@@ -291,7 +292,7 @@ impl ProtoArray {
 
         self.ffg_update_required = justified_epoch != self.justified_epoch;
         if self.ffg_update_required {
-            self.justified_epoch = self.justified_epoch;
+            self.justified_epoch = justified_epoch;
         }
 
         for node_index in (0..self.nodes.len()).rev() {
@@ -450,6 +451,14 @@ impl ProtoArray {
             .nodes
             .get(justified_index)
             .ok_or_else(|| Error::InvalidJustifiedIndex(justified_index))?;
+
+        // It is a logic error to try and find the head starting from a block that does not match
+        // the filter.
+        if justified_node.justified_epoch != self.justified_epoch
+            || justified_node.finalized_epoch != self.finalized_epoch
+        {
+            return Err(Error::InvalidFindHeadStartRoot);
+        }
 
         let best_descendant_index = justified_node
             .best_descendant
@@ -1001,6 +1010,21 @@ mod test_proto_array_fork_choice {
         Hash256::from_low_u64_be(i)
     }
 
+    /// This tests does not use any validator votes, it just relies on hash-sorting to find the
+    /// head.
+    ///
+    /// The following block graph is built and tested as each block is added (each block has the
+    /// hash set to the big-endian representation of its number shown here):
+    ///
+    ///      0
+    ///     / \
+    ///     2  1
+    ///     |  |
+    ///     4  3
+    ///     |
+    ///     5 <--- justified epoch becomes 1 here, all above are 0.
+    ///     |
+    ///     6
     #[test]
     fn no_votes() {
         const VALIDATOR_COUNT: usize = 16;
@@ -1117,6 +1141,52 @@ mod test_proto_array_fork_choice {
                 .expect("should find head"),
             get_hash(4),
             "should find the get_hash(4) block because the get_hash(5) should be filtered out"
+        );
+
+        assert!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &[0; VALIDATOR_COUNT]
+                )
+                .is_err(),
+            "should not allow finding head from a bad justified epoch"
+        );
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(1),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &[0; VALIDATOR_COUNT]
+                )
+                .expect("should find head"),
+            get_hash(5),
+            "should find the get_hash(5) block"
+        );
+
+        // Add a block with a hash of 6 whos parent is hash of 5.
+        fork_choice
+            .process_block(get_hash(6), get_hash(5), Epoch::new(1), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(1),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &[0; VALIDATOR_COUNT]
+                )
+                .expect("should find head"),
+            get_hash(6),
+            "should find the get_hash(6) block"
         );
     }
 }
