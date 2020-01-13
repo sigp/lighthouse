@@ -1641,6 +1641,34 @@ mod test_proto_array_fork_choice {
             .process_attestation(1, get_hash(5), Epoch::new(3))
             .expect("should process attestation");
 
+        // Add blocks 7, 8 and 9. Adding these blocks helps test the `best_descendant`
+        // functionality.
+        //
+        //          0
+        //         / \
+        //        2   1
+        //            |
+        //            3
+        //            |
+        //            4
+        //           / \
+        //          5   6
+        //          |
+        //          7
+        //          |
+        //          8
+        //          |
+        //          9
+        fork_choice
+            .process_block(get_hash(7), get_hash(5), Epoch::new(1), Epoch::new(0))
+            .expect("should process block");
+        fork_choice
+            .process_block(get_hash(8), get_hash(7), Epoch::new(1), Epoch::new(0))
+            .expect("should process block");
+        fork_choice
+            .process_block(get_hash(9), get_hash(8), Epoch::new(1), Epoch::new(0))
+            .expect("should process block");
+
         // Ensure that 6 is the head, even though 5 has all the votes. This is testing to ensure
         // that 5 is filtered out due to a differing justified epoch.
         //
@@ -1653,6 +1681,12 @@ mod test_proto_array_fork_choice {
         //            4
         //           / \
         //          5   6 <- head
+        //          |
+        //          7
+        //          |
+        //          8
+        //          |
+        //          9
         assert_eq!(
             fork_choice
                 .find_head(
@@ -1667,7 +1701,7 @@ mod test_proto_array_fork_choice {
             "should find get_hash(6)"
         );
 
-        // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 5 is
+        // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 9 is
         // the head.
         //
         // << Change justified epoch to 1 >>
@@ -1680,7 +1714,13 @@ mod test_proto_array_fork_choice {
         //            |
         //            4
         //           / \
-        //  head -> 5   6
+        //          5   6
+        //          |
+        //          7
+        //          |
+        //          8
+        //          |
+        //  head -> 9
         assert_eq!(
             fork_choice
                 .find_head(
@@ -1691,8 +1731,8 @@ mod test_proto_array_fork_choice {
                     &balances
                 )
                 .expect("should find head"),
-            get_hash(5),
-            "should find get_hash(5)"
+            get_hash(9),
+            "should find get_hash(9)"
         );
     }
 }
