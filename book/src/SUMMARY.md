@@ -2,6 +2,8 @@
 
 * [Introduction](./intro.md)
 * [Become a Validator](./become-a-validator.md)
+    * [Using Docker](./become-a-validator-docker.md)
+    * [Building from Source](./become-a-validator-source.md)
 * [Installation](./installation.md)
     * [Docker](./docker.md)
 * [CLI](./cli.md)

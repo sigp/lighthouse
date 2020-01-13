@@ -58,9 +58,11 @@ pub enum Error {
     PreviousCommitteeCacheUninitialized,
     CurrentCommitteeCacheUninitialized,
     RelativeEpochError(RelativeEpochError),
+    ExitCacheUninitialized,
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SszTypesError(ssz_types::Error),
     CachedTreeHashError(cached_tree_hash::Error),
+    InvalidValidatorPubkey(ssz::DecodeError),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -779,13 +781,20 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Build all the caches, if they need to be built.
     pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+        self.build_all_committee_caches(spec)?;
+        self.update_pubkey_cache()?;
+        self.build_tree_hash_cache()?;
+        self.exit_cache.build(&self.validators, spec)?;
+        self.decompress_validator_pubkeys()?;
+
+        Ok(())
+    }
+
+    /// Build all committee caches, if they need to be built.
+    pub fn build_all_committee_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_committee_cache(RelativeEpoch::Previous, spec)?;
         self.build_committee_cache(RelativeEpoch::Current, spec)?;
         self.build_committee_cache(RelativeEpoch::Next, spec)?;
-        self.update_pubkey_cache()?;
-        self.build_tree_hash_cache()?;
-        self.exit_cache.build_from_registry(&self.validators, spec);
-
         Ok(())
     }
 
@@ -936,6 +945,23 @@ impl<T: EthSpec> BeaconState<T> {
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
     pub fn drop_tree_hash_cache(&mut self) {
         self.tree_hash_cache = BeaconTreeHashCache::default();
+    }
+
+    /// Iterate through all validators and decompress their public key, unless it has already been
+    /// decompressed.
+    ///
+    /// Does not check the validity of already decompressed keys.
+    pub fn decompress_validator_pubkeys(&mut self) -> Result<(), Error> {
+        self.validators.iter_mut().try_for_each(|validator| {
+            if validator.pubkey.decompressed().is_none() {
+                validator
+                    .pubkey
+                    .decompress()
+                    .map_err(|e| Error::InvalidValidatorPubkey(e))
+            } else {
+                Ok(())
+            }
+        })
     }
 
     pub fn clone_without_caches(&self) -> Self {

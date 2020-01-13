@@ -316,13 +316,13 @@ impl Service {
                     match update_result {
                         Err(e) => error!(
                             log_a,
-                            "Failed to update eth1 genesis cache";
+                            "Failed to update eth1 cache";
                             "retry_millis" => update_interval.as_millis(),
                             "error" => e,
                         ),
                         Ok((deposit, block)) => debug!(
                             log_a,
-                            "Updated eth1 genesis cache";
+                            "Updated eth1 cache";
                             "retry_millis" => update_interval.as_millis(),
                             "blocks" => format!("{:?}", block),
                             "deposits" => format!("{:?}", deposit),

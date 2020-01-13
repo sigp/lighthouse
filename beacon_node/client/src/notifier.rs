@@ -37,6 +37,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 ) -> Result<Signal, String> {
     let log_1 = context.log.clone();
     let log_2 = context.log.clone();
+    let log_3 = context.log.clone();
 
     let slot_duration = Duration::from_millis(milliseconds_per_slot);
     let duration_to_next_slot = beacon_chain
@@ -122,9 +123,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     log,
                     "Syncing";
                     "peers" => peer_count_pretty(connected_peer_count),
-                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                    "distance" => distance,
                     "speed" => sync_speed_pretty(speedo.slots_per_second()),
-                    "distance" => distance
+                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
                 );
 
                 return Ok(());
@@ -161,6 +162,16 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             };
 
             Ok(())
+        })
+        .then(move |result| {
+            match result {
+                Ok(()) => Ok(()),
+                Err(e) => Ok(error!(
+                    log_3,
+                    "Notifier failed to notify";
+                    "error" => format!("{:?}", e)
+                ))
+            }
         });
 
     let (exit_signal, exit) = exit_future::signal();

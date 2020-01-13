@@ -1,4 +1,4 @@
-FROM rust:1.39.0 AS builder
+FROM rust:1.40.0 AS builder
 COPY . lighthouse
 RUN cd lighthouse && make && cargo clean
 
