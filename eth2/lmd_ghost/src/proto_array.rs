@@ -1856,6 +1856,82 @@ mod test_proto_array_fork_choice {
             "should find get_hash(10)"
         );
 
-        // TODO: play with the validator balances and watch the head move about.
+        // Set the balances of the last two validators to zero
+        let balances = vec![1, 1, 0, 0];
+
+        // Check the head is 9 again.
+        //
+        //          .
+        //          .
+        //          .
+        //          |
+        //          8
+        //         / \
+        // head-> 9  10
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(1),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(9),
+            "should find get_hash(9)"
+        );
+
+        // Set the balances of the last two validators back to 1
+        let balances = vec![1; 4];
+
+        // Check the head is 10.
+        //
+        //          .
+        //          .
+        //          .
+        //          |
+        //          8
+        //         / \
+        //        9  10 <- head
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(1),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(10),
+            "should find get_hash(10)"
+        );
+
+        // Remove the last two validators
+        let balances = vec![1; 2];
+
+        // Check the head is 9 again.
+        //
+        //          .
+        //          .
+        //          .
+        //          |
+        //          8
+        //         / \
+        // head-> 9  10
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(1),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(9),
+            "should find get_hash(9)"
+        );
     }
 }
