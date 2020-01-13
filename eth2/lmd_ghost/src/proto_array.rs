@@ -2,7 +2,6 @@ use crate::LmdGhost;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use store::Store;
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot};
 
 pub const PRUNE_THRESHOLD: usize = 200;
@@ -46,25 +45,44 @@ impl PartialEq for ProtoArrayForkChoice {
     }
 }
 
-impl<S: Store<E>, E: EthSpec> LmdGhost<S, E> for ProtoArrayForkChoice {
-    fn new(store: Arc<S>, finalized_block: &BeaconBlock<E>, finalized_root: Hash256) -> Self {
-        unimplemented!()
+impl LmdGhost for ProtoArrayForkChoice {
+    fn new(
+        justified_epoch: Epoch,
+        finalized_epoch: Epoch,
+        finalized_root: Hash256,
+    ) -> Result<Self, String> {
+        let mut proto_array = ProtoArray {
+            ffg_update_required: false,
+            justified_epoch,
+            finalized_epoch,
+            finalized_root,
+            nodes: Vec::with_capacity(1),
+            indices: HashMap::with_capacity(1),
+        };
+
+        proto_array
+            .on_new_block(finalized_root, None, justified_epoch, finalized_epoch)
+            .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
+
+        Ok(Self {
+            proto_array: RwLock::new(proto_array),
+            votes: RwLock::new(ElasticList::default()),
+            balances: RwLock::new(vec![]),
+        })
     }
 
     fn process_attestation(
         &self,
         validator_index: usize,
         block_root: Hash256,
-        block_slot: Slot,
+        block_epoch: Epoch,
     ) -> Result<(), String> {
         let mut votes = self.votes.write();
 
-        let epoch = block_slot.epoch(E::slots_per_epoch());
-
-        if epoch > votes.get(validator_index).next_epoch {
+        if block_epoch > votes.get(validator_index).next_epoch {
             let vote = votes.get_mut(validator_index);
             vote.current_root = block_root;
-            vote.next_epoch = epoch;
+            vote.next_epoch = block_epoch;
         }
 
         Ok(())
@@ -72,22 +90,23 @@ impl<S: Store<E>, E: EthSpec> LmdGhost<S, E> for ProtoArrayForkChoice {
 
     fn process_block(
         &self,
-        block: &BeaconBlock<E>,
         block_root: Hash256,
-        state: &BeaconState<E>,
+        parent_root: Hash256,
+        justified_epoch: Epoch,
+        finalized_epoch: Epoch,
     ) -> Result<(), String> {
         self.proto_array
             .write()
             .on_new_block(
                 block_root,
-                Some(block.parent_root),
-                state.current_justified_checkpoint.epoch,
-                state.finalized_checkpoint.epoch,
+                Some(parent_root),
+                justified_epoch,
+                finalized_epoch,
             )
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
-    fn find_head<F>(
+    fn find_head(
         &self,
         justified_epoch: Epoch,
         justified_root: Hash256,
@@ -97,7 +116,7 @@ impl<S: Store<E>, E: EthSpec> LmdGhost<S, E> for ProtoArrayForkChoice {
     ) -> Result<Hash256, String> {
         let mut proto_array = self.proto_array.write();
         let mut votes = self.votes.write();
-        let old_balances = self.balances.write();
+        let mut old_balances = self.balances.write();
 
         let new_balances = justified_state_balances;
 
@@ -116,7 +135,7 @@ impl<S: Store<E>, E: EthSpec> LmdGhost<S, E> for ProtoArrayForkChoice {
             .apply_score_changes(deltas, justified_epoch)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
-        *self.balances.write() = new_balances.to_vec();
+        *old_balances = new_balances.to_vec();
 
         proto_array
             .find_head(&justified_root)
@@ -146,7 +165,7 @@ impl<S: Store<E>, E: EthSpec> LmdGhost<S, E> for ProtoArrayForkChoice {
         unimplemented!()
     }
 
-    fn from_bytes(bytes: &[u8], store: Arc<S>) -> Result<Self, String> {
+    fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         unimplemented!()
     }
 }
@@ -221,7 +240,7 @@ fn compute_deltas(
     Ok(deltas)
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct ProtoNode {
     root: Hash256,
     parent: Option<usize>,
@@ -233,17 +252,22 @@ pub struct ProtoNode {
 }
 
 impl ProtoNode {
+    /// Returns `true` if some node is "better" than the other, according to either weight or root.
+    ///
+    /// If `self == other`, then `true` is returned.
     pub fn is_better_then(&self, other: &Self) -> bool {
         if self.weight == other.weight {
-            self.root > other.root
+            self.root >= other.root
         } else {
-            self.weight > other.weight
+            self.weight >= other.weight
         }
     }
 }
 
 #[derive(PartialEq)]
 pub struct ProtoArray {
+    /// Set to true when the Casper FFG justified/finalized epochs should be checked to ensure the
+    /// tree is filtered as per eth2 specs.
     ffg_update_required: bool,
     justified_epoch: Epoch,
     finalized_epoch: Epoch,
@@ -305,8 +329,9 @@ impl ProtoArray {
 
                 if !is_viable_for_head {
                     // If the given node is not viable for the head and we are required to check
-                    // for FFG changes, then check to see if the child is the best child for the
-                    // parent. If so, remove the best-child link.
+                    // for FFG changes, then check to see if the child is presently set to the best
+                    // child for the parent. If so, remove the best-child link because this node is
+                    // not viable.
                     if self.ffg_update_required {
                         let parent_best_child = self
                             .nodes
@@ -328,28 +353,35 @@ impl ProtoArray {
                     continue;
                 }
 
-                let node_is_new_best_child = if let Some(parent_best_child_index) = self
+                if let Some(parent_best_child_index) = self
                     .nodes
                     .get(parent_index)
                     .ok_or_else(|| Error::InvalidParentIndex(parent_index))?
                     .best_child
                 {
+                    // Here we set the best child to `node_index` when that is already the case.
+                    // This has the effect of ensuring the `best_descendant` is updated.
+                    if parent_best_child_index == node_index {
+                        self.set_best_child(parent_index, node_index)?;
+                        continue;
+                    }
+
                     let parent_best_child = self
                         .nodes
                         .get(parent_best_child_index)
                         .ok_or_else(|| Error::InvalidBestChildIndex(parent_best_child_index))?;
 
-                    self.nodes
+                    if self
+                        .nodes
                         .get(node_index)
                         .ok_or_else(|| Error::InvalidNodeIndex(node_index))?
                         .is_better_then(parent_best_child)
+                    {
+                        self.set_best_child(parent_index, node_index)?;
+                    }
                 } else {
-                    true
-                };
-
-                if node_is_new_best_child {
                     self.set_best_child(parent_index, node_index)?;
-                }
+                };
             }
         }
 
@@ -377,29 +409,32 @@ impl ProtoArray {
             best_descendant: None,
         };
 
-        if let Some(parent_index) = node.parent {
-            let parent = self
-                .nodes
-                .get(parent_index)
-                .ok_or_else(|| Error::InvalidParentIndex(parent_index))?;
+        self.indices.insert(node.root, node_index);
+        self.nodes.push(node.clone());
 
-            let node_is_best_child = if let Some(parent_best_child_index) = parent.best_child {
-                let parent_best_child = self
+        // If the blocks justified and finalized epochs match our values, then try and see if it
+        // becomes the best child.
+        if justified_epoch == self.justified_epoch && finalized_epoch == self.finalized_epoch {
+            if let Some(parent_index) = node.parent {
+                let parent = self
                     .nodes
-                    .get(parent_best_child_index)
-                    .ok_or_else(|| Error::InvalidBestChildIndex(parent_best_child_index))?;
+                    .get(parent_index)
+                    .ok_or_else(|| Error::InvalidParentIndex(parent_index))?;
 
-                node.is_better_then(parent_best_child)
-            } else {
-                true
-            };
+                if let Some(parent_best_child_index) = parent.best_child {
+                    let parent_best_child = self
+                        .nodes
+                        .get(parent_best_child_index)
+                        .ok_or_else(|| Error::InvalidBestChildIndex(parent_best_child_index))?;
 
-            if node_is_best_child {
-                self.set_best_child(parent_index, node_index)?;
+                    if node.is_better_then(parent_best_child) {
+                        self.set_best_child(parent_index, node_index)?;
+                    }
+                } else {
+                    self.set_best_child(parent_index, node_index)?;
+                };
             }
         }
-
-        self.nodes.push(node);
 
         Ok(())
     }
@@ -552,7 +587,7 @@ where
 }
 
 #[cfg(test)]
-mod test {
+mod test_compute_deltas {
     use super::*;
 
     /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
@@ -561,7 +596,7 @@ mod test {
     }
 
     #[test]
-    fn compute_deltas_zero_hash() {
+    fn zero_hash() {
         let validator_count: usize = 16;
 
         let mut indices = HashMap::new();
@@ -603,7 +638,7 @@ mod test {
     }
 
     #[test]
-    fn compute_deltas_all_voted_the_same() {
+    fn all_voted_the_same() {
         const BALANCE: u64 = 42;
 
         let validator_count: usize = 16;
@@ -654,7 +689,7 @@ mod test {
     }
 
     #[test]
-    fn compute_deltas_different_votes() {
+    fn different_votes() {
         const BALANCE: u64 = 42;
 
         let validator_count: usize = 16;
@@ -700,7 +735,7 @@ mod test {
     }
 
     #[test]
-    fn compute_deltas_moving_votes() {
+    fn moving_votes() {
         const BALANCE: u64 = 42;
 
         let validator_count: usize = 16;
@@ -755,7 +790,7 @@ mod test {
     }
 
     #[test]
-    fn compute_deltas_move_out_of_tree() {
+    fn move_out_of_tree() {
         const BALANCE: u64 = 42;
 
         let mut indices = HashMap::new();
@@ -802,7 +837,7 @@ mod test {
     }
 
     #[test]
-    fn compute_deltas_changing_balances() {
+    fn changing_balances() {
         const OLD_BALANCE: u64 = 42;
         const NEW_BALANCE: u64 = OLD_BALANCE * 2;
 
@@ -860,7 +895,7 @@ mod test {
     }
 
     #[test]
-    fn compute_deltas_validator_appears() {
+    fn validator_appears() {
         const BALANCE: u64 = 42;
 
         let mut indices = HashMap::new();
@@ -909,7 +944,7 @@ mod test {
     }
 
     #[test]
-    fn compute_deltas_validator_disappears() {
+    fn validator_disappears() {
         const BALANCE: u64 = 42;
 
         let mut indices = HashMap::new();
@@ -954,5 +989,134 @@ mod test {
                 "the vote shoulds should have been updated"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod test_proto_array_fork_choice {
+    use super::*;
+
+    /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
+    fn get_hash(i: u64) -> Hash256 {
+        Hash256::from_low_u64_be(i)
+    }
+
+    #[test]
+    fn no_votes() {
+        const VALIDATOR_COUNT: usize = 16;
+
+        let fork_choice = ProtoArrayForkChoice::new(Epoch::new(0), Epoch::new(0), get_hash(0))
+            .expect("should create fork choice");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &[0; VALIDATOR_COUNT]
+                )
+                .expect("should find head"),
+            Hash256::zero(),
+            "should find genesis block as root when there is only one block"
+        );
+
+        // Add a block with a hash of 2.
+        fork_choice
+            .process_block(get_hash(2), get_hash(0), Epoch::new(0), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &[0; VALIDATOR_COUNT]
+                )
+                .expect("should find head"),
+            get_hash(2),
+            "should find head block with a single chain"
+        );
+
+        // Add a block with a hash of 1 that comes off the genesis block (this is a fork compared
+        // to the previous block).
+        fork_choice
+            .process_block(get_hash(1), get_hash(0), Epoch::new(0), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &[0; VALIDATOR_COUNT]
+                )
+                .expect("should find head"),
+            get_hash(2),
+            "should find the first block, not the second block (it should compare hashes)"
+        );
+
+        // Add a block with a hash of 3 whos parent is hash of 1.
+        fork_choice
+            .process_block(get_hash(3), get_hash(1), Epoch::new(0), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &[0; VALIDATOR_COUNT]
+                )
+                .expect("should find head"),
+            get_hash(2),
+            "should find the get_hash(2) block"
+        );
+
+        // Add a block with a hash of 4 whos parent is hash of 2.
+        fork_choice
+            .process_block(get_hash(4), get_hash(2), Epoch::new(0), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &[0; VALIDATOR_COUNT]
+                )
+                .expect("should find head"),
+            get_hash(4),
+            "should find the get_hash(4) block"
+        );
+
+        // Add a block with a hash of 5 whos parent is hash of 4, where the justified epoch is
+        // higher than others.
+        fork_choice
+            .process_block(get_hash(5), get_hash(4), Epoch::new(1), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &[0; VALIDATOR_COUNT]
+                )
+                .expect("should find head"),
+            get_hash(4),
+            "should find the get_hash(4) block because the get_hash(5) should be filtered out"
+        );
     }
 }

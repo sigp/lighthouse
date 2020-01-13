@@ -1,8 +1,6 @@
 mod proto_array;
 
-use std::sync::Arc;
-use store::Store;
-use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, Slot};
+use types::{Epoch, Hash256, Slot};
 
 pub use proto_array::ProtoArrayForkChoice;
 
@@ -10,9 +8,10 @@ pub type Result<T> = std::result::Result<T, String>;
 
 // Note: the `PartialEq` bound is only required for testing. If it becomes a serious annoyance we
 // can remove it.
-pub trait LmdGhost<S: Store<E>, E: EthSpec>: PartialEq + Send + Sync + Sized {
+pub trait LmdGhost: PartialEq + Send + Sync + Sized {
     /// Create a new instance, with the given `store` and `finalized_root`.
-    fn new(store: Arc<S>, finalized_block: &BeaconBlock<E>, finalized_root: Hash256) -> Self;
+    fn new(justified_epoch: Epoch, finalized_epoch: Epoch, finalized_root: Hash256)
+        -> Result<Self>;
 
     /// Process an attestation message from some validator that attests to some `block_root`
     /// representing a block at some `block_slot`.
@@ -20,20 +19,21 @@ pub trait LmdGhost<S: Store<E>, E: EthSpec>: PartialEq + Send + Sync + Sized {
         &self,
         validator_index: usize,
         block_root: Hash256,
-        block_slot: Slot,
+        block_epoch: Epoch,
     ) -> Result<()>;
 
     /// Process a block that was seen on the network.
     fn process_block(
         &self,
-        block: &BeaconBlock<E>,
         block_root: Hash256,
-        state: &BeaconState<E>,
+        parent_root: Hash256,
+        justified_epoch: Epoch,
+        finalized_epoch: Epoch,
     ) -> Result<()>;
 
     /// Returns the head of the chain, starting the search at `start_block_root` and moving upwards
     /// (in block height).
-    fn find_head<F>(
+    fn find_head(
         &self,
         justified_epoch: Epoch,
         justified_root: Hash256,
@@ -60,5 +60,5 @@ pub trait LmdGhost<S: Store<E>, E: EthSpec>: PartialEq + Send + Sync + Sized {
     fn as_bytes(&self) -> Vec<u8>;
 
     /// Create a new `LmdGhost` instance given a `store` and encoded bytes.
-    fn from_bytes(bytes: &[u8], store: Arc<S>) -> Result<Self>;
+    fn from_bytes(bytes: &[u8]) -> Result<Self>;
 }
