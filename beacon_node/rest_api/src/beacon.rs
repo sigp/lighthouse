@@ -10,8 +10,8 @@ use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::Store;
 use types::{
-    BeaconBlock, BeaconState, CommitteeIndex, EthSpec, Hash256, PublicKeyBytes, RelativeEpoch,
-    Slot, Validator, ProposerSlashing,
+    BeaconBlock, BeaconState, CommitteeIndex, EthSpec, Hash256, ProposerSlashing, PublicKeyBytes,
+    RelativeEpoch, Slot, Validator,
 };
 
 /// Information about the block and state that are at head of the beacon chain.
@@ -494,21 +494,38 @@ pub fn get_genesis_time<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&beacon_chain.head()?.beacon_state.genesis_time)
 }
 
-pub fn insert_proposer_slashing<T: BeaconChainTypes>(
+pub fn proposer_slashing<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-) -> Result<(), ApiError> {
+) -> BoxFut {
+    let response_builder = ResponseBuilder::new(&req);
 
-    let proposer_index = UrlQuery::from_request(&req)?.first_of(&["proposer_index"])?.1.parse::<u64>().map_err(|e| ApiError::BadRequest(format!("Unable to parse proposer index: {:?}", e)))?;
-    let header_1 = parse_block_header(&UrlQuery::from_request(&req)?.first_of(&["header_1"])?.1)?;
-    let header_2 = parse_block_header(&UrlQuery::from_request(&req)?.first_of(&["header_2"])?.1)?;
-    let proposer_slashing = ProposerSlashing {
-        proposer_index,
-        header_1,
-        header_2,
-    };
+    let future = req
+        .into_body()
+        .concat2()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+        .and_then(|chunks| {
+            serde_json::from_slice::<ProposerSlashing>(&chunks).map_err(|e| {
+                ApiError::BadRequest(format!(
+                    "Unable to parse JSON into ProposerSlashing: {:?}",
+                    e
+                ))
+            })
+        })
+        .and_then(move |proposer_slashing| {
+            let spec = &beacon_chain.spec;
+            let state = &beacon_chain.head().unwrap().beacon_state;
+            beacon_chain
+                .op_pool
+                .insert_proposer_slashing(proposer_slashing, state, spec)
+                .map_err(|e| {
+                    ApiError::BadRequest(format!(
+                        "Error while inserting proposer slashing: {:?}",
+                        e
+                    ))
+                })
+        })
+        .and_then(|_| response_builder?.body(&true)); // SCOTT
 
-    let slot = beacon_chain.slot().map_err(|e| ApiError::ServerError(format!("Error while fetching current slot: {:?}", e)))?;
-    let state = beacon_chain.state_at_slot(slot).map_err(|e| ApiError::ServerError(format!("Unable to fetch state for current slot: {:?}", e)))?;
-    beacon_chain.op_pool.insert_proposer_slashing(proposer_slashing, &state,&beacon_chain.spec).map_err(|e| ApiError::ProcessingError(format!("Unable to insert proposer slashing: {:?}", e)))
+    Box::new(future)
 }

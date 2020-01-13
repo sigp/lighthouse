@@ -13,7 +13,8 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlock, BeaconState, ChainSpec, Domain, Epoch,
-    EthSpec, MinimalEthSpec, PublicKey, RelativeEpoch, Signature, Slot, Validator,
+    EthSpec, Hash256, MinimalEthSpec, ProposerSlashing, PublicKey, RelativeEpoch, SecretKey,
+    Signature, Slot, Validator,
 };
 use version;
 
@@ -89,10 +90,7 @@ fn validator_produce_attestation() {
         .client
         .beacon_chain()
         .expect("client should have beacon chain");
-    let state = beacon_chain
-        .head()
-        .expect("should get head")
-        .beacon_state;
+    let state = beacon_chain.head().expect("should get head").beacon_state;
 
     let validator_index = 0;
     let duties = state
@@ -813,3 +811,83 @@ fn compare_validator_response<T: EthSpec>(
 }
 
 // Add tests for slashing insertion (proposer and attesters)
+#[test]
+fn proposer_slashing() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+
+    let state = chain
+        .head()
+        .expect("should have retrieved state")
+        .beacon_state;
+    let spec = &chain.spec;
+
+    let key = SecretKey::random();
+    let fork = &state.fork;
+    let mut block_1: BeaconBlock<E> = BeaconBlock::empty(spec);
+    block_1.sign(&key, fork, spec);
+    let header_1 = block_1.block_header();
+    let mut block_2: BeaconBlock<E> = BeaconBlock::empty(spec);
+    block_2.state_root = Hash256::random();
+    block_2.sign(&key, fork, spec);
+    let header_2 = block_2.block_header();
+
+    // No proposer slashings before insertion
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(proposer_slashings.len(), 0);
+
+    let proposer_slashing = ProposerSlashing {
+        proposer_index: 0u64,
+        header_1,
+        header_2,
+    };
+
+    let result = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .beacon()
+                .proposer_slashing(proposer_slashing.clone()),
+        )
+        .expect("should fetch from http api");
+    assert!(result, true);
+
+    // Length should be just one as we've inserted only one proposer slashing
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(proposer_slashings.len(), 1);
+
+    assert_eq!(proposer_slashing, proposer_slashings[0]);
+
+    let key = SecretKey::random();
+    let fork = &state.fork;
+    let mut block_1: BeaconBlock<E> = BeaconBlock::empty(spec);
+    block_1.sign(&key, fork, spec);
+    let header_1 = block_1.block_header();
+    let block_2 = block_1;
+    let header_2 = block_2.block_header();
+
+    let proposer_slashing = ProposerSlashing {
+        proposer_index: 0u64,
+        header_1,
+        header_2,
+    };
+
+    let result = env.runtime().block_on(
+        remote_node
+            .http
+            .beacon()
+            .proposer_slashing(proposer_slashing),
+    );
+    assert!(result.is_err());
+
+    // Length should still be one as we've inserted nothing since last time.
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(proposer_slashings.len(), 1);
+}

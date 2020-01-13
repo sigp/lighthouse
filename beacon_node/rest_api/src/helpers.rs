@@ -14,7 +14,7 @@ use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
 use types::{
     Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
-    Signature, Slot, BeaconBlockHeader,
+    Signature, Slot,
 };
 
 /// Parse a slot.
@@ -113,20 +113,6 @@ pub fn parse_pubkey_bytes(string: &str) -> Result<PublicKeyBytes, ApiError> {
     }
 }
 
-pub fn parse_block_header(string: &str) -> Result<BeaconBlockHeader, ApiError> {
-    const PREFIX: &str = "0x";
-
-    Ok(BeaconBlockHeader {
-        slot: Slot::from(0u64),
-        parent_root: Hash256::random(),
-        state_root: Hash256::random(),
-        body_root: Hash256::random(),
-        signature: Signature::empty_signature(),
-    })
-}
-
-/// Parse a Proposer Slashing
-
 /// Returns the root of the `BeaconBlock` in the canonical chain of `beacon_chain` at the given
 /// `slot`, if possible.
 ///
@@ -159,7 +145,7 @@ pub fn state_at_slot<T: BeaconChainTypes>(
         // I'm not sure if this `.clone()` will be optimized out. If not, it seems unnecessary.
         Ok((
             beacon_chain.head()?.beacon_state_root,
-            beacon_chain.head()?.beacon_state.clone(),
+            beacon_chain.head()?.beacon_state,
         ))
     } else {
         let root = state_root_at_slot(beacon_chain, slot)?;
@@ -223,7 +209,7 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         //
         // Use `per_slot_processing` to advance the head state to the present slot,
         // assuming that all slots do not contain a block (i.e., they are skipped slots).
-        let mut state = beacon_chain.head()?.beacon_state.clone();
+        let mut state = beacon_chain.head()?.beacon_state;
         let spec = &T::EthSpec::default_spec();
 
         for _ in state.slot.as_u64()..slot.as_u64() {
