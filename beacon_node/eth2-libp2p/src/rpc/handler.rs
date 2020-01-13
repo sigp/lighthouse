@@ -138,7 +138,7 @@ impl<TSubstream> InboundSubstreamState<TSubstream>
 where
     TSubstream: AsyncRead + AsyncWrite,
 {
-    /// Moves the substream state to closing and informing the connected peer. The
+    /// Moves the substream state to closing and informs the connected peer. The
     /// `queued_outbound_items` must be given as a parameter to add stream termination messages to
     /// the outbound queue.
     pub fn close(&mut self, outbound_queue: &mut Vec<RPCErrorResponse>) {
