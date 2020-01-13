@@ -36,14 +36,19 @@ impl SyncNetworkContext {
         chain: Weak<BeaconChain<T>>,
         peer_id: PeerId,
     ) {
-        trace!(
-            self.log,
-            "Sending Status Request";
-            "method" => "STATUS",
-            "peer" => format!("{:?}", peer_id)
-        );
         if let Some(chain) = chain.upgrade() {
             if let Some(status_message) = status_message(&chain) {
+                debug!(
+                    self.log,
+                    "Sending Status Request";
+                    "peer" => format!("{:?}", peer_id),
+                    "fork_version" => format!("{:?}", status_message.fork_version),
+                    "finalized_root" => format!("{:?}", status_message.finalized_root),
+                    "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
+                    "head_root" => format!("{}", status_message.head_root),
+                    "head_slot" => format!("{}", status_message.head_slot),
+                );
+
                 let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message));
             }
         }
