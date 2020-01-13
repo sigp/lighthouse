@@ -82,7 +82,7 @@ impl LmdGhost for ProtoArrayForkChoice {
 
         if block_epoch > votes.get(validator_index).next_epoch {
             let vote = votes.get_mut(validator_index);
-            vote.current_root = block_root;
+            vote.next_root = block_root;
             vote.next_epoch = block_epoch;
         }
 
@@ -296,24 +296,36 @@ impl ProtoArray {
         }
 
         for node_index in (0..self.nodes.len()).rev() {
+            let node = &mut self
+                .nodes
+                .get_mut(node_index)
+                .ok_or_else(|| Error::InvalidNodeIndex(node_index))?;
+
+            // There is no need to adjust the balances or manage parent of the zero hash since it
+            // is an alias to the genesis block. The weight applied to the genesis block is
+            // irrelevant as we _always_ choose it and it's impossible for it to have a parent.
+            if node.root == Hash256::zero() {
+                continue;
+            }
+
             let node_delta = deltas
                 .get(node_index)
                 .copied()
                 .ok_or_else(|| Error::InvalidNodeDelta(node_index))?;
 
-            self.nodes
-                .get_mut(node_index)
-                .ok_or_else(|| Error::InvalidNodeIndex(node_index))?
-                .weight
-                .checked_add(node_delta as u64)
-                .ok_or_else(|| Error::DeltaOverflow(node_index))?;
+            if node_delta < 0 {
+                node.weight = node
+                    .weight
+                    .checked_sub(node_delta.abs() as u64)
+                    .ok_or_else(|| Error::DeltaOverflow(node_index))?;
+            } else {
+                node.weight = node
+                    .weight
+                    .checked_add(node_delta as u64)
+                    .ok_or_else(|| Error::DeltaOverflow(node_index))?;
+            }
 
-            if let Some(parent_index) = self
-                .nodes
-                .get(node_index)
-                .ok_or_else(|| Error::InvalidNodeIndex(node_index))?
-                .parent
-            {
+            if let Some(parent_index) = node.parent {
                 if parent_index > 0 {
                     let parent_delta = deltas
                         .get_mut(parent_index)
@@ -1188,5 +1200,191 @@ mod test_proto_array_fork_choice {
             get_hash(6),
             "should find the get_hash(6) block"
         );
+    }
+
+    #[test]
+    fn votes() {
+        const VALIDATOR_COUNT: usize = 16;
+        let balances = vec![1; VALIDATOR_COUNT];
+
+        let fork_choice = ProtoArrayForkChoice::new(Epoch::new(0), Epoch::new(0), get_hash(0))
+            .expect("should create fork choice");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            Hash256::zero(),
+            "should find genesis block as root when there is only one block"
+        );
+
+        // Add a block with a hash of 2.
+        fork_choice
+            .process_block(get_hash(2), get_hash(0), Epoch::new(0), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(2),
+            "should find head block with a single chain"
+        );
+
+        // Add a block with a hash of 1 that comes off the genesis block (this is a fork compared
+        // to the previous block).
+        fork_choice
+            .process_block(get_hash(1), get_hash(0), Epoch::new(0), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(2),
+            "should find get_hash(2), not get_hash(1) (it should compare hashes)"
+        );
+
+        fork_choice
+            .process_attestation(0, get_hash(1), Epoch::new(1))
+            .expect("should process attestation");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(1),
+            "should find the get_hash(1) because it now has a vote"
+        );
+
+        /*
+        // Add a block with a hash of 3 whos parent is hash of 1.
+        fork_choice
+            .process_block(get_hash(3), get_hash(1), Epoch::new(0), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(2),
+            "should find the get_hash(2) block"
+        );
+
+        // Add a block with a hash of 4 whos parent is hash of 2.
+        fork_choice
+            .process_block(get_hash(4), get_hash(2), Epoch::new(0), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(4),
+            "should find the get_hash(4) block"
+        );
+
+        // Add a block with a hash of 5 whos parent is hash of 4, where the justified epoch is
+        // higher than others.
+        fork_choice
+            .process_block(get_hash(5), get_hash(4), Epoch::new(1), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(4),
+            "should find the get_hash(4) block because the get_hash(5) should be filtered out"
+        );
+
+        assert!(
+            fork_choice
+                .find_head(
+                    Epoch::new(0),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .is_err(),
+            "should not allow finding head from a bad justified epoch"
+        );
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(1),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(5),
+            "should find the get_hash(5) block"
+        );
+
+        // Add a block with a hash of 6 whos parent is hash of 5.
+        fork_choice
+            .process_block(get_hash(6), get_hash(5), Epoch::new(1), Epoch::new(0))
+            .expect("should process block");
+
+        assert_eq!(
+            fork_choice
+                .find_head(
+                    Epoch::new(1),
+                    get_hash(5),
+                    Epoch::new(0),
+                    Hash256::zero(),
+                    &balances
+                )
+                .expect("should find head"),
+            get_hash(6),
+            "should find the get_hash(6) block"
+        );
+        */
     }
 }
