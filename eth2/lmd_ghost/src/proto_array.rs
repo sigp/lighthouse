@@ -22,8 +22,8 @@ pub enum Error {
     InvalidNodeDelta(usize),
     DeltaOverflow(usize),
     IndexOverflow(&'static str),
+    InvalidDeltaLen { deltas: usize, indices: usize },
     RevertedFinalizedEpoch,
-    IndexOutOfBounds,
 }
 
 #[derive(Default, PartialEq, Clone)]
@@ -102,20 +102,19 @@ impl<S: Store<E>, E: EthSpec> LmdGhost<S, E> for ProtoArrayForkChoice {
 
         let new_balances = justified_state_balances;
 
-        let score_changes = balance_change_deltas(&mut votes, &old_balances, &new_balances)
-            .map_err(|e| format!("find_head balance_change_deltas failed: {:?}", e))?
-            .into_iter()
-            .map(|(target, score_delta)| ScoreChange {
-                target,
-                score_delta,
-            })
-            .collect::<Vec<_>>();
+        let deltas = compute_deltas(
+            &proto_array.indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+        )
+        .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
 
         proto_array
             .maybe_prune(finalized_epoch, finalized_root)
             .map_err(|e| format!("find_head maybe_prune failed: {:?}", e))?;
         proto_array
-            .apply_score_changes(&score_changes, justified_epoch)
+            .apply_score_changes(deltas, justified_epoch)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
         *self.balances.write() = new_balances.to_vec();
@@ -153,12 +152,23 @@ impl<S: Store<E>, E: EthSpec> LmdGhost<S, E> for ProtoArrayForkChoice {
     }
 }
 
-fn balance_change_deltas(
+/// Returns a list of `deltas`, where there is one delta for each of the indices in
+/// `0..indices.len()`.
+///
+/// The deltas are formed by a change between `old_balances` and `new_balances`, and/or a change of vote in `votes`.
+///
+/// ## Errors
+///
+/// - If a value in `indices` is greater to or equal to `indices.len()`.
+/// - If some `Hash256` in `votes` is not a key in `indices` (except for `Hash256::zero()`, this is
+/// always valid).
+fn compute_deltas(
+    indices: &HashMap<Hash256, usize>,
     votes: &mut ElasticList<VoteTracker>,
     old_balances: &[u64],
     new_balances: &[u64],
-) -> Result<HashMap<Hash256, i64>, Error> {
-    let mut score_changes = HashMap::new();
+) -> Result<Vec<i64>, Error> {
+    let mut deltas = vec![0_i64; indices.len()];
 
     for (val_index, vote) in votes.iter_mut().enumerate() {
         // There is no need to create a score change if the validator has never voted or both their
@@ -174,23 +184,43 @@ fn balance_change_deltas(
         // If the validators vote is not known in the _new_ balances, then use a balance of zero.
         //
         // It is possible that there is a vote for an unknown validator if we change our justified
-        // state to a new state with a higher epoch that is on a different fork (that fork may have
-        // on-boarded less validators than the prior fork).
+        // state to a new state with a higher epoch that is on a different fork because that fork may have
+        // on-boarded less validators than the prior fork.
         let new_balance = new_balances.get(val_index).copied().unwrap_or_else(|| 0);
 
         if vote.current_root != vote.next_root || old_balance != new_balance {
-            *score_changes.entry(vote.current_root).or_insert(0) -= old_balance as i64;
-            *score_changes.entry(vote.next_root).or_insert(0) += new_balance as i64;
+            // If the current vote is for the zero-hash there's no need to subtract the balance
+            // from it. Additionally, the zero-hash will most likley not exist in `indices`.
+            if vote.current_root != Hash256::zero() {
+                let current_delta_index = *indices
+                    .get(&vote.current_root)
+                    .ok_or_else(|| Error::NodeUnknown(vote.current_root))?;
+
+                deltas
+                    .get_mut(current_delta_index)
+                    .ok_or_else(|| Error::InvalidNodeDelta(current_delta_index))?
+                    .checked_sub(old_balance as i64)
+                    .ok_or_else(|| Error::DeltaOverflow(current_delta_index))?;
+            }
+
+            // If the next vote is for the zero-hash there's no need to add the balance
+            // to it. Additionally, the zero-hash will most likley not exist in `indices`.
+            if vote.next_root != Hash256::zero() {
+                let next_delta_index = *indices
+                    .get(&vote.next_root)
+                    .ok_or_else(|| Error::NodeUnknown(vote.next_root))?;
+                deltas
+                    .get_mut(next_delta_index)
+                    .ok_or_else(|| Error::InvalidNodeDelta(next_delta_index))?
+                    .checked_add(new_balance as i64)
+                    .ok_or_else(|| Error::DeltaOverflow(next_delta_index))?;
+            }
+
             vote.current_root = vote.next_root;
         }
     }
 
-    Ok(score_changes)
-}
-
-pub struct ScoreChange {
-    target: Hash256,
-    score_delta: i64,
+    Ok(deltas)
 }
 
 #[derive(PartialEq)]
@@ -227,10 +257,15 @@ pub struct ProtoArray {
 impl ProtoArray {
     pub fn apply_score_changes(
         &mut self,
-        changes: &[ScoreChange],
+        mut deltas: Vec<i64>,
         justified_epoch: Epoch,
     ) -> Result<(), Error> {
-        let mut deltas = produce_deltas(&self.indices, changes, self.nodes.len())?;
+        if deltas.len() != self.indices.len() {
+            return Err(Error::InvalidDeltaLen {
+                deltas: deltas.len(),
+                indices: self.indices.len(),
+            });
+        }
 
         self.ffg_update_required = justified_epoch != self.justified_epoch;
         if self.ffg_update_required {
@@ -484,36 +519,6 @@ impl ProtoArray {
     fn node_is_viable_for_head(&self, node: &ProtoNode) -> bool {
         node.justified_epoch == self.justified_epoch && node.finalized_epoch == self.finalized_epoch
     }
-}
-
-/// Takes a list of `ScoreChange`, returning a list of deltas.
-///
-/// The returned list has the length of `num_nodes`. Each `ScoreChanged` is mapped to a position in
-/// the returned list according to a lookup in `indices`.
-///
-/// ## Errors
-///
-/// It is an error to have a value in `indices` that is greater than or equal to `num_nodes`.
-fn produce_deltas(
-    indices: &HashMap<Hash256, usize>,
-    changes: &[ScoreChange],
-    num_nodes: usize,
-) -> Result<Vec<i64>, Error> {
-    let mut deltas: Vec<i64> = vec![0; num_nodes];
-
-    // Update `deltas` with the value of each `ScoreChange`.
-    changes.iter().try_for_each(|c| {
-        let i = indices
-            .get(&c.target)
-            .ok_or_else(|| Error::NodeUnknown(c.target))?;
-
-        let v = deltas.get_mut(*i).ok_or_else(|| Error::IndexOutOfBounds)?;
-        *v = v.saturating_add(c.score_delta);
-
-        Ok(())
-    })?;
-
-    Ok(deltas)
 }
 
 /// A Vec-wrapper which will grow to match any request.
