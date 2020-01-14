@@ -1,7 +1,7 @@
 [package]
-name = "lmd_ghost"
+name = "proto_array_fork_choice"
 version = "0.1.0"
-authors = ["Age Manning <Age@AgeManning.com>", "Paul Hauner <paul@sigmaprime.io>"]
+authors = ["Paul Hauner <paul@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
