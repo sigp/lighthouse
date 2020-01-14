@@ -1,5 +1,5 @@
 use crate::chunked_vector::ChunkError;
-use crate::hot_cold_store::HotColdDbError;
+use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use types::BeaconStateError;
 
@@ -9,7 +9,7 @@ pub enum Error {
     VectorChunkError(ChunkError),
     BeaconStateError(BeaconStateError),
     PartialBeaconStateError,
-    HotColdDbError(HotColdDbError),
+    HotColdDBError(HotColdDBError),
     DBError { message: String },
 }
 
@@ -25,9 +25,9 @@ impl From<ChunkError> for Error {
     }
 }
 
-impl From<HotColdDbError> for Error {
-    fn from(e: HotColdDbError) -> Error {
-        Error::HotColdDbError(e)
+impl From<HotColdDBError> for Error {
+    fn from(e: HotColdDBError) -> Error {
+        Error::HotColdDBError(e)
     }
 }
 

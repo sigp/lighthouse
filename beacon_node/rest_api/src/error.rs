@@ -60,6 +60,12 @@ impl From<types::BeaconStateError> for ApiError {
     }
 }
 
+impl From<beacon_chain::BeaconChainError> for ApiError {
+    fn from(e: beacon_chain::BeaconChainError) -> ApiError {
+        ApiError::ServerError(format!("BeaconChainError error: {:?}", e))
+    }
+}
+
 impl From<state_processing::per_slot_processing::Error> for ApiError {
     fn from(e: state_processing::per_slot_processing::Error) -> ApiError {
         ApiError::ServerError(format!("PerSlotProcessing error: {:?}", e))

@@ -94,8 +94,16 @@ impl JustificationManager {
     ) -> Result<()> {
         let new_checkpoint = &state.current_justified_checkpoint;
 
-        // Only proceeed if the new checkpoint is better than our best checkpoint.
-        if new_checkpoint.epoch > self.best_justified_checkpoint.epoch {
+        // TODO: add check about block.slot <= justified epoch start slot.
+
+        // Only proceeed if the new checkpoint is better than our current checkpoint.
+        if new_checkpoint.epoch > self.justified_checkpoint.epoch {
+            let new_checkpoint_balances = CheckpointBalances {
+                epoch: state.current_justified_checkpoint.epoch,
+                root: state.current_justified_checkpoint.root,
+                balances: state.balances.clone().into(),
+            };
+
             // From the given state, read the block root at first slot of
             // `self.justified_checkpoint.epoch`. If that root matches, then
             // `new_justified_checkpoint` is a descendant of `self.justified_checkpoint` and we may
@@ -109,12 +117,15 @@ impl JustificationManager {
                     .start_slot(T::EthSpec::slots_per_epoch()),
             )?;
 
+            // If the new justified checkpoint is an ancestor of the current justified checkpoint,
+            // it is always safe to change it.
             if new_checkpoint_ancestor == Some(self.justified_checkpoint.root) {
-                self.best_justified_checkpoint = CheckpointBalances {
-                    epoch: state.current_justified_checkpoint.epoch,
-                    root: state.current_justified_checkpoint.root,
-                    balances: state.balances.clone().into(),
-                };
+                self.justified_checkpoint = new_checkpoint_balances.clone()
+            }
+
+            if new_checkpoint.epoch > self.best_justified_checkpoint.epoch {
+                // Always update the best checkpoint, if it's better.
+                self.best_justified_checkpoint = new_checkpoint_balances;
             }
         }
 
@@ -201,6 +212,14 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     pub fn find_head(&self, chain: &BeaconChain<T>) -> Result<Hash256> {
         let timer = metrics::start_timer(&metrics::FORK_CHOICE_FIND_HEAD_TIMES);
 
+        let remove_alias = |root| {
+            if root == Hash256::zero() {
+                self.genesis_block_root
+            } else {
+                root
+            }
+        };
+
         self.justification_manager.write().update(chain)?;
 
         let justified_checkpoint = self
@@ -214,9 +233,9 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             .backend
             .find_head(
                 justified_checkpoint.epoch,
-                justified_checkpoint.root,
+                remove_alias(justified_checkpoint.root),
                 finalized_checkpoint.epoch,
-                finalized_checkpoint.root,
+                remove_alias(finalized_checkpoint.root),
                 &justified_checkpoint.balances,
             )
             .map_err(Into::into);
@@ -243,6 +262,12 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             .write()
             .process_state(state, chain)?;
         self.justification_manager.write().update(chain)?;
+
+        // TODO: be more stringent about changing the finalized checkpoint (i.e., check for
+        // reversion and stuff).
+        if state.finalized_checkpoint.epoch > self.finalized_checkpoint.read().epoch {
+            *self.finalized_checkpoint.write() = state.finalized_checkpoint.clone();
+        }
 
         // Note: we never count the block as a latest message, only attestations.
         for attestation in &block.body.attestations {
@@ -332,12 +357,19 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         finalized_block: &BeaconBlock<T::EthSpec>,
         finalized_block_root: Hash256,
     ) -> Result<()> {
-        self.backend
-            .update_finalized_root(
-                finalized_block.slot.epoch(T::EthSpec::slots_per_epoch()),
-                finalized_block_root,
-            )
-            .map_err(Into::into)
+        // Only prune if it won't remove our current justified epoch.
+        if self.justification_manager.read().justified_checkpoint.epoch
+            >= finalized_block.slot.epoch(T::EthSpec::slots_per_epoch())
+        {
+            self.backend
+                .update_finalized_root(
+                    finalized_block.slot.epoch(T::EthSpec::slots_per_epoch()),
+                    finalized_block_root,
+                )
+                .map_err(Into::into)
+        } else {
+            Ok(())
+        }
     }
 
     /// Returns a `SszForkChoice` which contains the current state of `Self`.

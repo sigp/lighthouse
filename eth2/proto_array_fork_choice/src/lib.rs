@@ -25,9 +25,17 @@ pub enum Error {
     InvalidNodeDelta(usize),
     DeltaOverflow(usize),
     IndexOverflow(&'static str),
-    InvalidDeltaLen { deltas: usize, indices: usize },
+    InvalidDeltaLen {
+        deltas: usize,
+        indices: usize,
+    },
     RevertedFinalizedEpoch,
-    InvalidFindHeadStartRoot,
+    InvalidFindHeadStartRoot {
+        justified_epoch: Epoch,
+        finalized_epoch: Epoch,
+        node_justified_epoch: Epoch,
+        node_finalized_epoch: Epoch,
+    },
 }
 
 #[derive(Default, PartialEq, Clone, Encode, Decode)]
@@ -159,10 +167,6 @@ impl ProtoArrayForkChoice {
 
         let new_balances = justified_state_balances;
 
-        proto_array
-            .maybe_prune(finalized_epoch, finalized_root)
-            .map_err(|e| format!("find_head maybe_prune failed: {:?}", e))?;
-
         let deltas = compute_deltas(
             &proto_array.indices,
             &mut votes,
@@ -172,7 +176,7 @@ impl ProtoArrayForkChoice {
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
 
         proto_array
-            .apply_score_changes(deltas, justified_epoch)
+            .apply_score_changes(deltas, justified_epoch, finalized_epoch)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
         *old_balances = new_balances.to_vec();

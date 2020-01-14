@@ -133,8 +133,8 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         let spec = &E::default_spec();
 
         let mut result = (|| {
-            // Processing requires the epoch cache.
-            state.build_all_caches(spec)?;
+            // Processing requires the committee caches.
+            state.build_all_committee_caches(spec)?;
 
             T::run(&mut state, spec).map(|_| state)
         })();

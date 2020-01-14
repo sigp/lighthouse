@@ -1,5 +1,4 @@
 use clap::{App, Arg, SubCommand};
-use store::StoreConfig;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -189,21 +188,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("HTTP-ENDPOINT")
                 .help("Specifies the server for a web3 connection to the Eth1 chain.")
                 .takes_value(true)
-                .default_value("https://goerli.public.sigp.io")
+                .default_value("http://127.0.0.1:8545")
         )
         .arg(
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
                 .help("Specifies how often a freezer DB restore point should be stored. \
-                       DO NOT CHANGE AFTER INITIALIZATION.")
+                       DO NOT DECREASE AFTER INITIALIZATION. [default: 2048 (mainnet) or 64 (minimal)]")
                 .takes_value(true)
-                .default_value(
-                    Box::leak(
-                        format!("{}", StoreConfig::default().slots_per_restore_point)
-                            .into_boxed_str()
-                    )
-                )
         )
         /*
          * The "testnet" sub-command.

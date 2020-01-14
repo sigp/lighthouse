@@ -61,6 +61,7 @@ impl ProtoArray {
         &mut self,
         mut deltas: Vec<i64>,
         justified_epoch: Epoch,
+        finalized_epoch: Epoch,
     ) -> Result<(), Error> {
         if deltas.len() != self.indices.len() {
             return Err(Error::InvalidDeltaLen {
@@ -73,9 +74,11 @@ impl ProtoArray {
         // finalized/justified epoch of all nodes against the epochs in `self`.
         //
         // This behaviour is equivalent to the `filter_block_tree` function in the spec.
-        self.ffg_update_required = justified_epoch != self.justified_epoch;
+        self.ffg_update_required =
+            justified_epoch != self.justified_epoch || finalized_epoch != self.finalized_epoch;
         if self.ffg_update_required {
             self.justified_epoch = justified_epoch;
+            self.finalized_epoch = finalized_epoch;
         }
 
         // Iterate backwards through all indices in `self.nodes`.
@@ -238,7 +241,7 @@ impl ProtoArray {
 
         // If the blocks justified and finalized epochs match our values, then try and see if it
         // becomes the best child.
-        if justified_epoch == self.justified_epoch && finalized_epoch == self.finalized_epoch {
+        if self.node_is_viable_for_head(&node) {
             if let Some(parent_index) = node.parent {
                 let parent = self
                     .nodes
@@ -285,10 +288,13 @@ impl ProtoArray {
 
         // It is a logic error to try and find the head starting from a block that does not match
         // the filter.
-        if justified_node.justified_epoch != self.justified_epoch
-            || justified_node.finalized_epoch != self.finalized_epoch
-        {
-            return Err(Error::InvalidFindHeadStartRoot);
+        if !self.node_is_viable_for_head(&justified_node) {
+            return Err(Error::InvalidFindHeadStartRoot {
+                justified_epoch: self.justified_epoch,
+                finalized_epoch: self.finalized_epoch,
+                node_justified_epoch: justified_node.justified_epoch,
+                node_finalized_epoch: justified_node.finalized_epoch,
+            });
         }
 
         let best_descendant_index = justified_node
@@ -422,6 +428,8 @@ impl ProtoArray {
     /// Any node that has a different finalized or justified epoch should not be viable for the
     /// head.
     fn node_is_viable_for_head(&self, node: &ProtoNode) -> bool {
-        node.justified_epoch == self.justified_epoch && node.finalized_epoch == self.finalized_epoch
+        (node.justified_epoch == self.justified_epoch || self.justified_epoch == Epoch::new(0))
+            && (node.finalized_epoch == self.finalized_epoch
+                || self.finalized_epoch == Epoch::new(0))
     }
 }

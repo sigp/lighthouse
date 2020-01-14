@@ -61,41 +61,65 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         self.metadata.bls_setting.unwrap_or_default().check()?;
 
-        let mut state = self.pre.clone();
+        let mut bulk_state = self.pre.clone();
         let mut expected = self.post.clone();
         let spec = &E::default_spec();
 
         // Processing requires the epoch cache.
-        state.build_all_caches(spec).unwrap();
+        bulk_state.build_all_caches(spec).unwrap();
 
-        let mut result = self
+        // Spawning a second state to call the VerifyIndiviual strategy to avoid bitrot.
+        // See https://github.com/sigp/lighthouse/issues/742.
+        let mut indiv_state = bulk_state.clone();
+
+        let result = self
             .blocks
             .iter()
             .try_for_each(|block| {
-                while state.slot < block.slot {
-                    per_slot_processing(&mut state, None, spec).unwrap();
+                while bulk_state.slot < block.slot {
+                    per_slot_processing(&mut bulk_state, None, spec).unwrap();
+                    per_slot_processing(&mut indiv_state, None, spec).unwrap();
                 }
 
-                state
+                bulk_state
+                    .build_committee_cache(RelativeEpoch::Current, spec)
+                    .unwrap();
+
+                indiv_state
                     .build_committee_cache(RelativeEpoch::Current, spec)
                     .unwrap();
 
                 per_block_processing(
-                    &mut state,
+                    &mut indiv_state,
+                    block,
+                    None,
+                    BlockSignatureStrategy::VerifyIndividual,
+                    spec,
+                )?;
+
+                per_block_processing(
+                    &mut bulk_state,
                     block,
                     None,
                     BlockSignatureStrategy::VerifyBulk,
                     spec,
                 )?;
 
-                if block.state_root == state.canonical_root() {
+                if block.state_root == bulk_state.canonical_root()
+                    && block.state_root == indiv_state.canonical_root()
+                {
                     Ok(())
                 } else {
                     Err(BlockProcessingError::StateRootMismatch)
                 }
             })
-            .map(|_| state);
+            .map(|_| (bulk_state, indiv_state));
 
-        compare_beacon_state_results_without_caches(&mut result, &mut expected)
+        let (mut bulk_result, mut indiv_result) = match result {
+            Err(e) => (Err(e.clone()), Err(e)),
+            Ok(res) => (Ok(res.0), Ok(res.1)),
+        };
+        compare_beacon_state_results_without_caches(&mut indiv_result, &mut expected)?;
+        compare_beacon_state_results_without_caches(&mut bulk_result, &mut expected)
     }
 }
