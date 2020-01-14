@@ -105,6 +105,9 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::POST, "/beacon/proposer_slashing") => {
                 into_boxfut(beacon::proposer_slashing::<T>(req, beacon_chain))
             }
+            (&Method::POST, "/beacon/attester_slashing") => {
+                into_boxfut(beacon::attester_slashing::<T>(req, beacon_chain))
+            }
 
             // Methods for Validator
             (&Method::POST, "/validator/duties") => {

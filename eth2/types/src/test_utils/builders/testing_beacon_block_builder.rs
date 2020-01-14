@@ -390,7 +390,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
 /// Builds an `ProposerSlashing` for some `validator_index`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
-fn build_proposer_slashing<T: EthSpec>(
+pub fn build_proposer_slashing<T: EthSpec>(
     test_task: ProposerSlashingTestTask,
     validator_index: u64,
     secret_key: &SecretKey,
@@ -408,7 +408,7 @@ fn build_proposer_slashing<T: EthSpec>(
 /// Builds an `AttesterSlashing` for some `validator_indices`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
-fn build_double_vote_attester_slashing<T: EthSpec>(
+pub fn build_double_vote_attester_slashing<T: EthSpec>(
     test_task: AttesterSlashingTestTask,
     validator_indices: &[u64],
     secret_keys: &[&SecretKey],

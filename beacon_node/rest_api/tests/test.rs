@@ -12,9 +12,14 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconBlock, BeaconState, ChainSpec, Domain, Epoch,
-    EthSpec, Hash256, MinimalEthSpec, ProposerSlashing, PublicKey, RelativeEpoch, SecretKey,
-    Signature, Slot, Validator,
+    test_utils::{
+        build_double_vote_attester_slashing, generate_deterministic_keypair,
+        AttesterSlashingTestTask,
+    },
+    AggregateSignature, AttestationData, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec,
+    Checkpoint, Domain, Epoch, EthSpec, Hash256, IndexedAttestation, MinimalEthSpec,
+    ProposerSlashing, PublicKey, RelativeEpoch, SecretKey, Signature, Slot, Validator,
+    VariableList,
 };
 use version;
 
@@ -890,4 +895,97 @@ fn proposer_slashing() {
     // Length should still be one as we've inserted nothing since last time.
     let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
     assert_eq!(proposer_slashings.len(), 1);
+}
+
+#[test]
+fn attester_slashing() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+
+    let state = chain
+        .head()
+        .expect("should have retrieved state")
+        .beacon_state;
+    let slot = state.slot;
+    let spec = &chain.spec;
+
+    let proposer_index = chain
+        .block_proposer(slot)
+        .expect("should get proposer index");
+    let keypair = generate_deterministic_keypair(proposer_index);
+
+    let secret_keys = vec![&keypair.sk];
+    let validator_indices = vec![proposer_index as u64];
+    let fork = &state.fork;
+
+    // Checking there are no attester slashing before insertion
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(attester_slashings.len(), 0);
+
+    let attester_slashing = build_double_vote_attester_slashing(
+        AttesterSlashingTestTask::Valid,
+        &validator_indices[..],
+        &secret_keys[..],
+        fork,
+        spec,
+    );
+
+    let result = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .beacon()
+                .attester_slashing(attester_slashing.clone()),
+        )
+        .expect("should fetch from http api");
+    assert!(result, true);
+
+    // Length should be just one as we've inserted only one attester slashing
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(attester_slashings.len(), 1);
+    assert_eq!(attester_slashing, attester_slashings[0]);
+
+    let indexed_attest_1 = IndexedAttestation {
+        attesting_indices: VariableList::new(vec![]).expect("should have created variable list"),
+        data: AttestationData {
+            slot: Slot::from(0u64),
+            index: 0,
+            beacon_block_root: Hash256::random(),
+            source: Checkpoint {
+                epoch: Epoch::from(0u64),
+                root: Hash256::random(),
+            },
+            target: Checkpoint {
+                epoch: Epoch::from(1u64),
+                root: Hash256::random(),
+            },
+        },
+        signature: AggregateSignature::new(),
+    };
+    let indexed_attest_2 = indexed_attest_1.clone();
+
+    let attester_slashing = AttesterSlashing {
+        attestation_1: indexed_attest_1,
+        attestation_2: indexed_attest_2,
+    };
+
+    let result = env.runtime().block_on(
+        remote_node
+            .http
+            .beacon()
+            .attester_slashing(attester_slashing.clone()),
+    );
+    assert!(result.is_err());
+
+    // Length should still be one as we've failed to insert the attester slashing.
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(attester_slashings.len(), 1);
+    assert_eq!(attester_slashing, attester_slashings[0]);
 }
