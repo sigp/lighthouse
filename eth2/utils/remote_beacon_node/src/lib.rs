@@ -14,8 +14,8 @@ use ssz::Encode;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork, Hash256,
-    ProposerSlashing, PublicKey, Signature, Slot,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork,
+    Hash256, ProposerSlashing, PublicKey, Signature, Slot,
 };
 use url::Url;
 
