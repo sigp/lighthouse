@@ -1,0 +1,81 @@
+use super::errors::ApiError;
+use super::errors::BoxFut;
+use super::status;
+use super::validator;
+use crate::ProductionValidatorClient;
+use futures::{Future, IntoFuture};
+use hyper::{Body, Error, Method, Request, Response};
+use slog::debug;
+use std::sync::Arc;
+use types::EthSpec;
+
+fn into_boxfut<F: IntoFuture + 'static>(item: F) -> BoxFut
+where
+    F: IntoFuture<Item = Response<Body>, Error = ApiError>,
+    F::Future: Send,
+{
+    Box::new(item.into_future())
+}
+
+pub fn route<T: EthSpec>(
+    req: Request<Body>,
+    validator_client: Arc<ProductionValidatorClient<T>>,
+    local_log: slog::Logger,
+) -> impl Future<Item = Response<Body>, Error = Error> {
+    let path = req.uri().path().to_string();
+
+    let log = local_log.clone();
+    let request_result: Box<dyn Future<Item = Response<_>, Error = _> + Send> =
+        match (req.method(), path.as_ref()) {
+            // Methods for Validator
+            (&Method::GET, "/validators/") => {
+                debug!(log, "Hello there");
+                into_boxfut(validator::get_validators::<T>(req, validator_client))
+            }
+            (&Method::POST, "/validators/add") => {
+                into_boxfut(validator::add_new_validator::<T>(req, validator_client))
+            }
+            (&Method::POST, "/validators/remove") => {
+                into_boxfut(validator::remove_validator::<T>(req, validator_client))
+            }
+            (&Method::POST, "/validators/start") => {
+                into_boxfut(validator::start_validator::<T>(req, validator_client))
+            }
+            (&Method::POST, "/validator/stop") => {
+                into_boxfut(validator::stop_validator::<T>(req, validator_client))
+            }
+            (&Method::POST, "/validators/exit") => {
+                into_boxfut(validator::exit_validator::<T>(req, validator_client))
+            }
+            (&Method::POST, "/validator/withdraw") => {
+                into_boxfut(validator::withdraw_validator::<T>(req, validator_client))
+            }
+
+            // Methods for beacon node status
+            (&Method::GET, "/status/beacon_node") => {
+                into_boxfut(status::beacon_node_status::<T>(req, validator_client))
+            }
+
+            _ => Box::new(futures::future::err(ApiError::NotFound(
+                "Request path and/or method not found.".to_owned(),
+            ))),
+        };
+
+    // Map the Rust-friendly `Result` in to a http-friendly response. In effect, this ensures that
+    // any `Err` returned from our response handlers becomes a valid http response to the client
+    // (e.g., a response with a 404 or 500 status).
+    request_result.then(move |result| match result {
+        Ok(response) => {
+            debug!(local_log, "HTTP API request successful"; "path" => path);
+
+            Ok(response)
+        }
+        Err(e) => {
+            let error_response = e.into();
+
+            debug!(local_log, "HTTP API request failure"; "path" => path);
+
+            Ok(error_response)
+        }
+    })
+}

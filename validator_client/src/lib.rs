@@ -5,6 +5,7 @@ mod config;
 mod duties_service;
 mod fork_service;
 mod notifier;
+mod rest_api;
 mod validator_store;
 
 pub mod validator_directory;
