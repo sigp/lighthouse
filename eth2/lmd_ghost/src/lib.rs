@@ -156,6 +156,10 @@ impl ProtoArrayForkChoice {
 
         let new_balances = justified_state_balances;
 
+        proto_array
+            .maybe_prune(finalized_epoch, finalized_root)
+            .map_err(|e| format!("find_head maybe_prune failed: {:?}", e))?;
+
         let deltas = compute_deltas(
             &proto_array.indices,
             &mut votes,
@@ -164,9 +168,6 @@ impl ProtoArrayForkChoice {
         )
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
 
-        proto_array
-            .maybe_prune(finalized_epoch, finalized_root)
-            .map_err(|e| format!("find_head maybe_prune failed: {:?}", e))?;
         proto_array
             .apply_score_changes(deltas, justified_epoch)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
@@ -187,6 +188,14 @@ impl ProtoArrayForkChoice {
             .write()
             .maybe_prune(finalized_epoch, finalized_root)
             .map_err(|e| format!("find_head maybe_prune failed: {:?}", e))
+    }
+
+    pub fn set_prune_threshold(&self, prune_threshold: usize) {
+        self.proto_array.write().prune_threshold = prune_threshold;
+    }
+
+    pub fn len(&self) -> usize {
+        self.proto_array.read().nodes.len()
     }
 
     fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {

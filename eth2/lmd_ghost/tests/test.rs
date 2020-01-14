@@ -8,19 +8,6 @@ fn get_hash(i: u64) -> Hash256 {
 
 /// This tests does not use any validator votes, it just relies on hash-sorting to find the
 /// head.
-///
-/// The following block graph is built and tested as each block is added (each block has the
-/// hash set to the big-endian representation of its number shown here):
-///
-///      0
-///     / \
-///     2  1
-///     |  |
-///     4  3
-///     |
-///     5 <--- justified epoch becomes 1 here, all above are 0.
-///     |
-///     6
 #[test]
 fn no_votes() {
     const VALIDATOR_COUNT: usize = 16;
@@ -284,6 +271,7 @@ fn no_votes() {
     );
 }
 
+/// This test uses validator votes and tests weight assignment.
 #[test]
 fn votes() {
     const VALIDATOR_COUNT: usize = 2;
@@ -564,7 +552,7 @@ fn votes() {
     //           /
     //          5 <- justified epoch = 1
     fork_choice
-        .process_block(get_hash(5), get_hash(4), Epoch::new(1), Epoch::new(0))
+        .process_block(get_hash(5), get_hash(4), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Ensure that 5 is filtered out and the head stays at 4.
@@ -644,13 +632,13 @@ fn votes() {
     //         /
     //         9
     fork_choice
-        .process_block(get_hash(7), get_hash(5), Epoch::new(1), Epoch::new(0))
+        .process_block(get_hash(7), get_hash(5), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
     fork_choice
-        .process_block(get_hash(8), get_hash(7), Epoch::new(1), Epoch::new(0))
+        .process_block(get_hash(8), get_hash(7), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
     fork_choice
-        .process_block(get_hash(9), get_hash(8), Epoch::new(1), Epoch::new(0))
+        .process_block(get_hash(9), get_hash(8), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Ensure that 6 is the head, even though 5 has all the votes. This is testing to ensure
@@ -710,8 +698,8 @@ fn votes() {
             .find_head(
                 Epoch::new(1),
                 get_hash(5),
-                Epoch::new(0),
-                Hash256::zero(),
+                Epoch::new(1),
+                get_hash(5),
                 &balances
             )
             .expect("should find head"),
@@ -764,7 +752,7 @@ fn votes() {
     //         / \
     //        9  10
     fork_choice
-        .process_block(get_hash(10), get_hash(8), Epoch::new(1), Epoch::new(0))
+        .process_block(get_hash(10), get_hash(8), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Double-check the head is still 9 (no diagram this time)
@@ -773,8 +761,8 @@ fn votes() {
             .find_head(
                 Epoch::new(1),
                 get_hash(5),
-                Epoch::new(0),
-                Hash256::zero(),
+                Epoch::new(1),
+                get_hash(5),
                 &balances
             )
             .expect("should find head"),
@@ -831,8 +819,8 @@ fn votes() {
             .find_head(
                 Epoch::new(1),
                 get_hash(5),
-                Epoch::new(0),
-                Hash256::zero(),
+                Epoch::new(1),
+                get_hash(5),
                 &balances
             )
             .expect("should find head"),
@@ -857,8 +845,8 @@ fn votes() {
             .find_head(
                 Epoch::new(1),
                 get_hash(5),
-                Epoch::new(0),
-                Hash256::zero(),
+                Epoch::new(1),
+                get_hash(5),
                 &balances
             )
             .expect("should find head"),
@@ -883,8 +871,8 @@ fn votes() {
             .find_head(
                 Epoch::new(1),
                 get_hash(5),
-                Epoch::new(0),
-                Hash256::zero(),
+                Epoch::new(1),
+                get_hash(5),
                 &balances
             )
             .expect("should find head"),
@@ -897,6 +885,7 @@ fn votes() {
 
     // Check the head is 9 again.
     //
+    //  (prior blocks ommitted)
     //          .
     //          .
     //          .
@@ -909,12 +898,111 @@ fn votes() {
             .find_head(
                 Epoch::new(1),
                 get_hash(5),
-                Epoch::new(0),
-                Hash256::zero(),
+                Epoch::new(1),
+                get_hash(5),
                 &balances
             )
             .expect("should find head"),
         get_hash(9),
         "should find get_hash(9)"
+    );
+
+    // Set pruning to an unreachable value.
+    fork_choice.set_prune_threshold(usize::max_value());
+
+    // Run find-head to trigger a prune.
+    assert_eq!(
+        fork_choice
+            .find_head(
+                Epoch::new(1),
+                get_hash(5),
+                Epoch::new(1),
+                get_hash(5),
+                &balances
+            )
+            .expect("should find head"),
+        get_hash(9),
+        "should find get_hash(9)"
+    );
+
+    // Ensure that no pruning happened.
+    assert_eq!(fork_choice.len(), 11, "there should be 11 blocks");
+
+    // Set pruning to a value that will result in a prune.
+    fork_choice.set_prune_threshold(1);
+
+    // Run find-head to trigger a prune.
+    //
+    //
+    //          0
+    //         / \
+    //        2   1
+    //            |
+    //            3
+    //            |
+    //            4
+    // -------pruned here ------
+    //          5   6
+    //          |
+    //          7
+    //          |
+    //          8
+    //         / \
+    // head-> 9  10
+    assert_eq!(
+        fork_choice
+            .find_head(
+                Epoch::new(1),
+                get_hash(5),
+                Epoch::new(1),
+                get_hash(5),
+                &balances
+            )
+            .expect("should find head"),
+        get_hash(9),
+        "should find get_hash(9)"
+    );
+
+    // Ensure that pruning happened.
+    assert_eq!(fork_choice.len(), 6, "there should be 6 blocks");
+
+    // Add block 11
+    //
+    //          5   6
+    //          |
+    //          7
+    //          |
+    //          8
+    //         / \
+    //        9  10
+    //        |
+    //        11
+    fork_choice
+        .process_block(get_hash(11), get_hash(9), Epoch::new(1), Epoch::new(1))
+        .expect("should process block");
+
+    // Ensure the head is now 11
+    //
+    //          5   6
+    //          |
+    //          7
+    //          |
+    //          8
+    //         / \
+    //        9  10
+    //        |
+    // head-> 11
+    assert_eq!(
+        fork_choice
+            .find_head(
+                Epoch::new(1),
+                get_hash(5),
+                Epoch::new(1),
+                get_hash(5),
+                &balances
+            )
+            .expect("should find head"),
+        get_hash(11),
+        "should find get_hash(11)"
     );
 }
