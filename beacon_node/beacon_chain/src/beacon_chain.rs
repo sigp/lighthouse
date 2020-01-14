@@ -7,7 +7,6 @@ use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
-use lmd_ghost::LmdGhost;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{debug, error, info, trace, warn, Logger};
@@ -109,7 +108,6 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type Store: store::Store<Self::EthSpec>;
     type StoreMigrator: store::Migrate<Self::Store, Self::EthSpec>;
     type SlotClock: slot_clock::SlotClock;
-    type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;
     type Eth1Chain: Eth1ChainBackend<Self::EthSpec>;
     type EthSpec: types::EthSpec;
     type EventHandler: EventHandler<Self::EthSpec>;
@@ -1033,7 +1031,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     error!(
                         self.log,
                         "Add attestation to fork choice failed";
-                        "fork_choice_integrity" => format!("{:?}", self.fork_choice.verify_integrity()),
                         "beacon_block_root" =>  format!("{}", attestation.data.beacon_block_root),
                         "error" => format!("{:?}", e)
                     );
@@ -1366,7 +1363,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             error!(
                 self.log,
                 "Add block to fork choice failed";
-                "fork_choice_integrity" => format!("{:?}", self.fork_choice.verify_integrity()),
                 "block_root" =>  format!("{}", block_root),
                 "error" => format!("{:?}", e),
             )

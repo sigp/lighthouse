@@ -201,6 +201,10 @@ impl ProtoArrayForkChoice {
         self.proto_array.read().nodes.len()
     }
 
+    pub fn contains_block(&self, block_root: &Hash256) -> bool {
+        self.proto_array.read().indices.contains_key(block_root)
+    }
+
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
         let votes = self.votes.read();
 

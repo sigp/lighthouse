@@ -8,9 +8,9 @@ use crate::{
     ForkChoice,
 };
 use eth1::Config as Eth1Config;
-use lmd_ghost::{LmdGhost, ThreadSafeReducedTree};
 use operation_pool::OperationPool;
 use parking_lot::RwLock;
+use proto_array_fork_choice::ProtoArrayForkChoice;
 use slog::{info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
@@ -21,42 +21,23 @@ use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
-pub struct Witness<
-    TStore,
-    TStoreMigrator,
-    TSlotClock,
-    TLmdGhost,
-    TEth1Backend,
-    TEthSpec,
-    TEventHandler,
->(
+pub struct Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>(
     PhantomData<(
         TStore,
         TStoreMigrator,
         TSlotClock,
-        TLmdGhost,
         TEth1Backend,
         TEthSpec,
         TEventHandler,
     )>,
 );
 
-impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
-    BeaconChainTypes
-    for Witness<
-        TStore,
-        TStoreMigrator,
-        TSlotClock,
-        TLmdGhost,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-    >
+impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler> BeaconChainTypes
+    for Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
 where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -64,7 +45,6 @@ where
     type Store = TStore;
     type StoreMigrator = TStoreMigrator;
     type SlotClock = TSlotClock;
-    type LmdGhost = TLmdGhost;
     type Eth1Chain = TEth1Backend;
     type EthSpec = TEthSpec;
     type EventHandler = TEventHandler;
@@ -96,23 +76,14 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     log: Option<Logger>,
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     BeaconChainBuilder<
-        Witness<
-            TStore,
-            TStoreMigrator,
-            TSlotClock,
-            TLmdGhost,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-        >,
+        Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
     >
 where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -192,15 +163,7 @@ where
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
         let p: PersistedBeaconChain<
-            Witness<
-                TStore,
-                TStoreMigrator,
-                TSlotClock,
-                TLmdGhost,
-                TEth1Backend,
-                TEthSpec,
-                TEventHandler,
-            >,
+            Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
         > = match store.get(&key) {
             Err(e) => {
                 return Err(format!(
@@ -315,15 +278,7 @@ where
         self,
     ) -> Result<
         BeaconChain<
-            Witness<
-                TStore,
-                TStoreMigrator,
-                TSlotClock,
-                TLmdGhost,
-                TEth1Backend,
-                TEthSpec,
-                TEventHandler,
-            >,
+            Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
         >,
         String,
     > {
@@ -393,15 +348,7 @@ where
 
 impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     BeaconChainBuilder<
-        Witness<
-            TStore,
-            TStoreMigrator,
-            TSlotClock,
-            ThreadSafeReducedTree<TStore, TEthSpec>,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-        >,
+        Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
     >
 where
     TStore: Store<TEthSpec> + 'static,
@@ -416,17 +363,9 @@ where
     /// If this builder is being "resumed" from disk, then rebuild the last fork choice stored to
     /// the database. Otherwise, create a new, empty fork choice.
     pub fn reduced_tree_fork_choice(mut self) -> Result<Self, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "reduced_tree_fork_choice requires a store")?;
-
         let fork_choice = if let Some(persisted_beacon_chain) = &self.persisted_beacon_chain {
-            ForkChoice::from_ssz_container(
-                persisted_beacon_chain.fork_choice.clone(),
-                store.clone(),
-            )
-            .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
+            ForkChoice::from_ssz_container(persisted_beacon_chain.fork_choice.clone())
+                .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
         } else {
             let finalized_checkpoint = &self
                 .finalized_checkpoint
@@ -436,13 +375,21 @@ where
                 .genesis_block_root
                 .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
 
-            let backend = ThreadSafeReducedTree::new(
-                store.clone(),
-                &finalized_checkpoint.beacon_block,
+            let backend = ProtoArrayForkChoice::new(
+                // Note: here we set the `justified_epoch` to be the same as the epoch of the
+                // finalized checkpoint. Whilst this finalized checkpoint may actually point to
+                // a _later_ justified checkpoint, that checkpoint won't yet exist in the fork
+                // choice.
+                finalized_checkpoint.beacon_state.current_epoch(),
+                finalized_checkpoint.beacon_state.current_epoch(),
                 finalized_checkpoint.beacon_block_root,
-            );
+            )?;
 
-            ForkChoice::new(store, backend, genesis_block_root, self.spec.genesis_slot)
+            ForkChoice::new(
+                backend,
+                genesis_block_root,
+                &finalized_checkpoint.beacon_state,
+            )
         };
 
         self.fork_choice = Some(fork_choice);
@@ -451,13 +398,12 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler>
     BeaconChainBuilder<
         Witness<
             TStore,
             TStoreMigrator,
             TSlotClock,
-            TLmdGhost,
             CachingEth1Backend<TEthSpec, TStore>,
             TEthSpec,
             TEventHandler,
@@ -467,7 +413,6 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -503,22 +448,13 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler>
     BeaconChainBuilder<
-        Witness<
-            TStore,
-            TStoreMigrator,
-            TestingSlotClock,
-            TLmdGhost,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-        >,
+        Witness<TStore, TStoreMigrator, TestingSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
     >
 where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -544,13 +480,12 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec>
+impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
     BeaconChainBuilder<
         Witness<
             TStore,
             TStoreMigrator,
             TSlotClock,
-            TLmdGhost,
             TEth1Backend,
             TEthSpec,
             NullEventHandler<TEthSpec>,
@@ -560,7 +495,6 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
 {

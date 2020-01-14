@@ -1,12 +1,13 @@
 use crate::{errors::BeaconChainError, metrics, BeaconChain, BeaconChainTypes};
-use lmd_ghost::LmdGhost;
 use parking_lot::RwLock;
+use proto_array_fork_choice::ProtoArrayForkChoice;
 use ssz_derive::{Decode, Encode};
-use state_processing::{common::get_attesting_indices, per_slot_processing};
-use std::sync::Arc;
-use store::{Error as StoreError, Store};
+use state_processing::common::get_attesting_indices;
+use std::marker::PhantomData;
+use store::Error as StoreError;
 use types::{
-    Attestation, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, Slot,
+    Attestation, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256,
+    Slot,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -21,18 +22,142 @@ pub enum Error {
     BeaconChainError(Box<BeaconChainError>),
 }
 
+#[derive(PartialEq, Clone, Encode, Decode)]
+struct CheckpointBalances {
+    epoch: Epoch,
+    root: Hash256,
+    balances: Vec<u64>,
+}
+
+impl Into<Checkpoint> for CheckpointBalances {
+    fn into(self) -> Checkpoint {
+        Checkpoint {
+            epoch: self.epoch,
+            root: self.root,
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Encode, Decode)]
+struct JustificationManager {
+    /// The fork choice rule's current view of the justified checkpoint.
+    justified_checkpoint: CheckpointBalances,
+    /// The best justified checkpoint we've seen, which may be ahead of `justified_checkpoint`.
+    best_justified_checkpoint: CheckpointBalances,
+    /// If `Some`, the justified checkpoint should be updated at this epoch (or later).
+    update_justified_checkpoint_at: Option<Epoch>,
+}
+
+impl JustificationManager {
+    pub fn new(genesis_checkpoint: CheckpointBalances) -> Self {
+        Self {
+            justified_checkpoint: genesis_checkpoint.clone(),
+            best_justified_checkpoint: genesis_checkpoint.clone(),
+            update_justified_checkpoint_at: None,
+        }
+    }
+
+    pub fn update<T: BeaconChainTypes>(&mut self, chain: &BeaconChain<T>) -> Result<()> {
+        if self.best_justified_checkpoint.epoch > self.justified_checkpoint.epoch {
+            let current_slot = chain.slot()?;
+            let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+
+            match self.update_justified_checkpoint_at {
+                None => {
+                    if Self::compute_slots_since_epoch_start::<T>(current_slot)
+                        < chain.spec.safe_slots_to_update_justified
+                    {
+                        self.justified_checkpoint = self.best_justified_checkpoint.clone();
+                    } else {
+                        self.update_justified_checkpoint_at = Some(current_epoch + 1)
+                    }
+                }
+                Some(epoch) if epoch <= current_epoch => {
+                    self.justified_checkpoint = self.best_justified_checkpoint.clone();
+                    self.update_justified_checkpoint_at = None
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Checks the given `state` to see if it contains a `current_justified_checkpoint` that is
+    /// better than `self.best_justified_checkpoint`. If so, the value is updated.
+    ///
+    /// Note: this does not update `self.justified_checkpoint`.
+    pub fn process_state<T: BeaconChainTypes>(
+        &mut self,
+        state: &BeaconState<T::EthSpec>,
+        chain: &BeaconChain<T>,
+    ) -> Result<()> {
+        let new_checkpoint = &state.current_justified_checkpoint;
+
+        // Only proceeed if the new checkpoint is better than our best checkpoint.
+        if new_checkpoint.epoch > self.best_justified_checkpoint.epoch {
+            // From the given state, read the block root at first slot of
+            // `self.justified_checkpoint.epoch`. If that root matches, then
+            // `new_justified_checkpoint` is a descendant of `self.justified_checkpoint` and we may
+            // proceed (see next `if` statement).
+            let new_checkpoint_ancestor = Self::get_block_root_at_slot(
+                state,
+                chain,
+                new_checkpoint.root,
+                self.justified_checkpoint
+                    .epoch
+                    .start_slot(T::EthSpec::slots_per_epoch()),
+            )?;
+
+            if new_checkpoint_ancestor == Some(self.justified_checkpoint.root) {
+                self.best_justified_checkpoint = CheckpointBalances {
+                    epoch: state.current_justified_checkpoint.epoch,
+                    root: state.current_justified_checkpoint.root,
+                    balances: state.balances.clone().into(),
+                };
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Attempts to get the block root for the given `slot`.
+    ///
+    /// First, the `state` is used to see if the slot is within the distance of its historical
+    /// lists. Then, the `chain` is used which will anchor the search at the given
+    /// `justified_root`.
+    fn get_block_root_at_slot<T: BeaconChainTypes>(
+        state: &BeaconState<T::EthSpec>,
+        chain: &BeaconChain<T>,
+        justified_root: Hash256,
+        slot: Slot,
+    ) -> Result<Option<Hash256>> {
+        match state.get_block_root(slot) {
+            Ok(root) => Ok(Some(*root)),
+            Err(_) => chain
+                .get_ancestor_block_root(justified_root, slot)
+                .map_err(Into::into),
+        }
+    }
+
+    /// Calculate how far `slot` lies from the start of its epoch.
+    fn compute_slots_since_epoch_start<T: BeaconChainTypes>(slot: Slot) -> u64 {
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        (slot - slot.epoch(slots_per_epoch).start_slot(slots_per_epoch)).as_u64()
+    }
+}
+
 pub struct ForkChoice<T: BeaconChainTypes> {
-    store: Arc<T::Store>,
-    backend: T::LmdGhost,
+    backend: ProtoArrayForkChoice,
     /// Used for resolving the `0x00..00` alias back to genesis.
     ///
     /// Does not necessarily need to be the _actual_ genesis, it suffices to be the finalized root
     /// whenever the struct was instantiated.
     genesis_block_root: Hash256,
-    /// The fork choice rule's current view of the justified checkpoint.
-    justified_checkpoint: RwLock<Checkpoint>,
-    /// The best justified checkpoint we've seen, which may be ahead of `justified_checkpoint`.
-    best_justified_checkpoint: RwLock<Checkpoint>,
+    /// The fork choice rule's current view of the finalized checkpoint.
+    finalized_checkpoint: RwLock<Checkpoint>,
+    justification_manager: RwLock<JustificationManager>,
+    _phantom: PhantomData<T>,
 }
 
 impl<T: BeaconChainTypes> PartialEq for ForkChoice<T> {
@@ -40,8 +165,8 @@ impl<T: BeaconChainTypes> PartialEq for ForkChoice<T> {
     fn eq(&self, other: &Self) -> bool {
         self.backend == other.backend
             && self.genesis_block_root == other.genesis_block_root
-            && *self.justified_checkpoint.read() == *other.justified_checkpoint.read()
-            && *self.best_justified_checkpoint.read() == *other.best_justified_checkpoint.read()
+            && *self.justification_manager.read() == *other.justification_manager.read()
+            && *self.finalized_checkpoint.read() == *other.finalized_checkpoint.read()
     }
 }
 
@@ -51,128 +176,49 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// "Genesis" does not necessarily need to be the absolute genesis, it can be some finalized
     /// block.
     pub fn new(
-        store: Arc<T::Store>,
-        backend: T::LmdGhost,
+        backend: ProtoArrayForkChoice,
         genesis_block_root: Hash256,
-        genesis_slot: Slot,
+        genesis_state: &BeaconState<T::EthSpec>,
     ) -> Self {
-        let justified_checkpoint = Checkpoint {
-            epoch: genesis_slot.epoch(T::EthSpec::slots_per_epoch()),
+        let genesis_checkpoint = CheckpointBalances {
+            epoch: genesis_state.current_epoch(),
             root: genesis_block_root,
+            balances: genesis_state.balances.clone().into(),
         };
+
         Self {
-            store: store.clone(),
             backend,
             genesis_block_root,
-            justified_checkpoint: RwLock::new(justified_checkpoint.clone()),
-            best_justified_checkpoint: RwLock::new(justified_checkpoint),
+            justification_manager: RwLock::new(JustificationManager::new(
+                genesis_checkpoint.clone(),
+            )),
+            finalized_checkpoint: RwLock::new(genesis_checkpoint.into()),
+            _phantom: PhantomData,
         }
-    }
-
-    /// Determine whether the fork choice's view of the justified checkpoint should be updated.
-    ///
-    /// To prevent the bouncing attack, an update is allowed only in these conditions:
-    ///
-    /// * We're in the first SAFE_SLOTS_TO_UPDATE_JUSTIFIED slots of the epoch, or
-    /// * The new justified checkpoint is a descendant of the current justified checkpoint
-    fn should_update_justified_checkpoint(
-        &self,
-        chain: &BeaconChain<T>,
-        new_justified_checkpoint: &Checkpoint,
-    ) -> Result<bool> {
-        if Self::compute_slots_since_epoch_start(chain.slot()?)
-            < chain.spec.safe_slots_to_update_justified
-        {
-            return Ok(true);
-        }
-
-        let justified_checkpoint = self.justified_checkpoint.read().clone();
-
-        let current_justified_block = chain
-            .get_block(&justified_checkpoint.root)?
-            .ok_or_else(|| Error::MissingBlock(justified_checkpoint.root))?;
-
-        let new_justified_block = chain
-            .get_block(&new_justified_checkpoint.root)?
-            .ok_or_else(|| Error::MissingBlock(new_justified_checkpoint.root))?;
-
-        let slots_per_epoch = T::EthSpec::slots_per_epoch();
-
-        Ok(
-            new_justified_block.slot > justified_checkpoint.epoch.start_slot(slots_per_epoch)
-                && chain.get_ancestor_block_root(
-                    new_justified_checkpoint.root,
-                    current_justified_block.slot,
-                )? == Some(justified_checkpoint.root),
-        )
-    }
-
-    /// Calculate how far `slot` lies from the start of its epoch.
-    fn compute_slots_since_epoch_start(slot: Slot) -> u64 {
-        let slots_per_epoch = T::EthSpec::slots_per_epoch();
-        (slot - slot.epoch(slots_per_epoch).start_slot(slots_per_epoch)).as_u64()
     }
 
     /// Run the fork choice rule to determine the head.
     pub fn find_head(&self, chain: &BeaconChain<T>) -> Result<Hash256> {
         let timer = metrics::start_timer(&metrics::FORK_CHOICE_FIND_HEAD_TIMES);
 
-        let (start_state, start_block_root, start_block_slot) = {
-            // Check if we should update our view of the justified checkpoint.
-            // Doing this check here should be quasi-equivalent to the update in the `on_tick`
-            // function of the spec, so long as `find_head` is called at least once during the first
-            // SAFE_SLOTS_TO_UPDATE_JUSTIFIED slots.
-            let best_justified_checkpoint = self.best_justified_checkpoint.read();
-            if self.should_update_justified_checkpoint(chain, &best_justified_checkpoint)? {
-                *self.justified_checkpoint.write() = best_justified_checkpoint.clone();
-            }
+        self.justification_manager.write().update(chain)?;
 
-            let current_justified_checkpoint = self.justified_checkpoint.read().clone();
-
-            let (block_root, block_justified_slot) = (
-                current_justified_checkpoint.root,
-                current_justified_checkpoint
-                    .epoch
-                    .start_slot(T::EthSpec::slots_per_epoch()),
-            );
-
-            let block = chain
-                .store
-                .get::<BeaconBlock<T::EthSpec>>(&block_root)?
-                .ok_or_else(|| Error::MissingBlock(block_root))?;
-
-            // Resolve the `0x00.. 00` alias back to genesis
-            let block_root = if block_root == Hash256::zero() {
-                self.genesis_block_root
-            } else {
-                block_root
-            };
-
-            let mut state: BeaconState<T::EthSpec> = chain
-                .store
-                .get_state(&block.state_root, Some(block.slot))?
-                .ok_or_else(|| Error::MissingState(block.state_root))?;
-
-            // Fast-forward the state to the start slot of the epoch where it was justified.
-            for _ in block.slot.as_u64()..block_justified_slot.as_u64() {
-                per_slot_processing(&mut state, None, &chain.spec)
-                    .map_err(BeaconChainError::SlotProcessingError)?
-            }
-
-            (state, block_root, block_justified_slot)
-        };
-
-        // A function that returns the weight for some validator index.
-        let weight = |validator_index: usize| -> Option<u64> {
-            start_state
-                .validators
-                .get(validator_index)
-                .map(|v| v.effective_balance)
-        };
+        let justified_checkpoint = self
+            .justification_manager
+            .read()
+            .justified_checkpoint
+            .clone();
+        let finalized_checkpoint = self.finalized_checkpoint.read();
 
         let result = self
             .backend
-            .find_head(start_block_slot, start_block_root, weight)
+            .find_head(
+                justified_checkpoint.epoch,
+                justified_checkpoint.root,
+                finalized_checkpoint.epoch,
+                finalized_checkpoint.root,
+                &justified_checkpoint.balances,
+            )
             .map_err(Into::into);
 
         metrics::stop_timer(timer);
@@ -192,39 +238,32 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         block_root: Hash256,
     ) -> Result<()> {
         let timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
-        // Note: we never count the block as a latest message, only attestations.
-        //
-        // I (Paul H) do not have an explicit reference to this, but I derive it from this
-        // document:
-        //
-        // https://github.com/ethereum/eth2.0-specs/blob/v0.7.0/specs/core/0_fork-choice.md
-        for attestation in &block.body.attestations {
-            // If the `data.beacon_block_root` block is not known to us, simply ignore the latest
-            // vote.
-            if let Some(block) = self
-                .store
-                .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)?
-            {
-                self.process_attestation(state, attestation, &block)?;
-            }
-        }
 
-        // Check if we should update our view of the justified checkpoint
-        if state.current_justified_checkpoint.epoch > self.justified_checkpoint.read().epoch {
-            *self.best_justified_checkpoint.write() = state.current_justified_checkpoint.clone();
+        self.justification_manager
+            .write()
+            .process_state(state, chain)?;
+        self.justification_manager.write().update(chain)?;
+
+        // Note: we never count the block as a latest message, only attestations.
+        for attestation in &block.body.attestations {
+            // If the `data.beacon_block_root` block is not known to the fork choice, simply ignore
+            // the vote.
             if self
-                .should_update_justified_checkpoint(chain, &state.current_justified_checkpoint)?
+                .backend
+                .contains_block(&attestation.data.beacon_block_root)
             {
-                *self.justified_checkpoint.write() = state.current_justified_checkpoint.clone();
+                self.process_attestation(state, attestation, block)?;
             }
         }
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
-        //
-        // A case where a block without any votes can be the head is where it is the only child of
-        // a block that has the majority of votes applied to it.
-        self.backend.process_block(block, block_root)?;
+        self.backend.process_block(
+            block_root,
+            block.parent_root,
+            state.current_justified_checkpoint.epoch,
+            state.finalized_checkpoint.epoch,
+        )?;
 
         metrics::stop_timer(timer);
 
@@ -264,8 +303,11 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
                 get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
 
             for validator_index in validator_indices {
-                self.backend
-                    .process_attestation(validator_index, block_hash, block.slot)?;
+                self.backend.process_attestation(
+                    validator_index,
+                    block_hash,
+                    block.slot.epoch(T::EthSpec::slots_per_epoch()),
+                )?;
             }
         }
 
@@ -277,16 +319,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Returns the latest message for a given validator, if any.
     ///
     /// Returns `(block_root, block_slot)`.
-    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
+    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
         self.backend.latest_message(validator_index)
-    }
-
-    /// Runs an integrity verification function on the underlying fork choice algorithm.
-    ///
-    /// Returns `Ok(())` if the underlying fork choice has maintained it's integrity,
-    /// `Err(description)` otherwise.
-    pub fn verify_integrity(&self) -> core::result::Result<(), String> {
-        self.backend.verify_integrity()
     }
 
     /// Inform the fork choice that the given block (and corresponding root) have been finalized so
@@ -299,7 +333,10 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         finalized_block_root: Hash256,
     ) -> Result<()> {
         self.backend
-            .update_finalized_root(finalized_block, finalized_block_root)
+            .update_finalized_root(
+                finalized_block.slot.epoch(T::EthSpec::slots_per_epoch()),
+                finalized_block_root,
+            )
             .map_err(Into::into)
     }
 
@@ -307,8 +344,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     pub fn as_ssz_container(&self) -> SszForkChoice {
         SszForkChoice {
             genesis_block_root: self.genesis_block_root.clone(),
-            justified_checkpoint: self.justified_checkpoint.read().clone(),
-            best_justified_checkpoint: self.best_justified_checkpoint.read().clone(),
+            finalized_checkpoint: self.finalized_checkpoint.read().clone(),
+            justification_manager: self.justification_manager.read().clone(),
             backend_bytes: self.backend.as_bytes(),
         }
     }
@@ -316,15 +353,15 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Instantiates `Self` from a prior `SszForkChoice`.
     ///
     /// The created `Self` will have the same state as the `Self` that created the `SszForkChoice`.
-    pub fn from_ssz_container(ssz_container: SszForkChoice, store: Arc<T::Store>) -> Result<Self> {
-        let backend = LmdGhost::from_bytes(&ssz_container.backend_bytes, store.clone())?;
+    pub fn from_ssz_container(ssz_container: SszForkChoice) -> Result<Self> {
+        let backend = ProtoArrayForkChoice::from_bytes(&ssz_container.backend_bytes)?;
 
         Ok(Self {
-            store,
             backend,
             genesis_block_root: ssz_container.genesis_block_root,
-            justified_checkpoint: RwLock::new(ssz_container.justified_checkpoint),
-            best_justified_checkpoint: RwLock::new(ssz_container.best_justified_checkpoint),
+            finalized_checkpoint: RwLock::new(ssz_container.finalized_checkpoint),
+            justification_manager: RwLock::new(ssz_container.justification_manager),
+            _phantom: PhantomData,
         })
     }
 }
@@ -335,8 +372,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 #[derive(Encode, Decode, Clone)]
 pub struct SszForkChoice {
     genesis_block_root: Hash256,
-    justified_checkpoint: Checkpoint,
-    best_justified_checkpoint: Checkpoint,
+    finalized_checkpoint: Checkpoint,
+    justification_manager: JustificationManager,
     backend_bytes: Vec<u8>,
 }
 
