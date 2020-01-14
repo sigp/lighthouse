@@ -6,6 +6,16 @@ fn get_hash(i: u64) -> Hash256 {
     Hash256::from_low_u64_be(i)
 }
 
+fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
+    let bytes = original.as_bytes();
+    let decoded =
+        ProtoArrayForkChoice::from_bytes(&bytes).expect("fork choice should decode from bytes");
+    assert!(
+        *original == decoded,
+        "fork choice should encode and decode without change"
+    );
+}
+
 /// This tests does not use any validator votes, it just relies on hash-sorting to find the
 /// head.
 #[test]
@@ -14,6 +24,8 @@ fn no_votes() {
 
     let fork_choice = ProtoArrayForkChoice::new(Epoch::new(0), Epoch::new(0), get_hash(0))
         .expect("should create fork choice");
+
+    check_bytes_round_trip(&fork_choice);
 
     assert_eq!(
         fork_choice
@@ -127,6 +139,8 @@ fn no_votes() {
     fork_choice
         .process_block(get_hash(4), get_hash(2), Epoch::new(0), Epoch::new(0))
         .expect("should process block");
+
+    check_bytes_round_trip(&fork_choice);
 
     // Ensure the head is 4.
     //
@@ -555,6 +569,8 @@ fn votes() {
         .process_block(get_hash(5), get_hash(4), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
+    check_bytes_round_trip(&fork_choice);
+
     // Ensure that 5 is filtered out and the head stays at 4.
     //
     //          0
@@ -910,6 +926,8 @@ fn votes() {
     // Set pruning to an unreachable value.
     fork_choice.set_prune_threshold(usize::max_value());
 
+    check_bytes_round_trip(&fork_choice);
+
     // Run find-head to trigger a prune.
     assert_eq!(
         fork_choice
@@ -965,6 +983,8 @@ fn votes() {
 
     // Ensure that pruning happened.
     assert_eq!(fork_choice.len(), 6, "there should be 6 blocks");
+
+    check_bytes_round_trip(&fork_choice);
 
     // Add block 11
     //

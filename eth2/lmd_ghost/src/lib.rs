@@ -1,10 +1,13 @@
 mod proto_array;
+mod ssz_container;
 
 use parking_lot::RwLock;
-use std::collections::HashMap;
-use types::{Epoch, Hash256, Slot};
-
 use proto_array::ProtoArray;
+use ssz::{Decode, Encode};
+use ssz_container::SszContainer;
+use ssz_derive::{Decode, Encode};
+use std::collections::HashMap;
+use types::{Epoch, Hash256};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
@@ -27,7 +30,7 @@ pub enum Error {
     InvalidFindHeadStartRoot,
 }
 
-#[derive(Default, PartialEq, Clone)]
+#[derive(Default, PartialEq, Clone, Encode, Decode)]
 pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
@@ -114,9 +117,9 @@ impl ProtoArrayForkChoice {
         block_epoch: Epoch,
     ) -> Result<(), String> {
         let mut votes = self.votes.write();
+        let vote = votes.get_mut(validator_index);
 
-        if block_epoch > votes.get(validator_index).next_epoch {
-            let vote = votes.get_mut(validator_index);
+        if block_epoch > vote.next_epoch || *vote == VoteTracker::default() {
             vote.next_root = block_root;
             vote.next_epoch = block_epoch;
         }
@@ -198,20 +201,30 @@ impl ProtoArrayForkChoice {
         self.proto_array.read().nodes.len()
     }
 
-    fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Slot)> {
-        unimplemented!()
+    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
+        let votes = self.votes.read();
+
+        if validator_index < votes.0.len() {
+            let vote = &votes.0[validator_index];
+
+            if *vote == VoteTracker::default() {
+                None
+            } else {
+                Some((vote.next_root, vote.next_epoch))
+            }
+        } else {
+            None
+        }
     }
 
-    fn verify_integrity(&self) -> Result<(), String> {
-        unimplemented!()
+    pub fn as_bytes(&self) -> Vec<u8> {
+        SszContainer::from(self).as_ssz_bytes()
     }
 
-    fn as_bytes(&self) -> Vec<u8> {
-        unimplemented!()
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        unimplemented!()
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        SszContainer::from_ssz_bytes(bytes)
+            .map(Into::into)
+            .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))
     }
 }
 

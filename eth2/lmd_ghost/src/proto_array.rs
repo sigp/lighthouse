@@ -1,8 +1,9 @@
 use crate::Error;
+use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use types::{Epoch, Hash256};
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Encode, Decode)]
 pub struct ProtoNode {
     root: Hash256,
     parent: Option<usize>,
