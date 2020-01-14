@@ -1,0 +1,45 @@
+[package]
+name = "rest_api1"
+version = "0.1.0"
+authors = ["pawan <pawandhananjay@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+validator_client = {path = "../../validator_client"}
+eth2_ssz = "0.1.2"
+eth2_config = { path = "../../eth2/utils/eth2_config" }
+tree_hash = "0.1.0"
+clap = "2.33.0"
+lighthouse_bootstrap = { path = "../../eth2/utils/lighthouse_bootstrap" }
+eth2_interop_keypairs = { path = "../../eth2/utils/eth2_interop_keypairs" }
+slot_clock = { path = "../../eth2/utils/slot_clock" }
+types = { path = "../../eth2/types" }
+serde = "1.0.102"
+serde_derive = "1.0.102"
+serde_json = "1.0.41"
+serde_yaml = "0.8.11"
+slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
+slog-async = "2.3.0"
+slog-term = "2.4.2"
+tokio = "0.1.22"
+tokio-timer = "0.2.12"
+error-chain = "0.12.1"
+bincode = "1.2.0"
+futures = "0.1.29"
+dirs = "2.0.2"
+logging = { path = "../../eth2/utils/logging" }
+environment = { path = "../../lighthouse/environment" }
+parking_lot = "0.7"
+exit-future = "0.1.4"
+libc = "0.2.65"
+eth2_ssz_derive = { path = "../../eth2/utils/ssz_derive" }
+hex = "0.3"
+deposit_contract = { path = "../../eth2/utils/deposit_contract" }
+bls = { path = "../../eth2/utils/bls" }
+remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }
+tempdir = "0.3"
+rayon = "1.2.0"
+http = "0.1"
+hyper = "0.12"

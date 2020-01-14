@@ -9,9 +9,10 @@ pub fn get_validators<T: EthSpec>(
     req: Request<Body>,
     validator_client: Arc<ProductionValidatorClient<T>>,
 ) -> ApiResult {
-    let service = validator_client.duties_service.clone();
-    let validators = service.validators();
-    ResponseBuilder::new(&req)?.body(&validators)
+    unimplemented!()
+    // let service = validator_client.duties_service.clone();
+    // let validators = service.validators();
+    // ResponseBuilder::new(&req)?.body(&validators)
 }
 
 pub fn create_validator<T: EthSpec>(

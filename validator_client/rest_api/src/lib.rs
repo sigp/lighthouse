@@ -5,7 +5,6 @@ mod router;
 mod status;
 mod validator;
 
-use crate::ProductionValidatorClient;
 use config::Config;
 use errors::{ApiError, ApiResult};
 use hyper::rt::Future;
@@ -17,6 +16,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use types::EthSpec;
+use validator_client::ProductionValidatorClient;
 
 pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 
@@ -75,46 +75,4 @@ pub fn start_server<T: EthSpec>(
     executor.spawn(server_future);
 
     Ok((exit_signal, actual_listen_addr))
-}
-
-mod tests {
-    use super::*;
-    use crate::config::Config as ValidatorConfig;
-    use environment::EnvironmentBuilder;
-    #[test]
-    fn test_api() {
-        let mut env = EnvironmentBuilder::mainnet()
-            .async_logger("debug", None)
-            .unwrap()
-            .single_thread_tokio_runtime()
-            .unwrap()
-            .build()
-            .unwrap();
-        let context = env.core_context();
-        let executor = context.executor.clone();
-        let vc = ProductionValidatorClient::new(context, ValidatorConfig::default());
-        let mut validator = env
-            .runtime()
-            .block_on(vc)
-            .map_err(|e| format!("Failed to init validator client: {}", e))
-            .unwrap();
-
-        validator
-            .start_service()
-            .map_err(|e| format!("Failed to start validator client service: {}", e))
-            .unwrap();
-
-        let (ef, _addr) = start_server(
-            &config::Config::default(),
-            &executor,
-            Arc::new(validator),
-            env.core_context().log,
-        )
-        .unwrap();
-        let _: Result<(), String> = env
-            .runtime()
-            .block_on(futures::future::empty())
-            .map_err(|e: ()| format!("Satyanaash"))
-            .unwrap();
-    }
 }
