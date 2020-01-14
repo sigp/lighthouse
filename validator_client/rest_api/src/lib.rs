@@ -1,4 +1,4 @@
-mod config;
+pub mod config;
 mod errors;
 mod response_builder;
 mod router;

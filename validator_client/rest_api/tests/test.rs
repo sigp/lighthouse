@@ -1,6 +1,9 @@
-use super::*;
 use environment::EnvironmentBuilder;
-use validator_client::Config as ValidatorConfig;
+use rest_api_vc::config::Config;
+use rest_api_vc::start_server;
+use std::sync::Arc;
+use validator_client::{Config as ValidatorConfig, ProductionValidatorClient};
+
 #[test]
 fn test_api() {
     let mut env = EnvironmentBuilder::mainnet()
@@ -25,7 +28,7 @@ fn test_api() {
         .unwrap();
 
     let (ef, _addr) = start_server(
-        &config::Config::default(),
+        &Config::default(),
         &executor,
         Arc::new(validator),
         env.core_context().log,
