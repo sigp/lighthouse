@@ -210,6 +210,7 @@ impl<T: EthSpec> OperationPool<T> {
             .map(|s| s.proposer_index)
             .collect::<HashSet<_>>();
 
+        let epoch = state.current_epoch();
         let attester_slashings = self
             .attester_slashings
             .read()
@@ -222,7 +223,7 @@ impl<T: EthSpec> OperationPool<T> {
                 // Take all slashings that will slash 1 or more validators.
                 let slashed_validators =
                     get_slashable_indices_modular(state, slashing, |index, validator| {
-                        validator.slashed || to_be_slashed.contains(&index)
+                        validator.is_slashable_at(epoch) && !to_be_slashed.contains(&index)
                     });
 
                 // Extend the `to_be_slashed` set so subsequent iterations don't try to include
