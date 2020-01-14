@@ -971,7 +971,7 @@ fn attester_slashing() {
     };
     let indexed_attest_2 = indexed_attest_1.clone();
 
-    let attester_slashing = AttesterSlashing {
+    let new_attester_slashing = AttesterSlashing {
         attestation_1: indexed_attest_1,
         attestation_2: indexed_attest_2,
     };
@@ -980,7 +980,7 @@ fn attester_slashing() {
         remote_node
             .http
             .beacon()
-            .attester_slashing(attester_slashing.clone()),
+            .attester_slashing(new_attester_slashing),
     );
     assert!(result.is_err());
 
