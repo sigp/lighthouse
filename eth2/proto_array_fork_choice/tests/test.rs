@@ -1,5 +1,5 @@
 use proto_array_fork_choice::ProtoArrayForkChoice;
-use types::{Epoch, Hash256};
+use types::{Epoch, Hash256, Slot};
 
 /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
 fn get_hash(i: u64) -> Hash256 {
@@ -22,8 +22,9 @@ fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
 fn no_votes() {
     const VALIDATOR_COUNT: usize = 16;
 
-    let fork_choice = ProtoArrayForkChoice::new(Epoch::new(1), Epoch::new(1), get_hash(0))
-        .expect("should create fork choice");
+    let fork_choice =
+        ProtoArrayForkChoice::new(Slot::new(0), Epoch::new(1), Epoch::new(1), get_hash(0))
+            .expect("should create fork choice");
 
     check_bytes_round_trip(&fork_choice);
 
@@ -33,7 +34,6 @@ fn no_votes() {
                 Epoch::new(1),
                 Hash256::zero(),
                 Epoch::new(1),
-                Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
             .expect("should find head"),
@@ -47,7 +47,13 @@ fn no_votes() {
     //        /
     //        2
     fork_choice
-        .process_block(get_hash(2), get_hash(0), Epoch::new(1), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(2),
+            get_hash(0),
+            Epoch::new(1),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     // Ensure the head is 2
@@ -61,7 +67,6 @@ fn no_votes() {
                 Epoch::new(1),
                 Hash256::zero(),
                 Epoch::new(1),
-                Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
             .expect("should find head"),
@@ -75,7 +80,13 @@ fn no_votes() {
     //        / \
     //        2  1
     fork_choice
-        .process_block(get_hash(1), get_hash(0), Epoch::new(1), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(1),
+            get_hash(0),
+            Epoch::new(1),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     // Ensure the head is still 2
@@ -89,7 +100,6 @@ fn no_votes() {
                 Epoch::new(1),
                 Hash256::zero(),
                 Epoch::new(1),
-                Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
             .expect("should find head"),
@@ -105,7 +115,13 @@ fn no_votes() {
     //           |
     //           3
     fork_choice
-        .process_block(get_hash(3), get_hash(1), Epoch::new(1), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(3),
+            get_hash(1),
+            Epoch::new(1),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     // Ensure 3 is the head
@@ -121,7 +137,6 @@ fn no_votes() {
                 Epoch::new(1),
                 Hash256::zero(),
                 Epoch::new(1),
-                Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
             .expect("should find head"),
@@ -137,7 +152,13 @@ fn no_votes() {
     //        |  |
     //        4  3
     fork_choice
-        .process_block(get_hash(4), get_hash(2), Epoch::new(1), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(4),
+            get_hash(2),
+            Epoch::new(1),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     check_bytes_round_trip(&fork_choice);
@@ -155,7 +176,6 @@ fn no_votes() {
                 Epoch::new(1),
                 Hash256::zero(),
                 Epoch::new(1),
-                Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
             .expect("should find head"),
@@ -173,7 +193,13 @@ fn no_votes() {
     //        |
     //        5 <- justified epoch = 1
     fork_choice
-        .process_block(get_hash(5), get_hash(4), Epoch::new(2), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(5),
+            get_hash(4),
+            Epoch::new(2),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     // Ensure the head is still 4 whilst the justified epoch is 0.
@@ -191,7 +217,6 @@ fn no_votes() {
                 Epoch::new(1),
                 Hash256::zero(),
                 Epoch::new(1),
-                Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
             .expect("should find head"),
@@ -214,7 +239,6 @@ fn no_votes() {
                 Epoch::new(1),
                 get_hash(5),
                 Epoch::new(1),
-                Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
             .is_err(),
@@ -236,7 +260,6 @@ fn no_votes() {
                 Epoch::new(2),
                 get_hash(5),
                 Epoch::new(1),
-                Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
             .expect("should find head"),
@@ -256,7 +279,13 @@ fn no_votes() {
     //     |
     //     6
     fork_choice
-        .process_block(get_hash(6), get_hash(5), Epoch::new(2), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(6),
+            get_hash(5),
+            Epoch::new(2),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     // Ensure 6 is the head
@@ -276,7 +305,6 @@ fn no_votes() {
                 Epoch::new(2),
                 get_hash(5),
                 Epoch::new(1),
-                Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
             .expect("should find head"),
@@ -291,18 +319,13 @@ fn votes() {
     const VALIDATOR_COUNT: usize = 2;
     let balances = vec![1; VALIDATOR_COUNT];
 
-    let fork_choice = ProtoArrayForkChoice::new(Epoch::new(1), Epoch::new(1), get_hash(0))
-        .expect("should create fork choice");
+    let fork_choice =
+        ProtoArrayForkChoice::new(Slot::new(0), Epoch::new(1), Epoch::new(1), get_hash(0))
+            .expect("should create fork choice");
 
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         Hash256::zero(),
         "should find genesis block as root when there is only one block"
@@ -314,7 +337,13 @@ fn votes() {
     //         /
     //        2
     fork_choice
-        .process_block(get_hash(2), get_hash(0), Epoch::new(1), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(2),
+            get_hash(0),
+            Epoch::new(1),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     // Ensure that the head is 2
@@ -324,13 +353,7 @@ fn votes() {
     // head-> 2
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         get_hash(2),
         "should find head block with a single chain"
@@ -343,7 +366,13 @@ fn votes() {
     //         / \
     //        2   1
     fork_choice
-        .process_block(get_hash(1), get_hash(0), Epoch::new(1), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(1),
+            get_hash(0),
+            Epoch::new(1),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     // Ensure that the head is 2
@@ -353,13 +382,7 @@ fn votes() {
     // head-> 2   1
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         get_hash(2),
         "should find get_hash(2), not get_hash(1) (it should compare hashes)"
@@ -381,13 +404,7 @@ fn votes() {
     //        2   1 <- head
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         get_hash(1),
         "should find the get_hash(1) because it now has a vote"
@@ -409,13 +426,7 @@ fn votes() {
     // head-> 2   1
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         get_hash(2),
         "should find get_hash(2)"
@@ -429,7 +440,13 @@ fn votes() {
     //            |
     //            3
     fork_choice
-        .process_block(get_hash(3), get_hash(1), Epoch::new(1), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(3),
+            get_hash(1),
+            Epoch::new(1),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     // Ensure that the head is still 2
@@ -441,13 +458,7 @@ fn votes() {
     //            3
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         get_hash(2),
         "should find get_hash(2)"
@@ -473,13 +484,7 @@ fn votes() {
     //            3
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         get_hash(2),
         "should find get_hash(2)"
@@ -506,13 +511,7 @@ fn votes() {
     //            3 <- head
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         get_hash(3),
         "should find get_hash(3)"
@@ -528,7 +527,13 @@ fn votes() {
     //            |
     //            4
     fork_choice
-        .process_block(get_hash(4), get_hash(3), Epoch::new(1), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(4),
+            get_hash(3),
+            Epoch::new(1),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     // Ensure that the head is now 4
@@ -542,13 +547,7 @@ fn votes() {
     //            4 <- head
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         get_hash(4),
         "should find get_hash(4)"
@@ -566,7 +565,13 @@ fn votes() {
     //           /
     //          5 <- justified epoch = 1
     fork_choice
-        .process_block(get_hash(5), get_hash(4), Epoch::new(2), Epoch::new(2))
+        .process_block(
+            Slot::new(0),
+            get_hash(5),
+            get_hash(4),
+            Epoch::new(2),
+            Epoch::new(2),
+        )
         .expect("should process block");
 
     check_bytes_round_trip(&fork_choice);
@@ -584,13 +589,7 @@ fn votes() {
     //          5
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         get_hash(4),
         "should find get_hash(4)"
@@ -608,7 +607,13 @@ fn votes() {
     //           / \
     //          5   6 <- justified epoch = 0
     fork_choice
-        .process_block(get_hash(6), get_hash(4), Epoch::new(1), Epoch::new(1))
+        .process_block(
+            Slot::new(0),
+            get_hash(6),
+            get_hash(4),
+            Epoch::new(1),
+            Epoch::new(1),
+        )
         .expect("should process block");
 
     // Move both votes to 5.
@@ -648,13 +653,31 @@ fn votes() {
     //         /
     //         9
     fork_choice
-        .process_block(get_hash(7), get_hash(5), Epoch::new(2), Epoch::new(2))
+        .process_block(
+            Slot::new(0),
+            get_hash(7),
+            get_hash(5),
+            Epoch::new(2),
+            Epoch::new(2),
+        )
         .expect("should process block");
     fork_choice
-        .process_block(get_hash(8), get_hash(7), Epoch::new(2), Epoch::new(2))
+        .process_block(
+            Slot::new(0),
+            get_hash(8),
+            get_hash(7),
+            Epoch::new(2),
+            Epoch::new(2),
+        )
         .expect("should process block");
     fork_choice
-        .process_block(get_hash(9), get_hash(8), Epoch::new(2), Epoch::new(2))
+        .process_block(
+            Slot::new(0),
+            get_hash(9),
+            get_hash(8),
+            Epoch::new(2),
+            Epoch::new(2),
+        )
         .expect("should process block");
 
     // Ensure that 6 is the head, even though 5 has all the votes. This is testing to ensure
@@ -677,13 +700,7 @@ fn votes() {
     //         9
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(1),
-                Hash256::zero(),
-                Epoch::new(1),
-                Hash256::zero(),
-                &balances
-            )
+            .find_head(Epoch::new(1), Hash256::zero(), Epoch::new(1), &balances)
             .expect("should find head"),
         get_hash(6),
         "should find get_hash(6)"
@@ -711,13 +728,7 @@ fn votes() {
     // head-> 9
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(2),
-                get_hash(5),
-                Epoch::new(2),
-                get_hash(5),
-                &balances
-            )
+            .find_head(Epoch::new(2), get_hash(5), Epoch::new(2), &balances)
             .expect("should find head"),
         get_hash(9),
         "should find get_hash(9)"
@@ -768,19 +779,19 @@ fn votes() {
     //         / \
     //        9  10
     fork_choice
-        .process_block(get_hash(10), get_hash(8), Epoch::new(2), Epoch::new(2))
+        .process_block(
+            Slot::new(0),
+            get_hash(10),
+            get_hash(8),
+            Epoch::new(2),
+            Epoch::new(2),
+        )
         .expect("should process block");
 
     // Double-check the head is still 9 (no diagram this time)
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(2),
-                get_hash(5),
-                Epoch::new(2),
-                get_hash(5),
-                &balances
-            )
+            .find_head(Epoch::new(2), get_hash(5), Epoch::new(2), &balances)
             .expect("should find head"),
         get_hash(9),
         "should find get_hash(9)"
@@ -832,13 +843,7 @@ fn votes() {
     //        9  10 <- head
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(2),
-                get_hash(5),
-                Epoch::new(2),
-                get_hash(5),
-                &balances
-            )
+            .find_head(Epoch::new(2), get_hash(5), Epoch::new(2), &balances)
             .expect("should find head"),
         get_hash(10),
         "should find get_hash(10)"
@@ -858,13 +863,7 @@ fn votes() {
     // head-> 9  10
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(2),
-                get_hash(5),
-                Epoch::new(2),
-                get_hash(5),
-                &balances
-            )
+            .find_head(Epoch::new(2), get_hash(5), Epoch::new(2), &balances)
             .expect("should find head"),
         get_hash(9),
         "should find get_hash(9)"
@@ -884,13 +883,7 @@ fn votes() {
     //        9  10 <- head
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(2),
-                get_hash(5),
-                Epoch::new(2),
-                get_hash(5),
-                &balances
-            )
+            .find_head(Epoch::new(2), get_hash(5), Epoch::new(2), &balances)
             .expect("should find head"),
         get_hash(10),
         "should find get_hash(10)"
@@ -911,13 +904,7 @@ fn votes() {
     // head-> 9  10
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(2),
-                get_hash(5),
-                Epoch::new(2),
-                get_hash(5),
-                &balances
-            )
+            .find_head(Epoch::new(2), get_hash(5), Epoch::new(2), &balances)
             .expect("should find head"),
         get_hash(9),
         "should find get_hash(9)"
@@ -937,13 +924,7 @@ fn votes() {
     // Run find-head
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(2),
-                get_hash(5),
-                Epoch::new(2),
-                get_hash(5),
-                &balances
-            )
+            .find_head(Epoch::new(2), get_hash(5), Epoch::new(2), &balances)
             .expect("should find head"),
         get_hash(9),
         "should find get_hash(9)"
@@ -975,13 +956,7 @@ fn votes() {
     // head-> 9  10
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(2),
-                get_hash(5),
-                Epoch::new(2),
-                get_hash(5),
-                &balances
-            )
+            .find_head(Epoch::new(2), get_hash(5), Epoch::new(2), &balances)
             .expect("should find head"),
         get_hash(9),
         "should find get_hash(9)"
@@ -1004,7 +979,13 @@ fn votes() {
     //        |
     //        11
     fork_choice
-        .process_block(get_hash(11), get_hash(9), Epoch::new(2), Epoch::new(2))
+        .process_block(
+            Slot::new(0),
+            get_hash(11),
+            get_hash(9),
+            Epoch::new(2),
+            Epoch::new(2),
+        )
         .expect("should process block");
 
     // Ensure the head is now 11
@@ -1020,13 +1001,7 @@ fn votes() {
     // head-> 11
     assert_eq!(
         fork_choice
-            .find_head(
-                Epoch::new(2),
-                get_hash(5),
-                Epoch::new(2),
-                get_hash(5),
-                &balances
-            )
+            .find_head(Epoch::new(2), get_hash(5), Epoch::new(2), &balances)
             .expect("should find head"),
         get_hash(11),
         "should find get_hash(11)"
