@@ -22,9 +22,12 @@ use futures::{
 };
 use notifier::spawn_notifier;
 use remote_beacon_node::RemoteBeaconNode;
+use rest_api_vc::config::Config as ApiConfig;
 use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::timer::Delay;
@@ -44,6 +47,9 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
+    validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
+    beacon_node: Arc<RemoteBeaconNode<T>>,
+    http_listen_addr: Option<SocketAddr>,
     exit_signals: Vec<Signal>,
 }
 
@@ -221,8 +227,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 let attestation_service = AttestationServiceBuilder::new()
                     .duties_service(duties_service.clone())
                     .slot_clock(slot_clock)
-                    .validator_store(validator_store)
-                    .beacon_node(beacon_node)
+                    .validator_store(validator_store.clone())
+                    .beacon_node(beacon_node.clone())
                     .runtime_context(context.service_context("attestation".into()))
                     .build()?;
 
@@ -232,6 +238,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     fork_service,
                     block_service,
                     attestation_service,
+                    validator_store: Arc::new(validator_store),
+                    beacon_node: Arc::new(beacon_node),
+                    http_listen_addr: None,
                     exit_signals: vec![],
                 })
             })
@@ -260,13 +269,22 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let notifier_exit =
             spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
-
+        let (http_exit, addr) = rest_api_vc::start_server(
+            &ApiConfig::default(),
+            &self.context.executor,
+            self.validator_store.clone(),
+            self.beacon_node.clone(),
+            self.context.log.clone(),
+        )
+        .map_err(|e| format!("Failed to start validator client http server: {}", e))?;
+        self.http_listen_addr = Some(addr);
         self.exit_signals = vec![
             duties_exit,
             fork_exit,
             block_exit,
             attestation_exit,
             notifier_exit,
+            http_exit,
         ];
 
         Ok(())

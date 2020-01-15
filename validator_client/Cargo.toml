@@ -45,3 +45,4 @@ rayon = "1.2.0"
 http = "0.1"
 hyper = "0.12"
 validator_store = {path = "validator_store"}
+rest_api_vc = {path = "rest_api"}

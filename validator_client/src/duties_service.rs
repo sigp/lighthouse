@@ -307,11 +307,6 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         self.store.attesters(slot, E::slots_per_epoch())
     }
 
-    /// Return all validators in the store.
-    pub fn validators(&self) -> Vec<PublicKey> {
-        self.validator_store.voting_pubkeys()
-    }
-
     /// Start the service that periodically polls the beacon node for validator duties.
     pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
         let log = self.context.log.clone();
