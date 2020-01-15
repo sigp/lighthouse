@@ -94,8 +94,6 @@ impl JustificationManager {
     ) -> Result<()> {
         let new_checkpoint = &state.current_justified_checkpoint;
 
-        // TODO: add check about block.slot <= justified epoch start slot.
-
         // Only proceeed if the new checkpoint is better than our current checkpoint.
         if new_checkpoint.epoch > self.justified_checkpoint.epoch {
             let new_checkpoint_balances = CheckpointBalances {
@@ -119,6 +117,9 @@ impl JustificationManager {
 
             // If the new justified checkpoint is an ancestor of the current justified checkpoint,
             // it is always safe to change it.
+            //
+            // TODO: check the slot of the block to see if we can update it. Might involve DB read
+            // or maybe we can add it to proto-array.
             if new_checkpoint_ancestor == Some(self.justified_checkpoint.root) {
                 self.justified_checkpoint = new_checkpoint_balances.clone()
             }
