@@ -7,16 +7,278 @@ beacon chain and also historical information about beacon blocks and states.
 
 HTTP Path | Description |
 | --- | -- |
+[`/beacon/attester_slashing`](#beaconattester_slashing) | Insert an attestesr slashing
+[`/beacon/block`](#beaconblock) | Get a `BeaconBlock` by slot or root.
+[`/beacon/block_root`](#beaconblock_root) | Resolve a slot to a block root.
+[`/beacon/committees`](#beaconcommittees) | Get the shuffling for an epoch.
 [`/beacon/head`](#beaconhead) | Info about the block at the head of the chain.
 [`/beacon/heads`](#beaconheads) | Returns a list of all known chain heads.
-[`/beacon/block_root`](#beaconblock_root) | Resolve a slot to a block root.
-[`/beacon/block`](#beaconblock) | Get a `BeaconBlock` by slot or root.
-[`/beacon/state_root`](#beaconstate_root) | Resolve a slot to a state root.
+[`/beacon/proposer_slashing`](#beaconproposer_slashing) | Insert a proposer slashing
 [`/beacon/state`](#beaconstate) | Get a `BeaconState` by slot or root.
+[`/beacon/state_root`](#beaconstate_root) | Resolve a slot to a state root.
 [`/beacon/validators`](#beaconvalidators) | Query for one or more validators.
-[`/beacon/validators/all`](#beaconvalidatorsall) | Get all validators.
 [`/beacon/validators/active`](#beaconvalidatorsactive) | Get all active validators.
-[`/beacon/committees`](#beaconcommittees) | Get the shuffling for an epoch.
+[`/beacon/validators/all`](#beaconvalidatorsall) | Get all validators.
+
+## `/beacon/attester_slashing`
+
+Adds the specified `attester_slashing` to the operation pool.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/beacon/attester_slashing`
+Method | POST
+JSON Encoding | Object
+Query Parameters | None
+Typical Responses | 200
+
+### Parameters
+
+Expects the following object in the POST request body:
+
+```
+{
+    attestation_1: {
+        attesting_indices: [u64],
+        data: {
+            slot: Slot,
+            index: u64,
+            beacon_block_root: Bytes32,
+            source: {
+                epoch: Epoch,
+                root: Bytes32
+            },
+            target: {
+                epoch: Epoch,
+                root: Bytes32
+            }
+        }
+        signature: Bytes32
+    },
+    attestation_2: {
+        attesting_indices: [u64],
+        data: {
+            slot: Slot,
+            index: u64,
+            beacon_block_root: Bytes32,
+            source: {
+                epoch: Epoch,
+                root: Bytes32
+            },
+            target: {
+                epoch: Epoch,
+                root: Bytes32
+            }
+        }
+        signature: Bytes32
+    }
+}
+```
+
+### Returns
+
+Returns `true` if the attester slashing was inserted successfully, or the corresponding error if it failed.
+
+### Example
+
+### Request Body
+
+```json
+{
+	"attestation_1": {
+		"attesting_indices": [0],
+		"data": {
+			"slot": 1,
+			"index": 0,
+			"beacon_block_root": "0x0000000000000000000000000000000000000000000000000100000000000000",
+			"source": {
+				"epoch": 1,
+				"root": "0x0000000000000000000000000000000000000000000000000100000000000000" 
+			},
+			"target": {
+				"epoch": 1,
+				"root": "0x0000000000000000000000000000000000000000000000000100000000000000" 
+			}
+		},
+		"signature": "0xb47f7397cd944b8d5856a13352166bbe74c85625a45b14b7347fc2c9f6f6f82acee674c65bc9ceb576fcf78387a6731c0b0eb3f8371c70db2da4e7f5dfbc451730c159d67263d3db56b6d0e009e4287a8ba3efcacac30b3ae3447e89dc71b5b9"
+	},
+	"attestation_2": {
+		"attesting_indices": [0],
+		"data": {
+			"slot": 1,
+			"index": 0,
+			"beacon_block_root": "0x0000000000000000000000000000000000000000000000000100000000000000",
+			"source": {
+				"epoch": 1,
+				"root": "0x0000000000000000000000000000000000000000000000000100000000000000"
+			},
+			"target": {
+				"epoch": 1,
+				"root": "0x0000000000000000000000000000000000000000000000000200000000000000"
+			}
+		},
+		"signature": "0x93fef587a63acf72aaf8df627718fd43cb268035764071f802ffb4370a2969d226595cc650f4c0bf2291ae0c0a41fcac1700f318603d75d34bcb4b9f4a8368f61eeea0e1f5d969d92d5073ba5fbadec102b45ec87d418d25168d2e3c74b9fcbb"
+	}
+}
+```
+
+_Note: data sent here is for demonstration purposes only_
+
+## `/beacon/block`
+
+Request that the node return a beacon chain block that matches the provided
+criteria (a block `root` or beacon chain `slot`). Only one of the parameters
+should be provided as a criteria.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/beacon/block`
+Method | GET
+JSON Encoding | Object
+Query Parameters | `slot`, `root`
+Typical Responses | 200, 404
+
+### Parameters
+
+Accepts **only one** of the following parameters:
+
+- `slot` (`Slot`): Query by slot number. Any block returned must be in the canonical chain (i.e.,
+either the head or an ancestor of the head).
+- `root` (`Bytes32`): Query by tree hash root. A returned block is not required to be in the
+canonical chain.
+
+### Returns
+
+Returns an object containing a single [`BeaconBlock`](https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/core/0_beacon-chain.md#beaconblock) and its signed root.
+
+### Example Response
+
+```json
+{
+    "root": "0xc35ddf4e71c31774e0594bd7eb32dfe50b54dbc40abd594944254b4ec8895196",
+    "beacon_block": {
+        "slot": 0,
+        "parent_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "state_root": "0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f",
+        "body": {
+            "randao_reveal": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "eth1_data": {
+                "deposit_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "deposit_count": 0,
+                "block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "graffiti": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "proposer_slashings": [],
+            "attester_slashings": [],
+            "attestations": [],
+            "deposits": [],
+            "voluntary_exits": []
+        },
+        "signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }
+}
+```
+
+## `/beacon/block_root`
+
+Returns the block root for the given slot in the canonical chain. If there
+is a re-org, the same slot may return a different root.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/beacon/block_root`
+Method | GET
+JSON Encoding | Object
+Query Parameters | `slot`
+Typical Responses | 200, 404
+
+## Parameters
+
+- `slot` (`Slot`): the slot to be resolved to a root.
+
+### Example Response
+
+```json
+"0xc35ddf4e71c31774e0594bd7eb32dfe50b54dbc40abd594944254b4ec8895196"
+```
+
+## `/beacon/committees`
+
+Request the committees (a.k.a. "shuffling") for all slots and committee indices
+in a given `epoch`.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/beacon/committees`
+Method | GET
+JSON Encoding | Object
+Query Parameters | `epoch`
+Typical Responses | 200
+
+### Parameters
+
+The `epoch` (`Epoch`) query parameter is required and defines the epoch for
+which the committees will be returned. All slots contained within the response will
+be inside this epoch.
+
+### Returns
+
+A list of beacon committees.
+
+### Example Response
+
+```json
+[
+    {
+        "slot": 4768,
+        "index": 0,
+        "committee": [
+            1154,
+            492,
+            9667,
+            3089,
+            8987,
+            1421,
+            224,
+            11243,
+            2127,
+            2329,
+            188,
+            482,
+            486
+        ]
+    },
+    {
+        "slot": 4768,
+        "index": 1,
+        "committee": [
+            5929,
+            8482,
+            5528,
+            6130,
+            14343,
+            9777,
+            10808,
+            12739,
+            15234,
+            12819,
+            5423,
+            6320,
+            9991
+        ]
+    }
+]
+```
+
+_Truncated for brevity._
 
 ## `/beacon/head`
 
@@ -79,112 +341,75 @@ Typical Responses | 200
 ]
 ```
 
-## `/beacon/block_root`
+## `/beacon/proposer_slashing`
 
-Returns the block root for the given slot in the canonical chain. If there
-is a re-org, the same slot may return a different root.
+Adds the specified `proposer_slashing` to the operation pool.
 
 ### HTTP Specification
 
 | Property | Specification |
 | --- |--- |
-Path | `/beacon/block_root`
-Method | GET
+Path | `/beacon/proposer_slashing`
+Method | POST
 JSON Encoding | Object
-Query Parameters | `slot`
-Typical Responses | 200, 404
+Query Parameters | None
+Typical Responses | 200
 
-## Parameters
+### Request Body
 
-- `slot` (`Slot`): the slot to be resolved to a root.
+Expects the following object in the POST request body:
 
-### Example Response
-
-```json
-"0xc35ddf4e71c31774e0594bd7eb32dfe50b54dbc40abd594944254b4ec8895196"
 ```
-
-## `/beacon/block`
-
-Request that the node return a beacon chain block that matches the provided
-criteria (a block `root` or beacon chain `slot`). Only one of the parameters
-should be provided as a criteria.
-
-### HTTP Specification
-
-| Property | Specification |
-| --- |--- |
-Path | `/beacon/block`
-Method | GET
-JSON Encoding | Object
-Query Parameters | `slot`, `root`
-Typical Responses | 200, 404
-
-### Parameters
-
-Accepts **only one** of the following parameters:
-
-- `slot` (`Slot`): Query by slot number. Any block returned must be in the canonical chain (i.e.,
-either the head or an ancestor of the head).
-- `root` (`Bytes32`): Query by tree hash root. A returned block is not required to be in the
-canonical chain.
-
-### Returns
-
-Returns an object containing a single [`BeaconBlock`](https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/core/0_beacon-chain.md#beaconblock) and its signed root.
-
-### Example Response
-
-```json
 {
-    "root": "0xc35ddf4e71c31774e0594bd7eb32dfe50b54dbc40abd594944254b4ec8895196",
-    "beacon_block": {
-        "slot": 0,
-        "parent_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "state_root": "0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f",
-        "body": {
-            "randao_reveal": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-            "eth1_data": {
-                "deposit_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "deposit_count": 0,
-                "block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-            },
-            "graffiti": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "proposer_slashings": [],
-            "attester_slashings": [],
-            "attestations": [],
-            "deposits": [],
-            "voluntary_exits": []
-        },
-        "signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    proposer_index: u64,
+    header_1: {
+        slot: Slot,
+        parent_root: Bytes32,
+        state_root: Bytes32,
+        body_root: Bytes32,
+        signature: Bytes32
+    },
+    header_2: {
+        slot: Slot,
+        parent_root: Bytes32,
+        state_root: Bytes32,
+        body_root: Bytes32,
+        signature: Bytes32
     }
 }
 ```
 
-## `/beacon/state_root`
+### Returns
 
-Returns the state root for the given slot in the canonical chain. If there
-is a re-org, the same slot may return a different root.
+Returns `true` if the proposer slashing was inserted successfully, or the corresponding error if it failed.
 
-### HTTP Specification
+### Example
 
-| Property | Specification |
-| --- |--- |
-Path | `/beacon/state_root`
-Method | GET
-JSON Encoding | Object
-Query Parameters | `slot`
-Typical Responses | 200, 404
-
-## Parameters
-
-- `slot` (`Slot`): the slot to be resolved to a root.
-
-### Example Response
+### Request Body
 
 ```json
-"0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f"
+{
+	"proposer_index": 0,
+    "header_1": {
+        "slot": 3,
+        "parent_root": "0x1234567890123456789012345678901234567890123456789012345678901234",
+        "state_root": "0x1234567890123456789012345678901234567890123456789012345678901234",
+        "body_root": "0x1234567890123456789012345678901234567890123456789012345678901234",
+        "signature": "0xa4a06b3728c0f5c50366bb751bf11e4c588b14b4a9f4450651072f7c25adf037aebbc970c70fab797849ce03c5b4d11702326f20e95f92011b8e11e0f734ae85af20b6173de97422807a0cc24352653cb84de875665f6e570f9c70798bb7d133"
+    },
+    "header_2": {
+        "slot": 3,
+        "parent_root": "0xabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca",
+        "state_root": "0xabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca",
+        "body_root": "0xabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca",
+        "signature": "0xa4a06b3728c0f5c50366bb751bf11e4c588b14b4a9f4450651072f7c25adf037aebbc970c70fab797849ce03c5b4d11702326f20e95f92011b8e11e0f734ae85af20b6173de97422807a0cc24352653cb84de875665f6e570f9c70798bb7d133"
+    }
+}
 ```
+
+_Note: data sent here is for demonstration purposes only_
+
+
 
 ## `/beacon/state`
 
@@ -230,6 +455,31 @@ and its tree hash root.
 ```
 
 _Truncated for brevity._
+
+## `/beacon/state_root`
+
+Returns the state root for the given slot in the canonical chain. If there
+is a re-org, the same slot may return a different root.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/beacon/state_root`
+Method | GET
+JSON Encoding | Object
+Query Parameters | `slot`
+Typical Responses | 200, 404
+
+## Parameters
+
+- `slot` (`Slot`): the slot to be resolved to a root.
+
+### Example Response
+
+```json
+"0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f"
+```
 
 ## `/beacon/validators`
 
@@ -310,30 +560,6 @@ _Note: for demonstration purposes the second pubkey is some unknown pubkey._
 ]
 ```
 
-## `/beacon/validators/all`
-
-Returns all validators.
-
-### HTTP Specification
-
-| Property | Specification |
-| --- |--- |
-Path | `/beacon/validators/all`
-Method | GET
-JSON Encoding | Object
-Query Parameters | `state_root` (optional)
-Typical Responses | 200
-
-### Parameters
-
-The optional `state_root` (`Bytes32`) query parameter indicates which
-`BeaconState` should be used to collect the information. When omitted, the
-canonical head state will be used.
-
-### Returns
-
-The return format is identical to the [`/beacon/validators`](#beaconvalidators) response body.
-
 ## `/beacon/validators/active`
 
 Returns all validators that are active in the state defined by `state_root`.
@@ -358,74 +584,26 @@ canonical head state will be used.
 
 The return format is identical to the [`/beacon/validators`](#beaconvalidators) response body.
 
-## `/beacon/committees`
+## `/beacon/validators/all`
 
-Request the committees (a.k.a. "shuffling") for all slots and committee indices
-in a given `epoch`.
+Returns all validators.
 
 ### HTTP Specification
 
 | Property | Specification |
 | --- |--- |
-Path | `/beacon/committees`
+Path | `/beacon/validators/all`
 Method | GET
 JSON Encoding | Object
-Query Parameters | `epoch`
+Query Parameters | `state_root` (optional)
 Typical Responses | 200
 
 ### Parameters
 
-The `epoch` (`Epoch`) query parameter is required and defines the epoch for
-which the committees will be returned. All slots contained within the response will
-be inside this epoch.
+The optional `state_root` (`Bytes32`) query parameter indicates which
+`BeaconState` should be used to collect the information. When omitted, the
+canonical head state will be used.
 
 ### Returns
 
-A list of beacon committees.
-
-### Example Response
-
-```json
-[
-    {
-        "slot": 4768,
-        "index": 0,
-        "committee": [
-            1154,
-            492,
-            9667,
-            3089,
-            8987,
-            1421,
-            224,
-            11243,
-            2127,
-            2329,
-            188,
-            482,
-            486
-        ]
-    },
-    {
-        "slot": 4768,
-        "index": 1,
-        "committee": [
-            5929,
-            8482,
-            5528,
-            6130,
-            14343,
-            9777,
-            10808,
-            12739,
-            15234,
-            12819,
-            5423,
-            6320,
-            9991
-        ]
-    }
-]
-```
-
-_Truncated for brevity._
+The return format is identical to the [`/beacon/validators`](#beaconvalidators) response body.
