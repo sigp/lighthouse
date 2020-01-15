@@ -6,6 +6,7 @@ use futures::{Future, IntoFuture};
 use hyper::{Body, Error, Method, Request, Response};
 use remote_beacon_node::RemoteBeaconNode;
 use slog::debug;
+use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::EthSpec;
 use validator_store::ValidatorStore;
@@ -18,7 +19,7 @@ where
     Box::new(item.into_future())
 }
 
-pub fn route<T, E: EthSpec>(
+pub fn route<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
     validator_client: Arc<ValidatorStore<T, E>>,
     beacon_node: Arc<RemoteBeaconNode<E>>,
