@@ -103,7 +103,6 @@ impl ProtoArrayForkChoice {
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
-            ffg_update_required: false,
             justified_epoch,
             finalized_epoch,
             nodes: Vec::with_capacity(1),

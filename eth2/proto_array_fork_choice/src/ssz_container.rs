@@ -13,6 +13,8 @@ pub struct SszContainer {
     votes: Vec<VoteTracker>,
     balances: Vec<u64>,
     prune_threshold: usize,
+    // TODO: this field is no longer required, I'm just leaving it here for the time being so we
+    // don't need to resync nodes.
     ffg_update_required: bool,
     justified_epoch: Epoch,
     finalized_epoch: Epoch,
@@ -28,7 +30,7 @@ impl From<&ProtoArrayForkChoice> for SszContainer {
             votes: from.votes.read().0.clone(),
             balances: from.balances.read().clone(),
             prune_threshold: proto_array.prune_threshold,
-            ffg_update_required: proto_array.ffg_update_required,
+            ffg_update_required: false,
             justified_epoch: proto_array.justified_epoch,
             finalized_epoch: proto_array.finalized_epoch,
             nodes: proto_array.nodes.clone(),
@@ -41,7 +43,6 @@ impl From<SszContainer> for ProtoArrayForkChoice {
     fn from(from: SszContainer) -> Self {
         let proto_array = ProtoArray {
             prune_threshold: from.prune_threshold,
-            ffg_update_required: from.ffg_update_required,
             justified_epoch: from.justified_epoch,
             finalized_epoch: from.finalized_epoch,
             nodes: from.nodes,

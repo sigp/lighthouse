@@ -22,9 +22,6 @@ pub struct ProtoArray {
     /// Do not attempt to prune the tree unless it has at least this many nodes. Small prunes
     /// simply waste time.
     pub prune_threshold: usize,
-    /// Set to true when the Casper FFG justified/finalized epochs should be checked to ensure the
-    /// tree is filtered as per eth2 specs.
-    pub ffg_update_required: bool,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
     pub nodes: Vec<ProtoNode>,
@@ -59,13 +56,7 @@ impl ProtoArray {
             });
         }
 
-        // The `self.ffg_update_required` flag indicates if it is necessary to check the
-        // finalized/justified epoch of all nodes against the epochs in `self`.
-        //
-        // This behaviour is equivalent to the `filter_block_tree` function in the spec.
-        self.ffg_update_required =
-            justified_epoch != self.justified_epoch || finalized_epoch != self.finalized_epoch;
-        if self.ffg_update_required {
+        if justified_epoch != self.justified_epoch || finalized_epoch != self.finalized_epoch {
             self.justified_epoch = justified_epoch;
             self.finalized_epoch = finalized_epoch;
         }
@@ -123,8 +114,6 @@ impl ProtoArray {
                 self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
             }
         }
-
-        self.ffg_update_required = false;
 
         Ok(())
     }
@@ -235,7 +224,6 @@ impl ProtoArray {
             });
         } else if finalized_epoch != self.finalized_epoch {
             self.finalized_epoch = finalized_epoch;
-            self.ffg_update_required = true;
         }
 
         let finalized_index = *self
