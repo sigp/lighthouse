@@ -18,8 +18,7 @@ use types::{
     },
     AggregateSignature, AttestationData, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec,
     Checkpoint, Domain, Epoch, EthSpec, Hash256, IndexedAttestation, MinimalEthSpec,
-    ProposerSlashing, PublicKey, RelativeEpoch, SecretKey, Signature, Slot, Validator,
-    VariableList,
+    ProposerSlashing, PublicKey, RelativeEpoch, Signature, Slot, Validator, VariableList,
 };
 use version;
 
@@ -838,10 +837,20 @@ fn proposer_slashing() {
     let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
     assert_eq!(proposer_slashings.len(), 0);
 
-    let key = SecretKey::random();
+    let slot = state.slot;
+    let proposer_index = chain
+        .block_proposer(slot)
+        .expect("should get proposer index");
+    let keypair = generate_deterministic_keypair(proposer_index);
+    let key = &keypair.sk;
     let fork = &state.fork;
-    let proposer_slashing =
-        build_proposer_slashing::<E>(ProposerSlashingTestTask::Valid, 0u64, &key, fork, spec);
+    let proposer_slashing = build_proposer_slashing::<E>(
+        ProposerSlashingTestTask::Valid,
+        proposer_index as u64,
+        &key,
+        fork,
+        spec,
+    );
 
     let result = env
         .runtime()
