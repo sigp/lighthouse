@@ -525,7 +525,7 @@ pub fn proposer_slashing<T: BeaconChainTypes>(
                     ))
                 })
         })
-        .and_then(|_| response_builder?.body(&true)); // SCOTT
+        .and_then(|_| response_builder?.body(&true));
 
     Box::new(future)
 }
@@ -561,7 +561,7 @@ pub fn attester_slashing<T: BeaconChainTypes>(
                     ))
                 })
         })
-        .and_then(|_| response_builder?.body(&true)); // SCOTT
+        .and_then(|_| response_builder?.body(&true));
 
     Box::new(future)
 }

@@ -495,7 +495,6 @@ impl<E: EthSpec> Beacon<E> {
         })
     }
 
-    /// SCOTT
     pub fn proposer_slashing(
         &self,
         proposer_slashing: ProposerSlashing,
