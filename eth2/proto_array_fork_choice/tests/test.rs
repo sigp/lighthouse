@@ -1,6 +1,51 @@
 use proto_array_fork_choice::ProtoArrayForkChoice;
 use types::{Epoch, Hash256, Slot};
 
+pub enum Operation {
+    FindHead {
+        justified_epoch: Epoch,
+        justified_root: Epoch,
+        finalized_epoch: Epoch,
+        justified_state_balances: Vec<u64>,
+        expected_head: Hash256,
+    },
+    ProcessBlock {
+        slot: Slot,
+        root: Hash256,
+        parent_root: Hash256,
+        justified_epoch: Epoch,
+        finalized_epoch: Epoch,
+    },
+    ProcessAttestation {
+        validator_index: usize,
+        block_root: Hash256,
+        target_epoch: Epoch,
+    },
+}
+
+pub struct ForkChoiceTester {
+    fork_choice: ProtoArrayForkChoice,
+}
+
+impl ForkChoiceTester {
+    pub fn new(
+        finalized_block_slot: Slot,
+        justified_epoch: Epoch,
+        finalized_epoch: Epoch,
+        finalized_root: Hash256,
+    ) -> Self {
+        Self {
+            fork_choice: ProtoArrayForkChoice::new(
+                finalized_block_slot,
+                justified_epoch,
+                finalized_epoch,
+                finalized_root,
+            )
+            .expect("should create fork choice"),
+        }
+    }
+}
+
 /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
 fn get_hash(i: u64) -> Hash256 {
     Hash256::from_low_u64_be(i)
