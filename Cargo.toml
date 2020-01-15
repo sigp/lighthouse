@@ -44,6 +44,7 @@ members = [
     "lcli",
     "validator_client",
     "validator_client/rest_api",
+    "validator_client/validator_store",
     "account_manager",
     "lighthouse",
     "lighthouse/environment"

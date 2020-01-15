@@ -1,3 +1,6 @@
+pub mod fork_service;
+pub mod validator_directory;
+
 use crate::fork_service::ForkService;
 use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
 use parking_lot::RwLock;

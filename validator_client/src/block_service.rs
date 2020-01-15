@@ -1,4 +1,4 @@
-use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
+use crate::duties_service::DutiesService;
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{stream, Future, IntoFuture, Stream};
@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
 use types::{ChainSpec, EthSpec};
+use validator_store::ValidatorStore;
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);

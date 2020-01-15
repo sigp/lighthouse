@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-validator_client = {path = "../../validator_client"}
+# validator_client = {path = "../../validator_store"}
 eth2_ssz = "0.1.2"
 types = { path = "../../eth2/types" }
 serde = "1.0.102"

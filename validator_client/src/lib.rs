@@ -3,11 +3,9 @@ mod block_service;
 mod cli;
 mod config;
 mod duties_service;
-mod fork_service;
 mod notifier;
-mod validator_store;
 
-pub mod validator_directory;
+pub use validator_store::validator_directory;
 
 pub use cli::cli_app;
 pub use config::{Config, KeySource};
@@ -18,7 +16,6 @@ use clap::ArgMatches;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
 use exit_future::Signal;
-use fork_service::{ForkService, ForkServiceBuilder};
 use futures::{
     future::{self, loop_fn, Loop},
     Future, IntoFuture,
@@ -32,6 +29,7 @@ use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::timer::Delay;
 use types::EthSpec;
+use validator_store::fork_service::{ForkService, ForkServiceBuilder};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.

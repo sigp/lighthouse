@@ -1,7 +1,4 @@
-use crate::{
-    duties_service::{DutiesService, ValidatorDuty},
-    validator_store::ValidatorStore,
-};
+use crate::duties_service::{DutiesService, ValidatorDuty};
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{Future, Stream};
@@ -14,6 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
 use types::{ChainSpec, CommitteeIndex, EthSpec, Slot};
+use validator_store::ValidatorStore;
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T, E: EthSpec> {

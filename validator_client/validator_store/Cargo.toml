@@ -1,0 +1,28 @@
+[package]
+name = "validator_store"
+version = "0.1.0"
+authors = ["pawan <pawandhananjay@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+libc = "0.2.65"
+slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
+eth2_ssz = "0.1.2"
+tree_hash = "0.1.0"
+slot_clock = { path = "../../eth2/utils/slot_clock" }
+types = { path = "../../eth2/types" }
+eth2_ssz_derive = { path = "../../eth2/utils/ssz_derive" }
+hex = "0.3"
+deposit_contract = { path = "../../eth2/utils/deposit_contract" }
+bls = { path = "../../eth2/utils/bls" }
+exit-future = "0.1.4"
+tempdir = "0.3"
+parking_lot = "0.7"
+futures = "0.1.29"
+remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }
+tokio-timer = "0.2.12"
+tokio = "0.1.22"
+environment = { path = "../../lighthouse/environment" }
+rayon = "1.2.0"
