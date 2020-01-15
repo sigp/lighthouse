@@ -289,6 +289,18 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// Observe the parent at `parent_index` with respect to the child at `child_index` and
+    /// potentially modify the `parent.best_child` and `parent.best_descendant` values.
+    ///
+    /// ## Detail
+    ///
+    /// There are four outcomes:
+    ///
+    /// - The child is already the best child but it's now invalid due to a FFG change and should be removed.
+    /// - The child is already the best child and the parent is updated with the new
+    ///     best-descendant.
+    /// - The child is not the best child but becomes the best child.
+    /// - The child is not the best child and does not become the best child.
     fn maybe_update_best_child_and_descendant(
         &mut self,
         parent_index: usize,
@@ -306,6 +318,10 @@ impl ProtoArray {
 
         let child_leads_to_viable_head = self.node_leads_to_viable_head(&child)?;
 
+        // These three variables are aliases to the three options that we may set the
+        // `parent.best_child` and `parent.best_descendant` to.
+        //
+        // I use the aliases to assist readability.
         let change_to_none = (None, None);
         let change_to_child = (
             Some(child_index),
@@ -316,8 +332,12 @@ impl ProtoArray {
         let (new_best_child, new_best_descendant) =
             if let Some(best_child_index) = parent.best_child {
                 if best_child_index == child_index && !child_leads_to_viable_head {
+                    // If the child is already the best-child of the parent but it's not viable for
+                    // the head, remove it.
                     change_to_none
                 } else if best_child_index == child_index {
+                    // If the child is the best-child already, set it again to ensure that the
+                    // best-descendant of the parent is updated.
                     change_to_child
                 } else {
                     let best_child = self
@@ -330,16 +350,20 @@ impl ProtoArray {
                         self.node_leads_to_viable_head(&best_child)?;
 
                     if child_leads_to_viable_head && !best_child_leads_to_viable_head {
+                        // The child leads to a viable head, but the current best-child doesn't.
                         change_to_child
                     } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
+                        // The best child leads to a viable head, but the child doesn't.
                         no_change
                     } else if child.weight == best_child.weight {
+                        // Tie-breaker of equal weights by root.
                         if child.root >= best_child.root {
                             change_to_child
                         } else {
                             no_change
                         }
                     } else {
+                        // Choose the winner by weight.
                         if child.weight >= best_child.weight {
                             change_to_child
                         } else {
@@ -349,8 +373,10 @@ impl ProtoArray {
                 }
             } else {
                 if child_leads_to_viable_head {
+                    // There is no current best-child and the child is viable.
                     change_to_child
                 } else {
+                    // There is no current-best child but the child is not viable.
                     no_change
                 }
             };
@@ -365,6 +391,8 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// Indicates if the node itself is viable for the head, or if it's best descendant is viable
+    /// for the head.
     fn node_leads_to_viable_head(&self, node: &ProtoNode) -> Result<bool, Error> {
         let best_descendant_is_viable_for_head =
             if let Some(best_descendant_index) = node.best_descendant {
