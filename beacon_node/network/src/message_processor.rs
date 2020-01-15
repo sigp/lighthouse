@@ -120,6 +120,16 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     /// Sends a `Status` message to the peer.
     pub fn on_connect(&mut self, peer_id: PeerId) {
         if let Some(status_message) = status_message(&self.chain) {
+            debug!(
+                self.log,
+                "Sending Status Request";
+                "peer" => format!("{:?}", peer_id),
+                "fork_version" => format!("{:?}", status_message.fork_version),
+                "finalized_root" => format!("{:?}", status_message.finalized_root),
+                "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
+                "head_root" => format!("{}", status_message.head_root),
+                "head_slot" => format!("{}", status_message.head_slot),
+            );
             self.network
                 .send_rpc_request(peer_id, RPCRequest::Status(status_message));
         }
@@ -134,9 +144,18 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         request_id: RequestId,
         status: StatusMessage,
     ) {
-        // ignore status responses if we are shutting down
-        trace!(self.log, "StatusRequest"; "peer" => format!("{:?}", peer_id));
+        debug!(
+            self.log,
+            "Received Status Request";
+            "peer" => format!("{:?}", peer_id),
+            "fork_version" => format!("{:?}", status.fork_version),
+            "finalized_root" => format!("{:?}", status.finalized_root),
+            "finalized_epoch" => format!("{:?}", status.finalized_epoch),
+            "head_root" => format!("{}", status.head_root),
+            "head_slot" => format!("{}", status.head_slot),
+        );
 
+        // ignore status responses if we are shutting down
         if let Some(status_message) = status_message(&self.chain) {
             // Say status back.
             self.network.send_rpc_response(
@@ -550,7 +569,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 }
                 AttestationProcessingOutcome::UnknownHeadBlock { beacon_block_root } => {
                     // TODO: Maintain this attestation and re-process once sync completes
-                    debug!(
+                    trace!(
                     self.log,
                     "Attestation for unknown block";
                     "peer_id" => format!("{:?}", peer_id),
