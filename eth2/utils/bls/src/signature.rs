@@ -82,7 +82,7 @@ impl Signature {
             if *byte != 0 {
                 let raw_signature = RawSignature::from_bytes(&bytes).map_err(|_| {
                     DecodeError::BytesInvalid(
-                        format!("Invalid Signature bytes: {:?}", bytes).to_string(),
+                        format!("Invalid Signature bytes: {:?}", bytes),
                     )
                 })?;
                 return Ok(Signature {
