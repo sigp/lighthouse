@@ -357,19 +357,23 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         finalized_block: &BeaconBlock<T::EthSpec>,
         finalized_block_root: Hash256,
     ) -> Result<()> {
-        // Only prune if it won't remove our current justified epoch.
-        if self.justification_manager.read().justified_checkpoint.epoch
-            >= finalized_block.slot.epoch(T::EthSpec::slots_per_epoch())
-        {
-            self.backend
-                .update_finalized_root(
-                    finalized_block.slot.epoch(T::EthSpec::slots_per_epoch()),
-                    finalized_block_root,
-                )
-                .map_err(Into::into)
-        } else {
-            Ok(())
-        }
+        let epoch = finalized_block.slot.epoch(T::EthSpec::slots_per_epoch());
+
+        // TODO: be more stringent about changing the finalized checkpoint (i.e., check for
+        // reversion and stuff).
+        if epoch > self.finalized_checkpoint.read().epoch {
+            *self.finalized_checkpoint.write() = Checkpoint {
+                epoch,
+                root: finalized_block_root,
+            };
+        };
+
+        self.backend
+            .update_finalized_root(
+                self.finalized_checkpoint.read().epoch,
+                self.finalized_checkpoint.read().root,
+            )
+            .map_err(Into::into)
     }
 
     /// Returns a `SszForkChoice` which contains the current state of `Self`.
