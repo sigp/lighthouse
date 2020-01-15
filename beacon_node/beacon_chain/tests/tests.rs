@@ -391,7 +391,7 @@ fn free_attestations_added_to_fork_choice_some_none() {
         if slot <= num_blocks_produced && slot != 0 {
             assert_eq!(
                 latest_message.unwrap().1,
-                slot,
+                slot.epoch(MinimalEthSpec::slots_per_epoch()),
                 "Latest message slot for {} should be equal to slot {}.",
                 validator,
                 slot
@@ -483,7 +483,7 @@ fn free_attestations_added_to_fork_choice_all_updated() {
 
         assert_eq!(
             latest_message.unwrap().1,
-            slot,
+            slot.epoch(MinimalEthSpec::slots_per_epoch()),
             "Latest message slot should be equal to attester duty."
         );
 
