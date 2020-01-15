@@ -285,7 +285,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
                 .backend
                 .contains_block(&attestation.data.beacon_block_root)
             {
-                self.process_attestation(state, attestation, block)?;
+                self.process_attestation(state, attestation)?;
             }
         }
 
@@ -311,7 +311,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         &self,
         state: &BeaconState<T::EthSpec>,
         attestation: &Attestation<T::EthSpec>,
-        block: &BeaconBlock<T::EthSpec>,
     ) -> Result<()> {
         let timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
@@ -340,7 +339,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
                 self.backend.process_attestation(
                     validator_index,
                     block_hash,
-                    block.slot.epoch(T::EthSpec::slots_per_epoch()),
+                    attestation.data.target.epoch,
                 )?;
             }
         }

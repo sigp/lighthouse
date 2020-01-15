@@ -130,14 +130,14 @@ impl ProtoArrayForkChoice {
         &self,
         validator_index: usize,
         block_root: Hash256,
-        block_epoch: Epoch,
+        target_epoch: Epoch,
     ) -> Result<(), String> {
         let mut votes = self.votes.write();
         let vote = votes.get_mut(validator_index);
 
-        if block_epoch > vote.next_epoch || *vote == VoteTracker::default() {
+        if target_epoch > vote.next_epoch || *vote == VoteTracker::default() {
             vote.next_root = block_root;
-            vote.next_epoch = block_epoch;
+            vote.next_epoch = target_epoch;
         }
 
         Ok(())

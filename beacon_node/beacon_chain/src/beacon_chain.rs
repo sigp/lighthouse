@@ -1057,10 +1057,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             {
                 // Provide the attestation to fork choice, updating the validator latest messages but
                 // _without_ finding and updating the head.
-                if let Err(e) = self
-                    .fork_choice
-                    .process_attestation(&state, &attestation, block)
-                {
+                if let Err(e) = self.fork_choice.process_attestation(&state, &attestation) {
                     error!(
                         self.log,
                         "Add attestation to fork choice failed";
