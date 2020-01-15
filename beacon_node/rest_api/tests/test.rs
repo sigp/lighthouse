@@ -16,9 +16,8 @@ use types::{
         build_double_vote_attester_slashing, build_proposer_slashing,
         generate_deterministic_keypair, AttesterSlashingTestTask, ProposerSlashingTestTask,
     },
-    AggregateSignature, AttestationData, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec,
-    Checkpoint, Domain, Epoch, EthSpec, Hash256, IndexedAttestation, MinimalEthSpec,
-    ProposerSlashing, PublicKey, RelativeEpoch, Signature, Slot, Validator, VariableList,
+    BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec, PublicKey,
+    RelativeEpoch, Signature, Slot, Validator,
 };
 use version;
 
@@ -814,7 +813,6 @@ fn compare_validator_response<T: EthSpec>(
     assert_eq!(state.validators[i], *validator, "validator index");
 }
 
-// Add tests for slashing insertion (proposer and attesters)
 #[test]
 fn proposer_slashing() {
     let mut env = build_env();
@@ -868,23 +866,20 @@ fn proposer_slashing() {
     assert_eq!(proposer_slashings.len(), 1);
     assert_eq!(proposer_slashing.clone(), proposer_slashings[0]);
 
-    let mut block_1: BeaconBlock<E> = BeaconBlock::empty(spec);
-    block_1.sign(&key, fork, spec);
-    let header_1 = block_1.block_header();
-    let block_2 = block_1;
-    let header_2 = block_2.block_header();
-
-    let fake_proposer_slashing = ProposerSlashing {
-        proposer_index: 0u64,
-        header_1,
-        header_2,
-    };
+    let mut invalid_proposer_slashing = build_proposer_slashing::<E>(
+        ProposerSlashingTestTask::Valid,
+        proposer_index as u64,
+        &key,
+        fork,
+        spec,
+    );
+    invalid_proposer_slashing.header_2 = invalid_proposer_slashing.header_1.clone();
 
     let result = env.runtime().block_on(
         remote_node
             .http
             .beacon()
-            .proposer_slashing(fake_proposer_slashing),
+            .proposer_slashing(invalid_proposer_slashing),
     );
     assert!(result.is_err());
 
@@ -921,7 +916,7 @@ fn attester_slashing() {
     let validator_indices = vec![proposer_index as u64];
     let fork = &state.fork;
 
-    // Checking there are no attester slashing before insertion
+    // Checking there are no attester slashings before insertion
     let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
     assert_eq!(attester_slashings.len(), 0);
 
@@ -949,35 +944,21 @@ fn attester_slashing() {
     assert_eq!(attester_slashings.len(), 1);
     assert_eq!(attester_slashing, attester_slashings[0]);
 
-    let indexed_attest_1 = IndexedAttestation {
-        attesting_indices: VariableList::new(vec![]).expect("should have created variable list"),
-        data: AttestationData {
-            slot: Slot::from(0u64),
-            index: 0,
-            beacon_block_root: Hash256::random(),
-            source: Checkpoint {
-                epoch: Epoch::from(0u64),
-                root: Hash256::random(),
-            },
-            target: Checkpoint {
-                epoch: Epoch::from(1u64),
-                root: Hash256::random(),
-            },
-        },
-        signature: AggregateSignature::new(),
-    };
-    let indexed_attest_2 = indexed_attest_1.clone();
-
-    let new_attester_slashing = AttesterSlashing {
-        attestation_1: indexed_attest_1,
-        attestation_2: indexed_attest_2,
-    };
+    // Building an invalid attester slashing
+    let mut invalid_attester_slashing = build_double_vote_attester_slashing(
+        AttesterSlashingTestTask::Valid,
+        &validator_indices[..],
+        &secret_keys[..],
+        fork,
+        spec,
+    );
+    invalid_attester_slashing.attestation_2 = invalid_attester_slashing.attestation_1.clone();
 
     let result = env.runtime().block_on(
         remote_node
             .http
             .beacon()
-            .attester_slashing(new_attester_slashing),
+            .attester_slashing(invalid_attester_slashing),
     );
     assert!(result.is_err());
 
