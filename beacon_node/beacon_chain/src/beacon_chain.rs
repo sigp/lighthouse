@@ -954,13 +954,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Only log a warning if our head is in a reasonable place to verify this attestation.
             // This avoids excess logging during syncing.
             if head_epoch + 1 >= attestation_epoch {
-                debug!(
+                trace!(
                     self.log,
                     "Dropped attestation for unknown block";
                     "block" => format!("{}", attestation.data.beacon_block_root)
                 );
             } else {
-                debug!(
+                trace!(
                     self.log,
                     "Dropped attestation for unknown block";
                     "block" => format!("{}", attestation.data.beacon_block_root)
