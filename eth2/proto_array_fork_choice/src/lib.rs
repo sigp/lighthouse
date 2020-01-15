@@ -29,14 +29,16 @@ pub enum Error {
         deltas: usize,
         indices: usize,
     },
-    RevertedFinalizedEpoch,
+    RevertedFinalizedEpoch {
+        current_finalized_epoch: Epoch,
+        new_finalized_epoch: Epoch,
+    },
     InvalidBestNode {
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
         node_justified_epoch: Epoch,
         node_finalized_epoch: Epoch,
     },
-    BestDescendantWithoutBestChild,
 }
 
 #[derive(Default, PartialEq, Clone, Encode, Decode)]
