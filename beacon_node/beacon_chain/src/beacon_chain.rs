@@ -614,19 +614,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|(root, _slot)| root))
     }
 
-    /// Reads the slot clock (see `self.read_slot_clock()` and returns the number of slots since
-    /// genesis.
-    pub fn slots_since_genesis(&self) -> Option<SlotHeight> {
-        let now = self.slot().ok()?;
-        let genesis_slot = self.spec.genesis_slot;
-
-        if now < genesis_slot {
-            None
-        } else {
-            Some(SlotHeight::from(now.as_u64() - genesis_slot.as_u64()))
-        }
-    }
-
     /// Returns the block proposer for a given slot.
     ///
     /// Information is read from the present `beacon_state` shuffling, only information from the

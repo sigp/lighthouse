@@ -5,32 +5,19 @@ use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::{SignedRoot, TreeHash};
-use tree_hash_derive::{SignedRoot, TreeHash};
+use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 ///
 /// Spec v0.9.1
-#[derive(
-    Debug,
-    PartialEq,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    SignedRoot,
-)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct BeaconBlock<T: EthSpec> {
     pub slot: Slot,
     pub parent_root: Hash256,
     pub state_root: Hash256,
     pub body: BeaconBlockBody<T>,
-    #[signed_root(skip_hashing)]
-    pub signature: Signature,
 }
 
 impl<T: EthSpec> BeaconBlock<T> {
@@ -56,7 +43,6 @@ impl<T: EthSpec> BeaconBlock<T> {
                 deposits: VariableList::empty(),
                 voluntary_exits: VariableList::empty(),
             },
-            signature: Signature::empty_signature(),
         }
     }
 
@@ -86,7 +72,6 @@ impl<T: EthSpec> BeaconBlock<T> {
             parent_root: self.parent_root,
             state_root: self.state_root,
             body_root: Hash256::from_slice(&self.body.tree_hash_root()[..]),
-            signature: self.signature.clone(),
         }
     }
 
@@ -96,7 +81,6 @@ impl<T: EthSpec> BeaconBlock<T> {
     pub fn temporary_block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             state_root: Hash256::zero(),
-            signature: Signature::empty_signature(),
             ..self.block_header()
         }
     }

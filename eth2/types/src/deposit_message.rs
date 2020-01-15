@@ -13,15 +13,14 @@ use tree_hash_derive::TreeHash;
 ///
 /// Spec v0.9.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
-pub struct DepositData {
+pub struct DepositMessage {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
     pub amount: u64,
-    pub signature: SignatureBytes,
 }
 
-impl DepositData {
-    /// Generate the signature for a given DepositData details.
+impl DepositMessage {
+    /// Generate the signature for a given DepositMessage details.
     ///
     /// Spec v0.9.1
     pub fn create_signature(&self, secret_key: &SecretKey, spec: &ChainSpec) -> SignatureBytes {
@@ -36,5 +35,5 @@ impl DepositData {
 mod tests {
     use super::*;
 
-    ssz_tests!(DepositData);
+    ssz_tests!(DepositMessage);
 }

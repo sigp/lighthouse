@@ -10,15 +10,12 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     /*
      * Constants
      */
+    type GenesisEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type JustificationBitsLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default;
     /*
      * Misc
      */
     type MaxValidatorsPerCommittee: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    /*
-     * Initial values
-     */
-    type GenesisEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Time parameters
      */

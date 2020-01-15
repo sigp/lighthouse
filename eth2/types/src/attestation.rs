@@ -8,7 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::{SignedRoot, TreeHash};
+use tree_hash_derive::TreeHash;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -19,23 +19,11 @@ pub enum Error {
 /// Details an attestation that can be slashable.
 ///
 /// Spec v0.9.1
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    SignedRoot,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct Attestation<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
-    #[signed_root(skip_hashing)]
     pub signature: AggregateSignature,
 }
 

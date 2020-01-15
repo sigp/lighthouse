@@ -19,6 +19,7 @@ pub mod chain_spec;
 pub mod checkpoint;
 pub mod deposit;
 pub mod deposit_data;
+pub mod deposit_message;
 pub mod eth1_data;
 pub mod eth_spec;
 pub mod fork;
@@ -27,15 +28,17 @@ pub mod historical_batch;
 pub mod indexed_attestation;
 pub mod pending_attestation;
 pub mod proposer_slashing;
+pub mod relative_epoch;
+pub mod signed_beacon_block;
+pub mod signed_beacon_block_header;
+pub mod signed_voluntary_exit;
 pub mod utils;
+pub mod validator;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
-pub mod relative_epoch;
 pub mod slot_epoch;
-pub mod slot_height;
 mod tree_hash_impls;
-pub mod validator;
 
 use ethereum_types::{H160, H256};
 
@@ -60,8 +63,10 @@ pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
+pub use crate::signed_beacon_block::SignedBeaconBlock;
+pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
+pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::slot_epoch::{Epoch, Slot};
-pub use crate::slot_height::SlotHeight;
 pub use crate::validator::Validator;
 pub use crate::voluntary_exit::VoluntaryExit;
 

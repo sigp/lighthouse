@@ -23,11 +23,11 @@ pub struct ChainSpec {
     /*
      * Constants
      */
+    pub genesis_slot: Slot,
     #[serde(skip_serializing)] // skipped because Serde TOML has trouble with u64::max
     pub far_future_epoch: Epoch,
     pub base_rewards_per_epoch: u64,
     pub deposit_contract_tree_depth: u64,
-    pub seconds_per_day: u64,
 
     /*
      * Misc
@@ -51,20 +51,20 @@ pub struct ChainSpec {
     /*
      * Initial Values
      */
-    pub genesis_slot: Slot,
     #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
     pub bls_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
      */
+    pub min_genesis_delay: u64,
     pub milliseconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
+    pub min_epochs_to_inactivity_penalty: u64,
     pub min_validator_withdrawability_delay: Epoch,
     pub persistent_committee_period: u64,
-    pub min_epochs_to_inactivity_penalty: u64,
 
     /*
      * Reward and penalty quotients
@@ -153,10 +153,10 @@ impl ChainSpec {
             /*
              * Constants
              */
+            genesis_slot: Slot::new(0),
             far_future_epoch: Epoch::new(u64::max_value()),
             base_rewards_per_epoch: 4,
             deposit_contract_tree_depth: 32,
-            seconds_per_day: 86400,
 
             /*
              * Misc
@@ -166,7 +166,7 @@ impl ChainSpec {
             min_per_epoch_churn_limit: 4,
             churn_limit_quotient: 65_536,
             shuffle_round_count: 90,
-            min_genesis_active_validator_count: 65_536,
+            min_genesis_active_validator_count: 16_384,
             min_genesis_time: 1_578_009_600, // Jan 3, 2020
 
             /*
@@ -180,19 +180,19 @@ impl ChainSpec {
             /*
              * Initial Values
              */
-            genesis_slot: Slot::new(0),
             bls_withdrawal_prefix_byte: 0,
 
             /*
              * Time parameters
              */
+            min_genesis_delay: 86400, // 1 day
             milliseconds_per_slot: 12_000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
+            min_epochs_to_inactivity_penalty: 4,
             min_validator_withdrawability_delay: Epoch::new(256),
             persistent_committee_period: 2_048,
-            min_epochs_to_inactivity_penalty: 4,
 
             /*
              * Reward and penalty quotients
@@ -330,7 +330,6 @@ pub struct YamlConfig {
     far_future_epoch: u64,
     base_rewards_per_epoch: u64,
     deposit_contract_tree_depth: u64,
-    seconds_per_day: u64,
     max_committees_per_slot: usize,
     target_committee_size: usize,
     min_per_epoch_churn_limit: u64,
@@ -349,9 +348,9 @@ pub struct YamlConfig {
     min_attestation_inclusion_delay: u64,
     min_seed_lookahead: u64,
     max_seed_lookahead: u64,
+    min_epochs_to_inactivity_penalty: u64,
     min_validator_withdrawability_delay: u64,
     persistent_committee_period: u64,
-    min_epochs_to_inactivity_penalty: u64,
     base_reward_factor: u64,
     whistleblower_reward_quotient: u64,
     proposer_reward_quotient: u64,
@@ -455,7 +454,6 @@ impl YamlConfig {
             far_future_epoch: spec.far_future_epoch.into(),
             base_rewards_per_epoch: spec.base_rewards_per_epoch,
             deposit_contract_tree_depth: spec.deposit_contract_tree_depth,
-            seconds_per_day: spec.seconds_per_day,
             max_committees_per_slot: spec.max_committees_per_slot,
             target_committee_size: spec.target_committee_size,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
@@ -553,7 +551,6 @@ impl YamlConfig {
             far_future_epoch: Epoch::from(self.far_future_epoch),
             base_rewards_per_epoch: self.base_rewards_per_epoch,
             deposit_contract_tree_depth: self.deposit_contract_tree_depth,
-            seconds_per_day: self.seconds_per_day,
             target_committee_size: self.target_committee_size,
             min_per_epoch_churn_limit: self.min_per_epoch_churn_limit,
             churn_limit_quotient: self.churn_limit_quotient,

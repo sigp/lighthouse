@@ -3,31 +3,19 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::{SignedRoot, TreeHash};
+use tree_hash_derive::TreeHash;
 
 /// Details an attestation that can be slashable.
 ///
 /// To be included in an `AttesterSlashing`.
 ///
 /// Spec v0.9.1
-#[derive(
-    Debug,
-    PartialEq,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    SignedRoot,
-)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
     pub attesting_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
-    #[signed_root(skip_hashing)]
     pub signature: AggregateSignature,
 }
 
