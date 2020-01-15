@@ -20,6 +20,7 @@ pub enum Error {
     BeaconStateError(BeaconStateError),
     StoreError(StoreError),
     BeaconChainError(Box<BeaconChainError>),
+    UnknownBlockSlot(Hash256),
 }
 
 #[derive(PartialEq, Clone, Encode, Decode)]
@@ -91,6 +92,7 @@ impl JustificationManager {
         &mut self,
         state: &BeaconState<T::EthSpec>,
         chain: &BeaconChain<T>,
+        proto_array: &ProtoArrayForkChoice,
     ) -> Result<()> {
         let new_checkpoint = &state.current_justified_checkpoint;
 
@@ -115,12 +117,18 @@ impl JustificationManager {
                     .start_slot(T::EthSpec::slots_per_epoch()),
             )?;
 
+            let new_justified_block_slot = proto_array
+                .block_slot(&new_checkpoint.root)
+                .ok_or_else(|| Error::UnknownBlockSlot(new_checkpoint.root))?;
+
             // If the new justified checkpoint is an ancestor of the current justified checkpoint,
             // it is always safe to change it.
-            //
-            // TODO: check the slot of the block to see if we can update it. Might involve DB read
-            // or maybe we can add it to proto-array.
-            if new_checkpoint_ancestor == Some(self.justified_checkpoint.root) {
+            if new_checkpoint_ancestor == Some(self.justified_checkpoint.root)
+                && new_justified_block_slot
+                    >= new_checkpoint
+                        .epoch
+                        .start_slot(T::EthSpec::slots_per_epoch())
+            {
                 self.justified_checkpoint = new_checkpoint_balances.clone()
             }
 
@@ -236,7 +244,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
                 justified_checkpoint.epoch,
                 remove_alias(justified_checkpoint.root),
                 finalized_checkpoint.epoch,
-                remove_alias(finalized_checkpoint.root),
                 &justified_checkpoint.balances,
             )
             .map_err(Into::into);
@@ -261,7 +268,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
         self.justification_manager
             .write()
-            .process_state(state, chain)?;
+            .process_state(state, chain, &self.backend)?;
         self.justification_manager.write().update(chain)?;
 
         // TODO: be more stringent about changing the finalized checkpoint (i.e., check for
@@ -285,6 +292,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
         self.backend.process_block(
+            block.slot,
             block_root,
             block.parent_root,
             state.current_justified_checkpoint.epoch,

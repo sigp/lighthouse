@@ -7,7 +7,7 @@ use ssz::{Decode, Encode};
 use ssz_container::SszContainer;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{Epoch, Hash256};
+use types::{Epoch, Hash256, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
@@ -96,6 +96,7 @@ impl PartialEq for ProtoArrayForkChoice {
 
 impl ProtoArrayForkChoice {
     pub fn new(
+        finalized_block_slot: Slot,
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
         finalized_root: Hash256,
@@ -110,7 +111,13 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_new_block(finalized_root, None, justified_epoch, finalized_epoch)
+            .on_new_block(
+                finalized_block_slot,
+                finalized_root,
+                None,
+                justified_epoch,
+                finalized_epoch,
+            )
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
@@ -139,6 +146,7 @@ impl ProtoArrayForkChoice {
 
     pub fn process_block(
         &self,
+        slot: Slot,
         block_root: Hash256,
         parent_root: Hash256,
         justified_epoch: Epoch,
@@ -147,6 +155,7 @@ impl ProtoArrayForkChoice {
         self.proto_array
             .write()
             .on_new_block(
+                slot,
                 block_root,
                 Some(parent_root),
                 justified_epoch,
@@ -160,7 +169,6 @@ impl ProtoArrayForkChoice {
         justified_epoch: Epoch,
         justified_root: Hash256,
         finalized_epoch: Epoch,
-        finalized_root: Hash256,
         justified_state_balances: &[u64],
     ) -> Result<Hash256, String> {
         let mut proto_array = self.proto_array.write();
@@ -209,6 +217,15 @@ impl ProtoArrayForkChoice {
 
     pub fn contains_block(&self, block_root: &Hash256) -> bool {
         self.proto_array.read().indices.contains_key(block_root)
+    }
+
+    pub fn block_slot(&self, block_root: &Hash256) -> Option<Slot> {
+        let proto_array = self.proto_array.read();
+
+        let i = proto_array.indices.get(block_root)?;
+        let block = proto_array.nodes.get(*i)?;
+
+        Some(block.slot)
     }
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {

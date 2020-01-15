@@ -1,10 +1,13 @@
 use crate::Error;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{Epoch, Hash256};
+use types::{Epoch, Hash256, Slot};
 
 #[derive(Clone, PartialEq, Debug, Encode, Decode)]
 pub struct ProtoNode {
+    /// The `slot` is not necessary for `ProtoArray`, it just exists so external components can
+    /// easily query the block slot. This is useful for upstream fork choice logic.
+    pub slot: Slot,
     root: Hash256,
     parent: Option<usize>,
     justified_epoch: Epoch,
@@ -131,6 +134,7 @@ impl ProtoArray {
     /// It is only sane to supply a `None` parent for the genesis block.
     pub fn on_new_block(
         &mut self,
+        slot: Slot,
         root: Hash256,
         parent_opt: Option<Hash256>,
         justified_epoch: Epoch,
@@ -139,6 +143,7 @@ impl ProtoArray {
         let node_index = self.nodes.len();
 
         let node = ProtoNode {
+            slot,
             root,
             parent: parent_opt.and_then(|parent| self.indices.get(&parent).copied()),
             justified_epoch,
@@ -376,7 +381,7 @@ impl ProtoArray {
                     // There is no current best-child and the child is viable.
                     change_to_child
                 } else {
-                    // There is no current-best child but the child is not viable.
+                    // There is no current best-child but the child is not viable.
                     no_change
                 }
             };
@@ -388,6 +393,7 @@ impl ProtoArray {
 
         parent.best_child = new_best_child;
         parent.best_descendant = new_best_descendant;
+
         Ok(())
     }
 

@@ -391,6 +391,7 @@ where
                 .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
 
             let backend = ProtoArrayForkChoice::new(
+                finalized_checkpoint.beacon_block.slot,
                 // Note: here we set the `justified_epoch` to be the same as the epoch of the
                 // finalized checkpoint. Whilst this finalized checkpoint may actually point to
                 // a _later_ justified checkpoint, that checkpoint won't yet exist in the fork
