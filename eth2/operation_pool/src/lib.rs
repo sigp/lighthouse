@@ -148,7 +148,7 @@ impl<T: EthSpec> OperationPool<T> {
     ) -> Result<(), ProposerSlashingValidationError> {
         // TODO: should maybe insert anyway if the proposer is unknown in the validator index,
         // because they could *become* known later
-        verify_proposer_slashing(&slashing, state, VerifySignatures::False, spec)?;
+        verify_proposer_slashing(&slashing, state, VerifySignatures::True, spec)?;
         self.proposer_slashings
             .write()
             .insert(slashing.proposer_index, slashing);
