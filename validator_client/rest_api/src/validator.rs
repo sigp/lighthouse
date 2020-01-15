@@ -1,13 +1,13 @@
 use super::errors::{ApiError, ApiResult, BoxFut};
 use super::response_builder::ResponseBuilder;
-use crate::ProductionValidatorClient;
 use hyper::{Body, Request};
 use std::sync::Arc;
 use types::EthSpec;
+use validator_store::ValidatorStore;
 
-pub fn get_validators<T: EthSpec>(
+pub fn get_validators<T, E: EthSpec>(
     req: Request<Body>,
-    validator_client: Arc<ProductionValidatorClient<T>>,
+    validator_client: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     unimplemented!()
     // let service = validator_client.duties_service.clone();
@@ -15,51 +15,51 @@ pub fn get_validators<T: EthSpec>(
     // ResponseBuilder::new(&req)?.body(&validators)
 }
 
-pub fn create_validator<T: EthSpec>(
+pub fn create_validator<T, E: EthSpec>(
     req: Request<Body>,
-    validator_client: Arc<ProductionValidatorClient<T>>,
+    validator_client: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     unimplemented!()
 }
 
-pub fn add_new_validator<T: EthSpec>(
+pub fn add_new_validator<T, E: EthSpec>(
     req: Request<Body>,
-    validator_client: Arc<ProductionValidatorClient<T>>,
+    validator_client: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     unimplemented!()
 }
 
-pub fn remove_validator<T: EthSpec>(
+pub fn remove_validator<T, E: EthSpec>(
     req: Request<Body>,
-    validator_client: Arc<ProductionValidatorClient<T>>,
+    validator_client: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     unimplemented!()
 }
 
-pub fn start_validator<T: EthSpec>(
+pub fn start_validator<T, E: EthSpec>(
     req: Request<Body>,
-    validator_client: Arc<ProductionValidatorClient<T>>,
+    validator_client: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     unimplemented!()
 }
 
-pub fn stop_validator<T: EthSpec>(
+pub fn stop_validator<T, E: EthSpec>(
     req: Request<Body>,
-    validator_client: Arc<ProductionValidatorClient<T>>,
+    validator_client: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     unimplemented!()
 }
 
-pub fn exit_validator<T: EthSpec>(
+pub fn exit_validator<T, E: EthSpec>(
     req: Request<Body>,
-    validator_client: Arc<ProductionValidatorClient<T>>,
+    validator_client: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     unimplemented!()
 }
 
-pub fn withdraw_validator<T: EthSpec>(
+pub fn withdraw_validator<T, E: EthSpec>(
     req: Request<Body>,
-    validator_client: Arc<ProductionValidatorClient<T>>,
+    validator_client: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     unimplemented!()
 }

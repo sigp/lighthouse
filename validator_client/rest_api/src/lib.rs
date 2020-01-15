@@ -11,19 +11,22 @@ use hyper::rt::Future;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
+use remote_beacon_node::RemoteBeaconNode;
 use slog::{info, warn};
+use slot_clock::SlotClock;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use types::EthSpec;
-use validator_client::ProductionValidatorClient;
+use validator_store::ValidatorStore;
 
 pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 
-pub fn start_server<T: EthSpec>(
+pub fn start_server<T: SlotClock + 'static, E: EthSpec>(
     config: &Config,
     executor: &TaskExecutor,
-    validator_client: Arc<ProductionValidatorClient<T>>,
+    validator_client: Arc<ValidatorStore<T, E>>,
+    beacon_node: Arc<RemoteBeaconNode<E>>,
     log: slog::Logger,
 ) -> Result<(exit_future::Signal, SocketAddr), hyper::Error> {
     let inner_log = log.clone();
@@ -31,10 +34,16 @@ pub fn start_server<T: EthSpec>(
     // Define the function that will build the request handler.
     let make_service = make_service_fn(move |_socket: &AddrStream| {
         let validator_client = validator_client.clone();
+        let beacon_node = beacon_node.clone();
         let log = inner_log.clone();
 
         service_fn(move |req: Request<Body>| {
-            router::route(req, validator_client.clone(), log.clone())
+            router::route(
+                req,
+                validator_client.clone(),
+                beacon_node.clone(),
+                log.clone(),
+            )
         })
     });
 

@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# validator_client = {path = "../../validator_store"}
+validator_store = {path = "../validator_store"}
 eth2_ssz = "0.1.2"
 types = { path = "../../eth2/types" }
 serde = "1.0.102"
@@ -15,6 +15,7 @@ serde_derive = "1.0.102"
 serde_json = "1.0.41"
 serde_yaml = "0.8.11"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
+slot_clock = { path = "../../eth2/utils/slot_clock" }
 slog-async = "2.3.0"
 slog-term = "2.4.2"
 tokio = "0.1.22"
@@ -26,6 +27,7 @@ eth2_ssz_derive = { path = "../../eth2/utils/ssz_derive" }
 bls = { path = "../../eth2/utils/bls" }
 http = "0.1"
 hyper = "0.12"
+remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }
 
 [dev-dependencies]
 remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }

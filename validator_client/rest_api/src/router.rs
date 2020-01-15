@@ -2,12 +2,13 @@ use super::errors::ApiError;
 use super::errors::BoxFut;
 use super::status;
 use super::validator;
-use crate::ProductionValidatorClient;
 use futures::{Future, IntoFuture};
 use hyper::{Body, Error, Method, Request, Response};
+use remote_beacon_node::RemoteBeaconNode;
 use slog::debug;
 use std::sync::Arc;
 use types::EthSpec;
+use validator_store::ValidatorStore;
 
 fn into_boxfut<F: IntoFuture + 'static>(item: F) -> BoxFut
 where
@@ -17,9 +18,10 @@ where
     Box::new(item.into_future())
 }
 
-pub fn route<T: EthSpec>(
+pub fn route<T, E: EthSpec>(
     req: Request<Body>,
-    validator_client: Arc<ProductionValidatorClient<T>>,
+    validator_client: Arc<ValidatorStore<T, E>>,
+    beacon_node: Arc<RemoteBeaconNode<E>>,
     local_log: slog::Logger,
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     let path = req.uri().path().to_string();
@@ -30,30 +32,30 @@ pub fn route<T: EthSpec>(
             // Methods for Validator
             (&Method::GET, "/validators/") => {
                 debug!(log, "Hello there");
-                into_boxfut(validator::get_validators::<T>(req, validator_client))
+                into_boxfut(validator::get_validators::<T, E>(req, validator_client))
             }
             (&Method::POST, "/validators/add") => {
-                into_boxfut(validator::add_new_validator::<T>(req, validator_client))
+                into_boxfut(validator::add_new_validator::<T, E>(req, validator_client))
             }
             (&Method::POST, "/validators/remove") => {
-                into_boxfut(validator::remove_validator::<T>(req, validator_client))
+                into_boxfut(validator::remove_validator::<T, E>(req, validator_client))
             }
             (&Method::POST, "/validators/start") => {
-                into_boxfut(validator::start_validator::<T>(req, validator_client))
+                into_boxfut(validator::start_validator::<T, E>(req, validator_client))
             }
             (&Method::POST, "/validator/stop") => {
-                into_boxfut(validator::stop_validator::<T>(req, validator_client))
+                into_boxfut(validator::stop_validator::<T, E>(req, validator_client))
             }
             (&Method::POST, "/validators/exit") => {
-                into_boxfut(validator::exit_validator::<T>(req, validator_client))
+                into_boxfut(validator::exit_validator::<T, E>(req, validator_client))
             }
             (&Method::POST, "/validator/withdraw") => {
-                into_boxfut(validator::withdraw_validator::<T>(req, validator_client))
+                into_boxfut(validator::withdraw_validator::<T, E>(req, validator_client))
             }
 
             // Methods for beacon node status
             (&Method::GET, "/status/beacon_node") => {
-                into_boxfut(status::beacon_node_status::<T>(req, validator_client))
+                into_boxfut(status::beacon_node_status::<E>(req, beacon_node))
             }
 
             _ => Box::new(futures::future::err(ApiError::NotFound(
