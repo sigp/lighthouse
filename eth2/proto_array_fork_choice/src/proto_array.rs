@@ -37,7 +37,6 @@ pub struct ProtoArray {
     pub ffg_update_required: bool,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
-    pub finalized_root: Hash256,
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
 }
@@ -131,6 +130,9 @@ impl ProtoArray {
                 // Back-propogate the nodes delta to its parent.
                 *parent_delta += node_delta;
 
+                self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
+
+                /*
                 let is_viable_for_head = self
                     .nodes
                     .get(node_index)
@@ -206,6 +208,7 @@ impl ProtoArray {
                     // this code only runs if the current node is viable for the head).
                     self.set_best_child(parent_index, node_index)?;
                 };
+                */
             }
         }
 
@@ -220,7 +223,7 @@ impl ProtoArray {
     pub fn on_new_block(
         &mut self,
         root: Hash256,
-        parent: Option<Hash256>,
+        parent_opt: Option<Hash256>,
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
     ) -> Result<(), Error> {
@@ -228,7 +231,7 @@ impl ProtoArray {
 
         let node = ProtoNode {
             root,
-            parent: parent.and_then(|parent_root| self.indices.get(&parent_root).copied()),
+            parent: parent_opt.and_then(|parent| self.indices.get(&parent).copied()),
             justified_epoch,
             finalized_epoch,
             weight: 0,
@@ -239,6 +242,11 @@ impl ProtoArray {
         self.indices.insert(node.root, node_index);
         self.nodes.push(node.clone());
 
+        if let Some(parent_index) = node.parent {
+            self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
+        }
+
+        /*
         // If the blocks justified and finalized epochs match our values, then try and see if it
         // becomes the best child.
         if self.node_is_viable_for_head(&node) {
@@ -262,6 +270,7 @@ impl ProtoArray {
                 };
             }
         }
+        */
 
         Ok(())
     }
@@ -279,23 +288,12 @@ impl ProtoArray {
             .indices
             .get(justified_root)
             .copied()
-            .ok_or_else(|| Error::JustifiedNodeUnknown(self.finalized_root))?;
+            .ok_or_else(|| Error::JustifiedNodeUnknown(*justified_root))?;
 
         let justified_node = self
             .nodes
             .get(justified_index)
             .ok_or_else(|| Error::InvalidJustifiedIndex(justified_index))?;
-
-        // It is a logic error to try and find the head starting from a block that does not match
-        // the filter.
-        if !self.node_is_viable_for_head(&justified_node) {
-            return Err(Error::InvalidFindHeadStartRoot {
-                justified_epoch: self.justified_epoch,
-                finalized_epoch: self.finalized_epoch,
-                node_justified_epoch: justified_node.justified_epoch,
-                node_finalized_epoch: justified_node.finalized_epoch,
-            });
-        }
 
         let best_descendant_index = justified_node
             .best_descendant
@@ -305,6 +303,19 @@ impl ProtoArray {
             .nodes
             .get(best_descendant_index)
             .ok_or_else(|| Error::InvalidBestDescendant(best_descendant_index))?;
+
+        // It is a logic error to try and find the head starting from a block that does not match
+        // the filter.
+        if !self.node_is_viable_for_head(&best_node) {
+            return Err(Error::InvalidBestNode {
+                justified_epoch: self.justified_epoch,
+                finalized_epoch: self.finalized_epoch,
+                node_justified_epoch: justified_node.justified_epoch,
+                node_finalized_epoch: justified_node.finalized_epoch,
+            });
+        }
+
+        // dbg!(&self.nodes);
 
         Ok(best_node.root)
     }
@@ -327,24 +338,19 @@ impl ProtoArray {
         finalized_epoch: Epoch,
         finalized_root: Hash256,
     ) -> Result<(), Error> {
-        if finalized_epoch == self.finalized_epoch && self.finalized_root != finalized_root {
-            // It's illegal to swap finalized roots on the same epoch (this is reverting a
-            // finalized block).
-            return Err(Error::InvalidFinalizedRootChange);
-        } else if finalized_epoch < self.finalized_epoch {
+        if finalized_epoch < self.finalized_epoch {
             // It's illegal to swap to an earlier finalized root (this is assumed to be reverting a
             // finalized block).
             return Err(Error::RevertedFinalizedEpoch);
         } else if finalized_epoch != self.finalized_epoch {
             self.finalized_epoch = finalized_epoch;
-            self.finalized_root = finalized_root;
             self.ffg_update_required = true;
         }
 
         let finalized_index = *self
             .indices
-            .get(&self.finalized_root)
-            .ok_or_else(|| Error::FinalizedNodeUnknown(self.finalized_root))?;
+            .get(&finalized_root)
+            .ok_or_else(|| Error::FinalizedNodeUnknown(finalized_root))?;
 
         if finalized_index < self.prune_threshold {
             // Pruning at small numbers incurs more cost than benefit.
@@ -395,6 +401,189 @@ impl ProtoArray {
         }
 
         Ok(())
+    }
+
+    fn maybe_update_best_child_and_descendant(
+        &mut self,
+        parent_index: usize,
+        child_index: usize,
+    ) -> Result<(), Error> {
+        let child = self
+            .nodes
+            .get(child_index)
+            .ok_or_else(|| Error::InvalidNodeIndex(child_index))?;
+
+        let parent = self
+            .nodes
+            .get(parent_index)
+            .ok_or_else(|| Error::InvalidNodeIndex(parent_index))?;
+
+        let child_leads_to_viable_head = self.node_leads_to_viable_head(&child)?;
+
+        let change_to_none = (None, None);
+        let change_to_child = (
+            Some(child_index),
+            child.best_descendant.or(Some(child_index)),
+        );
+        let no_change = (parent.best_child, parent.best_descendant);
+
+        let (new_best_child, new_best_descendant) =
+            match (parent.best_child, parent.best_descendant) {
+                (None, None) => {
+                    if child_leads_to_viable_head {
+                        change_to_child
+                    } else {
+                        no_change
+                    }
+                }
+                (Some(best_child_index), Some(best_descendant_index)) => {
+                    if best_child_index == child_index && !child_leads_to_viable_head {
+                        change_to_none
+                    } else if best_child_index == child_index {
+                        change_to_child
+                    } else {
+                        let best_child = self
+                            .nodes
+                            .get(best_child_index)
+                            .ok_or_else(|| Error::InvalidBestDescendant(best_child_index))?;
+                        /*
+                        let best_descendant = self
+                            .nodes
+                            .get(best_descendant_index)
+                            .ok_or_else(|| Error::InvalidBestDescendant(best_descendant_index))?;
+                        */
+
+                        let child_leads_to_viable_head = self.node_leads_to_viable_head(&child)?;
+                        let best_child_leads_to_viable_head =
+                            self.node_leads_to_viable_head(&best_child)?;
+
+                        if child_leads_to_viable_head && !best_child_leads_to_viable_head {
+                            change_to_child
+                        } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
+                            no_change
+                        } else if child.weight == best_child.weight {
+                            if child.root >= best_child.root {
+                                change_to_child
+                            } else {
+                                no_change
+                            }
+                        } else {
+                            if child.weight >= best_child.weight {
+                                change_to_child
+                            } else {
+                                no_change
+                            }
+                        }
+                    }
+                }
+                _ => return Err(Error::BestDescendantWithoutBestChild),
+            };
+
+        /*
+        dbg!((
+            child_index,
+            parent_index,
+            new_best_child,
+            new_best_descendant
+        ));
+        */
+
+        let parent = self
+            .nodes
+            .get_mut(parent_index)
+            .ok_or_else(|| Error::InvalidNodeIndex(parent_index))?;
+
+        parent.best_child = new_best_child;
+        parent.best_descendant = new_best_descendant;
+
+        /*
+        let new_best_descendant = if let Some(parent_best_descendant_index) = parent.best_descendant
+        {
+            if parent_best_descendant_index == child_index && !child_leads_to_viable_head {
+                None
+            } else if parent_best_descendant_index != child_index {
+                let parent_best_descendant = self
+                    .nodes
+                    .get(parent_best_descendant_index)
+                    .ok_or_else(|| Error::InvalidBestDescendant(parent_best_descendant_index))?;
+
+                let child_leads_to_viable_head = self.node_leads_to_viable_head(&child)?;
+                let parent_best_descendant_leads_to_viable_head =
+                    self.node_leads_to_viable_head(&parent_best_descendant)?;
+
+                if child_leads_to_viable_head && !parent_best_descendant_leads_to_viable_head {
+                    Some(child_index)
+                } else if !child_leads_to_viable_head && parent_best_descendant_leads_to_viable_head
+                {
+                    Some(parent_best_descendant_index)
+                } else if child.weight == parent_best_descendant.weight {
+                    if child.root >= parent_best_descendant.root {
+                        Some(child_index)
+                    } else {
+                        Some(parent_best_descendant_index)
+                    }
+                } else {
+                    if child.weight >= parent_best_descendant.weight {
+                        Some(child_index)
+                    } else {
+                        Some(parent_best_descendant_index)
+                    }
+                }
+            } else {
+                Some(child_index)
+            }
+        } else {
+            if child_leads_to_viable_head {
+                // If the parent does not have a best-descendant and the child is viable, then it's
+                // the best by default.
+                Some(child_index)
+            } else {
+                // If the parent does not have a best-descendant but the child is not viable, then
+                // leave the parent with no best-descendant.
+                None
+            }
+        };
+
+        let parent = self
+            .nodes
+            .get_mut(parent_index)
+            .ok_or_else(|| Error::InvalidNodeIndex(parent_index))?;
+
+        dbg!(new_best_descendant);
+
+        match new_best_descendant {
+            None => {
+                parent.best_child = None;
+                parent.best_descendant = None;
+            }
+            Some(index) if index == child_index => {
+                parent.best_child = Some(child_index);
+                parent.best_descendant = match child_best_descendant {
+                    Some(index) => Some(index),
+                    None => Some(child_index),
+                };
+            }
+            _ => {}
+        }
+        */
+
+        Ok(())
+    }
+
+    fn node_leads_to_viable_head(&self, node: &ProtoNode) -> Result<bool, Error> {
+        let best_descendant_is_viable_for_head =
+            if let Some(best_descendant_index) = node.best_descendant {
+                let best_descendant = self
+                    .nodes
+                    .get(best_descendant_index)
+                    .ok_or_else(|| Error::InvalidBestDescendant(best_descendant_index))?;
+
+                self.node_is_viable_for_head(best_descendant)
+            } else {
+                false
+            };
+
+        Ok(best_descendant_is_viable_for_head || self.node_is_viable_for_head(node))
     }
 
     /// Sets the node at `parent_index` to have a best-child pointing to `child_index`. Also

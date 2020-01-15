@@ -1,4 +1,4 @@
-use lmd_ghost::ProtoArrayForkChoice;
+use proto_array_fork_choice::ProtoArrayForkChoice;
 use types::{Epoch, Hash256};
 
 /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
@@ -22,7 +22,7 @@ fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
 fn no_votes() {
     const VALIDATOR_COUNT: usize = 16;
 
-    let fork_choice = ProtoArrayForkChoice::new(Epoch::new(0), Epoch::new(0), get_hash(0))
+    let fork_choice = ProtoArrayForkChoice::new(Epoch::new(1), Epoch::new(1), get_hash(0))
         .expect("should create fork choice");
 
     check_bytes_round_trip(&fork_choice);
@@ -30,9 +30,9 @@ fn no_votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
@@ -47,7 +47,7 @@ fn no_votes() {
     //        /
     //        2
     fork_choice
-        .process_block(get_hash(2), get_hash(0), Epoch::new(0), Epoch::new(0))
+        .process_block(get_hash(2), get_hash(0), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Ensure the head is 2
@@ -58,9 +58,9 @@ fn no_votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
@@ -75,7 +75,7 @@ fn no_votes() {
     //        / \
     //        2  1
     fork_choice
-        .process_block(get_hash(1), get_hash(0), Epoch::new(0), Epoch::new(0))
+        .process_block(get_hash(1), get_hash(0), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Ensure the head is still 2
@@ -86,9 +86,9 @@ fn no_votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
@@ -105,7 +105,7 @@ fn no_votes() {
     //           |
     //           3
     fork_choice
-        .process_block(get_hash(3), get_hash(1), Epoch::new(0), Epoch::new(0))
+        .process_block(get_hash(3), get_hash(1), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Ensure 3 is the head
@@ -118,9 +118,9 @@ fn no_votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
@@ -137,7 +137,7 @@ fn no_votes() {
     //        |  |
     //        4  3
     fork_choice
-        .process_block(get_hash(4), get_hash(2), Epoch::new(0), Epoch::new(0))
+        .process_block(get_hash(4), get_hash(2), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     check_bytes_round_trip(&fork_choice);
@@ -152,9 +152,9 @@ fn no_votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
@@ -173,7 +173,7 @@ fn no_votes() {
     //        |
     //        5 <- justified epoch = 1
     fork_choice
-        .process_block(get_hash(5), get_hash(4), Epoch::new(1), Epoch::new(0))
+        .process_block(get_hash(5), get_hash(4), Epoch::new(2), Epoch::new(1))
         .expect("should process block");
 
     // Ensure the head is still 4 whilst the justified epoch is 0.
@@ -188,9 +188,9 @@ fn no_votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
@@ -211,9 +211,9 @@ fn no_votes() {
     assert!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 get_hash(5),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
@@ -233,9 +233,9 @@ fn no_votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
@@ -256,7 +256,7 @@ fn no_votes() {
     //     |
     //     6
     fork_choice
-        .process_block(get_hash(6), get_hash(5), Epoch::new(1), Epoch::new(0))
+        .process_block(get_hash(6), get_hash(5), Epoch::new(2), Epoch::new(1))
         .expect("should process block");
 
     // Ensure 6 is the head
@@ -273,9 +273,9 @@ fn no_votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &[0; VALIDATOR_COUNT]
             )
@@ -291,15 +291,15 @@ fn votes() {
     const VALIDATOR_COUNT: usize = 2;
     let balances = vec![1; VALIDATOR_COUNT];
 
-    let fork_choice = ProtoArrayForkChoice::new(Epoch::new(0), Epoch::new(0), get_hash(0))
+    let fork_choice = ProtoArrayForkChoice::new(Epoch::new(1), Epoch::new(1), get_hash(0))
         .expect("should create fork choice");
 
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -314,7 +314,7 @@ fn votes() {
     //         /
     //        2
     fork_choice
-        .process_block(get_hash(2), get_hash(0), Epoch::new(0), Epoch::new(0))
+        .process_block(get_hash(2), get_hash(0), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Ensure that the head is 2
@@ -325,9 +325,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -343,7 +343,7 @@ fn votes() {
     //         / \
     //        2   1
     fork_choice
-        .process_block(get_hash(1), get_hash(0), Epoch::new(0), Epoch::new(0))
+        .process_block(get_hash(1), get_hash(0), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Ensure that the head is 2
@@ -354,9 +354,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -371,7 +371,7 @@ fn votes() {
     //         / \
     //        2   1 <- +vote
     fork_choice
-        .process_attestation(0, get_hash(1), Epoch::new(1))
+        .process_attestation(0, get_hash(1), Epoch::new(2))
         .expect("should process attestation");
 
     // Ensure that the head is now 1, beacuse 1 has a vote.
@@ -382,9 +382,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -399,7 +399,7 @@ fn votes() {
     //          / \
     // +vote-> 2   1
     fork_choice
-        .process_attestation(1, get_hash(2), Epoch::new(1))
+        .process_attestation(1, get_hash(2), Epoch::new(2))
         .expect("should process attestation");
 
     // Ensure that the head is 2 since 1 and 2 both have a vote
@@ -410,9 +410,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -429,7 +429,7 @@ fn votes() {
     //            |
     //            3
     fork_choice
-        .process_block(get_hash(3), get_hash(1), Epoch::new(0), Epoch::new(0))
+        .process_block(get_hash(3), get_hash(1), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Ensure that the head is still 2
@@ -442,9 +442,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -461,7 +461,7 @@ fn votes() {
     //            |
     //            3 <- +vote
     fork_choice
-        .process_attestation(0, get_hash(3), Epoch::new(2))
+        .process_attestation(0, get_hash(3), Epoch::new(3))
         .expect("should process attestation");
 
     // Ensure that the head is still 2
@@ -474,9 +474,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -494,7 +494,7 @@ fn votes() {
     //             |
     //             3
     fork_choice
-        .process_attestation(1, get_hash(1), Epoch::new(2))
+        .process_attestation(1, get_hash(1), Epoch::new(3))
         .expect("should process attestation");
 
     // Ensure that the head is now 3
@@ -507,9 +507,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -528,7 +528,7 @@ fn votes() {
     //            |
     //            4
     fork_choice
-        .process_block(get_hash(4), get_hash(3), Epoch::new(0), Epoch::new(0))
+        .process_block(get_hash(4), get_hash(3), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Ensure that the head is now 4
@@ -543,9 +543,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -566,7 +566,7 @@ fn votes() {
     //           /
     //          5 <- justified epoch = 1
     fork_choice
-        .process_block(get_hash(5), get_hash(4), Epoch::new(1), Epoch::new(1))
+        .process_block(get_hash(5), get_hash(4), Epoch::new(2), Epoch::new(2))
         .expect("should process block");
 
     check_bytes_round_trip(&fork_choice);
@@ -585,9 +585,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -608,7 +608,7 @@ fn votes() {
     //           / \
     //          5   6 <- justified epoch = 0
     fork_choice
-        .process_block(get_hash(6), get_hash(4), Epoch::new(0), Epoch::new(0))
+        .process_block(get_hash(6), get_hash(4), Epoch::new(1), Epoch::new(1))
         .expect("should process block");
 
     // Move both votes to 5.
@@ -623,10 +623,10 @@ fn votes() {
     //            / \
     // +2 vote-> 5   6
     fork_choice
-        .process_attestation(0, get_hash(5), Epoch::new(3))
+        .process_attestation(0, get_hash(5), Epoch::new(4))
         .expect("should process attestation");
     fork_choice
-        .process_attestation(1, get_hash(5), Epoch::new(3))
+        .process_attestation(1, get_hash(5), Epoch::new(4))
         .expect("should process attestation");
 
     // Add blocks 7, 8 and 9. Adding these blocks helps test the `best_descendant`
@@ -648,13 +648,13 @@ fn votes() {
     //         /
     //         9
     fork_choice
-        .process_block(get_hash(7), get_hash(5), Epoch::new(1), Epoch::new(1))
+        .process_block(get_hash(7), get_hash(5), Epoch::new(2), Epoch::new(2))
         .expect("should process block");
     fork_choice
-        .process_block(get_hash(8), get_hash(7), Epoch::new(1), Epoch::new(1))
+        .process_block(get_hash(8), get_hash(7), Epoch::new(2), Epoch::new(2))
         .expect("should process block");
     fork_choice
-        .process_block(get_hash(9), get_hash(8), Epoch::new(1), Epoch::new(1))
+        .process_block(get_hash(9), get_hash(8), Epoch::new(2), Epoch::new(2))
         .expect("should process block");
 
     // Ensure that 6 is the head, even though 5 has all the votes. This is testing to ensure
@@ -678,9 +678,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
-                Epoch::new(0),
+                Epoch::new(1),
                 Hash256::zero(),
                 &balances
             )
@@ -712,9 +712,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
                 &balances
             )
@@ -744,10 +744,10 @@ fn votes() {
     //         /
     //        9 <- +2 votes
     fork_choice
-        .process_attestation(0, get_hash(9), Epoch::new(4))
+        .process_attestation(0, get_hash(9), Epoch::new(5))
         .expect("should process attestation");
     fork_choice
-        .process_attestation(1, get_hash(9), Epoch::new(4))
+        .process_attestation(1, get_hash(9), Epoch::new(5))
         .expect("should process attestation");
 
     // Add block 10
@@ -768,16 +768,16 @@ fn votes() {
     //         / \
     //        9  10
     fork_choice
-        .process_block(get_hash(10), get_hash(8), Epoch::new(1), Epoch::new(1))
+        .process_block(get_hash(10), get_hash(8), Epoch::new(2), Epoch::new(2))
         .expect("should process block");
 
     // Double-check the head is still 9 (no diagram this time)
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
                 &balances
             )
@@ -807,10 +807,10 @@ fn votes() {
     //         / \
     //        9  10 <- +2 votes
     fork_choice
-        .process_attestation(2, get_hash(10), Epoch::new(4))
+        .process_attestation(2, get_hash(10), Epoch::new(5))
         .expect("should process attestation");
     fork_choice
-        .process_attestation(3, get_hash(10), Epoch::new(4))
+        .process_attestation(3, get_hash(10), Epoch::new(5))
         .expect("should process attestation");
 
     // Check the head is now 10.
@@ -833,9 +833,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
                 &balances
             )
@@ -859,9 +859,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
                 &balances
             )
@@ -885,9 +885,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
                 &balances
             )
@@ -912,9 +912,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
                 &balances
             )
@@ -922,34 +922,40 @@ fn votes() {
         get_hash(9),
         "should find get_hash(9)"
     );
-
-    // Set pruning to an unreachable value.
-    fork_choice.set_prune_threshold(usize::max_value());
 
     check_bytes_round_trip(&fork_choice);
 
-    // Run find-head to trigger a prune.
-    assert_eq!(
-        fork_choice
-            .find_head(
-                Epoch::new(1),
-                get_hash(5),
-                Epoch::new(1),
-                get_hash(5),
-                &balances
-            )
-            .expect("should find head"),
-        get_hash(9),
-        "should find get_hash(9)"
-    );
+    // Set pruning to an unreachable value.
+    fork_choice.set_prune_threshold(usize::max_value());
+    fork_choice
+        .update_finalized_root(Epoch::new(2), get_hash(5))
+        .expect("should update finalized root");
 
     // Ensure that no pruning happened.
     assert_eq!(fork_choice.len(), 11, "there should be 11 blocks");
 
+    // Run find-head
+    assert_eq!(
+        fork_choice
+            .find_head(
+                Epoch::new(2),
+                get_hash(5),
+                Epoch::new(2),
+                get_hash(5),
+                &balances
+            )
+            .expect("should find head"),
+        get_hash(9),
+        "should find get_hash(9)"
+    );
+
     // Set pruning to a value that will result in a prune.
     fork_choice.set_prune_threshold(1);
+    fork_choice
+        .update_finalized_root(Epoch::new(2), get_hash(5))
+        .expect("should update finalized root");
 
-    // Run find-head to trigger a prune.
+    // Run find-head
     //
     //
     //          0
@@ -970,9 +976,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
                 &balances
             )
@@ -998,7 +1004,7 @@ fn votes() {
     //        |
     //        11
     fork_choice
-        .process_block(get_hash(11), get_hash(9), Epoch::new(1), Epoch::new(1))
+        .process_block(get_hash(11), get_hash(9), Epoch::new(2), Epoch::new(2))
         .expect("should process block");
 
     // Ensure the head is now 11
@@ -1015,9 +1021,9 @@ fn votes() {
     assert_eq!(
         fork_choice
             .find_head(
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
-                Epoch::new(1),
+                Epoch::new(2),
                 get_hash(5),
                 &balances
             )

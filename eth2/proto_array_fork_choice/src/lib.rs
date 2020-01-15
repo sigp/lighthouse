@@ -30,12 +30,13 @@ pub enum Error {
         indices: usize,
     },
     RevertedFinalizedEpoch,
-    InvalidFindHeadStartRoot {
+    InvalidBestNode {
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
         node_justified_epoch: Epoch,
         node_finalized_epoch: Epoch,
     },
+    BestDescendantWithoutBestChild,
 }
 
 #[derive(Default, PartialEq, Clone, Encode, Decode)]
@@ -102,7 +103,6 @@ impl ProtoArrayForkChoice {
             ffg_update_required: false,
             justified_epoch,
             finalized_epoch,
-            finalized_root,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
         };

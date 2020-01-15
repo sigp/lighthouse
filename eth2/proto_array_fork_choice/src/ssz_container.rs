@@ -16,7 +16,6 @@ pub struct SszContainer {
     ffg_update_required: bool,
     justified_epoch: Epoch,
     finalized_epoch: Epoch,
-    finalized_root: Hash256,
     nodes: Vec<ProtoNode>,
     indices: Vec<(Hash256, usize)>,
 }
@@ -32,7 +31,6 @@ impl From<&ProtoArrayForkChoice> for SszContainer {
             ffg_update_required: proto_array.ffg_update_required,
             justified_epoch: proto_array.justified_epoch,
             finalized_epoch: proto_array.finalized_epoch,
-            finalized_root: proto_array.finalized_root,
             nodes: proto_array.nodes.clone(),
             indices: proto_array.indices.iter().map(|(k, v)| (*k, *v)).collect(),
         }
@@ -46,7 +44,6 @@ impl From<SszContainer> for ProtoArrayForkChoice {
             ffg_update_required: from.ffg_update_required,
             justified_epoch: from.justified_epoch,
             finalized_epoch: from.finalized_epoch,
-            finalized_root: from.finalized_root,
             nodes: from.nodes,
             indices: HashMap::from_iter(from.indices.into_iter()),
         };
