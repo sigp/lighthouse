@@ -1,17 +1,5 @@
-use proto_array_fork_choice::ProtoArrayForkChoice;
+use crate::ProtoArrayForkChoice;
 use types::{Epoch, Hash256, Slot};
-
-#[test]
-fn no_votes() {
-    let test = get_no_votes_test_definition();
-    test.run();
-}
-
-#[test]
-fn votes() {
-    let test = get_votes_test_definition();
-    test.run();
-}
 
 #[derive(Debug, Clone)]
 pub enum Operation {
@@ -57,7 +45,7 @@ pub struct ForkChoiceTestDefinition {
 }
 
 impl ForkChoiceTestDefinition {
-    fn run(self) {
+    pub fn run(self) {
         let fork_choice = ProtoArrayForkChoice::new(
             self.finalized_block_slot,
             self.justified_epoch,
@@ -184,7 +172,7 @@ fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
     );
 }
 
-fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
+pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
     let balances = vec![0; 16];
 
     let operations = vec![
@@ -410,7 +398,7 @@ fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
     }
 }
 
-fn get_votes_test_definition() -> ForkChoiceTestDefinition {
+pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     let mut balances = vec![1; 2];
     let mut ops = vec![];
 
@@ -1095,5 +1083,21 @@ fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         finalized_epoch: Epoch::new(1),
         finalized_root: get_hash(0),
         operations: ops,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn no_votes() {
+        let test = get_no_votes_test_definition();
+        test.run();
+    }
+
+    #[test]
+    fn votes() {
+        let test = get_votes_test_definition();
+        test.run();
     }
 }

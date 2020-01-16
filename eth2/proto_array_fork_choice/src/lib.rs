@@ -1,3 +1,4 @@
+pub mod fork_choice_test_definition;
 mod proto_array;
 mod ssz_container;
 
