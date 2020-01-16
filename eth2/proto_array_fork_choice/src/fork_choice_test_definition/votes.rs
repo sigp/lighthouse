@@ -691,14 +691,9 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn no_votes() {
-        let test = get_no_votes_test_definition();
-        test.run();
-    }
 
     #[test]
-    fn votes() {
+    fn test() {
         let test = get_votes_test_definition();
         test.run();
     }

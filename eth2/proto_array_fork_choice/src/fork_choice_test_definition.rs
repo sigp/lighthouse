@@ -1,3 +1,4 @@
+mod ffg_updates;
 mod no_votes;
 mod votes;
 

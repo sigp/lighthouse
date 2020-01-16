@@ -692,7 +692,7 @@ mod test_compute_deltas {
         for vote in votes.0 {
             assert_eq!(
                 vote.current_root, vote.next_root,
-                "the vote shoulds should have been updated"
+                "the vote should have been updated"
             );
         }
     }

@@ -225,3 +225,13 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
         operations,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test() {
+        let test = get_no_votes_test_definition();
+        test.run();
+    }
+}
