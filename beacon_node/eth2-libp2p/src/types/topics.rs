@@ -7,8 +7,11 @@ use serde_derive::{Deserialize, Serialize};
 pub const TOPIC_PREFIX: &str = "eth2";
 pub const TOPIC_ENCODING_POSTFIX: &str = "ssz";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
-pub const BEACON_AGGREGATE_AND_PROOF: &str = "beacon_aggregate_and_proof";
-pub const COMMITEE_INDEX_TOPIC: &str = "committee_index{}_beacon_attestation";
+pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
+// for speed and easier string manipulation, committee topic index is split into a prefix and a
+// postfix. The topic is committee_index{}_beacon_attestation where {} is an integer.
+pub const COMMITEE_INDEX_TOPIC_PREFIX: &str = "committee_index";
+pub const COMMITEE_INDEX_TOPIC_POSTFIX: &str = "_beacon_attestation";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
@@ -20,7 +23,7 @@ pub const ATTESTATION_SUBNET_COUNT: u64 = 64;
 pub enum GossipTopic {
     BeaconBlock,
     BeaconAggregateAndProof,
-    CommitteIndex
+    CommitteeIndex(usize),
     VoluntaryExit,
     ProposerSlashing,
     AttesterSlashing,
@@ -36,10 +39,14 @@ impl From<&str> for GossipTopic {
         {
             match topic_parts[2] {
                 BEACON_BLOCK_TOPIC => GossipTopic::BeaconBlock,
-                BEACON_AGGREGATE_AND_PROOF => GossipTopic::BeaconAttestation,
-                committee if committe.split('_')=> GossipTopic::VoluntaryExit,
+                BEACON_AGGREGATE_AND_PROOF_TOPIC => GossipTopic::BeaconAggregateAndProof,
+                VOLUNTARY_EXIT_TOPIC => GossipTopic::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipTopic::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipTopic::AttesterSlashing,
+                topic => match committee_topic_index(topic) => {
+                    Some(SubnetId) =>
+                    GossipTopic::CommitteeIndex(committee_topic_index(topic).expect("must be some"))
+                }
                 unknown_topic => GossipTopic::Unknown(unknown_topic.into()),
             }
         } else {
@@ -58,16 +65,43 @@ impl Into<String> for GossipTopic {
     fn into(self) -> String {
         match self {
             GossipTopic::BeaconBlock => topic_builder(BEACON_BLOCK_TOPIC),
-            GossipTopic::BeaconAttestation => topic_builder(BEACON_ATTESTATION_TOPIC),
+            GossipTopic::BeaconAggregateAndProof => topic_builder(BEACON_AGGREGATE_AND_PROOF_TOPIC),
             GossipTopic::VoluntaryExit => topic_builder(VOLUNTARY_EXIT_TOPIC),
             GossipTopic::ProposerSlashing => topic_builder(PROPOSER_SLASHING_TOPIC),
             GossipTopic::AttesterSlashing => topic_builder(ATTESTER_SLASHING_TOPIC),
-            GossipTopic::Shard => topic_builder(SHARD_TOPIC_PREFIX),
+            GossipTopic::CommitteeIndex(index) => topic_builder(format!(
+                "{}{}{}",
+                COMMITEE_INDEX_TOPIC_PREFIX, index, COMMITEE_INDEX_TOPIC_POSTFIX
+            )),
             GossipTopic::Unknown(topic) => topic,
         }
     }
 }
 
-fn topic_builder(topic: &'static str) -> String {
-    format!("/{}/{}/{}", TOPIC_PREFIX, topic, TOPIC_ENCODING_POSTFIX,)
+// helper functions
+
+// Determines if a string is a committee topic.
+fn committee_topic_index(topic: &str) -> Option<usize> {
+    if topic.starts_with(COMMITEE_INDEX_TOPIC_PREFIX)
+        && topic.ends_with(COMMITEE_INDEX_TOPIC_POSTFIX)
+    {
+        return usize::from_str_radix(
+            topic
+                .trim_start_matches(COMMITEE_INDEX_TOPIC_PREFIX)
+                .trim_end_matches(COMMITEE_INDEX_TOPIC_POSTFIX),
+            10,
+        )
+        .ok();
+    }
+    None
+}
+
+// builds a full topic string
+fn topic_builder(topic: impl Into<String>) -> String {
+    format!(
+        "/{}/{}/{}",
+        TOPIC_PREFIX,
+        topic.into(),
+        TOPIC_ENCODING_POSTFIX,
+    )
 }

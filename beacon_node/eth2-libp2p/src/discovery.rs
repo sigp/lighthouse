@@ -77,8 +77,7 @@ impl<TSubstream> Discovery<TSubstream> {
             None => String::from(""),
         };
 
-        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq());
-        debug!(log, "Discv5 Node ID Initialised"; "node_id" => format!("{}",local_enr.node_id()));
+        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> format!("{}",local_enr.node_id()), "ip" => format!("{:?}", local_enr.ip()), "udp"=> local_enr.udp().unwrap_or_else(|| 0), "tcp" => local_enr.tcp().unwrap_or_else(|| 0));
 
         // the last parameter enables IP limiting. 2 Nodes on the same /24 subnet per bucket and 10
         // nodes on the same /24 subnet per table.

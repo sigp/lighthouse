@@ -1,4 +1,4 @@
-use crate::topics::GossipTopic;
+use crate::types::GossipTopic;
 use enr::Enr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId};
 use libp2p::Multiaddr;
@@ -67,7 +67,7 @@ impl Default for Config {
         // The default topics that we will initially subscribe to
         let topics = vec![
             GossipTopic::BeaconBlock,
-            GossipTopic::BeaconAttestation,
+            GossipTopic::BeaconAggregateAndProof,
             GossipTopic::VoluntaryExit,
             GossipTopic::ProposerSlashing,
             GossipTopic::AttesterSlashing,

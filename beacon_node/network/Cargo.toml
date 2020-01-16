@@ -11,6 +11,7 @@ sloggers = "0.3.4"
 beacon_chain =  { path = "../beacon_chain" }
 store =  { path = "../store" }
 eth2-libp2p =  { path = "../eth2-libp2p" }
+hashmap_delay = { path = "../../eth2/utils/hashmap_delay" }
 types = { path = "../../eth2/types" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 hex = "0.3"

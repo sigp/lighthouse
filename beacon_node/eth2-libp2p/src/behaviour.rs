@@ -9,15 +9,13 @@ use libp2p::{
     discv5::Discv5Event,
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
-    ping::{Ping, PingConfig, PingEvent},
     swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
 use lru::LruCache;
 use slog::{debug, o};
-use std::num::NonZeroU32;
-use std::time::Duration;
+use types::ShardId;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 20;
 
@@ -267,9 +265,11 @@ pub enum BehaviourEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PubsubMessage {
     /// Gossipsub message providing notification of a new block.
-    Block(Vec<u8>),
-    /// Gossipsub message providing notification of a new attestation.
-    Attestation(Vec<u8>),
+    BeaconBlock(Vec<u8>),
+    /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
+    AggregateAndProofAttestation(Vec<u8>),
+    /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
+    Attestation(SubnetId, Vec<u8>),
     /// Gossipsub message providing notification of a voluntary exit.
     VoluntaryExit(Vec<u8>),
     /// Gossipsub message providing notification of a new proposer slashing.
@@ -290,12 +290,16 @@ impl PubsubMessage {
     fn from_topics(topics: &[TopicHash], data: Vec<u8>) -> Self {
         for topic in topics {
             match GossipTopic::from(topic.as_str()) {
-                GossipTopic::BeaconBlock => return PubsubMessage::Block(data),
-                GossipTopic::BeaconAttestation => return PubsubMessage::Attestation(data),
+                GossipTopic::BeaconAggregateAndProof => {
+                    return PubsubMessage::AggregateAndProofAttestation(data)
+                }
+                GossipTopic::CommitteeIndex(subnet_id) => {
+                    return PubsubMessage::Attestation(index, data)
+                }
+                GossipTopic::BeaconBlock => return PubsubMessage::BeaconBlock(data),
                 GossipTopic::VoluntaryExit => return PubsubMessage::VoluntaryExit(data),
                 GossipTopic::ProposerSlashing => return PubsubMessage::ProposerSlashing(data),
                 GossipTopic::AttesterSlashing => return PubsubMessage::AttesterSlashing(data),
-                GossipTopic::Shard => return PubsubMessage::Unknown(data),
                 GossipTopic::Unknown(_) => continue,
             }
         }

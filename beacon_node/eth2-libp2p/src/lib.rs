@@ -8,23 +8,17 @@ extern crate lazy_static;
 pub mod behaviour;
 mod config;
 mod discovery;
-pub mod error;
 mod metrics;
 pub mod rpc;
 mod service;
-mod topics;
+pub mod types;
 
+pub use crate::types::{GossipTopic, SubnetId};
 pub use behaviour::PubsubMessage;
 pub use config::Config as NetworkConfig;
 pub use libp2p::enr::Enr;
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
-pub use libp2p::multiaddr;
-pub use libp2p::Multiaddr;
-pub use libp2p::{
-    gossipsub::{GossipsubConfig, GossipsubConfigBuilder},
-    PeerId, Swarm,
-};
+pub use libp2p::{multiaddr, Multiaddr};
+pub use libp2p::{PeerId, Swarm};
 pub use rpc::RPCEvent;
-pub use service::Libp2pEvent;
-pub use service::Service;
-pub use topics::GossipTopic;
+pub use service::{Libp2pEvent, Service};
