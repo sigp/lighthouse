@@ -9,7 +9,6 @@ edition = "2018"
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
 
 [dependencies]
-bls = { path = "../../eth2/utils/bls" }
 eth2_config = { path = "../../eth2/utils/eth2_config" }
 merkle_proof = { path = "../../eth2/utils/merkle_proof" }
 store = { path = "../store" }

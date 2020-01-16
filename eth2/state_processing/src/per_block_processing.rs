@@ -24,7 +24,7 @@ pub mod block_processing_builder;
 mod block_signature_verifier;
 pub mod errors;
 mod is_valid_indexed_attestation;
-pub mod signature_sets;
+mod signature_sets;
 pub mod tests;
 mod verify_attestation;
 mod verify_attester_slashing;

@@ -8,24 +8,17 @@ use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::timeout_rw_lock::TimeoutRwLock;
-use bls::SignatureSet;
 use lmd_ghost::LmdGhost;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
-    errors::{
-        AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
-        ProposerSlashingValidationError,
-    },
+    errors::{AttestationValidationError, AttesterSlashingValidationError},
     verify_attestation_for_state, VerifySignatures,
 };
 use state_processing::{
-    common::get_indexed_attestation,
-    per_block_processing,
-    per_block_processing::signature_sets::{indexed_attestation_signature_set, validator_pubkey},
-    per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
+    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
 };
 use std::borrow::Cow;
 use std::fs;
@@ -1094,95 +1087,100 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     ///
     /// Determines if a given attestation should be forwarded to other peers.
-    pub fn should_forward_attestation(&self, attestation: Attestation<T::EthSpec>) -> bool {
-        // Attempt to validate the attestation's signature against the head state.
-        // In this case, we do not read anything from the database, which should be fast and will
-        // work for most attestations that get passed around the network.
-        if let Ok(head) = &self.head() {
-            // Convert the attestation to an indexed attestation.
-            if let Ok(indexed_attestation) =
-                get_indexed_attestation(&head.beacon_state, &attestation)
-            {
-                // Validate the signature and return true if it is valid. Otherwise, we move on and read
-                // the database to make certain we have the correct state.
-                if let Ok(signature) = indexed_attestation_signature_set(
-                    &head.beacon_state,
-                    &indexed_attestation.signature,
-                    &indexed_attestation,
-                    &self.spec,
-                ) {
-                    // An invalid signature here does not necessarily mean the attestation is invalid.
-                    // It could be the case that our state has a different validator registry.
-                    if signature.is_valid() {
-                        return true;
-                    }
-                }
-            }
-        }
+    pub fn should_forward_attestation(&self, _attestation: Attestation<T::EthSpec>) -> bool {
+        true
 
-        // If the first check did not pass, we retrieve the block for the beacon_block_root in the
-        // attestation's data and use that to check the signature.
-        if let Ok(Some(block)) = self
-            .store
-            .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)
-        {
-            // Retrieve the block's state.
-            if let Ok(Some(state)) = self.store.get_state(&block.state_root, Some(block.slot)) {
+        /* TODO: Due to current optimisations, the following logic needs to be re-worked
+
+            // Attempt to validate the attestation's signature against the head state.
+            // In this case, we do not read anything from the database, which should be fast and will
+            // work for most attestations that get passed around the network.
+            if let Ok(head) = &self.head() {
                 // Convert the attestation to an indexed attestation.
-                if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
-                    // Check if the signature is valid against the state we got from the database.
+                if let Ok(indexed_attestation) =
+                    get_indexed_attestation(&head.beacon_state, &attestation)
+                {
+                    // Validate the signature and return true if it is valid. Otherwise, we move on and read
+                    // the database to make certain we have the correct state.
                     if let Ok(signature) = indexed_attestation_signature_set(
-                        &state,
+                        &head.beacon_state,
                         &indexed_attestation.signature,
                         &indexed_attestation,
                         &self.spec,
                     ) {
-                        // TODO: Maybe downvote peer if the signature is invalid.
-                        return signature.is_valid();
+                        // An invalid signature here does not necessarily mean the attestation is invalid.
+                        // It could be the case that our state has a different validator registry.
+                        if signature.is_valid() {
+                            return true;
+                        }
                     }
+                }
+            }
+
+            // If the first check did not pass, we retrieve the block for the beacon_block_root in the
+            // attestation's data and use that to check the signature.
+            if let Ok(Some(block)) = self
+                .store
+                .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)
+            {
+                // Retrieve the block's state.
+                if let Ok(Some(state)) = self.store.get_state(&block.state_root, Some(block.slot)) {
+                    // Convert the attestation to an indexed attestation.
+                    if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
+                        // Check if the signature is valid against the state we got from the database.
+                        if let Ok(signature) = indexed_attestation_signature_set(
+                            &state,
+                            &indexed_attestation.signature,
+                            &indexed_attestation,
+                            &self.spec,
+                        ) {
+                            // TODO: Maybe downvote peer if the signature is invalid.
+                            return signature.is_valid();
+                        }
+                    }
+                }
+            }
+
+            false
+        }
+
+        /// Accept some exit and queue it for inclusion in an appropriate block.
+        pub fn process_voluntary_exit(&self, exit: VoluntaryExit) -> Result<(), ExitValidationError> {
+            match self.wall_clock_state() {
+                Ok(state) => self.op_pool.insert_voluntary_exit(exit, &state, &self.spec),
+                Err(e) => {
+                    error!(
+                        &self.log,
+                        "Unable to process voluntary exit";
+                        "error" => format!("{:?}", e),
+                        "reason" => "no state"
+                    );
+                    Ok(())
                 }
             }
         }
 
-        false
-    }
-
-    /// Accept some exit and queue it for inclusion in an appropriate block.
-    pub fn process_voluntary_exit(&self, exit: VoluntaryExit) -> Result<(), ExitValidationError> {
-        match self.wall_clock_state() {
-            Ok(state) => self.op_pool.insert_voluntary_exit(exit, &state, &self.spec),
-            Err(e) => {
-                error!(
-                    &self.log,
-                    "Unable to process voluntary exit";
-                    "error" => format!("{:?}", e),
-                    "reason" => "no state"
-                );
-                Ok(())
+        /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
+        pub fn process_proposer_slashing(
+            &self,
+            proposer_slashing: ProposerSlashing,
+        ) -> Result<(), ProposerSlashingValidationError> {
+            match self.wall_clock_state() {
+                Ok(state) => {
+                    self.op_pool
+                        .insert_proposer_slashing(proposer_slashing, &state, &self.spec)
+                }
+                Err(e) => {
+                    error!(
+                        &self.log,
+                        "Unable to process proposer slashing";
+                        "error" => format!("{:?}", e),
+                        "reason" => "no state"
+                    );
+                    Ok(())
+                }
             }
-        }
-    }
-
-    /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
-    pub fn process_proposer_slashing(
-        &self,
-        proposer_slashing: ProposerSlashing,
-    ) -> Result<(), ProposerSlashingValidationError> {
-        match self.wall_clock_state() {
-            Ok(state) => {
-                self.op_pool
-                    .insert_proposer_slashing(proposer_slashing, &state, &self.spec)
-            }
-            Err(e) => {
-                error!(
-                    &self.log,
-                    "Unable to process proposer slashing";
-                    "error" => format!("{:?}", e),
-                    "reason" => "no state"
-                );
-                Ok(())
-            }
-        }
+            */
     }
 
     /// Accept some attester slashing and queue it for inclusion in an appropriate block.
@@ -1498,7 +1496,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Verify if a block is valid.
     ///
     /// This determines if a block is fit to be forwarded to other peers.
-    pub fn should_forward_block(&self, block: BeaconBlock<T::EthSpec>) -> bool {
+    pub fn should_forward_block(&self, _block: BeaconBlock<T::EthSpec>) -> bool {
+        true
+        /*
+         * TODO: Due to current optimisations. This logic needs to be re-worked.
+
         // Retrieve the parent block used to generate the signature.
         // This will eventually return false if this operation fails or returns an empty option.
         let parent_block_opt = if let Ok(Some(parent_block)) = self
@@ -1579,6 +1581,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         false
+            */
     }
 
     /// Produce a new block at the given `slot`.
