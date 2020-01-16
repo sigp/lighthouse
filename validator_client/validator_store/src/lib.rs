@@ -5,7 +5,7 @@ use crate::fork_service::ForkService;
 use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
 use parking_lot::RwLock;
 use rayon::prelude::*;
-use slog::{error, Logger};
+use slog::{error, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fs::read_dir;
@@ -19,9 +19,16 @@ use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
 };
 
+#[derive(Debug)]
+struct Validator {
+    /// `true` indicates we are actively managing the validator.
+    is_active: bool,
+    directory: ValidatorDirectory,
+}
+
 #[derive(Clone)]
 pub struct ValidatorStore<T, E: EthSpec> {
-    validators: Arc<RwLock<HashMap<PublicKey, ValidatorDirectory>>>,
+    validators: Arc<RwLock<HashMap<PublicKey, Validator>>>,
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
@@ -62,7 +69,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 validator_directory
                     .voting_keypair
                     .clone()
-                    .map(|voting_keypair| (voting_keypair.pk, validator_directory))
+                    .map(|voting_keypair| {
+                        (
+                            voting_keypair.pk,
+                            Validator {
+                                is_active: true,
+                                directory: validator_directory,
+                            },
+                        )
+                    })
             });
 
         Ok(Self {
@@ -103,7 +118,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 validator_directory
                     .voting_keypair
                     .clone()
-                    .map(|voting_keypair| (voting_keypair.pk, validator_directory))
+                    .map(|voting_keypair| {
+                        (
+                            voting_keypair.pk,
+                            Validator {
+                                is_active: true,
+                                directory: validator_directory,
+                            },
+                        )
+                    })
             });
 
         Ok(Self {
@@ -116,16 +139,24 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         })
     }
 
+    /// Return pubkeys of active validators.
     pub fn voting_pubkeys(&self) -> Vec<PublicKey> {
         self.validators
             .read()
             .iter()
-            .map(|(pubkey, _dir)| pubkey.clone())
+            .filter_map(|(pubkey, dir)| {
+                if dir.is_active {
+                    Some(pubkey.clone())
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 
+    /// Return count of active validators.
     pub fn num_voting_validators(&self) -> usize {
-        self.validators.read().len()
+        self.voting_pubkeys().len()
     }
 
     fn fork(&self) -> Option<Fork> {
@@ -144,7 +175,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .read()
             .get(validator_pubkey)
             .and_then(|validator_dir| {
-                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+                if !validator_dir.is_active {
+                    warn!(self.log, "Requesting randao reveal for inactive validator");
+                    return None;
+                }
+                let voting_keypair = validator_dir.directory.voting_keypair.as_ref()?;
                 let message = epoch.tree_hash_root();
                 let domain = self.spec.get_domain(epoch, Domain::Randao, &self.fork()?);
 
@@ -162,7 +197,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .read()
             .get(validator_pubkey)
             .and_then(|validator_dir| {
-                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+                if !validator_dir.is_active {
+                    warn!(
+                        self.log,
+                        "Requesting block signature for inactive validator"
+                    );
+                    return None;
+                }
+                let voting_keypair = validator_dir.directory.voting_keypair.as_ref()?;
                 block.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
                 Some(block)
             })
@@ -179,7 +221,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .read()
             .get(validator_pubkey)
             .and_then(|validator_dir| {
-                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+                if !validator_dir.is_active {
+                    warn!(
+                        self.log,
+                        "Requesting attestation signature for inactive validator"
+                    );
+                    return None;
+                }
+                let voting_keypair = validator_dir.directory.voting_keypair.as_ref()?;
 
                 attestation
                     .sign(
