@@ -32,20 +32,19 @@ pub fn route<T: SlotClock + 'static, E: EthSpec>(
         match (req.method(), path.as_ref()) {
             // Methods for Validator
             (&Method::GET, "/validators/") => {
-                debug!(log, "Hello there");
                 into_boxfut(validator::get_validators::<T, E>(req, validator_client))
             }
             (&Method::POST, "/validators/add") => {
-                into_boxfut(validator::add_new_validator::<T, E>(req, validator_client))
+                validator::add_new_validator::<T, E>(req, validator_client)
             }
             (&Method::POST, "/validators/remove") => {
-                into_boxfut(validator::remove_validator::<T, E>(req, validator_client))
+                validator::remove_validator::<T, E>(req, validator_client)
             }
             (&Method::POST, "/validators/start") => {
-                into_boxfut(validator::start_validator::<T, E>(req, validator_client))
+                validator::start_validator::<T, E>(req, validator_client)
             }
             (&Method::POST, "/validator/stop") => {
-                into_boxfut(validator::stop_validator::<T, E>(req, validator_client))
+                validator::stop_validator::<T, E>(req, validator_client)
             }
             (&Method::POST, "/validators/exit") => {
                 into_boxfut(validator::exit_validator::<T, E>(req, validator_client))

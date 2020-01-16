@@ -250,7 +250,33 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             })
     }
 
-    /// Remove validator from list of known validators.
+    /// Create new validator and add it to list of managed validators.
+    /// Returns the voting `PublicKey` of the validator.
+    pub fn add_validator(&mut self, deposit_amount: u64) -> Result<PublicKey, String> {
+        let validator = ValidatorDirectoryBuilder::default()
+            .spec(self.spec.as_ref().clone())
+            .custom_deposit_amount(deposit_amount)
+            .thread_random_keypairs()
+            .create_directory("~/.lighthouse/validators/".into())?
+            .write_keypair_files()?
+            .write_eth1_data_file()?
+            .build()?;
+        let pk = validator
+            .voting_keypair
+            .clone()
+            .expect("Should have a voting keypair")
+            .pk;
+        let _ = self.validators.write().insert(
+            pk.clone(),
+            Validator {
+                is_active: true,
+                directory: validator,
+            },
+        );
+        Ok(pk)
+    }
+
+    /// Remove validator from list of managed validators.
     pub fn remove_validator(&mut self, validator_pubkey: &PublicKey) -> Option<()> {
         self.validators.write().remove(validator_pubkey).map(|_| ())
     }
