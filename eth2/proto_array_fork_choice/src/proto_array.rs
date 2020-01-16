@@ -186,14 +186,14 @@ impl ProtoArray {
         // the filter.
         if !self.node_is_viable_for_head(&best_node) {
             return Err(Error::InvalidBestNode {
+                start_root: *justified_root,
                 justified_epoch: self.justified_epoch,
                 finalized_epoch: self.finalized_epoch,
-                node_justified_epoch: justified_node.justified_epoch,
-                node_finalized_epoch: justified_node.finalized_epoch,
+                head_root: justified_node.root,
+                head_justified_epoch: justified_node.justified_epoch,
+                head_finalized_epoch: justified_node.finalized_epoch,
             });
         }
-
-        // dbg!(&self.nodes);
 
         Ok(best_node.root)
     }

@@ -23,9 +23,11 @@ pub enum Error {
         new_finalized_epoch: Epoch,
     },
     InvalidBestNode {
+        start_root: Hash256,
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
-        node_justified_epoch: Epoch,
-        node_finalized_epoch: Epoch,
+        head_root: Hash256,
+        head_justified_epoch: Epoch,
+        head_finalized_epoch: Epoch,
     },
 }
