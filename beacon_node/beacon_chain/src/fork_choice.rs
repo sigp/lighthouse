@@ -3,12 +3,18 @@ use parking_lot::RwLock;
 use proto_array_fork_choice::ProtoArrayForkChoice;
 use ssz_derive::{Decode, Encode};
 use state_processing::common::get_attesting_indices;
+use std::fs::File;
+use std::io::Write;
 use std::marker::PhantomData;
+use std::time::{SystemTime, UNIX_EPOCH};
 use store::Error as StoreError;
 use types::{
     Attestation, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256,
     Slot,
 };
+
+/// If `true`, fork choice will be dumped to a JSON file in `/tmp` whenever find head fail.
+pub const FORK_CHOICE_DEBUGGING: bool = true;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -249,6 +255,20 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             .map_err(Into::into);
 
         metrics::stop_timer(timer);
+
+        if FORK_CHOICE_DEBUGGING {
+            if let Err(e) = &result {
+                if let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) {
+                    let time = duration.as_millis();
+                    if let Ok(mut file) = File::create(format!("/tmp/fork-choice-{}", time)) {
+                        let _ = write!(file, "{:?}\n", e);
+                        if let Ok(json) = self.backend.as_json() {
+                            let _ = write!(file, "{}", json);
+                        }
+                    }
+                }
+            }
+        }
 
         result
     }
