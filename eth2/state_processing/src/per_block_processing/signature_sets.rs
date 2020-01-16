@@ -238,7 +238,7 @@ pub fn exit_signature_set<'a, T: EthSpec>(
 }
 
 /// Maps a validator index to a `PublicKey`.
-fn validator_pubkey<'a, T: EthSpec>(
+pub fn validator_pubkey<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     validator_index: usize,
 ) -> Result<Cow<'a, G1Point>> {
