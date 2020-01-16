@@ -3,14 +3,14 @@ use types::{Epoch, Hash256, Slot};
 
 #[test]
 fn no_votes() {
-    let tester = ForkChoiceTester::new(Slot::new(0), Epoch::new(1), Epoch::new(1), get_hash(0));
-    tester.process_operations(get_no_votes_ops())
+    let test = get_no_votes_test_definition();
+    test.run();
 }
 
 #[test]
 fn votes() {
-    let tester = ForkChoiceTester::new(Slot::new(0), Epoch::new(1), Epoch::new(1), get_hash(0));
-    tester.process_operations(get_votes_ops())
+    let test = get_votes_test_definition();
+    test.run();
 }
 
 #[derive(Debug, Clone)]
@@ -48,132 +48,122 @@ pub enum Operation {
     },
 }
 
-pub struct ForkChoiceTester {
-    fork_choice: ProtoArrayForkChoice,
+pub struct ForkChoiceTestDefinition {
+    pub finalized_block_slot: Slot,
+    pub justified_epoch: Epoch,
+    pub finalized_epoch: Epoch,
+    pub finalized_root: Hash256,
+    pub operations: Vec<Operation>,
 }
 
-impl ForkChoiceTester {
-    pub fn new(
-        finalized_block_slot: Slot,
-        justified_epoch: Epoch,
-        finalized_epoch: Epoch,
-        finalized_root: Hash256,
-    ) -> Self {
-        Self {
-            fork_choice: ProtoArrayForkChoice::new(
-                finalized_block_slot,
-                justified_epoch,
-                finalized_epoch,
-                finalized_root,
-            )
-            .expect("should create fork choice"),
-        }
-    }
+impl ForkChoiceTestDefinition {
+    fn run(self) {
+        let fork_choice = ProtoArrayForkChoice::new(
+            self.finalized_block_slot,
+            self.justified_epoch,
+            self.finalized_epoch,
+            self.finalized_root,
+        )
+        .expect("should create fork choice struct");
 
-    pub fn process_operations(&self, ops: Vec<Operation>) {
-        for (i, op) in ops.into_iter().enumerate() {
-            self.process_operation(i, op)
-        }
-    }
+        for (op_index, op) in self.operations.into_iter().enumerate() {
+            match op.clone() {
+                Operation::FindHead {
+                    justified_epoch,
+                    justified_root,
+                    finalized_epoch,
+                    justified_state_balances,
+                    expected_head,
+                } => {
+                    let head = fork_choice
+                        .find_head(
+                            justified_epoch,
+                            justified_root,
+                            finalized_epoch,
+                            &justified_state_balances,
+                        )
+                        .expect(&format!(
+                            "find_head op at index {} returned error",
+                            op_index
+                        ));
 
-    fn process_operation(&self, op_index: usize, op: Operation) {
-        match op.clone() {
-            Operation::FindHead {
-                justified_epoch,
-                justified_root,
-                finalized_epoch,
-                justified_state_balances,
-                expected_head,
-            } => {
-                let head = self
-                    .fork_choice
-                    .find_head(
+                    assert_eq!(
+                        head, expected_head,
+                        "Operation at index {} failed checks. Operation: {:?}",
+                        op_index, op
+                    );
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::InvalidFindHead {
+                    justified_epoch,
+                    justified_root,
+                    finalized_epoch,
+                    justified_state_balances,
+                } => {
+                    let result = fork_choice.find_head(
                         justified_epoch,
                         justified_root,
                         finalized_epoch,
                         &justified_state_balances,
-                    )
-                    .expect(&format!(
-                        "find_head op at index {} returned error",
-                        op_index
-                    ));
+                    );
 
-                assert_eq!(
-                    head, expected_head,
-                    "Operation at index {} failed checks. Operation: {:?}",
-                    op_index, op
-                );
-                check_bytes_round_trip(&self.fork_choice);
-            }
-            Operation::InvalidFindHead {
-                justified_epoch,
-                justified_root,
-                finalized_epoch,
-                justified_state_balances,
-            } => {
-                let result = self.fork_choice.find_head(
+                    assert!(
+                        result.is_err(),
+                        "Operation at index {} . Operation: {:?}",
+                        op_index,
+                        op
+                    );
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::ProcessBlock {
+                    slot,
+                    root,
+                    parent_root,
                     justified_epoch,
-                    justified_root,
                     finalized_epoch,
-                    &justified_state_balances,
-                );
-
-                assert!(
-                    result.is_err(),
-                    "Operation at index {} . Operation: {:?}",
-                    op_index,
-                    op
-                );
-                check_bytes_round_trip(&self.fork_choice);
-            }
-            Operation::ProcessBlock {
-                slot,
-                root,
-                parent_root,
-                justified_epoch,
-                finalized_epoch,
-            } => {
-                self.fork_choice
-                    .process_block(slot, root, parent_root, justified_epoch, finalized_epoch)
-                    .expect(&format!(
-                        "process_block op at index {} returned error",
-                        op_index
-                    ));
-                check_bytes_round_trip(&self.fork_choice);
-            }
-            Operation::ProcessAttestation {
-                validator_index,
-                block_root,
-                target_epoch,
-            } => {
-                self.fork_choice
-                    .process_attestation(validator_index, block_root, target_epoch)
-                    .expect(&format!(
-                        "process_attestation op at index {} returned error",
-                        op_index
-                    ));
-                check_bytes_round_trip(&self.fork_choice);
-            }
-            Operation::Prune {
-                finalized_epoch,
-                finalized_root,
-                prune_threshold,
-                expected_len,
-            } => {
-                self.fork_choice.set_prune_threshold(prune_threshold);
-                self.fork_choice
-                    .update_finalized_root(finalized_epoch, finalized_root)
-                    .expect("update_finalized_root op at index {} returned error");
-
-                // Ensure that no pruning happened.
-                assert_eq!(
-                    self.fork_choice.len(),
+                } => {
+                    fork_choice
+                        .process_block(slot, root, parent_root, justified_epoch, finalized_epoch)
+                        .expect(&format!(
+                            "process_block op at index {} returned error",
+                            op_index
+                        ));
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::ProcessAttestation {
+                    validator_index,
+                    block_root,
+                    target_epoch,
+                } => {
+                    fork_choice
+                        .process_attestation(validator_index, block_root, target_epoch)
+                        .expect(&format!(
+                            "process_attestation op at index {} returned error",
+                            op_index
+                        ));
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::Prune {
+                    finalized_epoch,
+                    finalized_root,
+                    prune_threshold,
                     expected_len,
-                    "Prune op at index {} failed with {} instead of {}",
-                    op_index,
-                    self.fork_choice.len(),
-                    expected_len
-                );
+                } => {
+                    fork_choice.set_prune_threshold(prune_threshold);
+                    fork_choice
+                        .update_finalized_root(finalized_epoch, finalized_root)
+                        .expect("update_finalized_root op at index {} returned error");
+
+                    // Ensure that no pruning happened.
+                    assert_eq!(
+                        fork_choice.len(),
+                        expected_len,
+                        "Prune op at index {} failed with {} instead of {}",
+                        op_index,
+                        fork_choice.len(),
+                        expected_len
+                    );
+                }
             }
         }
     }
@@ -194,10 +184,10 @@ fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
     );
 }
 
-fn get_no_votes_ops() -> Vec<Operation> {
+fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
     let balances = vec![0; 16];
 
-    vec![
+    let operations = vec![
         // Check that the head is the finalized block.
         Operation::FindHead {
             justified_epoch: Epoch::new(1),
@@ -409,10 +399,18 @@ fn get_no_votes_ops() -> Vec<Operation> {
             justified_state_balances: balances.clone(),
             expected_head: get_hash(6),
         },
-    ]
+    ];
+
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_epoch: Epoch::new(1),
+        finalized_epoch: Epoch::new(1),
+        finalized_root: get_hash(0),
+        operations,
+    }
 }
 
-fn get_votes_ops() -> Vec<Operation> {
+fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     let mut balances = vec![1; 2];
     let mut ops = vec![];
 
@@ -1091,5 +1089,11 @@ fn get_votes_ops() -> Vec<Operation> {
         expected_head: get_hash(11),
     });
 
-    ops
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_epoch: Epoch::new(1),
+        finalized_epoch: Epoch::new(1),
+        finalized_root: get_hash(0),
+        operations: ops,
+    }
 }
