@@ -229,11 +229,11 @@ impl<T: BeaconChainTypes> Router<T> {
         match gossip_message {
             PubsubMessage::BeaconBlock(message) => match self.decode_gossip_block(message) {
                 Ok(block) => {
-                    self.message_processor
-                        .on_block_gossip(peer_id.clone(), block.clone());
-                    if self.message_processor.should_forward_block(block) {
+                    if self.processor.should_forward_block(block) {
                         self.propagate_message(id, peer_id.clone());
                     }
+                    self.processor
+                        .on_block_gossip(peer_id.clone(), block.clone());
                 }
                 Err(e) => {
                     debug!(self.log, "Invalid gossiped beacon block"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
@@ -241,14 +241,11 @@ impl<T: BeaconChainTypes> Router<T> {
             },
             PubsubMessage::Attestation(message) => match self.decode_gossip_attestation(message) {
                 Ok(attestation) => {
-                    self.message_processor
-                        .on_attestation_gossip(peer_id.clone(), attestation.clone());
-                    if self
-                        .message_processor
-                        .should_forward_attestation(attestation)
-                    {
+                    if self.processor.should_forward_attestation(attestation) {
                         self.propagate_message(id, peer_id);
                     }
+                    self.processor
+                        .on_attestation_gossip(peer_id.clone(), attestation.clone());
                 }
                 Err(e) => {
                     debug!(self.log, "Invalid gossiped attestation"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
