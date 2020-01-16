@@ -249,4 +249,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Some(())
             })
     }
+
+    /// Remove validator from list of known validators.
+    pub fn remove_validator(&mut self, validator_pubkey: &PublicKey) -> Option<()> {
+        self.validators.write().remove(validator_pubkey).map(|_| ())
+    }
+
+    /// Sets the status of the validator.
+    pub fn set_validator_status(
+        &mut self,
+        validator_pubkey: &PublicKey,
+        status: bool,
+    ) -> Option<()> {
+        if let Some(validator) = self.validators.write().get_mut(validator_pubkey) {
+            validator.is_active = status;
+            Some(())
+        } else {
+            None
+        }
+    }
 }
