@@ -227,30 +227,33 @@ impl<T: BeaconChainTypes> Router<T> {
     /// Handle RPC messages
     fn handle_gossip(&mut self, id: MessageId, peer_id: PeerId, gossip_message: PubsubMessage) {
         match gossip_message {
-            PubsubMessage::BeaconBlock(message) => match self.decode_gossip_block(message) {
-                Ok(block) => {
-                    if self.processor.should_forward_block(block) {
-                        self.propagate_message(id, peer_id.clone());
+            PubsubMessage::BeaconBlock(block_bytes) => {
+                match self.decode_gossip_block(block_bytes) {
+                    Ok(block) => {
+                        if self.processor.should_forward_block(&block) {
+                            self.propagate_message(id, peer_id.clone());
+                        }
+                        self.processor.on_block_gossip(peer_id.clone(), block);
                     }
-                    self.processor
-                        .on_block_gossip(peer_id.clone(), block.clone());
-                }
-                Err(e) => {
-                    debug!(self.log, "Invalid gossiped beacon block"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
-                }
-            },
-            PubsubMessage::Attestation(message) => match self.decode_gossip_attestation(message) {
-                Ok(attestation) => {
-                    if self.processor.should_forward_attestation(attestation) {
-                        self.propagate_message(id, peer_id);
+                    Err(e) => {
+                        debug!(self.log, "Invalid gossiped beacon block"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
                     }
-                    self.processor
-                        .on_attestation_gossip(peer_id.clone(), attestation.clone());
                 }
-                Err(e) => {
-                    debug!(self.log, "Invalid gossiped attestation"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
+            }
+            PubsubMessage::Attestation(shard_id, attestation_bytes) => {
+                match self.decode_gossip_attestation(attestation_bytes) {
+                    Ok(attestation) => {
+                        if self.processor.should_forward_attestation(&attestation) {
+                            self.propagate_message(id, peer_id);
+                        }
+                        self.processor
+                            .on_attestation_gossip(peer_id.clone(), attestation);
+                    }
+                    Err(e) => {
+                        debug!(self.log, "Invalid gossiped attestation"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
+                    }
                 }
-            },
+            }
             PubsubMessage::VoluntaryExit(message) => match self.decode_gossip_exit(message) {
                 Ok(_exit) => {
                     // TODO: Apply more sophisticated validation and decoding logic

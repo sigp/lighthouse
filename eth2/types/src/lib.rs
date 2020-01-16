@@ -6,6 +6,7 @@
 #[macro_use]
 pub mod test_utils;
 
+pub mod aggregate_and_proof;
 pub mod attestation;
 pub mod attestation_data;
 pub mod attestation_duty;
@@ -39,6 +40,7 @@ pub mod validator;
 
 use ethereum_types::{H160, H256};
 
+pub use crate::aggregate_and_proof::AggregateAndProof;
 pub use crate::attestation::{Attestation, Error as AttestationError};
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;

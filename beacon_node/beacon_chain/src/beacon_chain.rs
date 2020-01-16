@@ -1087,7 +1087,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     ///
     /// Determines if a given attestation should be forwarded to other peers.
-    pub fn should_forward_attestation(&self, _attestation: Attestation<T::EthSpec>) -> bool {
+    pub fn should_forward_attestation(&self, _attestation: &Attestation<T::EthSpec>) -> bool {
         true
 
         /* TODO: Due to current optimisations, the following logic needs to be re-worked
@@ -1496,7 +1496,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Verify if a block is valid.
     ///
     /// This determines if a block is fit to be forwarded to other peers.
-    pub fn should_forward_block(&self, _block: BeaconBlock<T::EthSpec>) -> bool {
+    pub fn should_forward_block(&self, _block: &BeaconBlock<T::EthSpec>) -> bool {
         true
         /*
          * TODO: Due to current optimisations. This logic needs to be re-worked.
