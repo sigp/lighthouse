@@ -228,7 +228,7 @@ impl<T: BeaconChainTypes> Router<T> {
     fn handle_gossip(&mut self, id: MessageId, peer_id: PeerId, gossip_message: PubsubMessage) {
         match gossip_message {
             PubsubMessage::BeaconBlock(block_bytes) => {
-                match self.decode_gossip_block(block_bytes) {
+                match self.decode_block(block_bytes) {
                     Ok(block) => {
                         if self.processor.should_forward_block(&block) {
                             self.propagate_message(id, peer_id.clone());
@@ -240,8 +240,17 @@ impl<T: BeaconChainTypes> Router<T> {
                     }
                 }
             }
+            PubsubMessage::AggregateAndProofAttestation(agg_bytes) => {
+                match self.decode_attestation_and_proof(agg_bytes) {
+                    Ok(attestation) => {
+                        if self.processor.should_forward_attestation(&attestation) {
+                            self.propagate_message(id, peer_id);
+                        }
+                        self.processor
+                            .on_attestation_gossip(peer_id.clone(), attestation);
+                    }
             PubsubMessage::Attestation(shard_id, attestation_bytes) => {
-                match self.decode_gossip_attestation(attestation_bytes) {
+                match self.decode_attestation(attestation_bytes) {
                     Ok(attestation) => {
                         if self.processor.should_forward_attestation(&attestation) {
                             self.propagate_message(id, peer_id);
@@ -323,7 +332,7 @@ impl<T: BeaconChainTypes> Router<T> {
 
     /* Gossipsub Domain Decoding */
     // Note: These are not generics as type-specific verification will need to be applied.
-    fn decode_gossip_block(
+    fn decode_beacon_block(
         &self,
         beacon_block: Vec<u8>,
     ) -> Result<BeaconBlock<T::EthSpec>, DecodeError> {
@@ -331,20 +340,28 @@ impl<T: BeaconChainTypes> Router<T> {
         BeaconBlock::from_ssz_bytes(&beacon_block)
     }
 
-    fn decode_gossip_attestation(
+    fn decode_attestation(
         &self,
-        beacon_block: Vec<u8>,
+        attestation: Vec<u8>,
     ) -> Result<Attestation<T::EthSpec>, DecodeError> {
         //TODO: Apply verification before decoding.
-        Attestation::from_ssz_bytes(&beacon_block)
+        Attestation::from_ssz_bytes(&attestation)
     }
 
-    fn decode_gossip_exit(&self, voluntary_exit: Vec<u8>) -> Result<VoluntaryExit, DecodeError> {
+    fn decode_aggregation_and_proof(
+        &self,
+        attestation: Vec<u8>,
+    ) -> Result<Attestation<T::EthSpec>, DecodeError> {
+        //TODO: Apply verification before decoding.
+        Attestation::from_ssz_bytes(&attestation)
+    }
+
+    fn decode_exit(&self, voluntary_exit: Vec<u8>) -> Result<VoluntaryExit, DecodeError> {
         //TODO: Apply verification before decoding.
         VoluntaryExit::from_ssz_bytes(&voluntary_exit)
     }
 
-    fn decode_gossip_proposer_slashing(
+    fn decode_proposer_slashing(
         &self,
         proposer_slashing: Vec<u8>,
     ) -> Result<ProposerSlashing, DecodeError> {
@@ -352,23 +369,11 @@ impl<T: BeaconChainTypes> Router<T> {
         ProposerSlashing::from_ssz_bytes(&proposer_slashing)
     }
 
-    fn decode_gossip_attestation_slashing(
+    fn decode_attestation_slashing(
         &self,
         attester_slashing: Vec<u8>,
     ) -> Result<AttesterSlashing<T::EthSpec>, DecodeError> {
         //TODO: Apply verification before decoding.
         AttesterSlashing::from_ssz_bytes(&attester_slashing)
-    }
-
-    /* Req/Resp Domain Decoding  */
-
-    /// Verifies and decodes an ssz-encoded `BeaconBlock`. If `None` is passed, this represents a
-    /// stream termination.
-    fn decode_beacon_block(
-        &self,
-        beacon_block: Vec<u8>,
-    ) -> Result<BeaconBlock<T::EthSpec>, DecodeError> {
-        //TODO: Implement faster block verification before decoding entirely
-        BeaconBlock::from_ssz_bytes(&beacon_block)
     }
 }

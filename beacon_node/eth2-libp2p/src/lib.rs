@@ -9,16 +9,17 @@ pub mod behaviour;
 mod config;
 mod discovery;
 mod metrics;
+mod pubsub;
 pub mod rpc;
 mod service;
 mod types;
 
 pub use crate::types::{error, topics, GossipTopic, SubnetId};
-pub use behaviour::PubsubMessage;
 pub use config::Config as NetworkConfig;
 pub use libp2p::enr::Enr;
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use libp2p::{PeerId, Swarm};
+pub use pubsub::PubsubMessage;
 pub use rpc::RPCEvent;
 pub use service::{Libp2pEvent, Service};
