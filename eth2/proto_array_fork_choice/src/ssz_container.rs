@@ -1,6 +1,6 @@
 use crate::{
     proto_array::{ProtoArray, ProtoNode},
-    ElasticList, ProtoArrayForkChoice, VoteTracker,
+    proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker},
 };
 use parking_lot::RwLock;
 use ssz_derive::{Decode, Encode};

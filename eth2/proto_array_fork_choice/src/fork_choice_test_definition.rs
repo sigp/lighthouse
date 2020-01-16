@@ -1,7 +1,8 @@
-use crate::ProtoArrayForkChoice;
+use crate::proto_array_fork_choice::ProtoArrayForkChoice;
+use serde_derive::{Deserialize, Serialize};
 use types::{Epoch, Hash256, Slot};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Operation {
     FindHead {
         justified_epoch: Epoch,
@@ -36,6 +37,7 @@ pub enum Operation {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForkChoiceTestDefinition {
     pub finalized_block_slot: Slot,
     pub justified_epoch: Epoch,

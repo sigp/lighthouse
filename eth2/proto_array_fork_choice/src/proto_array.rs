@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::error::Error;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use types::{Epoch, Hash256, Slot};
