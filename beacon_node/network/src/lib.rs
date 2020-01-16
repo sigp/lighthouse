@@ -4,7 +4,6 @@ pub mod service;
 
 mod attestation_service;
 mod router;
-mod shard_manager;
 mod sync;
 
 pub use eth2_libp2p::NetworkConfig;

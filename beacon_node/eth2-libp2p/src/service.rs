@@ -1,7 +1,7 @@
 use crate::behaviour::{Behaviour, BehaviourEvent, PubsubMessage};
-use crate::error;
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
+use crate::types::error;
 use crate::NetworkConfig;
 use crate::{Topic, TopicHash};
 use futures::prelude::*;
@@ -155,7 +155,7 @@ impl Service {
 
 impl Stream for Service {
     type Item = Libp2pEvent;
-    type Error = crate::error::Error;
+    type Error = error::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {

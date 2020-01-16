@@ -2,11 +2,12 @@
 //!
 //! It routes the messages to appropriate services, such as the Sync
 //! and processes those that are
-
 #![allow(clippy::unit_arg)]
+
+pub mod processor;
+
 use crate::error;
 use crate::service::NetworkMessage;
-use crate::Processor;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     behaviour::PubsubMessage,
@@ -15,6 +16,7 @@ use eth2_libp2p::{
 };
 use futures::future::Future;
 use futures::stream::Stream;
+use processor::Processor;
 use slog::{debug, o, trace, warn};
 use ssz::{Decode, DecodeError};
 use std::sync::Arc;
@@ -225,7 +227,7 @@ impl<T: BeaconChainTypes> Router<T> {
     /// Handle RPC messages
     fn handle_gossip(&mut self, id: MessageId, peer_id: PeerId, gossip_message: PubsubMessage) {
         match gossip_message {
-            PubsubMessage::Block(message) => match self.decode_gossip_block(message) {
+            PubsubMessage::BeaconBlock(message) => match self.decode_gossip_block(message) {
                 Ok(block) => {
                     let should_forward_on = self.processor.on_block_gossip(peer_id.clone(), block);
                     // TODO: Apply more sophisticated validation and decoding logic

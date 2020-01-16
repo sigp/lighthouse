@@ -1,3 +1,4 @@
+use crate::types::SubnetId;
 use libp2p::gossipsub::Topic;
 use serde_derive::{Deserialize, Serialize};
 
@@ -23,7 +24,7 @@ pub const ATTESTATION_SUBNET_COUNT: u64 = 64;
 pub enum GossipTopic {
     BeaconBlock,
     BeaconAggregateAndProof,
-    CommitteeIndex(usize),
+    CommitteeIndex(SubnetId),
     VoluntaryExit,
     ProposerSlashing,
     AttesterSlashing,
@@ -43,11 +44,10 @@ impl From<&str> for GossipTopic {
                 VOLUNTARY_EXIT_TOPIC => GossipTopic::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipTopic::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipTopic::AttesterSlashing,
-                topic => match committee_topic_index(topic) => {
-                    Some(SubnetId) =>
-                    GossipTopic::CommitteeIndex(committee_topic_index(topic).expect("must be some"))
-                }
-                unknown_topic => GossipTopic::Unknown(unknown_topic.into()),
+                topic => match committee_topic_index(topic) {
+                    Some(subnet_id) => GossipTopic::CommitteeIndex(subnet_id),
+                    None => GossipTopic::Unknown(topic.into()),
+                },
             }
         } else {
             GossipTopic::Unknown(topic.into())
@@ -71,7 +71,7 @@ impl Into<String> for GossipTopic {
             GossipTopic::AttesterSlashing => topic_builder(ATTESTER_SLASHING_TOPIC),
             GossipTopic::CommitteeIndex(index) => topic_builder(format!(
                 "{}{}{}",
-                COMMITEE_INDEX_TOPIC_PREFIX, index, COMMITEE_INDEX_TOPIC_POSTFIX
+                COMMITEE_INDEX_TOPIC_PREFIX, *index, COMMITEE_INDEX_TOPIC_POSTFIX
             )),
             GossipTopic::Unknown(topic) => topic,
         }
@@ -81,17 +81,19 @@ impl Into<String> for GossipTopic {
 // helper functions
 
 // Determines if a string is a committee topic.
-fn committee_topic_index(topic: &str) -> Option<usize> {
+fn committee_topic_index(topic: &str) -> Option<SubnetId> {
     if topic.starts_with(COMMITEE_INDEX_TOPIC_PREFIX)
         && topic.ends_with(COMMITEE_INDEX_TOPIC_POSTFIX)
     {
-        return usize::from_str_radix(
-            topic
-                .trim_start_matches(COMMITEE_INDEX_TOPIC_PREFIX)
-                .trim_end_matches(COMMITEE_INDEX_TOPIC_POSTFIX),
-            10,
-        )
-        .ok();
+        return Some(SubnetId::new(
+            u64::from_str_radix(
+                topic
+                    .trim_start_matches(COMMITEE_INDEX_TOPIC_PREFIX)
+                    .trim_end_matches(COMMITEE_INDEX_TOPIC_POSTFIX),
+                10,
+            )
+            .ok()?,
+        ));
     }
     None
 }

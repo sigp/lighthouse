@@ -3,6 +3,10 @@
 //!
 //! A `HashMapDelay` implements `Stream` which removes expired items from the map.
 
+/// The default delay for entries, in seconds. This is only used when `insert()` is used to add
+/// entries.
+pub const DEFAULT_DELAY: u64 = 30;
+
 use futures::prelude::*;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -10,7 +14,7 @@ use tokio_timer::delay_queue::{self, DelayQueue};
 
 pub struct HashMapDelay<K, V>
 where
-    K: std::cmp::Eq + std::hash::Hash,
+    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone,
 {
     /// The given entries.
     entries: HashMap<K, MapEntry<V>>,
@@ -26,6 +30,15 @@ struct MapEntry<V> {
     key: delay_queue::Key,
     /// The actual entry.
     value: V,
+}
+
+impl<K, V> Default for HashMapDelay<K, V>
+where
+    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone,
+{
+    fn default() -> Self {
+        HashMapDelay::new(Duration::from_secs(DEFAULT_DELAY))
+    }
 }
 
 impl<K, V> HashMapDelay<K, V>
@@ -46,7 +59,7 @@ where
         self.insert_at(key, value, self.default_entry_timeout);
     }
 
-    /// Inserts an entry that will expire after a given duration.
+    /// Inserts an entry that will expire at a given instant.
     pub fn insert_at(&mut self, key: K, value: V, entry_duration: Duration) {
         let delay_key = self.expirations.insert(key.clone(), entry_duration);
         let entry = MapEntry {
@@ -107,7 +120,7 @@ where
 
 impl<K, V> Stream for HashMapDelay<K, V>
 where
-    K: std::cmp::Eq + std::hash::Hash,
+    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone,
 {
     type Item = (K, V);
     type Error = &'static str;

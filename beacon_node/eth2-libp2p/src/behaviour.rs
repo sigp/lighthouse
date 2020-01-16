@@ -1,7 +1,8 @@
 use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
+use crate::types::{error, SubnetId};
 use crate::GossipTopic;
-use crate::{error, NetworkConfig};
+use crate::NetworkConfig;
 use crate::{Topic, TopicHash};
 use futures::prelude::*;
 use libp2p::{
@@ -15,7 +16,6 @@ use libp2p::{
 };
 use lru::LruCache;
 use slog::{debug, o};
-use types::ShardId;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 20;
 
@@ -294,7 +294,7 @@ impl PubsubMessage {
                     return PubsubMessage::AggregateAndProofAttestation(data)
                 }
                 GossipTopic::CommitteeIndex(subnet_id) => {
-                    return PubsubMessage::Attestation(index, data)
+                    return PubsubMessage::Attestation(subnet_id, data)
                 }
                 GossipTopic::BeaconBlock => return PubsubMessage::BeaconBlock(data),
                 GossipTopic::VoluntaryExit => return PubsubMessage::VoluntaryExit(data),
@@ -308,8 +308,9 @@ impl PubsubMessage {
 
     fn into_data(self) -> Vec<u8> {
         match self {
-            PubsubMessage::Block(data)
-            | PubsubMessage::Attestation(data)
+            PubsubMessage::BeaconBlock(data)
+            | PubsubMessage::AggregateAndProofAttestation(data)
+            | PubsubMessage::Attestation(_, data)
             | PubsubMessage::VoluntaryExit(data)
             | PubsubMessage::ProposerSlashing(data)
             | PubsubMessage::AttesterSlashing(data)

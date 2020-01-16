@@ -1,5 +1,5 @@
 use crate::error;
-use crate::message_handler::{MessageHandler, RouterMessage};
+use crate::router::{Router, RouterMessage};
 use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
@@ -36,7 +36,7 @@ impl<T: BeaconChainTypes> Service<T> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage>();
         // launch message handler thread
-        let message_handler_send = MessageHandler::spawn(
+        let router_send = Router::spawn(
             beacon_chain,
             network_send.clone(),
             executor,
@@ -52,7 +52,7 @@ impl<T: BeaconChainTypes> Service<T> {
         let libp2p_exit = spawn_service(
             libp2p_service.clone(),
             network_recv,
-            message_handler_send,
+            router_send,
             executor,
             network_log,
             config.propagation_percentage,
@@ -122,7 +122,7 @@ impl<T: BeaconChainTypes> Service<T> {
 fn spawn_service(
     libp2p_service: Arc<Mutex<LibP2PService>>,
     network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
-    message_handler_send: mpsc::UnboundedSender<RouterMessage>,
+    router_send: mpsc::UnboundedSender<RouterMessage>,
     executor: &TaskExecutor,
     log: slog::Logger,
     propagation_percentage: Option<u8>,
@@ -134,7 +134,7 @@ fn spawn_service(
         network_service(
             libp2p_service,
             network_recv,
-            message_handler_send,
+            router_send,
             log.clone(),
             propagation_percentage,
         )
@@ -153,7 +153,7 @@ fn spawn_service(
 fn network_service(
     libp2p_service: Arc<Mutex<LibP2PService>>,
     mut network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
-    mut message_handler_send: mpsc::UnboundedSender<RouterMessage>,
+    mut router_send: mpsc::UnboundedSender<RouterMessage>,
     log: slog::Logger,
     propagation_percentage: Option<u8>,
 ) -> impl futures::Future<Item = (), Error = eth2_libp2p::error::Error> {
@@ -243,19 +243,19 @@ fn network_service(
                         if let RPCEvent::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
                             peers_to_ban.push(peer_id.clone());
                         };
-                        message_handler_send
+                        router_send
                             .try_send(RouterMessage::RPC(peer_id, rpc_event))
                             .map_err(|_| "Failed to send RPC to handler")?;
                     }
                     Libp2pEvent::PeerDialed(peer_id) => {
                         debug!(log, "Peer Dialed"; "peer_id" => format!("{:?}", peer_id));
-                        message_handler_send
+                        router_send
                             .try_send(RouterMessage::PeerDialed(peer_id))
                             .map_err(|_| "Failed to send PeerDialed to handler")?;
                     }
                     Libp2pEvent::PeerDisconnected(peer_id) => {
                         debug!(log, "Peer Disconnected";  "peer_id" => format!("{:?}", peer_id));
-                        message_handler_send
+                        router_send
                             .try_send(RouterMessage::PeerDisconnected(peer_id))
                             .map_err(|_| "Failed to send PeerDisconnected to handler")?;
                     }
@@ -265,7 +265,7 @@ fn network_service(
                         message,
                         topics: _,
                     } => {
-                        message_handler_send
+                        router_send
                             .try_send(RouterMessage::PubsubMessage(id, source, message))
                             .map_err(|_| "Failed to send pubsub message to handler")?;
                     }

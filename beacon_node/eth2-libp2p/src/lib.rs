@@ -11,9 +11,9 @@ mod discovery;
 mod metrics;
 pub mod rpc;
 mod service;
-pub mod types;
+mod types;
 
-pub use crate::types::{GossipTopic, SubnetId};
+pub use crate::types::{error, topics, GossipTopic, SubnetId};
 pub use behaviour::PubsubMessage;
 pub use config::Config as NetworkConfig;
 pub use libp2p::enr::Enr;

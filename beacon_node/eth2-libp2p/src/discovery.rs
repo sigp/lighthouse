@@ -1,5 +1,5 @@
 use crate::metrics;
-use crate::{error, NetworkConfig};
+use crate::{types::error, NetworkConfig};
 /// This manages the discovery and management of peers.
 ///
 /// Currently using discv5 for peer discovery.

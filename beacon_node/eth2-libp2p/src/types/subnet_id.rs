@@ -1,7 +1,15 @@
 //! Identifies each shard by an integer identifier.
+use serde_derive::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SubnetId(u64);
+
+impl SubnetId {
+    pub fn new(id: u64) -> Self {
+        SubnetId(id)
+    }
+}
 
 impl Deref for SubnetId {
     type Target = u64;
