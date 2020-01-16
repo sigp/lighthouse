@@ -5,11 +5,11 @@
 use bls::{G1Point, G1Ref, SignatureSet, SignedMessage};
 use std::borrow::Cow;
 use std::convert::TryInto;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, AttesterSlashing, BeaconBlock, BeaconBlockHeader, BeaconState,
-    BeaconStateError, ChainSpec, DepositData, Domain, EthSpec, Hash256, IndexedAttestation,
-    ProposerSlashing, PublicKey, Signature, VoluntaryExit,
+    AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
+    DepositData, Domain, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
+    Signature, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot, VoluntaryExit,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -41,10 +41,11 @@ impl From<BeaconStateError> for Error {
 /// A signature set that is valid if a block was signed by the expected block producer.
 pub fn block_proposal_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
-    block: &'a BeaconBlock<T>,
+    signed_block: &'a SignedBeaconBlock<T>,
     block_signed_root: Option<Hash256>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
+    let block = &signed_block.message;
     let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
 
     let domain = spec.get_domain(
@@ -54,13 +55,15 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
     );
 
     let message = if let Some(root) = block_signed_root {
-        root.as_bytes().to_vec()
+        root
     } else {
-        block.signed_root()
-    };
+        block.signing_root(domain)
+    }
+    .as_bytes()
+    .to_vec();
 
     Ok(SignatureSet::single(
-        &block.signature,
+        &signed_block.signature,
         validator_pubkey(state, proposer_index)?,
         message,
         domain,
@@ -102,13 +105,13 @@ pub fn proposer_slashing_signature_set<'a, T: EthSpec>(
     Ok((
         block_header_signature_set(
             state,
-            &proposer_slashing.header_1,
+            &proposer_slashing.signed_header_1,
             validator_pubkey(state, proposer_index)?,
             spec,
         )?,
         block_header_signature_set(
             state,
-            &proposer_slashing.header_2,
+            &proposer_slashing.signed_header_2,
             validator_pubkey(state, proposer_index)?,
             spec,
         )?,
@@ -118,7 +121,7 @@ pub fn proposer_slashing_signature_set<'a, T: EthSpec>(
 /// Returns a signature set that is valid if the given `pubkey` signed the `header`.
 fn block_header_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
-    header: &'a BeaconBlockHeader,
+    header: &'a SignedBeaconBlockHeader,
     pubkey: Cow<'a, G1Point>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {

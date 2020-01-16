@@ -20,6 +20,8 @@ pub struct BeaconBlock<T: EthSpec> {
     pub body: BeaconBlockBody<T>,
 }
 
+impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
+
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     ///
@@ -51,11 +53,11 @@ impl<T: EthSpec> BeaconBlock<T> {
         self.slot.epoch(T::slots_per_epoch())
     }
 
-    /// Returns the `signed_root` of the block.
+    /// Returns the `tree_hash_root` of the block.
     ///
     /// Spec v0.9.1
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.signed_root()[..])
+        Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
     /// Returns a full `BeaconBlockHeader` of this block.
@@ -85,12 +87,14 @@ impl<T: EthSpec> BeaconBlock<T> {
         }
     }
 
+    /* FIXME(sproul)
     /// Signs `self`.
     pub fn sign(&mut self, secret_key: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let message = self.signed_root();
         let domain = spec.get_domain(self.epoch(), Domain::BeaconProposer, &fork);
         self.signature = Signature::new(&message, domain, &secret_key);
     }
+    */
 }
 
 #[cfg(test)]

@@ -23,7 +23,7 @@ impl BeaconBlockHeader {
     ///
     /// Spec v0.9.1
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.signed_root()[..])
+        Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
     /// Given a `body`, consumes `self` and returns a complete `BeaconBlock`.
@@ -35,7 +35,6 @@ impl BeaconBlockHeader {
             parent_root: self.parent_root,
             state_root: self.state_root,
             body,
-            signature: self.signature,
         }
     }
 }

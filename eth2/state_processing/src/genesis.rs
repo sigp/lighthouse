@@ -14,7 +14,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, BlockProcessingError> {
     let genesis_time =
-        eth1_timestamp - eth1_timestamp % spec.seconds_per_day + 2 * spec.seconds_per_day;
+        eth1_timestamp - eth1_timestamp % spec.min_genesis_delay + 2 * spec.min_genesis_delay;
     let eth1_data = Eth1Data {
         // Temporary deposit root
         deposit_root: Hash256::zero(),

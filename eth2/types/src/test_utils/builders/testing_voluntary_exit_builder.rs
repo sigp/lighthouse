@@ -1,5 +1,4 @@
 use crate::*;
-use tree_hash::SignedRoot;
 
 /// Builds an exit to be used for testing purposes.
 ///
@@ -14,12 +13,12 @@ impl TestingVoluntaryExitBuilder {
         let exit = VoluntaryExit {
             epoch,
             validator_index,
-            signature: Signature::empty_signature(),
         };
 
         Self { exit }
     }
 
+    /* FIXME(sproul)
     /// Signs the exit.
     ///
     /// The signing secret key must match that of the exiting validator.
@@ -29,6 +28,7 @@ impl TestingVoluntaryExitBuilder {
 
         self.exit.signature = Signature::new(&message, domain, secret_key);
     }
+    */
 
     /// Builds the exit, consuming the builder.
     pub fn build(self) -> VoluntaryExit {

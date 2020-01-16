@@ -3,7 +3,7 @@ use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithI
 use rayon::prelude::*;
 use signature_sets::{block_proposal_signature_set, randao_signature_set};
 use std::convert::TryInto;
-use tree_hash::SignedRoot;
+use tree_hash::TreeHash;
 use types::*;
 
 pub use self::verify_attester_slashing::{
@@ -71,16 +71,17 @@ impl VerifySignatures {
 /// Spec v0.9.1
 pub fn per_block_processing<T: EthSpec>(
     mut state: &mut BeaconState<T>,
-    block: &BeaconBlock<T>,
+    signed_block: &SignedBeaconBlock<T>,
     block_signed_root: Option<Hash256>,
     block_signature_strategy: BlockSignatureStrategy,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    let block = &signed_block.message;
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
             block_verify!(
-                BlockSignatureVerifier::verify_entire_block(state, block, spec).is_ok(),
+                BlockSignatureVerifier::verify_entire_block(state, signed_block, spec).is_ok(),
                 BlockProcessingError::BulkSignatureVerificationFailed
             );
             VerifySignatures::False
@@ -90,6 +91,10 @@ pub fn per_block_processing<T: EthSpec>(
     };
 
     process_block_header(state, block, block_signed_root, verify_signatures, spec)?;
+
+    if verify_signatures.is_true() {
+        verify_block_signature(&state, signed_block, block_signed_root, &spec)?;
+    }
 
     // Ensure the current and previous epoch caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
@@ -139,7 +144,7 @@ pub fn process_block_header<T: EthSpec>(
     verify!(block.slot == state.slot, HeaderInvalid::StateSlotMismatch);
 
     let expected_previous_block_root =
-        Hash256::from_slice(&state.latest_block_header.signed_root());
+        Hash256::from_slice(&state.latest_block_header.tree_hash_root());
     verify!(
         block.parent_root == expected_previous_block_root,
         HeaderInvalid::ParentBlockRootMismatch {
@@ -158,10 +163,6 @@ pub fn process_block_header<T: EthSpec>(
         HeaderInvalid::ProposerSlashed(proposer_idx)
     );
 
-    if verify_signatures.is_true() {
-        verify_block_signature(&state, &block, block_signed_root, &spec)?;
-    }
-
     Ok(())
 }
 
@@ -170,7 +171,7 @@ pub fn process_block_header<T: EthSpec>(
 /// Spec v0.9.1
 pub fn verify_block_signature<T: EthSpec>(
     state: &BeaconState<T>,
-    block: &BeaconBlock<T>,
+    block: &SignedBeaconBlock<T>,
     block_signed_root: Option<Hash256>,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {

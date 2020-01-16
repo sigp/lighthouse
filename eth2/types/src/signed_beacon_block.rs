@@ -5,9 +5,9 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 
-/// An exit voluntarily submitted a validator who wishes to withdraw.
+/// A `BeaconBlock` and a signature from its proposer.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.0
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom)]
 pub struct SignedBeaconBlock<E: EthSpec> {
     pub message: BeaconBlock<E>,

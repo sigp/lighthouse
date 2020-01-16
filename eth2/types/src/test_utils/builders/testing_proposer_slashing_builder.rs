@@ -1,6 +1,5 @@
 use crate::test_utils::ProposerSlashingTestTask;
 use crate::*;
-use tree_hash::SignedRoot;
 
 /// Builds a `ProposerSlashing`.
 ///
@@ -21,7 +20,7 @@ impl TestingProposerSlashingBuilder {
     pub fn double_vote<T, F>(
         test_task: ProposerSlashingTestTask,
         mut proposer_index: u64,
-        signer: F,
+        _signer: F,
     ) -> ProposerSlashing
     where
         T: EthSpec,
@@ -35,11 +34,13 @@ impl TestingProposerSlashingBuilder {
             Hash256::from([2; 32])
         };
 
-        let mut header_1 = BeaconBlockHeader {
-            slot,
-            parent_root: hash_1,
-            state_root: hash_1,
-            body_root: hash_1,
+        let signed_header_1 = SignedBeaconBlockHeader {
+            message: BeaconBlockHeader {
+                slot,
+                parent_root: hash_1,
+                state_root: hash_1,
+                body_root: hash_1,
+            },
             signature: Signature::empty_signature(),
         };
 
@@ -49,27 +50,31 @@ impl TestingProposerSlashingBuilder {
             Slot::new(0)
         };
 
-        let mut header_2 = BeaconBlockHeader {
-            parent_root: hash_2,
-            slot: slot_2,
-            ..header_1.clone()
+        let signed_header_2 = SignedBeaconBlockHeader {
+            message: BeaconBlockHeader {
+                parent_root: hash_2,
+                slot: slot_2,
+                ..signed_header_1.message.clone()
+            },
+            signature: Signature::empty_signature(),
         };
 
-        let epoch = slot.epoch(T::slots_per_epoch());
-
+        /* FIXME(sproul)
+        let _epoch = slot.epoch(T::slots_per_epoch());
         if test_task != ProposerSlashingTestTask::BadProposal1Signature {
-            header_1.signature = {
-                let message = header_1.signed_root();
+            signed_header_1.signature = {
+                let message = signed_header_1.signed_root();
                 signer(proposer_index, &message[..], epoch, Domain::BeaconProposer)
             };
         }
 
         if test_task != ProposerSlashingTestTask::BadProposal2Signature {
-            header_2.signature = {
-                let message = header_2.signed_root();
+            signed_header_2.signature = {
+                let message = signed_header_2.signed_root();
                 signer(proposer_index, &message[..], epoch, Domain::BeaconProposer)
             };
         }
+        */
 
         if test_task == ProposerSlashingTestTask::ProposerUnknown {
             proposer_index = 3_141_592;
@@ -77,8 +82,8 @@ impl TestingProposerSlashingBuilder {
 
         ProposerSlashing {
             proposer_index,
-            header_1,
-            header_2,
+            signed_header_1,
+            signed_header_2,
         }
     }
 }

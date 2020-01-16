@@ -9,7 +9,7 @@ use crate::{
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
 use rayon::prelude::*;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::TreeHash;
 
 /// Builds a beacon block to be used for testing purposes.
 ///
@@ -97,6 +97,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         self.block.slot = slot;
     }
 
+    /*
     /// Signs the block.
     ///
     /// Modifying the block after signing may invalidate the signature.
@@ -106,6 +107,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         let domain = spec.get_domain(epoch, Domain::BeaconProposer, fork);
         self.block.signature = Signature::new(&message, domain, sk);
     }
+    */
 
     /// Sets the randao to be a signature across the blocks epoch.
     ///
@@ -364,9 +366,9 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             _ => (),
         }
 
-        let mut builder = TestingVoluntaryExitBuilder::new(exit_epoch, validator_index);
-
-        builder.sign(sk, &state.fork, spec);
+        let builder = TestingVoluntaryExitBuilder::new(exit_epoch, validator_index);
+        // FIXME(sproul)
+        // builder.sign(sk, &state.fork, spec);
 
         self.block
             .body
@@ -376,8 +378,9 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     }
 
     /// Signs and returns the block, consuming the builder.
-    pub fn build(mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) -> BeaconBlock<T> {
-        self.sign(sk, fork, spec);
+    // FIXME(sproul)
+    pub fn build(self, _sk: &SecretKey, _fork: &Fork, _spec: &ChainSpec) -> BeaconBlock<T> {
+        // self.sign(sk, fork, spec);
         self.block
     }
 

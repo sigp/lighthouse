@@ -1,7 +1,10 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
-use utils::{u32_from_hex_str, u32_to_hex_str, u8_from_hex_str, u8_to_hex_str};
+use utils::{
+    fork_from_hex_str, fork_to_hex_str, u32_from_hex_str, u32_to_hex_str, u8_from_hex_str,
+    u8_to_hex_str,
+};
 
 /// Each of the BLS signature domains.
 ///
@@ -51,6 +54,11 @@ pub struct ChainSpec {
     /*
      * Initial Values
      */
+    #[serde(
+        serialize_with = "fork_to_hex_str",
+        deserialize_with = "fork_from_hex_str"
+    )]
+    pub genesis_fork_version: [u8; 4],
     #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
     pub bls_withdrawal_prefix_byte: u8,
 
@@ -96,8 +104,6 @@ pub struct ChainSpec {
 
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
-
-    pub genesis_fork: Fork,
 }
 
 impl ChainSpec {
@@ -180,6 +186,7 @@ impl ChainSpec {
             /*
              * Initial Values
              */
+            genesis_fork_version: [0; 4],
             bls_withdrawal_prefix_byte: 0,
 
             /*
@@ -221,15 +228,6 @@ impl ChainSpec {
              * Eth1
              */
             eth1_follow_distance: 1_024,
-
-            /*
-             * Fork
-             */
-            genesis_fork: Fork {
-                previous_version: [0; 4],
-                current_version: [0; 4],
-                epoch: Epoch::new(0),
-            },
 
             /*
              * Network specific
@@ -342,6 +340,7 @@ pub struct YamlConfig {
     ejection_balance: u64,
     effective_balance_increment: u64,
     genesis_slot: u64,
+    genesis_fork_version: [u8; 4],
     #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
     bls_withdrawal_prefix: u8,
     seconds_per_slot: u64,
@@ -357,9 +356,6 @@ pub struct YamlConfig {
     inactivity_penalty_quotient: u64,
     min_slashing_penalty_quotient: u64,
     safe_slots_to_update_justified: u64,
-
-    #[serde(skip_serializing)]
-    genesis_fork: Fork,
 
     #[serde(
         deserialize_with = "u32_from_hex_str",
@@ -479,7 +475,7 @@ impl YamlConfig {
             proposer_reward_quotient: spec.proposer_reward_quotient,
             inactivity_penalty_quotient: spec.inactivity_penalty_quotient,
             min_slashing_penalty_quotient: spec.min_slashing_penalty_quotient,
-            genesis_fork: spec.genesis_fork.clone(),
+            genesis_fork_version: spec.genesis_fork_version.clone(),
             safe_slots_to_update_justified: spec.safe_slots_to_update_justified,
             domain_beacon_proposer: spec.domain_beacon_proposer,
             domain_beacon_attester: spec.domain_beacon_attester,
@@ -582,7 +578,7 @@ impl YamlConfig {
             domain_deposit: self.domain_deposit,
             domain_voluntary_exit: self.domain_voluntary_exit,
             boot_nodes: chain_spec.boot_nodes.clone(),
-            genesis_fork: chain_spec.genesis_fork.clone(),
+            genesis_fork_version: chain_spec.genesis_fork_version.clone(),
             eth1_follow_distance: self.eth1_follow_distance,
             ..*chain_spec
         })

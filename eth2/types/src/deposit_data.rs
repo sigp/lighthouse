@@ -1,7 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::{PublicKeyBytes, SignatureBytes};
-use std::convert::From;
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -23,9 +22,14 @@ pub struct DepositData {
 impl DepositData {
     /// Generate the signature for a given DepositData details.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.0
     pub fn create_signature(&self, secret_key: &SecretKey, spec: &ChainSpec) -> SignatureBytes {
-        let msg = self.signed_root();
+        let msg = DepositMessage {
+            pubkey: self.pubkey.clone(),
+            withdrawal_credentials: self.withdrawal_credentials,
+            amount: self.amount,
+        }
+        .tree_hash_root();
         let domain = spec.get_deposit_domain();
 
         SignatureBytes::from(Signature::new(msg.as_slice(), domain, secret_key))

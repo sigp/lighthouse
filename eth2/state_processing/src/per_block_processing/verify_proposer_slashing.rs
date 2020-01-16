@@ -28,16 +28,16 @@ pub fn verify_proposer_slashing<T: EthSpec>(
 
     // Verify slots match
     verify!(
-        proposer_slashing.header_1.slot == proposer_slashing.header_2.slot,
+        proposer_slashing.signed_header_1.slot == proposer_slashing.signed_header_2.slot,
         Invalid::ProposalSlotMismatch(
-            proposer_slashing.header_1.slot,
-            proposer_slashing.header_2.slot
+            proposer_slashing.signed_header_1.slot,
+            proposer_slashing.signed_header_2.slot
         )
     );
 
     // But the headers are different
     verify!(
-        proposer_slashing.header_1 != proposer_slashing.header_2,
+        proposer_slashing.signed_header_1 != proposer_slashing.signed_header_2,
         Invalid::ProposalsIdentical
     );
 
