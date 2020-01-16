@@ -206,7 +206,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_epoch: Epoch::new(0),
     });
 
-    // Ensure that if we start at 0 we find 10.
+    // Ensure that if we start at 0 we find 10 (just: 0, fin: 0).
     //
     //           0  <-- start
     //          / \
@@ -226,6 +226,109 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: balances.clone(),
         expected_head: get_hash(10),
     });
+
+    // Add a vote to 1.
+    //
+    //                 0
+    //                / \
+    //    +1 vote -> 1   2
+    //               |   |
+    //               3   4
+    //               |   |
+    //               5   6
+    //               |   |
+    //               7   8
+    //               |   |
+    //               9  10
+    ops.push(Operation::ProcessAttestation {
+        validator_index: 0,
+        block_root: get_hash(1),
+        target_epoch: Epoch::new(0),
+    });
+
+    // Ensure that if we start at 0 we find 9 (just: 0, fin: 0).
+    //
+    //           0  <-- start
+    //          / \
+    //         1   2
+    //         |   |
+    //         3   4
+    //         |   |
+    //         5   6
+    //         |   |
+    //         7   8
+    //         |   |
+    // head -> 9  10
+    ops.push(Operation::FindHead {
+        justified_epoch: Epoch::new(0),
+        justified_root: get_hash(0),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_hash(9),
+    });
+
+    // Add a vote to 2.
+    //
+    //                 0
+    //                / \
+    //               1   2 <- +1 vote
+    //               |   |
+    //               3   4
+    //               |   |
+    //               5   6
+    //               |   |
+    //               7   8
+    //               |   |
+    //               9  10
+    ops.push(Operation::ProcessAttestation {
+        validator_index: 1,
+        block_root: get_hash(2),
+        target_epoch: Epoch::new(0),
+    });
+
+    // Ensure that if we start at 0 we find 10 (just: 0, fin: 0).
+    //
+    //           0  <-- start
+    //          / \
+    //         1   2
+    //         |   |
+    //         3   4
+    //         |   |
+    //         5   6
+    //         |   |
+    //         7   8
+    //         |   |
+    //         9  10 <-- head
+    ops.push(Operation::FindHead {
+        justified_epoch: Epoch::new(0),
+        justified_root: get_hash(0),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_hash(10),
+    });
+
+    // Ensure that if we start at 1 we find 9 (just: 0, fin: 0).
+    //
+    //            0
+    //           / \
+    //          1   2
+    //          |   |
+    // start -> 3   4
+    //          |   |
+    //          5   6
+    //          |   |
+    //          7   8
+    //          |   |
+    //  head -> 9  10
+    ops.push(Operation::FindHead {
+        justified_epoch: Epoch::new(0),
+        justified_root: get_hash(0),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_hash(10),
+    });
+
+    // TODO: add more tests here.
 
     // END OF TESTS
     ForkChoiceTestDefinition {
