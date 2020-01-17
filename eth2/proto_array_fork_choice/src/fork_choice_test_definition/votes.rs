@@ -592,7 +592,6 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
 
     // Ensure that pruning below the prune threshold does not prune.
     ops.push(Operation::Prune {
-        finalized_epoch: Epoch::new(2),
         finalized_root: get_hash(5),
         prune_threshold: usize::max_value(),
         expected_len: 11,
@@ -626,7 +625,6 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     //         / \
     //        9  10
     ops.push(Operation::Prune {
-        finalized_epoch: Epoch::new(2),
         finalized_root: get_hash(5),
         prune_threshold: 1,
         expected_len: 6,

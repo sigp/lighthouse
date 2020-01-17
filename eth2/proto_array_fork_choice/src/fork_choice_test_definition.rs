@@ -37,7 +37,6 @@ pub enum Operation {
         target_epoch: Epoch,
     },
     Prune {
-        finalized_epoch: Epoch,
         finalized_root: Hash256,
         prune_threshold: usize,
         expected_len: usize,
@@ -141,14 +140,13 @@ impl ForkChoiceTestDefinition {
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::Prune {
-                    finalized_epoch,
                     finalized_root,
                     prune_threshold,
                     expected_len,
                 } => {
                     fork_choice.set_prune_threshold(prune_threshold);
                     fork_choice
-                        .update_finalized_root(finalized_epoch, finalized_root)
+                        .maybe_prune(finalized_root)
                         .expect("update_finalized_root op at index {} returned error");
 
                     // Ensure that no pruning happened.
