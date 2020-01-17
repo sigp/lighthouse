@@ -421,7 +421,7 @@ fn deposit_validator(
                         to: Some(deposit_contract),
                         gas: Some(U256::from(DEPOSIT_GAS)),
                         gas_price: None,
-                        value: Some(U256::from(from_gwei(deposit_amount))),
+                        value: Some(from_gwei(deposit_amount)),
                         data: Some(deposit_data.into()),
                         nonce: None,
                         condition: None,
