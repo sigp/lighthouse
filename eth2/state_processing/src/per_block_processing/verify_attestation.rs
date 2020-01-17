@@ -75,12 +75,19 @@ pub fn verify_attestation_for_state<T: EthSpec>(
 
 /// Check target epoch and source checkpoint.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.0
 fn verify_casper_ffg_vote<T: EthSpec>(
     attestation: &Attestation<T>,
     state: &BeaconState<T>,
 ) -> Result<()> {
     let data = &attestation.data;
+    verify!(
+        data.target.epoch == data.slot.epoch(T::slots_per_epoch()),
+        Invalid::TargetEpochSlotMismatch {
+            target_epoch: data.target.epoch,
+            slot_epoch: data.slot.epoch(T::slots_per_epoch()),
+        }
+    );
     if data.target.epoch == state.current_epoch() {
         verify!(
             data.source == state.current_justified_checkpoint,

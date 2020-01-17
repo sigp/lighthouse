@@ -1,7 +1,7 @@
 use crate::{
     test_utils::{
         TestingAttestationBuilder, TestingAttesterSlashingBuilder, TestingDepositBuilder,
-        TestingProposerSlashingBuilder, TestingVoluntaryExitBuilder,
+        TestingProposerSlashingBuilder,
     },
     typenum::U4294967296,
     *,
@@ -344,10 +344,13 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         &mut self,
         test_task: ExitTestTask,
         state: &mut BeaconState<T>,
-        mut validator_index: u64,
+        validator_index: u64,
         secret_key: &SecretKey,
         spec: &ChainSpec,
     ) {
+        drop((test_task, state, validator_index, secret_key, spec));
+        // FIXME(sproul)
+        /*
         let sk = &mut secret_key.clone();
         let mut exit_epoch = state.slot.epoch(T::slots_per_epoch());
 
@@ -367,14 +370,14 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         }
 
         let builder = TestingVoluntaryExitBuilder::new(exit_epoch, validator_index);
-        // FIXME(sproul)
-        // builder.sign(sk, &state.fork, spec);
+        builder.sign(sk, &state.fork, spec);
 
         self.block
             .body
             .voluntary_exits
             .push(builder.build())
             .unwrap();
+        */
     }
 
     /// Signs and returns the block, consuming the builder.

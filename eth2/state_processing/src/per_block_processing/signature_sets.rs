@@ -9,7 +9,7 @@ use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
     DepositData, Domain, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
-    Signature, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot, VoluntaryExit,
+    Signature, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot, SignedVoluntaryExit,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -125,7 +125,6 @@ fn block_header_signature_set<'a, T: EthSpec>(
     pubkey: Cow<'a, G1Point>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let header = &signed_header.message;
     let domain = spec.get_domain(
         signed_header.message.slot.epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
@@ -230,21 +229,22 @@ pub fn deposit_signature_set<'a>(
     )
 }
 
-/// Returns a signature set that is valid if the `VoluntaryExit` was signed by the indicated
+/// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
 /// validator.
 pub fn exit_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
-    exit: &'a VoluntaryExit,
+    signed_exit: &'a SignedVoluntaryExit,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
+    let exit = &signed_exit.message;
     let proposer_index = exit.validator_index as usize;
 
     let domain = spec.get_domain(exit.epoch, Domain::VoluntaryExit, &state.fork);
 
-    let message = exit.signed_root();
+    let message = exit.signing_root(domain).as_bytes().to_vec();
 
     Ok(SignatureSet::single(
-        &exit.signature,
+        &signed_exit.signature,
         validator_pubkey(state, proposer_index)?,
         message,
         domain,

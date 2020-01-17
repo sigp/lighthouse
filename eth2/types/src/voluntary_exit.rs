@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, Epoch};
+use crate::{test_utils::TestRandom, Epoch, SignedRoot};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -14,6 +14,8 @@ pub struct VoluntaryExit {
     pub epoch: Epoch,
     pub validator_index: u64,
 }
+
+impl SignedRoot for VoluntaryExit {}
 
 #[cfg(test)]
 mod tests {

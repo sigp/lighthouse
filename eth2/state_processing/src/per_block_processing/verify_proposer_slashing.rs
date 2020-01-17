@@ -28,10 +28,11 @@ pub fn verify_proposer_slashing<T: EthSpec>(
 
     // Verify slots match
     verify!(
-        proposer_slashing.signed_header_1.slot == proposer_slashing.signed_header_2.slot,
+        proposer_slashing.signed_header_1.message.slot
+            == proposer_slashing.signed_header_2.message.slot,
         Invalid::ProposalSlotMismatch(
-            proposer_slashing.signed_header_1.slot,
-            proposer_slashing.signed_header_2.slot
+            proposer_slashing.signed_header_1.message.slot,
+            proposer_slashing.signed_header_2.message.slot
         )
     );
 

@@ -90,7 +90,7 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::NoVerification => VerifySignatures::False,
     };
 
-    process_block_header(state, block, block_signed_root, verify_signatures, spec)?;
+    process_block_header(state, block, spec)?;
 
     if verify_signatures.is_true() {
         verify_block_signature(&state, signed_block, block_signed_root, &spec)?;
@@ -137,8 +137,6 @@ pub fn per_block_processing<T: EthSpec>(
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
-    block_signed_root: Option<Hash256>,
-    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(block.slot == state.slot, HeaderInvalid::StateSlotMismatch);
@@ -485,7 +483,7 @@ pub fn process_deposit<T: EthSpec>(
 /// Spec v0.9.1
 pub fn process_exits<T: EthSpec>(
     state: &mut BeaconState<T>,
-    voluntary_exits: &[VoluntaryExit],
+    voluntary_exits: &[SignedVoluntaryExit],
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -499,7 +497,7 @@ pub fn process_exits<T: EthSpec>(
 
     // Update the state in series.
     for exit in voluntary_exits {
-        initiate_validator_exit(state, exit.validator_index as usize, spec)?;
+        initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }
 
     Ok(())

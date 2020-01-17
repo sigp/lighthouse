@@ -17,8 +17,8 @@ fn operations_deposit() {
 
 #[test]
 fn operations_exit() {
-    OperationsHandler::<MinimalEthSpec, VoluntaryExit>::run();
-    OperationsHandler::<MainnetEthSpec, VoluntaryExit>::run();
+    OperationsHandler::<MinimalEthSpec, SignedVoluntaryExit>::run();
+    OperationsHandler::<MainnetEthSpec, SignedVoluntaryExit>::run();
 }
 
 #[test]
@@ -131,12 +131,12 @@ mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticSRHandler, SszStaticTHCHandler};
     use types::*;
 
-    ssz_static_test!(attestation, Attestation<_>, SR);
+    ssz_static_test!(attestation, Attestation<_>);
     ssz_static_test!(attestation_data, AttestationData);
     ssz_static_test!(attester_slashing, AttesterSlashing<_>);
-    ssz_static_test!(beacon_block, BeaconBlock<_>, SR);
+    ssz_static_test!(beacon_block, BeaconBlock<_>);
     ssz_static_test!(beacon_block_body, BeaconBlockBody<_>);
-    ssz_static_test!(beacon_block_header, BeaconBlockHeader, SR);
+    ssz_static_test!(beacon_block_header, BeaconBlockHeader);
     ssz_static_test!(
         beacon_state,
         SszStaticTHCHandler, {
@@ -146,17 +146,18 @@ mod ssz_static {
     );
     ssz_static_test!(checkpoint, Checkpoint);
     ssz_static_test!(deposit, Deposit);
-    ssz_static_test!(deposit_data, DepositData, SR);
+    ssz_static_test!(deposit_data, DepositData);
     ssz_static_test!(eth1_data, Eth1Data);
     ssz_static_test!(fork, Fork);
     ssz_static_test!(historical_batch, HistoricalBatch<_>);
-    ssz_static_test!(indexed_attestation, IndexedAttestation<_>, SR);
+    ssz_static_test!(indexed_attestation, IndexedAttestation<_>);
     ssz_static_test!(pending_attestation, PendingAttestation<_>);
     ssz_static_test!(proposer_slashing, ProposerSlashing);
     ssz_static_test!(validator, Validator);
-    ssz_static_test!(voluntary_exit, VoluntaryExit, SR);
+    ssz_static_test!(voluntary_exit, VoluntaryExit);
 }
 
+/* NOTE: SSZ generic tests disabled, missing from v0.10.0
 #[test]
 fn ssz_generic() {
     SszGenericHandler::<BasicVector>::run();
@@ -166,6 +167,7 @@ fn ssz_generic() {
     SszGenericHandler::<Uints>::run();
     SszGenericHandler::<Containers>::run();
 }
+*/
 
 #[test]
 fn epoch_processing_justification_and_finalization() {

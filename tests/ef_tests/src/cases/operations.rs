@@ -14,7 +14,7 @@ use std::fmt::Debug;
 use std::path::Path;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec,
-    ProposerSlashing, VoluntaryExit,
+    ProposerSlashing, SignedVoluntaryExit,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -95,7 +95,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
     }
 }
 
-impl<E: EthSpec> Operation<E> for VoluntaryExit {
+impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
     fn handler_name() -> String {
         "voluntary_exit".into()
     }
@@ -123,13 +123,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        Ok(process_block_header(
-            state,
-            self,
-            None,
-            VerifySignatures::True,
-            spec,
-        )?)
+        Ok(process_block_header(state, self, spec)?)
     }
 }
 

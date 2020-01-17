@@ -34,7 +34,7 @@ pub fn process_registry_updates<T: EthSpec>(
             }
         });
     for index in eligible_validators {
-        state.validators[index].activation_eligibility_epoch = current_epoch;
+        state.validators[index].activation_eligibility_epoch = current_epoch + 1;
     }
     for index in exiting_validators {
         initiate_validator_exit(state, index, spec)?;
@@ -45,8 +45,8 @@ pub fn process_registry_updates<T: EthSpec>(
         .validators
         .iter()
         .enumerate()
-        .filter(|(_, validator)| validator.is_eligible_for_activation(spec))
-        .sorted_by_key(|(index, validator)| (validator.activation_eligibility_epoch, index))
+        .filter(|(_, validator)| validator.is_eligible_for_activation(state, spec))
+        .sorted_by_key(|(index, validator)| (validator.activation_eligibility_epoch, *index))
         .map(|(index, _)| index)
         .collect_vec();
 
