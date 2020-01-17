@@ -19,7 +19,7 @@ pub struct PersistedOperationPool<T: EthSpec> {
     /// Proposer slashings.
     proposer_slashings: Vec<ProposerSlashing>,
     /// Voluntary exits.
-    voluntary_exits: Vec<VoluntaryExit>,
+    voluntary_exits: Vec<SignedVoluntaryExit>,
 }
 
 impl<T: EthSpec> PersistedOperationPool<T> {
@@ -84,7 +84,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         let voluntary_exits = RwLock::new(
             self.voluntary_exits
                 .into_iter()
-                .map(|exit| (exit.validator_index, exit))
+                .map(|exit| (exit.message.validator_index, exit))
                 .collect(),
         );
 

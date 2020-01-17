@@ -295,7 +295,11 @@ mod tests {
     }
 
     fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
-        let fork = &spec.genesis_fork;
+        let fork = Fork {
+            previous_version: spec.genesis_fork_version,
+            current_version: spec.genesis_fork_version,
+            epoch: MinimalEthSpec::genesis_epoch(),
+        };
         let epoch = Epoch::new(0);
 
         let domain = spec.get_domain(epoch, domain_type, &fork);

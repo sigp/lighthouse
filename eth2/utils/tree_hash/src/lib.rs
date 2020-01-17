@@ -45,10 +45,6 @@ pub trait TreeHash {
     fn tree_hash_root(&self) -> Vec<u8>;
 }
 
-pub trait SignedRoot: TreeHash {
-    fn signed_root(&self) -> Vec<u8>;
-}
-
 #[macro_export]
 macro_rules! tree_hash_ssz_encoding_as_vector {
     ($type: ident) => {

@@ -504,7 +504,7 @@ impl<E: EthSpec> HotColdDB<E> {
     fn replay_blocks(
         &self,
         mut state: BeaconState<E>,
-        blocks: Vec<BeaconBlock<E>>,
+        blocks: Vec<SignedBeaconBlock<E>>,
         target_slot: Slot,
     ) -> Result<BeaconState<E>, Error> {
         let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
