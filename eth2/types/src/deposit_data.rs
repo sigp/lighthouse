@@ -5,7 +5,6 @@ use bls::{PublicKeyBytes, SignatureBytes};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 /// The data supplied by the user to the deposit contract.
@@ -20,19 +19,25 @@ pub struct DepositData {
 }
 
 impl DepositData {
-    /// Generate the signature for a given DepositData details.
+    /// Create a `DepositMessage` corresponding to this `DepositData`, for signature verification.
     ///
     /// Spec v0.10.0
-    pub fn create_signature(&self, secret_key: &SecretKey, spec: &ChainSpec) -> SignatureBytes {
-        let msg = DepositMessage {
+    pub fn as_deposit_message(&self) -> DepositMessage {
+        DepositMessage {
             pubkey: self.pubkey.clone(),
             withdrawal_credentials: self.withdrawal_credentials,
             amount: self.amount,
         }
-        .tree_hash_root();
-        let domain = spec.get_deposit_domain();
+    }
 
-        SignatureBytes::from(Signature::new(msg.as_slice(), domain, secret_key))
+    /// Generate the signature for a given DepositData details.
+    ///
+    /// Spec v0.10.0
+    pub fn create_signature(&self, secret_key: &SecretKey, spec: &ChainSpec) -> SignatureBytes {
+        let domain = spec.get_deposit_domain();
+        let msg = self.as_deposit_message().signing_root(domain);
+
+        SignatureBytes::from(Signature::new(msg.as_bytes(), domain, secret_key))
     }
 }
 

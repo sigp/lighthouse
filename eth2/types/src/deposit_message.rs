@@ -17,6 +17,8 @@ pub struct DepositMessage {
     pub amount: u64,
 }
 
+impl SignedRoot for DepositMessage {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

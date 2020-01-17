@@ -16,7 +16,7 @@ fn error(reason: DepositInvalid) -> BlockOperationError<DepositInvalid> {
 ///
 /// Spec v0.9.1
 pub fn verify_deposit_signature(deposit_data: &DepositData, spec: &ChainSpec) -> Result<()> {
-    let deposit_signature_message = deposit_pubkey_signature_message(&deposit_data)
+    let deposit_signature_message = deposit_pubkey_signature_message(&deposit_data, spec)
         .ok_or_else(|| error(DepositInvalid::BadBlsBytes))?;
 
     verify!(

@@ -121,20 +121,25 @@ pub fn proposer_slashing_signature_set<'a, T: EthSpec>(
 /// Returns a signature set that is valid if the given `pubkey` signed the `header`.
 fn block_header_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
-    header: &'a SignedBeaconBlockHeader,
+    signed_header: &'a SignedBeaconBlockHeader,
     pubkey: Cow<'a, G1Point>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
+    let header = &signed_header.message;
     let domain = spec.get_domain(
-        header.slot.epoch(T::slots_per_epoch()),
+        signed_header.message.slot.epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
         &state.fork,
     );
 
-    let message = header.signed_root();
+    let message = signed_header
+        .message
+        .signing_root(domain)
+        .as_bytes()
+        .to_vec();
 
     Ok(SignatureSet::single(
-        &header.signature,
+        &signed_header.signature,
         pubkey,
         message,
         domain,
@@ -194,10 +199,16 @@ pub fn attester_slashing_signature_sets<'a, T: EthSpec>(
 /// This method is separate to `deposit_signature_set` to satisfy lifetime requirements.
 pub fn deposit_pubkey_signature_message(
     deposit_data: &DepositData,
+    spec: &ChainSpec,
 ) -> Option<(PublicKey, Signature, Vec<u8>)> {
     let pubkey = (&deposit_data.pubkey).try_into().ok()?;
     let signature = (&deposit_data.signature).try_into().ok()?;
-    let message = deposit_data.signed_root();
+    let domain = spec.get_deposit_domain();
+    let message = deposit_data
+        .as_deposit_message()
+        .signing_root(domain)
+        .as_bytes()
+        .to_vec();
     Some((pubkey, signature, message))
 }
 
