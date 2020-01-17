@@ -211,22 +211,7 @@ impl ProtoArray {
     /// - The finalized epoch is less than the current one.
     /// - The finalized epoch is equal to the current one, but the finalized root is different.
     /// - There is some internal error relating to invalid indices inside `self`.
-    pub fn maybe_prune(
-        &mut self,
-        finalized_epoch: Epoch,
-        finalized_root: Hash256,
-    ) -> Result<(), Error> {
-        if finalized_epoch < self.finalized_epoch {
-            // It's illegal to swap to an earlier finalized root (this is assumed to be reverting a
-            // finalized block).
-            return Err(Error::RevertedFinalizedEpoch {
-                current_finalized_epoch: self.finalized_epoch,
-                new_finalized_epoch: finalized_epoch,
-            });
-        } else if finalized_epoch != self.finalized_epoch {
-            self.finalized_epoch = finalized_epoch;
-        }
-
+    pub fn maybe_prune(&mut self, finalized_root: Hash256) -> Result<(), Error> {
         let finalized_index = *self
             .indices
             .get(&finalized_root)

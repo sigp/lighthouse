@@ -34,11 +34,6 @@ where
         }
     }
 
-    pub fn get(&mut self, i: usize) -> &T {
-        self.ensure(i);
-        &self.0[i]
-    }
-
     pub fn get_mut(&mut self, i: usize) -> &mut T {
         self.ensure(i);
         &mut self.0[i]
@@ -164,14 +159,10 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
-    pub fn update_finalized_root(
-        &self,
-        finalized_epoch: Epoch,
-        finalized_root: Hash256,
-    ) -> Result<(), String> {
+    pub fn maybe_prune(&self, finalized_root: Hash256) -> Result<(), String> {
         self.proto_array
             .write()
-            .maybe_prune(finalized_epoch, finalized_root)
+            .maybe_prune(finalized_root)
             .map_err(|e| format!("find_head maybe_prune failed: {:?}", e))
     }
 

@@ -52,13 +52,13 @@ struct FFGCheckpoints {
 }
 
 #[derive(PartialEq, Clone, Encode, Decode)]
-struct JustificationManager {
+struct CheckpointManager {
     current: FFGCheckpoints,
     best: FFGCheckpoints,
     update_at: Option<Epoch>,
 }
 
-impl JustificationManager {
+impl CheckpointManager {
     pub fn new(genesis_checkpoint: CheckpointBalances) -> Self {
         let ffg_checkpoint = FFGCheckpoints {
             justified: genesis_checkpoint.clone(),
@@ -192,7 +192,7 @@ pub struct ForkChoice<T: BeaconChainTypes> {
     /// Does not necessarily need to be the _actual_ genesis, it suffices to be the finalized root
     /// whenever the struct was instantiated.
     genesis_block_root: Hash256,
-    justification_manager: RwLock<JustificationManager>,
+    checkpoint_manager: RwLock<CheckpointManager>,
     _phantom: PhantomData<T>,
 }
 
@@ -201,7 +201,7 @@ impl<T: BeaconChainTypes> PartialEq for ForkChoice<T> {
     fn eq(&self, other: &Self) -> bool {
         self.backend == other.backend
             && self.genesis_block_root == other.genesis_block_root
-            && *self.justification_manager.read() == *other.justification_manager.read()
+            && *self.checkpoint_manager.read() == *other.checkpoint_manager.read()
     }
 }
 
@@ -224,9 +224,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         Self {
             backend,
             genesis_block_root,
-            justification_manager: RwLock::new(JustificationManager::new(
-                genesis_checkpoint.clone(),
-            )),
+            checkpoint_manager: RwLock::new(CheckpointManager::new(genesis_checkpoint.clone())),
             _phantom: PhantomData,
         }
     }
@@ -244,7 +242,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         };
 
         let (justified_checkpoint, finalized_checkpoint) = {
-            let mut jm = self.justification_manager.write();
+            let mut jm = self.checkpoint_manager.write();
             jm.update(chain)?;
 
             (jm.current.justified.clone(), jm.current.finalized.clone())
@@ -292,10 +290,10 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     ) -> Result<()> {
         let timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
 
-        self.justification_manager
+        self.checkpoint_manager
             .write()
             .process_state(state, chain, &self.backend)?;
-        self.justification_manager.write().update(chain)?;
+        self.checkpoint_manager.write().update(chain)?;
 
         // Note: we never count the block as a latest message, only attestations.
         for attestation in &block.body.attestations {
@@ -378,10 +376,10 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
     /// Trigger a prune on the underlying fork choice backend.
     pub fn prune(&self) -> Result<()> {
-        let finalized_checkpoint = self.justification_manager.read().current.finalized.clone();
+        let finalized_checkpoint = self.checkpoint_manager.read().current.finalized.clone();
 
         self.backend
-            .update_finalized_root(finalized_checkpoint.epoch, finalized_checkpoint.root)
+            .maybe_prune(finalized_checkpoint.root)
             .map_err(Into::into)
     }
 
@@ -389,7 +387,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     pub fn as_ssz_container(&self) -> SszForkChoice {
         SszForkChoice {
             genesis_block_root: self.genesis_block_root.clone(),
-            justification_manager: self.justification_manager.read().clone(),
+            checkpoint_manager: self.checkpoint_manager.read().clone(),
             backend_bytes: self.backend.as_bytes(),
         }
     }
@@ -403,7 +401,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         Ok(Self {
             backend,
             genesis_block_root: ssz_container.genesis_block_root,
-            justification_manager: RwLock::new(ssz_container.justification_manager),
+            checkpoint_manager: RwLock::new(ssz_container.checkpoint_manager),
             _phantom: PhantomData,
         })
     }
@@ -415,7 +413,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 #[derive(Encode, Decode, Clone)]
 pub struct SszForkChoice {
     genesis_block_root: Hash256,
-    justification_manager: JustificationManager,
+    checkpoint_manager: CheckpointManager,
     backend_bytes: Vec<u8>,
 }
 
