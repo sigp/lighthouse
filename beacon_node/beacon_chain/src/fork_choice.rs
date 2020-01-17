@@ -27,6 +27,8 @@ pub enum Error {
     StoreError(StoreError),
     BeaconChainError(Box<BeaconChainError>),
     UnknownBlockSlot(Hash256),
+    UnknownJustifiedBlock(Hash256),
+    UnknownJustifiedState(Hash256),
 }
 
 pub struct ForkChoice<T: BeaconChainTypes> {
