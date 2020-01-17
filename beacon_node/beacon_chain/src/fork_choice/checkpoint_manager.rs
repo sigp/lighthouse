@@ -18,9 +18,17 @@ struct BalancesCache {
 }
 
 impl BalancesCache {
-    pub fn process_state<E: EthSpec>(&mut self, state: &BeaconState<E>) -> Result<(), Error> {
+    pub fn process_state<E: EthSpec>(
+        &mut self,
+        block_root: Hash256,
+        state: &BeaconState<E>,
+    ) -> Result<(), Error> {
         let epoch_boundary_slot = state.current_epoch().start_slot(E::slots_per_epoch());
-        let epoch_boundary_root = *state.get_block_root(epoch_boundary_slot)?;
+        let epoch_boundary_root = if epoch_boundary_slot == state.slot {
+            block_root
+        } else {
+            *state.get_block_root(epoch_boundary_slot)?
+        };
 
         if self.position(epoch_boundary_root).is_none() {
             let item = CacheItem {
@@ -129,12 +137,14 @@ impl CheckpointManager {
         Ok(())
     }
 
-    /// Checks the given `state` to see if it contains a `current_justified_checkpoint` that is
-    /// better than `self.best_justified_checkpoint`. If so, the value is updated.
+    /// Checks the given `state` (must correspond to the given `block_root`) to see if it contains
+    /// a `current_justified_checkpoint` that is better than `self.best_justified_checkpoint`. If
+    /// so, the value is updated.
     ///
     /// Note: this does not update `self.justified_checkpoint`.
     pub fn process_state<T: BeaconChainTypes>(
         &mut self,
+        block_root: Hash256,
         state: &BeaconState<T::EthSpec>,
         chain: &BeaconChain<T>,
         proto_array: &ProtoArrayForkChoice,
@@ -189,7 +199,7 @@ impl CheckpointManager {
             }
 
             // Add the state's balances to the balances cache to avoid a state read later.
-            self.balances_cache.process_state(state)?;
+            self.balances_cache.process_state(block_root, state)?;
         }
 
         Ok(())

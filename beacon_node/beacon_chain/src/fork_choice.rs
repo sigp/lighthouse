@@ -134,7 +134,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
         self.checkpoint_manager
             .write()
-            .process_state(state, chain, &self.backend)?;
+            .process_state(block_root, state, chain, &self.backend)?;
         self.checkpoint_manager.write().update(chain)?;
 
         // Note: we never count the block as a latest message, only attestations.
