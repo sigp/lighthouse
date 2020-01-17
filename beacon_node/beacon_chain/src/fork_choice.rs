@@ -46,42 +46,49 @@ impl Into<Checkpoint> for CheckpointBalances {
 }
 
 #[derive(PartialEq, Clone, Encode, Decode)]
+struct FFGCheckpoints {
+    justified: CheckpointBalances,
+    finalized: Checkpoint,
+}
+
+#[derive(PartialEq, Clone, Encode, Decode)]
 struct JustificationManager {
-    /// The fork choice rule's current view of the justified checkpoint.
-    justified_checkpoint: CheckpointBalances,
-    /// The best justified checkpoint we've seen, which may be ahead of `justified_checkpoint`.
-    best_justified_checkpoint: CheckpointBalances,
-    /// If `Some`, the justified checkpoint should be updated at this epoch (or later).
-    update_justified_checkpoint_at: Option<Epoch>,
+    current: FFGCheckpoints,
+    best: FFGCheckpoints,
+    update_at: Option<Epoch>,
 }
 
 impl JustificationManager {
     pub fn new(genesis_checkpoint: CheckpointBalances) -> Self {
+        let ffg_checkpoint = FFGCheckpoints {
+            justified: genesis_checkpoint.clone(),
+            finalized: genesis_checkpoint.into(),
+        };
         Self {
-            justified_checkpoint: genesis_checkpoint.clone(),
-            best_justified_checkpoint: genesis_checkpoint.clone(),
-            update_justified_checkpoint_at: None,
+            current: ffg_checkpoint.clone(),
+            best: ffg_checkpoint,
+            update_at: None,
         }
     }
 
     pub fn update<T: BeaconChainTypes>(&mut self, chain: &BeaconChain<T>) -> Result<()> {
-        if self.best_justified_checkpoint.epoch > self.justified_checkpoint.epoch {
+        if self.best.justified.epoch > self.current.justified.epoch {
             let current_slot = chain.slot()?;
             let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
-            match self.update_justified_checkpoint_at {
+            match self.update_at {
                 None => {
                     if Self::compute_slots_since_epoch_start::<T>(current_slot)
                         < chain.spec.safe_slots_to_update_justified
                     {
-                        self.justified_checkpoint = self.best_justified_checkpoint.clone();
+                        self.current = self.best.clone();
                     } else {
-                        self.update_justified_checkpoint_at = Some(current_epoch + 1)
+                        self.update_at = Some(current_epoch + 1)
                     }
                 }
                 Some(epoch) if epoch <= current_epoch => {
-                    self.justified_checkpoint = self.best_justified_checkpoint.clone();
-                    self.update_justified_checkpoint_at = None
+                    self.current = self.best.clone();
+                    self.update_at = None
                 }
                 _ => {}
             }
@@ -100,14 +107,17 @@ impl JustificationManager {
         chain: &BeaconChain<T>,
         proto_array: &ProtoArrayForkChoice,
     ) -> Result<()> {
-        let new_checkpoint = &state.current_justified_checkpoint;
-
         // Only proceeed if the new checkpoint is better than our current checkpoint.
-        if new_checkpoint.epoch > self.justified_checkpoint.epoch {
-            let new_checkpoint_balances = CheckpointBalances {
-                epoch: state.current_justified_checkpoint.epoch,
-                root: state.current_justified_checkpoint.root,
-                balances: state.balances.clone().into(),
+        if state.current_justified_checkpoint.epoch > self.current.justified.epoch
+            && state.finalized_checkpoint.epoch >= self.current.finalized.epoch
+        {
+            let candidate = FFGCheckpoints {
+                justified: CheckpointBalances {
+                    epoch: state.current_justified_checkpoint.epoch,
+                    root: state.current_justified_checkpoint.root,
+                    balances: state.balances.clone().into(),
+                },
+                finalized: state.finalized_checkpoint.clone(),
             };
 
             // From the given state, read the block root at first slot of
@@ -117,30 +127,32 @@ impl JustificationManager {
             let new_checkpoint_ancestor = Self::get_block_root_at_slot(
                 state,
                 chain,
-                new_checkpoint.root,
-                self.justified_checkpoint
+                candidate.justified.root,
+                self.current
+                    .justified
                     .epoch
                     .start_slot(T::EthSpec::slots_per_epoch()),
             )?;
 
-            let new_justified_block_slot = proto_array
-                .block_slot(&new_checkpoint.root)
-                .ok_or_else(|| Error::UnknownBlockSlot(new_checkpoint.root))?;
+            let candidate_justified_block_slot = proto_array
+                .block_slot(&candidate.justified.root)
+                .ok_or_else(|| Error::UnknownBlockSlot(candidate.justified.root))?;
 
             // If the new justified checkpoint is an ancestor of the current justified checkpoint,
             // it is always safe to change it.
-            if new_checkpoint_ancestor == Some(self.justified_checkpoint.root)
-                && new_justified_block_slot
-                    >= new_checkpoint
+            if new_checkpoint_ancestor == Some(self.current.justified.root)
+                && candidate_justified_block_slot
+                    >= candidate
+                        .justified
                         .epoch
                         .start_slot(T::EthSpec::slots_per_epoch())
             {
-                self.justified_checkpoint = new_checkpoint_balances.clone()
+                self.current = candidate.clone()
             }
 
-            if new_checkpoint.epoch > self.best_justified_checkpoint.epoch {
+            if candidate.justified.epoch > self.best.justified.epoch {
                 // Always update the best checkpoint, if it's better.
-                self.best_justified_checkpoint = new_checkpoint_balances;
+                self.best = candidate;
             }
         }
 
@@ -180,8 +192,6 @@ pub struct ForkChoice<T: BeaconChainTypes> {
     /// Does not necessarily need to be the _actual_ genesis, it suffices to be the finalized root
     /// whenever the struct was instantiated.
     genesis_block_root: Hash256,
-    /// The fork choice rule's current view of the finalized checkpoint.
-    finalized_checkpoint: RwLock<Checkpoint>,
     justification_manager: RwLock<JustificationManager>,
     _phantom: PhantomData<T>,
 }
@@ -192,7 +202,6 @@ impl<T: BeaconChainTypes> PartialEq for ForkChoice<T> {
         self.backend == other.backend
             && self.genesis_block_root == other.genesis_block_root
             && *self.justification_manager.read() == *other.justification_manager.read()
-            && *self.finalized_checkpoint.read() == *other.finalized_checkpoint.read()
     }
 }
 
@@ -218,7 +227,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             justification_manager: RwLock::new(JustificationManager::new(
                 genesis_checkpoint.clone(),
             )),
-            finalized_checkpoint: RwLock::new(genesis_checkpoint.into()),
             _phantom: PhantomData,
         }
     }
@@ -235,14 +243,12 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             }
         };
 
-        self.justification_manager.write().update(chain)?;
+        let (justified_checkpoint, finalized_checkpoint) = {
+            let mut jm = self.justification_manager.write();
+            jm.update(chain)?;
 
-        let justified_checkpoint = self
-            .justification_manager
-            .read()
-            .justified_checkpoint
-            .clone();
-        let finalized_checkpoint = self.finalized_checkpoint.read();
+            (jm.current.justified.clone(), jm.current.finalized.clone())
+        };
 
         let result = self
             .backend
@@ -290,12 +296,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             .write()
             .process_state(state, chain, &self.backend)?;
         self.justification_manager.write().update(chain)?;
-
-        // TODO: be more stringent about changing the finalized checkpoint (i.e., check for
-        // reversion and stuff).
-        if state.finalized_checkpoint.epoch > self.finalized_checkpoint.read().epoch {
-            *self.finalized_checkpoint.write() = state.finalized_checkpoint.clone();
-        }
 
         // Note: we never count the block as a latest message, only attestations.
         for attestation in &block.body.attestations {
@@ -376,31 +376,12 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         self.backend.latest_message(validator_index)
     }
 
-    /// Inform the fork choice that the given block (and corresponding root) have been finalized so
-    /// it may prune it's storage.
-    ///
-    /// `finalized_block_root` must be the root of `finalized_block`.
-    pub fn process_finalization(
-        &self,
-        finalized_block: &BeaconBlock<T::EthSpec>,
-        finalized_block_root: Hash256,
-    ) -> Result<()> {
-        let epoch = finalized_block.slot.epoch(T::EthSpec::slots_per_epoch());
-
-        // TODO: be more stringent about changing the finalized checkpoint (i.e., check for
-        // reversion and stuff).
-        if epoch > self.finalized_checkpoint.read().epoch {
-            *self.finalized_checkpoint.write() = Checkpoint {
-                epoch,
-                root: finalized_block_root,
-            };
-        };
+    /// Trigger a prune on the underlying fork choice backend.
+    pub fn prune(&self) -> Result<()> {
+        let finalized_checkpoint = self.justification_manager.read().current.finalized.clone();
 
         self.backend
-            .update_finalized_root(
-                self.finalized_checkpoint.read().epoch,
-                self.finalized_checkpoint.read().root,
-            )
+            .update_finalized_root(finalized_checkpoint.epoch, finalized_checkpoint.root)
             .map_err(Into::into)
     }
 
@@ -408,7 +389,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     pub fn as_ssz_container(&self) -> SszForkChoice {
         SszForkChoice {
             genesis_block_root: self.genesis_block_root.clone(),
-            finalized_checkpoint: self.finalized_checkpoint.read().clone(),
             justification_manager: self.justification_manager.read().clone(),
             backend_bytes: self.backend.as_bytes(),
         }
@@ -423,7 +403,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         Ok(Self {
             backend,
             genesis_block_root: ssz_container.genesis_block_root,
-            finalized_checkpoint: RwLock::new(ssz_container.finalized_checkpoint),
             justification_manager: RwLock::new(ssz_container.justification_manager),
             _phantom: PhantomData,
         })
@@ -436,7 +415,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 #[derive(Encode, Decode, Clone)]
 pub struct SszForkChoice {
     genesis_block_root: Hash256,
-    finalized_checkpoint: Checkpoint,
     justification_manager: JustificationManager,
     backend_bytes: Vec<u8>,
 }

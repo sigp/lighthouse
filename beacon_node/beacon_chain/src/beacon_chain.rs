@@ -1691,8 +1691,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 new_epoch: new_finalized_epoch,
             })
         } else {
-            self.fork_choice
-                .process_finalization(&finalized_block, finalized_block_root)?;
+            self.fork_choice.prune()?;
 
             let finalized_state = self
                 .get_state_caching_only_with_committee_caches(
