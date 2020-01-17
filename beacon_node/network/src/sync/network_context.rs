@@ -66,7 +66,7 @@ impl SyncNetworkContext {
             "count" => request.count,
             "peer" => format!("{:?}", peer_id)
         );
-        self.send_rpc_request(peer_id.clone(), RPCRequest::BlocksByRange(request))
+        self.send_rpc_request(peer_id, RPCRequest::BlocksByRange(request))
     }
 
     pub fn blocks_by_root_request(
@@ -81,7 +81,7 @@ impl SyncNetworkContext {
             "count" => request.block_roots.len(),
             "peer" => format!("{:?}", peer_id)
         );
-        self.send_rpc_request(peer_id.clone(), RPCRequest::BlocksByRoot(request))
+        self.send_rpc_request(peer_id, RPCRequest::BlocksByRoot(request))
     }
 
     pub fn downvote_peer(&mut self, peer_id: PeerId) {
@@ -91,7 +91,7 @@ impl SyncNetworkContext {
             "peer" => format!("{:?}", peer_id)
         );
         // TODO: Implement reputation
-        self.disconnect(peer_id.clone(), GoodbyeReason::Fault);
+        self.disconnect(peer_id, GoodbyeReason::Fault);
     }
 
     fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {

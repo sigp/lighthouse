@@ -144,11 +144,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> Option<ProcessingResult> {
         if let Some(block) = beacon_block {
             // This is not a stream termination, simply add the block to the request
-            self.pending_batches.add_block(&request_id, block.clone())?;
-            return Some(ProcessingResult::KeepChain);
+            self.pending_batches.add_block(request_id, block.clone())?;
+            Some(ProcessingResult::KeepChain)
         } else {
             // A stream termination has been sent. This batch has ended. Process a completed batch.
-            let batch = self.pending_batches.remove(&request_id)?;
+            let batch = self.pending_batches.remove(request_id)?;
             Some(self.process_completed_batch(chain.clone(), network, batch, log))
         }
     }
@@ -433,7 +433,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     /// Returns a peer if there exists a peer which does not currently have a pending request.
@@ -500,10 +500,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext,
         peer_id: &PeerId,
-        request_id: &RequestId,
+        request_id: RequestId,
         log: &slog::Logger,
     ) -> Option<ProcessingResult> {
-        if let Some(batch) = self.pending_batches.remove(&request_id) {
+        if let Some(batch) = self.pending_batches.remove(request_id) {
             warn!(log, "Batch failed. RPC Error"; "id" => batch.id, "retries" => batch.retries, "peer" => format!("{:?}", peer_id));
 
             Some(self.failed_batch(network, batch, log))
