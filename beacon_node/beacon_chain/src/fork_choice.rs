@@ -1,7 +1,7 @@
 mod checkpoint_manager;
 
 use crate::{errors::BeaconChainError, metrics, BeaconChain, BeaconChainTypes};
-use checkpoint_manager::{CheckpointBalances, CheckpointManager};
+use checkpoint_manager::{CheckpointManager, CheckpointWithBalances};
 use parking_lot::RwLock;
 use proto_array_fork_choice::ProtoArrayForkChoice;
 use ssz_derive::{Decode, Encode};
@@ -59,7 +59,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         genesis_block_root: Hash256,
         genesis_state: &BeaconState<T::EthSpec>,
     ) -> Self {
-        let genesis_checkpoint = CheckpointBalances {
+        let genesis_checkpoint = CheckpointWithBalances {
             epoch: genesis_state.current_epoch(),
             root: genesis_block_root,
             balances: genesis_state.balances.clone().into(),

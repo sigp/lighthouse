@@ -5,13 +5,13 @@ use ssz_derive::{Decode, Encode};
 use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(PartialEq, Clone, Encode, Decode)]
-pub struct CheckpointBalances {
+pub struct CheckpointWithBalances {
     pub epoch: Epoch,
     pub root: Hash256,
     pub balances: Vec<u64>,
 }
 
-impl Into<Checkpoint> for CheckpointBalances {
+impl Into<Checkpoint> for CheckpointWithBalances {
     fn into(self) -> Checkpoint {
         Checkpoint {
             epoch: self.epoch,
@@ -22,7 +22,7 @@ impl Into<Checkpoint> for CheckpointBalances {
 
 #[derive(PartialEq, Clone, Encode, Decode)]
 pub struct FFGCheckpoints {
-    pub justified: CheckpointBalances,
+    pub justified: CheckpointWithBalances,
     pub finalized: Checkpoint,
 }
 
@@ -34,7 +34,7 @@ pub struct CheckpointManager {
 }
 
 impl CheckpointManager {
-    pub fn new(genesis_checkpoint: CheckpointBalances) -> Self {
+    pub fn new(genesis_checkpoint: CheckpointWithBalances) -> Self {
         let ffg_checkpoint = FFGCheckpoints {
             justified: genesis_checkpoint.clone(),
             finalized: genesis_checkpoint.into(),
@@ -87,7 +87,7 @@ impl CheckpointManager {
             && state.finalized_checkpoint.epoch >= self.current.finalized.epoch
         {
             let candidate = FFGCheckpoints {
-                justified: CheckpointBalances {
+                justified: CheckpointWithBalances {
                     epoch: state.current_justified_checkpoint.epoch,
                     root: state.current_justified_checkpoint.root,
                     balances: state.balances.clone().into(),
