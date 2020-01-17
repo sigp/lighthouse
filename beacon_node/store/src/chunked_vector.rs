@@ -185,7 +185,7 @@ pub trait Field<E: EthSpec>: Copy {
             .values
             .first()
             .cloned()
-            .ok_or(ChunkError::MissingGenesisValue.into())
+            .ok_or_else(|| ChunkError::MissingGenesisValue.into())
     }
 
     /// Store the given `value` as the genesis value for this field, unless stored already.
@@ -685,7 +685,7 @@ mod test {
         ];
 
         assert_eq!(
-            stitch(chunks.clone(), 2, 6, chunk_size, 12, 99).unwrap(),
+            stitch(chunks, 2, 6, chunk_size, 12, 99).unwrap(),
             vec![99, 99, 2, 3, 4, 5, 99, 99, 99, 99, 99, 99]
         );
     }
@@ -707,7 +707,7 @@ mod test {
         );
 
         assert_eq!(
-            stitch(chunks.clone(), 2, 10, chunk_size, 8, default).unwrap(),
+            stitch(chunks, 2, 10, chunk_size, 8, default).unwrap(),
             vec![v(8), v(9), v(2), v(3), v(4), v(5), v(6), v(7)]
         );
     }

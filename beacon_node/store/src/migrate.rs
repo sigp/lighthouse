@@ -60,13 +60,12 @@ impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
     }
 }
 
+type MpscSender<E> = mpsc::Sender<(Hash256, BeaconState<E>)>;
+
 /// Migrator that runs a background thread to migrate state from the hot to the cold database.
 pub struct BackgroundMigrator<E: EthSpec> {
     db: Arc<DiskStore<E>>,
-    tx_thread: Mutex<(
-        mpsc::Sender<(Hash256, BeaconState<E>)>,
-        thread::JoinHandle<()>,
-    )>,
+    tx_thread: Mutex<(MpscSender<E>, thread::JoinHandle<()>)>,
 }
 
 impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
