@@ -758,7 +758,7 @@ mod fast {
             log,
         );
         let n = 10;
-        let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
+        let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
         for deposit in &deposits {
             deposit_contract
                 .deposit(runtime, deposit.clone())
