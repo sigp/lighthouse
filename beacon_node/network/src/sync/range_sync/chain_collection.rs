@@ -101,7 +101,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ///
     /// This removes any out-dated chains, swaps to any higher priority finalized chains and
     /// updates the state of the collection.
-    pub fn update_finalized(&mut self, network: &mut SyncNetworkContext, log: &slog::Logger) {
+    pub fn update_finalized(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+        log: &slog::Logger,
+    ) {
         let local_slot = match self.beacon_chain.upgrade() {
             Some(chain) => {
                 let local = match PeerSyncInfo::from_chain(&chain) {
@@ -189,7 +193,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// Add a new finalized chain to the collection and starts syncing it.
     pub fn new_head_chain(
         &mut self,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         remote_finalized_slot: Slot,
         target_head: Hash256,
         target_slot: Slot,
@@ -261,7 +265,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     ///
     /// This removes chains with no peers, or chains whose start block slot is less than our current
     /// finalized block slot.
-    pub fn purge_outdated_chains(&mut self, network: &mut SyncNetworkContext, log: &slog::Logger) {
+    pub fn purge_outdated_chains(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+        log: &slog::Logger,
+    ) {
         // Remove any chains that have no peers
         self.finalized_chains
             .retain(|chain| !chain.peer_pool.is_empty());
@@ -324,7 +332,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// This will re-status the chains peers on removal. The index must exist.
     pub fn remove_chain(
         &mut self,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         index: usize,
         log: &slog::Logger,
     ) {

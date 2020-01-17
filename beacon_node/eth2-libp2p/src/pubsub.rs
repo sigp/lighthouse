@@ -2,7 +2,7 @@
 
 use crate::topics::{GossipEncoding, GossipKind, GossipTopic};
 use crate::SubnetId;
-use crate::{Topic, TopicHash};
+use crate::TopicHash;
 use ssz::{Decode, Encode};
 use std::boxed::Box;
 use types::{
@@ -60,7 +60,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     let attestation = Attestation::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;
                                     return Ok(PubsubMessage::Attestation(Box::new((
-                                        subnet_id,
+                                        *subnet_id,
                                         attestation,
                                     ))));
                                 }
@@ -105,16 +105,14 @@ impl<T: EthSpec> PubsubMessage<T> {
         match encoding {
             GossipEncoding::SSZ => {
                 // SSZ Encodings
-                let bytes = match self {
-                    PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes()
-                    | PubsubMessage::VoluntaryExit(data)
-                    | PubsubMessage::ProposerSlashing(data)
-                    | PubsubMessage::AttesterSlashing(data)
-                    | PubsubMessage::Unknown(data) => data.as_ssz_bytes(),
-
-                    PubsubMessage::Attestation(other) => Vec::new(),
+                return match self {
+                    PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
+                    PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
+                    PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
+                    PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
+                    PubsubMessage::AttesterSlashing(data) => data.as_ssz_bytes(),
+                    PubsubMessage::Attestation(data) => data.1.as_ssz_bytes(),
                 };
-                return bytes;
             }
         }
     }

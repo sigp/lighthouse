@@ -137,7 +137,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn on_block_response(
         &mut self,
         chain: &Weak<BeaconChain<T>>,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         request_id: RequestId,
         beacon_block: &Option<BeaconBlock<T::EthSpec>>,
         log: &slog::Logger,
@@ -159,7 +159,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     fn process_completed_batch(
         &mut self,
         chain: Weak<BeaconChain<T>>,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         batch: Batch<T::EthSpec>,
         log: &slog::Logger,
     ) -> ProcessingResult {
@@ -312,7 +312,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     fn handle_invalid_batch(
         &mut self,
         _chain: Weak<BeaconChain<T>>,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
     ) -> ProcessingResult {
         // The current batch could not be processed, indicating either the current or previous
         // batches are invalid
@@ -344,7 +344,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// This could be new chain, or an old chain that is being resumed.
     pub fn start_syncing(
         &mut self,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         local_finalized_slot: Slot,
         log: &slog::Logger,
     ) {
@@ -399,7 +399,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// If the chain is active, this starts requesting batches from this peer.
     pub fn add_peer(
         &mut self,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         peer_id: PeerId,
         log: &slog::Logger,
     ) {
@@ -415,7 +415,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Sends a STATUS message to all peers in the peer pool.
-    pub fn status_peers(&self, chain: Weak<BeaconChain<T>>, network: &mut SyncNetworkContext) {
+    pub fn status_peers(
+        &self,
+        chain: Weak<BeaconChain<T>>,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+    ) {
         for peer_id in self.peer_pool.iter() {
             network.status_peer(chain.clone(), peer_id.clone());
         }
@@ -423,7 +427,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Requests the next required batch from a peer. Returns true, if there was a peer available
     /// to send a request and there are batches to request, false otherwise.
-    fn send_range_request(&mut self, network: &mut SyncNetworkContext, log: &slog::Logger) -> bool {
+    fn send_range_request(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+        log: &slog::Logger,
+    ) -> bool {
         // find the next pending batch and request it from the peer
         if let Some(peer_id) = self.get_next_peer() {
             if let Some(batch) = self.get_next_batch(peer_id) {
@@ -449,7 +457,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Requests the provided batch from the provided peer.
-    fn send_batch(&mut self, network: &mut SyncNetworkContext, batch: Batch<T::EthSpec>) {
+    fn send_batch(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+        batch: Batch<T::EthSpec>,
+    ) {
         let request = batch.to_blocks_by_range_request();
         if let Ok(request_id) = network.blocks_by_range_request(batch.current_peer.clone(), request)
         {
@@ -498,7 +510,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// this chain.
     pub fn inject_error(
         &mut self,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         peer_id: &PeerId,
         request_id: &RequestId,
         log: &slog::Logger,
@@ -519,7 +531,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// `MAX_BATCH_RETRIES`.
     pub fn failed_batch(
         &mut self,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         mut batch: Batch<T::EthSpec>,
         log: &Logger,
     ) -> ProcessingResult {

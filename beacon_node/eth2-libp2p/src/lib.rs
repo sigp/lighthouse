@@ -12,7 +12,7 @@ mod metrics;
 mod pubsub;
 pub mod rpc;
 mod service;
-mod types;
+pub mod types;
 
 pub use crate::types::{error, topics, GossipTopic, SubnetId};
 pub use config::Config as NetworkConfig;

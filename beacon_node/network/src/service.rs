@@ -4,7 +4,9 @@ use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, PeerId, Swarm, Topic};
+use eth2_libp2p::{
+    rpc::RPCRequest, Enr, GossipTopic, Libp2pEvent, MessageId, Multiaddr, PeerId, Swarm,
+};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
@@ -13,16 +15,17 @@ use slog::{debug, info, trace};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
+use types::EthSpec;
 
 /// The time in seconds that a peer will be banned and prevented from reconnecting.
 const BAN_PEER_TIMEOUT: u64 = 30;
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service<T: BeaconChainTypes> {
-    libp2p_service: Arc<Mutex<LibP2PService>>,
+    libp2p_service: Arc<Mutex<LibP2PService<T::EthSpec>>>,
     libp2p_port: u16,
     _libp2p_exit: oneshot::Sender<()>,
-    _network_send: mpsc::UnboundedSender<NetworkMessage>,
+    _network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     _phantom: PhantomData<T>,
 }
 
@@ -32,9 +35,9 @@ impl<T: BeaconChainTypes> Service<T> {
         config: &NetworkConfig,
         executor: &TaskExecutor,
         network_log: slog::Logger,
-    ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage>)> {
+    ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>)> {
         // build the network channel
-        let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage>();
+        let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
         // launch message handler thread
         let router_send = Router::spawn(
             beacon_chain,
@@ -114,15 +117,15 @@ impl<T: BeaconChainTypes> Service<T> {
     }
 
     /// Provides a reference to the underlying libp2p service.
-    pub fn libp2p_service(&self) -> Arc<Mutex<LibP2PService>> {
+    pub fn libp2p_service(&self) -> Arc<Mutex<LibP2PService<T::EthSpec>>> {
         self.libp2p_service.clone()
     }
 }
 
-fn spawn_service(
-    libp2p_service: Arc<Mutex<LibP2PService>>,
-    network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
-    router_send: mpsc::UnboundedSender<RouterMessage>,
+fn spawn_service<T: EthSpec>(
+    libp2p_service: Arc<Mutex<LibP2PService<T>>>,
+    network_recv: mpsc::UnboundedReceiver<NetworkMessage<T>>,
+    router_send: mpsc::UnboundedSender<RouterMessage<T>>,
     executor: &TaskExecutor,
     log: slog::Logger,
     propagation_percentage: Option<u8>,
@@ -150,10 +153,10 @@ fn spawn_service(
 }
 
 //TODO: Potentially handle channel errors
-fn network_service(
-    libp2p_service: Arc<Mutex<LibP2PService>>,
-    mut network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
-    mut router_send: mpsc::UnboundedSender<RouterMessage>,
+fn network_service<T: EthSpec>(
+    libp2p_service: Arc<Mutex<LibP2PService<T>>>,
+    mut network_recv: mpsc::UnboundedReceiver<NetworkMessage<T>>,
+    mut router_send: mpsc::UnboundedSender<RouterMessage<T>>,
     log: slog::Logger,
     propagation_percentage: Option<u8>,
 ) -> impl futures::Future<Item = (), Error = eth2_libp2p::error::Error> {
@@ -211,7 +214,7 @@ fn network_service(
                             info!(log, "Random filter did not publish message");
                         } else {
                             debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
-                            libp2p_service.lock().swarm.publish(&topics, message);
+                            libp2p_service.lock().swarm.publish(topics, message);
                         }
                     }
                     NetworkMessage::Disconnect { peer_id } => {
@@ -291,13 +294,13 @@ fn network_service(
 
 /// Types of messages that the network service can receive.
 #[derive(Debug)]
-pub enum NetworkMessage {
+pub enum NetworkMessage<T: EthSpec> {
     /// Send an RPC message to the libp2p service.
     RPC(PeerId, RPCEvent),
     /// Publish a message to gossipsub.
     Publish {
-        topics: Vec<Topic>,
-        message: PubsubMessage,
+        topics: Vec<GossipTopic>,
+        message: PubsubMessage<T>,
     },
     /// Propagate a received gossipsub message.
     Propagate {

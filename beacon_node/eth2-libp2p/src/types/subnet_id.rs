@@ -2,7 +2,7 @@
 use serde_derive::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SubnetId(u64);
 
 impl SubnetId {

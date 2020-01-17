@@ -36,6 +36,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
+use types::EthSpec;
 use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
@@ -47,11 +48,11 @@ pub use config::Config;
 pub use validator::{ValidatorDutiesRequest, ValidatorDuty};
 
 pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
-pub type NetworkChannel = Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>;
+pub type NetworkChannel<T: EthSpec> = Arc<RwLock<mpsc::UnboundedSender<NetworkMessage<T>>>>;
 
 pub struct NetworkInfo<T: BeaconChainTypes> {
     pub network_service: Arc<NetworkService<T>>,
-    pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
+    pub network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
 }
 
 pub fn start_server<T: BeaconChainTypes>(

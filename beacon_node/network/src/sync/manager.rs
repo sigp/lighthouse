@@ -144,7 +144,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     input_channel: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
 
     /// A network context to contact the network service.
-    network: SyncNetworkContext,
+    network: SyncNetworkContext<T::EthSpec>,
 
     /// The object handling long-range batch load-balanced syncing.
     range_sync: RangeSync<T>,
@@ -168,7 +168,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
 pub fn spawn<T: BeaconChainTypes>(
     executor: &tokio::runtime::TaskExecutor,
     beacon_chain: Weak<BeaconChain<T>>,
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: slog::Logger,
 ) -> (
     mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,

@@ -61,7 +61,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     exit_signals: Vec<Signal>,
     event_handler: Option<T::EventHandler>,
     libp2p_network: Option<Arc<NetworkService<T>>>,
-    libp2p_network_send: Option<UnboundedSender<NetworkMessage>>,
+    libp2p_network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
     http_listen_addr: Option<SocketAddr>,
     websocket_listen_addr: Option<SocketAddr>,
     eth_spec_instance: T::EthSpec,

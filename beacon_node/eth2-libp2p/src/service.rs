@@ -4,7 +4,7 @@ use crate::rpc::RPCEvent;
 use crate::types::error;
 use crate::NetworkConfig;
 use crate::PubsubMessage;
-use crate::{Topic, TopicHash};
+use crate::TopicHash;
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -124,11 +124,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
         let mut subscribed_topics: Vec<String> = vec![];
         for topic in config.topics {
-            let raw_topic: Topic = topic.into();
-            let topic_string = raw_topic.no_hash();
-            if swarm.subscribe(raw_topic.clone()) {
+            let topic_string: String = topic.clone().into();
+            if swarm.subscribe(topic.clone()) {
                 trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic_string));
-                subscribed_topics.push(topic_string.as_str().into());
+                subscribed_topics.push(topic_string);
             } else {
                 warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_string));
             }

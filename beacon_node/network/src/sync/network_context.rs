@@ -10,20 +10,21 @@ use eth2_libp2p::PeerId;
 use slog::{debug, trace, warn};
 use std::sync::Weak;
 use tokio::sync::mpsc;
+use types::EthSpec;
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
 
-pub struct SyncNetworkContext {
+pub struct SyncNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
 
     request_id: RequestId,
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
 }
 
-impl SyncNetworkContext {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
+impl<T: EthSpec> SyncNetworkContext<T> {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<T>>, log: slog::Logger) -> Self {
         Self {
             network_send,
             request_id: 0,
@@ -31,9 +32,9 @@ impl SyncNetworkContext {
         }
     }
 
-    pub fn status_peer<T: BeaconChainTypes>(
+    pub fn status_peer<U: BeaconChainTypes>(
         &mut self,
-        chain: Weak<BeaconChain<T>>,
+        chain: Weak<BeaconChain<U>>,
         peer_id: PeerId,
     ) {
         if let Some(chain) = chain.upgrade() {

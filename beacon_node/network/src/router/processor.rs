@@ -58,7 +58,7 @@ pub struct Processor<T: BeaconChainTypes> {
     /// A oneshot channel for destroying the sync thread.
     _sync_exit: oneshot::Sender<()>,
     /// A network context to return and handle RPC requests.
-    network: HandlerNetworkContext,
+    network: HandlerNetworkContext<T::EthSpec>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -68,7 +68,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn new(
         executor: &tokio::runtime::TaskExecutor,
         beacon_chain: Arc<BeaconChain<T>>,
-        network_send: mpsc::UnboundedSender<NetworkMessage>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         log: &slog::Logger,
     ) -> Self {
         let sync_logger = log.new(o!("service"=> "sync"));
@@ -486,7 +486,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// Process a gossip message declaring a new block.
     ///
     /// Attempts to apply a block to the beacon chain. May queue the block for later processing.
-    pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) {
+    pub fn on_block_gossip(&mut self, peer_id: PeerId, block: &BeaconBlock<T::EthSpec>) {
         match self.chain.process_block(block.clone()) {
             Ok(outcome) => match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
@@ -610,15 +610,15 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
 /// Wraps a Network Channel to employ various RPC related network functionality for the message
 /// handler. The handler doesn't manage it's own request Id's and can therefore only send
 /// responses or requests with 0 request Ids.
-pub struct HandlerNetworkContext {
+pub struct HandlerNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
     /// Logger for the `NetworkContext`.
     log: slog::Logger,
 }
 
-impl HandlerNetworkContext {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
+impl<T: EthSpec> HandlerNetworkContext<T> {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<T>>, log: slog::Logger) -> Self {
         Self { network_send, log }
     }
 

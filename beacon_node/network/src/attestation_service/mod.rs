@@ -26,7 +26,7 @@ pub enum AttestationServiceMessage<T: EthSpec> {
 pub struct AttestationService<T: BeaconChainTypes> {
     /// A channel to the network service, for instructing the network service to
     /// subscribe/unsubscribe from various shard subnets.
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
 
     /// A reference to the beacon chain to process received attestations.
     beacon_chain: Arc<BeaconChain<T>>,
@@ -47,7 +47,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> AttestationService<T> {
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,
-        network_send: mpsc::UnboundedSender<NetworkMessage>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<AttestationServiceMessage<T::EthSpec>>> {
@@ -68,18 +68,25 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         };
 
         let main_task = {
-            service
+            futures::future::poll_fn(move || {
+                while let Ok(Async::Ready(Some(discover))) = service.discover_peers.poll() {
+                    service.handle_discover_peer(discover);
+                }
+                Ok(Async::NotReady)
+            })
+            /*service
                 .discover_peers
                 .for_each(|discover| Ok(service.handle_discover_peer(discover)))
-                /*
+            */
+            /*
                 .select(
                     self.subsciptions
                         .for_each(|sub| self.handle_subscriptions(sub)),
                 )
+            .map_err(|_| {
+                debug!(service.log, "Attestation Service terminated.");
+            })
                 */
-                .map_err(|_| {
-                    debug!(service.log, "Attestation Service terminated.");
-                })
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
@@ -88,7 +95,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         Ok(handler_send)
     }
 
-    fn handle_discover_peer(&mut self, discover: (SubnetId, Instant)) {}
+    fn handle_discover_peer(&mut self, _discover: (SubnetId, Instant)) {}
 
-    fn handle_subscriptions(&mut self, discover: (SubnetId, Instant)) {}
+    fn handle_subscriptions(&mut self, _discover: (SubnetId, Instant)) {}
 }

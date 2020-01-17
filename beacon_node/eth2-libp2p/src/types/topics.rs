@@ -38,7 +38,6 @@ pub enum GossipKind {
     VoluntaryExit,
     ProposerSlashing,
     AttesterSlashing,
-    Unknown(String),
 }
 
 /// The known encoding types for gossipsub messages.
@@ -53,13 +52,13 @@ impl GossipTopic {
     }
 
     /// Returns the encoding type for the gossipsub topic.
-    pub fn encoding(&self) -> GossipEncoding {
-        self.encoding
+    pub fn encoding(&self) -> &GossipEncoding {
+        &self.encoding
     }
 
     /// Returns the kind of message expected on the gossipsub topic.
-    pub fn kind(&self) -> GossipKind {
-        self.kind
+    pub fn kind(&self) -> &GossipKind {
+        &self.kind
     }
 
     pub fn decode(topic: &str) -> Result<Self, String> {
@@ -101,12 +100,12 @@ impl Into<String> for GossipTopic {
         };
 
         let kind = match self.kind {
-            GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC,
-            GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC,
-            GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC,
-            GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC,
-            GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC,
-            GossipKind::CommitteeIndex(index) => &format!(
+            GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
+            GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
+            GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
+            GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
+            GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
+            GossipKind::CommitteeIndex(index) => format!(
                 "{}{}{}",
                 COMMITEE_INDEX_TOPIC_PREFIX, *index, COMMITEE_INDEX_TOPIC_POSTFIX
             ),

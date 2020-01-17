@@ -10,9 +10,8 @@ use crate::error;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
-    behaviour::PubsubMessage,
     rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
-    MessageId, PeerId, RPCEvent,
+    MessageId, PeerId, PubsubMessage, RPCEvent,
 };
 use futures::future::Future;
 use futures::stream::Stream;
@@ -21,7 +20,7 @@ use slog::{debug, o, trace, warn};
 use ssz::{Decode, DecodeError};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Attestation, AttesterSlashing, BeaconBlock, ProposerSlashing, VoluntaryExit};
+use types::{BeaconBlock, EthSpec};
 
 /// Handles messages received from the network and client and organises syncing. This
 /// functionality of this struct is to validate an decode messages from the network before
@@ -29,7 +28,7 @@ use types::{Attestation, AttesterSlashing, BeaconBlock, ProposerSlashing, Volunt
 /// which manages which blocks need to be requested and processed.
 pub struct Router<T: BeaconChainTypes> {
     /// A channel to the network service to allow for gossip propagation.
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     /// Processes validated and decoded messages from the network. Has direct access to the
     /// sync manager.
     processor: Processor<T>,
@@ -39,7 +38,7 @@ pub struct Router<T: BeaconChainTypes> {
 
 /// Types of messages the handler can receive.
 #[derive(Debug)]
-pub enum RouterMessage {
+pub enum RouterMessage<T: EthSpec> {
     /// We have initiated a connection to a new peer.
     PeerDialed(PeerId),
     /// Peer has disconnected,
@@ -48,17 +47,17 @@ pub enum RouterMessage {
     RPC(PeerId, RPCEvent),
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
     /// message and the message itself.
-    PubsubMessage(MessageId, PeerId, PubsubMessage),
+    PubsubMessage(MessageId, PeerId, PubsubMessage<T>),
 }
 
 impl<T: BeaconChainTypes> Router<T> {
     /// Initializes and runs the Router.
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,
-        network_send: mpsc::UnboundedSender<NetworkMessage>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
-    ) -> error::Result<mpsc::UnboundedSender<RouterMessage>> {
+    ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
         let message_handler_log = log.new(o!("service"=> "msg_handler"));
         trace!(message_handler_log, "Service starting");
 
@@ -87,7 +86,7 @@ impl<T: BeaconChainTypes> Router<T> {
     }
 
     /// Handle all messages incoming from the network service.
-    fn handle_message(&mut self, message: RouterMessage) {
+    fn handle_message(&mut self, message: RouterMessage<T::EthSpec>) {
         match message {
             // we have initiated a connection to a peer
             RouterMessage::PeerDialed(peer_id) => {
@@ -225,84 +224,49 @@ impl<T: BeaconChainTypes> Router<T> {
     }
 
     /// Handle RPC messages
-    fn handle_gossip(&mut self, id: MessageId, peer_id: PeerId, gossip_message: PubsubMessage) {
+    fn handle_gossip(
+        &mut self,
+        id: MessageId,
+        peer_id: PeerId,
+        gossip_message: PubsubMessage<T::EthSpec>,
+    ) {
         match gossip_message {
-            PubsubMessage::BeaconBlock(block_bytes) => {
-                match self.decode_block(block_bytes) {
-                    Ok(block) => {
-                        if self.processor.should_forward_block(&block) {
-                            self.propagate_message(id, peer_id.clone());
-                        }
-                        self.processor.on_block_gossip(peer_id.clone(), block);
-                    }
-                    Err(e) => {
-                        debug!(self.log, "Invalid gossiped beacon block"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
-                    }
-                }
-            }
-            PubsubMessage::AggregateAndProofAttestation(agg_bytes) => {
-                match self.decode_attestation_and_proof(agg_bytes) {
-                    Ok(attestation) => {
-                        if self.processor.should_forward_attestation(&attestation) {
-                            self.propagate_message(id, peer_id);
-                        }
-                        self.processor
-                            .on_attestation_gossip(peer_id.clone(), attestation);
-                    }
-            PubsubMessage::Attestation(shard_id, attestation_bytes) => {
-                match self.decode_attestation(attestation_bytes) {
-                    Ok(attestation) => {
-                        if self.processor.should_forward_attestation(&attestation) {
-                            self.propagate_message(id, peer_id);
-                        }
-                        self.processor
-                            .on_attestation_gossip(peer_id.clone(), attestation);
-                    }
-                    Err(e) => {
-                        debug!(self.log, "Invalid gossiped attestation"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
-                    }
-                }
-            }
-            PubsubMessage::VoluntaryExit(message) => match self.decode_gossip_exit(message) {
-                Ok(_exit) => {
-                    // TODO: Apply more sophisticated validation and decoding logic
+            PubsubMessage::BeaconBlock(block) => {
+                if self.processor.should_forward_block(&block) {
                     self.propagate_message(id, peer_id.clone());
-                    // TODO: Handle exits
-                    debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id) );
                 }
-                Err(e) => {
-                    debug!(self.log, "Invalid gossiped exit"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
-                }
-            },
-            PubsubMessage::ProposerSlashing(message) => {
-                match self.decode_gossip_proposer_slashing(message) {
-                    Ok(_slashing) => {
-                        // TODO: Apply more sophisticated validation and decoding logic
-                        self.propagate_message(id, peer_id.clone());
-                        // TODO: Handle proposer slashings
-                        debug!(self.log, "Received a proposer slashing"; "peer_id" => format!("{}", peer_id) );
-                    }
-                    Err(e) => {
-                        debug!(self.log, "Invalid gossiped proposer slashing"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
-                    }
-                }
+                self.processor.on_block_gossip(peer_id, &block);
             }
-            PubsubMessage::AttesterSlashing(message) => {
-                match self.decode_gossip_attestation_slashing(message) {
-                    Ok(_slashing) => {
-                        // TODO: Apply more sophisticated validation and decoding logic
-                        self.propagate_message(id, peer_id.clone());
-                        // TODO: Handle attester slashings
-                        debug!(self.log, "Received an attester slashing"; "peer_id" => format!("{}", peer_id) );
-                    }
-                    Err(e) => {
-                        debug!(self.log, "Invalid gossiped attester slashing"; "peer_id" => format!("{}", peer_id), "Error" => format!("{:?}", e));
-                    }
-                }
+            PubsubMessage::AggregateAndProofAttestation(_agg_attestation) => {
+                // TODO: Handle propagation conditions
+                self.propagate_message(id, peer_id);
+                // TODO Handle aggregate attestion
+                // self.processor
+                //    .on_attestation_gossip(peer_id.clone(), &agg_attestation);
             }
-            PubsubMessage::Unknown(message) => {
-                // Received a message from an unknown topic. Ignore for now
-                debug!(self.log, "Unknown Gossip Message"; "peer_id" => format!("{}", peer_id), "Message" => format!("{:?}", message));
+            PubsubMessage::Attestation(boxed_shard_attestation) => {
+                // TODO: Handle propagation conditions
+                self.propagate_message(id, peer_id.clone());
+                self.processor
+                    .on_attestation_gossip(peer_id, boxed_shard_attestation.1);
+            }
+            PubsubMessage::VoluntaryExit(_exit) => {
+                // TODO: Apply more sophisticated validation
+                self.propagate_message(id, peer_id.clone());
+                // TODO: Handle exits
+                debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id) );
+            }
+            PubsubMessage::ProposerSlashing(_proposer_slashing) => {
+                // TODO: Apply more sophisticated validation
+                self.propagate_message(id, peer_id.clone());
+                // TODO: Handle proposer slashings
+                debug!(self.log, "Received a proposer slashing"; "peer_id" => format!("{}", peer_id) );
+            }
+            PubsubMessage::AttesterSlashing(_attester_slashing) => {
+                // TODO: Apply more sophisticated validation
+                self.propagate_message(id, peer_id.clone());
+                // TODO: Handle attester slashings
+                debug!(self.log, "Received an attester slashing"; "peer_id" => format!("{}", peer_id) );
             }
         }
     }
@@ -338,42 +302,5 @@ impl<T: BeaconChainTypes> Router<T> {
     ) -> Result<BeaconBlock<T::EthSpec>, DecodeError> {
         //TODO: Apply verification before decoding.
         BeaconBlock::from_ssz_bytes(&beacon_block)
-    }
-
-    fn decode_attestation(
-        &self,
-        attestation: Vec<u8>,
-    ) -> Result<Attestation<T::EthSpec>, DecodeError> {
-        //TODO: Apply verification before decoding.
-        Attestation::from_ssz_bytes(&attestation)
-    }
-
-    fn decode_aggregation_and_proof(
-        &self,
-        attestation: Vec<u8>,
-    ) -> Result<Attestation<T::EthSpec>, DecodeError> {
-        //TODO: Apply verification before decoding.
-        Attestation::from_ssz_bytes(&attestation)
-    }
-
-    fn decode_exit(&self, voluntary_exit: Vec<u8>) -> Result<VoluntaryExit, DecodeError> {
-        //TODO: Apply verification before decoding.
-        VoluntaryExit::from_ssz_bytes(&voluntary_exit)
-    }
-
-    fn decode_proposer_slashing(
-        &self,
-        proposer_slashing: Vec<u8>,
-    ) -> Result<ProposerSlashing, DecodeError> {
-        //TODO: Apply verification before decoding.
-        ProposerSlashing::from_ssz_bytes(&proposer_slashing)
-    }
-
-    fn decode_attestation_slashing(
-        &self,
-        attester_slashing: Vec<u8>,
-    ) -> Result<AttesterSlashing<T::EthSpec>, DecodeError> {
-        //TODO: Apply verification before decoding.
-        AttesterSlashing::from_ssz_bytes(&attester_slashing)
     }
 }

@@ -1,14 +1,14 @@
 use crate::{ApiError, ApiResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKeyBytes;
-use eth2_libp2p::GossipTopic;
+use eth2_libp2p::types::{GossipEncoding, GossipKind, GossipTopic, SubnetId};
 use eth2_libp2p::PubsubMessage;
 use hex;
 use http::header;
 use hyper::{Body, Request};
 use network::NetworkMessage;
 use parking_lot::RwLock;
-use ssz::{Decode, Encode};
+use ssz::Decode;
 use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
@@ -232,12 +232,12 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
 }
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
+    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>>>,
     block: BeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // create the network topic to send on
-    let topic = GossipTopic::BeaconBlock;
-    let message = PubsubMessage::Block(block.as_ssz_bytes());
+    let topic = GossipTopic::new(GossipKind::BeaconBlock, GossipEncoding::SSZ);
+    let message = PubsubMessage::BeaconBlock(Box::new(block));
 
     // Publish the block to the p2p network via gossipsub.
     if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
@@ -254,12 +254,14 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
 }
 
 pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
+    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>>>,
     attestation: Attestation<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // create the network topic to send on
-    let topic = GossipTopic::BeaconAttestation;
-    let message = PubsubMessage::Attestation(attestation.as_ssz_bytes());
+    // TODO: Currently a placeholder
+    let subnet_id = SubnetId::new(0);
+    let topic = GossipTopic::new(GossipKind::CommitteeIndex(subnet_id), GossipEncoding::SSZ);
+    let message = PubsubMessage::Attestation(Box::new((subnet_id, attestation)));
 
     // Publish the attestation to the p2p network via gossipsub.
     if let Err(e) = chan.write().try_send(NetworkMessage::Publish {

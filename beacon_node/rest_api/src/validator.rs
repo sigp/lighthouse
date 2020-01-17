@@ -259,7 +259,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes>(
 pub fn publish_beacon_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_chan: NetworkChannel,
+    network_chan: NetworkChannel<T::EthSpec>,
     log: Logger,
 ) -> BoxFut {
     try_future!(check_content_type_for_json(&req));
@@ -371,7 +371,7 @@ pub fn get_new_attestation<T: BeaconChainTypes>(
 pub fn publish_attestation<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_chan: NetworkChannel,
+    network_chan: NetworkChannel<T::EthSpec>,
     log: Logger,
 ) -> BoxFut {
     try_future!(check_content_type_for_json(&req));
