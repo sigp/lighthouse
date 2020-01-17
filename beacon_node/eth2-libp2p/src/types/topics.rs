@@ -48,6 +48,10 @@ pub enum GossipEncoding {
 }
 
 impl GossipTopic {
+    pub fn new(kind: GossipKind, encoding: GossipEncoding) -> Self {
+        GossipTopic { encoding, kind }
+    }
+
     /// Returns the encoding type for the gossipsub topic.
     pub fn encoding(&self) -> GossipEncoding {
         self.encoding

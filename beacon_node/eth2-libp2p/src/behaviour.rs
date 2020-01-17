@@ -1,9 +1,9 @@
 use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
-use crate::types::error;
+use crate::types::{error, GossipTopic};
 use crate::NetworkConfig;
 use crate::PubsubMessage;
-use crate::{Topic, TopicHash};
+use crate::TopicHash;
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
@@ -93,8 +93,10 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
                 if self.seen_gossip_messages.put(gs_msg.clone(), ()).is_none() {
-                    match PubsubMessage::decode(&gs_msg.topics, gs_msg.data) {
-                        Err(e) => debug!(self.log, "Could not decode gossipsub message: {}", e);
+                    match PubsubMessage::decode(&gs_msg.topics, &gs_msg.data) {
+                        Err(e) => {
+                            debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
+                        }
                         Ok(msg) => {
                             // if this message isn't a duplicate, notify the network
                             self.events.push(BehaviourEvent::GossipMessage {
@@ -106,7 +108,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
                         }
                     }
                 } else {
-                    warn!(self.log, "A duplicate gossipsub message was received"; "message" => format!("{:?}", msg));
+                    warn!(self.log, "A duplicate gossipsub message was received"; "message" => format!("{:?}", gs_msg));
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
@@ -193,20 +195,20 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     /* Pubsub behaviour functions */
 
     /// Subscribes to a gossipsub topic.
-    pub fn subscribe(&mut self, topic: Topic) -> bool {
-        self.gossipsub.subscribe(topic)
+    pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
+        self.gossipsub.subscribe(topic.into())
     }
 
     /// Unsubscribe from a gossipsub topic.
-    pub fn unsubscribe(&mut self, topic: Topic) -> bool {
-        self.gossipsub.unsubscribe(topic)
+    pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
+        self.gossipsub.unsubscribe(topic.into())
     }
 
     /// Publishes a message on the pubsub (gossipsub) behaviour.
-    pub fn publish(&mut self, topics: &[Topic], message: PubsubMessage<TSpec>) {
-        let message_data = message.encode(topics);
+    pub fn publish(&mut self, topics: Vec<GossipTopic>, message: PubsubMessage<TSpec>) {
         for topic in topics {
-            self.gossipsub.publish(topic, message_data.clone());
+            let message_data = message.encode(&topic.encoding());
+            self.gossipsub.publish(&topic.into(), message_data);
         }
     }
 

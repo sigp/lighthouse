@@ -50,36 +50,42 @@ impl<T: EthSpec> PubsubMessage<T> {
                             // the ssz decoders
                             match gossip_topic.kind() {
                                 GossipKind::BeaconAggregateAndProof => {
-                                    let agg_and_proof = AggregateAndProof::from_ssz_bytes(data)?;
+                                    let agg_and_proof = AggregateAndProof::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?;
                                     return Ok(PubsubMessage::AggregateAndProofAttestation(
                                         Box::new(agg_and_proof),
                                     ));
                                 }
                                 GossipKind::CommitteeIndex(subnet_id) => {
-                                    let attestation = Attestation::from_ssz_bytes(data)?;
-                                    return Ok(PubsubMessage::Attestation(Box::new(
+                                    let attestation = Attestation::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?;
+                                    return Ok(PubsubMessage::Attestation(Box::new((
                                         subnet_id,
                                         attestation,
-                                    )));
+                                    ))));
                                 }
                                 GossipKind::BeaconBlock => {
-                                    let beacon_block = BeaconBlock::from_ssz_bytes(data)?;
+                                    let beacon_block = BeaconBlock::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?;
                                     return Ok(PubsubMessage::BeaconBlock(Box::new(beacon_block)));
                                 }
                                 GossipKind::VoluntaryExit => {
-                                    let voluntary_exit = VoluntaryExit::from_ssz_bytes(data)?;
+                                    let voluntary_exit = VoluntaryExit::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?;
                                     return Ok(PubsubMessage::VoluntaryExit(Box::new(
                                         voluntary_exit,
                                     )));
                                 }
                                 GossipKind::ProposerSlashing => {
-                                    let proposer_slashing = ProposerSlashing::from_ssz_bytes(data)?;
+                                    let proposer_slashing = ProposerSlashing::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?;
                                     return Ok(PubsubMessage::ProposerSlashing(Box::new(
                                         proposer_slashing,
                                     )));
                                 }
                                 GossipKind::AttesterSlashing => {
-                                    let attester_slashing = AttesterSlashing::from_ssz_bytes(data)?;
+                                    let attester_slashing = AttesterSlashing::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?;
                                     return Ok(PubsubMessage::AttesterSlashing(Box::new(
                                         attester_slashing,
                                     )));
@@ -90,7 +96,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                 }
             }
         }
-        Err("Unknown gossipsub topics: {:?}", unknown_topics)
+        Err(format!("Unknown gossipsub topics: {:?}", unknown_topics))
     }
 
     /// Encodes a pubsub message based on the topic encodings. The first known encoding is used. If
@@ -99,14 +105,16 @@ impl<T: EthSpec> PubsubMessage<T> {
         match encoding {
             GossipEncoding::SSZ => {
                 // SSZ Encodings
-                return Ok(match self {
-                    PubsubMessage::BeaconBlock(data)
-                    | PubsubMessage::Attestation(_, data)
+                let bytes = match self {
+                    PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes()
                     | PubsubMessage::VoluntaryExit(data)
                     | PubsubMessage::ProposerSlashing(data)
                     | PubsubMessage::AttesterSlashing(data)
                     | PubsubMessage::Unknown(data) => data.as_ssz_bytes(),
-                });
+
+                    PubsubMessage::Attestation(other) => Vec::new(),
+                };
+                return bytes;
             }
         }
     }
