@@ -444,7 +444,7 @@ where
         let fork_choice = if let Some(persisted_beacon_chain) = &self.persisted_beacon_chain {
             ForkChoice::from_ssz_container(
                 persisted_beacon_chain.fork_choice.clone(),
-                store.clone(),
+                store,
                 block_root_tree,
             )
             .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
@@ -458,7 +458,7 @@ where
                 .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
 
             let backend = ThreadSafeReducedTree::new(
-                store.clone(),
+                store,
                 block_root_tree,
                 &finalized_checkpoint.beacon_block,
                 finalized_checkpoint.beacon_block_root,
@@ -622,7 +622,7 @@ mod test {
     #[test]
     fn recent_genesis() {
         let validator_count = 8;
-        let genesis_time = 13371337;
+        let genesis_time = 13_371_337;
 
         let log = get_logger();
         let store = Arc::new(MemoryStore::open());
@@ -637,7 +637,7 @@ mod test {
 
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
-            .store(store.clone())
+            .store(store)
             .store_migrator(NullMigrator)
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
@@ -658,7 +658,7 @@ mod test {
 
         assert_eq!(state.slot, Slot::new(0), "should start from genesis");
         assert_eq!(
-            state.genesis_time, 13371337,
+            state.genesis_time, 13_371_337,
             "should have the correct genesis time"
         );
         assert_eq!(

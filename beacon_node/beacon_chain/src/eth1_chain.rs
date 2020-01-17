@@ -7,6 +7,7 @@ use integer_sqrt::IntegerSquareRoot;
 use rand::prelude::*;
 use slog::{crit, debug, error, trace, Logger};
 use state_processing::per_block_processing::get_new_eth1_data;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::iter::FromIterator;
@@ -280,8 +281,7 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 .iter()
                 .rev()
                 .skip_while(|eth1_block| eth1_block.timestamp > voting_period_start_seconds)
-                .skip(eth1_follow_distance as usize)
-                .next()
+                .nth(eth1_follow_distance as usize)
                 .map(|block| {
                     trace!(
                         self.log,
@@ -329,21 +329,21 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
             state.eth1_data.deposit_count
         };
 
-        if deposit_index > deposit_count {
-            Err(Error::DepositIndexTooHigh)
-        } else if deposit_index == deposit_count {
-            Ok(vec![])
-        } else {
-            let next = deposit_index;
-            let last = std::cmp::min(deposit_count, next + T::MaxDeposits::to_u64());
+        match deposit_index.cmp(&deposit_count) {
+            Ordering::Greater => Err(Error::DepositIndexTooHigh),
+            Ordering::Equal => Ok(vec![]),
+            Ordering::Less => {
+                let next = deposit_index;
+                let last = std::cmp::min(deposit_count, next + T::MaxDeposits::to_u64());
 
-            self.core
-                .deposits()
-                .read()
-                .cache
-                .get_deposits(next, last, deposit_count, DEPOSIT_TREE_DEPTH)
-                .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
-                .map(|(_deposit_root, deposits)| deposits)
+                self.core
+                    .deposits()
+                    .read()
+                    .cache
+                    .get_deposits(next, last, deposit_count, DEPOSIT_TREE_DEPTH)
+                    .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
+                    .map(|(_deposit_root, deposits)| deposits)
+            }
         }
     }
 }
@@ -691,7 +691,7 @@ mod test {
 
                     let deposits_for_inclusion = eth1_chain
                         .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
-                        .expect(&format!("should find deposit for {}", i));
+                        .unwrap_or_else(|_| panic!("should find deposit for {}", i));
 
                     let expected_len =
                         std::cmp::min(i - initial_deposit_index, max_deposits as usize);
@@ -769,7 +769,7 @@ mod test {
             state.slot = Slot::new(period * 1_000 + period / 2);
 
             // Add 50% of the votes so a lookup is required.
-            for _ in 0..period / 2 + 1 {
+            for _ in 0..=period / 2 {
                 state
                     .eth1_data_votes
                     .push(random_eth1_data())
@@ -848,7 +848,7 @@ mod test {
             state.slot = Slot::new(period / 2);
 
             // Add 50% of the votes so a lookup is required.
-            for _ in 0..period / 2 + 1 {
+            for _ in 0..=period / 2 {
                 state
                     .eth1_data_votes
                     .push(random_eth1_data())
@@ -1006,7 +1006,7 @@ mod test {
                         eth1_block.number,
                         *new_eth1_data
                             .get(&eth1_block.clone().eth1_data().unwrap())
-                            .expect(&format!(
+                            .unwrap_or_else(|| panic!(
                                 "new_eth1_data should have expected block #{}",
                                 eth1_block.number
                             ))
@@ -1051,8 +1051,8 @@ mod test {
 
             let votes = collect_valid_votes(
                 &state,
-                HashMap::from_iter(new_eth1_data.clone().into_iter()),
-                HashMap::from_iter(all_eth1_data.clone().into_iter()),
+                HashMap::from_iter(new_eth1_data.into_iter()),
+                HashMap::from_iter(all_eth1_data.into_iter()),
             );
             assert_eq!(
                 votes.len(),
@@ -1080,7 +1080,7 @@ mod test {
             let votes = collect_valid_votes(
                 &state,
                 HashMap::from_iter(new_eth1_data.clone().into_iter()),
-                HashMap::from_iter(all_eth1_data.clone().into_iter()),
+                HashMap::from_iter(all_eth1_data.into_iter()),
             );
             assert_votes!(
                 votes,
@@ -1112,8 +1112,8 @@ mod test {
 
             let votes = collect_valid_votes(
                 &state,
-                HashMap::from_iter(new_eth1_data.clone().into_iter()),
-                HashMap::from_iter(all_eth1_data.clone().into_iter()),
+                HashMap::from_iter(new_eth1_data.into_iter()),
+                HashMap::from_iter(all_eth1_data.into_iter()),
             );
             assert_votes!(
                 votes,
@@ -1146,12 +1146,12 @@ mod test {
                 .expect("should have some eth1 data")
                 .clone();
 
-            state.eth1_data_votes = vec![non_new_eth1_data.0.clone()].into();
+            state.eth1_data_votes = vec![non_new_eth1_data.0].into();
 
             let votes = collect_valid_votes(
                 &state,
-                HashMap::from_iter(new_eth1_data.clone().into_iter()),
-                HashMap::from_iter(all_eth1_data.clone().into_iter()),
+                HashMap::from_iter(new_eth1_data.into_iter()),
+                HashMap::from_iter(all_eth1_data.into_iter()),
             );
 
             assert_votes!(
@@ -1184,8 +1184,8 @@ mod test {
 
             let votes = collect_valid_votes(
                 &state,
-                HashMap::from_iter(new_eth1_data.clone().into_iter()),
-                HashMap::from_iter(all_eth1_data.clone().into_iter()),
+                HashMap::from_iter(new_eth1_data.into_iter()),
+                HashMap::from_iter(all_eth1_data.into_iter()),
             );
 
             assert_votes!(
