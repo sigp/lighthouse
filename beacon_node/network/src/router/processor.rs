@@ -301,7 +301,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 self.network.send_rpc_response(
                     peer_id.clone(),
                     request_id,
-                    RPCResponse::BlocksByRoot(block.as_ssz_bytes()),
+                    RPCResponse::BlocksByRoot(Box::new(block)),
                 );
                 send_block_count += 1;
             } else {
@@ -387,7 +387,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     self.network.send_rpc_response(
                         peer_id.clone(),
                         request_id,
-                        RPCResponse::BlocksByRange(block.as_ssz_bytes()),
+                        RPCResponse::BlocksByRange(Box::new(block)),
                     );
                 }
             } else {
@@ -434,9 +434,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<BeaconBlock<T::EthSpec>>,
+        beacon_block: Option<Box<BeaconBlock<T::EthSpec>>>,
     ) {
-        let beacon_block = beacon_block.map(Box::new);
         trace!(
             self.log,
             "Received BlocksByRange Response";
@@ -455,9 +454,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<BeaconBlock<T::EthSpec>>,
+        beacon_block: Option<Box<BeaconBlock<T::EthSpec>>>,
     ) {
-        let beacon_block = beacon_block.map(Box::new);
         trace!(
             self.log,
             "Received BlocksByRoot Response";
@@ -479,7 +477,7 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Template function to be called on an attestation to determine if the attestation should be propagated
     /// across the network.
-    pub fn should_forward_attestation(&mut self, attestation: &Attestation<T::EthSpec>) -> bool {
+    pub fn _should_forward_attestation(&mut self, attestation: &Attestation<T::EthSpec>) -> bool {
         self.chain.should_forward_attestation(attestation)
     }
 
@@ -640,7 +638,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
             });
     }
 
-    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest) {
+    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest<T>) {
         // the message handler cannot send requests with ids. Id's are managed by the sync
         // manager.
         let request_id = 0;
@@ -652,7 +650,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        rpc_response: RPCResponse,
+        rpc_response: RPCResponse<T>,
     ) {
         self.send_rpc_event(
             peer_id,
@@ -665,12 +663,12 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        rpc_error_response: RPCErrorResponse,
+        rpc_error_response: RPCErrorResponse<T>,
     ) {
         self.send_rpc_event(peer_id, RPCEvent::Response(request_id, rpc_error_response));
     }
 
-    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
+    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent<T>) {
         self.network_send
             .try_send(NetworkMessage::RPC(peer_id, rpc_event))
             .unwrap_or_else(|_| {

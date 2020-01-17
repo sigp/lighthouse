@@ -29,7 +29,7 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
     /// The routing pub-sub mechanism for eth2.
     gossipsub: Gossipsub<TSubstream>,
     /// The Eth2 RPC specified in the wire-0 protocol.
-    eth2_rpc: RPC<TSubstream>,
+    eth2_rpc: RPC<TSubstream, TSpec>,
     /// Keep regular connection to peers and disconnect if absent.
     // TODO: Using id for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.
@@ -120,10 +120,10 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage>
-    for Behaviour<TSubstream, TSpec>
+impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
+    NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behaviour<TSubstream, TSpec>
 {
-    fn inject_event(&mut self, event: RPCMessage) {
+    fn inject_event(&mut self, event: RPCMessage<TSpec>) {
         match event {
             RPCMessage::PeerDialed(peer_id) => {
                 self.events.push(BehaviourEvent::PeerDialed(peer_id))
@@ -222,7 +222,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     /* Eth2 RPC behaviour functions */
 
     /// Sends an RPC Request/Response via the RPC protocol.
-    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
+    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent<TSpec>) {
         self.eth2_rpc.send_rpc(peer_id, rpc_event);
     }
 
@@ -246,7 +246,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
 /// The types of events than can be obtained from polling the behaviour.
 pub enum BehaviourEvent<TSpec: EthSpec> {
     /// A received RPC event and the peer that it was received from.
-    RPC(PeerId, RPCEvent),
+    RPC(PeerId, RPCEvent<TSpec>),
     /// We have completed an initial connection to a new peer.
     PeerDialed(PeerId),
     /// A peer has disconnected.

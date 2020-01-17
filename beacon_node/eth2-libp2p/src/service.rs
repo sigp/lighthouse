@@ -271,7 +271,7 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
 /// Events that can be obtained from polling the Libp2p Service.
 pub enum Libp2pEvent<TSpec: EthSpec> {
     /// An RPC response request has been received on the swarm.
-    RPC(PeerId, RPCEvent),
+    RPC(PeerId, RPCEvent<TSpec>),
     /// Initiated the connection to a new peer.
     PeerDialed(PeerId),
     /// A peer has disconnected.

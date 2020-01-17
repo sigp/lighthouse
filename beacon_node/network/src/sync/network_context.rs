@@ -118,7 +118,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     pub fn send_rpc_request(
         &mut self,
         peer_id: PeerId,
-        rpc_request: RPCRequest,
+        rpc_request: RPCRequest<T>,
     ) -> Result<RequestId, &'static str> {
         let request_id = self.request_id;
         self.request_id += 1;
@@ -126,7 +126,11 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         Ok(request_id)
     }
 
-    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) -> Result<(), &'static str> {
+    fn send_rpc_event(
+        &mut self,
+        peer_id: PeerId,
+        rpc_event: RPCEvent<T>,
+    ) -> Result<(), &'static str> {
         self.network_send
             .try_send(NetworkMessage::RPC(peer_id, rpc_event))
             .map_err(|_| {

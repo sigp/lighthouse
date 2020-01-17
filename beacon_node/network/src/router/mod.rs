@@ -17,10 +17,9 @@ use futures::future::Future;
 use futures::stream::Stream;
 use processor::Processor;
 use slog::{debug, o, trace, warn};
-use ssz::{Decode, DecodeError};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{BeaconBlock, EthSpec};
+use types::EthSpec;
 
 /// Handles messages received from the network and client and organises syncing. This
 /// functionality of this struct is to validate an decode messages from the network before
@@ -44,7 +43,7 @@ pub enum RouterMessage<T: EthSpec> {
     /// Peer has disconnected,
     PeerDisconnected(PeerId),
     /// An RPC response/request has been received.
-    RPC(PeerId, RPCEvent),
+    RPC(PeerId, RPCEvent<T>),
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
     /// message and the message itself.
     PubsubMessage(MessageId, PeerId, PubsubMessage<T>),
@@ -110,7 +109,7 @@ impl<T: BeaconChainTypes> Router<T> {
     /* RPC - Related functionality */
 
     /// Handle RPC messages
-    fn handle_rpc_message(&mut self, peer_id: PeerId, rpc_message: RPCEvent) {
+    fn handle_rpc_message(&mut self, peer_id: PeerId, rpc_message: RPCEvent<T::EthSpec>) {
         match rpc_message {
             RPCEvent::Request(id, req) => self.handle_rpc_request(peer_id, id, req),
             RPCEvent::Response(id, resp) => self.handle_rpc_response(peer_id, id, resp),
@@ -119,7 +118,12 @@ impl<T: BeaconChainTypes> Router<T> {
     }
 
     /// A new RPC request has been received from the network.
-    fn handle_rpc_request(&mut self, peer_id: PeerId, request_id: RequestId, request: RPCRequest) {
+    fn handle_rpc_request(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        request: RPCRequest<T::EthSpec>,
+    ) {
         match request {
             RPCRequest::Status(status_message) => {
                 self.processor
@@ -139,6 +143,7 @@ impl<T: BeaconChainTypes> Router<T> {
             RPCRequest::BlocksByRoot(request) => self
                 .processor
                 .on_blocks_by_root_request(peer_id, request_id, request),
+            RPCRequest::Phantom(_) => unreachable!("Phantom never initialised"),
         }
     }
 
@@ -148,7 +153,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        error_response: RPCErrorResponse,
+        error_response: RPCErrorResponse<T::EthSpec>,
     ) {
         // an error could have occurred.
         match error_response {
@@ -164,43 +169,25 @@ impl<T: BeaconChainTypes> Router<T> {
                 warn!(self.log, "Unknown peer error";"peer" => format!("{:?}", peer_id), "error" => error.as_string());
                 self.handle_rpc_error(peer_id, request_id, RPCError::RPCErrorResponse);
             }
-            RPCErrorResponse::Success(response) => {
-                match response {
-                    RPCResponse::Status(status_message) => {
-                        self.processor.on_status_response(peer_id, status_message);
-                    }
-                    RPCResponse::BlocksByRange(response) => {
-                        match self.decode_beacon_block(response) {
-                            Ok(beacon_block) => {
-                                self.processor.on_blocks_by_range_response(
-                                    peer_id,
-                                    request_id,
-                                    Some(beacon_block),
-                                );
-                            }
-                            Err(e) => {
-                                // TODO: Down-vote Peer
-                                warn!(self.log, "Peer sent invalid BEACON_BLOCKS response";"peer" => format!("{:?}", peer_id), "error" => format!("{:?}", e));
-                            }
-                        }
-                    }
-                    RPCResponse::BlocksByRoot(response) => {
-                        match self.decode_beacon_block(response) {
-                            Ok(beacon_block) => {
-                                self.processor.on_blocks_by_root_response(
-                                    peer_id,
-                                    request_id,
-                                    Some(beacon_block),
-                                );
-                            }
-                            Err(e) => {
-                                // TODO: Down-vote Peer
-                                warn!(self.log, "Peer sent invalid BEACON_BLOCKS response";"peer" => format!("{:?}", peer_id), "error" => format!("{:?}", e));
-                            }
-                        }
-                    }
+            RPCErrorResponse::Success(response) => match response {
+                RPCResponse::Status(status_message) => {
+                    self.processor.on_status_response(peer_id, status_message);
                 }
-            }
+                RPCResponse::BlocksByRange(beacon_block) => {
+                    self.processor.on_blocks_by_range_response(
+                        peer_id,
+                        request_id,
+                        Some(beacon_block),
+                    );
+                }
+                RPCResponse::BlocksByRoot(beacon_block) => {
+                    self.processor.on_blocks_by_root_response(
+                        peer_id,
+                        request_id,
+                        Some(beacon_block),
+                    );
+                }
+            },
             RPCErrorResponse::StreamTermination(response_type) => {
                 // have received a stream termination, notify the processing functions
                 match response_type {
@@ -284,23 +271,5 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Could not send propagation request to the network service"
                 )
             });
-    }
-
-    /* Decoding of gossipsub objects from the network.
-     *
-     * The decoding is done in the message handler as it has access to to a `BeaconChain` and can
-     * therefore apply more efficient logic in decoding and verification.
-     *
-     * TODO: Apply efficient decoding/verification of these objects
-     */
-
-    /* Gossipsub Domain Decoding */
-    // Note: These are not generics as type-specific verification will need to be applied.
-    fn decode_beacon_block(
-        &self,
-        beacon_block: Vec<u8>,
-    ) -> Result<BeaconBlock<T::EthSpec>, DecodeError> {
-        //TODO: Apply verification before decoding.
-        BeaconBlock::from_ssz_bytes(&beacon_block)
     }
 }

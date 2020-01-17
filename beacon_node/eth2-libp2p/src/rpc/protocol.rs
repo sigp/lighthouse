@@ -15,6 +15,7 @@ use futures::{
 };
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use std::io;
+use std::marker::PhantomData;
 use std::time::Duration;
 use tokio::codec::Framed;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -22,6 +23,7 @@ use tokio::prelude::*;
 use tokio::timer::timeout;
 use tokio::util::FutureExt;
 use tokio_io_timeout::TimeoutStream;
+use types::EthSpec;
 
 /// The maximum bytes that can be sent across the RPC.
 const MAX_RPC_SIZE: usize = 4_194_304; // 4M
@@ -44,9 +46,11 @@ pub const RPC_BLOCKS_BY_RANGE: &str = "beacon_blocks_by_range";
 pub const RPC_BLOCKS_BY_ROOT: &str = "beacon_blocks_by_root";
 
 #[derive(Debug, Clone)]
-pub struct RPCProtocol;
+pub struct RPCProtocol<TSpec: EthSpec> {
+    pub phantom: PhantomData<TSpec>,
+}
 
-impl UpgradeInfo for RPCProtocol {
+impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
@@ -104,27 +108,30 @@ impl ProtocolName for ProtocolId {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket> = (RPCRequest, InboundFramed<TSocket>);
-pub type InboundFramed<TSocket> = Framed<TimeoutStream<upgrade::Negotiated<TSocket>>, InboundCodec>;
-type FnAndThen<TSocket> = fn(
-    (Option<RPCRequest>, InboundFramed<TSocket>),
-) -> FutureResult<InboundOutput<TSocket>, RPCError>;
-type FnMapErr<TSocket> = fn(timeout::Error<(RPCError, InboundFramed<TSocket>)>) -> RPCError;
+pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
+pub type InboundFramed<TSocket, TSpec> =
+    Framed<TimeoutStream<upgrade::Negotiated<TSocket>>, InboundCodec<TSpec>>;
+type FnAndThen<TSocket, TSpec> = fn(
+    (Option<RPCRequest<TSpec>>, InboundFramed<TSocket, TSpec>),
+) -> FutureResult<InboundOutput<TSocket, TSpec>, RPCError>;
+type FnMapErr<TSocket, TSpec> =
+    fn(timeout::Error<(RPCError, InboundFramed<TSocket, TSpec>)>) -> RPCError;
 
-impl<TSocket> InboundUpgrade<TSocket> for RPCProtocol
+impl<TSocket, TSpec> InboundUpgrade<TSocket> for RPCProtocol<TSpec>
 where
     TSocket: AsyncRead + AsyncWrite,
+    TSpec: EthSpec,
 {
-    type Output = InboundOutput<TSocket>;
+    type Output = InboundOutput<TSocket, TSpec>;
     type Error = RPCError;
 
     type Future = future::AndThen<
         future::MapErr<
-            timeout::Timeout<stream::StreamFuture<InboundFramed<TSocket>>>,
-            FnMapErr<TSocket>,
+            timeout::Timeout<stream::StreamFuture<InboundFramed<TSocket, TSpec>>>,
+            FnMapErr<TSocket, TSpec>,
         >,
-        FutureResult<InboundOutput<TSocket>, RPCError>,
-        FnAndThen<TSocket>,
+        FutureResult<InboundOutput<TSocket, TSpec>, RPCError>,
+        FnAndThen<TSocket, TSpec>,
     >;
 
     fn upgrade_inbound(
@@ -141,7 +148,7 @@ where
                 Framed::new(timed_socket, codec)
                     .into_future()
                     .timeout(Duration::from_secs(REQUEST_TIMEOUT))
-                    .map_err(RPCError::from as FnMapErr<TSocket>)
+                    .map_err(RPCError::from as FnMapErr<TSocket, TSpec>)
                     .and_then({
                         |(req, stream)| match req {
                             Some(req) => futures::future::ok((req, stream)),
@@ -149,7 +156,7 @@ where
                                 "Stream terminated early".into(),
                             )),
                         }
-                    } as FnAndThen<TSocket>)
+                    } as FnAndThen<TSocket, TSpec>)
             }
         }
     }
@@ -161,14 +168,15 @@ where
 // `OutboundUpgrade`
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RPCRequest {
+pub enum RPCRequest<TSpec: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(BlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    Phantom(PhantomData<TSpec>),
 }
 
-impl UpgradeInfo for RPCRequest {
+impl<TSpec: EthSpec> UpgradeInfo for RPCRequest<TSpec> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
@@ -179,7 +187,7 @@ impl UpgradeInfo for RPCRequest {
 }
 
 /// Implements the encoding per supported protocol for RPCRequest.
-impl RPCRequest {
+impl<TSpec: EthSpec> RPCRequest<TSpec> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
@@ -187,6 +195,7 @@ impl RPCRequest {
             RPCRequest::Goodbye(_) => vec![ProtocolId::new(RPC_GOODBYE, "1", "ssz")],
             RPCRequest::BlocksByRange(_) => vec![ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz")],
             RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz")],
+            RPCRequest::Phantom(_) => Vec::new(),
         }
     }
 
@@ -200,6 +209,7 @@ impl RPCRequest {
             RPCRequest::Goodbye(_) => false,
             RPCRequest::BlocksByRange(_) => true,
             RPCRequest::BlocksByRoot(_) => true,
+            RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
         }
     }
 
@@ -211,6 +221,7 @@ impl RPCRequest {
             RPCRequest::Goodbye(_) => false,
             RPCRequest::BlocksByRange(_) => true,
             RPCRequest::BlocksByRoot(_) => true,
+            RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
         }
     }
 
@@ -224,6 +235,7 @@ impl RPCRequest {
             RPCRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             RPCRequest::Status(_) => unreachable!(),
             RPCRequest::Goodbye(_) => unreachable!(),
+            RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
         }
     }
 }
@@ -232,15 +244,17 @@ impl RPCRequest {
 
 /* Outbound upgrades */
 
-pub type OutboundFramed<TSocket> = Framed<upgrade::Negotiated<TSocket>, OutboundCodec>;
+pub type OutboundFramed<TSocket, TSpec> =
+    Framed<upgrade::Negotiated<TSocket>, OutboundCodec<TSpec>>;
 
-impl<TSocket> OutboundUpgrade<TSocket> for RPCRequest
+impl<TSocket, TSpec> OutboundUpgrade<TSocket> for RPCRequest<TSpec>
 where
+    TSpec: EthSpec,
     TSocket: AsyncRead + AsyncWrite,
 {
-    type Output = OutboundFramed<TSocket>;
+    type Output = OutboundFramed<TSocket, TSpec>;
     type Error = RPCError;
-    type Future = sink::Send<OutboundFramed<TSocket>>;
+    type Future = sink::Send<OutboundFramed<TSocket, TSpec>>;
     fn upgrade_outbound(
         self,
         socket: upgrade::Negotiated<TSocket>,
@@ -340,13 +354,14 @@ impl std::error::Error for RPCError {
     }
 }
 
-impl std::fmt::Display for RPCRequest {
+impl<TSpec: EthSpec> std::fmt::Display for RPCRequest<TSpec> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCRequest::Status(status) => write!(f, "Status Message: {}", status),
             RPCRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             RPCRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             RPCRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
         }
     }
 }

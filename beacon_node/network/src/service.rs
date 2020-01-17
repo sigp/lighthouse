@@ -296,7 +296,7 @@ fn network_service<T: EthSpec>(
 #[derive(Debug)]
 pub enum NetworkMessage<T: EthSpec> {
     /// Send an RPC message to the libp2p service.
-    RPC(PeerId, RPCEvent),
+    RPC(PeerId, RPCEvent<T>),
     /// Publish a message to gossipsub.
     Publish {
         topics: Vec<GossipTopic>,

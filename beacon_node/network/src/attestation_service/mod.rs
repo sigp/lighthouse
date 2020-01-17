@@ -77,8 +77,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             /*service
                 .discover_peers
                 .for_each(|discover| Ok(service.handle_discover_peer(discover)))
-            */
-            /*
                 .select(
                     self.subsciptions
                         .for_each(|sub| self.handle_subscriptions(sub)),
