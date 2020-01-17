@@ -1,5 +1,5 @@
 use super::Error;
-use crate::{BeaconChain, BeaconChainTypes};
+use crate::{metrics, BeaconChain, BeaconChainTypes};
 use proto_array_fork_choice::ProtoArrayForkChoice;
 use ssz_derive::{Decode, Encode};
 use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot};
@@ -201,8 +201,12 @@ impl CheckpointManager {
         chain: &BeaconChain<T>,
     ) -> Result<Vec<u64>, Error> {
         if let Some(balances) = self.balances_cache.get(block_root) {
+            metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
+
             Ok(balances)
         } else {
+            metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
+
             let block = chain
                 .get_block_caching(&block_root)?
                 .ok_or_else(|| Error::UnknownJustifiedBlock(block_root))?;
