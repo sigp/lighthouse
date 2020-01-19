@@ -119,10 +119,10 @@ impl ProtoArray {
         Ok(())
     }
 
-    /// Register a new block with the fork choice.
+    /// Register a block with the fork choice.
     ///
     /// It is only sane to supply a `None` parent for the genesis block.
-    pub fn on_new_block(
+    pub fn on_block(
         &mut self,
         slot: Slot,
         root: Hash256,

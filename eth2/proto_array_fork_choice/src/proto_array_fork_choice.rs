@@ -74,7 +74,7 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_new_block(
+            .on_block(
                 finalized_block_slot,
                 finalized_root,
                 None,
@@ -117,7 +117,7 @@ impl ProtoArrayForkChoice {
     ) -> Result<(), String> {
         self.proto_array
             .write()
-            .on_new_block(
+            .on_block(
                 slot,
                 block_root,
                 Some(parent_root),
