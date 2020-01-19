@@ -1,3 +1,4 @@
+use crate::eth1_chain::SszEth1;
 use crate::fork_choice::SszForkChoice;
 use crate::head_tracker::SszHeadTracker;
 use crate::{BeaconChainTypes, CheckPoint};
@@ -18,6 +19,7 @@ pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub genesis_block_root: Hash256,
     pub ssz_head_tracker: SszHeadTracker,
     pub fork_choice: SszForkChoice,
+    pub eth1_cache: Option<SszEth1>,
     pub block_root_tree: SszBlockRootTree,
 }
 
