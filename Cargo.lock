@@ -1087,6 +1087,7 @@ dependencies = [
  "eth1_test_rig 0.1.0",
  "eth2_hashing 0.1.1",
  "eth2_ssz 0.1.2",
+ "eth2_ssz_derive 0.1.0",
  "exit-future 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",

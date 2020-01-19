@@ -19,6 +19,7 @@ hex = "0.3"
 types = { path = "../../eth2/types"}
 merkle_proof = { path = "../../eth2/utils/merkle_proof"}
 eth2_ssz = { path = "../../eth2/utils/ssz"}
+eth2_ssz_derive = "0.1.0"
 tree_hash = { path = "../../eth2/utils/tree_hash"}
 eth2_hashing = { path = "../../eth2/utils/eth2_hashing"}
 parking_lot = "0.7"

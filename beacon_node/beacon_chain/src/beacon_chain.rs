@@ -116,7 +116,7 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type StoreMigrator: store::Migrate<Self::Store, Self::EthSpec>;
     type SlotClock: slot_clock::SlotClock;
     type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;
-    type Eth1Chain: Eth1ChainBackend<Self::EthSpec>;
+    type Eth1Chain: Eth1ChainBackend<Self::EthSpec, Self::Store>;
     type EthSpec: types::EthSpec;
     type EventHandler: EventHandler<Self::EthSpec>;
 }
@@ -135,7 +135,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// inclusion in a block.
     pub op_pool: OperationPool<T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
-    pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
+    pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
     pub(crate) canonical_head: TimeoutRwLock<CheckPoint<T::EthSpec>>,
     /// The root of the genesis block.
@@ -190,6 +190,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
             fork_choice: self.fork_choice.as_ssz_container(),
+            eth1_cache: self.eth1_chain.as_ref().map(|x| x.as_ssz_container()),
             block_root_tree: self.block_root_tree.as_ssz_container(),
         };
 
