@@ -5,7 +5,7 @@ mod persistence;
 
 pub use persistence::PersistedOperationPool;
 
-use attestation::{earliest_attestation_validators, AttMaxCover};
+use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use max_cover::maximum_cover;
 use parking_lot::RwLock;
@@ -21,8 +21,8 @@ use state_processing::per_block_processing::{
 use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
-    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, ChainSpec, EthSpec,
-    ProposerSlashing, Validator, VoluntaryExit,
+    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
+    EthSpec, ProposerSlashing, RelativeEpoch, Validator, VoluntaryExit,
 };
 
 #[derive(Default, Debug)]
@@ -36,6 +36,11 @@ pub struct OperationPool<T: EthSpec + Default> {
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, VoluntaryExit>>,
     _phantom: PhantomData<T>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum OpPoolError {
+    GetAttestationsTotalBalanceError(BeaconStateError),
 }
 
 impl<T: EthSpec> OperationPool<T> {
@@ -95,13 +100,19 @@ impl<T: EthSpec> OperationPool<T> {
         &self,
         state: &BeaconState<T>,
         spec: &ChainSpec,
-    ) -> Vec<Attestation<T>> {
+    ) -> Result<Vec<Attestation<T>>, OpPoolError> {
         // Attestations for the current fork, which may be from the current or previous epoch.
         let prev_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
         let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, state, spec);
         let curr_domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
         let reader = self.attestations.read();
+        let active_indices = state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)
+            .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
+        let total_active_balance = state
+            .get_total_balance(&active_indices, spec)
+            .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
         let valid_attestations = reader
             .iter()
             .filter(|(key, _)| {
@@ -119,9 +130,12 @@ impl<T: EthSpec> OperationPool<T> {
                 )
                 .is_ok()
             })
-            .map(|att| AttMaxCover::new(att, earliest_attestation_validators(att, state)));
+            .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec));
 
-        maximum_cover(valid_attestations, T::MaxAttestations::to_usize())
+        Ok(maximum_cover(
+            valid_attestations,
+            T::MaxAttestations::to_usize(),
+        ))
     }
 
     /// Remove attestations which are too old to be included in a block.
@@ -361,7 +375,10 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
 // TODO: more tests
 #[cfg(all(test, not(debug_assertions)))]
 mod release_tests {
+    use super::attestation::earliest_attestation_validators;
     use super::*;
+    use state_processing::common::{get_attesting_indices, get_base_reward};
+    use std::collections::BTreeSet;
     use types::test_utils::*;
     use types::*;
 
@@ -522,12 +539,20 @@ mod release_tests {
 
         // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
         state.slot -= 1;
-        assert_eq!(op_pool.get_attestations(state, spec).len(), 0);
+        assert_eq!(
+            op_pool
+                .get_attestations(state, spec)
+                .expect("should have attestations")
+                .len(),
+            0
+        );
 
         // Then once the delay has elapsed, we should get a single aggregated attestation.
         state.slot += spec.min_attestation_inclusion_delay;
 
-        let block_attestations = op_pool.get_attestations(state, spec);
+        let block_attestations = op_pool
+            .get_attestations(state, spec)
+            .expect("Should have block attestations");
         assert_eq!(block_attestations.len(), committees.len());
 
         let agg_att = &block_attestations[0];
@@ -684,12 +709,114 @@ mod release_tests {
         assert!(op_pool.num_attestations() > max_attestations);
 
         state.slot += spec.min_attestation_inclusion_delay;
-        let best_attestations = op_pool.get_attestations(state, spec);
+        let best_attestations = op_pool
+            .get_attestations(state, spec)
+            .expect("should have best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
         // All the best attestations should be signed by at least `big_step_size` (4) validators.
         for att in &best_attestations {
             assert!(att.aggregation_bits.num_set_bits() >= big_step_size);
+        }
+    }
+
+    #[test]
+    fn attestation_rewards() {
+        let small_step_size = 2;
+        let big_step_size = 4;
+
+        let (ref mut state, ref keypairs, ref spec) =
+            attestation_test_state::<MainnetEthSpec>(big_step_size);
+
+        let op_pool = OperationPool::new();
+
+        let slot = state.slot - 1;
+        let committees = state
+            .get_beacon_committees_at_slot(slot)
+            .unwrap()
+            .into_iter()
+            .map(BeaconCommittee::into_owned)
+            .collect::<Vec<_>>();
+
+        let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
+        let target_committee_size = spec.target_committee_size as usize;
+
+        // Each validator will have a multiple of 1_000_000_000 wei.
+        // Safe from overflow unless there are about 18B validators (2^64 / 1_000_000_000).
+        for i in 0..state.validators.len() {
+            state.validators[i].effective_balance = 1_000_000_000 * i as u64;
+        }
+
+        let insert_attestations = |bc: &OwnedBeaconCommittee, step_size| {
+            for i in (0..target_committee_size).step_by(step_size) {
+                let att = signed_attestation(
+                    &bc.committee,
+                    bc.index,
+                    keypairs,
+                    i..i + step_size,
+                    slot,
+                    state,
+                    spec,
+                    if i == 0 { None } else { Some(0) },
+                );
+                op_pool.insert_attestation(att, state, spec).unwrap();
+            }
+        };
+
+        for committee in &committees {
+            assert_eq!(committee.committee.len(), target_committee_size);
+            // Attestations signed by only 2-3 validators
+            insert_attestations(committee, small_step_size);
+            // Attestations signed by 4+ validators
+            insert_attestations(committee, big_step_size);
+        }
+
+        let num_small = target_committee_size / small_step_size;
+        let num_big = target_committee_size / big_step_size;
+
+        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        assert_eq!(
+            op_pool.num_attestations(),
+            (num_small + num_big) * committees.len()
+        );
+        assert!(op_pool.num_attestations() > max_attestations);
+
+        state.slot += spec.min_attestation_inclusion_delay;
+        let best_attestations = op_pool
+            .get_attestations(state, spec)
+            .expect("should have valid best attestations");
+        assert_eq!(best_attestations.len(), max_attestations);
+
+        let active_indices = state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)
+            .unwrap();
+        let total_active_balance = state.get_total_balance(&active_indices, spec).unwrap();
+
+        // Set of indices covered by previous attestations in `best_attestations`.
+        let mut seen_indices = BTreeSet::new();
+        // Used for asserting that rewards are in decreasing order.
+        let mut prev_reward = u64::max_value();
+
+        for att in &best_attestations {
+            let fresh_validators_bitlist = earliest_attestation_validators(att, state);
+            let att_indices =
+                get_attesting_indices(state, &att.data, &fresh_validators_bitlist).unwrap();
+            let fresh_indices = &att_indices - &seen_indices;
+
+            let rewards = fresh_indices
+                .iter()
+                .map(|validator_index| {
+                    get_base_reward(state, *validator_index as usize, total_active_balance, spec)
+                        .unwrap()
+                        / spec.proposer_reward_quotient
+                })
+                .sum();
+
+            // Check that rewards are in decreasing order
+            assert!(prev_reward >= rewards);
+
+            prev_reward = rewards;
+            seen_indices.extend(fresh_indices);
         }
     }
 }
