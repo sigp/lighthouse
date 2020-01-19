@@ -130,6 +130,11 @@ impl ProtoArray {
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
     ) -> Result<(), Error> {
+        // If the block is already known, simply ignore it.
+        if self.indices.contains_key(&root) {
+            return Ok(());
+        }
+
         let node_index = self.nodes.len();
 
         let node = ProtoNode {
