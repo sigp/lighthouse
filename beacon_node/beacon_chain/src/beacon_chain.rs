@@ -1353,6 +1353,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
+        let fork_choice_register_timer =
+            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
+
+        // Register the new block with the fork choice service.
+        if let Err(e) = self
+            .fork_choice
+            .process_block(self, &state, &block, block_root)
+        {
+            error!(
+                self.log,
+                "Add block to fork choice failed";
+                "block_root" =>  format!("{}", block_root),
+                "error" => format!("{:?}", e),
+            )
+        }
+
+        metrics::stop_timer(fork_choice_register_timer);
+
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
         // Store all the states between the parent block state and this blocks slot before storing
@@ -1386,24 +1404,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .add_block_root(block_root, block.parent_root, block.slot)?;
 
         self.head_tracker.register_block(block_root, &block);
-
-        let fork_choice_register_timer =
-            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
-
-        // Register the new block with the fork choice service.
-        if let Err(e) = self
-            .fork_choice
-            .process_block(self, &state, &block, block_root)
-        {
-            error!(
-                self.log,
-                "Add block to fork choice failed";
-                "block_root" =>  format!("{}", block_root),
-                "error" => format!("{:?}", e),
-            )
-        }
-
-        metrics::stop_timer(fork_choice_register_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
         metrics::observe(
