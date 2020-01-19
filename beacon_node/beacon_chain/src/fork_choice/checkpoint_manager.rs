@@ -6,23 +6,37 @@ use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
 const MAX_BALANCE_CACHE_SIZE: usize = 4;
 
+/// An item that is stored in the `BalancesCache`.
 #[derive(PartialEq, Clone, Encode, Decode)]
 struct CacheItem {
+    /// The block root at which `self.balances` are valid.
     block_root: Hash256,
+    /// The `state.balances` list.
     balances: Vec<u64>,
 }
 
+/// Provides a cache to avoid reading `BeaconState` from disk when updating the current justified
+/// checkpoint.
+///
+/// It should store a mapping of `epoch_boundary_block_root -> state.balances`.
 #[derive(PartialEq, Clone, Default, Encode, Decode)]
 struct BalancesCache {
     items: Vec<CacheItem>,
 }
 
 impl BalancesCache {
+    /// Inspect the given `state` and determine the root of the block at the first slot of
+    /// `state.current_epoch`. If there is not already some entry for the given block root, then
+    /// add `state.balances` to the cache.
     pub fn process_state<E: EthSpec>(
         &mut self,
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
+        if !Self::is_first_block_in_epoch(block_root, state)? {
+            return Ok(());
+        }
+
         let epoch_boundary_slot = state.current_epoch().start_slot(E::slots_per_epoch());
         let epoch_boundary_root = if epoch_boundary_slot == state.slot {
             block_root
@@ -46,12 +60,37 @@ impl BalancesCache {
         Ok(())
     }
 
+    /// Returns `true` if the given `block_root` is the first/only block to have been processed in
+    /// the epoch of the given `state`.
+    fn is_first_block_in_epoch<E: EthSpec>(
+        block_root: Hash256,
+        state: &BeaconState<E>,
+    ) -> Result<bool, Error> {
+        let mut prior_block_found = false;
+
+        for slot in state.current_epoch().slot_iter(E::slots_per_epoch()) {
+            if slot < state.slot {
+                if *state.get_block_root(slot)? != block_root {
+                    prior_block_found = true;
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(!prior_block_found)
+    }
+
     fn position(&self, block_root: Hash256) -> Option<usize> {
         self.items
             .iter()
             .position(|item| item.block_root == block_root)
     }
 
+    /// Get the balances for the given `block_root`, if any.
+    ///
+    /// If some balances are found, they are removed from the cache.
     pub fn get(&mut self, block_root: Hash256) -> Option<Vec<u64>> {
         let i = self.position(block_root)?;
         Some(self.items.remove(i).balances)
@@ -67,8 +106,9 @@ pub struct CheckpointWithBalances {
     pub root: Hash256,
     /// These are the balances of the state with `self.root`.
     ///
-    /// Importantly, these are _not_ the balances of the first state that we saw with a matching
-    /// `state.current_justified_checkpoint`.
+    /// Importantly, these are _not_ the balances of the first state that we saw that has
+    /// `self.epoch` and `self.root` as `state.current_justified_checkpoint`. That state is the
+    /// state at which the justified state was determined, not the actual justified state.
     pub balances: Vec<u64>,
 }
 
@@ -81,21 +121,34 @@ impl Into<Checkpoint> for CheckpointWithBalances {
     }
 }
 
+/// A pair of checkpoints, representing `state.current_justified_checkpoint` and
+/// `state.finalized_checkpoint` for some `BeaconState`.
 #[derive(PartialEq, Clone, Encode, Decode)]
 pub struct FFGCheckpoints {
     pub justified: CheckpointWithBalances,
     pub finalized: Checkpoint,
 }
 
+/// A struct to manage the justified and finalized checkpoints to be used for `ForkChoice`.
+///
+/// This struct exists to manage the `should_update_justified_checkpoint` logic in the fork choice
+/// section of the spec:
+///
+/// https://github.com/ethereum/eth2.0-specs/blob/dev/specs/phase0/fork-choice.md#should_update_justified_checkpoint
 #[derive(PartialEq, Clone, Encode, Decode)]
 pub struct CheckpointManager {
+    /// The current FFG checkpoints that should be used for finding the head.
     pub current: FFGCheckpoints,
+    /// The best-known checkpoints that should be moved to `self.current` when the time is right.
     best: FFGCheckpoints,
+    /// The epoch at which `self.current` should become `self.best`, if any.
     update_at: Option<Epoch>,
+    /// A cached used to try and avoid DB reads when updating `self.current` and `self.best`.
     balances_cache: BalancesCache,
 }
 
 impl CheckpointManager {
+    /// Create a new checkpoint cache from `genesis_checkpoint` derived from the genesis block.
     pub fn new(genesis_checkpoint: CheckpointWithBalances) -> Self {
         let ffg_checkpoint = FFGCheckpoints {
             justified: genesis_checkpoint.clone(),
@@ -109,9 +162,16 @@ impl CheckpointManager {
         }
     }
 
-    pub fn update<T: BeaconChainTypes>(&mut self, chain: &BeaconChain<T>) -> Result<(), Error> {
+    /// Potentially updates `self.current`, if the conditions are correct.
+    ///
+    /// Should be called before running the fork choice `find_head` function to ensure
+    /// `self.current` is up-to-date.
+    pub fn maybe_update<T: BeaconChainTypes>(
+        &mut self,
+        current_slot: Slot,
+        chain: &BeaconChain<T>,
+    ) -> Result<(), Error> {
         if self.best.justified.epoch > self.current.justified.epoch {
-            let current_slot = chain.slot()?;
             let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
             match self.update_at {

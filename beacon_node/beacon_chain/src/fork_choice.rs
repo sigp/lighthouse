@@ -88,7 +88,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         };
 
         let mut manager = self.checkpoint_manager.write();
-        manager.update(chain)?;
+        manager.maybe_update(chain.slot()?, chain)?;
 
         let result = self
             .backend
@@ -135,7 +135,9 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         self.checkpoint_manager
             .write()
             .process_state(block_root, state, chain, &self.backend)?;
-        self.checkpoint_manager.write().update(chain)?;
+        self.checkpoint_manager
+            .write()
+            .maybe_update(chain.slot()?, chain)?;
 
         // Note: we never count the block as a latest message, only attestations.
         for attestation in &block.body.attestations {
