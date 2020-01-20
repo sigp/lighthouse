@@ -10,7 +10,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-mod block_at_slot;
 pub mod block_root_tree;
 pub mod chunked_iter;
 pub mod chunked_vector;
@@ -84,25 +83,17 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Store a state in the store.
     fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
 
+    /// Fetch a block from the store.
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+        self.get(block_root)
+    }
+
     /// Fetch a state from the store.
     fn get_state(
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error>;
-
-    /// Given the root of an existing block in the store (`start_block_root`), return a parent
-    /// block with the specified `slot`.
-    ///
-    /// Returns `None` if no parent block exists at that slot, or if `slot` is greater than the
-    /// slot of `start_block_root`.
-    fn get_block_at_preceeding_slot(
-        &self,
-        start_block_root: Hash256,
-        slot: Slot,
-    ) -> Result<Option<(Hash256, BeaconBlock<E>)>, Error> {
-        block_at_slot::get_block_at_preceeding_slot::<_, E>(self, slot, start_block_root)
-    }
 
     /// (Optionally) Move all data before the frozen slot to the freezer database.
     fn freeze_to_state(

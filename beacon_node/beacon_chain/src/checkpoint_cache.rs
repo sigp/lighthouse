@@ -2,7 +2,7 @@ use crate::checkpoint::CheckPoint;
 use crate::metrics;
 use parking_lot::RwLock;
 use std::borrow::Cow;
-use types::{BeaconBlock, BeaconState, EthSpec, Hash256};
+use types::{BeaconState, EthSpec, Hash256, SignedBeaconBlock};
 
 const CACHE_SIZE: usize = 4;
 
@@ -104,7 +104,7 @@ impl<T: EthSpec> CheckPointCache<T> {
             })
     }
 
-    pub fn get_block(&self, block_root: &Hash256) -> Option<BeaconBlock<T>> {
+    pub fn get_block(&self, block_root: &Hash256) -> Option<SignedBeaconBlock<T>> {
         self.inner
             .read()
             .checkpoints

@@ -16,10 +16,10 @@ use store::{
     migrate::{BlockingMigrator, NullMigrator},
     DiskStore, MemoryStore, Migrate, Store,
 };
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, Attestation, BeaconBlock, BeaconState, BitList, ChainSpec, Domain, EthSpec,
-    Hash256, Keypair, SecretKey, Signature, Slot,
+    AggregateSignature, Attestation, BeaconState, BitList, ChainSpec, Domain, EthSpec, Hash256,
+    Keypair, SecretKey, Signature, SignedBeaconBlock, Slot,
 };
 
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
@@ -281,7 +281,7 @@ where
         mut state: BeaconState<E>,
         slot: Slot,
         block_strategy: BlockStrategy,
-    ) -> (BeaconBlock<E>, BeaconState<E>) {
+    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         if slot < state.slot {
             panic!("produce slot cannot be prior to the state slot");
         }
@@ -315,17 +315,12 @@ where
             Signature::new(&message, domain, sk)
         };
 
-        let (mut block, state) = self
+        let (block, state) = self
             .chain
             .produce_block_on_state(state, slot, randao_reveal)
             .expect("should produce block");
 
-        block.signature = {
-            let message = block.signed_root();
-            let epoch = block.slot.epoch(E::slots_per_epoch());
-            let domain = self.spec.get_domain(epoch, Domain::BeaconProposer, fork);
-            Signature::new(&message, domain, sk)
-        };
+        let block = block.message.sign(sk, &state.fork, &self.spec);
 
         (block, state)
     }
@@ -466,7 +461,7 @@ where
             .head()
             .expect("should get head")
             .beacon_block
-            .slot;
+            .slot();
 
         // Move to the next slot so we may produce some more blocks on the head.
         self.advance_slot();

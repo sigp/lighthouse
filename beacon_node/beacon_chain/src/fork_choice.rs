@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 use ssz_derive::{Decode, Encode};
 use state_processing::{common::get_attesting_indices, per_slot_processing};
 use std::sync::Arc;
-use store::{BlockRootTree, Error as StoreError, Store};
+use store::{BlockRootTree, Error as StoreError};
 use types::{
     Attestation, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, Slot,
 };
@@ -82,11 +82,13 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
         let current_justified_block = chain
             .get_block(&justified_checkpoint.root)?
-            .ok_or_else(|| Error::MissingBlock(justified_checkpoint.root))?;
+            .ok_or_else(|| Error::MissingBlock(justified_checkpoint.root))?
+            .message;
 
         let new_justified_block = chain
             .get_block(&new_justified_checkpoint.root)?
-            .ok_or_else(|| Error::MissingBlock(new_justified_checkpoint.root))?;
+            .ok_or_else(|| Error::MissingBlock(new_justified_checkpoint.root))?
+            .message;
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
 
@@ -129,8 +131,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             );
 
             let block = chain
-                .store
-                .get::<BeaconBlock<T::EthSpec>>(&block_root)?
+                .get_block_caching(&block_root)?
                 .ok_or_else(|| Error::MissingBlock(block_root))?;
 
             // Resolve the `0x00.. 00` alias back to genesis

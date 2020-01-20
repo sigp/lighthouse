@@ -1,6 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
-use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256};
+use types::{Attestation, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 pub use websocket_server::WebSocketSender;
 
 pub trait EventHandler<T: EthSpec>: Sized + Send + Sync {
@@ -49,11 +49,11 @@ pub enum EventKind<T: EthSpec> {
     },
     BeaconBlockImported {
         block_root: Hash256,
-        block: Box<BeaconBlock<T>>,
+        block: Box<SignedBeaconBlock<T>>,
     },
     BeaconBlockRejected {
         reason: String,
-        block: Box<BeaconBlock<T>>,
+        block: Box<SignedBeaconBlock<T>>,
     },
     BeaconAttestationImported {
         attestation: Box<Attestation<T>>,

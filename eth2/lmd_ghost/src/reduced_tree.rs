@@ -857,8 +857,9 @@ where
 
     fn get_block(&self, block_root: Hash256) -> Result<BeaconBlock<E>> {
         self.store
-            .get::<BeaconBlock<E>>(&block_root)?
+            .get_block(&block_root)?
             .ok_or_else(|| Error::MissingBlock(block_root))
+            .map(|block| block.message)
     }
 
     fn root_slot(&self) -> Slot {

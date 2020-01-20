@@ -4,10 +4,7 @@ use rayon::prelude::*;
 use ssz::Encode;
 use state_processing::initialize_beacon_state_from_eth1;
 use std::time::SystemTime;
-use types::{
-    BeaconState, ChainSpec, DepositData, Domain, EthSpec, Fork, Hash256, Keypair, PublicKey,
-    Signature,
-};
+use types::{BeaconState, ChainSpec, DepositData, EthSpec, Hash256, Keypair, PublicKey, Signature};
 
 /// Builds a genesis state as defined by the Eth2 interop procedure (see below).
 ///

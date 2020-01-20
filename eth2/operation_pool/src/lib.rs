@@ -22,7 +22,7 @@ use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, ChainSpec, EthSpec,
-    ProposerSlashing, SignedVoluntaryExit, Validator, VoluntaryExit,
+    ProposerSlashing, SignedVoluntaryExit, Validator,
 };
 
 #[derive(Default, Debug)]

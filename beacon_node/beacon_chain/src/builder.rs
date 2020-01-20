@@ -17,7 +17,9 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{BlockRootTree, Store};
-use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Slot};
+use types::{
+    BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Signature, SignedBeaconBlock, Slot,
+};
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
@@ -242,14 +244,13 @@ where
             .clone()
             .ok_or_else(|| "genesis_state requires a store")?;
 
-        let mut beacon_block = genesis_block(&beacon_state, &self.spec);
+        let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
 
         beacon_state
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build genesis state caches: {:?}", e))?;
 
-        let beacon_state_root = beacon_state.canonical_root();
-        beacon_block.state_root = beacon_state_root;
+        let beacon_state_root = beacon_block.message.state_root;
         let beacon_block_root = beacon_block.canonical_root();
 
         self.genesis_block_root = Some(beacon_block_root);
@@ -271,7 +272,7 @@ where
 
         self.block_root_tree = Some(Arc::new(BlockRootTree::new(
             beacon_block_root,
-            beacon_block.slot,
+            beacon_block.slot(),
         )));
 
         self.finalized_checkpoint = Some(CheckPoint {
@@ -353,7 +354,7 @@ where
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
 
-        if canonical_head.beacon_block.state_root != canonical_head.beacon_state_root {
+        if canonical_head.beacon_block.state_root() != canonical_head.beacon_state_root {
             return Err("beacon_block.state_root != beacon_state".to_string());
         }
 
@@ -399,7 +400,7 @@ where
             "Beacon chain initialized";
             "head_state" => format!("{}", head.beacon_state_root),
             "head_block" => format!("{}", head.beacon_block_root),
-            "head_slot" => format!("{}", head.beacon_block.slot),
+            "head_slot" => format!("{}", head.beacon_block.slot()),
         );
 
         Ok(beacon_chain)
@@ -460,7 +461,7 @@ where
             let backend = ThreadSafeReducedTree::new(
                 store.clone(),
                 block_root_tree,
-                &finalized_checkpoint.beacon_block,
+                &finalized_checkpoint.beacon_block.message,
                 finalized_checkpoint.beacon_block_root,
             );
 
@@ -593,12 +594,20 @@ where
     }
 }
 
-fn genesis_block<T: EthSpec>(genesis_state: &BeaconState<T>, spec: &ChainSpec) -> BeaconBlock<T> {
-    let mut genesis_block = BeaconBlock::empty(&spec);
-
-    genesis_block.state_root = genesis_state.canonical_root();
-
-    genesis_block
+fn genesis_block<T: EthSpec>(
+    genesis_state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<SignedBeaconBlock<T>, String> {
+    let mut genesis_block = SignedBeaconBlock {
+        message: BeaconBlock::empty(&spec),
+        // Empty signature, which should NEVER be read. This isn't to-spec, but makes the genesis
+        // block consistent with every other block.
+        signature: Signature::empty_signature(),
+    };
+    genesis_block.message.state_root = genesis_state
+        .update_tree_hash_cache()
+        .map_err(|e| format!("Error hashing genesis state: {:?}", e))?;
+    Ok(genesis_block)
 }
 
 #[cfg(test)]
@@ -662,14 +671,14 @@ mod test {
             "should have the correct genesis time"
         );
         assert_eq!(
-            block.state_root,
+            block.state_root(),
             state.canonical_root(),
             "block should have correct state root"
         );
         assert_eq!(
             chain
                 .store
-                .get::<BeaconBlock<_>>(&Hash256::zero())
+                .get_block(&Hash256::zero())
                 .expect("should read db")
                 .expect("should find genesis block"),
             block,
