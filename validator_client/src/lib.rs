@@ -47,7 +47,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
-    validator_store: ValidatorStore<SystemTimeSlotClock, T>,
+    validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
     beacon_node: Arc<RemoteBeaconNode<T>>,
     http_listen_addr: Option<SocketAddr>,
     exit_signals: Vec<Signal>,
@@ -238,7 +238,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     fork_service,
                     block_service,
                     attestation_service,
-                    validator_store: validator_store,
+                    validator_store: Arc::new(validator_store),
                     beacon_node: Arc::new(beacon_node),
                     http_listen_addr: None,
                     exit_signals: vec![],
@@ -288,6 +288,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         ];
 
         Ok(())
+    }
+
+    pub fn http_listen_addr(&self) -> Option<SocketAddr> {
+        self.http_listen_addr
     }
 }
 

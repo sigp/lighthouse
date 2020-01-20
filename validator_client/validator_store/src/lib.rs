@@ -252,7 +252,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Create new validator and add it to list of managed validators.
     /// Returns the voting `PublicKey` of the validator.
-    pub fn add_validator(&mut self, deposit_amount: u64) -> Result<PublicKey, String> {
+    pub fn add_validator(&self, deposit_amount: u64) -> Result<PublicKey, String> {
         let validator = ValidatorDirectoryBuilder::default()
             .spec(self.spec.as_ref().clone())
             .custom_deposit_amount(deposit_amount)
@@ -277,16 +277,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     /// Remove validator from list of managed validators.
-    pub fn remove_validator(&mut self, validator_pubkey: &PublicKey) -> Option<()> {
+    pub fn remove_validator(&self, validator_pubkey: &PublicKey) -> Option<()> {
         self.validators.write().remove(validator_pubkey).map(|_| ())
     }
 
     /// Sets the status of the validator.
-    pub fn set_validator_status(
-        &mut self,
-        validator_pubkey: &PublicKey,
-        status: bool,
-    ) -> Option<()> {
+    pub fn set_validator_status(&self, validator_pubkey: &PublicKey, status: bool) -> Option<()> {
         if let Some(validator) = self.validators.write().get_mut(validator_pubkey) {
             validator.is_active = status;
             Some(())

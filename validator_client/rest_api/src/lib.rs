@@ -25,7 +25,7 @@ pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send
 pub fn start_server<T: SlotClock + Clone + 'static, E: EthSpec>(
     config: &Config,
     executor: &TaskExecutor,
-    validator_client: ValidatorStore<T, E>,
+    validator_client: Arc<ValidatorStore<T, E>>,
     beacon_node: Arc<RemoteBeaconNode<E>>,
     log: slog::Logger,
 ) -> Result<(exit_future::Signal, SocketAddr), hyper::Error> {

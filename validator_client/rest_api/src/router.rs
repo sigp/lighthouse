@@ -21,7 +21,7 @@ where
 
 pub fn route<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
-    validator_client: ValidatorStore<T, E>,
+    validator_client: Arc<ValidatorStore<T, E>>,
     beacon_node: Arc<RemoteBeaconNode<E>>,
     local_log: slog::Logger,
 ) -> impl Future<Item = Response<Body>, Error = Error> {

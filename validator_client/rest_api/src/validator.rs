@@ -6,6 +6,7 @@ use futures::stream::Stream;
 use hyper::{Body, Request};
 use serde_derive::{Deserialize, Serialize};
 use slot_clock::SlotClock;
+use std::sync::Arc;
 use types::EthSpec;
 use validator_store::ValidatorStore;
 
@@ -22,7 +23,7 @@ pub struct AddValidatorRequest {
 /// Get public keys of all managed validators.
 pub fn get_validators<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
-    validator_store: ValidatorStore<T, E>,
+    validator_store: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     let validators = validator_store.voting_pubkeys();
     ResponseBuilder::new(&req)?.body(&validators)
@@ -33,7 +34,7 @@ pub fn get_validators<T: SlotClock + 'static, E: EthSpec>(
 /// Returns the voting public keys of the generated validator.
 pub fn add_new_validator<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
-    mut validator_store: ValidatorStore<T, E>,
+    validator_store: Arc<ValidatorStore<T, E>>,
 ) -> BoxFut {
     let response_builder = ResponseBuilder::new(&req);
     let future = req
@@ -61,7 +62,7 @@ pub fn add_new_validator<T: SlotClock + 'static, E: EthSpec>(
 /// Remove a validator from the list of managed validators.
 pub fn remove_validator<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
-    mut validator_store: ValidatorStore<T, E>,
+    validator_store: Arc<ValidatorStore<T, E>>,
 ) -> BoxFut {
     let response_builder = ResponseBuilder::new(&req);
     let future =
@@ -90,7 +91,7 @@ pub fn remove_validator<T: SlotClock + 'static, E: EthSpec>(
 /// The validator must already be known by the validator client
 pub fn start_validator<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
-    mut validator_store: ValidatorStore<T, E>,
+    validator_store: Arc<ValidatorStore<T, E>>,
 ) -> BoxFut {
     let response_builder = ResponseBuilder::new(&req);
     let future = req
@@ -121,7 +122,7 @@ pub fn start_validator<T: SlotClock + 'static, E: EthSpec>(
 /// The validator must already be known by the validator client.
 pub fn stop_validator<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
-    mut validator_store: ValidatorStore<T, E>,
+    validator_store: Arc<ValidatorStore<T, E>>,
 ) -> BoxFut {
     let response_builder = ResponseBuilder::new(&req);
     let future = req
@@ -150,14 +151,14 @@ pub fn stop_validator<T: SlotClock + 'static, E: EthSpec>(
 
 pub fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
     _req: Request<Body>,
-    _validator_store: ValidatorStore<T, E>,
+    _validator_store: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     unimplemented!()
 }
 
 pub fn withdraw_validator<T: SlotClock + 'static, E: EthSpec>(
     _req: Request<Body>,
-    _validator_store: ValidatorStore<T, E>,
+    _validator_store: Arc<ValidatorStore<T, E>>,
 ) -> ApiResult {
     unimplemented!()
 }
