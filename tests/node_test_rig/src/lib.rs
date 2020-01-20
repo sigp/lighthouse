@@ -71,7 +71,7 @@ pub fn testing_client_config() -> ClientConfig {
     client_config.network.libp2p_port = 0;
     client_config.network.discovery_port = 0;
     client_config.rest_api.enabled = true;
-    client_config.rest_api.port = 5052;
+    client_config.rest_api.port = 0;
     client_config.websocket_server.enabled = true;
     client_config.websocket_server.port = 0;
 

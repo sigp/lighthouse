@@ -46,9 +46,16 @@ fn test_validator_api() {
 
     // Need to build a beacon node for the validator node to connect to
     let bn_config = testing_client_config();
-    let _bn = build_bn(&mut env, bn_config);
+    let bn = build_bn(&mut env, bn_config);
+    let socket_addr = bn
+        .client
+        .http_listen_addr()
+        .expect("should have a socket address");
 
-    let vc = build_vc(&mut env, ValidatorConfig::default(), 16);
+    let mut vc_config = ValidatorConfig::default();
+    vc_config.http_server = format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
+
+    let vc = build_vc(&mut env, vc_config, 16);
     let remote_vc = vc.remote_node().expect("Should produce remote node");
 
     // Check validators fetched from api are consistent with the vc client
