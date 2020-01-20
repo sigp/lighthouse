@@ -10,6 +10,7 @@ use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use lmd_ghost::LmdGhost;
 use operation_pool::{OperationPool, PersistedOperationPool};
+use parking_lot::RwLock;
 use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -117,7 +118,7 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type StoreMigrator: store::Migrate<Self::Store, Self::EthSpec>;
     type SlotClock: slot_clock::SlotClock;
     type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;
-    type Eth1Chain: Eth1ChainBackend<Self::EthSpec>;
+    type Eth1Chain: Eth1ChainBackend<Self::EthSpec, Self::Store>;
     type EthSpec: types::EthSpec;
     type EventHandler: EventHandler<Self::EthSpec>;
 }
@@ -136,7 +137,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// inclusion in a block.
     pub op_pool: OperationPool<T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
-    pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
+    pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
     pub(crate) canonical_head: TimeoutRwLock<CheckPoint<T::EthSpec>>,
     /// The root of the genesis block.
@@ -191,6 +192,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
             fork_choice: self.fork_choice.as_ssz_container(),
+            eth1_cache: self.eth1_chain.as_ref().map(|x| x.as_ssz_container()),
             block_root_tree: self.block_root_tree.as_ssz_container(),
         };
 
@@ -1516,7 +1518,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 graffiti,
                 proposer_slashings: proposer_slashings.into(),
                 attester_slashings: attester_slashings.into(),
-                attestations: self.op_pool.get_attestations(&state, &self.spec).into(),
+                attestations: self
+                    .op_pool
+                    .get_attestations(&state, &self.spec)
+                    .map_err(BlockProductionError::OpPoolError)?
+                    .into(),
                 deposits,
                 voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec).into(),
             },

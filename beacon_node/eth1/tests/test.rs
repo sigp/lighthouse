@@ -803,3 +803,77 @@ mod fast {
         }
     }
 }
+
+mod persist {
+    use super::*;
+    #[test]
+    fn test_persisit_caches() {
+        let mut env = new_env();
+        let log = env.core_context().log;
+        let runtime = env.runtime();
+
+        let eth1 = runtime
+            .block_on(GanacheEth1Instance::new())
+            .expect("should start eth1 environment");
+        let deposit_contract = &eth1.deposit_contract;
+        let web3 = eth1.web3();
+
+        let now = get_block_number(runtime, &web3);
+        let config = Config {
+            endpoint: eth1.endpoint(),
+            deposit_contract_address: deposit_contract.address(),
+            deposit_contract_deploy_block: now,
+            lowest_cached_block_number: now,
+            follow_distance: 0,
+            block_cache_truncation: None,
+            ..Config::default()
+        };
+        let service = Service::new(config.clone(), log.clone());
+        let n = 10;
+        let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
+        for deposit in &deposits {
+            deposit_contract
+                .deposit(runtime, deposit.clone())
+                .expect("should perform a deposit");
+        }
+
+        runtime
+            .block_on(service.update_deposit_cache())
+            .expect("should perform update");
+
+        assert!(
+            service.deposit_cache_len() >= n,
+            "should have imported n deposits"
+        );
+
+        let deposit_count = service.deposit_cache_len();
+
+        runtime
+            .block_on(service.update_block_cache())
+            .expect("should perform update");
+
+        assert!(
+            service.block_cache_len() >= n,
+            "should have imported n eth1 blocks"
+        );
+
+        let block_count = service.block_cache_len();
+
+        let eth1_bytes = service.as_bytes();
+
+        // Drop service and recover from bytes
+        drop(service);
+
+        let recovered_service = Service::from_bytes(&eth1_bytes, config, log).unwrap();
+        assert_eq!(
+            recovered_service.block_cache_len(),
+            block_count,
+            "Should have equal cached blocks as before recovery"
+        );
+        assert_eq!(
+            recovered_service.deposit_cache_len(),
+            deposit_count,
+            "Should have equal cached deposits as before recovery"
+        );
+    }
+}

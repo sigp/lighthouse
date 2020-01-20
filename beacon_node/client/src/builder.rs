@@ -84,7 +84,7 @@ where
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -241,7 +241,10 @@ where
                             Box::new(future)
                         }
                         ClientGenesis::Resume => {
-                            let future = builder.resume_from_db().into_future().map(|v| (v, None));
+                            let future = builder
+                                .resume_from_db(config)
+                                .into_future()
+                                .map(|v| (v, None));
 
                             Box::new(future)
                         }
@@ -401,7 +404,7 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -449,7 +452,7 @@ where
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
 {
     /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
@@ -498,7 +501,7 @@ where
     TSlotClock: SlotClock + 'static,
     TStoreMigrator: store::Migrate<DiskStore<TEthSpec>, TEthSpec> + 'static,
     TLmdGhost: LmdGhost<DiskStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, DiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -548,7 +551,7 @@ where
     TSlotClock: SlotClock + 'static,
     TStoreMigrator: store::Migrate<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
     TLmdGhost: LmdGhost<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, SimpleDiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -576,7 +579,7 @@ impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
 where
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<MemoryStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, MemoryStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -606,7 +609,7 @@ impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
 where
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<DiskStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, DiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -737,7 +740,7 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {

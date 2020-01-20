@@ -57,7 +57,7 @@ where
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -87,7 +87,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     genesis_block_root: Option<Hash256>,
     op_pool: Option<OperationPool<T::EthSpec>>,
     fork_choice: Option<ForkChoice<T>>,
-    eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
+    eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
     persisted_beacon_chain: Option<PersistedBeaconChain<T>>,
@@ -114,7 +114,7 @@ where
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -175,7 +175,7 @@ where
     /// Attempt to load an existing chain from the builder's `Store`.
     ///
     /// May initialize several components; including the op_pool and finalized checkpoints.
-    pub fn resume_from_db(mut self) -> Result<Self, String> {
+    pub fn resume_from_db(mut self, config: Eth1Config) -> Result<Self, String> {
         let log = self
             .log
             .as_ref()
@@ -226,6 +226,10 @@ where
             HeadTracker::from_ssz_container(&p.ssz_head_tracker)
                 .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
         );
+        self.eth1_chain = match &p.eth1_cache {
+            Some(cache) => Some(Eth1Chain::from_ssz_container(cache, config, store, log)?),
+            None => None,
+        };
         self.block_root_tree = Some(Arc::new(p.block_root_tree.clone().into()));
         self.persisted_beacon_chain = Some(p);
 
@@ -422,7 +426,7 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -541,7 +545,7 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -583,7 +587,7 @@ where
     TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` event handler to `NullEventHandler`.
