@@ -19,5 +19,5 @@ pub struct SignedBeaconBlockHeader {
 mod tests {
     use super::*;
 
-    ssz_tests!(SignedBeaconBlockHeader);
+    ssz_and_tree_hash_tests!(SignedBeaconBlockHeader);
 }

@@ -2,7 +2,7 @@
 use super::*;
 use crate::test_utils::*;
 
-ssz_tests!(FoundationBeaconState);
+ssz_and_tree_hash_tests!(FoundationBeaconState);
 
 fn test_beacon_proposer_index<T: EthSpec>() {
     let spec = T::default_spec();

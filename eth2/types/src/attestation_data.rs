@@ -28,5 +28,5 @@ pub struct AttestationData {
 mod tests {
     use super::*;
 
-    ssz_tests!(AttestationData);
+    ssz_and_tree_hash_tests!(AttestationData);
 }

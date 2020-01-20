@@ -31,5 +31,5 @@ pub struct Checkpoint {
 mod tests {
     use super::*;
 
-    ssz_tests!(Checkpoint);
+    ssz_and_tree_hash_tests!(Checkpoint);
 }

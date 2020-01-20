@@ -19,5 +19,5 @@ pub struct SignedVoluntaryExit {
 mod tests {
     use super::*;
 
-    ssz_tests!(SignedVoluntaryExit);
+    ssz_and_tree_hash_tests!(SignedVoluntaryExit);
 }

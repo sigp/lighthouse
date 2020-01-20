@@ -21,5 +21,5 @@ impl SignedRoot for VoluntaryExit {}
 mod tests {
     use super::*;
 
-    ssz_tests!(VoluntaryExit);
+    ssz_and_tree_hash_tests!(VoluntaryExit);
 }

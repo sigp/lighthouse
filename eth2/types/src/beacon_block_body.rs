@@ -32,5 +32,5 @@ pub struct BeaconBlockBody<T: EthSpec> {
 mod tests {
     use super::*;
 
-    ssz_tests!(BeaconBlockBody<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(BeaconBlockBody<MainnetEthSpec>);
 }

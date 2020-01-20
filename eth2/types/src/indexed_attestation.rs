@@ -108,7 +108,7 @@ mod tests {
         );
     }
 
-    ssz_tests!(IndexedAttestation<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(IndexedAttestation<MainnetEthSpec>);
 
     fn create_indexed_attestation(
         target_epoch: u64,

@@ -45,5 +45,5 @@ impl BeaconBlockHeader {
 mod tests {
     use super::*;
 
-    ssz_tests!(BeaconBlockHeader);
+    ssz_and_tree_hash_tests!(BeaconBlockHeader);
 }

@@ -139,5 +139,5 @@ mod tests {
         assert_eq!(v.is_withdrawable_at(epoch + 1), true);
     }
 
-    ssz_tests!(Validator);
+    ssz_and_tree_hash_tests!(Validator);
 }

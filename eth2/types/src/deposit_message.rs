@@ -23,5 +23,5 @@ impl SignedRoot for DepositMessage {}
 mod tests {
     use super::*;
 
-    ssz_tests!(DepositMessage);
+    ssz_and_tree_hash_tests!(DepositMessage);
 }

@@ -20,5 +20,5 @@ pub struct ProposerSlashing {
 mod tests {
     use super::*;
 
-    ssz_tests!(ProposerSlashing);
+    ssz_and_tree_hash_tests!(ProposerSlashing);
 }

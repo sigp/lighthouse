@@ -108,5 +108,5 @@ impl<T: EthSpec> BeaconBlock<T> {
 mod tests {
     use super::*;
 
-    ssz_tests!(BeaconBlock<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(BeaconBlock<MainnetEthSpec>);
 }

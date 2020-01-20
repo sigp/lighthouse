@@ -43,7 +43,7 @@ impl Fork {
 mod tests {
     use super::*;
 
-    ssz_tests!(Fork);
+    ssz_and_tree_hash_tests!(Fork);
 
     #[test]
     fn get_fork_version() {

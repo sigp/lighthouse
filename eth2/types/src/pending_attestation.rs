@@ -22,5 +22,5 @@ mod tests {
     use super::*;
     use crate::*;
 
-    ssz_tests!(PendingAttestation<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(PendingAttestation<MainnetEthSpec>);
 }

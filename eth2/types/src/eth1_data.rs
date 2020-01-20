@@ -33,5 +33,5 @@ pub struct Eth1Data {
 mod tests {
     use super::*;
 
-    ssz_tests!(Eth1Data);
+    ssz_and_tree_hash_tests!(Eth1Data);
 }

@@ -45,5 +45,5 @@ impl DepositData {
 mod tests {
     use super::*;
 
-    ssz_tests!(DepositData);
+    ssz_and_tree_hash_tests!(DepositData);
 }

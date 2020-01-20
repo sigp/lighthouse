@@ -22,5 +22,5 @@ pub struct Deposit {
 mod tests {
     use super::*;
 
-    ssz_tests!(Deposit);
+    ssz_and_tree_hash_tests!(Deposit);
 }
