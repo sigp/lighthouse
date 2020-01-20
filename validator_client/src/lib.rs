@@ -293,6 +293,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     pub fn http_listen_addr(&self) -> Option<SocketAddr> {
         self.http_listen_addr
     }
+
+    // TODO: shouldn't expose validator_store
+    pub fn validator_store(&self) -> Arc<ValidatorStore<SystemTimeSlotClock, T>> {
+        self.validator_store.clone()
+    }
 }
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node

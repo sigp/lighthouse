@@ -6,7 +6,7 @@ mod status;
 mod validator;
 
 use config::Config;
-use errors::{ApiError, ApiResult};
+use errors::ApiError;
 use hyper::rt::Future;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
@@ -18,6 +18,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use types::EthSpec;
+pub use validator::{AddValidatorRequest, ValidatorRequest};
 use validator_store::ValidatorStore;
 
 pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;

@@ -4,7 +4,8 @@ use reqwest::{
     r#async::{Client, ClientBuilder, Response},
     StatusCode,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use rest_api_vc::{AddValidatorRequest, ValidatorRequest};
+use serde::{de::DeserializeOwned, Serialize};
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::EthSpec;
@@ -123,23 +124,38 @@ fn error_for_status(
     }
 }
 
-/// Provides the functions on the `/beacon` endpoint of the node.
+/// Provides the functions on the `/validators` endpoint of the node.
 #[derive(Clone)]
 pub struct Validator<E>(HttpClient<E>);
 
 impl<E: EthSpec> Validator<E> {
     fn url(&self, path: &str) -> Result<Url, Error> {
         self.0
-            .url("validator/")
+            .url("validators/")
             .and_then(move |url| url.join(path).map_err(Error::from))
             .map_err(Into::into)
     }
 
     pub fn get_validators(&self) -> impl Future<Item = Vec<PublicKey>, Error = Error> {
         let client = self.0.clone();
-        self.url("validators")
+        self.url("")
             .into_future()
             .and_then(move |url| client.json_get(url, vec![]))
+    }
+
+    pub fn add_validator(
+        &self,
+        deposit_amount: u64,
+    ) -> impl Future<Item = PublicKey, Error = Error> {
+        let client = self.0.clone();
+        let body = AddValidatorRequest {
+            deposit_amount: deposit_amount,
+        };
+        self.url("add")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, body))
+            .and_then(|response| error_for_status(response).map_err(Error::from))
+            .and_then(|mut success| success.json().map_err(Error::from))
     }
 }
 

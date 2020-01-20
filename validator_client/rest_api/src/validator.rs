@@ -12,12 +12,12 @@ use validator_store::ValidatorStore;
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorRequest {
-    validator: PublicKey,
+    pub validator: PublicKey,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct AddValidatorRequest {
-    deposit_amount: u64,
+    pub deposit_amount: u64,
 }
 
 /// Get public keys of all managed validators.

@@ -14,6 +14,7 @@ use validator_client::{KeySource, ProductionValidatorClient};
 pub use beacon_node::{ClientConfig, ClientGenesis, ProductionClient};
 pub use environment;
 pub use remote_beacon_node::RemoteBeaconNode;
+pub use remote_validator_client::RemoteValidatorClient;
 pub use validator_client::Config as ValidatorConfig;
 
 /// Provids a beacon node that is running in the current process on a given tokio executor (it
@@ -70,7 +71,7 @@ pub fn testing_client_config() -> ClientConfig {
     client_config.network.libp2p_port = 0;
     client_config.network.discovery_port = 0;
     client_config.rest_api.enabled = true;
-    client_config.rest_api.port = 0;
+    client_config.rest_api.port = 5052;
     client_config.websocket_server.enabled = true;
     client_config.websocket_server.port = 0;
 
@@ -147,5 +148,19 @@ impl<E: EthSpec> LocalValidatorClient<E> {
                 .expect("should start validator services");
             Self { client, datadir }
         })
+    }
+
+    // Returns a `RemoteValidatorClient` that can connect to `self`. Useful for testing the node as if
+    /// it were external this process.
+    pub fn remote_node(&self) -> Result<RemoteValidatorClient<E>, String> {
+        let socket_addr = self
+            .client
+            .http_listen_addr()
+            .ok_or_else(|| "A remote validator client must have a http server".to_string())?;
+        Ok(RemoteValidatorClient::new(format!(
+            "http://{}:{}",
+            socket_addr.ip(),
+            socket_addr.port()
+        ))?)
     }
 }

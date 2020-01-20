@@ -16,4 +16,5 @@ serde = "1.0"
 futures = "0.1.25"
 genesis = { path = "../../beacon_node/genesis" }
 remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }
+remote_validator_client = { path = "../../eth2/utils/remote_validator_client" }
 validator_client = { path = "../../validator_client" }
