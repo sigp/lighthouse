@@ -18,7 +18,7 @@ use types::{BeaconBlock, Hash256, Slot};
 /// to do so.
 //TODO: Make this dynamic based on peer's bandwidth
 //TODO: This is lower due to current thread design. Modify once rebuilt.
-pub const BLOCKS_PER_BATCH: u64 = 25;
+pub const BLOCKS_PER_BATCH: u64 = 50;
 
 /// The number of times to retry a batch before the chain is considered failed and removed.
 const MAX_BATCH_RETRIES: u8 = 5;

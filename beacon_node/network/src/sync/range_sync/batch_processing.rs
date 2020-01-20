@@ -166,6 +166,11 @@ fn process_batch<T: BeaconChainTypes>(
         }
     }
 
+    // Batch completed successfully, run fork choice.
+    if let Some(chain) = chain.upgrade() {
+        run_fork_choice(chain, log);
+    }
+
     Ok(())
 }
 
