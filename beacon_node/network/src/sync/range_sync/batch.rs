@@ -18,6 +18,17 @@ impl std::ops::Deref for BatchId {
         &self.0
     }
 }
+impl std::ops::DerefMut for BatchId {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl std::convert::From<u64> for BatchId {
+    fn from(id: u64) -> Self {
+        BatchId(id)
+    }
+}
 
 /// A collection of sequential blocks that are requested from peers in a single RPC request.
 #[derive(PartialEq, Debug)]

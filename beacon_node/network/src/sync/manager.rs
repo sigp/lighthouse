@@ -193,7 +193,7 @@ pub fn spawn<T: BeaconChainTypes>(
         state: ManagerState::Stalled,
         input_channel: sync_recv,
         network: SyncNetworkContext::new(network_send, log.clone()),
-        range_sync: RangeSync::new(beacon_chain, log.clone()),
+        range_sync: RangeSync::new(beacon_chain, sync_send.clone(), log.clone()),
         parent_queue: SmallVec::new(),
         single_block_lookups: FnvHashMap::default(),
         full_peers: HashSet::new(),
@@ -686,6 +686,18 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                     }
                     SyncMessage::RPCError(peer_id, request_id) => {
                         self.inject_error(peer_id, request_id);
+                    }
+                    SyncMessage::BatchProcessed {
+                        process_id,
+                        batch,
+                        result,
+                    } => {
+                        self.range_sync.handle_block_process_result(
+                            &mut self.network,
+                            process_id,
+                            batch,
+                            result,
+                        );
                     }
                 },
                 Ok(Async::NotReady) => break,

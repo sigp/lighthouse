@@ -21,13 +21,12 @@ pub fn spawn_batch_processor<T: BeaconChainTypes>(
     chain: Weak<BeaconChain<T>>,
     process_id: u64,
     batch: Arc<Batch<T::EthSpec>>,
-    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    mut sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
 ) {
     std::thread::spawn(move || {
         debug!(log, "Processing batch"; "batch_id" => *batch.id);
-        let batch_id = batch.id.clone();
-        let result = match process_batch(chain, batch, &log) {
+        let result = match process_batch(chain, batch.clone(), &log) {
             Ok(_) => BatchProcessResult::Success,
             Err(_) => BatchProcessResult::Failed,
         };

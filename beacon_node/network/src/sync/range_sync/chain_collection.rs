@@ -150,7 +150,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 // Stop the current chain from syncing
                 self.finalized_chains[index].stop_syncing();
                 // Start the new chain
-                self.finalized_chains[new_index].start_syncing(network, local_slot, log);
+                self.finalized_chains[new_index].start_syncing(network, local_slot);
                 self.sync_state = SyncState::Finalized;
             }
         } else if let Some(chain) = self
@@ -160,7 +160,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         {
             // There is no currently syncing finalization chain, starting the one with the most peers
             debug!(log, "New finalized chain started syncing"; "new_target_root" => format!("{}", chain.target_head_root), "new_end_slot" => chain.target_head_slot, "new_start_slot"=> chain.start_slot);
-            chain.start_syncing(network, local_slot, log);
+            chain.start_syncing(network, local_slot);
             self.sync_state = SyncState::Finalized;
         } else {
             // There are no finalized chains, update the state.
@@ -188,6 +188,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             target_head,
             peer_id,
             sync_send,
+            self.beacon_chain.clone(),
             log.clone(),
         ));
     }
@@ -216,10 +217,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             target_head,
             peer_id,
             sync_send,
+            self.beacon_chain.clone(),
             log.clone(),
         );
         // All head chains can sync simultaneously
-        new_head_chain.start_syncing(network, remote_finalized_slot, log);
+        new_head_chain.start_syncing(network, remote_finalized_slot);
         self.head_chains.push(new_head_chain);
     }
 
@@ -301,10 +303,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .start_slot(T::EthSpec::slots_per_epoch());
 
         // Remove chains that are out-dated and re-status their peers
-        let beacon_chain_clone = self.beacon_chain.clone();
         self.finalized_chains.retain(|chain| {
             if chain.target_head_slot <= local_finalized_slot {
-                chain.status_peers(beacon_chain_clone.clone(), network);
+                chain.status_peers(network);
                 false
             } else {
                 true
@@ -312,7 +313,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         });
         self.head_chains.retain(|chain| {
             if chain.target_head_slot <= local_finalized_slot {
-                chain.status_peers(beacon_chain_clone.clone(), network);
+                chain.status_peers(network);
                 false
             } else {
                 true
@@ -344,11 +345,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         let chain = if index >= self.finalized_chains.len() {
             let index = index - self.finalized_chains.len();
             let chain = self.head_chains.swap_remove(index);
-            chain.status_peers(self.beacon_chain.clone(), network);
+            chain.status_peers(network);
             chain
         } else {
             let chain = self.finalized_chains.swap_remove(index);
-            chain.status_peers(self.beacon_chain.clone(), network);
+            chain.status_peers(network);
             chain
         };
 

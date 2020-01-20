@@ -55,7 +55,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     completed_batches: Vec<Batch<T::EthSpec>>,
 
     /// Batches that have been processed and awaiting validation before being removed.
-    processed_batches: Vec<Batch<T::EthSpec>>,
+    processed_batches: Vec<Arc<Batch<T::EthSpec>>>,
 
     /// The peers that agree on the `target_head_slot` and `target_head_root` as a canonical chain
     /// and thus available to download this chain from.
@@ -223,7 +223,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             let batch = self.completed_batches.remove(0);
             if batch.downloaded_blocks.is_empty() {
                 // The batch was empty, consider this processed and move to the next batch
-                self.processed_batches.push(batch);
+                self.processed_batches.push(Arc::new(batch));
                 *self.to_be_processed_id += 1;
                 continue;
             }
@@ -240,7 +240,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let processing_id: u64 = rand::random();
         self.current_processing_id = Some(processing_id);
         spawn_batch_processor(
-            self.chain,
+            self.chain.clone(),
             processing_id,
             batch,
             self.sync_send.clone(),
@@ -255,14 +255,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext,
         processing_id: u64,
         batch: Arc<Batch<T::EthSpec>>,
-        result: BatchProcessResult,
+        result: &BatchProcessResult,
     ) -> Option<ProcessingResult> {
         if Some(processing_id) != self.current_processing_id {
             // batch process doesn't belong to this chain
             return None;
         }
 
-        let batch = batch.into_raw();
         // double check batches are processed in order
         // TODO: Remove for prod
         if batch.id != self.to_be_processed_id {
@@ -309,11 +308,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // an invalid batch.
 
                 // firstly remove any validated batches
-                self.handle_invalid_batch(network);
+                self.handle_invalid_batch(network)
             }
         };
 
-        Some(res);
+        Some(res)
     }
 
     pub fn stop_syncing(&mut self) {
@@ -394,7 +393,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Sends a STATUS message to all peers in the peer pool.
     pub fn status_peers(&self, network: &mut SyncNetworkContext) {
         for peer_id in self.peer_pool.iter() {
-            network.status_peer(self.chain, peer_id.clone());
+            network.status_peer(self.chain.clone(), peer_id.clone());
         }
     }
 
