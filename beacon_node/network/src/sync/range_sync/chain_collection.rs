@@ -3,13 +3,15 @@
 //! Each chain type is stored in it's own vector. A variety of helper functions are given along
 //! with this struct to to simplify the logic of the other layers of sync.
 
-use super::chain::{ChainSyncingState, ProcessingResult, SyncingChain};
+use super::chain::{ChainSyncingState, SyncingChain};
 use crate::message_processor::PeerSyncInfo;
+use crate::sync::manager::SyncMessage;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, warn};
 use std::sync::Weak;
+use tokio::sync::mpsc;
 use types::EthSpec;
 use types::{Hash256, Slot};
 
@@ -177,12 +179,16 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         target_head: Hash256,
         target_slot: Slot,
         peer_id: PeerId,
+        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+        log: &slog::Logger,
     ) {
         self.finalized_chains.push(SyncingChain::new(
             local_finalized_slot,
             target_slot,
             target_head,
             peer_id,
+            sync_send,
+            log.clone(),
         ));
     }
 
@@ -194,6 +200,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         target_head: Hash256,
         target_slot: Slot,
         peer_id: PeerId,
+        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
         log: &slog::Logger,
     ) {
         // remove the peer from any other head chains
@@ -203,8 +210,14 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         });
         self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
 
-        let mut new_head_chain =
-            SyncingChain::new(remote_finalized_slot, target_slot, target_head, peer_id);
+        let mut new_head_chain = SyncingChain::new(
+            remote_finalized_slot,
+            target_slot,
+            target_head,
+            peer_id,
+            sync_send,
+            log.clone(),
+        );
         // All head chains can sync simultaneously
         new_head_chain.start_syncing(network, remote_finalized_slot, log);
         self.head_chains.push(new_head_chain);
@@ -218,10 +231,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// Given a chain iterator, runs a given function on each chain until the function returns
     /// `Some`. This allows the `RangeSync` struct to loop over chains and optionally remove the
     /// chain from the collection if the function results in completing the chain.
-    fn request_function<'a, F, I>(chain: I, mut func: F) -> Option<(usize, ProcessingResult)>
+    fn request_function<'a, F, I, U>(chain: I, mut func: F) -> Option<(usize, U)>
     where
         I: Iterator<Item = &'a mut SyncingChain<T>>,
-        F: FnMut(&'a mut SyncingChain<T>) -> Option<ProcessingResult>,
+        F: FnMut(&'a mut SyncingChain<T>) -> Option<U>,
     {
         chain
             .enumerate()
@@ -229,25 +242,25 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     }
 
     /// Runs a function on all finalized chains.
-    pub fn finalized_request<F>(&mut self, func: F) -> Option<(usize, ProcessingResult)>
+    pub fn finalized_request<F, U>(&mut self, func: F) -> Option<(usize, U)>
     where
-        F: FnMut(&mut SyncingChain<T>) -> Option<ProcessingResult>,
+        F: FnMut(&mut SyncingChain<T>) -> Option<U>,
     {
         ChainCollection::request_function(self.finalized_chains.iter_mut(), func)
     }
 
     /// Runs a function on all head chains.
-    pub fn head_request<F>(&mut self, func: F) -> Option<(usize, ProcessingResult)>
+    pub fn head_request<F, U>(&mut self, func: F) -> Option<(usize, U)>
     where
-        F: FnMut(&mut SyncingChain<T>) -> Option<ProcessingResult>,
+        F: FnMut(&mut SyncingChain<T>) -> Option<U>,
     {
         ChainCollection::request_function(self.head_chains.iter_mut(), func)
     }
 
     /// Runs a function on all finalized and head chains.
-    pub fn head_finalized_request<F>(&mut self, func: F) -> Option<(usize, ProcessingResult)>
+    pub fn head_finalized_request<F, U>(&mut self, func: F) -> Option<(usize, U)>
     where
-        F: FnMut(&mut SyncingChain<T>) -> Option<ProcessingResult>,
+        F: FnMut(&mut SyncingChain<T>) -> Option<U>,
     {
         ChainCollection::request_function(
             self.finalized_chains

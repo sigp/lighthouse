@@ -34,7 +34,7 @@
 //! subsequently search for parents if needed.
 
 use super::network_context::SyncNetworkContext;
-use super::range_sync::RangeSync;
+use super::range_sync::{Batch, BatchProcessResult, RangeSync};
 use crate::message_processor::PeerSyncInfo;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
@@ -47,6 +47,7 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::collections::HashSet;
 use std::ops::Sub;
+use std::sync::Arc;
 use std::sync::Weak;
 use tokio::sync::{mpsc, oneshot};
 use types::{BeaconBlock, EthSpec, Hash256};
@@ -94,6 +95,13 @@ pub enum SyncMessage<T: EthSpec> {
 
     /// An RPC Error has occurred on a request.
     RPCError(PeerId, RequestId),
+
+    /// A batch has been processed by the block processor thread.
+    BatchProcessed {
+        process_id: u64,
+        batch: Arc<Batch<T>>,
+        result: BatchProcessResult,
+    },
 }
 
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
