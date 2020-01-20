@@ -2,10 +2,6 @@ use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     testing_client_config, ClientConfig, LocalBeaconNode, LocalValidatorClient,
 };
-use remote_validator_client::RemoteValidatorClient;
-use rest_api_vc::config::Config;
-use rest_api_vc::start_server;
-use std::sync::Arc;
 use types::{EthSpec, MinimalEthSpec};
 use validator_client::Config as ValidatorConfig;
 
@@ -13,7 +9,7 @@ type E = MinimalEthSpec;
 
 fn build_env() -> Environment<E> {
     EnvironmentBuilder::minimal()
-        .async_logger("debug", None)
+        .null_logger()
         .expect("should build env logger")
         .single_thread_tokio_runtime()
         .expect("should start tokio runtime")
@@ -25,7 +21,7 @@ fn build_bn<E: EthSpec>(env: &mut Environment<E>, config: ClientConfig) -> Local
     let context = env.core_context();
     env.runtime()
         .block_on(LocalBeaconNode::production(context, config))
-        .expect("should block until node created")
+        .expect("should block until beacon node created")
 }
 
 fn build_vc<E: EthSpec>(
@@ -40,7 +36,7 @@ fn build_vc<E: EthSpec>(
             config,
             &(0..num_validators).collect::<Vec<_>>(),
         ))
-        .expect("should block until node created")
+        .expect("should block until validator client created")
 }
 
 #[test]
@@ -67,7 +63,7 @@ fn test_validator_api() {
         "should fetch same validators"
     );
 
-    // Add/remove validator
+    // Add validator
     let pk = env
         .runtime()
         .block_on(
@@ -79,7 +75,44 @@ fn test_validator_api() {
         .expect("should get pk of added validator");
 
     assert!(
+        vc.client.validator_store().pubkeys().contains(&pk),
+        "validator should be added to store"
+    );
+    assert!(
+        !vc.client.validator_store().voting_pubkeys().contains(&pk),
+        "validator not started. shouldn't appear in voting pubkeys"
+    );
+
+    // Start validator
+    env.runtime()
+        .block_on(remote_vc.http.validator().start_validator(&pk))
+        .expect("should start validator");
+
+    assert!(
         vc.client.validator_store().voting_pubkeys().contains(&pk),
-        "should have added pk in managed validators"
+        "pk should be in list of managed validators"
+    );
+
+    // Stop validator
+    env.runtime()
+        .block_on(remote_vc.http.validator().stop_validator(&pk))
+        .expect("should stop validator");
+
+    assert!(
+        !vc.client.validator_store().voting_pubkeys().contains(&pk),
+        "validator stopped. shouldn't appear in voting pubkeys"
+    );
+    assert!(
+        vc.client.validator_store().pubkeys().contains(&pk),
+        "validator should still be in validator store"
+    );
+    // Remove validator
+    env.runtime()
+        .block_on(remote_vc.http.validator().remove_validator(&pk))
+        .expect("should remove validator");
+
+    assert!(
+        !vc.client.validator_store().pubkeys().contains(&pk),
+        "should have removed pk from validator store"
     );
 }

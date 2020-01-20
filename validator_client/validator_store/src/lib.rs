@@ -139,6 +139,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         })
     }
 
+    /// Return all pubkeys in validator store.
+    pub fn pubkeys(&self) -> Vec<PublicKey> {
+        self.validators
+            .read()
+            .iter()
+            .map(|(pk, _)| pk.clone())
+            .collect()
+    }
+
     /// Return pubkeys of active validators.
     pub fn voting_pubkeys(&self) -> Vec<PublicKey> {
         self.validators
@@ -269,7 +278,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let _ = self.validators.write().insert(
             pk.clone(),
             Validator {
-                is_active: true,
+                is_active: false, // update status to start validator
                 directory: validator,
             },
         );

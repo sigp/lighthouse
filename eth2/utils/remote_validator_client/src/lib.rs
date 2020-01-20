@@ -157,6 +157,42 @@ impl<E: EthSpec> Validator<E> {
             .and_then(|response| error_for_status(response).map_err(Error::from))
             .and_then(|mut success| success.json().map_err(Error::from))
     }
+
+    pub fn remove_validator(&self, validator: &PublicKey) -> impl Future<Item = (), Error = Error> {
+        let client = self.0.clone();
+        let body = ValidatorRequest {
+            validator: validator.clone(),
+        };
+        self.url("remove")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, body))
+            .and_then(|response| error_for_status(response).map_err(Error::from))
+            .and_then(|_| Ok(()))
+    }
+
+    pub fn start_validator(&self, validator: &PublicKey) -> impl Future<Item = (), Error = Error> {
+        let client = self.0.clone();
+        let body = ValidatorRequest {
+            validator: validator.clone(),
+        };
+        self.url("start")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, body))
+            .and_then(|response| error_for_status(response).map_err(Error::from))
+            .and_then(|_| Ok(()))
+    }
+
+    pub fn stop_validator(&self, validator: &PublicKey) -> impl Future<Item = (), Error = Error> {
+        let client = self.0.clone();
+        let body = ValidatorRequest {
+            validator: validator.clone(),
+        };
+        self.url("stop")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, body))
+            .and_then(|response| error_for_status(response).map_err(Error::from))
+            .and_then(|_| Ok(()))
+    }
 }
 
 impl From<reqwest::Error> for Error {
