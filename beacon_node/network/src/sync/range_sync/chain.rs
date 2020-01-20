@@ -260,8 +260,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return None;
         }
 
-        debug!(self.log, "Batch processed"; "id" => *batch.id);
-
         // double check batches are processed in order
         // TODO: Remove for prod
         if batch.id != self.to_be_processed_id {
@@ -293,6 +291,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     ProcessingResult::RemoveChain
                 } else {
                     // chain is not completed
+
+                    // attempt to request more batches
+                    while self.send_range_request(network) {}
 
                     // attempt to process more batches
                     self.process_completed_batches();
