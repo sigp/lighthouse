@@ -27,7 +27,6 @@ pub fn route<T: SlotClock + 'static, E: EthSpec>(
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     let path = req.uri().path().to_string();
 
-    let log = local_log.clone();
     let request_result: Box<dyn Future<Item = Response<_>, Error = _> + Send> =
         match (req.method(), path.as_ref()) {
             // Methods for Validator

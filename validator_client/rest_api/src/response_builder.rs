@@ -73,14 +73,6 @@ impl ResponseBuilder {
             .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))
     }
 
-    pub fn body_text(self, text: String) -> ApiResult {
-        Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "text/plain; charset=utf-8")
-            .body(Body::from(text))
-            .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))
-    }
-
     pub fn body_empty(self) -> ApiResult {
         Response::builder()
             .status(StatusCode::OK)
