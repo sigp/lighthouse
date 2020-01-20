@@ -1,5 +1,6 @@
 use super::http::Log;
 use ssz::Decode;
+use ssz_derive::{Decode, Encode};
 use types::{DepositData, Hash256, PublicKeyBytes, SignatureBytes};
 
 /// The following constants define the layout of bytes in the deposit contract `DepositEvent`. The
@@ -16,7 +17,7 @@ const INDEX_START: usize = SIG_START + 96 + 32;
 const INDEX_LEN: usize = 8;
 
 /// A fully parsed eth1 deposit contract log.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct DepositLog {
     pub deposit_data: DepositData,
     /// The block number of the log that included this `DepositData`.

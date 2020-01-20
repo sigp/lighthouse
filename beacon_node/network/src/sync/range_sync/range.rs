@@ -154,8 +154,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 debug!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id), "target_root" => format!("{}", chain.target_head_root), "end_slot" => chain.target_head_slot, "start_slot"=> chain.start_slot);
 
                 // add the peer to the chain's peer pool
-                chain.peer_pool.insert(peer_id.clone());
-                chain.peer_added(network, peer_id, &self.log);
+                chain.add_peer(network, peer_id, &self.log);
 
                 // check if the new peer's addition will favour a new syncing chain.
                 self.chains.update_finalized(network, &self.log);
@@ -189,8 +188,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 debug!(self.log, "Adding peer to the existing head chain peer pool"; "head_root" => format!("{}",remote.head_root), "head_slot" => remote.head_slot, "peer_id" => format!("{:?}", peer_id));
 
                 // add the peer to the head's pool
-                chain.peer_pool.insert(peer_id.clone());
-                chain.peer_added(network, peer_id.clone(), &self.log);
+                chain.add_peer(network, peer_id.clone(), &self.log);
             } else {
                 // There are no other head chains that match this peer's status, create a new one, and
                 let start_slot = std::cmp::min(local_info.head_slot, remote_finalized_slot);
@@ -306,22 +304,16 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain and re-status all the peers.
     fn remove_peer(&mut self, network: &mut SyncNetworkContext, peer_id: &PeerId) {
+        let log_ref = &self.log;
         match self.chains.head_finalized_request(|chain| {
-            if chain.peer_pool.remove(&peer_id) {
+            if chain.peer_pool.remove(peer_id) {
                 // this chain contained the peer
-                let pending_batches_requests = chain
-                    .pending_batches
-                    .iter()
-                    .filter(|(_, batch)| batch.current_peer == *peer_id)
-                    .map(|(id, _)| id)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for request_id in pending_batches_requests {
-                    if let Some(batch) = chain.pending_batches.remove(&request_id) {
-                        if let ProcessingResult::RemoveChain = chain.failed_batch(network, batch) {
-                            // a single batch failed, remove the chain
-                            return Some(ProcessingResult::RemoveChain);
-                        }
+                while let Some(batch) = chain.pending_batches.remove_batch_by_peer(peer_id) {
+                    if let ProcessingResult::RemoveChain =
+                        chain.failed_batch(network, batch, log_ref)
+                    {
+                        // a single batch failed, remove the chain
+                        return Some(ProcessingResult::RemoveChain);
                     }
                 }
                 // peer removed from chain, no batch failed

@@ -1,5 +1,6 @@
 use crate::DepositLog;
 use eth2_hashing::hash;
+use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
@@ -76,6 +77,48 @@ impl DepositDataTree {
             .map_err(Error::DepositTreeError)?;
         self.mix_in_length += 1;
         Ok(())
+    }
+}
+
+#[derive(Encode, Decode, Clone)]
+pub struct SszDepositCache {
+    logs: Vec<DepositLog>,
+    leaves: Vec<Hash256>,
+    deposit_contract_deploy_block: u64,
+    deposit_roots: Vec<Hash256>,
+}
+
+impl SszDepositCache {
+    pub fn from_deposit_cache(cache: &DepositCache) -> Self {
+        Self {
+            logs: cache.logs.clone(),
+            leaves: cache.leaves.clone(),
+            deposit_contract_deploy_block: cache.deposit_contract_deploy_block,
+            deposit_roots: cache.deposit_roots.clone(),
+        }
+    }
+
+    pub fn to_deposit_cache(&self) -> Result<DepositCache, String> {
+        let deposit_tree =
+            DepositDataTree::create(&self.leaves, self.leaves.len(), DEPOSIT_TREE_DEPTH);
+        // Check for invalid SszDepositCache conditions
+        if self.leaves.len() != self.logs.len() {
+            return Err("Invalid SszDepositCache: logs and leaves should have equal length".into());
+        }
+        // `deposit_roots` also includes the zero root
+        if self.leaves.len() + 1 != self.deposit_roots.len() {
+            return Err(
+                "Invalid SszDepositCache: deposit_roots length must be only one more than leaves"
+                    .into(),
+            );
+        }
+        Ok(DepositCache {
+            logs: self.logs.clone(),
+            leaves: self.leaves.clone(),
+            deposit_contract_deploy_block: self.deposit_contract_deploy_block,
+            deposit_tree,
+            deposit_roots: self.deposit_roots.clone(),
+        })
     }
 }
 
