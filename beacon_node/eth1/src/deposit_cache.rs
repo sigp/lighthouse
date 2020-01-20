@@ -1,7 +1,7 @@
 use crate::DepositLog;
 use eth2_hashing::hash;
-use std::cmp::Ordering;
 use ssz_derive::{Decode, Encode};
+use std::cmp::Ordering;
 use tree_hash::TreeHash;
 use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
