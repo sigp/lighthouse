@@ -26,7 +26,7 @@ use eth1_test_rig::GanacheEth1Instance;
 use futures::{future, stream, Future, Stream};
 use local_network::LocalNetwork;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
+    environment::EnvironmentBuilder, testing_client_config, testing_vc_config, ClientGenesis,
 };
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
@@ -183,7 +183,7 @@ fn async_sim(
                         .collect::<Vec<_>>();
 
                     network_1
-                        .add_validator_client(ValidatorConfig::default(), i, indices)
+                        .add_validator_client(testing_vc_config(), i, indices)
                         .map(|()| ((), iter))
                 })
             })

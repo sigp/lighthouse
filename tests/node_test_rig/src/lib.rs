@@ -92,6 +92,13 @@ pub fn testing_client_config() -> ClientConfig {
     client_config
 }
 
+pub fn testing_vc_config() -> ValidatorConfig {
+    let mut config = ValidatorConfig::default();
+    config.rest_api.enabled = true;
+    config.rest_api.port = 0;
+    config
+}
+
 /// Provids a validator client that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
 ///
@@ -142,9 +149,9 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     ) -> impl Future<Item = Self, Error = String> {
         config.data_dir = datadir.path().into();
 
-        ProductionValidatorClient::new(context, config).map(move |mut client| {
+        ProductionValidatorClient::new(context, config.clone()).map(move |mut client| {
             client
-                .start_service()
+                .start_service(Some(config))
                 .expect("should start validator services");
             Self { client, datadir }
         })

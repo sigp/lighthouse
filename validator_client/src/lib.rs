@@ -22,7 +22,6 @@ use futures::{
 };
 use notifier::spawn_notifier;
 use remote_beacon_node::RemoteBeaconNode;
-use rest_api_vc::config::Config as ApiConfig;
 use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
@@ -246,7 +245,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             })
     }
 
-    pub fn start_service(&mut self) -> Result<(), String> {
+    pub fn start_service(&mut self, config: Option<Config>) -> Result<(), String> {
+        let config = config.unwrap_or(Config::default());
         let duties_exit = self
             .duties_service
             .start_update_service(&self.context.eth2_config.spec)
@@ -270,7 +270,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let notifier_exit =
             spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
         let (http_exit, addr) = rest_api_vc::start_server(
-            &ApiConfig::default(),
+            &config.rest_api,
             &self.context.executor,
             self.validator_store.clone(),
             self.beacon_node.clone(),

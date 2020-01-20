@@ -1,11 +1,11 @@
-pub mod config;
+mod config;
 mod errors;
 mod response_builder;
 mod router;
 mod status;
 mod validator;
 
-use config::Config;
+pub use config::Config;
 use errors::ApiError;
 use hyper::rt::Future;
 use hyper::server::conn::AddrStream;

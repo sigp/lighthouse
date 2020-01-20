@@ -32,6 +32,7 @@ pub struct Config {
     ///
     /// Should be similar to `http://localhost:8080`
     pub http_server: String,
+    pub rest_api: rest_api_vc::Config,
 }
 
 impl Default for Config {
@@ -44,6 +45,7 @@ impl Default for Config {
             data_dir,
             key_source: <_>::default(),
             http_server: DEFAULT_HTTP_SERVER.to_string(),
+            rest_api: rest_api_vc::Config::default(),
         }
     }
 }

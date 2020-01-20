@@ -45,7 +45,7 @@ impl Default for Config {
         Config {
             enabled: false,
             listen_address: Ipv4Addr::new(127, 0, 0, 1),
-            port: 5053,
+            port: 5054,
         }
     }
 }
