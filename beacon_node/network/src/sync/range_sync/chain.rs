@@ -9,7 +9,7 @@ use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::HashSet;
 use std::ops::Sub;
 use std::sync::Weak;
-use types::{BeaconBlock, EthSpec, Hash256, Slot};
+use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many blocks per batch
 /// is requested. There is a timeout for each batch request. If this value is too high, we will
@@ -139,7 +139,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         chain: &Weak<BeaconChain<T>>,
         network: &mut SyncNetworkContext,
         request_id: RequestId,
-        beacon_block: &Option<BeaconBlock<T::EthSpec>>,
+        beacon_block: &Option<SignedBeaconBlock<T::EthSpec>>,
         log: &slog::Logger,
     ) -> Option<ProcessingResult> {
         if let Some(block) = beacon_block {
@@ -170,11 +170,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         // verify the range of received blocks
         // Note that the order of blocks is verified in block processing
-        if let Some(last_slot) = batch.downloaded_blocks.last().map(|b| b.slot) {
+        if let Some(last_slot) = batch.downloaded_blocks.last().map(|b| b.slot()) {
             // the batch is non-empty
-            if batch.start_slot > batch.downloaded_blocks[0].slot || batch.end_slot < last_slot {
-                warn!(log, "BlocksByRange response returned out of range blocks"; 
-                          "response_initial_slot" => batch.downloaded_blocks[0].slot, 
+            if batch.start_slot > batch.downloaded_blocks[0].slot() || batch.end_slot < last_slot {
+                warn!(log, "BlocksByRange response returned out of range blocks";
+                          "response_initial_slot" => batch.downloaded_blocks[0].slot(),
                           "requested_initial_slot" => batch.start_slot);
                 network.downvote_peer(batch.current_peer);
                 self.to_be_processed_id = batch.id; // reset the id back to here, when incrementing, it will check against completed batches
@@ -564,7 +564,7 @@ fn process_batch<T: BeaconChainTypes>(
                         // The block was valid and we processed it successfully.
                         trace!(
                             log, "Imported block from network";
-                            "slot" => block.slot,
+                            "slot" => block.slot(),
                             "block_root" => format!("{}", block_root),
                         );
                     }
@@ -573,18 +573,18 @@ fn process_batch<T: BeaconChainTypes>(
                         trace!(
                             log, "Parent block is unknown";
                             "parent_root" => format!("{}", parent),
-                            "baby_block_slot" => block.slot,
+                            "baby_block_slot" => block.slot(),
                         );
                         return Err(format!(
                             "Block at slot {} has an unknown parent.",
-                            block.slot
+                            block.slot()
                         ));
                     }
                     BlockProcessingOutcome::BlockIsAlreadyKnown => {
                         // this block is already known to us, move to the next
                         debug!(
                             log, "Imported a block that is already known";
-                            "block_slot" => block.slot,
+                            "block_slot" => block.slot(),
                         );
                     }
                     BlockProcessingOutcome::FutureSlot {
@@ -602,7 +602,7 @@ fn process_batch<T: BeaconChainTypes>(
                             );
                             return Err(format!(
                                 "Block at slot {} is too far in the future",
-                                block.slot
+                                block.slot()
                             ));
                         } else {
                             // The block is in the future, but not too far.
@@ -633,7 +633,7 @@ fn process_batch<T: BeaconChainTypes>(
                             "msg" => "peer sent invalid block",
                             "outcome" => format!("{:?}", outcome),
                         );
-                        return Err(format!("Invalid block at slot {}", block.slot));
+                        return Err(format!("Invalid block at slot {}", block.slot()));
                     }
                 }
             } else {

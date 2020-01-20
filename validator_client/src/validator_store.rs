@@ -14,6 +14,7 @@ use tempdir::TempDir;
 use tree_hash::TreeHash;
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
+    SignedBeaconBlock,
 };
 
 #[derive(Clone)]
@@ -152,16 +153,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn sign_block(
         &self,
         validator_pubkey: &PublicKey,
-        mut block: BeaconBlock<E>,
-    ) -> Option<BeaconBlock<E>> {
+        block: BeaconBlock<E>,
+    ) -> Option<SignedBeaconBlock<E>> {
         // TODO: check for slashing.
         self.validators
             .read()
             .get(validator_pubkey)
             .and_then(|validator_dir| {
                 let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                block.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
-                Some(block)
+                Some(block.sign(&voting_keypair.sk, &self.fork()?, &self.spec))
             })
     }
 

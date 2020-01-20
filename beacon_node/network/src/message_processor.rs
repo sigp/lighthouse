@@ -11,8 +11,7 @@ use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::{mpsc, oneshot};
-use tree_hash::SignedRoot;
-use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
+use types::{Attestation, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 //TODO: Rate limit requests
 
@@ -263,7 +262,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         } else if self
             .chain
             .store
-            .exists::<BeaconBlock<T::EthSpec>>(&remote.head_root)
+            .exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)
             .unwrap_or_else(|_| false)
         {
             trace!(
@@ -300,7 +299,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ) {
         let mut send_block_count = 0;
         for root in request.block_roots.iter() {
-            if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
+            if let Ok(Some(block)) = self.chain.store.get_block(root) {
                 self.network.send_rpc_response(
                     peer_id.clone(),
                     request_id,
@@ -380,11 +379,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
 
         let mut blocks_sent = 0;
         for root in block_roots {
-            if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
+            if let Ok(Some(block)) = self.chain.store.get_block(&root) {
                 // Due to skip slots, blocks could be out of the range, we ensure they are in the
                 // range before sending
-                if block.slot >= req.start_slot
-                    && block.slot < req.start_slot + req.count * req.step
+                if block.slot() >= req.start_slot
+                    && block.slot() < req.start_slot + req.count * req.step
                 {
                     blocks_sent += 1;
                     self.network.send_rpc_response(
@@ -437,7 +436,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<BeaconBlock<T::EthSpec>>,
+        beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) {
         let beacon_block = beacon_block.map(Box::new);
         trace!(
@@ -458,7 +457,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<BeaconBlock<T::EthSpec>>,
+        beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) {
         let beacon_block = beacon_block.map(Box::new);
         trace!(
@@ -479,7 +478,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     /// Attempts to apply to block to the beacon chain. May queue the block for later processing.
     ///
     /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers.
-    pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) -> bool {
+    pub fn on_block_gossip(
+        &mut self,
+        peer_id: PeerId,
+        block: SignedBeaconBlock<T::EthSpec>,
+    ) -> bool {
         match self.chain.process_block(block.clone()) {
             Ok(outcome) => match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
@@ -528,8 +531,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                         self.log,
                         "Invalid gossip beacon block";
                         "outcome" => format!("{:?}", other),
-                        "block root" => format!("{}", Hash256::from_slice(&block.signed_root()[..])),
-                        "block slot" => block.slot
+                        "block root" => format!("{}", block.canonical_root()),
+                        "block slot" => block.slot()
                     );
                     trace!(
                         self.log,

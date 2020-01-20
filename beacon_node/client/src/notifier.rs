@@ -77,7 +77,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     "error" => format!("{:?}", e)
                 ))?;
 
-            let head_slot = head.beacon_block.slot;
+            let head_slot = head.beacon_block.slot();
             let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
             let current_slot = beacon_chain.slot().map_err(|e| {
                 error!(

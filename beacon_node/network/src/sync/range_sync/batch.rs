@@ -4,7 +4,7 @@ use fnv::FnvHashMap;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use types::{BeaconBlock, EthSpec, Hash256, Slot};
+use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// A collection of sequential blocks that are requested from peers in a single RPC request.
 #[derive(PartialEq)]
@@ -24,7 +24,7 @@ pub struct Batch<T: EthSpec> {
     /// The number of retries this batch has undergone.
     pub retries: u8,
     /// The blocks that have been downloaded.
-    pub downloaded_blocks: Vec<BeaconBlock<T>>,
+    pub downloaded_blocks: Vec<SignedBeaconBlock<T>>,
 }
 
 impl<T: EthSpec> Ord for Batch<T> {
@@ -85,7 +85,7 @@ impl<T: EthSpec> PendingBatches<T> {
 
     /// Adds a block to the batches if the request id exists. Returns None if there is no batch
     /// matching the request id.
-    pub fn add_block(&mut self, request_id: &RequestId, block: BeaconBlock<T>) -> Option<()> {
+    pub fn add_block(&mut self, request_id: &RequestId, block: SignedBeaconBlock<T>) -> Option<()> {
         let batch = self.batches.get_mut(request_id)?;
         batch.downloaded_blocks.push(block);
         Some(())

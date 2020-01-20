@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork, Hash256,
-    PublicKey, Signature, Slot,
+    PublicKey, Signature, SignedBeaconBlock, Slot,
 };
 use url::Url;
 
@@ -252,7 +252,7 @@ impl<E: EthSpec> Validator<E> {
     /// Posts a block to the beacon node, expecting it to verify it and publish it to the network.
     pub fn publish_block(
         &self,
-        block: BeaconBlock<E>,
+        block: SignedBeaconBlock<E>,
     ) -> impl Future<Item = PublishStatus, Error = Error> {
         let client = self.0.clone();
         self.url("block")
