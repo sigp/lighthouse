@@ -198,9 +198,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         if self.state == ChainSyncingState::Syncing {
             // pre-emptively request more blocks from peers whilst we process current blocks,
-            if !self.send_range_request(network) {
-                debug!(self.log, "No peer available for next batch.")
-            }
+            while self.send_range_request(network) {}
         }
 
         // Try and process any completed batches. This will spawn a new task to process any blocks
@@ -261,6 +259,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // batch process doesn't belong to this chain
             return None;
         }
+
+        debug!(self.log, "Batch processed"; "id" => *batch.id);
 
         // double check batches are processed in order
         // TODO: Remove for prod

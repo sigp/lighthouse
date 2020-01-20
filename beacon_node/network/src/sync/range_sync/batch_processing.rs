@@ -25,11 +25,13 @@ pub fn spawn_batch_processor<T: BeaconChainTypes>(
     log: slog::Logger,
 ) {
     std::thread::spawn(move || {
-        debug!(log, "Processing batch"; "batch_id" => *batch.id);
+        debug!(log, "Processing batch"; "id" => *batch.id);
         let result = match process_batch(chain, batch.clone(), &log) {
             Ok(_) => BatchProcessResult::Success,
             Err(_) => BatchProcessResult::Failed,
         };
+
+        debug!(log, "Batch processed"; "id" => *batch.id, "result" => format!("{:?}", result));
 
         sync_send
             .try_send(SyncMessage::BatchProcessed {
