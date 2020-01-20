@@ -8,14 +8,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(
             SubCommand::with_name("beacon-chain-sim")
             .about(
-                "Lighthouse Beacon Chain Simulator creates `n` beacon node and validator clients,
-                    each with `v` validators. A deposit contract is deployed at the start of the
-                    simulation using a local `ganache-cli` instance (you must have `ganache-cli`
-                    installed and avaliable on your path). All beacon nodes independently listen
-                    for genesis from the deposit contract, then start operating.
+                "Lighthouse Beacon Chain Simulator creates `n` beacon node and validator clients, \
+                    each with `v` validators. A deposit contract is deployed at the start of the \
+                    simulation using a local `ganache-cli` instance (you must have `ganache-cli` \
+                    installed and avaliable on your path). All beacon nodes independently listen \
+                    for genesis from the deposit contract, then start operating. \
 
-                    As the simulation runs, there are checks made to ensure that all components
-                    are running correctly. If any of these checks fail, the simulation will
+                    As the simulation runs, there are checks made to ensure that all components \
+                    are running correctly. If any of these checks fail, the simulation will \
                     exit immediately.",
                     )
                     .arg(Arg::with_name("nodes")

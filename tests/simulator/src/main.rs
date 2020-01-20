@@ -57,7 +57,10 @@ fn main() {
                 std::process::exit(1)
             }
         },
-        _ => panic!("Invalid subcommand"),
+        _ => {
+            eprintln!("Invalid subcommand. Use --help to see available options");
+            std::process::exit(1)
+        }
     }
 }
 
