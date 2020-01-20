@@ -1,9 +1,50 @@
 use crate::checks::{epoch_delay, verify_all_finalized_at};
 use crate::local_network::LocalNetwork;
-use futures::Future;
+use futures::{Future, IntoFuture};
 use node_test_rig::ClientConfig;
 use std::time::Duration;
 use types::{Epoch, EthSpec};
+
+pub fn pick_strategy<E: EthSpec>(
+    strategy: &str,
+    network: LocalNetwork<E>,
+    beacon_config: ClientConfig,
+    slot_duration: Duration,
+    initial_delay: u64,
+    sync_delay: u64,
+) -> Box<dyn Future<Item = (), Error = String> + Send + 'static> {
+    match strategy {
+        "one-node" => Box::new(verify_one_node_sync(
+            network,
+            beacon_config,
+            slot_duration,
+            initial_delay,
+            sync_delay,
+        )),
+        "two-nodes" => Box::new(verify_two_nodes_sync(
+            network,
+            beacon_config,
+            slot_duration,
+            initial_delay,
+            sync_delay,
+        )),
+        "mixed" => Box::new(verify_in_between_sync(
+            network,
+            beacon_config,
+            slot_duration,
+            initial_delay,
+            sync_delay,
+        )),
+        "all" => Box::new(verify_syncing(
+            network,
+            beacon_config,
+            slot_duration,
+            initial_delay,
+            sync_delay,
+        )),
+        _ => Box::new(Err("Invalid strategy".into()).into_future()),
+    }
+}
 
 /// Verify one node added after `initial_delay` epochs is in sync
 /// after `sync_delay` epochs.

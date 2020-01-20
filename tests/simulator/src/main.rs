@@ -95,11 +95,13 @@ fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
     let initial_delay = value_t!(matches, "initial_delay", u64).unwrap_or(50);
     let sync_delay = value_t!(matches, "sync_delay", u64).unwrap_or(10);
     let speed_up_factor = value_t!(matches, "speedup", u64).unwrap_or(15);
+    let strategy = value_t!(matches, "strategy", String).unwrap_or("all".into());
 
     println!("Syncing Simulator:");
     println!(" initial_delay:{}", initial_delay);
     println!(" sync delay:{}", sync_delay);
     println!(" speed up factor:{}", speed_up_factor);
+    println!(" strategy:{}", strategy);
 
     let log_level = "debug";
     let log_format = None;
@@ -108,6 +110,7 @@ fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
         speed_up_factor,
         initial_delay,
         sync_delay,
+        strategy,
         log_level,
         log_format,
     )
@@ -117,6 +120,7 @@ fn syncing_sim(
     speed_up_factor: u64,
     initial_delay: u64,
     sync_delay: u64,
+    strategy: String,
     log_level: &str,
     log_format: Option<&str>,
 ) -> Result<(), String> {
@@ -161,7 +165,8 @@ fn syncing_sim(
 
             future::ok(())
                 // Check all syncing strategies one after other.
-                .join(verify_syncing(
+                .join(pick_strategy(
+                    &strategy,
                     network.clone(),
                     beacon_config.clone(),
                     slot_duration,

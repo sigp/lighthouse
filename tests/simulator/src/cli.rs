@@ -61,6 +61,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .long("sync_delay")
                         .takes_value(true)
                         .help("Epoch delay for newly added beacon nodes get synced"),
+                )
+                .arg(
+                    Arg::with_name("strategy")
+                        .long("strategy")
+                        .takes_value(true)
+                        .possible_values(&["one-node", "two-nodes", "mixed", "all"])
+                        .help("Sync strategy to run. Default 'all'"),
                 ),
         )
 }
