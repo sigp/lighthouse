@@ -123,8 +123,7 @@ fn string_to_bytes(string: &str) -> Result<Vec<u8>, String> {
 /// Uses this as reference:
 /// https://github.com/ethereum/eth2.0-pm/blob/9a9dbcd95e2b8e10287797bd768014ab3d842e99/interop/mocked_start/keygen_10_validators.yaml
 pub fn keypairs_from_yaml_file(path: PathBuf) -> Result<Vec<Keypair>, String> {
-    let file =
-        File::open(path.clone()).map_err(|e| format!("Unable to open YAML key file: {}", e))?;
+    let file = File::open(path).map_err(|e| format!("Unable to open YAML key file: {}", e))?;
 
     serde_yaml::from_reader::<_, Vec<YamlKeypair>>(file)
         .map_err(|e| format!("Could not parse YAML: {:?}", e))?

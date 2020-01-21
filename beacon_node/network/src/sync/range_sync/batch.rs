@@ -62,16 +62,16 @@ impl<T: EthSpec> PendingBatches<T> {
         let peer_request = batch.current_peer.clone();
         self.peer_requests
             .entry(peer_request)
-            .or_insert_with(|| HashSet::new())
+            .or_insert_with(HashSet::new)
             .insert(request_id);
         self.batches.insert(request_id, batch)
     }
 
-    pub fn remove(&mut self, request_id: &RequestId) -> Option<Batch<T>> {
-        if let Some(batch) = self.batches.remove(request_id) {
+    pub fn remove(&mut self, request_id: RequestId) -> Option<Batch<T>> {
+        if let Some(batch) = self.batches.remove(&request_id) {
             if let Entry::Occupied(mut entry) = self.peer_requests.entry(batch.current_peer.clone())
             {
-                entry.get_mut().remove(request_id);
+                entry.get_mut().remove(&request_id);
 
                 if entry.get().is_empty() {
                     entry.remove();
@@ -85,8 +85,8 @@ impl<T: EthSpec> PendingBatches<T> {
 
     /// Adds a block to the batches if the request id exists. Returns None if there is no batch
     /// matching the request id.
-    pub fn add_block(&mut self, request_id: &RequestId, block: BeaconBlock<T>) -> Option<()> {
-        let batch = self.batches.get_mut(request_id)?;
+    pub fn add_block(&mut self, request_id: RequestId, block: BeaconBlock<T>) -> Option<()> {
+        let batch = self.batches.get_mut(&request_id)?;
         batch.downloaded_blocks.push(block);
         Some(())
     }
@@ -101,7 +101,7 @@ impl<T: EthSpec> PendingBatches<T> {
     pub fn remove_batch_by_peer(&mut self, peer_id: &PeerId) -> Option<Batch<T>> {
         let request_ids = self.peer_requests.get(peer_id)?;
 
-        let request_id = request_ids.iter().next()?.clone();
-        self.remove(&request_id)
+        let request_id = *request_ids.iter().next()?;
+        self.remove(request_id)
     }
 }

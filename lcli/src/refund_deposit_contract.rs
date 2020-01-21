@@ -110,7 +110,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     env.runtime()
         .block_on(future)
-        .map_err(|()| format!("Failed to send transaction"))?;
+        .map_err(|()| "Failed to send transaction".to_string())?;
 
     Ok(())
 }

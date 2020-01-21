@@ -17,7 +17,7 @@ pub const WARN_PEER_COUNT: usize = 1;
 const SECS_PER_MINUTE: f64 = 60.0;
 const SECS_PER_HOUR: f64 = 3600.0;
 const SECS_PER_DAY: f64 = 86400.0; // non-leap
-const SECS_PER_WEEK: f64 = 604800.0; // non-leap
+const SECS_PER_WEEK: f64 = 604_800.0; // non-leap
 const DAYS_PER_WEEK: f64 = 7.0;
 const HOURS_PER_DAY: f64 = 24.0;
 const MINUTES_PER_HOUR: f64 = 60.0;
@@ -166,13 +166,14 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         .then(move |result| {
             match result {
                 Ok(()) => Ok(()),
-                Err(e) => Ok(error!(
+                Err(e) => {
+                    error!(
                     log_3,
                     "Notifier failed to notify";
                     "error" => format!("{:?}", e)
-                ))
-            }
-        });
+                );
+                Ok(())
+            } } });
 
     let (exit_signal, exit) = exit_future::signal();
     context

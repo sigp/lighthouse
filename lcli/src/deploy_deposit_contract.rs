@@ -94,12 +94,12 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     info!("Writing config to {:?}", output_dir);
 
-    let mut spec = lighthouse_testnet_spec(env.core_context().eth2_config.spec.clone());
+    let mut spec = lighthouse_testnet_spec(env.core_context().eth2_config.spec);
     spec.min_genesis_time = min_genesis_time;
     spec.min_genesis_active_validator_count = min_genesis_active_validator_count;
 
     let testnet_config: Eth2TestnetConfig<T> = Eth2TestnetConfig {
-        deposit_contract_address: format!("{}", deposit_contract.address()),
+        deposit_contract_address: deposit_contract.address(),
         deposit_contract_deploy_block: deploy_block.as_u64(),
         boot_enr: None,
         genesis_state: None,
@@ -152,7 +152,7 @@ pub fn parse_password(matches: &ArgMatches) -> Result<Option<String>, String> {
                 })
                 .map(|password| {
                     // Trim the linefeed from the end.
-                    if password.ends_with("\n") {
+                    if password.ends_with('\n') {
                         password[0..password.len() - 1].to_string()
                     } else {
                         password

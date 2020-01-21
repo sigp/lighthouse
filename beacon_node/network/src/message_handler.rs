@@ -229,7 +229,7 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
                         .on_block_gossip(peer_id.clone(), block);
                     // TODO: Apply more sophisticated validation and decoding logic
                     if should_forward_on {
-                        self.propagate_message(id, peer_id.clone());
+                        self.propagate_message(id, peer_id);
                     }
                 }
                 Err(e) => {

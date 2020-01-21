@@ -145,7 +145,7 @@ where
         // When terminating a stream, report the stream termination to the requesting user via
         // an RPC error
         let error = RPCErrorResponse::ServerError(ErrorMessage {
-            error_message: "Request timed out".as_bytes().to_vec(),
+            error_message: b"Request timed out".to_vec(),
         });
 
         // The stream termination type is irrelevant, this will terminate the
@@ -510,7 +510,7 @@ where
             // notify the user
             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                 RPCEvent::Error(
-                    stream_id.get_ref().clone(),
+                    *stream_id.get_ref(),
                     RPCError::Custom("Stream timed out".into()),
                 ),
             )));

@@ -30,7 +30,7 @@ impl TestingProposerSlashingBuilder {
         let slot = Slot::new(0);
         let hash_1 = Hash256::from([1; 32]);
         let hash_2 = if test_task == ProposerSlashingTestTask::ProposalsIdentical {
-            hash_1.clone()
+            hash_1
         } else {
             Hash256::from([2; 32])
         };
