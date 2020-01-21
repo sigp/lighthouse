@@ -5,6 +5,7 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
+use rand::prelude::*;
 use slog::{crit, debug, warn};
 use std::collections::HashSet;
 use std::sync::{Arc, Weak};
@@ -500,7 +501,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ///
     /// This is used to create the next request.
     fn get_next_peer(&self) -> Option<PeerId> {
-        for peer in self.peer_pool.iter() {
+        // randomize the peers for load balancing
+        let mut rng = rand::thread_rng();
+        let mut peers = self.peer_pool.iter().collect::<Vec<_>>();
+        peers.shuffle(&mut rng);
+        for peer in peers {
             if self.pending_batches.peer_is_idle(peer) {
                 return Some(peer.clone());
             }
