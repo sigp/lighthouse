@@ -54,7 +54,7 @@ fn test_validator_api() {
 
     let mut vc_config = ValidatorConfig::default();
     vc_config.http_server = format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
-
+    vc_config.rest_api.enabled = true;
     let vc = build_vc(&mut env, vc_config, 8);
     let remote_vc = vc.remote_node().expect("Should produce remote node");
 
@@ -71,7 +71,7 @@ fn test_validator_api() {
     );
 
     // Exit activated validator
-    // TODO: test for failure case. Currently, returns 202 for on `ProcessingError`.
+    // TODO: test for failure case. Currently, returns 202 for `ProcessingError`.
     let exit = env.runtime().block_on(
         remote_vc.http.validator().exit_validator(
             expected_validators
