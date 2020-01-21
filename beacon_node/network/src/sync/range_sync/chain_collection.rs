@@ -282,9 +282,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .retain(|chain| !chain.peer_pool.is_empty());
         self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
 
-        let local_info = match self.beacon_chain.upgrade() {
+        let (beacon_chain, local_info) = match self.beacon_chain.upgrade() {
             Some(chain) => match PeerSyncInfo::from_chain(&chain) {
-                Some(local) => local,
+                Some(local) => (chain, local),
                 None => {
                     return error!(
                         log,
@@ -304,7 +304,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
         // Remove chains that are out-dated and re-status their peers
         self.finalized_chains.retain(|chain| {
-            if chain.target_head_slot <= local_finalized_slot {
+            if chain.target_head_slot <= local_finalized_slot
+                || beacon_chain
+                    .block_root_tree
+                    .is_known_block_root(&chain.target_head_root)
+            {
                 chain.status_peers(network);
                 false
             } else {
@@ -312,7 +316,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             }
         });
         self.head_chains.retain(|chain| {
-            if chain.target_head_slot <= local_finalized_slot {
+            if chain.target_head_slot <= local_finalized_slot
+                || beacon_chain
+                    .block_root_tree
+                    .is_known_block_root(&chain.target_head_root)
+            {
                 chain.status_peers(network);
                 false
             } else {

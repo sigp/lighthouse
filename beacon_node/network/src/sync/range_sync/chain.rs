@@ -196,10 +196,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // already be processed but not verified and therefore have Id's less than
         // `self.to_be_processed_id`.
 
-        if self.state == ChainSyncingState::Syncing {
-            // pre-emptively request more blocks from peers whilst we process current blocks,
-            while self.send_range_request(network) {}
-        }
+        // pre-emptively request more blocks from peers whilst we process current blocks,
+        self.request_batches(network);
 
         // Try and process any completed batches. This will spawn a new task to process any blocks
         // that are ready to be processed.
@@ -293,7 +291,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // chain is not completed
 
                     // attempt to request more batches
-                    while self.send_range_request(network) {}
+                    self.request_batches(network);
 
                     // attempt to process more batches
                     self.process_completed_batches();
@@ -370,10 +368,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // start processing batches if needed
         self.process_completed_batches();
 
-        // Now begin requesting blocks from the peer pool, until all peers are exhausted.
-        while self.send_range_request(network) {}
-
         self.state = ChainSyncingState::Syncing;
+
+        // begin requesting blocks from the peer pool, until all peers are exhausted.
+        self.request_batches(network);
     }
 
     /// Add a peer to the chain.
@@ -388,7 +386,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
 
         // find the next batch and request it from any peers if we need to
-        while self.send_range_request(network) {}
+        self.request_batches(network);
     }
 
     /// Sends a STATUS message to all peers in the peer pool.
@@ -473,6 +471,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             network.downvote_peer(peer_id);
         }
         ProcessingResult::RemoveChain
+    }
+
+    /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
+    /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
+    fn request_batches(&mut self, network: &mut SyncNetworkContext) {
+        if let ChainSyncingState::Syncing = self.state {
+            while self.send_range_request(network) {}
+        }
     }
 
     /// Requests the next required batch from a peer. Returns true, if there was a peer available

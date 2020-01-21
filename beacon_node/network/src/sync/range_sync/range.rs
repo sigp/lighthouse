@@ -116,9 +116,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
         // determine if we need to run a sync to the nearest finalized state or simply sync to
         // its current head
-        let local_info = match self.beacon_chain.upgrade() {
+
+        let (chain, local_info) = match self.beacon_chain.upgrade() {
             Some(chain) => match PeerSyncInfo::from_chain(&chain) {
-                Some(local) => local,
+                Some(local) => (chain, local),
                 None => {
                     return error!(
                         self.log,
@@ -128,10 +129,9 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 }
             },
             None => {
-                warn!(self.log,
+                return warn!(self.log,
                       "Beacon chain dropped. Peer not considered for sync";
                       "peer_id" => format!("{:?}", peer_id));
-                return;
             }
         };
 
@@ -149,7 +149,11 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         // remove any out-of-date chains
         self.chains.purge_outdated_chains(network, &self.log);
 
-        if remote_finalized_slot > local_info.head_slot {
+        if remote_finalized_slot > local_info.head_slot
+            && !chain
+                .block_root_tree
+                .is_known_block_root(&remote.finalized_root)
+        {
             debug!(self.log, "Finalization sync peer joined"; "peer_id" => format!("{:?}", peer_id));
             // Finalized chain search
 
