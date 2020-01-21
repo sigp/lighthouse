@@ -9,16 +9,6 @@ pub enum ApiEncodingFormat {
     SSZ,
 }
 
-impl ApiEncodingFormat {
-    pub fn get_content_type(&self) -> &str {
-        match self {
-            ApiEncodingFormat::JSON => "application/json",
-            ApiEncodingFormat::YAML => "application/yaml",
-            ApiEncodingFormat::SSZ => "application/ssz",
-        }
-    }
-}
-
 impl From<&str> for ApiEncodingFormat {
     fn from(f: &str) -> ApiEncodingFormat {
         match f {

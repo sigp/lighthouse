@@ -56,12 +56,6 @@ impl From<types::BeaconStateError> for ApiError {
     }
 }
 
-// impl From<beacon_chain::BeaconChainError> for ApiError {
-//     fn from(e: beacon_chain::BeaconChainError) -> ApiError {
-//         ApiError::ServerError(format!("BeaconChainError error: {:?}", e))
-//     }
-// }
-
 impl From<hyper::error::Error> for ApiError {
     fn from(e: hyper::error::Error) -> ApiError {
         ApiError::ServerError(format!("Networking error: {:?}", e))
