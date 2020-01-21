@@ -336,12 +336,6 @@ fn load_enr(
                                 // the stored ENR has the same configuration, use it
                                 return Ok(enr);
                             }
-                            debug!(log, "disc addr"; "disc" => format!("{:?}", config.discovery_address),
-                            "tcp" => format!("{:?}", enr.tcp()),
-                            "etcp" => format!("{:?}", config.libp2p_port),
-                            "udp" => format!("{:?}", enr.udp()),
-                            "eudp" => format!("{:?}", config.discovery_port)
-                            );
 
                             // same node id, different configuration - update the sequence number
                             let new_seq_no = enr.seq().checked_add(1).ok_or_else(|| "ENR sequence number on file is too large. Remove it to generate a new NodeId")?;
