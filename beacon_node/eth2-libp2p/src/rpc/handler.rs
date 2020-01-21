@@ -314,6 +314,7 @@ where
                     substream: out,
                     request,
                 };
+                debug!(self.log, "Added outbound substream id"; "substream_id" => id);
                 self.outbound_substreams
                     .insert(id, (awaiting_stream, delay_key));
             }
@@ -418,6 +419,8 @@ where
         };
         if self.pending_error.is_none() {
             self.pending_error = Some((request_id, error));
+        } else {
+            crit!(self.log, "Couldn't add error");
         }
     }
 
@@ -448,6 +451,7 @@ where
                 }
                 ProtocolsHandlerUpgrErr::Timeout | ProtocolsHandlerUpgrErr::Timer => {
                     // negotiation timeout, mark the request as failed
+                    debug!(self.log, "Active substreams before timeout"; "len" => self.outbound_substreams.len());
                     return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                         RPCEvent::Error(
                             request_id,
@@ -711,6 +715,7 @@ where
             if self.dial_negotiated < self.max_dial_negotiated {
                 self.dial_negotiated += 1;
                 let rpc_event = self.dial_queue.remove(0);
+                self.dial_queue.shrink_to_fit();
                 if let RPCEvent::Request(id, req) = rpc_event {
                     return Ok(Async::Ready(
                         ProtocolsHandlerEvent::OutboundSubstreamRequest {
@@ -720,8 +725,6 @@ where
                     ));
                 }
             }
-        } else {
-            self.dial_queue.shrink_to_fit();
         }
         Ok(Async::NotReady)
     }
