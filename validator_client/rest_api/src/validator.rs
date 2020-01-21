@@ -1,13 +1,14 @@
 use super::errors::{ApiError, ApiResult, BoxFut};
 use super::response_builder::ResponseBuilder;
-use bls::PublicKey;
+use bls::{PublicKey, PublicKeyBytes, Signature};
 use futures::future::Future;
 use futures::stream::Stream;
 use hyper::{Body, Request};
+use remote_beacon_node::RemoteBeaconNode;
 use serde_derive::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::EthSpec;
+use types::{EthSpec, VoluntaryExit};
 use validator_store::ValidatorStore;
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -150,10 +151,70 @@ pub fn stop_validator<T: SlotClock + 'static, E: EthSpec>(
 }
 
 pub fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
-    _req: Request<Body>,
-    _validator_store: Arc<ValidatorStore<T, E>>,
-) -> ApiResult {
-    unimplemented!()
+    req: Request<Body>,
+    validator_store: Arc<ValidatorStore<T, E>>,
+    beacon_node: Arc<RemoteBeaconNode<E>>,
+) -> BoxFut {
+    let response_builder = ResponseBuilder::new(&req);
+    let future = req
+        .into_body()
+        .concat2()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+        .and_then(|chunks| {
+            serde_json::from_slice::<ValidatorRequest>(&chunks).map_err(|e| {
+                ApiError::BadRequest(format!(
+                    "Unable to parse JSON into ValidatorRequest: {:?}",
+                    e
+                ))
+            })
+        })
+        .and_then(move |body| {
+            let validator_pubkey = body.validator.clone();
+            beacon_node
+                .http
+                .beacon()
+                .get_validators(vec![validator_pubkey.clone()], None)
+                .map(|resp| (resp, validator_pubkey))
+                .map_err(|e| {
+                    ApiError::ServerError(format!(
+                        "Failed to get validator info from beacon node: {:?}",
+                        e
+                    ))
+                })
+        })
+        .and_then(move |(validator_response, pk)| {
+            if let Some(validator) = validator_response.first() {
+                // Verify public key matches
+                let pk_bytes: PublicKeyBytes = pk.clone().into();
+                if pk_bytes != validator.pubkey {
+                    Err(ApiError::ProcessingError(format!(
+                        "Invalid public key returned from beacon chain api"
+                    )))
+                }
+                // Verify that validator is currently activated
+                else if validator.validator_index.is_none() {
+                    Err(ApiError::ProcessingError(format!(
+                        "Validator not active on beacon chain"
+                    )))
+                } else {
+                    let exit = VoluntaryExit {
+                        epoch: E::default_spec().far_future_epoch,
+                        validator_index: validator.validator_index.expect("Should have a value")
+                            as u64,
+                        signature: Signature::empty_signature(),
+                    };
+                    let _signed_exit = validator_store.sign_voluntary_exit(&pk, exit);
+                    // TODO: publish signed exit to beacon chain
+                    Ok(())
+                }
+            } else {
+                Err(ApiError::ProcessingError(format!(
+                    "Invalid public key returned from beacon chain api"
+                )))
+            }
+        })
+        .and_then(|_| response_builder?.body_empty());
+    Box::new(future)
 }
 
 pub fn withdraw_validator<T: SlotClock + 'static, E: EthSpec>(

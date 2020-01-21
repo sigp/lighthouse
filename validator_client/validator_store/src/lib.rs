@@ -17,6 +17,7 @@ use tempdir::TempDir;
 use tree_hash::TreeHash;
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
+    VoluntaryExit,
 };
 
 #[derive(Debug)]
@@ -256,6 +257,29 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     .ok()?;
 
                 Some(())
+            })
+    }
+
+    pub fn sign_voluntary_exit(
+        &self,
+        validator_pubkey: &PublicKey,
+        mut voluntary_exit: VoluntaryExit,
+    ) -> Option<VoluntaryExit> {
+        // TODO: check for slashing?
+        self.validators
+            .read()
+            .get(validator_pubkey)
+            .and_then(|validator_dir| {
+                if !validator_dir.is_active {
+                    warn!(
+                        self.log,
+                        "Requesting block signature for inactive validator"
+                    );
+                    return None;
+                }
+                let voting_keypair = validator_dir.directory.voting_keypair.as_ref()?;
+                voluntary_exit.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
+                Some(voluntary_exit)
             })
     }
 
