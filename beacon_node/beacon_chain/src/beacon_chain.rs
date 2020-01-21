@@ -25,6 +25,7 @@ use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
 };
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::fs;
 use std::io::prelude::*;
 use std::sync::Arc;
@@ -512,65 +513,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn state_at_slot(&self, slot: Slot) -> Result<BeaconState<T::EthSpec>, Error> {
         let head_state = self.head()?.beacon_state;
 
-        if slot == head_state.slot {
-            Ok(head_state)
-        } else if slot > head_state.slot {
-            if slot > head_state.slot + T::EthSpec::slots_per_epoch() {
-                warn!(
-                    self.log,
-                    "Skipping more than an epoch";
-                    "head_slot" => head_state.slot,
-                    "request_slot" => slot
-                )
-            }
-
-            let start_slot = head_state.slot;
-            let task_start = Instant::now();
-            let max_task_runtime = Duration::from_millis(self.spec.milliseconds_per_slot);
-
-            let head_state_slot = head_state.slot;
-            let mut state = head_state;
-            while state.slot < slot {
-                // Do not allow and forward state skip that takes longer than the maximum task duration.
-                //
-                // This is a protection against nodes doing too much work when they're not synced
-                // to a chain.
-                if task_start + max_task_runtime < Instant::now() {
-                    return Err(Error::StateSkipTooLarge {
-                        start_slot,
-                        requested_slot: slot,
-                        max_task_runtime,
-                    });
+        match slot.cmp(&head_state.slot) {
+            Ordering::Equal => Ok(head_state),
+            Ordering::Greater => {
+                if slot > head_state.slot + T::EthSpec::slots_per_epoch() {
+                    warn!(
+                        self.log,
+                        "Skipping more than an epoch";
+                        "head_slot" => head_state.slot,
+                        "request_slot" => slot
+                    )
                 }
 
-                // Note: supplying some `state_root` when it is known would be a cheap and easy
-                // optimization.
-                match per_slot_processing(&mut state, None, &self.spec) {
-                    Ok(()) => (),
-                    Err(e) => {
-                        warn!(
-                            self.log,
-                            "Unable to load state at slot";
-                            "error" => format!("{:?}", e),
-                            "head_slot" => head_state_slot,
-                            "requested_slot" => slot
-                        );
-                        return Err(Error::NoStateForSlot(slot));
-                    }
-                };
-            }
-            Ok(state)
-        } else {
-            let state_root = self
-                .rev_iter_state_roots()?
-                .take_while(|(_root, current_slot)| *current_slot >= slot)
-                .find(|(_root, current_slot)| *current_slot == slot)
-                .map(|(root, _slot)| root)
-                .ok_or_else(|| Error::NoStateForSlot(slot))?;
+                let start_slot = head_state.slot;
+                let task_start = Instant::now();
+                let max_task_runtime = Duration::from_millis(self.spec.milliseconds_per_slot);
 
-            Ok(self
-                .get_state_caching(&state_root, Some(slot))?
-                .ok_or_else(|| Error::NoStateForSlot(slot))?)
+                let head_state_slot = head_state.slot;
+                let mut state = head_state;
+                while state.slot < slot {
+                    // Do not allow and forward state skip that takes longer than the maximum task duration.
+                    //
+                    // This is a protection against nodes doing too much work when they're not synced
+                    // to a chain.
+                    if task_start + max_task_runtime < Instant::now() {
+                        return Err(Error::StateSkipTooLarge {
+                            start_slot,
+                            requested_slot: slot,
+                            max_task_runtime,
+                        });
+                    }
+
+                    // Note: supplying some `state_root` when it is known would be a cheap and easy
+                    // optimization.
+                    match per_slot_processing(&mut state, None, &self.spec) {
+                        Ok(()) => (),
+                        Err(e) => {
+                            warn!(
+                                self.log,
+                                "Unable to load state at slot";
+                                "error" => format!("{:?}", e),
+                                "head_slot" => head_state_slot,
+                                "requested_slot" => slot
+                            );
+                            return Err(Error::NoStateForSlot(slot));
+                        }
+                    };
+                }
+                Ok(state)
+            }
+            Ordering::Less => {
+                let state_root = self
+                    .rev_iter_state_roots()?
+                    .take_while(|(_root, current_slot)| *current_slot >= slot)
+                    .find(|(_root, current_slot)| *current_slot == slot)
+                    .map(|(root, _slot)| root)
+                    .ok_or_else(|| Error::NoStateForSlot(slot))?;
+
+                Ok(self
+                    .get_state_caching(&state_root, Some(slot))?
+                    .ok_or_else(|| Error::NoStateForSlot(slot))?)
+            }
         }
     }
 
@@ -638,7 +641,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_state = &self.head()?.beacon_state;
 
         let mut state = if epoch(slot) == epoch(head_state.slot) {
-            self.head()?.beacon_state.clone()
+            self.head()?.beacon_state
         } else {
             self.state_at_slot(slot)?
         };
@@ -671,7 +674,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_state = &self.head()?.beacon_state;
 
         let mut state = if epoch == as_epoch(head_state.slot) {
-            self.head()?.beacon_state.clone()
+            self.head()?.beacon_state
         } else {
             self.state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))?
         };
@@ -1754,9 +1757,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut dump = vec![];
 
         let mut last_slot = CheckPoint {
-            beacon_block: self.head()?.beacon_block.clone(),
+            beacon_block: self.head()?.beacon_block,
             beacon_block_root: self.head()?.beacon_block_root,
-            beacon_state: self.head()?.beacon_state.clone(),
+            beacon_state: self.head()?.beacon_state,
             beacon_state_root: self.head()?.beacon_state_root,
         };
 

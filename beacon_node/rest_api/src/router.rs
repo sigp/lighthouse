@@ -19,6 +19,8 @@ where
     Box::new(item.into_future())
 }
 
+// Allowing more than 7 arguments.
+#[allow(clippy::too_many_arguments)]
 pub fn route<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,

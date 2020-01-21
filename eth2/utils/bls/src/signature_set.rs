@@ -158,17 +158,17 @@ fn aggregate_public_keys<'a>(public_keys: &'a [Cow<'a, G1Point>]) -> G1Point {
 }
 
 pub trait G1Ref {
-    fn g1_ref<'a>(&'a self) -> Cow<'a, G1Point>;
+    fn g1_ref(&self) -> Cow<'_, G1Point>;
 }
 
 impl G1Ref for AggregatePublicKey {
-    fn g1_ref<'a>(&'a self) -> Cow<'a, G1Point> {
+    fn g1_ref(&self) -> Cow<'_, G1Point> {
         Cow::Borrowed(&self.as_raw().point)
     }
 }
 
 impl G1Ref for PublicKey {
-    fn g1_ref<'a>(&'a self) -> Cow<'a, G1Point> {
+    fn g1_ref(&self) -> Cow<'_, G1Point> {
         Cow::Borrowed(&self.as_raw().point)
     }
 }

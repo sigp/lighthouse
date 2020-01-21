@@ -268,7 +268,7 @@ pub fn get_configs<E: EthSpec>(
     if eth2_config.spec_constants != client_config.spec_constants {
         crit!(log, "Specification constants do not match.";
               "client_config" => client_config.spec_constants.to_string(),
-              "eth2_config" => eth2_config.spec_constants.to_string()
+              "eth2_config" => eth2_config.spec_constants
         );
         return Err("Specification constant mismatch".into());
     }

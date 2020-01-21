@@ -17,7 +17,7 @@
 //!     b: Vec<u16>,
 //! }
 //!
-//! fn main() {
+//! fn ssz_encode_decode_example() {
 //!     let foo = Foo {
 //!         a: 42,
 //!         b: vec![1, 3, 3, 7]

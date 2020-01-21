@@ -224,7 +224,7 @@ mod tests {
             );
         }
 
-        let mut cache_2 = cache.clone();
+        let mut cache_2 = cache;
         cache_2.truncate(17);
         assert_eq!(
             cache_2.blocks.len(),
