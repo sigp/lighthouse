@@ -4,6 +4,7 @@ use crate::{
     events::NullEventHandler,
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
+use eth1::Config as Eth1Config;
 use genesis::interop_genesis_state;
 use lmd_ghost::ThreadSafeReducedTree;
 use rayon::prelude::*;
@@ -172,10 +173,10 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
-            .custom_spec(spec.clone())
+            .custom_spec(spec)
             .store(store.clone())
             .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
-            .resume_from_db()
+            .resume_from_db(Eth1Config::default())
             .expect("should resume beacon chain from db")
             .dummy_eth1_backend()
             .expect("should build dummy backend")
@@ -235,7 +236,6 @@ where
             self.chain
                 .state_at_slot(state_slot)
                 .expect("should find state for slot")
-                .clone()
         };
 
         // Determine the first slot where a block should be built.
@@ -461,7 +461,12 @@ where
         honest_fork_blocks: usize,
         faulty_fork_blocks: usize,
     ) -> (Hash256, Hash256) {
-        let initial_head_slot = self.chain.head().beacon_block.slot;
+        let initial_head_slot = self
+            .chain
+            .head()
+            .expect("should get head")
+            .beacon_block
+            .slot;
 
         // Move to the next slot so we may produce some more blocks on the head.
         self.advance_slot();

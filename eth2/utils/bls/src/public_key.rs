@@ -39,7 +39,7 @@ impl PublicKey {
     /// Converts compressed bytes to PublicKey
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let pubkey = RawPublicKey::from_bytes(&bytes).map_err(|_| {
-            DecodeError::BytesInvalid(format!("Invalid PublicKey bytes: {:?}", bytes).to_string())
+            DecodeError::BytesInvalid(format!("Invalid PublicKey bytes: {:?}", bytes))
         })?;
 
         Ok(PublicKey(pubkey))
@@ -81,7 +81,7 @@ impl fmt::Display for PublicKey {
 
 impl fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "0x{}", self.as_hex_string())
+        write!(f, "{}", self.as_hex_string())
     }
 }
 

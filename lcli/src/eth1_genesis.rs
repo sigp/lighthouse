@@ -5,7 +5,7 @@ use futures::Future;
 use genesis::{Eth1Config, Eth1GenesisService};
 use std::path::PathBuf;
 use std::time::Duration;
-use types::EthSpec;
+use types::{Epoch, EthSpec, Fork};
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
@@ -28,7 +28,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let mut eth2_testnet_config: Eth2TestnetConfig<T> =
         Eth2TestnetConfig::load(testnet_dir.clone())?;
 
-    let spec = eth2_testnet_config
+    let mut spec = eth2_testnet_config
         .yaml_config
         .as_ref()
         .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
@@ -39,6 +39,12 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 &env.core_context().eth2_config.spec_constants
             )
         })?;
+
+    spec.genesis_fork = Fork {
+        previous_version: [0, 0, 0, 0],
+        current_version: [1, 3, 3, 7],
+        epoch: Epoch::new(0),
+    };
 
     let mut config = Eth1Config::default();
     config.endpoint = endpoint.to_string();

@@ -43,7 +43,11 @@ fn get_randao_reveal<T: BeaconChainTypes>(
     slot: Slot,
     spec: &ChainSpec,
 ) -> Signature {
-    let fork = beacon_chain.head().beacon_state.fork.clone();
+    let fork = beacon_chain
+        .head()
+        .expect("should get head")
+        .beacon_state
+        .fork;
     let proposer_index = beacon_chain
         .block_proposer(slot)
         .expect("should get proposer index");
@@ -60,7 +64,11 @@ fn sign_block<T: BeaconChainTypes>(
     block: &mut BeaconBlock<T::EthSpec>,
     spec: &ChainSpec,
 ) {
-    let fork = beacon_chain.head().beacon_state.fork.clone();
+    let fork = beacon_chain
+        .head()
+        .expect("should get head")
+        .beacon_state
+        .fork;
     let proposer_index = beacon_chain
         .block_proposer(block.slot)
         .expect("should get proposer index");
@@ -81,7 +89,7 @@ fn validator_produce_attestation() {
         .client
         .beacon_chain()
         .expect("client should have beacon chain");
-    let state = beacon_chain.head().beacon_state.clone();
+    let state = beacon_chain.head().expect("should get head").beacon_state;
 
     let validator_index = 0;
     let duties = state
@@ -155,7 +163,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestation(attestation.clone()),
+                .publish_attestation(attestation),
         )
         .expect("should publish attestation");
     assert!(
@@ -182,6 +190,7 @@ fn validator_duties() {
 
     let validators = beacon_chain
         .head()
+        .expect("should get head")
         .beacon_state
         .validators
         .iter()
@@ -329,7 +338,7 @@ fn validator_block_post() {
             remote_node
                 .http
                 .validator()
-                .produce_block(slot, randao_reveal.clone()),
+                .produce_block(slot, randao_reveal),
         )
         .expect("should fetch block from http api");
 
@@ -345,12 +354,12 @@ fn validator_block_post() {
         );
     }
 
-    sign_block(beacon_chain.clone(), &mut block, spec);
+    sign_block(beacon_chain, &mut block, spec);
     let block_root = block.canonical_root();
 
     let publish_status = env
         .runtime()
-        .block_on(remote_node.http.validator().publish_block(block.clone()))
+        .block_on(remote_node.http.validator().publish_block(block))
         .expect("should publish block");
 
     if cfg!(not(feature = "fake_crypto")) {
@@ -404,7 +413,7 @@ fn validator_block_get() {
         .expect("client should have beacon chain");
 
     let slot = Slot::new(1);
-    let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
+    let randao_reveal = get_randao_reveal(beacon_chain, slot, spec);
 
     let block = env
         .runtime()
@@ -534,6 +543,7 @@ fn genesis_time() {
             .beacon_chain()
             .expect("should have beacon chain")
             .head()
+            .expect("should get head")
             .beacon_state
             .genesis_time,
         genesis_time,
@@ -558,6 +568,7 @@ fn fork() {
             .beacon_chain()
             .expect("should have beacon chain")
             .head()
+            .expect("should get head")
             .beacon_state
             .fork,
         fork,
@@ -623,6 +634,7 @@ fn get_genesis_state_root() {
         .beacon_chain()
         .expect("should have beacon chain")
         .rev_iter_state_roots()
+        .expect("should get iter")
         .find(|(_cur_root, cur_slot)| slot == *cur_slot)
         .map(|(cur_root, _)| cur_root)
         .expect("chain should have state root at slot");
@@ -649,6 +661,7 @@ fn get_genesis_block_root() {
         .beacon_chain()
         .expect("should have beacon chain")
         .rev_iter_block_roots()
+        .expect("should get iter")
         .find(|(_cur_root, cur_slot)| slot == *cur_slot)
         .map(|(cur_root, _)| cur_root)
         .expect("chain should have state root at slot");
@@ -666,7 +679,7 @@ fn get_validators() {
         .client
         .beacon_chain()
         .expect("node should have beacon chain");
-    let state = &chain.head().beacon_state;
+    let state = &chain.head().expect("should get head").beacon_state;
 
     let validators = state.validators.iter().take(2).collect::<Vec<_>>();
     let pubkeys = validators
@@ -695,7 +708,7 @@ fn get_all_validators() {
         .client
         .beacon_chain()
         .expect("node should have beacon chain");
-    let state = &chain.head().beacon_state;
+    let state = &chain.head().expect("should get head").beacon_state;
 
     let result = env
         .runtime()
@@ -718,7 +731,7 @@ fn get_active_validators() {
         .client
         .beacon_chain()
         .expect("node should have beacon chain");
-    let state = &chain.head().beacon_state;
+    let state = &chain.head().expect("should get head").beacon_state;
 
     let result = env
         .runtime()
@@ -764,6 +777,7 @@ fn get_committees() {
 
     let expected = chain
         .head()
+        .expect("should get head")
         .beacon_state
         .get_beacon_committees_at_epoch(RelativeEpoch::Current)
         .expect("should get committees")

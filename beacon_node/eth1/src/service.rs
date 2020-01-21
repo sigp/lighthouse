@@ -151,6 +151,20 @@ impl Service {
         }
     }
 
+    /// Return byte representation of deposit and block caches.
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.inner.as_bytes()
+    }
+
+    /// Recover the deposit and block caches from encoded bytes.
+    pub fn from_bytes(bytes: &[u8], config: Config, log: Logger) -> Result<Self, String> {
+        let inner = Inner::from_bytes(bytes, config)?;
+        Ok(Self {
+            inner: Arc::new(inner),
+            log,
+        })
+    }
+
     /// Provides access to the block cache.
     pub fn blocks(&self) -> &RwLock<BlockCache> {
         &self.inner.block_cache
@@ -316,13 +330,13 @@ impl Service {
                     match update_result {
                         Err(e) => error!(
                             log_a,
-                            "Failed to update eth1 genesis cache";
+                            "Failed to update eth1 cache";
                             "retry_millis" => update_interval.as_millis(),
                             "error" => e,
                         ),
                         Ok((deposit, block)) => debug!(
                             log_a,
-                            "Updated eth1 genesis cache";
+                            "Updated eth1 cache";
                             "retry_millis" => update_interval.as_millis(),
                             "blocks" => format!("{:?}", block),
                             "deposits" => format!("{:?}", deposit),
@@ -599,7 +613,7 @@ impl Service {
 
             Ok(BlockCacheUpdateOutcome::Success {
                 blocks_imported,
-                head_block_number: cache_4.clone().block_cache.read().highest_block_number(),
+                head_block_number: cache_4.block_cache.read().highest_block_number(),
             })
         })
     }

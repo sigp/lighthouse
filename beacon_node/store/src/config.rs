@@ -5,6 +5,9 @@ use types::{EthSpec, MinimalEthSpec};
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
 
+/// Default value for the freezer DB's restore point frequency.
+pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreConfig {
     /// Name of the directory inside the data directory where the main "hot" DB is located.
@@ -20,6 +23,7 @@ impl Default for StoreConfig {
         Self {
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
+            // Safe default for tests, shouldn't ever be read by a CLI node.
             slots_per_restore_point: MinimalEthSpec::slots_per_historical_root() as u64,
         }
     }

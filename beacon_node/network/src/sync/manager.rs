@@ -229,7 +229,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         };
 
-        let local = PeerSyncInfo::from(&chain);
+        let local = match PeerSyncInfo::from_chain(&chain) {
+            Some(local) => local,
+            None => {
+                return error!(
+                    self.log,
+                    "Failed to get peer sync info";
+                    "msg" => "likely due to head lock contention"
+                )
+            }
+        };
 
         // If a peer is within SLOT_IMPORT_TOLERANCE from our head slot, ignore a batch/range sync,
         // consider it a fully-sync'd peer.

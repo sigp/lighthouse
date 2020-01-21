@@ -1,6 +1,8 @@
-use crate::{DiskStore, MemoryStore, SimpleDiskStore, Store};
+use crate::{
+    hot_cold_store::HotColdDBError, DiskStore, Error, MemoryStore, SimpleDiskStore, Store,
+};
 use parking_lot::Mutex;
-use slog::warn;
+use slog::{info, warn};
 use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -58,13 +60,12 @@ impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
     }
 }
 
+type MpscSender<E> = mpsc::Sender<(Hash256, BeaconState<E>)>;
+
 /// Migrator that runs a background thread to migrate state from the hot to the cold database.
 pub struct BackgroundMigrator<E: EthSpec> {
     db: Arc<DiskStore<E>>,
-    tx_thread: Mutex<(
-        mpsc::Sender<(Hash256, BeaconState<E>)>,
-        thread::JoinHandle<()>,
-    )>,
+    tx_thread: Mutex<(MpscSender<E>, thread::JoinHandle<()>)>,
 }
 
 impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
@@ -127,12 +128,22 @@ impl<E: EthSpec> BackgroundMigrator<E> {
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
             while let Ok((state_root, state)) = rx.recv() {
-                if let Err(e) = DiskStore::freeze_to_state(db.clone(), state_root, &state) {
-                    warn!(
-                        db.log,
-                        "Database migration failed";
-                        "error" => format!("{:?}", e)
-                    );
+                match DiskStore::freeze_to_state(db.clone(), state_root, &state) {
+                    Ok(()) => {}
+                    Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
+                        info!(
+                            db.log,
+                            "Database migration postponed, unaligned finalized block";
+                            "slot" => slot.as_u64()
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            db.log,
+                            "Database migration failed";
+                            "error" => format!("{:?}", e)
+                        );
+                    }
                 }
             }
         });

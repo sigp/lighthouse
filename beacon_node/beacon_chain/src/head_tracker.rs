@@ -59,10 +59,10 @@ impl HeadTracker {
         let slots_len = ssz_container.slots.len();
 
         if roots_len != slots_len {
-            return Err(Error::MismatchingLengths {
+            Err(Error::MismatchingLengths {
                 roots_len,
                 slots_len,
-            });
+            })
         } else {
             let map = HashMap::from_iter(
                 ssz_container

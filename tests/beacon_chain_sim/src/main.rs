@@ -41,6 +41,7 @@ fn main() {
     let nodes = 4;
     let validators_per_node = 20;
     let log_level = "debug";
+    let log_format = None;
     let speed_up_factor = 4;
     let end_after_checks = true;
 
@@ -49,6 +50,7 @@ fn main() {
         validators_per_node,
         speed_up_factor,
         log_level,
+        log_format,
         end_after_checks,
     ) {
         Ok(()) => println!("Simulation exited successfully"),
@@ -64,10 +66,11 @@ fn async_sim(
     validators_per_node: usize,
     speed_up_factor: u64,
     log_level: &str,
+    log_format: Option<&str>,
     end_after_checks: bool,
 ) -> Result<(), String> {
     let mut env = EnvironmentBuilder::minimal()
-        .async_logger(log_level)?
+        .async_logger(log_level, log_format)?
         .multi_threaded_tokio_runtime()?
         .build()?;
 
@@ -75,7 +78,7 @@ fn async_sim(
 
     let spec = &mut env.eth2_config.spec;
 
-    spec.milliseconds_per_slot = spec.milliseconds_per_slot / speed_up_factor;
+    spec.milliseconds_per_slot /= speed_up_factor;
     spec.eth1_follow_distance = 16;
     spec.seconds_per_day = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;

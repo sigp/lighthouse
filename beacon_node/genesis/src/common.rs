@@ -19,7 +19,7 @@ pub fn genesis_deposits(
     let depth = spec.deposit_contract_tree_depth as usize;
     let mut tree = MerkleTree::create(&[], depth);
     for (i, deposit_leaf) in deposit_root_leaves.iter().enumerate() {
-        if let Err(_) = tree.push_leaf(*deposit_leaf, depth) {
+        if tree.push_leaf(*deposit_leaf, depth).is_err() {
             return Err(String::from("Failed to push leaf"));
         }
 

@@ -27,7 +27,6 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     }
 
     state.validators = (0..validator_count)
-        .into_iter()
         .collect::<Vec<_>>()
         .par_iter()
         .map(|&i| Validator {

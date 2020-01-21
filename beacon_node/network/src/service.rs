@@ -278,7 +278,7 @@ fn network_service(
             match libp2p_service.lock().poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
-                        trace!(log, "Received RPC"; "rpc" => format!("{}", rpc_event));
+                        // trace!(log, "Received RPC"; "rpc" => format!("{}", rpc_event));
 
                         // if we received a Goodbye message, drop and ban the peer
                         if let RPCEvent::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
@@ -304,7 +304,7 @@ fn network_service(
                         id,
                         source,
                         message,
-                        topics: _,
+                        ..
                     } => {
                         message_handler_send
                             .try_send(HandlerMessage::PubsubMessage(id, source, message))

@@ -36,14 +36,21 @@ impl SyncNetworkContext {
         chain: Weak<BeaconChain<T>>,
         peer_id: PeerId,
     ) {
-        trace!(
-            self.log,
-            "Sending Status Request";
-            "method" => "STATUS",
-            "peer" => format!("{:?}", peer_id)
-        );
         if let Some(chain) = chain.upgrade() {
-            let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message(&chain)));
+            if let Some(status_message) = status_message(&chain) {
+                debug!(
+                    self.log,
+                    "Sending Status Request";
+                    "peer" => format!("{:?}", peer_id),
+                    "fork_version" => format!("{:?}", status_message.fork_version),
+                    "finalized_root" => format!("{:?}", status_message.finalized_root),
+                    "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
+                    "head_root" => format!("{}", status_message.head_root),
+                    "head_slot" => format!("{}", status_message.head_slot),
+                );
+
+                let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message));
+            }
         }
     }
 
@@ -59,7 +66,7 @@ impl SyncNetworkContext {
             "count" => request.count,
             "peer" => format!("{:?}", peer_id)
         );
-        self.send_rpc_request(peer_id.clone(), RPCRequest::BlocksByRange(request))
+        self.send_rpc_request(peer_id, RPCRequest::BlocksByRange(request))
     }
 
     pub fn blocks_by_root_request(
@@ -74,7 +81,7 @@ impl SyncNetworkContext {
             "count" => request.block_roots.len(),
             "peer" => format!("{:?}", peer_id)
         );
-        self.send_rpc_request(peer_id.clone(), RPCRequest::BlocksByRoot(request))
+        self.send_rpc_request(peer_id, RPCRequest::BlocksByRoot(request))
     }
 
     pub fn downvote_peer(&mut self, peer_id: PeerId) {
@@ -84,7 +91,7 @@ impl SyncNetworkContext {
             "peer" => format!("{:?}", peer_id)
         );
         // TODO: Implement reputation
-        self.disconnect(peer_id.clone(), GoodbyeReason::Fault);
+        self.disconnect(peer_id, GoodbyeReason::Fault);
     }
 
     fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
@@ -122,8 +129,7 @@ impl SyncNetworkContext {
         self.network_send
             .try_send(NetworkMessage::RPC(peer_id, rpc_event))
             .map_err(|_| {
-                // This is likely to happen when shutting down. Suppress this warning to trace for now
-                trace!(
+                debug!(
                     self.log,
                     "Could not send RPC message to the network service"
                 );

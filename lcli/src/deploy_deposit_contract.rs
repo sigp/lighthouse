@@ -5,7 +5,7 @@ use eth2_testnet_config::Eth2TestnetConfig;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use types::{ChainSpec, EthSpec, YamlConfig};
+use types::{ChainSpec, Epoch, EthSpec, Fork, YamlConfig};
 use web3::{transports::Http, Web3};
 
 pub const SECONDS_PER_ETH1_BLOCK: u64 = 15;
@@ -94,12 +94,12 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     info!("Writing config to {:?}", output_dir);
 
-    let mut spec = lighthouse_testnet_spec(env.core_context().eth2_config.spec.clone());
+    let mut spec = lighthouse_testnet_spec(env.core_context().eth2_config.spec);
     spec.min_genesis_time = min_genesis_time;
     spec.min_genesis_active_validator_count = min_genesis_active_validator_count;
 
     let testnet_config: Eth2TestnetConfig<T> = Eth2TestnetConfig {
-        deposit_contract_address: format!("{}", deposit_contract.address()),
+        deposit_contract_address: deposit_contract.address(),
         deposit_contract_deploy_block: deploy_block.as_u64(),
         boot_enr: None,
         genesis_state: None,
@@ -130,6 +130,12 @@ pub fn lighthouse_testnet_spec(mut spec: ChainSpec) -> ChainSpec {
     // With a follow distance of 16, this is 40mins.
     spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2 * 5;
 
+    spec.genesis_fork = Fork {
+        previous_version: [0, 0, 0, 0],
+        current_version: [1, 3, 3, 7],
+        epoch: Epoch::new(0),
+    };
+
     spec
 }
 
@@ -146,7 +152,7 @@ pub fn parse_password(matches: &ArgMatches) -> Result<Option<String>, String> {
                 })
                 .map(|password| {
                     // Trim the linefeed from the end.
-                    if password.ends_with("\n") {
+                    if password.ends_with('\n') {
                         password[0..password.len() - 1].to_string()
                     } else {
                         password
