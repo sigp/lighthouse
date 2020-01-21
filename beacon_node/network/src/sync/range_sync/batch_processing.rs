@@ -72,7 +72,7 @@ fn process_batch<T: BeaconChainTypes>(
                     }
                     BlockProcessingOutcome::ParentUnknown { parent } => {
                         // blocks should be sequential and all parents should exist
-                        trace!(
+                        warn!(
                             log, "Parent block is unknown";
                             "parent_root" => format!("{}", parent),
                             "baby_block_slot" => block.slot,
@@ -98,7 +98,7 @@ fn process_batch<T: BeaconChainTypes>(
                     } => {
                         if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot {
                             // The block is too far in the future, drop it.
-                            trace!(
+                            warn!(
                                 log, "Block is ahead of our slot clock";
                                 "msg" => "block for future slot rejected, check your time",
                                 "present_slot" => present_slot,
@@ -114,7 +114,7 @@ fn process_batch<T: BeaconChainTypes>(
                             ));
                         } else {
                             // The block is in the future, but not too far.
-                            trace!(
+                            debug!(
                                 log, "Block is slightly ahead of our slot clock, ignoring.";
                                 "present_slot" => present_slot,
                                 "block_slot" => block_slot,
@@ -123,14 +123,14 @@ fn process_batch<T: BeaconChainTypes>(
                         }
                     }
                     BlockProcessingOutcome::WouldRevertFinalizedSlot { .. } => {
-                        trace!(
+                        debug!(
                             log, "Finalized or earlier block processed";
                             "outcome" => format!("{:?}", outcome),
                         );
                         // block reached our finalized slot or was earlier, move to the next block
                     }
                     BlockProcessingOutcome::GenesisBlock => {
-                        trace!(
+                        debug!(
                             log, "Genesis block was processed";
                             "outcome" => format!("{:?}", outcome),
                         );
