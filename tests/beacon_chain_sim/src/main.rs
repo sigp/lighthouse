@@ -80,7 +80,7 @@ fn async_sim(
 
     spec.milliseconds_per_slot = spec.milliseconds_per_slot / speed_up_factor;
     spec.eth1_follow_distance = 16;
-    spec.seconds_per_day = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
+    spec.min_genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = 64;
 

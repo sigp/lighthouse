@@ -5,7 +5,7 @@ use eth2_testnet_config::Eth2TestnetConfig;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use types::{ChainSpec, Epoch, EthSpec, Fork, YamlConfig};
+use types::{ChainSpec, EthSpec, YamlConfig};
 use web3::{transports::Http, Web3};
 
 pub const SECONDS_PER_ETH1_BLOCK: u64 = 15;

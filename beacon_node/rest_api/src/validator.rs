@@ -228,7 +228,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
         .collect::<Result<Vec<_>, ApiError>>()
 }
 
-/// HTTP Handler to produce a new SignedBeaconBlock from the current state, ready to be signed by a validator.
+/// HTTP Handler to produce a new BeaconBlock from the current state, ready to be signed by a validator.
 pub fn get_new_beacon_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,

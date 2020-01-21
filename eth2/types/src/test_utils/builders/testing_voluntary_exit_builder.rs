@@ -18,20 +18,15 @@ impl TestingVoluntaryExitBuilder {
         Self { exit }
     }
 
-    /* FIXME(sproul)
-    /// Signs the exit.
+    /// Build and sign the exit.
     ///
     /// The signing secret key must match that of the exiting validator.
-    pub fn sign(&mut self, secret_key: &SecretKey, fork: &Fork, spec: &ChainSpec) {
-        let message = self.exit.signed_root();
-        let domain = spec.get_domain(self.exit.epoch, Domain::VoluntaryExit, fork);
-
-        self.exit.signature = Signature::new(&message, domain, secret_key);
-    }
-    */
-
-    /// Builds the exit, consuming the builder.
-    pub fn build(self) -> VoluntaryExit {
-        self.exit
+    pub fn build(
+        self,
+        secret_key: &SecretKey,
+        fork: &Fork,
+        spec: &ChainSpec,
+    ) -> SignedVoluntaryExit {
+        self.exit.sign(secret_key, fork, spec)
     }
 }

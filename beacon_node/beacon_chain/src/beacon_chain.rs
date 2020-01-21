@@ -155,7 +155,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) log: Logger,
 }
 
-type BeaconBlockAndState<T> = (SignedBeaconBlock<T>, BeaconState<T>);
+type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Attempt to save this instance to `self.store`.
@@ -1503,7 +1503,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "slot" => block.message.slot
         );
 
-        Ok((block, state))
+        Ok((block.message, state))
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.

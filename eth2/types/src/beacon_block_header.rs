@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 
 /// A header of a `BeaconBlock`.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.0
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct BeaconBlockHeader {
     pub slot: Slot,
@@ -37,6 +37,23 @@ impl BeaconBlockHeader {
             parent_root: self.parent_root,
             state_root: self.state_root,
             body,
+        }
+    }
+
+    /// Signs `self`, producing a `SignedBeaconBlockHeader`.
+    pub fn sign<E: EthSpec>(
+        self,
+        secret_key: &SecretKey,
+        fork: &Fork,
+        spec: &ChainSpec,
+    ) -> SignedBeaconBlockHeader {
+        let epoch = self.slot.epoch(E::slots_per_epoch());
+        let domain = spec.get_domain(epoch, Domain::BeaconProposer, fork);
+        let message = self.signing_root(domain);
+        let signature = Signature::new(message.as_bytes(), domain, secret_key);
+        SignedBeaconBlockHeader {
+            message: self,
+            signature,
         }
     }
 }

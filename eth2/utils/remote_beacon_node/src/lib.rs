@@ -341,7 +341,7 @@ impl<E: EthSpec> Beacon<E> {
     pub fn get_block_by_slot(
         &self,
         slot: Slot,
-    ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
+    ) -> impl Future<Item = (SignedBeaconBlock<E>, Hash256), Error = Error> {
         self.get_block("slot".to_string(), format!("{}", slot.as_u64()))
     }
 
@@ -349,7 +349,7 @@ impl<E: EthSpec> Beacon<E> {
     pub fn get_block_by_root(
         &self,
         root: Hash256,
-    ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
+    ) -> impl Future<Item = (SignedBeaconBlock<E>, Hash256), Error = Error> {
         self.get_block("root".to_string(), root_as_string(root))
     }
 
@@ -358,7 +358,7 @@ impl<E: EthSpec> Beacon<E> {
         &self,
         query_key: String,
         query_param: String,
-    ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
+    ) -> impl Future<Item = (SignedBeaconBlock<E>, Hash256), Error = Error> {
         let client = self.0.clone();
         self.url("block")
             .into_future()
@@ -539,7 +539,7 @@ impl<E: EthSpec> Node<E> {
 #[derive(Deserialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct BlockResponse<T: EthSpec> {
-    pub beacon_block: BeaconBlock<T>,
+    pub beacon_block: SignedBeaconBlock<T>,
     pub root: Hash256,
 }
 

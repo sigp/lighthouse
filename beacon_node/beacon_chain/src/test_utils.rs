@@ -320,9 +320,9 @@ where
             .produce_block_on_state(state, slot, randao_reveal)
             .expect("should produce block");
 
-        let block = block.message.sign(sk, &state.fork, &self.spec);
+        let signed_block = block.sign(sk, &state.fork, &self.spec);
 
-        (block, state)
+        (signed_block, state)
     }
 
     /// Adds attestations to the `BeaconChain` operations pool and fork choice.

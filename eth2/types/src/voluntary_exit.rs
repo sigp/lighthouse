@@ -1,4 +1,7 @@
-use crate::{test_utils::TestRandom, Epoch, SignedRoot};
+use crate::{
+    test_utils::TestRandom, ChainSpec, Domain, Epoch, Fork, SecretKey, Signature, SignedRoot,
+    SignedVoluntaryExit,
+};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -16,6 +19,23 @@ pub struct VoluntaryExit {
 }
 
 impl SignedRoot for VoluntaryExit {}
+
+impl VoluntaryExit {
+    pub fn sign(
+        self,
+        secret_key: &SecretKey,
+        fork: &Fork,
+        spec: &ChainSpec,
+    ) -> SignedVoluntaryExit {
+        let domain = spec.get_domain(self.epoch, Domain::VoluntaryExit, fork);
+        let message = self.signing_root(domain);
+        let signature = Signature::new(message.as_bytes(), domain, &secret_key);
+        SignedVoluntaryExit {
+            message: self,
+            signature,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

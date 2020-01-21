@@ -4,7 +4,7 @@ use state_processing::{per_block_processing, per_slot_processing, BlockSignature
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
-use types::{BeaconBlock, BeaconState, EthSpec};
+use types::{BeaconState, EthSpec, SignedBeaconBlock};
 
 pub fn run_transition_blocks<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let pre_state_path = matches
@@ -30,7 +30,7 @@ pub fn run_transition_blocks<T: EthSpec>(matches: &ArgMatches) -> Result<(), Str
     info!("Block path: {:?}", block_path);
 
     let pre_state: BeaconState<T> = load_from_ssz(pre_state_path)?;
-    let block: BeaconBlock<T> = load_from_ssz(block_path)?;
+    let block: SignedBeaconBlock<T> = load_from_ssz(block_path)?;
 
     let post_state = do_transition(pre_state, block)?;
 
@@ -46,7 +46,7 @@ pub fn run_transition_blocks<T: EthSpec>(matches: &ArgMatches) -> Result<(), Str
 
 fn do_transition<T: EthSpec>(
     mut pre_state: BeaconState<T>,
-    block: BeaconBlock<T>,
+    block: SignedBeaconBlock<T>,
 ) -> Result<BeaconState<T>, String> {
     let spec = &T::default_spec();
 
@@ -55,7 +55,7 @@ fn do_transition<T: EthSpec>(
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
 
     // Transition the parent state to the block slot.
-    for i in pre_state.slot.as_u64()..block.slot.as_u64() {
+    for i in pre_state.slot.as_u64()..block.slot().as_u64() {
         per_slot_processing(&mut pre_state, None, spec)
             .map_err(|e| format!("Failed to advance slot on iteration {}: {:?}", i, e))?;
     }

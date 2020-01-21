@@ -41,7 +41,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (mut state, keypairs) = self.state_builder.build();
 
         let builder = &mut self.block_builder;
@@ -84,7 +84,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (mut state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -141,7 +141,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -184,7 +184,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -233,7 +233,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -275,7 +275,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 

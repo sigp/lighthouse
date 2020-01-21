@@ -11,7 +11,7 @@ use lmd_ghost::{LmdGhost, ThreadSafeReducedTree as BaseThreadSafeReducedTree};
 use rand::{prelude::*, rngs::StdRng};
 use std::sync::Arc;
 use store::{iter::AncestorIter, MemoryStore, Store};
-use types::{BeaconBlock, EthSpec, Hash256, MinimalEthSpec, Slot};
+use types::{EthSpec, Hash256, MinimalEthSpec, SignedBeaconBlock, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 3 * 8;
@@ -39,7 +39,7 @@ struct ForkedHarness {
     /// don't expose it to avoid contamination between tests.
     harness: BeaconChainHarness,
     pub genesis_block_root: Hash256,
-    pub genesis_block: BeaconBlock<TestEthSpec>,
+    pub genesis_block: SignedBeaconBlock<TestEthSpec>,
     pub honest_head: RootAndSlot,
     pub faulty_head: RootAndSlot,
     /// Honest roots in reverse order (slot high to low)
@@ -101,7 +101,7 @@ impl ForkedHarness {
         let genesis_block = harness
             .chain
             .store
-            .get::<BeaconBlock<TestEthSpec>>(&genesis_block_root)
+            .get_block(&genesis_block_root)
             .expect("Genesis block should exist")
             .expect("DB should not error");
 
@@ -131,7 +131,7 @@ impl ForkedHarness {
         ThreadSafeReducedTree::new(
             Arc::new(store),
             self.harness.chain.block_root_tree.clone(),
-            &self.genesis_block,
+            &self.genesis_block.message,
             self.genesis_block_root,
         )
     }
@@ -156,13 +156,15 @@ fn get_ancestor_roots<U: Store<TestEthSpec>>(
     block_root: Hash256,
 ) -> Vec<(Hash256, Slot)> {
     let block = store
-        .get::<BeaconBlock<TestEthSpec>>(&block_root)
+        .get_block(&block_root)
         .expect("block should exist")
         .expect("store should not error");
 
-    <BeaconBlock<TestEthSpec> as AncestorIter<_, _, _>>::try_iter_ancestor_roots(&block, store)
-        .expect("should be able to create ancestor iter")
-        .collect()
+    <SignedBeaconBlock<TestEthSpec> as AncestorIter<_, _, _>>::try_iter_ancestor_roots(
+        &block, store,
+    )
+    .expect("should be able to create ancestor iter")
+    .collect()
 }
 
 /// Helper: returns the slot for some block_root.
@@ -170,9 +172,10 @@ fn get_slot_for_block_root(harness: &BeaconChainHarness, block_root: Hash256) ->
     harness
         .chain
         .store
-        .get::<BeaconBlock<TestEthSpec>>(&block_root)
+        .get_block(&block_root)
         .expect("head block should exist")
         .expect("DB should not error")
+        .message
         .slot
 }
 
@@ -369,10 +372,10 @@ fn test_update_finalized_root(roots: &[(Hash256, Slot)]) {
     for (root, _slot) in roots.iter().rev() {
         let block = harness
             .store_clone()
-            .get::<BeaconBlock<TestEthSpec>>(root)
+            .get_block(root)
             .expect("block should exist")
             .expect("db should not error");
-        lmd.update_finalized_root(&block, *root)
+        lmd.update_finalized_root(&block.message, *root)
             .expect("finalized root should update for faulty fork");
 
         assert_eq!(
