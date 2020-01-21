@@ -1,5 +1,6 @@
 use bls::PublicKey;
 use futures::{future, Future, IntoFuture};
+use remote_beacon_node::ValidatorResponse;
 use reqwest::{
     r#async::{Client, ClientBuilder, Response},
     StatusCode,
@@ -136,7 +137,7 @@ impl<E: EthSpec> Validator<E> {
             .map_err(Into::into)
     }
 
-    pub fn get_validators(&self) -> impl Future<Item = Vec<PublicKey>, Error = Error> {
+    pub fn get_validators(&self) -> impl Future<Item = Vec<ValidatorResponse>, Error = Error> {
         let client = self.0.clone();
         self.url("")
             .into_future()

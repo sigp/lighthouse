@@ -3386,6 +3386,7 @@ dependencies = [
  "eth2_ssz 0.1.2",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "remote_beacon_node 0.1.0",
  "reqwest 0.9.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "rest_api_vc 0.1.0",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",

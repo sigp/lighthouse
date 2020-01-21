@@ -30,9 +30,11 @@ pub fn route<T: SlotClock + 'static, E: EthSpec>(
     let request_result: Box<dyn Future<Item = Response<_>, Error = _> + Send> =
         match (req.method(), path.as_ref()) {
             // Methods for Validator
-            (&Method::GET, "/validators/") => {
-                into_boxfut(validator::get_validators::<T, E>(req, validator_client))
-            }
+            (&Method::GET, "/validators/") => into_boxfut(validator::get_validators::<T, E>(
+                req,
+                validator_client,
+                beacon_node,
+            )),
             (&Method::POST, "/validators/add") => {
                 validator::add_new_validator::<T, E>(req, validator_client)
             }

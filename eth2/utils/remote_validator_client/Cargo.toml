@@ -15,6 +15,7 @@ types = { path = "../../../eth2/types" }
 rest_api_vc = { path = "../../../validator_client/rest_api" }
 hex = "0.3"
 bls = { path = "../../../eth2/utils/bls" }
+remote_beacon_node = { path = "../remote_beacon_node" }
 eth2_ssz = { path = "../../../eth2/utils/ssz" }
 serde_json = "^1.0"
 eth2_config = { path = "../../../eth2/utils/eth2_config" }

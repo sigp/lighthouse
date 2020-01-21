@@ -21,13 +21,26 @@ pub struct AddValidatorRequest {
     pub deposit_amount: u64,
 }
 
-/// Get public keys of all managed validators.
+/// Get Validator info of all managed validators.
 pub fn get_validators<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
     validator_store: Arc<ValidatorStore<T, E>>,
-) -> ApiResult {
+    beacon_node: Arc<RemoteBeaconNode<E>>,
+) -> BoxFut {
+    let response_builder = ResponseBuilder::new(&req);
     let validators = validator_store.voting_pubkeys();
-    ResponseBuilder::new(&req)?.body(&validators)
+    let future = beacon_node
+        .http
+        .beacon()
+        .get_validators(validators, None)
+        .map_err(|e| {
+            ApiError::ServerError(format!(
+                "Failed to get validator info from beacon node: {:?}",
+                e
+            ))
+        })
+        .and_then(move |validator_response| response_builder?.body(&validator_response));
+    Box::new(future)
 }
 
 /// Generates a new validator to the list of managed validators.

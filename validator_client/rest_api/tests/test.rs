@@ -1,3 +1,4 @@
+use bls::PublicKeyBytes;
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     testing_client_config, ClientConfig, LocalBeaconNode, LocalValidatorClient,
@@ -66,7 +67,14 @@ fn test_validator_api() {
         .expect("should get validators");
 
     assert_eq!(
-        expected_validators, validators,
+        expected_validators
+            .iter()
+            .map(|x| x.clone().into())
+            .collect::<Vec<PublicKeyBytes>>(),
+        validators
+            .iter()
+            .map(|validator| validator.pubkey.clone())
+            .collect::<Vec<PublicKeyBytes>>(),
         "should fetch same validators"
     );
 
