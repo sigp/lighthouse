@@ -187,12 +187,14 @@ pub fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
                 // Verify public key matches
                 let pk_bytes: PublicKeyBytes = pk.clone().into();
                 if pk_bytes != validator.pubkey {
+                    // TODO: Return appropriate error
                     Err(ApiError::ProcessingError(format!(
                         "Invalid public key returned from beacon chain api"
                     )))
                 }
                 // Verify that validator is currently activated
                 else if validator.validator_index.is_none() {
+                    // TODO: Return appropriate error
                     Err(ApiError::ProcessingError(format!(
                         "Validator not active on beacon chain"
                     )))
@@ -208,6 +210,7 @@ pub fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
                     Ok(())
                 }
             } else {
+                // TODO: Return appropriate error
                 Err(ApiError::ProcessingError(format!(
                     "Invalid public key returned from beacon chain api"
                 )))

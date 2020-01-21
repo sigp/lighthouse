@@ -193,6 +193,18 @@ impl<E: EthSpec> Validator<E> {
             .and_then(|response| error_for_status(response).map_err(Error::from))
             .and_then(|_| Ok(()))
     }
+
+    pub fn exit_validator(&self, validator: &PublicKey) -> impl Future<Item = (), Error = Error> {
+        let client = self.0.clone();
+        let body = ValidatorRequest {
+            validator: validator.clone(),
+        };
+        self.url("exit")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, body))
+            .and_then(|response| error_for_status(response).map_err(Error::from))
+            .and_then(|_| Ok(()))
+    }
 }
 
 impl From<reqwest::Error> for Error {

@@ -55,7 +55,7 @@ fn test_validator_api() {
     let mut vc_config = ValidatorConfig::default();
     vc_config.http_server = format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
 
-    let vc = build_vc(&mut env, vc_config, 16);
+    let vc = build_vc(&mut env, vc_config, 8);
     let remote_vc = vc.remote_node().expect("Should produce remote node");
 
     // Check validators fetched from api are consistent with the vc client
@@ -69,6 +69,17 @@ fn test_validator_api() {
         expected_validators, validators,
         "should fetch same validators"
     );
+
+    // Exit activated validator
+    // TODO: test for failure case. Currently, returns 202 for on `ProcessingError`.
+    let exit = env.runtime().block_on(
+        remote_vc.http.validator().exit_validator(
+            expected_validators
+                .first()
+                .expect("should have atleast one validator"),
+        ),
+    );
+    assert!(exit.is_ok(), "exit shouldn't error");
 
     // Add validator
     let pk = env
