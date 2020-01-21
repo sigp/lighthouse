@@ -62,7 +62,7 @@ fn test_gossipsub_forward() {
                             // Every node except the corner nodes are connected to 2 nodes.
                             if subscribed_count == (num_nodes * 2) - 2 {
                                 node.swarm.publish(
-                                    &vec![Topic::new(topic.into_string())],
+                                    &[Topic::new(topic.into_string())],
                                     pubsub_message.clone(),
                                 );
                             }
@@ -96,45 +96,37 @@ fn test_gossipsub_full_mesh_publish() {
     let mut received_count = 0;
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
         for node in nodes.iter_mut() {
-            loop {
-                match node.poll().unwrap() {
-                    Async::Ready(Some(Libp2pEvent::PubsubMessage {
-                        topics, message, ..
-                    })) => {
-                        assert_eq!(topics.len(), 1);
-                        // Assert topic is the published topic
-                        assert_eq!(
-                            topics.first().unwrap(),
-                            &TopicHash::from_raw(publishing_topic.clone())
-                        );
-                        // Assert message received is the correct one
-                        assert_eq!(message, pubsub_message.clone());
-                        received_count += 1;
-                        if received_count == num_nodes - 1 {
-                            return Ok(Async::Ready(()));
-                        }
-                    }
-                    _ => break,
+            while let Async::Ready(Some(Libp2pEvent::PubsubMessage {
+                topics, message, ..
+            })) = node.poll().unwrap()
+            {
+                assert_eq!(topics.len(), 1);
+                // Assert topic is the published topic
+                assert_eq!(
+                    topics.first().unwrap(),
+                    &TopicHash::from_raw(publishing_topic.clone())
+                );
+                // Assert message received is the correct one
+                assert_eq!(message, pubsub_message.clone());
+                received_count += 1;
+                if received_count == num_nodes - 1 {
+                    return Ok(Async::Ready(()));
                 }
             }
         }
-        loop {
-            match publishing_node.poll().unwrap() {
-                Async::Ready(Some(Libp2pEvent::PeerSubscribed(_, topic))) => {
-                    // Received topics is one of subscribed eth2 topics
-                    assert!(topic.clone().into_string().starts_with("/eth2/"));
-                    // Publish on beacon block topic
-                    if topic == TopicHash::from_raw("/eth2/beacon_block/ssz") {
-                        subscribed_count += 1;
-                        if subscribed_count == num_nodes - 1 {
-                            publishing_node.swarm.publish(
-                                &vec![Topic::new(topic.into_string())],
-                                pubsub_message.clone(),
-                            );
-                        }
-                    }
+        while let Async::Ready(Some(Libp2pEvent::PeerSubscribed(_, topic))) =
+            publishing_node.poll().unwrap()
+        {
+            // Received topics is one of subscribed eth2 topics
+            assert!(topic.clone().into_string().starts_with("/eth2/"));
+            // Publish on beacon block topic
+            if topic == TopicHash::from_raw("/eth2/beacon_block/ssz") {
+                subscribed_count += 1;
+                if subscribed_count == num_nodes - 1 {
+                    publishing_node
+                        .swarm
+                        .publish(&[Topic::new(topic.into_string())], pubsub_message.clone());
                 }
-                _ => break,
             }
         }
         Ok(Async::NotReady)

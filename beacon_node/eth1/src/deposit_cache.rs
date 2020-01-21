@@ -1,6 +1,7 @@
 use crate::DepositLog;
 use eth2_hashing::hash;
 use ssz_derive::{Decode, Encode};
+use std::cmp::Ordering;
 use tree_hash::TreeHash;
 use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
@@ -196,24 +197,26 @@ impl DepositCache {
     /// - If a log with index `log.index - 1` is not already present in `self` (ignored when empty).
     /// - If a log with `log.index` is already known, but the given `log` is distinct to it.
     pub fn insert_log(&mut self, log: DepositLog) -> Result<(), Error> {
-        if log.index == self.logs.len() as u64 {
-            let deposit = Hash256::from_slice(&log.deposit_data.tree_hash_root());
-            self.leaves.push(deposit);
-            self.logs.push(log);
-            self.deposit_tree.push_leaf(deposit)?;
-            self.deposit_roots.push(self.deposit_tree.root());
-            Ok(())
-        } else if log.index < self.logs.len() as u64 {
-            if self.logs[log.index as usize] == log {
+        match log.index.cmp(&(self.logs.len() as u64)) {
+            Ordering::Equal => {
+                let deposit = Hash256::from_slice(&log.deposit_data.tree_hash_root());
+                self.leaves.push(deposit);
+                self.logs.push(log);
+                self.deposit_tree.push_leaf(deposit)?;
+                self.deposit_roots.push(self.deposit_tree.root());
                 Ok(())
-            } else {
-                Err(Error::DuplicateDistinctLog(log.index))
             }
-        } else {
-            Err(Error::NonConsecutive {
+            Ordering::Less => {
+                if self.logs[log.index as usize] == log {
+                    Ok(())
+                } else {
+                    Err(Error::DuplicateDistinctLog(log.index))
+                }
+            }
+            Ordering::Greater => Err(Error::NonConsecutive {
                 log_index: log.index,
                 expected: self.logs.len(),
-            })
+            }),
         }
     }
 
@@ -312,14 +315,12 @@ impl DepositCache {
             .logs
             .binary_search_by(|deposit| deposit.block_number.cmp(&block_number));
         match index {
-            Ok(index) => return self.logs.get(index).map(|x| x.index + 1),
-            Err(next) => {
-                return Some(
-                    self.logs
-                        .get(next.saturating_sub(1))
-                        .map_or(0, |x| x.index + 1),
-                )
-            }
+            Ok(index) => self.logs.get(index).map(|x| x.index + 1),
+            Err(next) => Some(
+                self.logs
+                    .get(next.saturating_sub(1))
+                    .map_or(0, |x| x.index + 1),
+            ),
         }
     }
 
@@ -329,7 +330,7 @@ impl DepositCache {
     /// and queries the `deposit_roots` map to get the corresponding `deposit_root`.
     pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
         let index = self.get_deposit_count_from_cache(block_number)?;
-        Some(self.deposit_roots.get(index as usize)?.clone())
+        Some(*self.deposit_roots.get(index as usize)?)
     }
 }
 

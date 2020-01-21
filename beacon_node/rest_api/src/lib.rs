@@ -54,6 +54,8 @@ pub struct NetworkInfo<T: BeaconChainTypes> {
     pub network_chan: mpsc::UnboundedSender<NetworkMessage>,
 }
 
+// Allowing more than 7 arguments.
+#[allow(clippy::too_many_arguments)]
 pub fn start_server<T: BeaconChainTypes>(
     config: &Config,
     executor: &TaskExecutor,

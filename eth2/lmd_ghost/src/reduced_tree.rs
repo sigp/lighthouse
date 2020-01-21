@@ -8,6 +8,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
@@ -182,13 +183,15 @@ impl ReducedTreeSsz {
         }
     }
 
-    pub fn to_reduced_tree<T, E>(
+    pub fn into_reduced_tree<T, E>(
         self,
         store: Arc<T>,
         block_root_tree: Arc<BlockRootTree>,
     ) -> Result<ReducedTree<T, E>> {
         if self.node_hashes.len() != self.nodes.len() {
-            Error::InvalidReducedTreeSsz("node_hashes and nodes should have equal length".into());
+            return Err(Error::InvalidReducedTreeSsz(
+                "node_hashes and nodes should have equal length".to_string(),
+            ));
         }
         let nodes: HashMap<_, _> = self
             .node_hashes
@@ -740,16 +743,19 @@ where
                     if a_slot < self.root.1 || b_slot < self.root.1 {
                         None
                     } else {
-                        if a_slot < b_slot {
-                            for _ in a_slot.as_u64()..b_slot.as_u64() {
-                                b_root = b_iter.next()?.0;
+                        match a_slot.cmp(&b_slot) {
+                            Ordering::Less => {
+                                for _ in a_slot.as_u64()..b_slot.as_u64() {
+                                    b_root = b_iter.next()?.0;
+                                }
                             }
-                        } else if a_slot > b_slot {
-                            for _ in b_slot.as_u64()..a_slot.as_u64() {
-                                a_root = a_iter.next()?.0;
+                            Ordering::Greater => {
+                                for _ in b_slot.as_u64()..a_slot.as_u64() {
+                                    a_root = a_iter.next()?.0;
+                                }
                             }
+                            Ordering::Equal => (),
                         }
-
                         Some((a_root, b_root))
                     }
                 }
@@ -876,7 +882,7 @@ where
         block_root_tree: Arc<BlockRootTree>,
     ) -> Result<Self> {
         let reduced_tree_ssz = ReducedTreeSsz::from_ssz_bytes(bytes)?;
-        Ok(reduced_tree_ssz.to_reduced_tree(store, block_root_tree)?)
+        Ok(reduced_tree_ssz.into_reduced_tree(store, block_root_tree)?)
     }
 }
 
@@ -1013,8 +1019,7 @@ mod tests {
         );
         let ssz_tree = ReducedTreeSsz::from_reduced_tree(&tree);
         let bytes = tree.as_bytes();
-        let recovered_tree =
-            ReducedTree::from_bytes(&bytes, store.clone(), block_root_tree).unwrap();
+        let recovered_tree = ReducedTree::from_bytes(&bytes, store, block_root_tree).unwrap();
 
         let recovered_ssz = ReducedTreeSsz::from_reduced_tree(&recovered_tree);
         assert_eq!(ssz_tree, recovered_ssz);

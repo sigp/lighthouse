@@ -145,14 +145,15 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         let current_split_slot = store.get_split_slot();
 
         if frozen_head.slot < current_split_slot {
-            Err(HotColdDBError::FreezeSlotError {
+            return Err(HotColdDBError::FreezeSlotError {
                 current_split_slot,
                 proposed_split_slot: frozen_head.slot,
-            })?;
+            }
+            .into());
         }
 
         if frozen_head.slot % E::slots_per_epoch() != 0 {
-            Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot))?;
+            return Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot).into());
         }
 
         // 1. Copy all of the states between the head and the split slot, from the hot DB
@@ -574,7 +575,7 @@ impl<E: EthSpec> HotColdDB<E> {
         let key = Self::restore_point_key(restore_point_index);
         RestorePointHash::db_get(&self.cold_db, &key)?
             .map(|r| r.state_root)
-            .ok_or(HotColdDBError::MissingRestorePointHash(restore_point_index).into())
+            .ok_or_else(|| HotColdDBError::MissingRestorePointHash(restore_point_index).into())
     }
 
     /// Store the state root of a restore point.

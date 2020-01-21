@@ -613,7 +613,7 @@ impl Service {
 
             Ok(BlockCacheUpdateOutcome::Success {
                 blocks_imported,
-                head_block_number: cache_4.clone().block_cache.read().highest_block_number(),
+                head_block_number: cache_4.block_cache.read().highest_block_number(),
             })
         })
     }

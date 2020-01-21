@@ -43,8 +43,7 @@ pub fn build_libp2p_instance(
 ) -> LibP2PService {
     let config = build_config(port, boot_nodes, secret_key);
     // launch libp2p service
-    let libp2p_service = LibP2PService::new(config.clone(), log.clone()).unwrap();
-    libp2p_service
+    LibP2PService::new(config, log.clone()).unwrap()
 }
 
 #[allow(dead_code)]
@@ -64,10 +63,10 @@ pub fn build_full_mesh(log: slog::Logger, n: usize, start_port: Option<u16>) -> 
         .map(|x| get_enr(&x).multiaddr()[1].clone())
         .collect();
 
-    for i in 0..n {
-        for j in i..n {
+    for (i, node) in nodes.iter_mut().enumerate().take(n) {
+        for (j, multiaddr) in multiaddrs.iter().enumerate().skip(i) {
             if i != j {
-                match libp2p::Swarm::dial_addr(&mut nodes[i].swarm, multiaddrs[j].clone()) {
+                match libp2p::Swarm::dial_addr(&mut node.swarm, multiaddr.clone()) {
                     Ok(()) => debug!(log, "Connected"),
                     Err(_) => error!(log, "Failed to connect"),
                 };

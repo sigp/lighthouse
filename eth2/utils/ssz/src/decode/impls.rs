@@ -207,9 +207,10 @@ impl Decode for bool {
             match bytes[0] {
                 0b0000_0000 => Ok(false),
                 0b0000_0001 => Ok(true),
-                _ => Err(DecodeError::BytesInvalid(
-                    format!("Out-of-range for boolean: {}", bytes[0]).to_string(),
-                )),
+                _ => Err(DecodeError::BytesInvalid(format!(
+                    "Out-of-range for boolean: {}",
+                    bytes[0]
+                ))),
             }
         }
     }

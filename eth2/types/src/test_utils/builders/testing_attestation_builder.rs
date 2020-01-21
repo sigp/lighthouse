@@ -24,9 +24,8 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
 
         let mut aggregation_bits_len = committee.len();
 
-        match test_task {
-            AttestationTestTask::BadAggregationBitfieldLen => aggregation_bits_len += 1,
-            _ => (),
+        if test_task == AttestationTestTask::BadAggregationBitfieldLen {
+            aggregation_bits_len += 1
         }
 
         let mut aggregation_bits = BitList::with_capacity(aggregation_bits_len).unwrap();

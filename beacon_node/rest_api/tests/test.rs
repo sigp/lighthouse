@@ -47,8 +47,7 @@ fn get_randao_reveal<T: BeaconChainTypes>(
         .head()
         .expect("should get head")
         .beacon_state
-        .fork
-        .clone();
+        .fork;
     let proposer_index = beacon_chain
         .block_proposer(slot)
         .expect("should get proposer index");
@@ -69,8 +68,7 @@ fn sign_block<T: BeaconChainTypes>(
         .head()
         .expect("should get head")
         .beacon_state
-        .fork
-        .clone();
+        .fork;
     let proposer_index = beacon_chain
         .block_proposer(block.slot)
         .expect("should get proposer index");
@@ -91,11 +89,7 @@ fn validator_produce_attestation() {
         .client
         .beacon_chain()
         .expect("client should have beacon chain");
-    let state = beacon_chain
-        .head()
-        .expect("should get head")
-        .beacon_state
-        .clone();
+    let state = beacon_chain.head().expect("should get head").beacon_state;
 
     let validator_index = 0;
     let duties = state
@@ -169,7 +163,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestation(attestation.clone()),
+                .publish_attestation(attestation),
         )
         .expect("should publish attestation");
     assert!(
@@ -344,7 +338,7 @@ fn validator_block_post() {
             remote_node
                 .http
                 .validator()
-                .produce_block(slot, randao_reveal.clone()),
+                .produce_block(slot, randao_reveal),
         )
         .expect("should fetch block from http api");
 
@@ -360,12 +354,12 @@ fn validator_block_post() {
         );
     }
 
-    sign_block(beacon_chain.clone(), &mut block, spec);
+    sign_block(beacon_chain, &mut block, spec);
     let block_root = block.canonical_root();
 
     let publish_status = env
         .runtime()
-        .block_on(remote_node.http.validator().publish_block(block.clone()))
+        .block_on(remote_node.http.validator().publish_block(block))
         .expect("should publish block");
 
     if cfg!(not(feature = "fake_crypto")) {
@@ -419,7 +413,7 @@ fn validator_block_get() {
         .expect("client should have beacon chain");
 
     let slot = Slot::new(1);
-    let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
+    let randao_reveal = get_randao_reveal(beacon_chain, slot, spec);
 
     let block = env
         .runtime()
