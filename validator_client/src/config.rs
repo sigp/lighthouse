@@ -1,5 +1,6 @@
 use clap::ArgMatches;
 use serde_derive::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
@@ -71,6 +72,21 @@ impl Config {
 
         if let Some(server) = cli_args.value_of("server") {
             config.http_server = server.to_string();
+        }
+
+        if cli_args.is_present("http") {
+            config.rest_api.enabled = true;
+        }
+
+        if let Some(address) = cli_args.value_of("http-address") {
+            config.rest_api.listen_address = address
+                .parse::<Ipv4Addr>()
+                .map_err(|_| "http-address is not a valid IPv4 address.")?;
+        }
+        if let Some(port) = cli_args.value_of("http-port") {
+            config.rest_api.port = port
+                .parse::<u16>()
+                .map_err(|_| "http-port is not a valid u16.")?;
         }
 
         let config = match cli_args.subcommand() {

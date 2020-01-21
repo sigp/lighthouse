@@ -151,7 +151,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
 
         ProductionValidatorClient::new(context, config.clone()).map(move |mut client| {
             client
-                .start_service(Some(config))
+                .start_service()
                 .expect("should start validator services");
             Self { client, datadir }
         })

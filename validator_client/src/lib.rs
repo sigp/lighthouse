@@ -49,6 +49,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
     beacon_node: Arc<RemoteBeaconNode<T>>,
     http_listen_addr: Option<SocketAddr>,
+    config: rest_api_vc::Config,
     exit_signals: Vec<Signal>,
 }
 
@@ -240,13 +241,17 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     validator_store: Arc::new(validator_store),
                     beacon_node: Arc::new(beacon_node),
                     http_listen_addr: None,
+                    // TODO: Adding rest api config to Self to avoid using builder pattern
+                    // to create a `ProductionValidatorClient` instance.
+                    // Check if there's a better way to pass rest api config without using
+                    // builder pattern.
+                    config: config.rest_api,
                     exit_signals: vec![],
                 })
             })
     }
 
-    pub fn start_service(&mut self, config: Option<Config>) -> Result<(), String> {
-        let config = config.unwrap_or(Config::default());
+    pub fn start_service(&mut self) -> Result<(), String> {
         let duties_exit = self
             .duties_service
             .start_update_service(&self.context.eth2_config.spec)
@@ -269,23 +274,26 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let notifier_exit =
             spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
-        let (http_exit, addr) = rest_api_vc::start_server(
-            &config.rest_api,
-            &self.context.executor,
-            self.validator_store.clone(),
-            self.beacon_node.clone(),
-            self.context.log.clone(),
-        )
-        .map_err(|e| format!("Failed to start validator client http server: {}", e))?;
-        self.http_listen_addr = Some(addr);
+
         self.exit_signals = vec![
             duties_exit,
             fork_exit,
             block_exit,
             attestation_exit,
             notifier_exit,
-            http_exit,
         ];
+        if self.config.enabled {
+            let (http_exit, addr) = rest_api_vc::start_server(
+                &self.config,
+                &self.context.executor,
+                self.validator_store.clone(),
+                self.beacon_node.clone(),
+                self.context.log.clone(),
+            )
+            .map_err(|e| format!("Failed to start validator client http server: {}", e))?;
+            self.http_listen_addr = Some(addr);
+            self.exit_signals.push(http_exit);
+        };
 
         Ok(())
     }
