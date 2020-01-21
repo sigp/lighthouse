@@ -94,8 +94,6 @@ pub enum ChainSyncingState {
     Stopped,
     /// The chain is undergoing syncing.
     Syncing,
-    /// The chain is temporarily paused whilst an error is rectified.
-    _Paused,
 }
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
@@ -208,12 +206,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Tries to process any batches if there are any available and we are not currently processing
     /// other batches.
     fn process_completed_batches(&mut self) {
+        // Only process batches if this chain is Syncing
+        if self.state != ChainSyncingState::Syncing {
+            return;
+        }
+
         // Only process one batch at a time
         if self.current_processing_id.is_some() {
             return;
         }
 
-        // Check if the next batch is to be processed
+        // Check if there is a batch ready to be processed
         while !self.completed_batches.is_empty()
             && self.completed_batches[0].id == self.to_be_processed_id
         {
@@ -274,13 +277,18 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // processed due to having no blocks.
                 self.last_processed_id = batch.id;
 
-                // remove any validated batches
+                // Remove any validate batches awaiting validation.
+                // Only batches that have blocks are processed here, therefore all previous batches
+                // have been correct.
                 let last_processed_id = self.last_processed_id;
                 self.processed_batches
                     .retain(|batch| batch.id.0 >= last_processed_id.0);
 
-                // add the current batch to finalized batches to be removed.
-                self.processed_batches.push(batch);
+                // add the current batch to processed batches to be verified in the future. We are
+                // only uncertain about this batch, if it has not returned all blocks.
+                if batch.downloaded_blocks.len() < BLOCKS_PER_BATCH as usize {
+                    self.processed_batches.push(batch);
+                }
 
                 // check if the chain has completed syncing
                 if self.start_slot + *self.last_processed_id * BLOCKS_PER_BATCH
@@ -308,7 +316,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // an invalid batch.
 
                 // firstly remove any validated batches
-                self.handle_invalid_batch(network)
+                self.handle_invalid_batch(network, batch)
             }
         };
 
@@ -329,47 +337,31 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // accommodate potentially downloaded batches from other chains. Also prune any old batches
         // awaiting processing
 
-        // Only important if the local head is more than a batch worth of blocks ahead of
-        // what this chain believes is downloaded
-        let batches_ahead = local_finalized_slot
-            .as_u64()
-            .saturating_sub(self.start_slot.as_u64() + *self.last_processed_id * BLOCKS_PER_BATCH)
-            / BLOCKS_PER_BATCH;
+        // If the local finalized epoch is ahead of our current processed chain, update the chain
+        // to start from this point and re-index all subsequent batches starting from one
+        // (effectively creating a new chain).
 
-        if batches_ahead != 0 {
-            // there are `batches_ahead` whole batches that have been downloaded by another
-            // chain. Set the current processed_batch_id to this value.
-            debug!(self.log, "Updating chains processed batches"; "old_completed_slot" => self.start_slot + *self.last_processed_id*BLOCKS_PER_BATCH, "new_completed_slot" => self.start_slot + (*self.last_processed_id + batches_ahead)*BLOCKS_PER_BATCH);
-            self.last_processed_id.0 += batches_ahead;
+        if local_finalized_slot.as_u64()
+            > self
+                .start_slot
+                .as_u64()
+                .saturating_add(*self.last_processed_id * BLOCKS_PER_BATCH)
+        {
+            debug!(self.log, "Updating chain's progress"; "prev_completed_slot" => self.start_slot + *self.last_processed_id*BLOCKS_PER_BATCH, "new_completed_slot" => local_finalized_slot.as_u64());
+            // Re-index batches
+            *self.last_processed_id = 0;
+            *self.to_be_downloaded_id = 1;
+            *self.to_be_processed_id = 1;
 
-            if self.start_slot + *self.last_processed_id * BLOCKS_PER_BATCH
-                > self.target_head_slot.as_u64()
-            {
-                crit!(
-                    self.log,
-                    "Current head slot is above the target head";
-                    "target_head_slot" => self.target_head_slot.as_u64(),
-                    "new_start" => self.start_slot + *self.last_processed_id * BLOCKS_PER_BATCH,
-                );
-                return;
-            }
-
-            // update the `to_be_downloaded_id`
-            if self.to_be_downloaded_id.0 < self.last_processed_id.0 {
-                self.to_be_downloaded_id = self.last_processed_id;
-            }
-
-            let last_processed_id = self.last_processed_id;
-            self.completed_batches
-                .retain(|batch| batch.id.0 > last_processed_id.0);
-            self.processed_batches
-                .retain(|batch| batch.id.0 >= last_processed_id.0);
+            // remove any completed or processed batches
+            self.completed_batches.clear();
+            self.processed_batches.clear();
         }
+
+        self.state = ChainSyncingState::Syncing;
 
         // start processing batches if needed
         self.process_completed_batches();
-
-        self.state = ChainSyncingState::Syncing;
 
         // begin requesting blocks from the peer pool, until all peers are exhausted.
         self.request_batches(network);
@@ -453,7 +445,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// An invalid batch has been received that could not be processed.
-    fn handle_invalid_batch(&mut self, network: &mut SyncNetworkContext) -> ProcessingResult {
+    fn handle_invalid_batch(
+        &mut self,
+        network: &mut SyncNetworkContext,
+        _batch: Arc<Batch<T::EthSpec>>,
+    ) -> ProcessingResult {
         // The current batch could not be processed, indicating either the current or previous
         // batches are invalid
 
@@ -462,8 +458,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // request or there could be consecutive empty batches which are not supposed to be there
 
         // Address these two cases individually.
-        // Firstly, check if the past batch is invalid.
-        //
+        // Firstly, check if there are any past batches that could be invalid.
+        if !self.processed_batches.is_empty() {
+            // try and re-download this batch from other peers
+        }
 
         //TODO: Implement this logic
         // Currently just fail the chain, and drop all associated peers, removing them from the
