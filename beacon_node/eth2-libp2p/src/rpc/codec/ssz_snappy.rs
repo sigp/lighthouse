@@ -21,6 +21,7 @@ pub struct SSZSnappyInboundCodec {
 
 impl SSZSnappyInboundCodec {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
+        // TODO: safe max packet size
         // this encoding only applies to ssz_snappy.
         debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
 
@@ -72,6 +73,7 @@ impl Decoder for SSZSnappyInboundCodec {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        // TODO: check against max size of packets
         match self.decoder.decoder(src).map_err(RPCError::from) {
             Ok(Some(packet)) => match self.protocol.message_name.as_str() {
                 "hello" => match self.protocol.version.as_str() {
@@ -116,6 +118,7 @@ pub struct SSZSnappyOutboundCodec {
 
 impl SSZSnappyOutboundCodec {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
+        // TODO: safe max packet size
         // this encoding only applies to ssz.
         debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
 
@@ -177,28 +180,31 @@ impl Decoder for SSZSnappyOutboundCodec {
                 _ => unreachable!("Cannot negotiate an unknown protocol"),
             }
         } else {
-            match self.decoder.decompress(src).map_err(RPCError::from) {
-                Ok(Some(packet)) => match self.protocol.message_name.as_str() {
-                    "hello" => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::Hello(HelloMessage::from_ssz_bytes(
-                            &packet,
-                        )?))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
+            if (decompress_len(src)) {
+                match self.decoder.decompress(src).map_err(RPCError::from) {
+                    Ok(Some(packet)) => match self.protocol.message_name.as_str() {
+                        "hello" => match self.protocol.version.as_str() {
+                            "1" => Ok(Some(RPCResponse::Hello(HelloMessage::from_ssz_bytes(
+                                &packet,
+                            )?))),
+                            _ => unreachable!("Cannot negotiate an unknown version"),
+                        },
+                        "goodbye" => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
+                        "beacon_blocks" => match self.protocol.version.as_str() {
+                            "1" => Ok(Some(RPCResponse::BeaconBlocks(packet.to_vec()))),
+                            _ => unreachable!("Cannot negotiate an unknown version"),
+                        },
+                        "recent_beacon_blocks" => match self.protocol.version.as_str() {
+                            "1" => Ok(Some(RPCResponse::RecentBeaconBlocks(packet.to_vec()))),
+                            _ => unreachable!("Cannot negotiate an unknown version"),
+                        },
+                        _ => unreachable!("Cannot negotiate an unknown protocol"),
                     },
-                    "goodbye" => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
-                    "beacon_blocks" => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::BeaconBlocks(packet.to_vec()))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
-                    },
-                    "recent_beacon_blocks" => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::RecentBeaconBlocks(packet.to_vec()))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
-                    },
-                    _ => unreachable!("Cannot negotiate an unknown protocol"),
-                },
-                Ok(None) => Ok(None), // waiting for more bytes
-                Err(e) => Err(e),
+                    Ok(None) => Ok(None), // waiting for more bytes
+                    Err(e) => Err(e),
+                }
             }
+            
         }
     }
 }
@@ -214,3 +220,8 @@ impl OutboundCodec for SSZSnappyOutboundCodec {
         }
     }
 }
+
+// TODO
+// Test implementation
+// Send out a goodbye request with the system -> Compare the request with "SNAPPY_REFERENCE_ON_CLI(normal goodbye request) ==  outgoing request"
+// https://github.com/sigp/lighthouse/blob/master/beacon_node/eth2-libp2p/tests/rpc_tests.rs can be used with a prioritized snappy protocol
