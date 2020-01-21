@@ -119,6 +119,11 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         result
     }
 
+    /// Returns true if the given block is known to fork choice.
+    pub fn contains_block(&self, block_root: &Hash256) -> bool {
+        self.backend.contains_block(block_root)
+    }
+
     /// Process all attestations in the given `block`.
     ///
     /// Assumes the block (and therefore its attestations) are valid. It is a logic error to

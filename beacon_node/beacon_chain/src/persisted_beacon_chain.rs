@@ -4,7 +4,7 @@ use crate::{BeaconChainTypes, CheckPoint};
 use operation_pool::PersistedOperationPool;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use store::{DBColumn, Error as StoreError, SimpleStoreItem, SszBlockRootTree};
+use store::{DBColumn, Error as StoreError, SimpleStoreItem};
 use types::Hash256;
 
 /// 32-byte key for accessing the `PersistedBeaconChain`.
@@ -18,7 +18,8 @@ pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub genesis_block_root: Hash256,
     pub ssz_head_tracker: SszHeadTracker,
     pub fork_choice: SszForkChoice,
-    pub block_root_tree: SszBlockRootTree,
+    // TODO: remove this.
+    pub block_root_tree: Vec<u8>,
 }
 
 impl<T: BeaconChainTypes> SimpleStoreItem for PersistedBeaconChain<T> {
