@@ -248,8 +248,9 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             })
             .is_none();
         if id_not_found {
-            // The request didn't exist in any `SyncingChain`. Could have been an old request. Log
-            // and ignore
+            // The request didn't exist in any `SyncingChain`. Could have been an old request or
+            // the chain was purged due to being out of date whilst a request was pending. Log
+            // and ignore.
             debug!(self.log, "Range response without matching request"; "peer" => format!("{:?}", peer_id), "request_id" => request_id);
         }
     }
@@ -307,7 +308,9 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     }
                     Some((_, ProcessingResult::KeepChain)) => {}
                     None => {
-                        warn!(self.log, "No chains match the block processing id"; "id" => processing_id);
+                        // This can happen if a chain gets purged due to being out of date whilst a
+                        // batch process is in progress.
+                        debug!(self.log, "No chains match the block processing id"; "id" => processing_id);
                     }
                 }
             }
