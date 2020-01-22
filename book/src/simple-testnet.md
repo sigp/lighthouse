@@ -1,4 +1,4 @@
-# Simple Private Testnet
+# Simple Local Testnet
 
 > This guide is about running your own private local testnet.
 > - If you wish to join the ongoing public testnet, please read [become a validator](./become-a-validator.md).
