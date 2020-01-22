@@ -8,7 +8,8 @@ use eth2_libp2p::PeerId;
 use rand::prelude::*;
 use slog::{crit, debug, warn};
 use std::collections::HashSet;
-use std::sync::{Arc, Weak};
+use std::rc::Rc;
+use std::sync::Weak;
 use tokio::sync::mpsc;
 use types::{BeaconBlock, Hash256, Slot};
 
@@ -17,8 +18,6 @@ use types::{BeaconBlock, Hash256, Slot};
 /// downvote peers with poor bandwidth. This can be set arbitrarily high, in which case the
 /// responder will fill the response up to the max request size, assuming they have the bandwidth
 /// to do so.
-//TODO: Make this dynamic based on peer's bandwidth
-//TODO: This is lower due to current thread design. Modify once rebuilt.
 pub const BLOCKS_PER_BATCH: u64 = 50;
 
 /// The number of times to retry a batch before the chain is considered failed and removed.
@@ -26,6 +25,11 @@ const MAX_BATCH_RETRIES: u8 = 5;
 
 /// The maximum number of batches to queue before requesting more.
 const BATCH_BUFFER_SIZE: u8 = 5;
+
+/// Invalid batches are attempted to be re-downloaded from other peers. If they cannot be processed
+/// after `INVALID_BATCH_LOOKUP_ATTEMPTS` times, the chain is considered faulty and all peers will
+/// be downvoted.
+const _INVALID_BATCH_LOOKUP_ATTEMPTS: u8 = 3;
 
 /// A return type for functions that act on a `Chain` which informs the caller whether the chain
 /// has been completed and should be removed or to be kept if further processing is
@@ -56,7 +60,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     completed_batches: Vec<Batch<T::EthSpec>>,
 
     /// Batches that have been processed and awaiting validation before being removed.
-    processed_batches: Vec<Arc<Batch<T::EthSpec>>>,
+    processed_batches: Vec<Batch<T::EthSpec>>,
 
     /// The peers that agree on the `target_head_slot` and `target_head_root` as a canonical chain
     /// and thus available to download this chain from.
@@ -223,7 +227,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             let batch = self.completed_batches.remove(0);
             if batch.downloaded_blocks.is_empty() {
                 // The batch was empty, consider this processed and move to the next batch
-                self.processed_batches.push(Arc::new(batch));
+                self.processed_batches.push(batch);
                 *self.to_be_processed_id += 1;
                 continue;
             }
@@ -235,7 +239,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Sends a batch to the batch processor.
     fn process_batch(&mut self, batch: Batch<T::EthSpec>) {
-        let batch = Arc::new(batch);
+        //let batch = Arc::new(batch);
         // only spawn one instance at a time
         let processing_id: u64 = rand::random();
         self.current_processing_id = Some(processing_id);
@@ -254,13 +258,19 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext,
         processing_id: u64,
-        batch: Arc<Batch<T::EthSpec>>,
+        batch: Rc<Batch<T::EthSpec>>,
         result: &BatchProcessResult,
     ) -> Option<ProcessingResult> {
         if Some(processing_id) != self.current_processing_id {
             // batch process doesn't belong to this chain
             return None;
         }
+
+        // Consume the Rc. There must be no other reference of this batch
+        let batch = Rc::try_unwrap(batch).ok().or_else(|| {
+            crit!(self.log, "Multiple references to processed batch");
+            None
+        })?;
 
         // double check batches are processed in order
         // TODO: Remove for prod
@@ -410,7 +420,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    /// A batch has failed.
+    /// A batch has failed. This occurs when a network timeout happens or the peer didn't respond.
+    /// These events do not indicate a malicious peer, more likely simple networking issues.
     ///
     /// Attempts to re-request from another peer in the peer pool (if possible) and returns
     /// `ProcessingResult::RemoveChain` if the number of retries on the batch exceeds
@@ -445,19 +456,29 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// An invalid batch has been received that could not be processed.
+    ///
+    /// These events occur when a peer as successfully responded with blocks, but the blocks we
+    /// have received are incorrect or invalid. This indicates the peer has not performed as
+    /// intended and can result in downvoting a peer.
     fn handle_invalid_batch(
         &mut self,
         network: &mut SyncNetworkContext,
-        _batch: Arc<Batch<T::EthSpec>>,
+        _batch: Batch<T::EthSpec>,
     ) -> ProcessingResult {
         // The current batch could not be processed, indicating either the current or previous
         // batches are invalid
 
-        // The previous batch could be
-        // incomplete due to the block sizes being too large to fit in a single RPC
-        // request or there could be consecutive empty batches which are not supposed to be there
+        // The previous batch could be incomplete due to the block sizes being too large to fit in
+        // a single RPC request or there could be consecutive empty batches which are not supposed
+        // to be there
 
-        // Address these two cases individually.
+        // The current (sub-optimal) strategy is to simply re-request all batches that could
+        // potentially be faulty. If a batch returns a different result than the original and
+        // results in successful processing, we downvote the original peer that sent us the batch.
+
+        // If all batches return the same result, we try this process INVALID_BATCH_LOOKUP_ATTEMPTS
+        // times before considering the entire chain invalid and downvoting all peers.
+
         // Firstly, check if there are any past batches that could be invalid.
         if !self.processed_batches.is_empty() {
             // try and re-download this batch from other peers

@@ -45,9 +45,9 @@ use fnv::FnvHashMap;
 use futures::prelude::*;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
+use std::boxed::Box;
 use std::collections::HashSet;
 use std::ops::Sub;
-use std::sync::Arc;
 use std::sync::Weak;
 use tokio::sync::{mpsc, oneshot};
 use types::{BeaconBlock, EthSpec, Hash256};
@@ -99,7 +99,7 @@ pub enum SyncMessage<T: EthSpec> {
     /// A batch has been processed by the block processor thread.
     BatchProcessed {
         process_id: u64,
-        batch: Arc<Batch<T>>,
+        batch: Box<Batch<T>>,
         result: BatchProcessResult,
     },
 }

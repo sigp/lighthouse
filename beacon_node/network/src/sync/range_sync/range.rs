@@ -50,7 +50,8 @@ use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use slog::{debug, error, trace, warn};
 use std::collections::HashSet;
-use std::sync::{Arc, Weak};
+use std::rc::Rc;
+use std::sync::Weak;
 use tokio::sync::mpsc;
 use types::{BeaconBlock, EthSpec};
 
@@ -254,9 +255,12 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         &mut self,
         network: &mut SyncNetworkContext,
         processing_id: u64,
-        batch: Arc<Batch<T::EthSpec>>,
+        batch: Box<Batch<T::EthSpec>>,
         result: BatchProcessResult,
     ) {
+        // build an RC for passing the batch to each chain
+        let batch = Rc::new(*batch);
+
         match self.chains.finalized_request(|chain| {
             chain.on_batch_process_result(network, processing_id, batch.clone(), &result)
         }) {
@@ -277,8 +281,8 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 // sync
                 match self.chains.sync_state() {
                     SyncState::Idle | SyncState::Head => {
-                        for peer_id in self.awaiting_head_peers.iter() {
-                            network.status_peer(self.beacon_chain.clone(), peer_id.clone());
+                        for peer_id in self.awaiting_head_peers.drain() {
+                            network.status_peer(self.beacon_chain.clone(), peer_id);
                         }
                     }
                     SyncState::Finalized => {} // Have more finalized chains to complete

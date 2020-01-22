@@ -20,13 +20,13 @@ pub enum BatchProcessResult {
 pub fn spawn_batch_processor<T: BeaconChainTypes>(
     chain: Weak<BeaconChain<T>>,
     process_id: u64,
-    batch: Arc<Batch<T::EthSpec>>,
+    batch: Batch<T::EthSpec>,
     mut sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
 ) {
     std::thread::spawn(move || {
         debug!(log, "Processing batch"; "id" => *batch.id);
-        let result = match process_batch(chain, batch.clone(), &log) {
+        let result = match process_batch(chain, &batch, &log) {
             Ok(_) => BatchProcessResult::Success,
             Err(_) => BatchProcessResult::Failed,
         };
@@ -36,7 +36,7 @@ pub fn spawn_batch_processor<T: BeaconChainTypes>(
         sync_send
             .try_send(SyncMessage::BatchProcessed {
                 process_id,
-                batch,
+                batch: Box::new(batch),
                 result,
             })
             .unwrap_or_else(|_| {
@@ -51,7 +51,7 @@ pub fn spawn_batch_processor<T: BeaconChainTypes>(
 // Helper function to process block batches which only consumes the chain and blocks to process
 fn process_batch<T: BeaconChainTypes>(
     chain: Weak<BeaconChain<T>>,
-    batch: Arc<Batch<T::EthSpec>>,
+    batch: &Batch<T::EthSpec>,
     log: &slog::Logger,
 ) -> Result<(), String> {
     let mut successful_block_import = false;
