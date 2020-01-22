@@ -71,9 +71,6 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// The next batch id that needs to be processed.
     to_be_processed_id: BatchId,
 
-    /// The last batch id that was processed.
-    last_processed_id: BatchId,
-
     /// The current state of the chain.
     pub state: ChainSyncingState,
 
@@ -122,13 +119,18 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             peer_pool,
             to_be_downloaded_id: BatchId(1),
             to_be_processed_id: BatchId(1),
-            last_processed_id: BatchId(0),
             state: ChainSyncingState::Stopped,
             current_processing_id: None,
             sync_send,
             chain,
             log,
         }
+    }
+
+    /// Returns the latest slot number that has been processed.
+    fn current_processed_slot(&self) -> Slot {
+        self.start_slot
+            .saturating_add(self.to_be_processed_id.saturating_sub(1u64) * BLOCKS_PER_BATCH)
     }
 
     /// A batch of blocks has been received. This function gets run on all chains and should
@@ -285,10 +287,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // If the processed batch was not empty, we can validate previous invalidated
                 // blocks
                 if !batch.downloaded_blocks.is_empty() {
-                    // This variable accounts for skip slots and batches that were not actually
-                    // processed due to having no blocks.
-                    self.last_processed_id = batch.id;
-
                     // Remove any batches awaiting validation.
                     //
                     // All blocks in processed_batches should be prior batches. As the current
@@ -329,9 +327,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
 
                 // check if the chain has completed syncing
-                if self.start_slot + *self.last_processed_id * BLOCKS_PER_BATCH
-                    >= self.target_head_slot
-                {
+                if self.current_processed_slot() >= self.target_head_slot {
                     // chain is completed
                     ProcessingResult::RemoveChain
                 } else {
@@ -457,15 +453,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // to start from this point and re-index all subsequent batches starting from one
         // (effectively creating a new chain).
 
-        if local_finalized_slot.as_u64()
-            > self
-                .start_slot
-                .as_u64()
-                .saturating_add(*self.last_processed_id * BLOCKS_PER_BATCH)
-        {
-            debug!(self.log, "Updating chain's progress"; "prev_completed_slot" => self.start_slot + *self.last_processed_id*BLOCKS_PER_BATCH, "new_completed_slot" => local_finalized_slot.as_u64());
+        if local_finalized_slot > self.current_processed_slot() {
+            debug!(self.log, "Updating chain's progress"; "prev_completed_slot" => self.current_processed_slot(), "new_completed_slot" => local_finalized_slot.as_u64());
             // Re-index batches
-            *self.last_processed_id = 0;
             *self.to_be_downloaded_id = 1;
             *self.to_be_processed_id = 1;
 
