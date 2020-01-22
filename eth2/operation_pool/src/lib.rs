@@ -96,7 +96,7 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Get a list of attestations for inclusion in a block.
-    /// 
+    ///
     /// NOTE: Assumes that all attestations in the operation_pool are valid.
     pub fn get_attestations(
         &self,
