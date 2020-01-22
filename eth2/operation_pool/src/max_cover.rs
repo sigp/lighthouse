@@ -54,9 +54,6 @@ where
         .filter(|x| x.item.score() != 0)
         .collect();
 
-    if all_items.len() <= limit {
-        return all_items.iter().map(|x| x.item.object()).collect();
-    }
     let mut result = vec![];
 
     for _ in 0..limit {
