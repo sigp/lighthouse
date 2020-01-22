@@ -50,7 +50,6 @@ use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use slog::{debug, error, trace, warn};
 use std::collections::HashSet;
-use std::rc::Rc;
 use std::sync::Weak;
 use tokio::sync::mpsc;
 use types::{BeaconBlock, EthSpec};
@@ -262,11 +261,11 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         batch: Batch<T::EthSpec>,
         result: BatchProcessResult,
     ) {
-        // build an RC for passing the batch to each chain
-        let batch = Rc::new(batch);
+        // build an option for passing the batch to each chain
+        let mut batch = Some(batch);
 
         match self.chains.finalized_request(|chain| {
-            chain.on_batch_process_result(network, processing_id, batch.clone(), &result)
+            chain.on_batch_process_result(network, processing_id, &mut batch, &result)
         }) {
             Some((index, ProcessingResult::RemoveChain)) => {
                 let chain = self.chains.remove_finalized_chain(index);
@@ -295,7 +294,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             Some((_, ProcessingResult::KeepChain)) => {}
             None => {
                 match self.chains.head_request(|chain| {
-                    chain.on_batch_process_result(network, processing_id, batch.clone(), &result)
+                    chain.on_batch_process_result(network, processing_id, &mut batch, &result)
                 }) {
                     Some((index, ProcessingResult::RemoveChain)) => {
                         let chain = self.chains.remove_head_chain(index);

@@ -8,7 +8,6 @@ use eth2_libp2p::PeerId;
 use rand::prelude::*;
 use slog::{crit, debug, warn};
 use std::collections::HashSet;
-use std::rc::Rc;
 use std::sync::Weak;
 use tokio::sync::mpsc;
 use types::{BeaconBlock, Hash256, Slot};
@@ -259,7 +258,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext,
         processing_id: u64,
-        batch: Rc<Batch<T::EthSpec>>,
+        batch: &mut Option<Batch<T::EthSpec>>,
         result: &BatchProcessResult,
     ) -> Option<ProcessingResult> {
         if Some(processing_id) != self.current_processing_id {
@@ -267,9 +266,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return None;
         }
 
-        // Consume the Rc. There must be no other reference of this batch
-        let batch = Rc::try_unwrap(batch).ok().or_else(|| {
-            crit!(self.log, "Multiple references to processed batch");
+        // Consume the
+        let batch = batch.take().or_else(|| {
+            crit!(self.log, "Processed batch taken by another chain");
             None
         })?;
 
