@@ -204,12 +204,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         // Try and process any completed batches. This will spawn a new task to process any blocks
         // that are ready to be processed.
-        self.process_completed_batches(network);
+        self.process_completed_batches();
     }
 
     /// Tries to process any batches if there are any available and we are not currently processing
     /// other batches.
-    fn process_completed_batches(&mut self, network: &mut SyncNetworkContext) {
+    fn process_completed_batches(&mut self) {
         // Only process batches if this chain is Syncing
         if self.state != ChainSyncingState::Syncing {
             return;
@@ -221,19 +221,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
 
         // Check if there is a batch ready to be processed
-        while !self.completed_batches.is_empty()
+        if !self.completed_batches.is_empty()
             && self.completed_batches[0].id == self.to_be_processed_id
         {
             let batch = self.completed_batches.remove(0);
-            if batch.downloaded_blocks.is_empty() {
-                // The batch was empty, consider this processed and move to the next batch
-                self.processed_batches.push(batch);
-                *self.to_be_processed_id += 1;
-                // request more batches if needed. There could be a case that all downloaded blocks
-                // are empty, in which case we would need to request more.
-                self.request_batches(network);
-                continue;
-            }
+
+            // Note: We now send empty batches to the processor in order to trigger the block
+            // processor result callback. This is done, because an empty batch could end a chain
+            // and the logic for removing chains and checking completion is in the callback.
 
             // send the batch to the batch processor thread
             return self.process_batch(batch);
@@ -286,34 +281,40 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let res = match result {
             BatchProcessResult::Success => {
                 *self.to_be_processed_id += 1;
-                // This variable accounts for skip slots and batches that were not actually
-                // processed due to having no blocks.
-                self.last_processed_id = batch.id;
 
-                // Remove any batches awaiting validation.
-                // Only batches that have blocks are processed here, therefore all previous batches
-                // have been correct.
-                //
-                // If a previous batch has been validated and it had been re-processed, downvote
-                // the original peer.
-                while !self.processed_batches.is_empty() {
-                    let processed_batch = self.processed_batches.remove(0);
-                    if *processed_batch.id >= *batch.id {
-                        crit!(self.log, "A processed batch had a greater id than the current process id"; "processed_id" => *processed_batch.id, "current_id" => *batch.id);
-                    }
+                // If the processed batch was not empty, we can validate previous invalidated
+                // blocks
+                if !batch.downloaded_blocks.is_empty() {
+                    // This variable accounts for skip slots and batches that were not actually
+                    // processed due to having no blocks.
+                    self.last_processed_id = batch.id;
 
-                    if let Some(prev_hash) = processed_batch.original_hash {
-                        // The validated batch has been re-processed
-                        if prev_hash != processed_batch.hash() {
-                            // The re-downloaded version was different
-                            if processed_batch.current_peer != processed_batch.original_peer {
-                                // A new peer sent the correct batch, the previous peer did not
-                                // downvote the original peer
-                                //
-                                // If the same peer corrected it's mistake, we allow it.... for
-                                // now.
-                                debug!(self.log, "Re-processed batch validated. Downvoting original peer"; "batch_id" => *processed_batch.id, "original_peer" => format!("{}",processed_batch.original_peer), "new_peer" => format!("{}", processed_batch.current_peer));
-                                network.downvote_peer(processed_batch.original_peer);
+                    // Remove any batches awaiting validation.
+                    //
+                    // All blocks in processed_batches should be prior batches. As the current
+                    // batch has been processed with blocks in it, all previous batches are valid.
+                    //
+                    // If a previous batch has been validated and it had been re-processed, downvote
+                    // the original peer.
+                    while !self.processed_batches.is_empty() {
+                        let processed_batch = self.processed_batches.remove(0);
+                        if *processed_batch.id >= *batch.id {
+                            crit!(self.log, "A processed batch had a greater id than the current process id"; "processed_id" => *processed_batch.id, "current_id" => *batch.id);
+                        }
+
+                        if let Some(prev_hash) = processed_batch.original_hash {
+                            // The validated batch has been re-processed
+                            if prev_hash != processed_batch.hash() {
+                                // The re-downloaded version was different
+                                if processed_batch.current_peer != processed_batch.original_peer {
+                                    // A new peer sent the correct batch, the previous peer did not
+                                    // downvote the original peer
+                                    //
+                                    // If the same peer corrected it's mistake, we allow it.... for
+                                    // now.
+                                    debug!(self.log, "Re-processed batch validated. Downvoting original peer"; "batch_id" => *processed_batch.id, "original_peer" => format!("{}",processed_batch.original_peer), "new_peer" => format!("{}", processed_batch.current_peer));
+                                    network.downvote_peer(processed_batch.original_peer);
+                                }
                             }
                         }
                     }
@@ -321,7 +322,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
                 // Add the current batch to processed batches to be verified in the future. We are
                 // only uncertain about this batch, if it has not returned all blocks.
-                if batch.downloaded_blocks.len() < BLOCKS_PER_BATCH as usize {
+                if batch.downloaded_blocks.last().map(|block| block.slot)
+                    != Some(batch.end_slot.saturating_sub(1u64))
+                {
                     self.processed_batches.push(batch);
                 }
 
@@ -338,7 +341,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.request_batches(network);
 
                     // attempt to process more batches
-                    self.process_completed_batches(network);
+                    self.process_completed_batches();
 
                     // keep the chain
                     ProcessingResult::KeepChain
@@ -474,7 +477,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.state = ChainSyncingState::Syncing;
 
         // start processing batches if needed
-        self.process_completed_batches(network);
+        self.process_completed_batches();
 
         // begin requesting blocks from the peer pool, until all peers are exhausted.
         self.request_batches(network);
