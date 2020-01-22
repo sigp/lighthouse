@@ -1,5 +1,6 @@
 use super::*;
 use ssz::{Decode, DecodeError};
+use std::cmp::Ordering;
 
 fn get_block_bytes<T: Store<E>, E: EthSpec>(
     store: &T,
@@ -45,12 +46,10 @@ fn get_at_preceeding_slot<T: Store<E>, E: EthSpec>(
         if let Some(bytes) = get_block_bytes::<_, E>(store, root)? {
             let this_slot = read_slot_from_block_bytes(&bytes)?;
 
-            if this_slot == slot {
-                break Ok(Some((root, bytes)));
-            } else if this_slot < slot {
-                break Ok(None);
-            } else {
-                root = read_parent_root_from_block_bytes(&bytes)?;
+            match this_slot.cmp(&slot) {
+                Ordering::Equal => break Ok(Some((root, bytes))),
+                Ordering::Less => break Ok(None),
+                Ordering::Greater => root = read_parent_root_from_block_bytes(&bytes)?,
             }
         } else {
             break Ok(None);

@@ -146,10 +146,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> Option<()> {
         if let Some(block) = beacon_block {
             // This is not a stream termination, simply add the block to the request
-            self.pending_batches.add_block(&request_id, block.clone())
+            self.pending_batches.add_block(request_id, block.clone())
         } else {
             // A stream termination has been sent. This batch has ended. Process a completed batch.
-            let batch = self.pending_batches.remove(&request_id)?;
+            let batch = self.pending_batches.remove(request_id)?;
             Some(self.handle_completed_batch(network, batch))
         }
     }
@@ -409,9 +409,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext,
         peer_id: &PeerId,
-        request_id: &RequestId,
+        request_id: RequestId,
     ) -> Option<ProcessingResult> {
-        if let Some(batch) = self.pending_batches.remove(&request_id) {
+        if let Some(batch) = self.pending_batches.remove(request_id) {
             warn!(self.log, "Batch failed. RPC Error"; "id" => *batch.id, "retries" => batch.retries, "peer" => format!("{:?}", peer_id));
 
             Some(self.failed_batch(network, batch))

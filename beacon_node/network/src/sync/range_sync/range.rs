@@ -357,7 +357,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 debug!(self.log, "Chain being removed due to failed batch");
                 self.chains.remove_chain(network, index, &self.log);
             }
-            _ => {} // chain didn't need to be removed, ignore
+            _ => {}
         }
     }
 
@@ -374,7 +374,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         // check that this request is pending
         match self
             .chains
-            .head_finalized_request(|chain| chain.inject_error(network, &peer_id, &request_id))
+            .head_finalized_request(|chain| chain.inject_error(network, &peer_id, request_id))
         {
             Some((_, ProcessingResult::KeepChain)) => {} // error handled chain persists
             Some((index, ProcessingResult::RemoveChain)) => {

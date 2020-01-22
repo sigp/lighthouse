@@ -237,7 +237,7 @@ mod test {
                 .add_block_root(int_hash(i), int_hash(i - 1), Slot::new(i))
                 .expect("add_block_root ok");
 
-            let expected = (1..i + 1)
+            let expected = (1..=i)
                 .rev()
                 .map(|j| (int_hash(j), Slot::new(j)))
                 .collect::<Vec<_>>();
@@ -262,12 +262,12 @@ mod test {
                 .add_block_root(int_hash(i), int_hash(i - step_length), Slot::new(i))
                 .expect("add_block_root ok");
 
-            let sparse_expected = (1..i + 1)
+            let sparse_expected = (1..=i)
                 .rev()
                 .step_by(step_length as usize)
                 .map(|j| (int_hash(j), Slot::new(j)))
                 .collect_vec();
-            let every_slot_expected = (1..i + 1)
+            let every_slot_expected = (1..=i)
                 .rev()
                 .map(|j| {
                     let nearest = 1 + (j - 1) / step_length * step_length;
@@ -343,10 +343,9 @@ mod test {
 
         // Check that advancing the finalized root onto one side completely removes the other
         // side.
-        let fin_tree = tree.clone();
+        let fin_tree = tree;
         let prune_point = num_blocks / 2;
         let remaining_fork1_blocks = all_fork1_blocks
-            .clone()
             .into_iter()
             .take_while(|(_, slot)| *slot >= prune_point)
             .collect_vec();

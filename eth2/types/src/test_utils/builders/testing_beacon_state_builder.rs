@@ -15,7 +15,7 @@ pub const KEYPAIRS_FILE: &str = "keypairs.raw_keypairs";
 /// `./keypairs.raw_keypairs`.
 pub fn keypairs_path() -> PathBuf {
     let dir = dirs::home_dir()
-        .and_then(|home| Some(home.join(".lighthouse")))
+        .map(|home| (home.join(".lighthouse")))
         .unwrap_or_else(|| PathBuf::from(""));
     dir.join(KEYPAIRS_FILE)
 }
@@ -42,7 +42,7 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     /// If the file does not contain enough keypairs or is invalid.
     pub fn from_default_keypairs_file_if_exists(validator_count: usize, spec: &ChainSpec) -> Self {
         let dir = dirs::home_dir()
-            .and_then(|home| Some(home.join(".lighthouse")))
+            .map(|home| home.join(".lighthouse"))
             .unwrap_or_else(|| PathBuf::from(""));
         let file = dir.join(KEYPAIRS_FILE);
 

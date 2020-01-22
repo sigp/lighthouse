@@ -311,11 +311,7 @@ fn bench_block<T: EthSpec>(
                     )
                     .expect("should get indexed attestation");
 
-                    (
-                        local_spec.clone(),
-                        local_state.clone(),
-                        indexed_attestation.clone(),
-                    )
+                    (local_spec.clone(), local_state.clone(), indexed_attestation)
                 },
                 |(spec, ref mut state, indexed_attestation)| {
                     black_box(
@@ -349,11 +345,7 @@ fn bench_block<T: EthSpec>(
                     )
                     .expect("should get indexed attestation");
 
-                    (
-                        local_spec.clone(),
-                        local_state.clone(),
-                        indexed_attestation.clone(),
-                    )
+                    (local_spec.clone(), local_state.clone(), indexed_attestation)
                 },
                 |(spec, ref mut state, indexed_attestation)| {
                     black_box(
@@ -373,7 +365,7 @@ fn bench_block<T: EthSpec>(
     );
 
     let local_block = block.clone();
-    let local_state = state.clone();
+    let local_state = state;
     c.bench(
         &title,
         Benchmark::new("get_attesting_indices", move |b| {
@@ -409,7 +401,7 @@ fn bench_block<T: EthSpec>(
         .sample_size(10),
     );
 
-    let local_block = block.clone();
+    let local_block = block;
     c.bench(
         &title,
         Benchmark::new("ssz_block_len", move |b| {

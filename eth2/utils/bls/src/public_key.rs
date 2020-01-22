@@ -39,7 +39,7 @@ impl PublicKey {
     /// Converts compressed bytes to PublicKey
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let pubkey = RawPublicKey::from_bytes(&bytes).map_err(|_| {
-            DecodeError::BytesInvalid(format!("Invalid PublicKey bytes: {:?}", bytes).to_string())
+            DecodeError::BytesInvalid(format!("Invalid PublicKey bytes: {:?}", bytes))
         })?;
 
         Ok(PublicKey(pubkey))
