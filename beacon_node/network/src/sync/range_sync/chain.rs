@@ -204,12 +204,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         // Try and process any completed batches. This will spawn a new task to process any blocks
         // that are ready to be processed.
-        self.process_completed_batches();
+        self.process_completed_batches(network);
     }
 
     /// Tries to process any batches if there are any available and we are not currently processing
     /// other batches.
-    fn process_completed_batches(&mut self) {
+    fn process_completed_batches(&mut self, network: &mut SyncNetworkContext) {
         // Only process batches if this chain is Syncing
         if self.state != ChainSyncingState::Syncing {
             return;
@@ -229,6 +229,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // The batch was empty, consider this processed and move to the next batch
                 self.processed_batches.push(batch);
                 *self.to_be_processed_id += 1;
+                // request more batches if needed. There could be a case that all downloaded blocks
+                // are empty, in which case we would need to request more.
+                self.request_batches(network);
                 continue;
             }
 
@@ -335,7 +338,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.request_batches(network);
 
                     // attempt to process more batches
-                    self.process_completed_batches();
+                    self.process_completed_batches(network);
 
                     // keep the chain
                     ProcessingResult::KeepChain
@@ -471,7 +474,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.state = ChainSyncingState::Syncing;
 
         // start processing batches if needed
-        self.process_completed_batches();
+        self.process_completed_batches(network);
 
         // begin requesting blocks from the peer pool, until all peers are exhausted.
         self.request_batches(network);
@@ -582,6 +585,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ///
     /// This is used to create the next request.
     fn get_next_peer(&self) -> Option<PeerId> {
+        // TODO: Optimize this by combining with above two functions.
         // randomize the peers for load balancing
         let mut rng = rand::thread_rng();
         let mut peers = self.peer_pool.iter().collect::<Vec<_>>();
