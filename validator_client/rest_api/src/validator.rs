@@ -65,9 +65,9 @@ pub fn add_new_validator<T: SlotClock + 'static, E: EthSpec>(
         })
         .and_then(move |body| {
             let deposit_amount = body.deposit_amount;
-            validator_store.add_validator(deposit_amount).map_err(|e| {
-                ApiError::ProcessingError(format!("Failed to generate validator: {}", e))
-            })
+            validator_store
+                .add_validator(deposit_amount)
+                .map_err(|e| ApiError::ServerError(format!("Failed to generate validator: {}", e)))
         })
         .and_then(|pubkey| response_builder?.body(&pubkey));
     Box::new(future)
@@ -79,25 +79,27 @@ pub fn remove_validator<T: SlotClock + 'static, E: EthSpec>(
     validator_store: Arc<ValidatorStore<T, E>>,
 ) -> BoxFut {
     let response_builder = ResponseBuilder::new(&req);
-    let future =
-        req.into_body()
-            .concat2()
-            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-            .and_then(|chunks| {
-                serde_json::from_slice::<ValidatorRequest>(&chunks).map_err(|e| {
-                    ApiError::BadRequest(format!(
-                        "Unable to parse JSON into ValidatorRequest: {:?}",
-                        e
-                    ))
-                })
+    let future = req
+        .into_body()
+        .concat2()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+        .and_then(|chunks| {
+            serde_json::from_slice::<ValidatorRequest>(&chunks).map_err(|e| {
+                ApiError::BadRequest(format!(
+                    "Unable to parse JSON into ValidatorRequest: {:?}",
+                    e
+                ))
             })
-            .and_then(move |body| {
-                let validator_pubkey = body.validator;
-                validator_store.remove_validator(&validator_pubkey).ok_or(
-                    ApiError::ProcessingError(format!("Validator pubkey not present")),
-                )
-            })
-            .and_then(|_| response_builder?.body_empty());
+        })
+        .and_then(move |body| {
+            let validator_pubkey = body.validator;
+            validator_store
+                .remove_validator(&validator_pubkey)
+                .ok_or(ApiError::ServerError(format!(
+                    "Validator pubkey not present"
+                )))
+        })
+        .and_then(|_| response_builder?.body_empty());
     Box::new(future)
 }
 
@@ -124,7 +126,7 @@ pub fn start_validator<T: SlotClock + 'static, E: EthSpec>(
             let validator_pubkey = body.validator;
             validator_store
                 .set_validator_status(&validator_pubkey, true)
-                .ok_or(ApiError::ProcessingError(format!(
+                .ok_or(ApiError::ServerError(format!(
                     "Validator pubkey not present"
                 )))
         })
@@ -155,7 +157,7 @@ pub fn stop_validator<T: SlotClock + 'static, E: EthSpec>(
             let validator_pubkey = body.validator;
             validator_store
                 .set_validator_status(&validator_pubkey, false)
-                .ok_or(ApiError::ProcessingError(format!(
+                .ok_or(ApiError::ServerError(format!(
                     "Validator pubkey not present"
                 )))
         })
@@ -200,15 +202,13 @@ pub fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
                 // Verify public key matches
                 let pk_bytes: PublicKeyBytes = pk.clone().into();
                 if pk_bytes != validator.pubkey {
-                    // TODO: Return appropriate error
-                    Err(ApiError::ProcessingError(format!(
+                    Err(ApiError::ServerError(format!(
                         "Invalid public key returned from beacon chain api"
                     )))
                 }
                 // Verify that validator is currently activated
                 else if validator.validator_index.is_none() {
-                    // TODO: Return appropriate error
-                    Err(ApiError::ProcessingError(format!(
+                    Err(ApiError::ServerError(format!(
                         "Validator not active on beacon chain"
                     )))
                 } else {
@@ -223,8 +223,7 @@ pub fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
                     Ok(())
                 }
             } else {
-                // TODO: Return appropriate error
-                Err(ApiError::ProcessingError(format!(
+                Err(ApiError::ServerError(format!(
                     "Invalid public key returned from beacon chain api"
                 )))
             }

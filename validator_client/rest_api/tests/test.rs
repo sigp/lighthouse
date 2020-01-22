@@ -79,7 +79,6 @@ fn test_validator_api() {
     );
 
     // Exit activated validator
-    // TODO: test for failure case. Currently, returns 202 for `ProcessingError`.
     let exit = env.runtime().block_on(
         remote_vc.http.validator().exit_validator(
             expected_validators
@@ -87,7 +86,10 @@ fn test_validator_api() {
                 .expect("should have atleast one validator"),
         ),
     );
-    assert!(exit.is_ok(), "exit shouldn't error");
+    assert!(
+        exit.is_ok(),
+        "exit shouldn't error with activated validator"
+    );
 
     // Add validator
     let pk = env
@@ -108,6 +110,12 @@ fn test_validator_api() {
         !vc.client.validator_store().voting_pubkeys().contains(&pk),
         "validator not started. shouldn't appear in voting pubkeys"
     );
+
+    // Exit inactive validator
+    let exit = env
+        .runtime()
+        .block_on(remote_vc.http.validator().exit_validator(&pk));
+    assert!(exit.is_err(), "exit should error with inactive validator");
 
     // Start validator
     env.runtime()
