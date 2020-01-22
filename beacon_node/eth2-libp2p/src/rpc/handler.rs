@@ -319,7 +319,6 @@ where
                     substream: out,
                     request,
                 };
-                debug!(self.log, "Added outbound substream id"; "substream_id" => id);
                 self.outbound_substreams
                     .insert(id, (awaiting_stream, delay_key));
             }
