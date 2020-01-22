@@ -47,9 +47,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
     validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
-    beacon_node: Arc<RemoteBeaconNode<T>>,
     http_listen_addr: Option<SocketAddr>,
-    config: rest_api_vc::Config,
     exit_signals: Vec<Signal>,
 }
 
@@ -232,6 +230,22 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     .runtime_context(context.service_context("attestation".into()))
                     .build()?;
 
+                // rest_api service is started if enabled
+                let mut http_listen_addr = None;
+                let mut exit_signals = Vec::new();
+                if config.rest_api.enabled {
+                    let (http_exit, addr) = rest_api_vc::start_server(
+                        &config.rest_api,
+                        &context.executor,
+                        Arc::new(validator_store.clone()),
+                        Arc::new(beacon_node),
+                        context.log.clone(),
+                    )
+                    .map_err(|e| format!("Failed to start validator client http server: {}", e))?;
+                    http_listen_addr = Some(addr);
+                    exit_signals.push(http_exit);
+                };
+
                 Ok(Self {
                     context,
                     duties_service,
@@ -239,14 +253,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     block_service,
                     attestation_service,
                     validator_store: Arc::new(validator_store),
-                    beacon_node: Arc::new(beacon_node),
-                    http_listen_addr: None,
-                    // TODO: Adding rest api config to Self to avoid using builder pattern
-                    // to create a `ProductionValidatorClient` instance.
-                    // Check if there's a better way to pass rest api config without using
-                    // builder pattern.
-                    config: config.rest_api,
-                    exit_signals: vec![],
+                    http_listen_addr,
+                    exit_signals,
                 })
             })
     }
@@ -275,26 +283,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let notifier_exit =
             spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 
-        self.exit_signals = vec![
+        self.exit_signals.append(&mut vec![
             duties_exit,
             fork_exit,
             block_exit,
             attestation_exit,
             notifier_exit,
-        ];
-        if self.config.enabled {
-            let (http_exit, addr) = rest_api_vc::start_server(
-                &self.config,
-                &self.context.executor,
-                self.validator_store.clone(),
-                self.beacon_node.clone(),
-                self.context.log.clone(),
-            )
-            .map_err(|e| format!("Failed to start validator client http server: {}", e))?;
-            self.http_listen_addr = Some(addr);
-            self.exit_signals.push(http_exit);
-        };
-
+        ]);
         Ok(())
     }
 
