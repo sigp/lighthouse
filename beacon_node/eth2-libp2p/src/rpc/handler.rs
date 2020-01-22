@@ -711,19 +711,17 @@ where
         }
 
         // establish outbound substreams
-        if !self.dial_queue.is_empty() {
-            if self.dial_negotiated < self.max_dial_negotiated {
-                self.dial_negotiated += 1;
-                let rpc_event = self.dial_queue.remove(0);
-                self.dial_queue.shrink_to_fit();
-                if let RPCEvent::Request(id, req) = rpc_event {
-                    return Ok(Async::Ready(
-                        ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                            protocol: SubstreamProtocol::new(req.clone()),
-                            info: RPCEvent::Request(id, req),
-                        },
-                    ));
-                }
+        if !self.dial_queue.is_empty() && self.dial_negotiated < self.max_dial_negotiated {
+            self.dial_negotiated += 1;
+            let rpc_event = self.dial_queue.remove(0);
+            self.dial_queue.shrink_to_fit();
+            if let RPCEvent::Request(id, req) = rpc_event {
+                return Ok(Async::Ready(
+                    ProtocolsHandlerEvent::OutboundSubstreamRequest {
+                        protocol: SubstreamProtocol::new(req.clone()),
+                        info: RPCEvent::Request(id, req),
+                    },
+                ));
             }
         }
         Ok(Async::NotReady)

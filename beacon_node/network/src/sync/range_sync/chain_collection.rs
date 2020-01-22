@@ -194,6 +194,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     }
 
     /// Add a new finalized chain to the collection and starts syncing it.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_head_chain(
         &mut self,
         network: &mut SyncNetworkContext,

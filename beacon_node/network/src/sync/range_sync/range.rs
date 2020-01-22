@@ -206,7 +206,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 debug!(self.log, "Adding peer to the existing head chain peer pool"; "head_root" => format!("{}",remote.head_root), "head_slot" => remote.head_slot, "peer_id" => format!("{:?}", peer_id));
 
                 // add the peer to the head's pool
-                chain.add_peer(network, peer_id.clone());
+                chain.add_peer(network, peer_id);
             } else {
                 // There are no other head chains that match this peer's status, create a new one, and
                 let start_slot = std::cmp::min(local_info.head_slot, remote_finalized_slot);
@@ -242,9 +242,13 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         // lookup should not be very expensive. However, we could add an extra index that maps the
         // request id to index of the vector to avoid O(N) searches and O(N) hash lookups.
 
-        if let None = self.chains.head_finalized_request(|chain| {
-            chain.on_block_response(network, request_id, &beacon_block)
-        }) {
+        let id_not_found = self
+            .chains
+            .head_finalized_request(|chain| {
+                chain.on_block_response(network, request_id, &beacon_block)
+            })
+            .is_none();
+        if id_not_found {
             // The request didn't exist in any `SyncingChain`. Could have been an old request. Log
             // and ignore
             debug!(self.log, "Range response without matching request"; "peer" => format!("{:?}", peer_id), "request_id" => request_id);
@@ -255,11 +259,11 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         &mut self,
         network: &mut SyncNetworkContext,
         processing_id: u64,
-        batch: Box<Batch<T::EthSpec>>,
+        batch: Batch<T::EthSpec>,
         result: BatchProcessResult,
     ) {
         // build an RC for passing the batch to each chain
-        let batch = Rc::new(*batch);
+        let batch = Rc::new(batch);
 
         match self.chains.finalized_request(|chain| {
             chain.on_batch_process_result(network, processing_id, batch.clone(), &result)
@@ -337,27 +341,26 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain and re-status all the peers.
     fn remove_peer(&mut self, network: &mut SyncNetworkContext, peer_id: &PeerId) {
-        match self.chains.head_finalized_request(|chain| {
-            if chain.peer_pool.remove(peer_id) {
-                // this chain contained the peer
-                while let Some(batch) = chain.pending_batches.remove_batch_by_peer(peer_id) {
-                    if let ProcessingResult::RemoveChain = chain.failed_batch(network, batch) {
-                        // a single batch failed, remove the chain
-                        return Some(ProcessingResult::RemoveChain);
+        if let Some((index, ProcessingResult::RemoveChain)) =
+            self.chains.head_finalized_request(|chain| {
+                if chain.peer_pool.remove(peer_id) {
+                    // this chain contained the peer
+                    while let Some(batch) = chain.pending_batches.remove_batch_by_peer(peer_id) {
+                        if let ProcessingResult::RemoveChain = chain.failed_batch(network, batch) {
+                            // a single batch failed, remove the chain
+                            return Some(ProcessingResult::RemoveChain);
+                        }
                     }
+                    // peer removed from chain, no batch failed
+                    Some(ProcessingResult::KeepChain)
+                } else {
+                    None
                 }
-                // peer removed from chain, no batch failed
-                Some(ProcessingResult::KeepChain)
-            } else {
-                None
-            }
-        }) {
-            Some((index, ProcessingResult::RemoveChain)) => {
-                // the chain needed to be removed
-                debug!(self.log, "Chain being removed due to failed batch");
-                self.chains.remove_chain(network, index, &self.log);
-            }
-            _ => {}
+            })
+        {
+            // the chain needed to be removed
+            debug!(self.log, "Chain being removed due to failed batch");
+            self.chains.remove_chain(network, index, &self.log);
         }
     }
 

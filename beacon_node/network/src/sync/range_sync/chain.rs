@@ -150,7 +150,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         } else {
             // A stream termination has been sent. This batch has ended. Process a completed batch.
             let batch = self.pending_batches.remove(request_id)?;
-            Some(self.handle_completed_batch(network, batch))
+            self.handle_completed_batch(network, batch);
+            Some(())
         }
     }
 
@@ -513,7 +514,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     /// Returns a peer if there exists a peer which does not currently have a pending request.

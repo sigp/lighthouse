@@ -695,7 +695,7 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                         self.range_sync.handle_block_process_result(
                             &mut self.network,
                             process_id,
-                            batch,
+                            *batch,
                             result,
                         );
                     }
