@@ -1,4 +1,9 @@
-# Simple Local Testnet
+# Simple Private Testnet
+
+> This guide is about running your own private local testnet.
+> - If you wish to join the ongoing public testnet, please read [become a validator](./become-a-validator.md).
+
+This guide will help you setup your own private local testnet.
 
 First, [install Lighthouse](./installation.md).
 
