@@ -16,10 +16,9 @@ use store::{
     migrate::{BlockingMigrator, NullMigrator},
     DiskStore, MemoryStore, Migrate, Store,
 };
-use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, BeaconState, BitList, ChainSpec, Domain, EthSpec, Hash256,
-    Keypair, SecretKey, Signature, SignedBeaconBlock, Slot,
+    Keypair, SecretKey, Signature, SignedBeaconBlock, SignedRoot, Slot,
 };
 
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
@@ -310,9 +309,9 @@ where
 
         let randao_reveal = {
             let epoch = slot.epoch(E::slots_per_epoch());
-            let message = epoch.tree_hash_root();
             let domain = self.spec.get_domain(epoch, Domain::Randao, fork);
-            Signature::new(&message, domain, sk)
+            let message = epoch.signing_root(domain);
+            Signature::new(message.as_bytes(), sk)
         };
 
         let (block, state) = self
@@ -404,18 +403,17 @@ where
                                 .expect("should be able to set aggregation bits");
 
                             let signature = {
-                                let message = data.tree_hash_root();
-
                                 let domain = spec.get_domain(
                                     data.target.epoch,
                                     Domain::BeaconAttester,
                                     fork,
                                 );
 
+                                let message = data.signing_root(domain);
+
                                 let mut agg_sig = AggregateSignature::new();
                                 agg_sig.add(&Signature::new(
-                                    &message,
-                                    domain,
+                                    message.as_bytes(),
                                     self.get_sk(*validator_index),
                                 ));
 

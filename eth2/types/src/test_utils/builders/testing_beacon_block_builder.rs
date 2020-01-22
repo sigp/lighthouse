@@ -102,9 +102,9 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     /// Modifying the block's slot after signing may invalidate the signature.
     pub fn set_randao_reveal(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
         let epoch = self.block.slot.epoch(T::slots_per_epoch());
-        let message = epoch.tree_hash_root();
         let domain = spec.get_domain(epoch, Domain::Randao, fork);
-        self.block.body.randao_reveal = Signature::new(&message, domain, sk);
+        let message = epoch.signing_root(domain);
+        self.block.body.randao_reveal = Signature::new(message.as_bytes(), sk);
     }
 
     /// Has the randao reveal been set?
@@ -403,14 +403,13 @@ fn build_double_vote_attester_slashing<T: EthSpec>(
     fork: &Fork,
     spec: &ChainSpec,
 ) -> AttesterSlashing<T> {
-    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: Domain| {
+    let signer = |validator_index: u64, message: &[u8]| {
         let key_index = validator_indices
             .iter()
             .position(|&i| i == validator_index)
             .expect("Unable to find attester slashing key");
-        let domain = spec.get_domain(epoch, domain, fork);
-        Signature::new(message, domain, secret_keys[key_index])
+        Signature::new(message, secret_keys[key_index])
     };
 
-    TestingAttesterSlashingBuilder::double_vote(test_task, validator_indices, signer)
+    TestingAttesterSlashingBuilder::double_vote(test_task, validator_indices, signer, fork, spec)
 }

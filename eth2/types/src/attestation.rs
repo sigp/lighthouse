@@ -1,13 +1,12 @@
 use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
-    Signature,
+    Signature, SignedRoot,
 };
 use crate::test_utils::TestRandom;
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[derive(Debug, PartialEq)]
@@ -67,11 +66,11 @@ impl<T: EthSpec> Attestation<T> {
                 .set(committee_position, true)
                 .map_err(|e| Error::SszTypesError(e))?;
 
-            let message = self.data.tree_hash_root();
             let domain = spec.get_domain(self.data.target.epoch, Domain::BeaconAttester, fork);
+            let message = self.data.signing_root(domain);
 
             self.signature
-                .add(&Signature::new(&message, domain, secret_key));
+                .add(&Signature::new(message.as_bytes(), secret_key));
 
             Ok(())
         }

@@ -5,7 +5,6 @@
 use bls::{G1Point, G1Ref, SignatureSet, SignedMessage};
 use std::borrow::Cow;
 use std::convert::TryInto;
-use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
     DepositData, Domain, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
@@ -66,7 +65,6 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
         &signed_block.signature,
         validator_pubkey(state, proposer_index)?,
         message,
-        domain,
     ))
 }
 
@@ -84,13 +82,12 @@ pub fn randao_signature_set<'a, T: EthSpec>(
         &state.fork,
     );
 
-    let message = state.current_epoch().tree_hash_root();
+    let message = state.current_epoch().signing_root(domain);
 
     Ok(SignatureSet::single(
         &block.body.randao_reveal,
         validator_pubkey(state, proposer_index)?,
-        message,
-        domain,
+        message.as_bytes().to_vec(),
     ))
 }
 
@@ -141,7 +138,6 @@ fn block_header_signature_set<'a, T: EthSpec>(
         &signed_header.signature,
         pubkey,
         message,
-        domain,
     ))
 }
 
@@ -152,15 +148,11 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
     indexed_attestation: &'b IndexedAttestation<T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let message = indexed_attestation.data.tree_hash_root();
-
     let pubkeys = indexed_attestation
         .attesting_indices
         .into_iter()
         .map(|&validator_idx| Ok(validator_pubkey(state, validator_idx as usize)?))
         .collect::<Result<_>>()?;
-
-    let signed_message = SignedMessage::new(pubkeys, message);
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
@@ -168,7 +160,10 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
         &state.fork,
     );
 
-    Ok(SignatureSet::new(signature, vec![signed_message], domain))
+    let message = indexed_attestation.data.signing_root(domain);
+    let signed_message = SignedMessage::new(pubkeys, message.as_bytes().to_vec());
+
+    Ok(SignatureSet::new(signature, vec![signed_message]))
 }
 
 /// Returns the signature set for the given `attester_slashing` and corresponding `pubkeys`.
@@ -215,18 +210,12 @@ pub fn deposit_pubkey_signature_message(
 /// `deposit_pubkey_signature_message`.
 pub fn deposit_signature_set<'a>(
     pubkey_signature_message: &'a (PublicKey, Signature, Vec<u8>),
-    spec: &'a ChainSpec,
 ) -> SignatureSet<'a> {
     let (pubkey, signature, message) = pubkey_signature_message;
 
     // Note: Deposits are valid across forks, thus the deposit domain is computed
     // with the fork zeroed.
-    SignatureSet::single(
-        signature,
-        pubkey.g1_ref(),
-        message.clone(),
-        spec.get_deposit_domain(),
-    )
+    SignatureSet::single(signature, pubkey.g1_ref(), message.clone())
 }
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
@@ -247,12 +236,11 @@ pub fn exit_signature_set<'a, T: EthSpec>(
         &signed_exit.signature,
         validator_pubkey(state, proposer_index)?,
         message,
-        domain,
     ))
 }
 
 /// Maps a validator index to a `PublicKey`.
-fn validator_pubkey<'a, T: EthSpec>(
+pub fn validator_pubkey<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     validator_index: usize,
 ) -> Result<Cow<'a, G1Point>> {

@@ -32,7 +32,7 @@ impl Case for BlsSign {
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
         let d = bytes_to_u64(&d);
 
-        let signature = Signature::new(&msg, d, &sk);
+        let signature = Signature::new(&msg, &sk);
 
         // Convert the output to one set of bytes
         let decoded = hex::decode(&self.output[2..])

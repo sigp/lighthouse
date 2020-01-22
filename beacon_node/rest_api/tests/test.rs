@@ -10,11 +10,10 @@ use remote_beacon_node::{
 };
 use std::convert::TryInto;
 use std::sync::Arc;
-use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlock, BeaconState, ChainSpec, Domain, Epoch,
-    EthSpec, MinimalEthSpec, PublicKey, RelativeEpoch, Signature, SignedBeaconBlock, Slot,
-    Validator,
+    EthSpec, MinimalEthSpec, PublicKey, RelativeEpoch, Signature, SignedBeaconBlock, SignedRoot,
+    Slot, Validator,
 };
 use version;
 
@@ -55,9 +54,9 @@ fn get_randao_reveal<T: BeaconChainTypes>(
         .expect("should get proposer index");
     let keypair = generate_deterministic_keypair(proposer_index);
     let epoch = slot.epoch(E::slots_per_epoch());
-    let message = epoch.tree_hash_root();
     let domain = spec.get_domain(epoch, Domain::Randao, &fork);
-    Signature::new(&message, domain, &keypair.sk)
+    let message = epoch.signing_root(domain);
+    Signature::new(message.as_bytes(), &keypair.sk)
 }
 
 /// Signs the given block (assuming the given `beacon_chain` uses deterministic keypairs).

@@ -28,7 +28,7 @@ impl Case for BlsG2Compressed {
         let d = bytes_to_u64(&d);
 
         // Calculate the point and convert it to compressed bytes
-        let mut point = hash_on_g2(&msg, d);
+        let mut point = hash_on_g2(&msg);
         let point = compress_g2(&mut point);
 
         // Convert the output to one set of bytes

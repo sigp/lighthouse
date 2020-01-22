@@ -6,7 +6,6 @@ use std::borrow::Cow;
 use milagro_bls::AggregateSignature as RawAggregateSignature;
 
 type Message = Vec<u8>;
-type Domain = u64;
 
 #[derive(Clone, Debug)]
 pub struct SignedMessage<'a> {
@@ -27,23 +26,16 @@ impl<'a> SignedMessage<'a> {
 pub struct SignatureSet<'a> {
     pub signature: &'a G2Point,
     signed_messages: Vec<SignedMessage<'a>>,
-    domain: Domain,
 }
 
 impl<'a> SignatureSet<'a> {
-    pub fn single<S>(
-        signature: &'a S,
-        signing_key: Cow<'a, G1Point>,
-        message: Message,
-        domain: Domain,
-    ) -> Self
+    pub fn single<S>(signature: &'a S, signing_key: Cow<'a, G1Point>, message: Message) -> Self
     where
         S: G2Ref,
     {
         Self {
             signature: signature.g2_ref(),
             signed_messages: vec![SignedMessage::new(vec![signing_key], message)],
-            domain,
         }
     }
 
@@ -53,7 +45,6 @@ impl<'a> SignatureSet<'a> {
         message_0_signing_keys: Vec<Cow<'a, G1Point>>,
         message_1: Message,
         message_1_signing_keys: Vec<Cow<'a, G1Point>>,
-        domain: Domain,
     ) -> Self
     where
         T: G1Ref + Clone,
@@ -65,18 +56,16 @@ impl<'a> SignatureSet<'a> {
                 SignedMessage::new(message_0_signing_keys, message_0),
                 SignedMessage::new(message_1_signing_keys, message_1),
             ],
-            domain,
         }
     }
 
-    pub fn new<S>(signature: &'a S, signed_messages: Vec<SignedMessage<'a>>, domain: Domain) -> Self
+    pub fn new<S>(signature: &'a S, signed_messages: Vec<SignedMessage<'a>>) -> Self
     where
         S: G2Ref,
     {
         Self {
             signature: signature.g2_ref(),
             signed_messages,
-            domain,
         }
     }
 
@@ -103,7 +92,7 @@ impl<'a> SignatureSet<'a> {
         let pubkey_refs: Vec<&milagro_bls::AggregatePublicKey> =
             pubkeys.iter().map(std::borrow::Borrow::borrow).collect();
 
-        sig.verify_multiple(&messages, self.domain, &pubkey_refs)
+        sig.verify_multiple(&messages, &pubkey_refs)
     }
 }
 
@@ -118,7 +107,7 @@ pub fn verify_signature_sets<'a>(_iter: impl Iterator<Item = SignatureSet<'a>>) 
     true
 }
 
-type VerifySet<'a> = (G2Point, Vec<G1Point>, Vec<Vec<u8>>, u64);
+type VerifySet<'a> = (G2Point, Vec<G1Point>, Vec<Vec<u8>>);
 
 impl<'a> Into<VerifySet<'a>> for SignatureSet<'a> {
     fn into(self) -> VerifySet<'a> {
@@ -138,7 +127,7 @@ impl<'a> Into<VerifySet<'a>> for SignatureSet<'a> {
             })
             .unzip();
 
-        (signature, pubkeys, messages, self.domain)
+        (signature, pubkeys, messages)
     }
 }
 

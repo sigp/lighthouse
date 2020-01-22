@@ -28,7 +28,7 @@ impl Case for BlsG2Uncompressed {
         let d = bytes_to_u64(&d);
 
         // Calculate the point and convert it to compressed bytes
-        let point = hash_on_g2(&msg, d);
+        let point = hash_on_g2(&msg);
         let mut point_bytes = [0 as u8; 288];
         point.getpx().geta().tobytearray(&mut point_bytes, 0);
         point.getpx().getb().tobytearray(&mut point_bytes, 48);

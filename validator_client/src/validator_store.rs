@@ -11,10 +11,9 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
-use tree_hash::TreeHash;
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
-    SignedBeaconBlock,
+    SignedBeaconBlock, SignedRoot,
 };
 
 #[derive(Clone)]
@@ -143,10 +142,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .get(validator_pubkey)
             .and_then(|validator_dir| {
                 let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                let message = epoch.tree_hash_root();
                 let domain = self.spec.get_domain(epoch, Domain::Randao, &self.fork()?);
+                let message = epoch.signing_root(domain);
 
-                Some(Signature::new(&message, domain, &voting_keypair.sk))
+                Some(Signature::new(message.as_bytes(), &voting_keypair.sk))
             })
     }
 

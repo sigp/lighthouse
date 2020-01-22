@@ -11,6 +11,7 @@
 //! may lead to programming errors which are not detected by the compiler.
 
 use crate::test_utils::TestRandom;
+use crate::SignedRoot;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use slog;
@@ -91,6 +92,8 @@ impl Epoch {
         }
     }
 }
+
+impl SignedRoot for Epoch {}
 
 pub struct SlotIter<'a> {
     current_iteration: u64,
