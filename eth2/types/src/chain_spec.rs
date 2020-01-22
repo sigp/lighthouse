@@ -1,6 +1,8 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
+use std::fs::File;
+use std::path::Path;
 use utils::{
     fork_from_hex_str, fork_to_hex_str, u32_from_hex_str, u32_to_hex_str, u8_from_hex_str,
     u8_to_hex_str,
@@ -322,13 +324,15 @@ mod tests {
     }
 }
 
-// Yaml Config is declared here in order to access domain fields of ChainSpec which are private fields.
+/// Union of a ChainSpec struct and an EthSpec struct that holds constants used for the configs
+/// from the Ethereum 2 specs repo (https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
+///
+/// Spec v0.10.0
+// Yaml Config is declared here in order to access domain fields of ChainSpec which are private.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[serde(deny_unknown_fields)]
-/// Union of a ChainSpec struct and an EthSpec struct that holds constants used for the configs folder of the Ethereum 2 spec (https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
-/// Spec v0.9.1
 pub struct YamlConfig {
     // ChainSpec
     far_future_epoch: u64,
@@ -341,11 +345,16 @@ pub struct YamlConfig {
     shuffle_round_count: u8,
     min_genesis_active_validator_count: u64,
     min_genesis_time: u64,
+    min_genesis_delay: u64,
     min_deposit_amount: u64,
     max_effective_balance: u64,
     ejection_balance: u64,
     effective_balance_increment: u64,
     genesis_slot: u64,
+    #[serde(
+        serialize_with = "fork_to_hex_str",
+        deserialize_with = "fork_from_hex_str"
+    )]
     genesis_fork_version: [u8; 4],
     #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
     bls_withdrawal_prefix: u8,
@@ -409,12 +418,14 @@ pub struct YamlConfig {
     max_deposits: u32,
     max_voluntary_exits: u32,
 
-    // Eth1
+    // Validator
     eth1_follow_distance: u64,
+    target_aggregators_per_committee: u64,
+    random_subnets_per_validator: u64,
+    epochs_per_random_subnet_subscription: u64,
+    seconds_per_eth1_block: u64,
 
-    // Unused
-    #[serde(skip_serializing)]
-    early_derived_secret_penalty_max_future_epochs: u32,
+    // Deposit Contract (unused)
     #[serde(skip_serializing)]
     deposit_contract_address: String,
 
@@ -439,6 +450,8 @@ pub struct YamlConfig {
     domain_shard_attester: u32,
     #[serde(skip_serializing)]
     max_epochs_per_crosslink: u64,
+    #[serde(skip_serializing)]
+    early_derived_secret_penalty_max_future_epochs: u32,
 }
 
 impl Default for YamlConfig {
@@ -463,6 +476,7 @@ impl YamlConfig {
             shuffle_round_count: spec.shuffle_round_count,
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
+            min_genesis_delay: spec.min_genesis_delay,
             min_deposit_amount: spec.min_deposit_amount,
             max_effective_balance: spec.max_effective_balance,
             ejection_balance: spec.ejection_balance,
@@ -506,11 +520,14 @@ impl YamlConfig {
             max_deposits: T::MaxDeposits::to_u32(),
             max_voluntary_exits: T::MaxVoluntaryExits::to_u32(),
 
-            // Eth1
+            // Validator
             eth1_follow_distance: spec.eth1_follow_distance,
+            target_aggregators_per_committee: 0,
+            random_subnets_per_validator: 0,
+            epochs_per_random_subnet_subscription: 0,
+            seconds_per_eth1_block: 0,
 
-            // Unused
-            early_derived_secret_penalty_max_future_epochs: 0,
+            // Deposit Contract (unused)
             deposit_contract_address: String::new(),
 
             // Phase 1
@@ -524,7 +541,15 @@ impl YamlConfig {
             domain_shard_proposer: 0,
             domain_shard_attester: 0,
             max_epochs_per_crosslink: 0,
+            early_derived_secret_penalty_max_future_epochs: 0,
         }
+    }
+
+    pub fn from_file(filename: &Path) -> Result<Self, String> {
+        let f = File::open(filename)
+            .map_err(|e| format!("Error opening spec at {}: {:?}", filename.display(), e))?;
+        serde_yaml::from_reader(f)
+            .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))
     }
 
     pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
@@ -560,6 +585,7 @@ impl YamlConfig {
             min_genesis_active_validator_count: self.min_genesis_active_validator_count,
             min_genesis_time: self.min_genesis_time,
             min_deposit_amount: self.min_deposit_amount,
+            min_genesis_delay: self.min_genesis_delay,
             max_effective_balance: self.max_effective_balance,
             ejection_balance: self.ejection_balance,
             effective_balance_increment: self.effective_balance_increment,

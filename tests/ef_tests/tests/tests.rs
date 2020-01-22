@@ -1,7 +1,30 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
+use std::path::PathBuf;
 use types::*;
+
+// Check that the config from the Eth2.0 spec tests matches our minimal/mainnet config.
+fn config_test<E: EthSpec + TypeName>() {
+    let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("eth2.0-spec-tests")
+        .join("tests")
+        .join(E::name())
+        .join("config.yaml");
+    let yaml_config = YamlConfig::from_file(&config_path).expect("config file loads OK");
+    let spec = E::default_spec();
+    assert_eq!(yaml_config.apply_to_chain_spec::<E>(&spec), Some(spec));
+}
+
+#[test]
+fn mainnet_config_ok() {
+    config_test::<MainnetEthSpec>();
+}
+
+#[test]
+fn minimal_config_ok() {
+    config_test::<MinimalEthSpec>();
+}
 
 #[test]
 fn shuffling() {
@@ -89,11 +112,7 @@ fn bls_sign_msg() {
 
 #[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test {
-    // Signed-root
-    ($test_name:ident, $typ:ident$(<$generics:tt>)?, SR) => {
-        ssz_static_test!($test_name, SszStaticSRHandler, $typ$(<$generics>)?);
-    };
-    // Non-signed root, non-tree hash caching
+    // Non-tree hash caching
     ($test_name:ident, $typ:ident$(<$generics:tt>)?) => {
         ssz_static_test!($test_name, SszStaticHandler, $typ$(<$generics>)?);
     };
@@ -128,7 +147,7 @@ macro_rules! ssz_static_test {
 
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
-    use ef_tests::{Handler, SszStaticHandler, SszStaticSRHandler, SszStaticTHCHandler};
+    use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler};
     use types::*;
 
     ssz_static_test!(attestation, Attestation<_>);

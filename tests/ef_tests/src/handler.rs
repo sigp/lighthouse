@@ -6,7 +6,6 @@ use std::fmt::Debug;
 use std::fs;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use tree_hash::SignedRoot;
 use types::EthSpec;
 
 pub trait Handler {
@@ -89,11 +88,8 @@ bls_handler!(
 bls_handler!(BlsPrivToPubHandler, BlsPrivToPub, "priv_to_pub");
 bls_handler!(BlsSignMsgHandler, BlsSign, "sign_msg");
 
-/// Handler for SSZ types that do not implement `SignedRoot`.
+/// Handler for SSZ types.
 pub struct SszStaticHandler<T, E>(PhantomData<(T, E)>);
-
-/// Handler for SSZ types that do implement `SignedRoot`.
-pub struct SszStaticSRHandler<T, E>(PhantomData<(T, E)>);
 
 /// Handler for SSZ types that implement `CachedTreeHash`.
 pub struct SszStaticTHCHandler<T, C, E>(PhantomData<(T, C, E)>);
@@ -104,26 +100,6 @@ where
     E: TypeName,
 {
     type Case = cases::SszStatic<T>;
-
-    fn config_name() -> &'static str {
-        E::name()
-    }
-
-    fn runner_name() -> &'static str {
-        "ssz_static"
-    }
-
-    fn handler_name() -> String {
-        T::name().into()
-    }
-}
-
-impl<T, E> Handler for SszStaticSRHandler<T, E>
-where
-    T: cases::SszStaticType + SignedRoot + TypeName,
-    E: TypeName,
-{
-    type Case = cases::SszStaticSR<T>;
 
     fn config_name() -> &'static str {
         E::name()
