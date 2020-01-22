@@ -29,7 +29,7 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// Invalid batches are attempted to be re-downloaded from other peers. If they cannot be processed
 /// after `INVALID_BATCH_LOOKUP_ATTEMPTS` times, the chain is considered faulty and all peers will
 /// be downvoted.
-const _INVALID_BATCH_LOOKUP_ATTEMPTS: u8 = 3;
+const INVALID_BATCH_LOOKUP_ATTEMPTS: u8 = 3;
 
 /// A return type for functions that act on a `Chain` which informs the caller whether the chain
 /// has been completed and should be removed or to be kept if further processing is
@@ -288,14 +288,36 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // processed due to having no blocks.
                 self.last_processed_id = batch.id;
 
-                // Remove any validate batches awaiting validation.
+                // Remove any batches awaiting validation.
                 // Only batches that have blocks are processed here, therefore all previous batches
                 // have been correct.
-                let last_processed_id = self.last_processed_id;
-                self.processed_batches
-                    .retain(|batch| batch.id.0 >= last_processed_id.0);
+                //
+                // If a previous batch has been validated and it had been re-processed, downvote
+                // the original peer.
+                while !self.processed_batches.is_empty() {
+                    let processed_batch = self.processed_batches.remove(0);
+                    if *processed_batch.id >= *batch.id {
+                        crit!(self.log, "A processed batch had a greater id than the current process id"; "processed_id" => *processed_batch.id, "current_id" => *batch.id);
+                    }
 
-                // add the current batch to processed batches to be verified in the future. We are
+                    if let Some(prev_hash) = processed_batch.original_hash {
+                        // The validated batch has been re-processed
+                        if prev_hash != processed_batch.hash() {
+                            // The re-downloaded version was different
+                            if processed_batch.current_peer != processed_batch.original_peer {
+                                // A new peer sent the correct batch, the previous peer did not
+                                // downvote the original peer
+                                //
+                                // If the same peer corrected it's mistake, we allow it.... for
+                                // now.
+                                debug!(self.log, "Re-processed batch validated. Downvoting original peer"; "batch_id" => *processed_batch.id, "original_peer" => format!("{}",processed_batch.original_peer), "new_peer" => format!("{}", processed_batch.current_peer));
+                                network.downvote_peer(processed_batch.original_peer);
+                            }
+                        }
+                    }
+                }
+
+                // Add the current batch to processed batches to be verified in the future. We are
                 // only uncertain about this batch, if it has not returned all blocks.
                 if batch.downloaded_blocks.len() < BLOCKS_PER_BATCH as usize {
                     self.processed_batches.push(batch);
@@ -321,17 +343,95 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
             }
             BatchProcessResult::Failed => {
-                // batch processing failed
-                // this could be because this batch is invalid, or a previous invalidated batch
+                warn!(self.log, "Batch processing failed"; "id" => *batch.id, "peer" => format!("{}", batch.current_peer));
+                // The batch processing failed
+                // This could be because this batch is invalid, or a previous invalidated batch
                 // is invalid. We need to find out which and downvote the peer that has sent us
                 // an invalid batch.
 
-                // firstly remove any validated batches
-                self.handle_invalid_batch(network, batch)
+                // check that we have no exceeded the re-process retry counter
+                if batch.reprocess_retries > INVALID_BATCH_LOOKUP_ATTEMPTS {
+                    // if a batch has exceeded the invalid batch lookup attempts limit, it means
+                    // that it is likely all peers in this chain are are sending invalid batches
+                    // repeatedly and are either malicious or faulty. We drop the chain and
+                    // downvote all peers.
+                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers"; "id"=> *batch.id);
+                    for peer_id in self.peer_pool.drain() {
+                        network.downvote_peer(peer_id);
+                    }
+                    ProcessingResult::RemoveChain
+                } else {
+                    // Handle this invalid batch, that is within the re-process retries limit.
+                    self.handle_invalid_batch(network, batch);
+                    ProcessingResult::KeepChain
+                }
             }
         };
 
         Some(res)
+    }
+
+    /// An invalid batch has been received that could not be processed.
+    ///
+    /// These events occur when a peer as successfully responded with blocks, but the blocks we
+    /// have received are incorrect or invalid. This indicates the peer has not performed as
+    /// intended and can result in downvoting a peer.
+    // TODO: Batches could have been partially downloaded due to RPC size-limit restrictions. We
+    // need to add logic for partial batch downloads. Potentially, if another peer returns the same
+    // batch, we try a partial download.
+    fn handle_invalid_batch(&mut self, network: &mut SyncNetworkContext, batch: Batch<T::EthSpec>) {
+        // The current batch could not be processed, indicating either the current or previous
+        // batches are invalid
+
+        // The previous batch could be incomplete due to the block sizes being too large to fit in
+        // a single RPC request or there could be consecutive empty batches which are not supposed
+        // to be there
+
+        // The current (sub-optimal) strategy is to simply re-request all batches that could
+        // potentially be faulty. If a batch returns a different result than the original and
+        // results in successful processing, we downvote the original peer that sent us the batch.
+
+        // If all batches return the same result, we try this process INVALID_BATCH_LOOKUP_ATTEMPTS
+        // times before considering the entire chain invalid and downvoting all peers.
+
+        // Find any pre-processed batches awaiting validation
+        while !self.processed_batches.is_empty() {
+            let past_batch = self.processed_batches.remove(0);
+            *self.to_be_processed_id = std::cmp::min(*self.to_be_processed_id, *past_batch.id);
+            self.reprocess_batch(network, past_batch);
+        }
+
+        // re-process the current batch
+        self.reprocess_batch(network, batch);
+    }
+
+    /// This re-downloads and marks the batch as being re-processed.
+    ///
+    /// If the re-downloaded batch is different to the original and can be processed, the original
+    /// peer will be downvoted.
+    fn reprocess_batch(&mut self, network: &mut SyncNetworkContext, mut batch: Batch<T::EthSpec>) {
+        // marks the batch as attempting to be reprocessed by hashing the downloaded blocks
+        batch.original_hash = Some(batch.hash());
+
+        // remove previously downloaded blocks
+        batch.downloaded_blocks.clear();
+
+        // increment the re-process counter
+        batch.reprocess_retries += 1;
+
+        // attempt to find another peer to download the batch from (this potentially doubles up
+        // requests on a single peer)
+        let current_peer = &batch.current_peer;
+        let new_peer = self
+            .peer_pool
+            .iter()
+            .find(|peer| *peer != current_peer)
+            .unwrap_or_else(|| current_peer);
+
+        batch.current_peer = new_peer.clone();
+
+        debug!(self.log, "Re-requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => *batch.id, "peer" => format!("{}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
+        self.send_batch(network, batch);
     }
 
     pub fn stop_syncing(&mut self) {
@@ -385,7 +485,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.peer_pool.insert(peer_id.clone());
         // do not request blocks if the chain is not syncing
         if let ChainSyncingState::Stopped = self.state {
-            debug!(self.log, "Peer added to a non-syncing chain"; "peer_id" => format!("{:?}", peer_id));
+            debug!(self.log, "Peer added to a non-syncing chain"; "peer_id" => format!("{}", peer_id));
             return;
         }
 
@@ -450,48 +550,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .unwrap_or_else(|| current_peer);
 
             batch.current_peer = new_peer.clone();
-            debug!(self.log, "Re-Requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => *batch.id, "peer" => format!("{:?}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
+            debug!(self.log, "Re-Requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => *batch.id, "peer" => format!("{}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
             self.send_batch(network, batch);
             ProcessingResult::KeepChain
         }
-    }
-
-    /// An invalid batch has been received that could not be processed.
-    ///
-    /// These events occur when a peer as successfully responded with blocks, but the blocks we
-    /// have received are incorrect or invalid. This indicates the peer has not performed as
-    /// intended and can result in downvoting a peer.
-    fn handle_invalid_batch(
-        &mut self,
-        network: &mut SyncNetworkContext,
-        _batch: Batch<T::EthSpec>,
-    ) -> ProcessingResult {
-        // The current batch could not be processed, indicating either the current or previous
-        // batches are invalid
-
-        // The previous batch could be incomplete due to the block sizes being too large to fit in
-        // a single RPC request or there could be consecutive empty batches which are not supposed
-        // to be there
-
-        // The current (sub-optimal) strategy is to simply re-request all batches that could
-        // potentially be faulty. If a batch returns a different result than the original and
-        // results in successful processing, we downvote the original peer that sent us the batch.
-
-        // If all batches return the same result, we try this process INVALID_BATCH_LOOKUP_ATTEMPTS
-        // times before considering the entire chain invalid and downvoting all peers.
-
-        // Firstly, check if there are any past batches that could be invalid.
-        if !self.processed_batches.is_empty() {
-            // try and re-download this batch from other peers
-        }
-
-        //TODO: Implement this logic
-        // Currently just fail the chain, and drop all associated peers, removing them from the
-        // peer pool, to prevent re-status
-        for peer_id in self.peer_pool.drain() {
-            network.downvote_peer(peer_id);
-        }
-        ProcessingResult::RemoveChain
     }
 
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
@@ -508,7 +570,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // find the next pending batch and request it from the peer
         if let Some(peer_id) = self.get_next_peer() {
             if let Some(batch) = self.get_next_batch(peer_id) {
-                debug!(self.log, "Requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => *batch.id, "peer" => format!("{:?}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
+                debug!(self.log, "Requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => *batch.id, "peer" => format!("{}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
                 // send the batch
                 self.send_batch(network, batch);
                 return true;

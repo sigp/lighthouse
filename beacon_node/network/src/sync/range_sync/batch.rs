@@ -3,9 +3,11 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
+use ssz::Encode;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::ops::Sub;
 use types::{BeaconBlock, EthSpec, Hash256, Slot};
 
@@ -42,11 +44,16 @@ pub struct Batch<T: EthSpec> {
     /// The hash of the chain root to requested from the peer.
     pub head_root: Hash256,
     /// The peer that was originally assigned to the batch.
-    pub _original_peer: PeerId,
+    pub original_peer: PeerId,
     /// The peer that is currently assigned to the batch.
     pub current_peer: PeerId,
-    /// The number of retries this batch has undergone.
+    /// The number of retries this batch has undergone due to a failed request.
     pub retries: u8,
+    /// The number of times this batch has attempted to be re-downloaded and re-processed. This
+    /// occurs when a batch has been received but cannot be processed.
+    pub reprocess_retries: u8,
+    /// Marks the batch as undergoing a re-process, with a hash of the original blocks it received.
+    pub original_hash: Option<u64>,
     /// The blocks that have been downloaded.
     pub downloaded_blocks: Vec<BeaconBlock<T>>,
 }
@@ -66,9 +73,11 @@ impl<T: EthSpec> Batch<T> {
             start_slot,
             end_slot,
             head_root,
-            _original_peer: peer_id.clone(),
+            original_peer: peer_id.clone(),
             current_peer: peer_id,
             retries: 0,
+            reprocess_retries: 0,
+            original_hash: None,
             downloaded_blocks: Vec::new(),
         }
     }
@@ -80,6 +89,15 @@ impl<T: EthSpec> Batch<T> {
             count: std::cmp::min(BLOCKS_PER_BATCH, self.end_slot.sub(self.start_slot).into()),
             step: 1,
         }
+    }
+
+    /// This gets a hash that represents the blocks currently downloaded. This allows comparing a
+    /// previously downloaded batch of blocks with a new downloaded batch of blocks.
+    pub fn hash(&self) -> u64 {
+        // the hash used is the ssz-encoded list of blocks
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.downloaded_blocks.as_ssz_bytes().hash(&mut hasher);
+        hasher.finish()
     }
 }
 
