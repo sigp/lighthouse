@@ -431,7 +431,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         batch.current_peer = new_peer.clone();
 
-        debug!(self.log, "Re-requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => *batch.id, "peer" => format!("{}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
+        debug!(self.log, "Re-requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => *batch.id, "peer" => format!("{}", batch.current_peer), "head_root"=> format!("{}", batch.head_root), "retries" => batch.retries, "re-processes" =>  batch.reprocess_retries);
         self.send_batch(network, batch);
     }
 
