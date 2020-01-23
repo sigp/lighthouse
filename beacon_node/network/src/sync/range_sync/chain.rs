@@ -297,7 +297,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     while !self.processed_batches.is_empty() {
                         let processed_batch = self.processed_batches.remove(0);
                         if *processed_batch.id >= *batch.id {
-                            crit!(self.log, "A processed batch had a greater id than the current process id"; "processed_id" => *processed_batch.id, "current_id" => *batch.id);
+                            crit!(self.log, "A processed batch had a greater id than the current process id";
+                                "processed_id" => *processed_batch.id, 
+                                "current_id" => *batch.id);
                         }
 
                         if let Some(prev_hash) = processed_batch.original_hash {
@@ -310,7 +312,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                     //
                                     // If the same peer corrected it's mistake, we allow it.... for
                                     // now.
-                                    debug!(self.log, "Re-processed batch validated. Downvoting original peer"; "batch_id" => *processed_batch.id, "original_peer" => format!("{}",processed_batch.original_peer), "new_peer" => format!("{}", processed_batch.current_peer));
+                                    debug!(self.log, "Re-processed batch validated. Downvoting original peer";
+                                        "batch_id" => *processed_batch.id, 
+                                        "original_peer" => format!("{}",processed_batch.original_peer), 
+                                        "new_peer" => format!("{}", processed_batch.current_peer));
                                     network.downvote_peer(processed_batch.original_peer);
                                 }
                             }
@@ -431,7 +436,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         batch.current_peer = new_peer.clone();
 
-        debug!(self.log, "Re-requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => *batch.id, "peer" => format!("{}", batch.current_peer), "head_root"=> format!("{}", batch.head_root), "retries" => batch.retries, "re-processes" =>  batch.reprocess_retries);
+        debug!(self.log, "Re-requesting batch"; 
+            "start_slot" => batch.start_slot, 
+            "end_slot" => batch.end_slot,
+            "id" => *batch.id,
+            "peer" => format!("{}", batch.current_peer),
+            "head_root"=> format!("{}", batch.head_root), 
+            "retries" => batch.retries,
+            "re-processes" =>  batch.reprocess_retries);
         self.send_batch(network, batch);
     }
 
@@ -575,7 +587,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // find the next pending batch and request it from the peer
         if let Some(peer_id) = self.get_next_peer() {
             if let Some(batch) = self.get_next_batch(peer_id) {
-                debug!(self.log, "Requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => *batch.id, "peer" => format!("{}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
+                debug!(self.log, "Requesting batch"; 
+                    "start_slot" => batch.start_slot, 
+                    "end_slot" => batch.end_slot,
+                    "id" => *batch.id,
+                    "peer" => format!("{}", batch.current_peer), 
+                    "head_root"=> format!("{}", batch.head_root));
                 // send the batch
                 self.send_batch(network, batch);
                 return true;
