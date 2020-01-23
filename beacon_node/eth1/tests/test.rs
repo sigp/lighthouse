@@ -807,7 +807,7 @@ mod fast {
 mod persist {
     use super::*;
     #[test]
-    fn test_persisit_caches() {
+    fn test_persist_caches() {
         let mut env = new_env();
         let log = env.core_context().log;
         let runtime = env.runtime();
@@ -830,7 +830,7 @@ mod persist {
         };
         let service = Service::new(config.clone(), log.clone());
         let n = 10;
-        let deposits: Vec<_> = (0..n).into_iter().map(|_| random_deposit_data()).collect();
+        let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
         for deposit in &deposits {
             deposit_contract
                 .deposit(runtime, deposit.clone())
