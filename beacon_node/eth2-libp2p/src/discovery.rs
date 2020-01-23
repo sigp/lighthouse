@@ -310,7 +310,9 @@ fn load_enr(
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers.
     let mut local_enr = EnrBuilder::new("v4")
-        .ip(config.discovery_address)
+        .ip(config
+            .discovery_address
+            .unwrap_or_else(|| "127.0.0.1".parse().expect("valid ip")))
         .tcp(config.libp2p_port)
         .udp(config.discovery_port)
         .build(&local_key)
@@ -325,7 +327,8 @@ fn load_enr(
                 match Enr::from_str(&enr_string) {
                     Ok(enr) => {
                         if enr.node_id() == local_enr.node_id() {
-                            if enr.ip().map(Into::into) == Some(config.discovery_address)
+                            if (config.discovery_address.is_none()
+                                || enr.ip().map(Into::into) == config.discovery_address)
                                 && enr.tcp() == Some(config.libp2p_port)
                                 && enr.udp() == Some(config.discovery_port)
                             {
