@@ -90,7 +90,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("discovery-address")
                 .value_name("ADDRESS")
                 .help("The IP address to broadcast to other peers on how to reach this node. \
-                       Default will load previous values from disk failing this it is set to 127.0.01 \
+                       Default will load previous values from disk failing this it is set to 127.0.0.1 \
                        and will be updated when connecting to other nodes on the network.")
                 .takes_value(true),
         )

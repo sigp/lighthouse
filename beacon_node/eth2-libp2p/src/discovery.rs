@@ -312,7 +312,7 @@ fn load_enr(
     let mut local_enr = EnrBuilder::new("v4")
         .ip(config
             .discovery_address
-            .unwrap_or_else(|| "127.0.0.1".parse().expect("valid id")))
+            .unwrap_or_else(|| "127.0.0.1".parse().expect("valid ip")))
         .tcp(config.libp2p_port)
         .udp(config.discovery_port)
         .build(&local_key)
