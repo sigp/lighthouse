@@ -87,6 +87,7 @@ bls_handler!(
 );
 bls_handler!(BlsPrivToPubHandler, BlsPrivToPub, "priv_to_pub");
 bls_handler!(BlsSignMsgHandler, BlsSign, "sign_msg");
+bls_handler!(BlsVerifyMsgHandler, BlsVerify, "verify_msg");
 
 /// Handler for SSZ types.
 pub struct SszStaticHandler<T, E>(PhantomData<(T, E)>);

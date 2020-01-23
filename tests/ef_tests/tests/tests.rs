@@ -110,6 +110,12 @@ fn bls_sign_msg() {
     BlsSignMsgHandler::run();
 }
 
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn bls_verify_msg() {
+    BlsVerifyMsgHandler::run();
+}
+
 #[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test {
     // Non-tree hash caching
