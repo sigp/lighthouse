@@ -562,9 +562,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                         self.log,
                         "Processed attestation";
                         "source" => "gossip",
-                        "outcome" => format!("{:?}", outcome),
                         "peer" => format!("{:?}",peer_id),
-                        "data" => format!("{:?}", msg.data)
+                        "block_root" => format!("{}", msg.data.beacon_block_root),
+                        "slot" => format!("{}", msg.data.slot),
                     );
                 }
                 AttestationProcessingOutcome::UnknownHeadBlock { beacon_block_root } => {

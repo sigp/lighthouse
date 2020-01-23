@@ -34,7 +34,7 @@
 //! subsequently search for parents if needed.
 
 use super::network_context::SyncNetworkContext;
-use super::range_sync::RangeSync;
+use super::range_sync::{Batch, BatchProcessResult, RangeSync};
 use crate::message_processor::PeerSyncInfo;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
@@ -45,6 +45,7 @@ use fnv::FnvHashMap;
 use futures::prelude::*;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
+use std::boxed::Box;
 use std::collections::HashSet;
 use std::ops::Sub;
 use std::sync::Weak;
@@ -94,6 +95,13 @@ pub enum SyncMessage<T: EthSpec> {
 
     /// An RPC Error has occurred on a request.
     RPCError(PeerId, RequestId),
+
+    /// A batch has been processed by the block processor thread.
+    BatchProcessed {
+        process_id: u64,
+        batch: Box<Batch<T>>,
+        result: BatchProcessResult,
+    },
 }
 
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
@@ -185,7 +193,7 @@ pub fn spawn<T: BeaconChainTypes>(
         state: ManagerState::Stalled,
         input_channel: sync_recv,
         network: SyncNetworkContext::new(network_send, log.clone()),
-        range_sync: RangeSync::new(beacon_chain, log.clone()),
+        range_sync: RangeSync::new(beacon_chain, sync_send.clone(), log.clone()),
         parent_queue: SmallVec::new(),
         single_block_lookups: FnvHashMap::default(),
         full_peers: HashSet::new(),
@@ -678,6 +686,18 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                     }
                     SyncMessage::RPCError(peer_id, request_id) => {
                         self.inject_error(peer_id, request_id);
+                    }
+                    SyncMessage::BatchProcessed {
+                        process_id,
+                        batch,
+                        result,
+                    } => {
+                        self.range_sync.handle_block_process_result(
+                            &mut self.network,
+                            process_id,
+                            *batch,
+                            result,
+                        );
                     }
                 },
                 Ok(Async::NotReady) => break,

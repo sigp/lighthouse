@@ -1,16 +1,40 @@
+use super::chain::BLOCKS_PER_BATCH;
+use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::ops::Sub;
 use types::{BeaconBlock, EthSpec, Hash256, Slot};
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct BatchId(pub u64);
+
+impl std::ops::Deref for BatchId {
+    type Target = u64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for BatchId {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl std::convert::From<u64> for BatchId {
+    fn from(id: u64) -> Self {
+        BatchId(id)
+    }
+}
+
 /// A collection of sequential blocks that are requested from peers in a single RPC request.
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub struct Batch<T: EthSpec> {
     /// The ID of the batch, these are sequential.
-    pub id: u64,
+    pub id: BatchId,
     /// The requested start slot of the batch, inclusive.
     pub start_slot: Slot,
     /// The requested end slot of batch, exclusive.
@@ -27,9 +51,41 @@ pub struct Batch<T: EthSpec> {
     pub downloaded_blocks: Vec<BeaconBlock<T>>,
 }
 
+impl<T: EthSpec> Eq for Batch<T> {}
+
+impl<T: EthSpec> Batch<T> {
+    pub fn new(
+        id: BatchId,
+        start_slot: Slot,
+        end_slot: Slot,
+        head_root: Hash256,
+        peer_id: PeerId,
+    ) -> Self {
+        Batch {
+            id,
+            start_slot,
+            end_slot,
+            head_root,
+            _original_peer: peer_id.clone(),
+            current_peer: peer_id,
+            retries: 0,
+            downloaded_blocks: Vec::new(),
+        }
+    }
+
+    pub fn to_blocks_by_range_request(&self) -> BlocksByRangeRequest {
+        BlocksByRangeRequest {
+            head_block_root: self.head_root,
+            start_slot: self.start_slot.into(),
+            count: std::cmp::min(BLOCKS_PER_BATCH, self.end_slot.sub(self.start_slot).into()),
+            step: 1,
+        }
+    }
+}
+
 impl<T: EthSpec> Ord for Batch<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.id.cmp(&other.id)
+        self.id.0.cmp(&other.id.0)
     }
 }
 
@@ -81,6 +137,11 @@ impl<T: EthSpec> PendingBatches<T> {
         } else {
             None
         }
+    }
+
+    /// The number of current pending batch requests.
+    pub fn len(&self) -> usize {
+        self.batches.len()
     }
 
     /// Adds a block to the batches if the request id exists. Returns None if there is no batch
