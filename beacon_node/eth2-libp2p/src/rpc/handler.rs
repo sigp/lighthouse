@@ -163,11 +163,16 @@ where
 
                 *self = InboundSubstreamState::ResponsePendingSend { substream, closing }
             }
-            InboundSubstreamState::ResponseIdle(substream) => {
-                *self = InboundSubstreamState::ResponsePendingSend {
-                    substream: substream.send(error),
-                    closing: true,
-                };
+            InboundSubstreamState::ResponseIdle(mut substream) => {
+                // check if the stream is already closed
+                if let Ok(Async::Ready(None)) = substream.poll() {
+                    *self = InboundSubstreamState::Closing(substream);
+                } else {
+                    *self = InboundSubstreamState::ResponsePendingSend {
+                        substream: substream.send(error),
+                        closing: true,
+                    };
+                }
             }
             InboundSubstreamState::Closing(substream) => {
                 // let the stream close
@@ -314,7 +319,6 @@ where
                     substream: out,
                     request,
                 };
-                debug!(self.log, "Added outbound substream id"; "substream_id" => id);
                 self.outbound_substreams
                     .insert(id, (awaiting_stream, delay_key));
             }
