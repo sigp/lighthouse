@@ -100,7 +100,6 @@ pub fn get_configs<E: EthSpec>(
             .parse()
             .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
         client_config.network.listen_address = listen_address;
-        client_config.network.discovery_address = listen_address;
     }
 
     if let Some(max_peers_str) = cli_args.value_of("maxpeers") {
@@ -140,9 +139,11 @@ pub fn get_configs<E: EthSpec>(
     }
 
     if let Some(discovery_address_str) = cli_args.value_of("discovery-address") {
-        client_config.network.discovery_address = discovery_address_str
-            .parse()
-            .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?
+        client_config.network.discovery_address = Some(
+            discovery_address_str
+                .parse()
+                .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?,
+        )
     }
 
     if let Some(disc_port_str) = cli_args.value_of("disc-port") {
@@ -283,8 +284,8 @@ pub fn get_configs<E: EthSpec>(
      * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
-            client_config.network.discovery_address = "127.0.0.1".parse().expect("Valid IP address")
+        if client_config.network.discovery_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
+            client_config.network.discovery_address = None
         }
         client_config.network.libp2p_port =
             unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
@@ -294,13 +295,14 @@ pub fn get_configs<E: EthSpec>(
         client_config.websocket_server.port = 0;
     }
 
-    // ENR ip needs to be explicit for node to be discoverable
-    if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
+    // ENR IP needs to be explicit for node to be discoverable
+    if client_config.network.discovery_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
         warn!(
             log,
             "Discovery address cannot be 0.0.0.0, Setting to to 127.0.0.1"
         );
-        client_config.network.discovery_address = "127.0.0.1".parse().expect("Valid IP address")
+        client_config.network.discovery_address =
+            Some("127.0.0.1".parse().expect("Valid IP address"))
     }
     Ok((client_config, eth2_config, log))
 }
