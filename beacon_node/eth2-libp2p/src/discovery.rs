@@ -148,6 +148,11 @@ impl<TSubstream> Discovery<TSubstream> {
         self.banned_peers.remove(peer_id);
     }
 
+    /// Returns an iterator over all enr entries in the DHT.
+    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
+        self.discovery.enr_entries()
+    }
+
     /// Search for new peers using the underlying discovery mechanism.
     fn find_peers(&mut self) {
         // pick a random NodeId

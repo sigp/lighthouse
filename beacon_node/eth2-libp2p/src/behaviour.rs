@@ -3,6 +3,7 @@ use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::GossipTopic;
 use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
+use enr::Enr;
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
@@ -253,6 +254,16 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     /// Notify discovery that the peer has been unbanned.
     pub fn peer_unbanned(&mut self, peer_id: &PeerId) {
         self.discovery.peer_unbanned(peer_id);
+    }
+
+    /// Returns an iterator over all enr entries in the DHT.
+    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
+        self.discovery.enr_entries()
+    }
+
+    /// Add an ENR to the routing table of the discovery mechanism.
+    pub fn add_enr(&mut self, enr: Enr) {
+        self.discovery.add_enr(enr);
     }
 }
 
