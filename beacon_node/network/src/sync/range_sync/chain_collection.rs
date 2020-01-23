@@ -3,13 +3,15 @@
 //! Each chain type is stored in it's own vector. A variety of helper functions are given along
 //! with this struct to to simplify the logic of the other layers of sync.
 
-use super::chain::{ChainSyncingState, ProcessingResult, SyncingChain};
+use super::chain::{ChainSyncingState, SyncingChain};
 use crate::message_processor::PeerSyncInfo;
+use crate::sync::manager::SyncMessage;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, warn};
 use std::sync::Weak;
+use tokio::sync::mpsc;
 use types::EthSpec;
 use types::{Hash256, Slot};
 
@@ -148,7 +150,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 // Stop the current chain from syncing
                 self.finalized_chains[index].stop_syncing();
                 // Start the new chain
-                self.finalized_chains[new_index].start_syncing(network, local_slot, log);
+                self.finalized_chains[new_index].start_syncing(network, local_slot);
                 self.sync_state = SyncState::Finalized;
             }
         } else if let Some(chain) = self
@@ -158,7 +160,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         {
             // There is no currently syncing finalization chain, starting the one with the most peers
             debug!(log, "New finalized chain started syncing"; "new_target_root" => format!("{}", chain.target_head_root), "new_end_slot" => chain.target_head_slot, "new_start_slot"=> chain.start_slot);
-            chain.start_syncing(network, local_slot, log);
+            chain.start_syncing(network, local_slot);
             self.sync_state = SyncState::Finalized;
         } else {
             // There are no finalized chains, update the state.
@@ -177,16 +179,22 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         target_head: Hash256,
         target_slot: Slot,
         peer_id: PeerId,
+        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+        log: &slog::Logger,
     ) {
         self.finalized_chains.push(SyncingChain::new(
             local_finalized_slot,
             target_slot,
             target_head,
             peer_id,
+            sync_send,
+            self.beacon_chain.clone(),
+            log.clone(),
         ));
     }
 
     /// Add a new finalized chain to the collection and starts syncing it.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_head_chain(
         &mut self,
         network: &mut SyncNetworkContext,
@@ -194,6 +202,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         target_head: Hash256,
         target_slot: Slot,
         peer_id: PeerId,
+        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
         log: &slog::Logger,
     ) {
         // remove the peer from any other head chains
@@ -203,10 +212,17 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         });
         self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
 
-        let mut new_head_chain =
-            SyncingChain::new(remote_finalized_slot, target_slot, target_head, peer_id);
+        let mut new_head_chain = SyncingChain::new(
+            remote_finalized_slot,
+            target_slot,
+            target_head,
+            peer_id,
+            sync_send,
+            self.beacon_chain.clone(),
+            log.clone(),
+        );
         // All head chains can sync simultaneously
-        new_head_chain.start_syncing(network, remote_finalized_slot, log);
+        new_head_chain.start_syncing(network, remote_finalized_slot);
         self.head_chains.push(new_head_chain);
     }
 
@@ -218,10 +234,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// Given a chain iterator, runs a given function on each chain until the function returns
     /// `Some`. This allows the `RangeSync` struct to loop over chains and optionally remove the
     /// chain from the collection if the function results in completing the chain.
-    fn request_function<'a, F, I>(chain: I, mut func: F) -> Option<(usize, ProcessingResult)>
+    fn request_function<'a, F, I, U>(chain: I, mut func: F) -> Option<(usize, U)>
     where
         I: Iterator<Item = &'a mut SyncingChain<T>>,
-        F: FnMut(&'a mut SyncingChain<T>) -> Option<ProcessingResult>,
+        F: FnMut(&'a mut SyncingChain<T>) -> Option<U>,
     {
         chain
             .enumerate()
@@ -229,25 +245,25 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     }
 
     /// Runs a function on all finalized chains.
-    pub fn finalized_request<F>(&mut self, func: F) -> Option<(usize, ProcessingResult)>
+    pub fn finalized_request<F, U>(&mut self, func: F) -> Option<(usize, U)>
     where
-        F: FnMut(&mut SyncingChain<T>) -> Option<ProcessingResult>,
+        F: FnMut(&mut SyncingChain<T>) -> Option<U>,
     {
         ChainCollection::request_function(self.finalized_chains.iter_mut(), func)
     }
 
     /// Runs a function on all head chains.
-    pub fn head_request<F>(&mut self, func: F) -> Option<(usize, ProcessingResult)>
+    pub fn head_request<F, U>(&mut self, func: F) -> Option<(usize, U)>
     where
-        F: FnMut(&mut SyncingChain<T>) -> Option<ProcessingResult>,
+        F: FnMut(&mut SyncingChain<T>) -> Option<U>,
     {
         ChainCollection::request_function(self.head_chains.iter_mut(), func)
     }
 
     /// Runs a function on all finalized and head chains.
-    pub fn head_finalized_request<F>(&mut self, func: F) -> Option<(usize, ProcessingResult)>
+    pub fn head_finalized_request<F, U>(&mut self, func: F) -> Option<(usize, U)>
     where
-        F: FnMut(&mut SyncingChain<T>) -> Option<ProcessingResult>,
+        F: FnMut(&mut SyncingChain<T>) -> Option<U>,
     {
         ChainCollection::request_function(
             self.finalized_chains
@@ -267,9 +283,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .retain(|chain| !chain.peer_pool.is_empty());
         self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
 
-        let local_info = match self.beacon_chain.upgrade() {
+        let (beacon_chain, local_info) = match self.beacon_chain.upgrade() {
             Some(chain) => match PeerSyncInfo::from_chain(&chain) {
-                Some(local) => local,
+                Some(local) => (chain, local),
                 None => {
                     return error!(
                         log,
@@ -288,18 +304,25 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .start_slot(T::EthSpec::slots_per_epoch());
 
         // Remove chains that are out-dated and re-status their peers
-        let beacon_chain_clone = self.beacon_chain.clone();
         self.finalized_chains.retain(|chain| {
-            if chain.target_head_slot <= local_finalized_slot {
-                chain.status_peers(beacon_chain_clone.clone(), network);
+            if chain.target_head_slot <= local_finalized_slot
+                || beacon_chain
+                    .block_root_tree
+                    .is_known_block_root(&chain.target_head_root)
+            {
+                chain.status_peers(network);
                 false
             } else {
                 true
             }
         });
         self.head_chains.retain(|chain| {
-            if chain.target_head_slot <= local_finalized_slot {
-                chain.status_peers(beacon_chain_clone.clone(), network);
+            if chain.target_head_slot <= local_finalized_slot
+                || beacon_chain
+                    .block_root_tree
+                    .is_known_block_root(&chain.target_head_root)
+            {
+                chain.status_peers(network);
                 false
             } else {
                 true
@@ -331,11 +354,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         let chain = if index >= self.finalized_chains.len() {
             let index = index - self.finalized_chains.len();
             let chain = self.head_chains.swap_remove(index);
-            chain.status_peers(self.beacon_chain.clone(), network);
+            chain.status_peers(network);
             chain
         } else {
             let chain = self.finalized_chains.swap_remove(index);
-            chain.status_peers(self.beacon_chain.clone(), network);
+            chain.status_peers(network);
             chain
         };
 

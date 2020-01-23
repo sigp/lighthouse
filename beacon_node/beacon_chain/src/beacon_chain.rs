@@ -10,7 +10,6 @@ use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use lmd_ghost::LmdGhost;
 use operation_pool::{OperationPool, PersistedOperationPool};
-use parking_lot::RwLock;
 use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
