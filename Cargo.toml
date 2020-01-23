@@ -37,7 +37,7 @@ members = [
     "beacon_node/eth1",
     "beacon_node/beacon_chain",
     "beacon_node/websocket_server",
-    "tests/beacon_chain_sim",
+    "tests/simulator",
     "tests/ef_tests",
     "tests/eth1_test_rig",
     "tests/node_test_rig",

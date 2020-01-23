@@ -6,21 +6,23 @@
 //! As the simulation runs, there are checks made to ensure that all components are running
 //! correctly. If any of these checks fail, the simulation will exit immediately.
 //!
-//! By default, the simulation will end as soon as all checks have finished. It may be configured
-//! to run indefinitely by setting `end_after_checks = false`.
-//!
 //! ## Future works
 //!
 //! Presently all the beacon nodes and validator clients all log to stdout. Additionally, the
 //! simulation uses `println` to communicate some info. It might be nice if the nodes logged to
 //! easy-to-find files and stdout only contained info from the simulation.
 //!
-//! It would also be nice to add a CLI using `clap` so that the variables in `main()` can be
-//! changed without a recompile.
+
+#[macro_use]
+extern crate clap;
 
 mod checks;
+mod cli;
 mod local_network;
+mod sync_sim;
 
+use clap::ArgMatches;
+use cli::cli_app;
 use env_logger::{Builder, Env};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::{future, stream, Future, Stream};
@@ -29,6 +31,7 @@ use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
 };
 use std::time::{Duration, Instant};
+use sync_sim::*;
 use tokio::timer::Interval;
 use types::MinimalEthSpec;
 
@@ -38,30 +41,161 @@ fn main() {
     // Debugging output for libp2p and external crates.
     Builder::from_env(Env::default()).init();
 
-    let nodes = 4;
-    let validators_per_node = 20;
+    let matches = cli_app().get_matches();
+    match matches.subcommand() {
+        ("beacon-chain-sim", Some(matches)) => match run_beacon_chain_sim(matches) {
+            Ok(()) => println!("Simulation exited successfully"),
+            Err(e) => {
+                eprintln!("Simulation exited with error: {}", e);
+                std::process::exit(1)
+            }
+        },
+        ("syncing-sim", Some(matches)) => match run_syncing_sim(matches) {
+            Ok(()) => println!("Simulation exited successfully"),
+            Err(e) => {
+                eprintln!("Simulation exited with error: {}", e);
+                std::process::exit(1)
+            }
+        },
+        _ => {
+            eprintln!("Invalid subcommand. Use --help to see available options");
+            std::process::exit(1)
+        }
+    }
+}
+
+fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
+    let nodes = value_t!(matches, "nodes", usize).unwrap_or(4);
+    let validators_per_node = value_t!(matches, "validators_per_node", usize).unwrap_or(20);
+    let speed_up_factor = value_t!(matches, "nodes", u64).unwrap_or(4);
+    let mut end_after_checks = true;
+    if matches.is_present("end_after_checks") {
+        end_after_checks = false;
+    }
+
+    println!("Beacon Chain Simulator:");
+    println!(" nodes:{}", nodes);
+    println!(" validators_per_node:{}", validators_per_node);
+    println!(" end_after_checks:{}", end_after_checks);
+
     let log_level = "debug";
     let log_format = None;
-    let speed_up_factor = 4;
-    let end_after_checks = true;
 
-    match async_sim(
+    beacon_chain_sim(
         nodes,
         validators_per_node,
         speed_up_factor,
         log_level,
         log_format,
         end_after_checks,
-    ) {
-        Ok(()) => println!("Simulation exited successfully"),
-        Err(e) => {
-            eprintln!("Simulation exited with error: {}", e);
-            std::process::exit(1)
-        }
-    }
+    )
 }
 
-fn async_sim(
+fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
+    let initial_delay = value_t!(matches, "initial_delay", u64).unwrap_or(50);
+    let sync_delay = value_t!(matches, "sync_delay", u64).unwrap_or(10);
+    let speed_up_factor = value_t!(matches, "speedup", u64).unwrap_or(15);
+    let strategy = value_t!(matches, "strategy", String).unwrap_or("all".into());
+
+    println!("Syncing Simulator:");
+    println!(" initial_delay:{}", initial_delay);
+    println!(" sync delay:{}", sync_delay);
+    println!(" speed up factor:{}", speed_up_factor);
+    println!(" strategy:{}", strategy);
+
+    let log_level = "debug";
+    let log_format = None;
+
+    syncing_sim(
+        speed_up_factor,
+        initial_delay,
+        sync_delay,
+        strategy,
+        log_level,
+        log_format,
+    )
+}
+
+fn syncing_sim(
+    speed_up_factor: u64,
+    initial_delay: u64,
+    sync_delay: u64,
+    strategy: String,
+    log_level: &str,
+    log_format: Option<&str>,
+) -> Result<(), String> {
+    let mut env = EnvironmentBuilder::minimal()
+        .async_logger(log_level, log_format)?
+        .multi_threaded_tokio_runtime()?
+        .build()?;
+
+    let spec = &mut env.eth2_config.spec;
+    let end_after_checks = true;
+
+    spec.milliseconds_per_slot = spec.milliseconds_per_slot / speed_up_factor;
+    spec.min_genesis_time = 0;
+    spec.min_genesis_active_validator_count = 16;
+
+    let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+
+    let context = env.core_context();
+    let beacon_config = testing_client_config();
+    let num_validators = 8;
+    let future = LocalNetwork::new(context, beacon_config.clone())
+        /*
+         * Add a validator client which handles all validators from the genesis state.
+         */
+        .and_then(move |network| {
+            network
+                .add_validator_client(ValidatorConfig::default(), 0, (0..num_validators).collect())
+                .map(|_| network)
+        })
+        /*
+         * Start the processes that will run checks on the network as it runs.
+         */
+        .and_then(move |network| {
+            // The `final_future` either completes immediately or never completes, depending on the value
+            // of `end_after_checks`.
+            let final_future: Box<dyn Future<Item = (), Error = String> + Send> =
+                if end_after_checks {
+                    Box::new(future::ok(()).map_err(|()| "".to_string()))
+                } else {
+                    Box::new(future::empty().map_err(|()| "".to_string()))
+                };
+
+            future::ok(())
+                // Check all syncing strategies one after other.
+                .join(pick_strategy(
+                    &strategy,
+                    network.clone(),
+                    beacon_config.clone(),
+                    slot_duration,
+                    initial_delay,
+                    sync_delay,
+                ))
+                .join(final_future)
+                .map(|_| network)
+        })
+        /*
+         * End the simulation by dropping the network. This will kill all running beacon nodes and
+         * validator clients.
+         */
+        .map(|network| {
+            println!(
+                "Simulation complete. Finished with {} beacon nodes and {} validator clients",
+                network.beacon_node_count(),
+                network.validator_client_count()
+            );
+
+            // Be explicit about dropping the network, as this kills all the nodes. This ensures
+            // all the checks have adequate time to pass.
+            drop(network)
+        });
+
+    env.runtime().block_on(future)
+}
+
+fn beacon_chain_sim(
     node_count: usize,
     validators_per_node: usize,
     speed_up_factor: u64,

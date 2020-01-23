@@ -1,5 +1,5 @@
 [package]
-name = "beacon_chain_sim"
+name = "simulator"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
@@ -15,3 +15,4 @@ futures = "0.1.29"
 tokio = "0.1.22"
 eth1_test_rig = { path = "../eth1_test_rig" }
 env_logger = "0.7.1"
+clap = "2.33.0"
