@@ -96,6 +96,8 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Get a list of attestations for inclusion in a block.
+    ///
+    /// NOTE: Assumes that all attestations in the operation_pool are valid.
     pub fn get_attestations(
         &self,
         state: &BeaconState<T>,
@@ -125,7 +127,7 @@ impl<T: EthSpec> OperationPool<T> {
                 verify_attestation_for_block_inclusion(
                     state,
                     attestation,
-                    VerifySignatures::True,
+                    VerifySignatures::False,
                     spec,
                 )
                 .is_ok()
