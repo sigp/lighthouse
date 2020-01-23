@@ -239,7 +239,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Sends a batch to the batch processor.
     fn process_batch(&mut self, batch: Batch<T::EthSpec>) {
-        //let batch = Arc::new(batch);
         // only spawn one instance at a time
         let processing_id: u64 = rand::random();
         self.current_processing_id = Some(processing_id);
@@ -266,16 +265,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return None;
         }
 
-        // Consume the
+        // Consume the batch option
         let batch = batch.take().or_else(|| {
             crit!(self.log, "Processed batch taken by another chain");
             None
         })?;
 
-        // double check batches are processed in order
-        // TODO: Remove for prod
+        // double check batches are processed in order TODO: Remove for prod
         if batch.id != self.to_be_processed_id {
-            crit!(self.log, "Batch processed out of order"; "processed_batch_id" => *batch.id, "expected_id" => *self.to_be_processed_id);
+            crit!(self.log, "Batch processed out of order";
+            "processed_batch_id" => *batch.id, 
+            "expected_id" => *self.to_be_processed_id);
         }
 
         self.current_processing_id = None;
@@ -357,7 +357,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .as_u64()
                 .saturating_add(*self.last_processed_id * BLOCKS_PER_BATCH)
         {
-            debug!(self.log, "Updating chain's progress"; "prev_completed_slot" => self.start_slot + *self.last_processed_id*BLOCKS_PER_BATCH, "new_completed_slot" => local_finalized_slot.as_u64());
+            debug!(self.log, "Updating chain's progress";
+                "prev_completed_slot" => self.start_slot + *self.last_processed_id*BLOCKS_PER_BATCH,
+                "new_completed_slot" => local_finalized_slot.as_u64());
             // Re-index batches
             *self.last_processed_id = 0;
             *self.to_be_downloaded_id = 1;
@@ -412,7 +414,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         request_id: RequestId,
     ) -> Option<ProcessingResult> {
         if let Some(batch) = self.pending_batches.remove(request_id) {
-            warn!(self.log, "Batch failed. RPC Error"; "id" => *batch.id, "retries" => batch.retries, "peer" => format!("{:?}", peer_id));
+            warn!(self.log, "Batch failed. RPC Error"; 
+                "id" => *batch.id, 
+                "retries" => batch.retries, 
+                "peer" => format!("{:?}", peer_id));
 
             Some(self.failed_batch(network, batch))
         } else {
@@ -449,7 +454,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .unwrap_or_else(|| current_peer);
 
             batch.current_peer = new_peer.clone();
-            debug!(self.log, "Re-Requesting batch"; "start_slot" => batch.start_slot, "end_slot" => batch.end_slot, "id" => *batch.id, "peer" => format!("{:?}", batch.current_peer), "head_root"=> format!("{}", batch.head_root));
+            debug!(self.log, "Re-Requesting batch";
+                "start_slot" => batch.start_slot,
+                "end_slot" => batch.end_slot, 
+                "id" => *batch.id,
+                "peer" => format!("{:?}", batch.current_peer),
+                "head_root"=> format!("{}", batch.head_root));
             self.send_batch(network, batch);
             ProcessingResult::KeepChain
         }
@@ -493,8 +503,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         ProcessingResult::RemoveChain
     }
 
-    /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
-    /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
+    /// Attempts to request the next required batches from the peer pool if the chain is syncing.
+    /// It will exhaust the peer pool and left over batches until the batch buffer is reached or
+    /// all peers are exhausted.
     fn request_batches(&mut self, network: &mut SyncNetworkContext) {
         if let ChainSyncingState::Syncing = self.state {
             while self.send_range_request(network) {}
