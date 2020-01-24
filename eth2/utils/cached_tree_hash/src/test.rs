@@ -131,17 +131,15 @@ fn variable_list_h256_test<Len: Unsigned>(leaves_and_skips: Vec<(u64, bool)>) ->
     for (end, (_, update_cache)) in leaves_and_skips.into_iter().enumerate() {
         list = VariableList::new(leaves[..end].to_vec()).unwrap();
 
-        if update_cache {
-            if list
+        if update_cache
+            && list
                 .recalculate_tree_hash_root(&mut cache)
                 .unwrap()
                 .as_bytes()
                 != &list.tree_hash_root()[..]
-            {
-                return false;
-            }
+        {
+            return false;
         }
     }
-
     true
 }

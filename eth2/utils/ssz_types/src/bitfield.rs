@@ -739,6 +739,7 @@ mod bitvector {
 }
 
 #[cfg(test)]
+#[allow(clippy::cognitive_complexity)]
 mod bitlist {
     use super::*;
     use crate::BitList;
@@ -937,7 +938,7 @@ mod bitlist {
     fn test_set_unset(num_bits: usize) {
         let mut bitfield = BitList1024::with_capacity(num_bits).unwrap();
 
-        for i in 0..num_bits + 1 {
+        for i in 0..=num_bits {
             if i < num_bits {
                 // Starts as false
                 assert_eq!(bitfield.get(i), Ok(false));
@@ -1023,10 +1024,7 @@ mod bitlist {
             vec![0b1111_1111, 0b0000_0000]
         );
         bitfield.set(8, true).unwrap();
-        assert_eq!(
-            bitfield.clone().into_raw_bytes(),
-            vec![0b1111_1111, 0b0000_0001]
-        );
+        assert_eq!(bitfield.into_raw_bytes(), vec![0b1111_1111, 0b0000_0001]);
     }
 
     #[test]

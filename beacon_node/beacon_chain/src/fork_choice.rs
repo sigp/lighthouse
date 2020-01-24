@@ -294,7 +294,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Returns a `SszForkChoice` which contains the current state of `Self`.
     pub fn as_ssz_container(&self) -> SszForkChoice {
         SszForkChoice {
-            genesis_block_root: self.genesis_block_root.clone(),
+            genesis_block_root: self.genesis_block_root,
             justified_checkpoint: self.justified_checkpoint.read().clone(),
             best_justified_checkpoint: self.best_justified_checkpoint.read().clone(),
             backend_bytes: self.backend.as_bytes(),

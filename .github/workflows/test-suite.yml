@@ -57,4 +57,4 @@ jobs:
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim
-      run: cargo run --release --bin beacon_chain_sim
+      run: cargo run --release --bin simulator beacon-chain-sim

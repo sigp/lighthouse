@@ -1,5 +1,6 @@
 use crate::eth1_chain::Error as Eth1ChainError;
 use crate::fork_choice::Error as ForkChoiceError;
+use operation_pool::OpPoolError;
 use ssz_types::Error as SszTypesError;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::BlockProcessingError;
@@ -67,6 +68,7 @@ pub enum BlockProductionError {
     BlockProcessingError(BlockProcessingError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
+    OpPoolError(OpPoolError),
     /// The `BeaconChain` was explicitly configured _without_ a connection to eth1, therefore it
     /// cannot produce blocks.
     NoEth1ChainConnection,

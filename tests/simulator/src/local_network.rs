@@ -6,7 +6,7 @@ use node_test_rig::{
 use parking_lot::RwLock;
 use std::ops::Deref;
 use std::sync::Arc;
-use types::EthSpec;
+use types::{Epoch, EthSpec};
 
 const BOOTNODE_PORT: u16 = 42424;
 
@@ -82,7 +82,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         mut beacon_config: ClientConfig,
     ) -> impl Future<Item = (), Error = String> {
         let self_1 = self.clone();
-
+        println!("Adding beacon node..");
         self.beacon_nodes
             .read()
             .first()
@@ -153,5 +153,17 @@ impl<E: EthSpec> LocalNetwork<E> {
             .iter()
             .map(|beacon_node| beacon_node.remote_node())
             .collect()
+    }
+
+    /// Return current epoch of bootnode.
+    pub fn bootnode_epoch(&self) -> impl Future<Item = Epoch, Error = String> {
+        let nodes = self.remote_nodes().expect("Failed to get remote nodes");
+        let bootnode = nodes.first().expect("Should contain bootnode");
+        bootnode
+            .http
+            .beacon()
+            .get_head()
+            .map_err(|e| format!("Cannot get head: {:?}", e))
+            .map(|head| head.finalized_slot.epoch(E::slots_per_epoch()))
     }
 }

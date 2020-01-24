@@ -897,7 +897,7 @@ impl<T: EthSpec> BeaconState<T> {
             .enumerate()
             .skip(self.pubkey_cache.len())
         {
-            let success = self.pubkey_cache.insert(validator.pubkey.clone().into(), i);
+            let success = self.pubkey_cache.insert(validator.pubkey.clone(), i);
             if !success {
                 return Err(Error::PubkeyCacheInconsistent);
             }
@@ -957,7 +957,7 @@ impl<T: EthSpec> BeaconState<T> {
                 validator
                     .pubkey
                     .decompress()
-                    .map_err(|e| Error::InvalidValidatorPubkey(e))
+                    .map_err(Error::InvalidValidatorPubkey)
             } else {
                 Ok(())
             }

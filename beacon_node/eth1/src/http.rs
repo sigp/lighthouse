@@ -136,7 +136,7 @@ pub fn get_deposit_count(
         timeout,
     )
     .and_then(|result| match result {
-        None => Err(format!("Deposit root response was none")),
+        None => Err("Deposit root response was none".to_string()),
         Some(bytes) => {
             if bytes.is_empty() {
                 Ok(None)
@@ -173,7 +173,7 @@ pub fn get_deposit_root(
         timeout,
     )
     .and_then(|result| match result {
-        None => Err(format!("Deposit root response was none")),
+        None => Err("Deposit root response was none".to_string()),
         Some(bytes) => {
             if bytes.is_empty() {
                 Ok(None)

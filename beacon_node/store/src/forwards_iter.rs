@@ -20,9 +20,9 @@ pub struct SimpleForwardsBlockRootsIterator {
 /// Fusion of the above two approaches to forwards iteration. Fast and efficient.
 pub enum HybridForwardsBlockRootsIterator<E: EthSpec> {
     PreFinalization {
-        iter: FrozenForwardsBlockRootsIterator<E>,
+        iter: Box<FrozenForwardsBlockRootsIterator<E>>,
         /// Data required by the `PostFinalization` iterator when we get to it.
-        continuation_data: Option<(BeaconState<E>, Hash256)>,
+        continuation_data: Box<Option<(BeaconState<E>, Hash256)>>,
     },
     PostFinalization {
         iter: SimpleForwardsBlockRootsIterator,
@@ -99,13 +99,13 @@ impl<E: EthSpec> HybridForwardsBlockRootsIterator<E> {
 
         if start_slot < latest_restore_point_slot {
             PreFinalization {
-                iter: FrozenForwardsBlockRootsIterator::new(
+                iter: Box::new(FrozenForwardsBlockRootsIterator::new(
                     store,
                     start_slot,
                     latest_restore_point_slot,
                     spec,
-                ),
-                continuation_data: Some((end_state, end_block_root)),
+                )),
+                continuation_data: Box::new(Some((end_state, end_block_root))),
             }
         } else {
             PostFinalization {

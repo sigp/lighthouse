@@ -61,11 +61,3 @@ impl<T: BeaconChainTypes> Client<T> {
         self.libp2p_network.as_ref().map(|n| n.local_enr())
     }
 }
-
-impl<T: BeaconChainTypes> Drop for Client<T> {
-    fn drop(&mut self) {
-        if let Some(beacon_chain) = &self.beacon_chain {
-            let _result = beacon_chain.persist();
-        }
-    }
-}
