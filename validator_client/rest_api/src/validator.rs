@@ -4,7 +4,7 @@ use bls::{PublicKey, PublicKeyBytes, Signature};
 use futures::future::Future;
 use futures::stream::Stream;
 use hyper::{Body, Request};
-use remote_beacon_node::RemoteBeaconNode;
+use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use serde_derive::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use std::sync::Arc;
@@ -171,6 +171,8 @@ pub fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
     beacon_node: Arc<RemoteBeaconNode<E>>,
 ) -> BoxFut {
     let response_builder = ResponseBuilder::new(&req);
+    let bn1 = beacon_node.clone();
+    let bn2 = beacon_node.clone();
     let future = req
         .into_body()
         .concat2()
@@ -185,8 +187,7 @@ pub fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
         })
         .and_then(move |body| {
             let validator_pubkey = body.validator.clone();
-            beacon_node
-                .http
+            bn1.http
                 .beacon()
                 .get_validators(vec![validator_pubkey.clone()], None)
                 .map(|resp| (resp, validator_pubkey))
@@ -218,15 +219,32 @@ pub fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
                             as u64,
                         signature: Signature::empty_signature(),
                     };
-                    let _signed_exit = validator_store.sign_voluntary_exit(&pk, exit);
-                    // TODO: publish signed exit to beacon chain
-                    Ok(())
+                    let signed_exit = validator_store.sign_voluntary_exit(&pk, exit).ok_or(
+                        ApiError::ProcessingError(format!("Failed to sign voluntary exit message")),
+                    )?;
+                    Ok(signed_exit)
                 }
             } else {
                 Err(ApiError::ServerError(format!(
                     "Invalid public key returned from beacon chain api"
                 )))
             }
+        })
+        .and_then(move |signed_exit| {
+            bn2.http
+                .validator()
+                .publish_voluntary_exit(signed_exit)
+                .map(|status| match status {
+                    PublishStatus::Valid => Ok(()),
+                    PublishStatus::Invalid(e) => Err(ApiError::ServerError(format!(
+                        "Failed to publish voluntary exit: {}",
+                        e
+                    ))),
+                    PublishStatus::Unknown => Err(ApiError::ServerError(format!(
+                        "Failed to publish voluntary exit. Publish status unknown"
+                    ))),
+                })
+                .map_err(|e| ApiError::ServerError(format!("RemoteBeaconNode api error: {:?}", e)))
         })
         .and_then(|_| response_builder?.body_empty());
     Box::new(future)

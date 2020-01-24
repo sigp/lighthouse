@@ -10,7 +10,7 @@ type E = MinimalEthSpec;
 
 fn build_env() -> Environment<E> {
     EnvironmentBuilder::minimal()
-        .null_logger()
+        .async_logger("debug", None)
         .expect("should build env logger")
         .single_thread_tokio_runtime()
         .expect("should start tokio runtime")
@@ -87,9 +87,11 @@ fn test_validator_api() {
         ),
     );
     assert!(
-        exit.is_ok(),
-        "exit shouldn't error with activated validator"
+        exit.is_err(),
+        "exit shouldn't be allowed as validator hasn't been active for long enough"
     );
+
+    // TODO: test for successful exit.
 
     // Add validator
     let pk = env
