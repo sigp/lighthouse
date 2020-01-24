@@ -5,10 +5,12 @@
 use bls::{G1Point, G1Ref, SignatureSet, SignedMessage};
 use std::borrow::Cow;
 use std::convert::TryInto;
+use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
     DepositData, Domain, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
     Signature, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot, SignedVoluntaryExit,
+    SigningRoot,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -41,7 +43,7 @@ impl From<BeaconStateError> for Error {
 pub fn block_proposal_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     signed_block: &'a SignedBeaconBlock<T>,
-    block_signed_root: Option<Hash256>,
+    block_root: Option<Hash256>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
     let block = &signed_block.message;
@@ -53,13 +55,15 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
         &state.fork,
     );
 
-    let message = if let Some(root) = block_signed_root {
-        root
+    let message = if let Some(root) = block_root {
+        SigningRoot {
+            object_root: root,
+            domain,
+        }
+        .tree_hash_root()
     } else {
-        block.signing_root(domain)
-    }
-    .as_bytes()
-    .to_vec();
+        block.signing_root(domain).as_bytes().to_vec()
+    };
 
     Ok(SignatureSet::single(
         &signed_block.signature,

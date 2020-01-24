@@ -79,12 +79,12 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     pub fn verify_entire_block(
         state: &'a BeaconState<T>,
         block: &'a SignedBeaconBlock<T>,
+        block_root: Option<Hash256>,
         spec: &'a ChainSpec,
     ) -> Result<()> {
         let mut verifier = Self::new(state, block, spec);
 
-        // FIXME(sproul): plumb through the block root
-        verifier.include_block_proposal(None)?;
+        verifier.include_block_proposal(block_root)?;
         verifier.include_randao_reveal()?;
         verifier.include_proposer_slashings()?;
         verifier.include_attester_slashings()?;
