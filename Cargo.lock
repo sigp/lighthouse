@@ -80,7 +80,7 @@ dependencies = [
 [[package]]
 name = "amcl"
 version = "0.2.0"
-source = "git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10#b60e266540ea13f8877ac47ed40d379a80c6898d"
+source = "git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10#52fab41dd086951ade699894b690e95ede1efafd"
 dependencies = [
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2538,7 +2538,7 @@ dependencies = [
 [[package]]
 name = "milagro_bls"
 version = "1.0.0"
-source = "git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10#b60e266540ea13f8877ac47ed40d379a80c6898d"
+source = "git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10#52fab41dd086951ade699894b690e95ede1efafd"
 dependencies = [
  "amcl 0.2.0 (git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10)",
  "hex 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",

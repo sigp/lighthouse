@@ -126,26 +126,28 @@ impl ChainSpec {
     ///
     /// Spec v0.9.1
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
-        let domain_constant = self.get_domain_constant(domain);
-
-        let mut bytes: Vec<u8> = int_to_bytes4(domain_constant);
-        bytes.append(&mut fork.get_fork_version(epoch).to_vec());
-
-        let mut fork_and_domain = [0; 8];
-        fork_and_domain.copy_from_slice(&bytes);
-
-        u64::from_le_bytes(fork_and_domain)
+        let fork_version = fork.get_fork_version(epoch);
+        self.compute_domain(domain, fork_version)
     }
 
     /// Get the domain for a deposit signature.
     ///
     /// Deposits are valid across forks, thus the deposit domain is computed
-    /// with the fork zeroed.
+    /// with the genesis fork version.
     ///
     /// Spec v0.8.1
     pub fn get_deposit_domain(&self) -> u64 {
-        let mut bytes: Vec<u8> = int_to_bytes4(self.domain_deposit);
-        bytes.append(&mut vec![0; 4]);
+        self.compute_domain(Domain::Deposit, self.genesis_fork_version)
+    }
+
+    /// Compute a domain by applying the given `fork_version`.
+    ///
+    /// Spec v0.10.1
+    pub fn compute_domain(&self, domain: Domain, fork_version: [u8; 4]) -> u64 {
+        let domain_constant = self.get_domain_constant(domain);
+
+        let mut bytes: Vec<u8> = int_to_bytes4(domain_constant);
+        bytes.append(&mut fork_version.to_vec());
 
         let mut fork_and_domain = [0; 8];
         fork_and_domain.copy_from_slice(&bytes);
