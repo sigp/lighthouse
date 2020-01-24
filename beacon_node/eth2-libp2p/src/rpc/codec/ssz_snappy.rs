@@ -17,15 +17,16 @@ pub struct SSZSnappyInboundCodec {
     encoder: snap.Encoder,
     decoder: snap.Decoder,
     protocol: ProtocolId,
+    max_packet_size
 }
 
 impl SSZSnappyInboundCodec {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
-        // TODO: safe max packet size
         // this encoding only applies to ssz_snappy.
         debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
 
         SSZSnappyInboundCodec {
+            max_packet_size,
             encoder: snap.Encoder(),
             decoder: snap.Decoder(),
             protocol,
@@ -73,7 +74,7 @@ impl Decoder for SSZSnappyInboundCodec {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        // TODO: check against max size of packets
+        if(self.max_packet_size >= snap::decompress_len(src)){
         match self.decoder.decoder(src).map_err(RPCError::from) {
             Ok(Some(packet)) => match self.protocol.message_name.as_str() {
                 "hello" => match self.protocol.version.as_str() {
@@ -105,6 +106,11 @@ impl Decoder for SSZSnappyInboundCodec {
             Ok(None) => Ok(None),
             Err(e) => Err(e),
         }
+
+        }
+        else {
+            Err("Packet is larger than the maximum packet size.")
+        }
     }
 }
 
@@ -118,11 +124,11 @@ pub struct SSZSnappyOutboundCodec {
 
 impl SSZSnappyOutboundCodec {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
-        // TODO: safe max packet size
         // this encoding only applies to ssz.
         debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
 
         SSZSnappyOutboundCodec {
+            max_packet_size,
             encoder: snap.Encoder(),
             decoder: snap.Decoder(),
             protocol,
@@ -180,7 +186,7 @@ impl Decoder for SSZSnappyOutboundCodec {
                 _ => unreachable!("Cannot negotiate an unknown protocol"),
             }
         } else {
-            if (decompress_len(src)) {
+            if (snap::decompress_len(src)) {
                 match self.decoder.decompress(src).map_err(RPCError::from) {
                     Ok(Some(packet)) => match self.protocol.message_name.as_str() {
                         "hello" => match self.protocol.version.as_str() {
@@ -203,6 +209,9 @@ impl Decoder for SSZSnappyOutboundCodec {
                     Ok(None) => Ok(None), // waiting for more bytes
                     Err(e) => Err(e),
                 }
+            }
+            else {
+                Err("Packet is larger than the maximum packet size.")
             }
             
         }
