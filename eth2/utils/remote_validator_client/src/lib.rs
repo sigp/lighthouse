@@ -14,7 +14,7 @@ use url::Url;
 
 pub const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 
-/// Connects to a remote Lighthouse (or compatible) node via HTTP.
+/// Connects to a remote Lighthouse (or compatible) validator client via HTTP.
 #[derive(Clone)]
 pub struct RemoteValidatorClient<E: EthSpec> {
     pub http: HttpClient<E>,
@@ -55,7 +55,7 @@ pub struct HttpClient<E> {
 }
 
 impl<E: EthSpec> HttpClient<E> {
-    /// Creates a new instance (without connecting to the node).
+    /// Creates a new instance (without connecting to the validator client).
     pub fn new(server_url: String, timeout: Duration) -> Result<Self, Error> {
         Ok(Self {
             client: ClientBuilder::new()
@@ -125,7 +125,7 @@ fn error_for_status(
     }
 }
 
-/// Provides the functions on the `/validators` endpoint of the node.
+/// Provides the functions on the `/validators` endpoint of the validator client http api.
 #[derive(Clone)]
 pub struct Validator<E>(HttpClient<E>);
 

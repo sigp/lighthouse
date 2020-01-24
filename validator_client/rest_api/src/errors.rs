@@ -50,12 +50,6 @@ impl Into<BoxFut> for ApiError {
     }
 }
 
-impl From<types::BeaconStateError> for ApiError {
-    fn from(e: types::BeaconStateError) -> ApiError {
-        ApiError::ServerError(format!("BeaconState error: {:?}", e))
-    }
-}
-
 impl From<hyper::error::Error> for ApiError {
     fn from(e: hyper::error::Error) -> ApiError {
         ApiError::ServerError(format!("Networking error: {:?}", e))

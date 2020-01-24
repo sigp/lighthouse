@@ -283,7 +283,7 @@ pub fn publish_voluntary_exit_to_network<T: BeaconChainTypes + 'static>(
     let topic = GossipTopic::VoluntaryExit;
     let message = PubsubMessage::VoluntaryExit(voluntary_exit.as_ssz_bytes());
 
-    // Publish the attestation to the p2p network via gossipsub.
+    // Publish the voluntary exit message to the p2p network via gossipsub.
     if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
         topics: vec![topic.into()],
         message,

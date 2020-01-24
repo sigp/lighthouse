@@ -52,11 +52,9 @@ pub fn route<T: SlotClock + 'static, E: EthSpec>(
             (&Method::POST, "/validators/stop") => {
                 validator::stop_validator::<T, E>(req, validator_client)
             }
-            (&Method::POST, "/validators/exit") => into_boxfut(validator::exit_validator::<T, E>(
-                req,
-                validator_client,
-                beacon_node,
-            )),
+            (&Method::POST, "/validators/exit") => {
+                validator::exit_validator::<T, E>(req, validator_client, beacon_node)
+            }
             (&Method::POST, "/validators/withdraw") => {
                 into_boxfut(implementation_pending_response(req))
             }
