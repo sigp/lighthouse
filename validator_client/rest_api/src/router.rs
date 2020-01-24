@@ -1,6 +1,5 @@
-use super::errors::ApiError;
 use super::errors::BoxFut;
-use super::status;
+use super::errors::{ApiError, ApiResult};
 use super::validator;
 use futures::{Future, IntoFuture};
 use hyper::{Body, Error, Method, Request, Response};
@@ -17,6 +16,12 @@ where
     F::Future: Send,
 {
     Box::new(item.into_future())
+}
+
+pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
+    Err(ApiError::NotImplemented(
+        "API endpoint has not yet been implemented, but is planned to be soon.".to_owned(),
+    ))
 }
 
 pub fn route<T: SlotClock + 'static, E: EthSpec>(
@@ -53,12 +58,12 @@ pub fn route<T: SlotClock + 'static, E: EthSpec>(
                 beacon_node,
             )),
             (&Method::POST, "/validators/withdraw") => {
-                into_boxfut(validator::withdraw_validator::<T, E>(req, validator_client))
+                into_boxfut(implementation_pending_response(req))
             }
 
             // Methods for beacon node status
             (&Method::GET, "/status/beacon_node") => {
-                into_boxfut(status::beacon_node_status::<E>(req, beacon_node))
+                into_boxfut(implementation_pending_response(req))
             }
 
             _ => Box::new(futures::future::err(ApiError::NotFound(

@@ -10,7 +10,7 @@ type E = MinimalEthSpec;
 
 fn build_env() -> Environment<E> {
     EnvironmentBuilder::minimal()
-        .async_logger("debug", None)
+        .null_logger()
         .expect("should build env logger")
         .single_thread_tokio_runtime()
         .expect("should start tokio runtime")
