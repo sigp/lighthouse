@@ -36,7 +36,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::mpsc;
-use url_query::UrlQuery;
+use url_query::{AskedParams, UrlParams, UrlQuery};
 
 pub use crate::helpers::parse_pubkey_bytes;
 pub use beacon::{
