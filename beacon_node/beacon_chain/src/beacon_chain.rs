@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
 };
-use store::{BlockRootTree, Error as DBError, Migrate, Store};
+use store::{Error as DBError, Migrate, Store};
 use tree_hash::TreeHash;
 use types::*;
 
@@ -147,8 +147,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) head_tracker: HeadTracker,
     /// Provides a small cache of `BeaconState` and `BeaconBlock`.
     pub(crate) checkpoint_cache: CheckPointCache<T::EthSpec>,
-    /// Cache of block roots for all known forks post-finalization.
-    pub block_root_tree: Arc<BlockRootTree>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
 }
@@ -188,7 +186,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
             fork_choice: self.fork_choice.as_ssz_container(),
-            block_root_tree: self.block_root_tree.as_ssz_container(),
+            block_root_tree: vec![],
         };
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
@@ -1242,8 +1240,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Check if the block is already known. We know it is post-finalization, so it is
-        // sufficient to check the block root tree.
-        if self.block_root_tree.is_known_block_root(&block_root) {
+        // sufficient to check the fork choice.
+        if self.fork_choice.contains_block(&block_root) {
             return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
         }
 
@@ -1399,9 +1397,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.put(&block_root, &block)?;
 
         metrics::stop_timer(db_write_timer);
-
-        self.block_root_tree
-            .add_block_root(block_root, block.parent_root, block.slot)?;
 
         self.head_tracker.register_block(block_root, &block);
 
@@ -1708,12 +1703,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 finalized_block.state_root,
                 finalized_state,
                 max_finality_distance,
-            );
-
-            // Prune in-memory block root tree.
-            self.block_root_tree.prune_to(
-                finalized_block_root,
-                self.heads().into_iter().map(|(block_root, _)| block_root),
             );
 
             let _ = self.event_handler.register(EventKind::BeaconFinalization {
