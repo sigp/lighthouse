@@ -83,7 +83,8 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
             block_verify!(
-                BlockSignatureVerifier::verify_entire_block(state, signed_block, block_root, spec).is_ok(),
+                BlockSignatureVerifier::verify_entire_block(state, signed_block, block_root, spec)
+                    .is_ok(),
                 BlockProcessingError::BulkSignatureVerificationFailed
             );
             VerifySignatures::False
