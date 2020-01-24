@@ -3,11 +3,8 @@ use rayon::prelude::*;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
-mod bls_aggregate_pubkeys;
 mod bls_aggregate_sigs;
 mod bls_aggregate_verify;
-mod bls_g2_compressed;
-mod bls_priv_to_pub;
 mod bls_sign_msg;
 mod bls_verify_msg;
 mod common;
@@ -21,11 +18,8 @@ mod shuffling;
 mod ssz_generic;
 mod ssz_static;
 
-pub use bls_aggregate_pubkeys::*;
 pub use bls_aggregate_sigs::*;
 pub use bls_aggregate_verify::*;
-pub use bls_g2_compressed::*;
-pub use bls_priv_to_pub::*;
 pub use bls_sign_msg::*;
 pub use bls_verify_msg::*;
 pub use common::SszStaticType;

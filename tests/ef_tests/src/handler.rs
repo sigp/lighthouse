@@ -74,25 +74,15 @@ macro_rules! bls_handler {
     };
 }
 
-bls_handler!(
-    BlsAggregatePubkeysHandler,
-    BlsAggregatePubkeys,
-    "aggregate_pubkeys"
-);
-bls_handler!(BlsAggregateSigsHandler, BlsAggregateSigs, "aggregate_sigs");
-bls_handler!(
-    BlsG2CompressedHandler,
-    BlsG2Compressed,
-    "msg_hash_compressed"
-);
-bls_handler!(BlsPrivToPubHandler, BlsPrivToPub, "priv_to_pub");
-bls_handler!(BlsSignMsgHandler, BlsSign, "sign_msg");
-bls_handler!(BlsVerifyMsgHandler, BlsVerify, "verify_msg");
+bls_handler!(BlsAggregateSigsHandler, BlsAggregateSigs, "aggregate");
+bls_handler!(BlsSignMsgHandler, BlsSign, "sign");
+bls_handler!(BlsVerifyMsgHandler, BlsVerify, "verify");
 bls_handler!(
     BlsAggregateVerifyHandler,
     BlsAggregateVerify,
     "aggregate_verify"
 );
+// FIXME(sproul): fast_aggregate_verify
 
 /// Handler for SSZ types.
 pub struct SszStaticHandler<T, E>(PhantomData<(T, E)>);

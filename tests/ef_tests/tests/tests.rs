@@ -82,37 +82,19 @@ fn sanity_slots() {
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
-fn bls_aggregate_pubkeys() {
-    BlsAggregatePubkeysHandler::run();
-}
-
-#[test]
-#[cfg(not(feature = "fake_crypto"))]
-fn bls_aggregate_sigs() {
+fn bls_aggregate() {
     BlsAggregateSigsHandler::run();
 }
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
-fn bls_msg_hash_g2_compressed() {
-    BlsG2CompressedHandler::run();
-}
-
-#[test]
-#[cfg(not(feature = "fake_crypto"))]
-fn bls_priv_to_pub() {
-    BlsPrivToPubHandler::run();
-}
-
-#[test]
-#[cfg(not(feature = "fake_crypto"))]
-fn bls_sign_msg() {
+fn bls_sign() {
     BlsSignMsgHandler::run();
 }
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
-fn bls_verify_msg() {
+fn bls_verify() {
     BlsVerifyMsgHandler::run();
 }
 
@@ -121,6 +103,7 @@ fn bls_verify_msg() {
 fn bls_aggregate_verify() {
     BlsAggregateVerifyHandler::run();
 }
+// FIXME(sproul): bls_fast_aggregate_verify
 
 #[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test {
