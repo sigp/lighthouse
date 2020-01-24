@@ -3,6 +3,7 @@ use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::GossipTopic;
 use crate::{error, NetworkConfig};
 use crate::{Topic, TopicHash};
+use enr::Enr;
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
@@ -57,7 +58,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         net_conf: &NetworkConfig,
         log: &slog::Logger,
     ) -> error::Result<Self> {
-        let local_peer_id = local_key.public().clone().into_peer_id();
+        let local_peer_id = local_key.public().into_peer_id();
         let behaviour_log = log.new(o!());
 
         let ping_config = PingConfig::new()
@@ -74,7 +75,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
 
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
-            gossipsub: Gossipsub::new(local_peer_id.clone(), net_conf.gs_config.clone()),
+            gossipsub: Gossipsub::new(local_peer_id, net_conf.gs_config.clone()),
             discovery: Discovery::new(local_key, net_conf, log)?,
             ping: Ping::new(ping_config),
             identify,
@@ -253,6 +254,16 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     /// Notify discovery that the peer has been unbanned.
     pub fn peer_unbanned(&mut self, peer_id: &PeerId) {
         self.discovery.peer_unbanned(peer_id);
+    }
+
+    /// Returns an iterator over all enr entries in the DHT.
+    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
+        self.discovery.enr_entries()
+    }
+
+    /// Add an ENR to the routing table of the discovery mechanism.
+    pub fn add_enr(&mut self, enr: Enr) {
+        self.discovery.add_enr(enr);
     }
 }
 

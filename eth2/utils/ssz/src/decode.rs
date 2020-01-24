@@ -99,7 +99,7 @@ impl<'a> SszDecoderBuilder<'a> {
             let previous_offset = self
                 .offsets
                 .last()
-                .and_then(|o| Some(o.offset))
+                .map(|o| o.offset)
                 .unwrap_or_else(|| BYTES_PER_LENGTH_OFFSET);
 
             if (previous_offset > offset) || (offset > self.bytes.len()) {
@@ -179,7 +179,7 @@ impl<'a> SszDecoderBuilder<'a> {
 ///     b: Vec<u16>,
 /// }
 ///
-/// fn main() {
+/// fn ssz_decoding_example() {
 ///     let foo = Foo {
 ///         a: 42,
 ///         b: vec![1, 3, 3, 7]

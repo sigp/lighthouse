@@ -2,6 +2,7 @@
 pub mod error;
 pub mod message_handler;
 pub mod message_processor;
+pub mod persisted_dht;
 pub mod service;
 pub mod sync;
 

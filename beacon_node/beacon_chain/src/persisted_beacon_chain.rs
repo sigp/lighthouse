@@ -1,3 +1,4 @@
+use crate::eth1_chain::SszEth1;
 use crate::fork_choice::SszForkChoice;
 use crate::head_tracker::SszHeadTracker;
 use crate::{BeaconChainTypes, CheckPoint};
@@ -20,6 +21,7 @@ pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub fork_choice: SszForkChoice,
     // TODO: remove this.
     pub block_root_tree: Vec<u8>,
+    pub eth1_cache: Option<SszEth1>,
 }
 
 impl<T: BeaconChainTypes> SimpleStoreItem for PersistedBeaconChain<T> {

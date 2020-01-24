@@ -6,6 +6,7 @@ edition = "2018"
 
 [dev-dependencies]
 sloggers = "0.3.4"
+genesis = { path = "../genesis" }
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
@@ -24,3 +25,4 @@ smallvec = "1.0.0"
 # TODO: Remove rand crate for mainnet
 rand = "0.7.2"
 fnv = "1.0.6"
+rlp = "0.4.3"

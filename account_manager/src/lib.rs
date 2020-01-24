@@ -156,7 +156,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
                     })
                     .map(|password| {
                         // Trim the line feed from the end of the password file, if present.
-                        if password.ends_with("\n") {
+                        if password.ends_with('\n') {
                             password[0..password.len() - 1].to_string()
                         } else {
                             password
@@ -337,7 +337,7 @@ fn deposit_validators<E: EthSpec>(
                 .map(|_| event_loop)
         })
         // Web3 gives errors if the event loop is dropped whilst performing requests.
-        .map(|event_loop| drop(event_loop))
+        .map(drop)
 }
 
 /// For the given `ValidatorDirectory`, submit a deposit transaction to the `web3` node.
@@ -367,7 +367,7 @@ fn deposit_validator(
         .into_future()
         .and_then(move |(voting_keypair, deposit_data)| {
             let pubkey_1 = voting_keypair.pk.clone();
-            let pubkey_2 = voting_keypair.pk.clone();
+            let pubkey_2 = voting_keypair.pk;
 
             let web3_1 = web3.clone();
             let web3_2 = web3.clone();
@@ -421,7 +421,7 @@ fn deposit_validator(
                         to: Some(deposit_contract),
                         gas: Some(U256::from(DEPOSIT_GAS)),
                         gas_price: None,
-                        value: Some(U256::from(from_gwei(deposit_amount))),
+                        value: Some(from_gwei(deposit_amount)),
                         data: Some(deposit_data.into()),
                         nonce: None,
                         condition: None,

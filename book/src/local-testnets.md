@@ -1,4 +1,7 @@
-# Testnets
+# Local Testnets
+
+> This section is about running your own private local testnets.
+> - If you wish to join the ongoing public testnet, please read [become a validator](./become-a-validator.md).
 
 The `beacon_node` and `validator` commands have a `testnet` sub-command to
 allow creating or connecting to Eth2 beacon chain testnets.

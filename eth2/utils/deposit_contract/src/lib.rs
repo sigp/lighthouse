@@ -58,7 +58,7 @@ mod tests {
         let spec = &E::default_spec();
 
         let keypair = generate_deterministic_keypair(42);
-        let deposit = get_deposit(keypair.clone(), spec);
+        let deposit = get_deposit(keypair, spec);
 
         let data = eth1_tx_data(&deposit).expect("should produce tx data");
 

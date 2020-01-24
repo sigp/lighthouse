@@ -59,7 +59,6 @@ fn basic() {
     spec.min_genesis_active_validator_count = 8;
 
     let deposits = (0..spec.min_genesis_active_validator_count + 2)
-        .into_iter()
         .map(|i| {
             deposit_contract.deposit_helper::<MinimalEthSpec>(
                 generate_deterministic_keypair(i as usize),
@@ -73,7 +72,7 @@ fn basic() {
         })
         .collect::<Vec<_>>();
 
-    let deposit_future = deposit_contract.deposit_multiple(deposits.clone());
+    let deposit_future = deposit_contract.deposit_multiple(deposits);
 
     let wait_future =
         service.wait_for_genesis_state::<MinimalEthSpec>(update_interval, spec.clone());

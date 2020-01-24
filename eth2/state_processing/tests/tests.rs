@@ -29,7 +29,7 @@ where
     F: FnMut(&mut BlockBuilder<T>),
     G: FnMut(&mut BeaconBlock<T>),
 {
-    let (mut block, state) = get_block::<T, _>(mutate_builder);
+    let (mut block, mut state) = get_block::<T, _>(mutate_builder);
 
     /*
      * Control check to ensure the valid block should pass verification.
@@ -79,7 +79,7 @@ where
 
     assert_eq!(
         per_block_processing(
-            &mut state.clone(),
+            &mut state,
             &block,
             None,
             BlockSignatureStrategy::VerifyBulk,

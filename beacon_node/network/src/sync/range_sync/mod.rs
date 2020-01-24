@@ -2,8 +2,11 @@
 //! peers.
 
 mod batch;
+mod batch_processing;
 mod chain;
 mod chain_collection;
 mod range;
 
+pub use batch::Batch;
+pub use batch_processing::BatchProcessResult;
 pub use range::RangeSync;

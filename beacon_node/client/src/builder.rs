@@ -73,7 +73,7 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -140,7 +140,7 @@ where
 
                 let builder = BeaconChainBuilder::new(eth_spec_instance)
                     .logger(context.log.clone())
-                    .store(store.clone())
+                    .store(store)
                     .store_migrator(store_migrator)
                     .custom_spec(spec.clone());
 
@@ -212,7 +212,7 @@ where
                             Box::new(future)
                         }
                         ClientGenesis::RemoteNode { server, .. } => {
-                            let future = Bootstrapper::connect(server.to_string(), &context.log)
+                            let future = Bootstrapper::connect(server, &context.log)
                                 .map_err(|e| {
                                     format!("Failed to initialize bootstrap client: {}", e)
                                 })
@@ -230,7 +230,10 @@ where
                             Box::new(future)
                         }
                         ClientGenesis::Resume => {
-                            let future = builder.resume_from_db().into_future().map(|v| (v, None));
+                            let future = builder
+                                .resume_from_db(config)
+                                .into_future()
+                                .map(|v| (v, None));
 
                             Box::new(future)
                         }
@@ -292,14 +295,14 @@ where
             .ok_or_else(|| "http_server requires a libp2p network sender")?;
 
         let network_info = rest_api::NetworkInfo {
-            network_service: network.clone(),
-            network_chan: network_send.clone(),
+            network_service: network,
+            network_chan: network_send,
         };
 
         let (exit_signal, listening_addr) = rest_api::start_server(
             &client_config.rest_api,
             &context.executor,
-            beacon_chain.clone(),
+            beacon_chain,
             network_info,
             client_config
                 .create_db_path()
@@ -373,7 +376,7 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -419,7 +422,7 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
 {
     /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
@@ -466,7 +469,7 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
 where
     TSlotClock: SlotClock + 'static,
     TStoreMigrator: store::Migrate<DiskStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, DiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -494,7 +497,7 @@ where
             spec,
             context.log,
         )
-        .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
+        .map_err(|e| format!("Unable to open database: {:?}", e))?;
         self.store = Some(Arc::new(store));
         Ok(self)
     }
@@ -514,14 +517,14 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
 where
     TSlotClock: SlotClock + 'static,
     TStoreMigrator: store::Migrate<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, SimpleDiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Specifies that the `Client` should use a `DiskStore` database.
     pub fn simple_disk_store(mut self, path: &Path) -> Result<Self, String> {
-        let store = SimpleDiskStore::open(path)
-            .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
+        let store =
+            SimpleDiskStore::open(path).map_err(|e| format!("Unable to open database: {:?}", e))?;
         self.store = Some(Arc::new(store));
         Ok(self)
     }
@@ -540,7 +543,7 @@ impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, MemoryStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -568,7 +571,7 @@ impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, DiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -617,7 +620,7 @@ where
             .ok_or_else(|| "caching_eth1_backend requires a store".to_string())?;
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
-            eth1_service_from_genesis.update_config(config.clone())?;
+            eth1_service_from_genesis.update_config(config)?;
 
             // This cache is not useful because it's first (earliest) block likely the block that
             // triggered genesis.
@@ -688,7 +691,7 @@ impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler>
 where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {

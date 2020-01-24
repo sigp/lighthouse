@@ -20,8 +20,9 @@ pub struct Config {
     /// The TCP port that libp2p listens on.
     pub libp2p_port: u16,
 
-    /// The address to broadcast to peers about which address we are listening on.
-    pub discovery_address: std::net::IpAddr,
+    /// The address to broadcast to peers about which address we are listening on. None indicates
+    /// that no discovery address has been set in the CLI args.
+    pub discovery_address: Option<std::net::IpAddr>,
 
     /// UDP port that discovery listens on.
     pub discovery_port: u16,
@@ -86,7 +87,7 @@ impl Default for Config {
             network_dir,
             listen_address: "127.0.0.1".parse().expect("valid ip address"),
             libp2p_port: 9000,
-            discovery_address: "127.0.0.1".parse().expect("valid ip address"),
+            discovery_address: None,
             discovery_port: 9000,
             max_peers: 10,
             secret_key_hex: None,
