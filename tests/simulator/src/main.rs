@@ -28,7 +28,7 @@ use eth1_test_rig::GanacheEth1Instance;
 use futures::{future, stream, Future, Stream};
 use local_network::LocalNetwork;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, testing_vc_config, ClientGenesis,
+    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
 };
 use std::time::{Duration, Instant};
 use sync_sim::*;
@@ -317,7 +317,7 @@ fn beacon_chain_sim(
                         .collect::<Vec<_>>();
 
                     network_1
-                        .add_validator_client(testing_vc_config(), i, indices)
+                        .add_validator_client(ValidatorConfig::default(), i, indices)
                         .map(|()| ((), iter))
                 })
             })
