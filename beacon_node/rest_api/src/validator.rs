@@ -1,5 +1,6 @@
 use crate::helpers::{
     check_content_type_for_json, publish_attestation_to_network, publish_beacon_block_to_network,
+    publish_voluntary_exit_to_network,
 };
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
@@ -14,7 +15,10 @@ use slog::{error, info, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, RelativeEpoch, Slot};
+use types::{
+    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, RelativeEpoch, Slot,
+    VoluntaryExit,
+};
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorDuty {
@@ -385,7 +389,7 @@ pub fn publish_attestation<T: BeaconChainTypes>(
             .and_then(|chunks| {
                 serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
                     ApiError::BadRequest(format!(
-                        "Unable to deserialize JSON into a BeaconBlock: {:?}",
+                        "Unable to deserialize JSON into an Attestation: {:?}",
                         e
                     ))
                 })
@@ -425,6 +429,57 @@ pub fn publish_attestation<T: BeaconChainTypes>(
 
                         Err(ApiError::ServerError(format!(
                             "Error while processing attestation: {:?}",
+                            e
+                        )))
+                    }
+                }
+            })
+            .and_then(|_| response_builder?.body_no_ssz(&())),
+    )
+}
+
+/// HTTP Handler to publish an Attestation, which has been signed by a validator.
+pub fn publish_voluntary_exit<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+    network_chan: NetworkChannel,
+    log: Logger,
+) -> BoxFut {
+    try_future!(check_content_type_for_json(&req));
+    let response_builder = ResponseBuilder::new(&req);
+
+    Box::new(
+        req.into_body()
+            .concat2()
+            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+            .and_then(|chunks| {
+                serde_json::from_slice(&chunks).map_err(|e| {
+                    ApiError::BadRequest(format!(
+                        "Unable to deserialize JSON into a Voluntary exit: {:?}",
+                        e
+                    ))
+                })
+            })
+            .and_then(move |exit: VoluntaryExit| {
+                match beacon_chain.process_voluntary_exit(exit.clone()) {
+                    Ok(()) => {
+                        // Exit was processed, publish via gossipsub
+                        info!(
+                            log,
+                            "Voluntary exit from local validator";
+                            "index" => exit.validator_index,
+                        );
+                        publish_voluntary_exit_to_network::<T>(network_chan, exit)
+                    }
+                    Err(e) => {
+                        error!(
+                            log,
+                            "Error whilst processing voluntary exit";
+                            "error" => format!("{:?}", e)
+                        );
+
+                        Err(ApiError::ServerError(format!(
+                            "Error while processing voluntary exit: {:?}",
                             e
                         )))
                     }

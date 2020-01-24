@@ -125,7 +125,9 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::POST, "/validator/attestation") => {
                 validator::publish_attestation::<T>(req, beacon_chain, network_channel, log)
             }
-
+            (&Method::POST, "/validator/exit") => {
+                validator::publish_voluntary_exit::<T>(req, beacon_chain, network_channel, log)
+            }
             (&Method::GET, "/consensus/global_votes") => {
                 into_boxfut(consensus::get_vote_count::<T>(req, beacon_chain))
             }

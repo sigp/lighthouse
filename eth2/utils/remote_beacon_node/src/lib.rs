@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork, Hash256,
-    PublicKey, Signature, Slot,
+    PublicKey, Signature, Slot, VoluntaryExit,
 };
 use url::Url;
 
@@ -290,6 +290,31 @@ impl<E: EthSpec> Validator<E> {
                 ],
             )
         })
+    }
+
+    /// Posts a `VoluntaryExit` to the beacon node expecting it to publish it to the network.
+    pub fn publish_voluntary_exit(
+        &self,
+        exit: VoluntaryExit,
+    ) -> impl Future<Item = PublishStatus, Error = Error> {
+        let client = self.0.clone();
+        self.url("exit")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, exit))
+            .and_then(|mut response| {
+                response
+                    .text()
+                    .map(|text| (response, text))
+                    .map_err(Error::from)
+            })
+            .and_then(|(response, text)| match response.status() {
+                StatusCode::OK => Ok(PublishStatus::Valid),
+                StatusCode::ACCEPTED => Ok(PublishStatus::Invalid(text)),
+                _ => response
+                    .error_for_status()
+                    .map_err(Error::from)
+                    .map(|_| PublishStatus::Unknown),
+            })
     }
 }
 

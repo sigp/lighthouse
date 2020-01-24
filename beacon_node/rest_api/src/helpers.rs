@@ -14,7 +14,7 @@ use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
 use types::{
     Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
-    Signature, Slot,
+    Signature, Slot, VoluntaryExit,
 };
 
 /// Parse a slot.
@@ -268,6 +268,28 @@ pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
     }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new attestation to network: {:?}",
+            e
+        )));
+    }
+
+    Ok(())
+}
+
+pub fn publish_voluntary_exit_to_network<T: BeaconChainTypes + 'static>(
+    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
+    voluntary_exit: VoluntaryExit,
+) -> Result<(), ApiError> {
+    // create the network topic to send on
+    let topic = GossipTopic::VoluntaryExit;
+    let message = PubsubMessage::VoluntaryExit(voluntary_exit.as_ssz_bytes());
+
+    // Publish the attestation to the p2p network via gossipsub.
+    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
+        topics: vec![topic.into()],
+        message,
+    }) {
+        return Err(ApiError::ServerError(format!(
+            "Unable to send voluntary exit to network: {:?}",
             e
         )));
     }
