@@ -799,15 +799,21 @@ fn get_fork_choice() {
     let node = build_node(&mut env, testing_client_config());
     let remote_node = node.remote_node().expect("should produce remote node");
 
-    // Ideally we would check that the returned fork choice is the same as the one in the
-    // `beacon_chain`, however that would involve exposing (making public) the core fork choice
-    // struct that is a bit messy.
-    //
-    // Given that serializing the fork choice is just vanilla serde, I think it's fair to assume it
-    // works.
-    env.runtime()
+    let fork_choice = env
+        .runtime()
         .block_on(remote_node.http.advanced().get_fork_choice())
         .expect("should not error when getting fork choice");
+
+    assert_eq!(
+        fork_choice,
+        *node
+            .client
+            .beacon_chain()
+            .expect("node should have beacon chain")
+            .fork_choice
+            .core_proto_array(),
+        "result should be as expected"
+    );
 }
 
 fn compare_validator_response<T: EthSpec>(

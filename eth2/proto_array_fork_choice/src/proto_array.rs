@@ -18,7 +18,7 @@ pub struct ProtoNode {
     best_descendant: Option<usize>,
 }
 
-#[derive(PartialEq, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub struct ProtoArray {
     /// Do not attempt to prune the tree unless it has at least this many nodes. Small prunes
     /// simply waste time.

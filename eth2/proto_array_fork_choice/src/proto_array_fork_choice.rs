@@ -1,8 +1,7 @@
 use crate::error::Error;
 use crate::proto_array::ProtoArray;
 use crate::ssz_container::SszContainer;
-use parking_lot::RwLock;
-use serde_json;
+use parking_lot::{RwLock, RwLockReadGuard};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
@@ -213,9 +212,11 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))
     }
 
-    pub fn as_json(&self) -> Result<String, String> {
-        serde_json::to_string(&*self.proto_array.read())
-            .map_err(|e| format!("Failed to JSON encode proto_array: {:?}", e))
+    /// Returns a read-lock to core `ProtoArray` struct.
+    ///
+    /// Should only be used when encoding/decoding during troubleshooting.
+    pub fn core_proto_array(&self) -> RwLockReadGuard<ProtoArray> {
+        self.proto_array.read()
     }
 }
 

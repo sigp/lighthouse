@@ -2,19 +2,13 @@ mod checkpoint_manager;
 
 use crate::{errors::BeaconChainError, metrics, BeaconChain, BeaconChainTypes};
 use checkpoint_manager::{CheckpointManager, CheckpointWithBalances};
-use parking_lot::RwLock;
-use proto_array_fork_choice::ProtoArrayForkChoice;
+use parking_lot::{RwLock, RwLockReadGuard};
+use proto_array_fork_choice::{core::ProtoArray, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use state_processing::common::get_attesting_indices;
-use std::fs::File;
-use std::io::Write;
 use std::marker::PhantomData;
-use std::time::{SystemTime, UNIX_EPOCH};
 use store::Error as StoreError;
 use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, Hash256};
-
-/// If `true`, fork choice will be dumped to a JSON file in `/tmp` whenever find head fail.
-pub const FORK_CHOICE_DEBUGGING: bool = true;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -102,20 +96,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             .map_err(Into::into);
 
         metrics::stop_timer(timer);
-
-        if FORK_CHOICE_DEBUGGING {
-            if let Err(e) = &result {
-                if let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                    let time = duration.as_millis();
-                    if let Ok(mut file) = File::create(format!("/tmp/fork-choice-{}", time)) {
-                        let _ = write!(file, "{:?}\n", e);
-                        if let Ok(json) = self.backend.as_json() {
-                            let _ = write!(file, "{}", json);
-                        }
-                    }
-                }
-            }
-        }
 
         result
     }
@@ -231,8 +211,11 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         self.backend.maybe_prune(finalized_root).map_err(Into::into)
     }
 
-    pub fn as_json(&self) -> Result<String> {
-        self.backend.as_json().map_err(Error::UnableToJsonEncode)
+    /// Returns a read-lock to core `ProtoArray` struct.
+    ///
+    /// Should only be used when encoding/decoding during troubleshooting.
+    pub fn core_proto_array(&self) -> RwLockReadGuard<ProtoArray> {
+        self.backend.core_proto_array()
     }
 
     /// Returns a `SszForkChoice` which contains the current state of `Self`.
