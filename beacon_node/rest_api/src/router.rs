@@ -1,6 +1,6 @@
 use crate::{
-    beacon, consensus, error::ApiError, helpers, metrics, network, node, spec, validator, BoxFut,
-    NetworkChannel,
+    advanced, beacon, consensus, error::ApiError, helpers, metrics, network, node, spec, validator,
+    BoxFut, NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::Service as NetworkService;
@@ -145,6 +145,11 @@ pub fn route<T: BeaconChainTypes>(
             }
             (&Method::GET, "/spec/eth2_config") => {
                 into_boxfut(spec::get_eth2_config::<T>(req, eth2_config))
+            }
+
+            // Methods for advanced parameters
+            (&Method::GET, "/advanced/fork_choice") => {
+                into_boxfut(advanced::get_fork_choice::<T>(req, beacon_chain))
             }
 
             (&Method::GET, "/metrics") => into_boxfut(metrics::get_prometheus::<T>(

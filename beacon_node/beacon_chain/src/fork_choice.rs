@@ -29,6 +29,7 @@ pub enum Error {
     UnknownBlockSlot(Hash256),
     UnknownJustifiedBlock(Hash256),
     UnknownJustifiedState(Hash256),
+    UnableToJsonEncode(String),
 }
 
 pub struct ForkChoice<T: BeaconChainTypes> {
@@ -228,6 +229,10 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         let finalized_root = self.checkpoint_manager.read().current.finalized.root;
 
         self.backend.maybe_prune(finalized_root).map_err(Into::into)
+    }
+
+    pub fn as_json(&self) -> Result<String> {
+        self.backend.as_json().map_err(Error::UnableToJsonEncode)
     }
 
     /// Returns a `SszForkChoice` which contains the current state of `Self`.
