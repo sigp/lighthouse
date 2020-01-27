@@ -47,7 +47,7 @@ impl BalancesCache {
         if self.position(epoch_boundary_root).is_none() {
             let item = CacheItem {
                 block_root: epoch_boundary_root,
-                balances: state.balances.clone().into(),
+                balances: get_effective_balances(state),
             };
 
             if self.items.len() == MAX_BALANCE_CACHE_SIZE {
@@ -95,6 +95,24 @@ impl BalancesCache {
         let i = self.position(block_root)?;
         Some(self.items.remove(i).balances)
     }
+}
+
+/// Returns the effective balances for every validator in the given `state`.
+///
+/// Any validator who is not active in the epoch of the given `state` is assigned a balance of
+/// zero.
+fn get_effective_balances<T: EthSpec>(state: &BeaconState<T>) -> Vec<u64> {
+    state
+        .validators
+        .iter()
+        .map(|validator| {
+            if validator.is_active_at(state.current_epoch()) {
+                validator.effective_balance
+            } else {
+                0
+            }
+        })
+        .collect()
 }
 
 /// A `types::Checkpoint` that also stores the validator balances from a `BeaconState`.
@@ -285,7 +303,7 @@ impl CheckpointManager {
                 .get_state_caching_only_with_committee_caches(&block.state_root, Some(block.slot))?
                 .ok_or_else(|| Error::UnknownJustifiedState(block.state_root))?;
 
-            Ok(state.balances.into())
+            Ok(get_effective_balances(&state))
         }
     }
 
