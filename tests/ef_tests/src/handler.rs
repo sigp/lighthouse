@@ -82,7 +82,11 @@ bls_handler!(
     BlsAggregateVerify,
     "aggregate_verify"
 );
-// FIXME(sproul): fast_aggregate_verify
+bls_handler!(
+    BlsFastAggregateVerifyHandler,
+    BlsFastAggregateVerify,
+    "fast_aggregate_verify"
+);
 
 /// Handler for SSZ types.
 pub struct SszStaticHandler<T, E>(PhantomData<(T, E)>);

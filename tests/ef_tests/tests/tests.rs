@@ -103,7 +103,12 @@ fn bls_verify() {
 fn bls_aggregate_verify() {
     BlsAggregateVerifyHandler::run();
 }
-// FIXME(sproul): bls_fast_aggregate_verify
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn bls_fast_aggregate_verify() {
+    BlsFastAggregateVerifyHandler::run();
+}
 
 #[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test {
