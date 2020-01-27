@@ -26,3 +26,4 @@ tokio-timer = "0.2.12"
 tokio = "0.1.22"
 environment = { path = "../../lighthouse/environment" }
 rayon = "1.2.0"
+dirs = "2.0.2"

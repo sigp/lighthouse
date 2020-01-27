@@ -3,6 +3,7 @@ use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     testing_client_config, ClientConfig, LocalBeaconNode, LocalValidatorClient,
 };
+use tempdir::TempDir;
 use types::{EthSpec, MinimalEthSpec};
 use validator_client::Config as ValidatorConfig;
 
@@ -44,6 +45,7 @@ fn build_vc<E: EthSpec>(
 fn test_validator_api() {
     let mut env = build_env();
     let spec = &E::default_spec();
+    let temp_dir = TempDir::new("rest_api_testing").expect("should create temporary directory");
 
     // Need to build a beacon node for the validator node to connect to
     let bn_config = testing_client_config();
@@ -100,7 +102,7 @@ fn test_validator_api() {
             remote_vc
                 .http
                 .validator()
-                .add_validator(spec.max_effective_balance),
+                .add_validator(spec.max_effective_balance, temp_dir.into_path()),
         )
         .expect("should get pk of added validator");
 

@@ -34,3 +34,4 @@ remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }
 remote_validator_client = { path = "../../eth2/utils/remote_validator_client" }
 node_test_rig = { path = "../../tests/node_test_rig" }
 validator_client = {path = "../../validator_client"}
+tempdir = "0.3"

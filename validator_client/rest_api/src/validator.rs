@@ -7,6 +7,7 @@ use hyper::{Body, Request};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use serde_derive::{Deserialize, Serialize};
 use slot_clock::SlotClock;
+use std::path::PathBuf;
 use std::sync::Arc;
 use types::{EthSpec, VoluntaryExit};
 use validator_store::ValidatorStore;
@@ -19,6 +20,7 @@ pub struct ValidatorRequest {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct AddValidatorRequest {
     pub deposit_amount: u64,
+    pub directory: Option<PathBuf>,
 }
 
 /// Get Validator info of all managed validators.
@@ -65,8 +67,9 @@ pub fn add_new_validator<T: SlotClock + 'static, E: EthSpec>(
         })
         .and_then(move |body| {
             let deposit_amount = body.deposit_amount;
+            let directory = body.directory;
             validator_store
-                .add_validator(deposit_amount)
+                .add_validator(deposit_amount, directory)
                 .map_err(|e| ApiError::ServerError(format!("Failed to generate validator: {}", e)))
         })
         .and_then(|pubkey| response_builder?.body(&pubkey));

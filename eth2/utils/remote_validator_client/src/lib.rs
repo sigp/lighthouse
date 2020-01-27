@@ -8,6 +8,7 @@ use reqwest::{
 use rest_api_vc::{AddValidatorRequest, ValidatorRequest};
 use serde::{de::DeserializeOwned, Serialize};
 use std::marker::PhantomData;
+use std::path::PathBuf;
 use std::time::Duration;
 use types::EthSpec;
 use url::Url;
@@ -147,10 +148,12 @@ impl<E: EthSpec> Validator<E> {
     pub fn add_validator(
         &self,
         deposit_amount: u64,
+        directory: PathBuf,
     ) -> impl Future<Item = PublicKey, Error = Error> {
         let client = self.0.clone();
         let body = AddValidatorRequest {
-            deposit_amount: deposit_amount,
+            deposit_amount,
+            directory: Some(directory),
         };
         self.url("add")
             .into_future()

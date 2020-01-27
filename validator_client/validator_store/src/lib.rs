@@ -20,6 +20,8 @@ use types::{
     VoluntaryExit,
 };
 
+const VALIDATOR_DIR: &str = "validators";
+
 #[derive(Debug)]
 struct Validator {
     /// `true` indicates we are actively managing the validator.
@@ -285,12 +287,20 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Create new validator and add it to list of managed validators.
     /// Returns the voting `PublicKey` of the validator.
-    pub fn add_validator(&self, deposit_amount: u64) -> Result<PublicKey, String> {
+    pub fn add_validator(
+        &self,
+        deposit_amount: u64,
+        directory: Option<PathBuf>,
+    ) -> Result<PublicKey, String> {
+        // TODO: Get validator directory from config?
+        let directory = directory
+            .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(VALIDATOR_DIR)))
+            .unwrap_or_else(|| PathBuf::from("."));
         let validator = ValidatorDirectoryBuilder::default()
             .spec(self.spec.as_ref().clone())
             .custom_deposit_amount(deposit_amount)
             .thread_random_keypairs()
-            .create_directory("~/.lighthouse/validators/".into())?
+            .create_directory(directory)?
             .write_keypair_files()?
             .write_eth1_data_file()?
             .build()?;
