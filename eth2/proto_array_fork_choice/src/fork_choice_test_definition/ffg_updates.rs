@@ -1,7 +1,7 @@
 use super::*;
 
 pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
-    let mut balances = vec![1; 2];
+    let balances = vec![1; 2];
     let mut ops = vec![];
 
     // Ensure that the head starts at the finalized block.
@@ -106,7 +106,7 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
 }
 
 pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
-    let mut balances = vec![1; 2];
+    let balances = vec![1; 2];
     let mut ops = vec![];
 
     // Ensure that the head starts at the finalized block.
@@ -226,6 +226,21 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: balances.clone(),
         expected_head: get_hash(10),
     });
+    // Same as above, but with justified epoch 2.
+    ops.push(Operation::FindHead {
+        justified_epoch: Epoch::new(2),
+        justified_root: get_hash(0),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_hash(10),
+    });
+    // Same as above, but with justified epoch 3 (should be invalid).
+    ops.push(Operation::InvalidFindHead {
+        justified_epoch: Epoch::new(3),
+        justified_root: get_hash(0),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+    });
 
     // Add a vote to 1.
     //
@@ -265,6 +280,21 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_epoch: Epoch::new(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(9),
+    });
+    // Save as above but justified epoch 2.
+    ops.push(Operation::FindHead {
+        justified_epoch: Epoch::new(2),
+        justified_root: get_hash(0),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_hash(9),
+    });
+    // Save as above but justified epoch 3 (should fail).
+    ops.push(Operation::InvalidFindHead {
+        justified_epoch: Epoch::new(3),
+        justified_root: get_hash(0),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
     });
 
     // Add a vote to 2.
@@ -306,14 +336,29 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: balances.clone(),
         expected_head: get_hash(10),
     });
+    // Same as above but justified epoch 2.
+    ops.push(Operation::FindHead {
+        justified_epoch: Epoch::new(2),
+        justified_root: get_hash(0),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_hash(10),
+    });
+    // Same as above but justified epoch 3 (should fail).
+    ops.push(Operation::InvalidFindHead {
+        justified_epoch: Epoch::new(3),
+        justified_root: get_hash(0),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+    });
 
     // Ensure that if we start at 1 we find 9 (just: 0, fin: 0).
     //
     //            0
     //           / \
-    //          1   2
+    //  start-> 1   2
     //          |   |
-    // start -> 3   4
+    //          3   4
     //          |   |
     //          5   6
     //          |   |
@@ -322,13 +367,62 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
     //  head -> 9  10
     ops.push(Operation::FindHead {
         justified_epoch: Epoch::new(0),
-        justified_root: get_hash(0),
+        justified_root: get_hash(1),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_hash(9),
+    });
+    // Same as above but justified epoch 2.
+    ops.push(Operation::FindHead {
+        justified_epoch: Epoch::new(2),
+        justified_root: get_hash(1),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_hash(9),
+    });
+    // Same as above but justified epoch 3 (should fail).
+    ops.push(Operation::InvalidFindHead {
+        justified_epoch: Epoch::new(3),
+        justified_root: get_hash(1),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+    });
+
+    // Ensure that if we start at 2 we find 10 (just: 0, fin: 0).
+    //
+    //            0
+    //           / \
+    //          1   2 <- start
+    //          |   |
+    //          3   4
+    //          |   |
+    //          5   6
+    //          |   |
+    //          7   8
+    //          |   |
+    //          9  10 <- head
+    ops.push(Operation::FindHead {
+        justified_epoch: Epoch::new(0),
+        justified_root: get_hash(2),
         finalized_epoch: Epoch::new(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(10),
     });
-
-    // TODO: add more tests here.
+    // Same as above but justified epoch 2.
+    ops.push(Operation::FindHead {
+        justified_epoch: Epoch::new(2),
+        justified_root: get_hash(2),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_hash(10),
+    });
+    // Same as above but justified epoch 3 (should fail).
+    ops.push(Operation::InvalidFindHead {
+        justified_epoch: Epoch::new(3),
+        justified_root: get_hash(2),
+        finalized_epoch: Epoch::new(0),
+        justified_state_balances: balances.clone(),
+    });
 
     // END OF TESTS
     ForkChoiceTestDefinition {

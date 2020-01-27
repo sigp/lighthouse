@@ -6,6 +6,7 @@ use crate::proto_array_fork_choice::ProtoArrayForkChoice;
 use serde_derive::{Deserialize, Serialize};
 use types::{Epoch, Hash256, Slot};
 
+pub use ffg_updates::*;
 pub use no_votes::*;
 pub use votes::*;
 
