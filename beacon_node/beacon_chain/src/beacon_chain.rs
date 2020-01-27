@@ -187,7 +187,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
             fork_choice: self.fork_choice.as_ssz_container(),
-            block_root_tree: vec![],
             eth1_cache: self.eth1_chain.as_ref().map(|x| x.as_ssz_container()),
         };
 

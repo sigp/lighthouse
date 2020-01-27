@@ -19,8 +19,6 @@ pub struct PersistedBeaconChain<T: BeaconChainTypes> {
     pub genesis_block_root: Hash256,
     pub ssz_head_tracker: SszHeadTracker,
     pub fork_choice: SszForkChoice,
-    // TODO: remove this.
-    pub block_root_tree: Vec<u8>,
     pub eth1_cache: Option<SszEth1>,
 }
 
