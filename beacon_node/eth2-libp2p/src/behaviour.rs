@@ -79,7 +79,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
             discovery: Discovery::new(local_key, net_conf, log)?,
             ping: Ping::new(ping_config),
             identify,
-            seen_gossip_messages: LruCache::new(256),
+            seen_gossip_messages: LruCache::new(100_000),
             events: Vec::new(),
             log: behaviour_log,
         })
