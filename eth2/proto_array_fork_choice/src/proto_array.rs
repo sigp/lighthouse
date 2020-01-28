@@ -42,8 +42,7 @@ impl ProtoArray {
     /// - Back-propgrate each nodes delta to its parents delta.
     /// - Compare the current node with the parents best-child, updating it if the current node
     /// should become the best child.
-    /// - Update the parents best-descendant with the current node or its best-descendant, if
-    /// required.
+    /// - If required, update the parents best-descendant with the current node or its best-descendant.
     pub fn apply_score_changes(
         &mut self,
         mut deltas: Vec<i64>,
@@ -187,8 +186,7 @@ impl ProtoArray {
             .get(best_descendant_index)
             .ok_or_else(|| Error::InvalidBestDescendant(best_descendant_index))?;
 
-        // It is a logic error to try and find the head starting from a block that does not match
-        // the filter.
+        // Perform a sanity check that the node is indeed valid to be the head.
         if !self.node_is_viable_for_head(&best_node) {
             return Err(Error::InvalidBestNode {
                 start_root: *justified_root,
@@ -329,7 +327,6 @@ impl ProtoArray {
                         .get(best_child_index)
                         .ok_or_else(|| Error::InvalidBestDescendant(best_child_index))?;
 
-                    let child_leads_to_viable_head = self.node_leads_to_viable_head(&child)?;
                     let best_child_leads_to_viable_head =
                         self.node_leads_to_viable_head(&best_child)?;
 

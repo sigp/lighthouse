@@ -61,7 +61,7 @@ pub enum BlockProcessingOutcome {
     /// The parent block was unknown.
     ParentUnknown {
         parent: Hash256,
-        reference_location: String,
+        reference_location: &'static str,
     },
     /// The block slot is greater than the present slot.
     FutureSlot {
@@ -1239,7 +1239,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !self.fork_choice.contains_block(&block.parent_root) {
             return Ok(BlockProcessingOutcome::ParentUnknown {
                 parent: block.parent_root,
-                reference_location: "fork_choice".to_string(),
+                reference_location: "fork_choice",
             });
         }
 
@@ -1280,7 +1280,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None => {
                     return Ok(BlockProcessingOutcome::ParentUnknown {
                         parent: block.parent_root,
-                        reference_location: "database".to_string(),
+                        reference_location: "database",
                     });
                 }
             };
