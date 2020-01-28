@@ -3,9 +3,9 @@ use rayon::prelude::*;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
-mod bls_fast_aggregate_verify;
 mod bls_aggregate_sigs;
 mod bls_aggregate_verify;
+mod bls_fast_aggregate_verify;
 mod bls_sign_msg;
 mod bls_verify_msg;
 mod common;
