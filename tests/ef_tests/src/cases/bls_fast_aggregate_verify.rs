@@ -3,7 +3,7 @@ use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
 use bls::{AggregatePublicKey, AggregateSignature, PublicKey, PublicKeyBytes};
 use serde_derive::Deserialize;
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryInto;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsFastAggregateVerifyInput {
