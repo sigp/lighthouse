@@ -70,7 +70,7 @@ fn process_batch<T: BeaconChainTypes>(
                         );
                         successful_block_import = true;
                     }
-                    BlockProcessingOutcome::ParentUnknown { parent } => {
+                    BlockProcessingOutcome::ParentUnknown { parent, .. } => {
                         // blocks should be sequential and all parents should exist
                         warn!(
                             log, "Parent block is unknown";

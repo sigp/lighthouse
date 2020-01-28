@@ -58,8 +58,11 @@ const HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 pub enum BlockProcessingOutcome {
     /// Block was valid and imported into the block graph.
     Processed { block_root: Hash256 },
-    /// The blocks parent_root is unknown.
-    ParentUnknown { parent: Hash256 },
+    /// The parent block was unknown.
+    ParentUnknown {
+        parent: Hash256,
+        reference_location: String,
+    },
     /// The block slot is greater than the present slot.
     FutureSlot {
         present_slot: Slot,
@@ -1223,6 +1226,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
+        // Reject any block if its parent is not known to fork choice.
+        //
+        // A block that is not in fork choice is either:
+        //
+        //  - Not yet imported: we should reject this block because we should only import a child
+        //  after its parent has been fully imported.
+        //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
+        //  because it will revert finalization. Note that the finalized block is stored in fork
+        //  choice, so we will not reject any child of the finalized block (this is relevant during
+        //  genesis).
+        if !self.fork_choice.contains_block(&block.parent_root) {
+            return Ok(BlockProcessingOutcome::ParentUnknown {
+                parent: block.parent_root,
+                reference_location: "fork_choice".to_string(),
+            });
+        }
+
         let block_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOCK_ROOT);
 
         let block_root = block.canonical_root();
@@ -1260,6 +1280,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None => {
                     return Ok(BlockProcessingOutcome::ParentUnknown {
                         parent: block.parent_root,
+                        reference_location: "database".to_string(),
                     });
                 }
             };
