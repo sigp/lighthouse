@@ -70,7 +70,7 @@ pub struct HeadBeaconBlock {
     pub beacon_block_slot: Slot,
 }
 
-/// HTTP handler to return a list of head SignedBeaconBlocks.
+/// HTTP handler to return a list of head block roots.
 pub fn get_heads<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
