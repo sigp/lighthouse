@@ -1,4 +1,5 @@
 use eth2_hashing::hash;
+use int_to_bytes::int_to_bytes32;
 use merkle_proof::{MerkleTree, MerkleTreeError};
 use types::Hash256;
 
@@ -21,7 +22,7 @@ impl DepositDataTree {
 
     /// Returns 32 bytes representing the "mix in length" for the merkle root of this tree.
     fn length_bytes(&self) -> Vec<u8> {
-        int_to_bytes32(self.mix_in_length)
+        int_to_bytes32(self.mix_in_length as u64)
     }
 
     /// Retrieve the root hash of this Merkle tree with the length mixed in.
@@ -48,11 +49,4 @@ impl DepositDataTree {
         self.mix_in_length += 1;
         Ok(())
     }
-}
-
-/// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: usize) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
 }

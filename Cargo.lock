@@ -3934,6 +3934,7 @@ dependencies = [
  "eth2_hashing 0.1.1",
  "eth2_ssz 0.1.2",
  "eth2_ssz_types 0.2.0",
+ "int_to_bytes 0.1.0",
  "integer-sqrt 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
