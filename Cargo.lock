@@ -3931,6 +3931,7 @@ dependencies = [
  "bls 0.1.0",
  "criterion 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_hashing 0.1.1",
  "eth2_ssz 0.1.2",
  "eth2_ssz_types 0.2.0",
  "integer-sqrt 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
