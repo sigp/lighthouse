@@ -103,6 +103,7 @@ pub struct ChainSpec {
      * Eth1
      */
     pub eth1_follow_distance: u64,
+    pub seconds_per_eth1_block: u64,
 
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
@@ -232,6 +233,7 @@ impl ChainSpec {
              * Eth1
              */
             eth1_follow_distance: 1_024,
+            seconds_per_eth1_block: 14,
 
             /*
              * Network specific
@@ -525,7 +527,7 @@ impl YamlConfig {
             target_aggregators_per_committee: 0,
             random_subnets_per_validator: 0,
             epochs_per_random_subnet_subscription: 0,
-            seconds_per_eth1_block: 0,
+            seconds_per_eth1_block: spec.seconds_per_eth1_block,
 
             // Deposit Contract (unused)
             deposit_contract_address: String::new(),
