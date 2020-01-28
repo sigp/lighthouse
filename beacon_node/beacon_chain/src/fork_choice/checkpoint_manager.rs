@@ -33,6 +33,8 @@ impl BalancesCache {
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
+        // We are only interested in balances from states that are at the start of an epoch,
+        // because this is where the `current_justified_checkpoint.root` will point.
         if !Self::is_first_block_in_epoch(block_root, state)? {
             return Ok(());
         }
@@ -41,6 +43,8 @@ impl BalancesCache {
         let epoch_boundary_root = if epoch_boundary_slot == state.slot {
             block_root
         } else {
+            // This call remains sensible as long as `state.block_roots` is larger than a single
+            // epoch.
             *state.get_block_root(epoch_boundary_slot)?
         };
 
@@ -62,6 +66,9 @@ impl BalancesCache {
 
     /// Returns `true` if the given `block_root` is the first/only block to have been processed in
     /// the epoch of the given `state`.
+    ///
+    /// We can determine if it is the first block by looking back through `state.block_roots` to
+    /// see if there is a block in the current epoch with a different root.
     fn is_first_block_in_epoch<E: EthSpec>(
         block_root: Hash256,
         state: &BeaconState<E>,
@@ -101,7 +108,7 @@ impl BalancesCache {
 ///
 /// Any validator who is not active in the epoch of the given `state` is assigned a balance of
 /// zero.
-fn get_effective_balances<T: EthSpec>(state: &BeaconState<T>) -> Vec<u64> {
+pub fn get_effective_balances<T: EthSpec>(state: &BeaconState<T>) -> Vec<u64> {
     state
         .validators
         .iter()
@@ -125,8 +132,8 @@ pub struct CheckpointWithBalances {
     /// These are the balances of the state with `self.root`.
     ///
     /// Importantly, these are _not_ the balances of the first state that we saw that has
-    /// `self.epoch` and `self.root` as `state.current_justified_checkpoint`. That state is the
-    /// state at which the justified state was determined, not the actual justified state.
+    /// `self.epoch` and `self.root` as `state.current_justified_checkpoint`. These are the
+    /// balances of the state from the block with `state.current_justified_checkpoint.root`.
     pub balances: Vec<u64>,
 }
 

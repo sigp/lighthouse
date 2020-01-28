@@ -1,7 +1,7 @@
 mod checkpoint_manager;
 
 use crate::{errors::BeaconChainError, metrics, BeaconChain, BeaconChainTypes};
-use checkpoint_manager::{CheckpointManager, CheckpointWithBalances};
+use checkpoint_manager::{get_effective_balances, CheckpointManager, CheckpointWithBalances};
 use parking_lot::{RwLock, RwLockReadGuard};
 use proto_array_fork_choice::{core::ProtoArray, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
@@ -59,7 +59,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         let genesis_checkpoint = CheckpointWithBalances {
             epoch: genesis_state.current_epoch(),
             root: genesis_block_root,
-            balances: genesis_state.balances.clone().into(),
+            balances: get_effective_balances(genesis_state),
         };
 
         Self {
@@ -211,7 +211,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         self.backend.maybe_prune(finalized_root).map_err(Into::into)
     }
 
-    /// Returns a read-lock to core `ProtoArray` struct.
+    /// Returns a read-lock to the core `ProtoArray` struct.
     ///
     /// Should only be used when encoding/decoding during troubleshooting.
     pub fn core_proto_array(&self) -> RwLockReadGuard<ProtoArray> {
