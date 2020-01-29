@@ -17,7 +17,7 @@ pub enum Error {
 
 /// Details an attestation that can be slashable.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct Attestation<T: EthSpec> {

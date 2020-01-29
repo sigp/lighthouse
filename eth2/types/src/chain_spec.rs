@@ -10,7 +10,7 @@ use utils::{
 
 /// Each of the BLS signature domains.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub enum Domain {
     BeaconProposer,
     BeaconAttester,
@@ -21,7 +21,7 @@ pub enum Domain {
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
@@ -111,7 +111,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Get the domain number, unmodified by the fork.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn get_domain_constant(&self, domain: Domain) -> u32 {
         match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
@@ -124,7 +124,7 @@ impl ChainSpec {
 
     /// Get the domain number that represents the fork meta and signature domain.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
         let fork_version = fork.get_fork_version(epoch);
         self.compute_domain(domain, fork_version)
@@ -135,7 +135,7 @@ impl ChainSpec {
     /// Deposits are valid across forks, thus the deposit domain is computed
     /// with the genesis fork version.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.10.1
     pub fn get_deposit_domain(&self) -> u64 {
         self.compute_domain(Domain::Deposit, self.genesis_fork_version)
     }
@@ -157,7 +157,7 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn mainnet() -> Self {
         Self {
             /*
@@ -241,11 +241,9 @@ impl ChainSpec {
         }
     }
 
-    /// Ethereum Foundation minimal spec, as defined here:
+    /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.9.1/configs/minimal.yaml
-    ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn minimal() -> Self {
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];
@@ -329,7 +327,7 @@ mod tests {
 /// Union of a ChainSpec struct and an EthSpec struct that holds constants used for the configs
 /// from the Ethereum 2 specs repo (https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
 ///
-/// Spec v0.10.0
+/// Spec v0.10.1
 // Yaml Config is declared here in order to access domain fields of ChainSpec which are private.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
@@ -463,7 +461,7 @@ impl Default for YamlConfig {
     }
 }
 
-/// Spec v0.8.1
+/// Spec v0.10.1
 impl YamlConfig {
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {

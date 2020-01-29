@@ -216,7 +216,7 @@ canonical chain.
 ### Returns
 
 Returns an object containing a single
-[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/core/0_beacon-chain.md#beaconstate)
+[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/specs/phase0/beacon-chain.md#beaconstate)
 and its tree hash root.
 
 ### Example Response
