@@ -371,7 +371,7 @@ fn get_votes_to_consider<'a, I>(
 where
     I: DoubleEndedIterator<Item = &'a Eth1Block> + Clone,
 {
-    blocks
+    let votes: Option<HashMap<Eth1Data, u64>> = blocks
         .rev()
         .take_while(|eth1_block| is_candidate_block(eth1_block, voting_period_start_seconds, spec))
         .map(|eth1_block| {
@@ -381,6 +381,7 @@ where
                 .map(|eth1_data| (eth1_data, eth1_block.number)))
         })
         .collect()
+    votes.and_then(|v| if v.is_empty() { None } else { Some(v) })
 }
 
 fn collect_valid_votes<T: EthSpec>(
@@ -671,137 +672,6 @@ mod test {
                 "random votes should be returned with an empty cache"
             );
         }
-
-        #[test]
-        fn eth1_data_unknown_previous_state() {
-            let spec = &E::default_spec();
-            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-
-            let eth1_chain = get_eth1_chain();
-            let store = eth1_chain.backend.store.clone();
-
-            assert_eq!(
-                eth1_chain.use_dummy_backend, false,
-                "test should not use dummy backend"
-            );
-
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
-            let mut prev_state = state.clone();
-
-            prev_state.slot = Slot::new(period * 1_000);
-            state.slot = Slot::new(period * 1_000 + period / 2);
-
-            // Add 50% of the votes so a lookup is required.
-            for _ in 0..period / 2 + 1 {
-                state
-                    .eth1_data_votes
-                    .push(random_eth1_data())
-                    .expect("should push eth1 vote");
-            }
-
-            (0..2048).for_each(|i| {
-                eth1_chain
-                    .backend
-                    .core
-                    .blocks()
-                    .write()
-                    .insert_root_or_child(get_eth1_block(i, i))
-                    .expect("should add blocks to cache");
-            });
-
-            let expected_root = Hash256::from_low_u64_be(u64::max_value());
-            prev_state.eth1_data.block_hash = expected_root;
-
-            assert!(
-                prev_state.eth1_data != state.eth1_data,
-                "test requires state eth1_data are different"
-            );
-
-            store
-                .put_state(
-                    &state
-                        .get_state_root(prev_state.slot)
-                        .expect("should find state root"),
-                    &prev_state,
-                )
-                .expect("should store state");
-
-            let a = eth1_chain
-                .eth1_data_for_block_production(&state, &spec)
-                .expect("should produce first random eth1 data");
-            let b = eth1_chain
-                .eth1_data_for_block_production(&state, &spec)
-                .expect("should produce second random eth1 data");
-
-            assert!(
-                a != b,
-                "random votes should be returned if the previous eth1 data block hash is unknown"
-            );
-        }
-    }
-
-    mod prev_block_hash {
-        use super::*;
-        use store::MemoryStore;
-
-        #[test]
-        fn without_store_lookup() {
-            let spec = &E::default_spec();
-            let store = Arc::new(MemoryStore::open());
-
-            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
-
-            assert_eq!(
-                eth1_block_hash_at_start_of_voting_period(store, &state),
-                Ok(state.eth1_data.block_hash),
-                "should return the states eth1 data in the first half of the period"
-            );
-        }
-
-        #[test]
-        fn with_store_lookup() {
-            let spec = &E::default_spec();
-            let store = Arc::new(MemoryStore::open());
-
-            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
-            let mut prev_state = state.clone();
-
-            state.slot = Slot::new(period / 2);
-
-            // Add 50% of the votes so a lookup is required.
-            for _ in 0..period / 2 + 1 {
-                state
-                    .eth1_data_votes
-                    .push(random_eth1_data())
-                    .expect("should push eth1 vote");
-            }
-
-            let expected_root = Hash256::from_low_u64_be(42);
-
-            prev_state.eth1_data.block_hash = expected_root;
-
-            assert!(
-                prev_state.eth1_data != state.eth1_data,
-                "test requires state eth1_data are different"
-            );
-
-            store
-                .put_state(
-                    &state
-                        .get_state_root(Slot::new(0))
-                        .expect("should find state root"),
-                    &prev_state,
-                )
-                .expect("should store state");
-
-            assert_eq!(
-                eth1_block_hash_at_start_of_voting_period(store, &state),
-                Ok(expected_root),
-                "should return the eth1_data from the previous state"
-            );
-        }
     }
 
     mod eth1_data_sets {
@@ -819,387 +689,358 @@ mod test {
 
         #[test]
         fn empty_cache() {
-            let log = null_logger().unwrap();
-
             let spec = &E::default_spec();
             let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
-            let prev_eth1_hash = Hash256::zero();
 
             let blocks = vec![];
 
             assert_eq!(
-                eth1_data_sets(
+                get_votes_to_consider(
                     blocks.iter(),
-                    prev_eth1_hash,
                     get_voting_period_start_seconds(&state, spec),
                     &spec,
-                    &log
                 ),
                 None
             );
         }
 
-        #[test]
-        fn no_known_block_hash() {
-            let log = null_logger().unwrap();
+        // #[test]
+        // fn ideal_scenario() {
+        //     let log = null_logger().unwrap();
 
-            let mut spec = E::default_spec();
-            spec.milliseconds_per_slot = 1_000;
+        //     let mut spec = E::default_spec();
+        //     spec.milliseconds_per_slot = 1_000;
 
-            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
-            let prev_eth1_hash = Hash256::from_low_u64_be(42);
+        //     let slots_per_eth1_voting_period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+        //     let eth1_follow_distance = spec.eth1_follow_distance;
 
-            let blocks = vec![get_eth1_block(0, 0)];
+        //     let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+        //     state.genesis_time = 0;
+        //     state.slot = Slot::from(slots_per_eth1_voting_period * 3);
 
-            assert_eq!(
-                eth1_data_sets(
-                    blocks.iter(),
-                    prev_eth1_hash,
-                    get_voting_period_start_seconds(&state, &spec),
-                    &spec,
-                    &log
-                ),
-                None
-            );
-        }
+        //     let prev_eth1_hash = Hash256::zero();
 
-        #[test]
-        fn ideal_scenario() {
-            let log = null_logger().unwrap();
+        //     let blocks = (0..eth1_follow_distance * 4)
+        //         .map(|i| get_eth1_block(i, i))
+        //         .collect::<Vec<_>>();
 
-            let mut spec = E::default_spec();
-            spec.milliseconds_per_slot = 1_000;
+        //     let (new_eth1_data, all_eth1_data) = eth1_data_sets(
+        //         blocks.iter(),
+        //         prev_eth1_hash,
+        //         get_voting_period_start_seconds(&state, &spec),
+        //         &spec,
+        //         &log,
+        //     )
+        //     .expect("should find data");
 
-            let slots_per_eth1_voting_period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-            let eth1_follow_distance = spec.eth1_follow_distance;
+        //     assert_eq!(
+        //         all_eth1_data.len(),
+        //         eth1_follow_distance as usize * 2,
+        //         "all_eth1_data should have appropriate length"
+        //     );
+        //     assert_eq!(
+        //         new_eth1_data.len(),
+        //         eth1_follow_distance as usize,
+        //         "new_eth1_data should have appropriate length"
+        //     );
 
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
-            state.genesis_time = 0;
-            state.slot = Slot::from(slots_per_eth1_voting_period * 3);
+        //     for (eth1_data, block_number) in &new_eth1_data {
+        //         assert_eq!(
+        //             all_eth1_data.get(eth1_data),
+        //             Some(block_number),
+        //             "all_eth1_data should contain all items in new_eth1_data"
+        //         );
+        //     }
 
-            let prev_eth1_hash = Hash256::zero();
+        //     (1..=eth1_follow_distance * 2)
+        //         .map(|i| get_eth1_block(i, i))
+        //         .for_each(|eth1_block| {
+        //             assert_eq!(
+        //                 eth1_block.number,
+        //                 *all_eth1_data
+        //                     .get(&eth1_block.clone().eth1_data().unwrap())
+        //                     .expect("all_eth1_data should have expected block")
+        //             )
+        //         });
 
-            let blocks = (0..eth1_follow_distance * 4)
-                .map(|i| get_eth1_block(i, i))
-                .collect::<Vec<_>>();
-
-            let (new_eth1_data, all_eth1_data) = eth1_data_sets(
-                blocks.iter(),
-                prev_eth1_hash,
-                get_voting_period_start_seconds(&state, &spec),
-                &spec,
-                &log,
-            )
-            .expect("should find data");
-
-            assert_eq!(
-                all_eth1_data.len(),
-                eth1_follow_distance as usize * 2,
-                "all_eth1_data should have appropriate length"
-            );
-            assert_eq!(
-                new_eth1_data.len(),
-                eth1_follow_distance as usize,
-                "new_eth1_data should have appropriate length"
-            );
-
-            for (eth1_data, block_number) in &new_eth1_data {
-                assert_eq!(
-                    all_eth1_data.get(eth1_data),
-                    Some(block_number),
-                    "all_eth1_data should contain all items in new_eth1_data"
-                );
-            }
-
-            (1..=eth1_follow_distance * 2)
-                .map(|i| get_eth1_block(i, i))
-                .for_each(|eth1_block| {
-                    assert_eq!(
-                        eth1_block.number,
-                        *all_eth1_data
-                            .get(&eth1_block.clone().eth1_data().unwrap())
-                            .expect("all_eth1_data should have expected block")
-                    )
-                });
-
-            (eth1_follow_distance + 1..=eth1_follow_distance * 2)
-                .map(|i| get_eth1_block(i, i))
-                .for_each(|eth1_block| {
-                    assert_eq!(
-                        eth1_block.number,
-                        *new_eth1_data
-                            .get(&eth1_block.clone().eth1_data().unwrap())
-                            .expect(&format!(
-                                "new_eth1_data should have expected block #{}",
-                                eth1_block.number
-                            ))
-                    )
-                });
-        }
+        //     (eth1_follow_distance + 1..=eth1_follow_distance * 2)
+        //         .map(|i| get_eth1_block(i, i))
+        //         .for_each(|eth1_block| {
+        //             assert_eq!(
+        //                 eth1_block.number,
+        //                 *new_eth1_data
+        //                     .get(&eth1_block.clone().eth1_data().unwrap())
+        //                     .expect(&format!(
+        //                         "new_eth1_data should have expected block #{}",
+        //                         eth1_block.number
+        //                     ))
+        //             )
+        //         });
+        // }
     }
 
-    mod collect_valid_votes {
-        use super::*;
+    // mod collect_valid_votes {
+    //     use super::*;
 
-        fn get_eth1_data_vec(n: u64, block_number_offset: u64) -> Vec<(Eth1Data, BlockNumber)> {
-            (0..n)
-                .map(|i| (get_eth1_data(i), i + block_number_offset))
-                .collect()
-        }
+    //     fn get_eth1_data_vec(n: u64, block_number_offset: u64) -> Vec<(Eth1Data, BlockNumber)> {
+    //         (0..n)
+    //             .map(|i| (get_eth1_data(i), i + block_number_offset))
+    //             .collect()
+    //     }
 
-        macro_rules! assert_votes {
-            ($votes: expr, $expected: expr, $text: expr) => {
-                let expected: Vec<(Eth1Data, BlockNumber)> = $expected;
-                assert_eq!(
-                    $votes.len(),
-                    expected.len(),
-                    "map should have the same number of elements"
-                );
-                expected.iter().for_each(|(eth1_data, block_number)| {
-                    $votes
-                        .get(&(eth1_data.clone(), *block_number))
-                        .expect("should contain eth1 data");
-                })
-            };
-        }
+    //     macro_rules! assert_votes {
+    //         ($votes: expr, $expected: expr, $text: expr) => {
+    //             let expected: Vec<(Eth1Data, BlockNumber)> = $expected;
+    //             assert_eq!(
+    //                 $votes.len(),
+    //                 expected.len(),
+    //                 "map should have the same number of elements"
+    //             );
+    //             expected.iter().for_each(|(eth1_data, block_number)| {
+    //                 $votes
+    //                     .get(&(eth1_data.clone(), *block_number))
+    //                     .expect("should contain eth1 data");
+    //             })
+    //         };
+    //     }
 
-        #[test]
-        fn no_votes_in_state() {
-            let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-            let spec = &E::default_spec();
-            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+    //     #[test]
+    //     fn no_votes_in_state() {
+    //         let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+    //         let spec = &E::default_spec();
+    //         let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
-            let all_eth1_data = get_eth1_data_vec(slots, 0);
-            let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
+    //         let all_eth1_data = get_eth1_data_vec(slots, 0);
+    //         let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
 
-            let votes = collect_valid_votes(
-                &state,
-                HashMap::from_iter(new_eth1_data.clone().into_iter()),
-                HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            );
-            assert_eq!(
-                votes.len(),
-                0,
-                "should not find any votes when state has no votes"
-            );
-        }
+    //         let votes = collect_valid_votes(
+    //             &state,
+    //             HashMap::from_iter(new_eth1_data.clone().into_iter()),
+    //             HashMap::from_iter(all_eth1_data.clone().into_iter()),
+    //         );
+    //         assert_eq!(
+    //             votes.len(),
+    //             0,
+    //             "should not find any votes when state has no votes"
+    //         );
+    //     }
 
-        #[test]
-        fn distinct_votes_in_state() {
-            let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-            let spec = &E::default_spec();
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+    //     #[test]
+    //     fn distinct_votes_in_state() {
+    //         let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+    //         let spec = &E::default_spec();
+    //         let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
-            let all_eth1_data = get_eth1_data_vec(slots, 0);
-            let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
+    //         let all_eth1_data = get_eth1_data_vec(slots, 0);
+    //         let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
 
-            state.eth1_data_votes = new_eth1_data[0..slots as usize / 4]
-                .iter()
-                .map(|(eth1_data, _)| eth1_data)
-                .cloned()
-                .collect::<Vec<_>>()
-                .into();
+    //         state.eth1_data_votes = new_eth1_data[0..slots as usize / 4]
+    //             .iter()
+    //             .map(|(eth1_data, _)| eth1_data)
+    //             .cloned()
+    //             .collect::<Vec<_>>()
+    //             .into();
 
-            let votes = collect_valid_votes(
-                &state,
-                HashMap::from_iter(new_eth1_data.clone().into_iter()),
-                HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            );
-            assert_votes!(
-                votes,
-                new_eth1_data[0..slots as usize / 4].to_vec(),
-                "should find as many votes as were in the state"
-            );
-        }
+    //         let votes = collect_valid_votes(
+    //             &state,
+    //             HashMap::from_iter(new_eth1_data.clone().into_iter()),
+    //             HashMap::from_iter(all_eth1_data.clone().into_iter()),
+    //         );
+    //         assert_votes!(
+    //             votes,
+    //             new_eth1_data[0..slots as usize / 4].to_vec(),
+    //             "should find as many votes as were in the state"
+    //         );
+    //     }
 
-        #[test]
-        fn duplicate_votes_in_state() {
-            let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-            let spec = &E::default_spec();
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+    //     #[test]
+    //     fn duplicate_votes_in_state() {
+    //         let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+    //         let spec = &E::default_spec();
+    //         let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
-            let all_eth1_data = get_eth1_data_vec(slots, 0);
-            let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
+    //         let all_eth1_data = get_eth1_data_vec(slots, 0);
+    //         let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
 
-            let duplicate_eth1_data = new_eth1_data
-                .last()
-                .expect("should have some eth1 data")
-                .clone();
+    //         let duplicate_eth1_data = new_eth1_data
+    //             .last()
+    //             .expect("should have some eth1 data")
+    //             .clone();
 
-            state.eth1_data_votes = vec![duplicate_eth1_data.clone(); 4]
-                .iter()
-                .map(|(eth1_data, _)| eth1_data)
-                .cloned()
-                .collect::<Vec<_>>()
-                .into();
+    //         state.eth1_data_votes = vec![duplicate_eth1_data.clone(); 4]
+    //             .iter()
+    //             .map(|(eth1_data, _)| eth1_data)
+    //             .cloned()
+    //             .collect::<Vec<_>>()
+    //             .into();
 
-            let votes = collect_valid_votes(
-                &state,
-                HashMap::from_iter(new_eth1_data.clone().into_iter()),
-                HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            );
-            assert_votes!(
-                votes,
-                // There should only be one value if there's a duplicate
-                vec![duplicate_eth1_data.clone()],
-                "should find as many votes as were in the state"
-            );
+    //         let votes = collect_valid_votes(
+    //             &state,
+    //             HashMap::from_iter(new_eth1_data.clone().into_iter()),
+    //             HashMap::from_iter(all_eth1_data.clone().into_iter()),
+    //         );
+    //         assert_votes!(
+    //             votes,
+    //             // There should only be one value if there's a duplicate
+    //             vec![duplicate_eth1_data.clone()],
+    //             "should find as many votes as were in the state"
+    //         );
 
-            assert_eq!(
-                *votes
-                    .get(&duplicate_eth1_data)
-                    .expect("should contain vote"),
-                4,
-                "should have four votes"
-            );
-        }
+    //         assert_eq!(
+    //             *votes
+    //                 .get(&duplicate_eth1_data)
+    //                 .expect("should contain vote"),
+    //             4,
+    //             "should have four votes"
+    //         );
+    //     }
 
-        #[test]
-        fn non_period_tail() {
-            let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-            let spec = &E::default_spec();
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
-            state.slot = Slot::from(<E as EthSpec>::SlotsPerEpoch::to_u64()) * 10;
+    //     #[test]
+    //     fn non_period_tail() {
+    //         let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+    //         let spec = &E::default_spec();
+    //         let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+    //         state.slot = Slot::from(<E as EthSpec>::SlotsPerEpoch::to_u64()) * 10;
 
-            let all_eth1_data = get_eth1_data_vec(slots, 0);
-            let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
+    //         let all_eth1_data = get_eth1_data_vec(slots, 0);
+    //         let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
 
-            let non_new_eth1_data = all_eth1_data
-                .first()
-                .expect("should have some eth1 data")
-                .clone();
+    //         let non_new_eth1_data = all_eth1_data
+    //             .first()
+    //             .expect("should have some eth1 data")
+    //             .clone();
 
-            state.eth1_data_votes = vec![non_new_eth1_data.0.clone()].into();
+    //         state.eth1_data_votes = vec![non_new_eth1_data.0.clone()].into();
 
-            let votes = collect_valid_votes(
-                &state,
-                HashMap::from_iter(new_eth1_data.clone().into_iter()),
-                HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            );
+    //         let votes = collect_valid_votes(
+    //             &state,
+    //             HashMap::from_iter(new_eth1_data.clone().into_iter()),
+    //             HashMap::from_iter(all_eth1_data.clone().into_iter()),
+    //         );
 
-            assert_votes!(
-                votes,
-                vec![],
-                "should not find votes from all_eth1_data when it is not the period tail"
-            );
-        }
+    //         assert_votes!(
+    //             votes,
+    //             vec![],
+    //             "should not find votes from all_eth1_data when it is not the period tail"
+    //         );
+    //     }
 
-        #[test]
-        fn period_tail() {
-            let slots_per_eth1_voting_period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+    //     #[test]
+    //     fn period_tail() {
+    //         let slots_per_eth1_voting_period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
 
-            let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-            let spec = &E::default_spec();
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+    //         let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+    //         let spec = &E::default_spec();
+    //         let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
-            state.slot = Slot::from(<E as EthSpec>::SlotsPerEpoch::to_u64()) * 10
-                + slots_per_eth1_voting_period.integer_sqrt();
+    //         state.slot = Slot::from(<E as EthSpec>::SlotsPerEpoch::to_u64()) * 10
+    //             + slots_per_eth1_voting_period.integer_sqrt();
 
-            let all_eth1_data = get_eth1_data_vec(slots, 0);
-            let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
+    //         let all_eth1_data = get_eth1_data_vec(slots, 0);
+    //         let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
 
-            let non_new_eth1_data = all_eth1_data
-                .first()
-                .expect("should have some eth1 data")
-                .clone();
+    //         let non_new_eth1_data = all_eth1_data
+    //             .first()
+    //             .expect("should have some eth1 data")
+    //             .clone();
 
-            state.eth1_data_votes = vec![non_new_eth1_data.0.clone()].into();
+    //         state.eth1_data_votes = vec![non_new_eth1_data.0.clone()].into();
 
-            let votes = collect_valid_votes(
-                &state,
-                HashMap::from_iter(new_eth1_data.clone().into_iter()),
-                HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            );
+    //         let votes = collect_valid_votes(
+    //             &state,
+    //             HashMap::from_iter(new_eth1_data.clone().into_iter()),
+    //             HashMap::from_iter(all_eth1_data.clone().into_iter()),
+    //         );
 
-            assert_votes!(
-                votes,
-                vec![non_new_eth1_data],
-                "should find all_eth1_data votes when it is the period tail"
-            );
-        }
-    }
+    //         assert_votes!(
+    //             votes,
+    //             vec![non_new_eth1_data],
+    //             "should find all_eth1_data votes when it is the period tail"
+    //         );
+    //     }
+    // }
 
-    mod winning_vote {
-        use super::*;
+    // mod winning_vote {
+    //     use super::*;
 
-        type Vote = ((Eth1Data, u64), u64);
+    //     type Vote = ((Eth1Data, u64), u64);
 
-        fn vote(block_number: u64, vote_count: u64) -> Vote {
-            (
-                (
-                    Eth1Data {
-                        deposit_root: Hash256::from_low_u64_be(block_number),
-                        deposit_count: block_number,
-                        block_hash: Hash256::from_low_u64_be(block_number),
-                    },
-                    block_number,
-                ),
-                vote_count,
-            )
-        }
+    //     fn vote(block_number: u64, vote_count: u64) -> Vote {
+    //         (
+    //             (
+    //                 Eth1Data {
+    //                     deposit_root: Hash256::from_low_u64_be(block_number),
+    //                     deposit_count: block_number,
+    //                     block_hash: Hash256::from_low_u64_be(block_number),
+    //                 },
+    //                 block_number,
+    //             ),
+    //             vote_count,
+    //         )
+    //     }
 
-        fn vote_data(vote: &Vote) -> Eth1Data {
-            (vote.0).0.clone()
-        }
+    //     fn vote_data(vote: &Vote) -> Eth1Data {
+    //         (vote.0).0.clone()
+    //     }
 
-        #[test]
-        fn no_votes() {
-            let no_votes = vec![vote(0, 0), vote(1, 0), vote(3, 0), vote(2, 0)];
+    //     #[test]
+    //     fn no_votes() {
+    //         let no_votes = vec![vote(0, 0), vote(1, 0), vote(3, 0), vote(2, 0)];
 
-            assert_eq!(
-                // Favour the highest block number when there are no votes.
-                vote_data(&no_votes[2]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
-                    .expect("should find winner")
-            );
-        }
+    //         assert_eq!(
+    //             // Favour the highest block number when there are no votes.
+    //             vote_data(&no_votes[2]),
+    //             find_winning_vote(Eth1DataVoteCount::from_iter(no_votes.into_iter()))
+    //                 .expect("should find winner")
+    //         );
+    //     }
 
-        #[test]
-        fn equal_votes() {
-            let votes = vec![vote(0, 1), vote(1, 1), vote(3, 1), vote(2, 1)];
+    //     #[test]
+    //     fn equal_votes() {
+    //         let votes = vec![vote(0, 1), vote(1, 1), vote(3, 1), vote(2, 1)];
 
-            assert_eq!(
-                // Favour the highest block number when there are equal votes.
-                vote_data(&votes[2]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
-            );
-        }
+    //         assert_eq!(
+    //             // Favour the highest block number when there are equal votes.
+    //             vote_data(&votes[2]),
+    //             find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
+    //                 .expect("should find winner")
+    //         );
+    //     }
 
-        #[test]
-        fn some_votes() {
-            let votes = vec![vote(0, 0), vote(1, 1), vote(3, 1), vote(2, 2)];
+    //     #[test]
+    //     fn some_votes() {
+    //         let votes = vec![vote(0, 0), vote(1, 1), vote(3, 1), vote(2, 2)];
 
-            assert_eq!(
-                // Favour the highest vote over the highest block number.
-                vote_data(&votes[3]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
-            );
-        }
+    //         assert_eq!(
+    //             // Favour the highest vote over the highest block number.
+    //             vote_data(&votes[3]),
+    //             find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
+    //                 .expect("should find winner")
+    //         );
+    //     }
 
-        #[test]
-        fn tying_votes() {
-            let votes = vec![vote(0, 0), vote(1, 1), vote(2, 2), vote(3, 2)];
+    //     #[test]
+    //     fn tying_votes() {
+    //         let votes = vec![vote(0, 0), vote(1, 1), vote(2, 2), vote(3, 2)];
 
-            assert_eq!(
-                // Favour the highest block number for tying votes.
-                vote_data(&votes[3]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
-            );
-        }
+    //         assert_eq!(
+    //             // Favour the highest block number for tying votes.
+    //             vote_data(&votes[3]),
+    //             find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
+    //                 .expect("should find winner")
+    //         );
+    //     }
 
-        #[test]
-        fn all_tying_votes() {
-            let votes = vec![vote(3, 42), vote(2, 42), vote(1, 42), vote(0, 42)];
+    //     #[test]
+    //     fn all_tying_votes() {
+    //         let votes = vec![vote(3, 42), vote(2, 42), vote(1, 42), vote(0, 42)];
 
-            assert_eq!(
-                // Favour the highest block number for tying votes.
-                vote_data(&votes[0]),
-                find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
-                    .expect("should find winner")
-            );
-        }
-    }
+    //         assert_eq!(
+    //             // Favour the highest block number for tying votes.
+    //             vote_data(&votes[0]),
+    //             find_winning_vote(Eth1DataVoteCount::from_iter(votes.into_iter()))
+    //                 .expect("should find winner")
+    //         );
+    //     }
+    // }
 }
