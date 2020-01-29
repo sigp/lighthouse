@@ -12,11 +12,16 @@ use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{
-    errors::{AttestationValidationError, AttesterSlashingValidationError},
+    errors::{
+        AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
+        ProposerSlashingValidationError,
+    },
+    signature_sets::indexed_attestation_signature_set,
     verify_attestation_for_state, VerifySignatures,
 };
 use state_processing::{
-    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
+    common::get_indexed_attestation, per_block_processing, per_slot_processing,
+    BlockProcessingError, BlockSignatureStrategy,
 };
 use std::cmp::Ordering;
 use std::fs;
@@ -846,46 +851,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // An honest validator would have set this block to be the head of the chain (i.e., the
         // result of running fork choice).
-        let result = if let Some(attestation_head_block) =
-            self.get_block(&attestation.data.beacon_block_root)?
+        let result = if let Some((block, state)) =
+            self.get_attestation_validation_block_and_state(&attestation)?
         {
-            // If the attestation points to a block in the same epoch in which it was made,
-            // then it is sufficient to load the state from that epoch's boundary, because
-            // the epoch-variable fields like the justified checkpoints cannot have changed
-            // between the epoch boundary and when the attestation was made. If conversely,
-            // the attestation points to a block in a prior epoch, then it is necessary to
-            // load the full state corresponding to its block, and transition it to the
-            // attestation's epoch.
-            let attestation_epoch = attestation.data.target.epoch;
-            let slots_per_epoch = T::EthSpec::slots_per_epoch();
-            let mut state = if attestation_epoch
-                == attestation_head_block.slot.epoch(slots_per_epoch)
-            {
-                self.store
-                    .load_epoch_boundary_state(&attestation_head_block.state_root)?
-                    .ok_or_else(|| Error::MissingBeaconState(attestation_head_block.state_root))?
-            } else {
-                let mut state = self
-                    .store
-                    .get_state(
-                        &attestation_head_block.state_root,
-                        Some(attestation_head_block.slot),
-                    )?
-                    .ok_or_else(|| Error::MissingBeaconState(attestation_head_block.state_root))?;
-
-                // Fastforward the state to the epoch in which the attestation was made.
-                // NOTE: this looks like a potential DoS vector, we should probably limit
-                // the amount we're willing to fastforward without a valid signature.
-                for _ in state.slot.as_u64()..attestation_epoch.start_slot(slots_per_epoch).as_u64()
-                {
-                    per_slot_processing(&mut state, None, &self.spec)?;
-                }
-
-                state
-            };
-
-            state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-
             // Reject any attestation where the `state` loaded from `data.beacon_block_root`
             // has a higher slot than the attestation.
             //
@@ -896,11 +864,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     attestation: attestation.data.slot,
                 })
             } else {
-                self.process_attestation_for_state_and_block(
-                    attestation,
-                    &state,
-                    &attestation_head_block,
-                )
+                self.process_attestation_for_state_and_block(attestation, &state, &block)
             }
         } else {
             // Drop any attestation where we have not processed `attestation.data.beacon_block_root`.
@@ -938,6 +902,50 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         result
+    }
+
+    /// Quickly find a state suitable for validating `attestation`
+    pub fn get_attestation_validation_block_and_state(
+        &self,
+        attestation: &Attestation<T::EthSpec>,
+    ) -> Result<Option<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>)>, Error> {
+        if let Some(block) = self.get_block_caching(&attestation.data.beacon_block_root)? {
+            // If the attestation points to a block in the same epoch in which it was made,
+            // then it is sufficient to load the state from that epoch's boundary, because
+            // the epoch-variable fields like the justified checkpoints cannot have changed
+            // between the epoch boundary and when the attestation was made. If conversely,
+            // the attestation points to a block in a prior epoch, then it is necessary to
+            // load the full state corresponding to its block, and transition it to the
+            // attestation's epoch.
+            let attestation_epoch = attestation.data.target.epoch;
+            let slots_per_epoch = T::EthSpec::slots_per_epoch();
+            let mut state = if attestation_epoch == block.slot.epoch(slots_per_epoch) {
+                self.store
+                    .load_epoch_boundary_state(&block.state_root)?
+                    .ok_or_else(|| Error::MissingBeaconState(block.state_root))?
+            } else {
+                let mut state = self
+                    .store
+                    .get_state(&block.state_root, Some(block.slot))?
+                    .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
+
+                // Fastforward the state to the epoch in which the attestation was made.
+                // NOTE: this looks like a potential DoS vector, we should probably limit
+                // the amount we're willing to fastforward without a valid signature.
+                for _ in state.slot.as_u64()..attestation_epoch.start_slot(slots_per_epoch).as_u64()
+                {
+                    per_slot_processing(&mut state, None, &self.spec)?;
+                }
+
+                state
+            };
+
+            state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+
+            Ok(Some((block, state)))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Verifies the `attestation` against the `state` to which it is attesting.
@@ -1045,100 +1053,91 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     ///
     /// Determines if a given attestation should be forwarded to other peers.
-    pub fn should_forward_attestation(&self, _attestation: &Attestation<T::EthSpec>) -> bool {
-        true
-
-        /* TODO: Due to current optimisations, the following logic needs to be re-worked
-
-            // Attempt to validate the attestation's signature against the head state.
-            // In this case, we do not read anything from the database, which should be fast and will
-            // work for most attestations that get passed around the network.
-            if let Ok(head) = &self.head() {
-                // Convert the attestation to an indexed attestation.
-                if let Ok(indexed_attestation) =
-                    get_indexed_attestation(&head.beacon_state, &attestation)
-                {
-                    // Validate the signature and return true if it is valid. Otherwise, we move on and read
-                    // the database to make certain we have the correct state.
-                    if let Ok(signature) = indexed_attestation_signature_set(
-                        &head.beacon_state,
-                        &indexed_attestation.signature,
-                        &indexed_attestation,
-                        &self.spec,
-                    ) {
-                        // An invalid signature here does not necessarily mean the attestation is invalid.
-                        // It could be the case that our state has a different validator registry.
-                        if signature.is_valid() {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            // If the first check did not pass, we retrieve the block for the beacon_block_root in the
-            // attestation's data and use that to check the signature.
-            if let Ok(Some(block)) = self
-                .store
-                .get::<BeaconBlock<T::EthSpec>>(&attestation.data.beacon_block_root)
+    pub fn should_forward_attestation(&self, attestation: &Attestation<T::EthSpec>) -> bool {
+        // FIXME(sproul): might be quicker to skip the head check if we have good caching
+        // Attempt to validate the attestation's signature against the head state.
+        // In this case, we do not read anything from the database, which should be fast and will
+        // work for most attestations that get passed around the network.
+        if let Ok(head) = &self.head() {
+            // Convert the attestation to an indexed attestation.
+            if let Ok(indexed_attestation) =
+                get_indexed_attestation(&head.beacon_state, &attestation)
             {
-                // Retrieve the block's state.
-                if let Ok(Some(state)) = self.store.get_state(&block.state_root, Some(block.slot)) {
-                    // Convert the attestation to an indexed attestation.
-                    if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
-                        // Check if the signature is valid against the state we got from the database.
-                        if let Ok(signature) = indexed_attestation_signature_set(
-                            &state,
-                            &indexed_attestation.signature,
-                            &indexed_attestation,
-                            &self.spec,
-                        ) {
-                            // TODO: Maybe downvote peer if the signature is invalid.
-                            return signature.is_valid();
-                        }
+                // Validate the signature and return true if it is valid. Otherwise, we move on and read
+                // the database to make certain we have the correct state.
+                if let Ok(signature) = indexed_attestation_signature_set(
+                    &head.beacon_state,
+                    &indexed_attestation.signature,
+                    &indexed_attestation,
+                    &self.spec,
+                ) {
+                    // An invalid signature here does not necessarily mean the attestation is invalid.
+                    // It could be the case that our state has a different validator registry.
+                    if signature.is_valid() {
+                        return true;
                     }
                 }
             }
-
-            false
         }
 
-        /// Accept some exit and queue it for inclusion in an appropriate block.
-        pub fn process_voluntary_exit(&self, exit: VoluntaryExit) -> Result<(), ExitValidationError> {
-            match self.wall_clock_state() {
-                Ok(state) => self.op_pool.insert_voluntary_exit(exit, &state, &self.spec),
-                Err(e) => {
-                    error!(
-                        &self.log,
-                        "Unable to process voluntary exit";
-                        "error" => format!("{:?}", e),
-                        "reason" => "no state"
-                    );
-                    Ok(())
+        // If the first check did not pass, we retrieve the block for the beacon_block_root in the
+        // attestation's data and use that to check the signature.
+        if let Ok(Some((_, state))) = self.get_attestation_validation_block_and_state(&attestation)
+        {
+            // Convert the attestation to an indexed attestation.
+            if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
+                // Check if the signature is valid against the state we got from the database.
+                if let Ok(signature) = indexed_attestation_signature_set(
+                    &state,
+                    &indexed_attestation.signature,
+                    &indexed_attestation,
+                    &self.spec,
+                ) {
+                    // TODO: Maybe downvote peer if the signature is invalid.
+                    return signature.is_valid();
                 }
             }
         }
 
-        /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
-        pub fn process_proposer_slashing(
-            &self,
-            proposer_slashing: ProposerSlashing,
-        ) -> Result<(), ProposerSlashingValidationError> {
-            match self.wall_clock_state() {
-                Ok(state) => {
-                    self.op_pool
-                        .insert_proposer_slashing(proposer_slashing, &state, &self.spec)
-                }
-                Err(e) => {
-                    error!(
-                        &self.log,
-                        "Unable to process proposer slashing";
-                        "error" => format!("{:?}", e),
-                        "reason" => "no state"
-                    );
-                    Ok(())
-                }
+        false
+    }
+
+    /// Accept some exit and queue it for inclusion in an appropriate block.
+    pub fn process_voluntary_exit(&self, exit: VoluntaryExit) -> Result<(), ExitValidationError> {
+        match self.wall_clock_state() {
+            Ok(state) => self.op_pool.insert_voluntary_exit(exit, &state, &self.spec),
+            Err(e) => {
+                error!(
+                    &self.log,
+                    "Unable to process voluntary exit";
+                    "error" => format!("{:?}", e),
+                    "reason" => "no state"
+                );
+                Ok(())
             }
-            */
+        }
+    }
+
+    /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
+    pub fn process_proposer_slashing(
+        &self,
+        proposer_slashing: ProposerSlashing,
+    ) -> Result<(), ProposerSlashingValidationError> {
+        match self.wall_clock_state() {
+            Ok(state) => {
+                self.op_pool
+                    .insert_proposer_slashing(proposer_slashing, &state, &self.spec)
+            }
+            Err(e) => {
+                error!(
+                    &self.log,
+                    "Unable to process proposer slashing";
+                    "error" => format!("{:?}", e),
+                    "reason" => "no state"
+                );
+                Ok(())
+            }
+        }
     }
 
     /// Accept some attester slashing and queue it for inclusion in an appropriate block.
