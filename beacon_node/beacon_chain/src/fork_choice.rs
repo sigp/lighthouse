@@ -65,7 +65,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         Self {
             backend,
             genesis_block_root,
-            checkpoint_manager: RwLock::new(CheckpointManager::new(genesis_checkpoint.clone())),
+            checkpoint_manager: RwLock::new(CheckpointManager::new(genesis_checkpoint)),
             _phantom: PhantomData,
         }
     }

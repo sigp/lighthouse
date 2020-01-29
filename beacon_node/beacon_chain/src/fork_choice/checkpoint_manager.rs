@@ -248,10 +248,9 @@ impl CheckpointManager {
                 finalized: state.finalized_checkpoint.clone(),
             };
 
-            // From the given state, read the block root at first slot of
-            // `self.justified_checkpoint.epoch`. If that root matches, then
-            // `new_justified_checkpoint` is a descendant of `self.justified_checkpoint` and we may
-            // proceed (see next `if` statement).
+            // Using the given `state`, determine its ancestor at the slot of our current justified
+            // epoch. Later, this will be compared to the root of the current justified checkpoint
+            // to determine if this state is descendant of our current justified state.
             let new_checkpoint_ancestor = Self::get_block_root_at_slot(
                 state,
                 chain,

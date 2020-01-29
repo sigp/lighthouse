@@ -34,12 +34,12 @@ impl ProtoArray {
     /// the best-child of each parent.
     ///
     /// The structure of the `self.nodes` array ensures that the child of each node is always
-    /// touched before it's parent.
+    /// touched before its parent.
     ///
     /// For each node, the following is done:
     ///
-    /// - Update the nodes weight with the corresponding delta.
-    /// - Back-propgrate each nodes delta to its parents delta.
+    /// - Update the node's weight with the corresponding delta.
+    /// - Back-propagate each node's delta to its parents delta.
     /// - Compare the current node with the parents best-child, updating it if the current node
     /// should become the best child.
     /// - If required, update the parents best-descendant with the current node or its best-descendant.
@@ -63,7 +63,7 @@ impl ProtoArray {
 
         // Iterate backwards through all indices in `self.nodes`.
         for node_index in (0..self.nodes.len()).rev() {
-            let node = &mut self
+            let node = self
                 .nodes
                 .get_mut(node_index)
                 .ok_or_else(|| Error::InvalidNodeIndex(node_index))?;
@@ -108,7 +108,7 @@ impl ProtoArray {
                     .get_mut(parent_index)
                     .ok_or_else(|| Error::InvalidParentDelta(parent_index))?;
 
-                // Back-propogate the nodes delta to its parent.
+                // Back-propagate the nodes delta to its parent.
                 *parent_delta += node_delta;
 
                 self.maybe_update_best_child_and_descendant(parent_index, node_index)?;

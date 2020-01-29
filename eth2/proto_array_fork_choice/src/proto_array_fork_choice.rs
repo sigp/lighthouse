@@ -261,7 +261,7 @@ fn compute_deltas(
             // of our tree (i.e., pre-finalization) and therefore not interesting.
             if let Some(current_delta_index) = indices.get(&vote.current_root).copied() {
                 let delta = deltas
-                    .get_mut(current_delta_index)
+                    .get(current_delta_index)
                     .ok_or_else(|| Error::InvalidNodeDelta(current_delta_index))?
                     .checked_sub(old_balance as i64)
                     .ok_or_else(|| Error::DeltaOverflow(current_delta_index))?;
