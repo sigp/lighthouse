@@ -4,6 +4,7 @@ mod macros;
 extern crate lazy_static;
 extern crate network as client_network;
 
+mod advanced;
 mod beacon;
 pub mod config;
 mod consensus;

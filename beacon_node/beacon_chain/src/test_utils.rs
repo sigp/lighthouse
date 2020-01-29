@@ -6,7 +6,6 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use genesis::interop_genesis_state;
-use lmd_ghost::ThreadSafeReducedTree;
 use rayon::prelude::*;
 use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
 use slot_clock::TestingSlotClock;
@@ -35,7 +34,6 @@ pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec> = Witness<
     TStore,
     TStoreMigrator,
     TestingSlotClock,
-    ThreadSafeReducedTree<TStore, TEthSpec>,
     CachingEth1Backend<TEthSpec, TStore>,
     TEthSpec,
     NullEventHandler<TEthSpec>,

@@ -11,7 +11,7 @@ pub use eth2_config::Eth2Config;
 
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, events::WebSocketSender,
-    lmd_ghost::ThreadSafeReducedTree, slot_clock::SystemTimeSlotClock,
+    slot_clock::SystemTimeSlotClock,
 };
 use clap::ArgMatches;
 use config::get_configs;
@@ -28,7 +28,6 @@ pub type ProductionClient<E> = Client<
         DiskStore<E>,
         BackgroundMigrator<E>,
         SystemTimeSlotClock,
-        ThreadSafeReducedTree<DiskStore<E>, E>,
         CachingEth1Backend<E, DiskStore<E>>,
         E,
         WebSocketSender<E>,
