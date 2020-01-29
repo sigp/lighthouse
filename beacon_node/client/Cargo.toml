@@ -33,7 +33,6 @@ exit-future = "0.1.4"
 futures = "0.1.29"
 reqwest = "0.9.22"
 url = "2.1.0"
-lmd_ghost = { path = "../../eth2/lmd_ghost" }
 eth1 = { path = "../eth1" }
 genesis = { path = "../genesis" }
 environment = { path = "../../lighthouse/environment" }

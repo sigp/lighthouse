@@ -8,7 +8,6 @@ use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::timeout_rw_lock::TimeoutRwLock;
-use lmd_ghost::LmdGhost;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -32,7 +31,7 @@ use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
 };
-use store::{BlockRootTree, Error as DBError, Migrate, Store};
+use store::{Error as DBError, Migrate, Store};
 use tree_hash::TreeHash;
 use types::*;
 
@@ -59,8 +58,11 @@ const HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 pub enum BlockProcessingOutcome {
     /// Block was valid and imported into the block graph.
     Processed { block_root: Hash256 },
-    /// The blocks parent_root is unknown.
-    ParentUnknown { parent: Hash256 },
+    /// The parent block was unknown.
+    ParentUnknown {
+        parent: Hash256,
+        reference_location: &'static str,
+    },
     /// The block slot is greater than the present slot.
     FutureSlot {
         present_slot: Slot,
@@ -116,7 +118,6 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type Store: store::Store<Self::EthSpec>;
     type StoreMigrator: store::Migrate<Self::Store, Self::EthSpec>;
     type SlotClock: slot_clock::SlotClock;
-    type LmdGhost: LmdGhost<Self::Store, Self::EthSpec>;
     type Eth1Chain: Eth1ChainBackend<Self::EthSpec, Self::Store>;
     type EthSpec: types::EthSpec;
     type EventHandler: EventHandler<Self::EthSpec>;
@@ -150,8 +151,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) head_tracker: HeadTracker,
     /// Provides a small cache of `BeaconState` and `BeaconBlock`.
     pub(crate) checkpoint_cache: CheckPointCache<T::EthSpec>,
-    /// Cache of block roots for all known forks post-finalization.
-    pub block_root_tree: Arc<BlockRootTree>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
 }
@@ -192,7 +191,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
             fork_choice: self.fork_choice.as_ssz_container(),
             eth1_cache: self.eth1_chain.as_ref().map(|x| x.as_ssz_container()),
-            block_root_tree: self.block_root_tree.as_ssz_container(),
         };
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
@@ -1063,14 +1061,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             {
                 // Provide the attestation to fork choice, updating the validator latest messages but
                 // _without_ finding and updating the head.
-                if let Err(e) = self
-                    .fork_choice
-                    .process_attestation(&state, &attestation, block)
-                {
+                if let Err(e) = self.fork_choice.process_attestation(&state, &attestation) {
                     error!(
                         self.log,
                         "Add attestation to fork choice failed";
-                        "fork_choice_integrity" => format!("{:?}", self.fork_choice.verify_integrity()),
                         "beacon_block_root" =>  format!("{}", attestation.data.beacon_block_root),
                         "error" => format!("{:?}", e)
                     );
@@ -1232,6 +1226,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
+        // Reject any block if its parent is not known to fork choice.
+        //
+        // A block that is not in fork choice is either:
+        //
+        //  - Not yet imported: we should reject this block because we should only import a child
+        //  after its parent has been fully imported.
+        //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
+        //  because it will revert finalization. Note that the finalized block is stored in fork
+        //  choice, so we will not reject any child of the finalized block (this is relevant during
+        //  genesis).
+        if !self.fork_choice.contains_block(&block.parent_root) {
+            return Ok(BlockProcessingOutcome::ParentUnknown {
+                parent: block.parent_root,
+                reference_location: "fork_choice",
+            });
+        }
+
         let block_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOCK_ROOT);
 
         let block_root = block.canonical_root();
@@ -1252,8 +1263,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Check if the block is already known. We know it is post-finalization, so it is
-        // sufficient to check the block root tree.
-        if self.block_root_tree.is_known_block_root(&block_root) {
+        // sufficient to check the fork choice.
+        if self.fork_choice.contains_block(&block_root) {
             return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
         }
 
@@ -1269,6 +1280,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None => {
                     return Ok(BlockProcessingOutcome::ParentUnknown {
                         parent: block.parent_root,
+                        reference_location: "database",
                     });
                 }
             };
@@ -1363,6 +1375,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
+        let fork_choice_register_timer =
+            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
+
+        // Register the new block with the fork choice service.
+        if let Err(e) = self
+            .fork_choice
+            .process_block(self, &state, &block, block_root)
+        {
+            error!(
+                self.log,
+                "Add block to fork choice failed";
+                "block_root" =>  format!("{}", block_root),
+                "error" => format!("{:?}", e),
+            )
+        }
+
+        metrics::stop_timer(fork_choice_register_timer);
+
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
         // Store all the states between the parent block state and this blocks slot before storing
@@ -1392,29 +1422,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(db_write_timer);
 
-        self.block_root_tree
-            .add_block_root(block_root, block.parent_root, block.slot)?;
-
         self.head_tracker.register_block(block_root, &block);
-
-        let fork_choice_register_timer =
-            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
-
-        // Register the new block with the fork choice service.
-        if let Err(e) = self
-            .fork_choice
-            .process_block(self, &state, &block, block_root)
-        {
-            error!(
-                self.log,
-                "Add block to fork choice failed";
-                "fork_choice_integrity" => format!("{:?}", self.fork_choice.verify_integrity()),
-                "block_root" =>  format!("{}", block_root),
-                "error" => format!("{:?}", e),
-            )
-        }
-
-        metrics::stop_timer(fork_choice_register_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
         metrics::observe(
@@ -1706,8 +1714,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 new_epoch: new_finalized_epoch,
             })
         } else {
-            self.fork_choice
-                .process_finalization(&finalized_block, finalized_block_root)?;
+            self.fork_choice.prune()?;
 
             let finalized_state = self
                 .get_state_caching_only_with_committee_caches(
@@ -1724,12 +1731,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 finalized_block.state_root,
                 finalized_state,
                 max_finality_distance,
-            );
-
-            // Prune in-memory block root tree.
-            self.block_root_tree.prune_to(
-                finalized_block_root,
-                self.heads().into_iter().map(|(block_root, _)| block_root),
             );
 
             let _ = self.event_handler.register(EventKind::BeaconFinalization {

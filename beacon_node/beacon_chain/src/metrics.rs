@@ -138,6 +138,10 @@ lazy_static! {
         "beacon_fork_choice_process_attestation_seconds",
         "Time taken to add an attestation to fork choice"
     );
+    pub static ref BALANCES_CACHE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_balances_cache_hits_total", "Count of times balances cache fulfils request");
+    pub static ref BALANCES_CACHE_MISSES: Result<IntCounter> =
+        try_create_int_counter("beacon_balances_cache_misses_total", "Count of times balances cache fulfils request");
 
     /*
      * Persisting BeaconChain to disk

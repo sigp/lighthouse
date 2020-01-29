@@ -307,8 +307,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         self.finalized_chains.retain(|chain| {
             if chain.target_head_slot <= local_finalized_slot
                 || beacon_chain
-                    .block_root_tree
-                    .is_known_block_root(&chain.target_head_root)
+                    .fork_choice
+                    .contains_block(&chain.target_head_root)
             {
                 debug!(log, "Purging out of finalized chain"; "start_slot" => chain.start_slot, "end_slot" => chain.target_head_slot);
                 chain.status_peers(network);
@@ -320,8 +320,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         self.head_chains.retain(|chain| {
             if chain.target_head_slot <= local_finalized_slot
                 || beacon_chain
-                    .block_root_tree
-                    .is_known_block_root(&chain.target_head_root)
+                    .fork_choice
+                    .contains_block(&chain.target_head_root)
             {
                 debug!(log, "Purging out of date head chain"; "start_slot" => chain.start_slot, "end_slot" => chain.target_head_slot);
                 chain.status_peers(network);
