@@ -403,7 +403,7 @@ fn collect_valid_votes<T: EthSpec>(
             valid_votes
                 .entry((eth1_data, block_number))
                 .and_modify(|count| *count += 1)
-                .or_insert(1_64);
+                .or_insert(1_u64);
         });
     valid_votes
 }
@@ -680,6 +680,137 @@ mod test {
                 "random votes should be returned with an empty cache"
             );
         }
+
+        #[test]
+        fn eth1_data_unknown_previous_state() {
+            let spec = &E::default_spec();
+            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+
+            let eth1_chain = get_eth1_chain();
+            let store = eth1_chain.backend.store.clone();
+
+            assert_eq!(
+                eth1_chain.use_dummy_backend, false,
+                "test should not use dummy backend"
+            );
+
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            let mut prev_state = state.clone();
+
+            prev_state.slot = Slot::new(period * 1_000);
+            state.slot = Slot::new(period * 1_000 + period / 2);
+
+            // Add 50% of the votes so a lookup is required.
+            for _ in 0..period / 2 + 1 {
+                state
+                    .eth1_data_votes
+                    .push(random_eth1_data())
+                    .expect("should push eth1 vote");
+            }
+
+            (0..2048).for_each(|i| {
+                eth1_chain
+                    .backend
+                    .core
+                    .blocks()
+                    .write()
+                    .insert_root_or_child(get_eth1_block(i, i))
+                    .expect("should add blocks to cache");
+            });
+
+            let expected_root = Hash256::from_low_u64_be(u64::max_value());
+            prev_state.eth1_data.block_hash = expected_root;
+
+            assert!(
+                prev_state.eth1_data != state.eth1_data,
+                "test requires state eth1_data are different"
+            );
+
+            store
+                .put_state(
+                    &state
+                        .get_state_root(prev_state.slot)
+                        .expect("should find state root"),
+                    &prev_state,
+                )
+                .expect("should store state");
+
+            let a = eth1_chain
+                .eth1_data_for_block_production(&state, &spec)
+                .expect("should produce first random eth1 data");
+            let b = eth1_chain
+                .eth1_data_for_block_production(&state, &spec)
+                .expect("should produce second random eth1 data");
+
+            assert!(
+                a != b,
+                "random votes should be returned if the previous eth1 data block hash is unknown"
+            );
+        }
+    }
+
+    mod prev_block_hash {
+        use super::*;
+        use store::MemoryStore;
+
+        #[test]
+        fn without_store_lookup() {
+            let spec = &E::default_spec();
+            let store = Arc::new(MemoryStore::open());
+
+            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+
+            assert_eq!(
+                eth1_block_hash_at_start_of_voting_period(store, &state),
+                Ok(state.eth1_data.block_hash),
+                "should return the states eth1 data in the first half of the period"
+            );
+        }
+
+        #[test]
+        fn with_store_lookup() {
+            let spec = &E::default_spec();
+            let store = Arc::new(MemoryStore::open());
+
+            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+            let mut prev_state = state.clone();
+
+            state.slot = Slot::new(period / 2);
+
+            // Add 50% of the votes so a lookup is required.
+            for _ in 0..period / 2 + 1 {
+                state
+                    .eth1_data_votes
+                    .push(random_eth1_data())
+                    .expect("should push eth1 vote");
+            }
+
+            let expected_root = Hash256::from_low_u64_be(42);
+
+            prev_state.eth1_data.block_hash = expected_root;
+
+            assert!(
+                prev_state.eth1_data != state.eth1_data,
+                "test requires state eth1_data are different"
+            );
+
+            store
+                .put_state(
+                    &state
+                        .get_state_root(Slot::new(0))
+                        .expect("should find state root"),
+                    &prev_state,
+                )
+                .expect("should store state");
+
+            assert_eq!(
+                eth1_block_hash_at_start_of_voting_period(store, &state),
+                Ok(expected_root),
+                "should return the eth1_data from the previous state"
+            );
+        }
     }
 
     mod eth1_data_sets {
@@ -697,16 +828,45 @@ mod test {
 
         #[test]
         fn empty_cache() {
+            let log = null_logger().unwrap();
+
             let spec = &E::default_spec();
             let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+            let prev_eth1_hash = Hash256::zero();
 
             let blocks = vec![];
 
             assert_eq!(
-                get_votes_to_consider(
+                eth1_data_sets(
                     blocks.iter(),
+                    prev_eth1_hash,
                     get_voting_period_start_seconds(&state, spec),
                     &spec,
+                    &log
+                ),
+                None
+            );
+        }
+
+        #[test]
+        fn no_known_block_hash() {
+            let log = null_logger().unwrap();
+
+            let mut spec = E::default_spec();
+            spec.milliseconds_per_slot = 1_000;
+
+            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            let prev_eth1_hash = Hash256::from_low_u64_be(42);
+
+            let blocks = vec![get_eth1_block(0, 0)];
+
+            assert_eq!(
+                eth1_data_sets(
+                    blocks.iter(),
+                    prev_eth1_hash,
+                    get_voting_period_start_seconds(&state, &spec),
+                    &spec,
+                    &log
                 ),
                 None
             );
