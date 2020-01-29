@@ -5,6 +5,7 @@
 
 use eth2_config::Eth2Config;
 use futures::{future, Future, IntoFuture};
+use proto_array_fork_choice::core::ProtoArray;
 use reqwest::{
     r#async::{Client, ClientBuilder, Response},
     StatusCode,
@@ -99,6 +100,10 @@ impl<E: EthSpec> HttpClient<E> {
 
     pub fn node(&self) -> Node<E> {
         Node(self.clone())
+    }
+
+    pub fn advanced(&self) -> Advanced<E> {
+        Advanced(self.clone())
     }
 
     fn url(&self, path: &str) -> Result<Url, Error> {
@@ -531,6 +536,27 @@ impl<E: EthSpec> Node<E> {
     pub fn get_version(&self) -> impl Future<Item = String, Error = Error> {
         let client = self.0.clone();
         self.url("version")
+            .into_future()
+            .and_then(move |url| client.json_get(url, vec![]))
+    }
+}
+
+/// Provides the functions on the `/advanced` endpoint of the node.
+#[derive(Clone)]
+pub struct Advanced<E>(HttpClient<E>);
+
+impl<E: EthSpec> Advanced<E> {
+    fn url(&self, path: &str) -> Result<Url, Error> {
+        self.0
+            .url("advanced/")
+            .and_then(move |url| url.join(path).map_err(Error::from))
+            .map_err(Into::into)
+    }
+
+    /// Gets the core `ProtoArray` struct from the node.
+    pub fn get_fork_choice(&self) -> impl Future<Item = ProtoArray, Error = Error> {
+        let client = self.0.clone();
+        self.url("fork_choice")
             .into_future()
             .and_then(move |url| client.json_get(url, vec![]))
     }

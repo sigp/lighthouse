@@ -150,9 +150,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         self.chains.purge_outdated_chains(network, &self.log);
 
         if remote_finalized_slot > local_info.head_slot
-            && !chain
-                .block_root_tree
-                .is_known_block_root(&remote.finalized_root)
+            && !chain.fork_choice.contains_block(&remote.finalized_root)
         {
             debug!(self.log, "Finalization sync peer joined"; "peer_id" => format!("{:?}", peer_id));
             // Finalized chain search

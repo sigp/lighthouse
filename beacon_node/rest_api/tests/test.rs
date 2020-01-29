@@ -792,6 +792,30 @@ fn get_committees() {
     assert_eq!(result, expected, "result should be as expected");
 }
 
+#[test]
+fn get_fork_choice() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let fork_choice = env
+        .runtime()
+        .block_on(remote_node.http.advanced().get_fork_choice())
+        .expect("should not error when getting fork choice");
+
+    assert_eq!(
+        fork_choice,
+        *node
+            .client
+            .beacon_chain()
+            .expect("node should have beacon chain")
+            .fork_choice
+            .core_proto_array(),
+        "result should be as expected"
+    );
+}
+
 fn compare_validator_response<T: EthSpec>(
     state: &BeaconState<T>,
     response: &ValidatorResponse,
