@@ -364,6 +364,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.9.1
     pub fn get_active_validator_indices(&self, epoch: Epoch) -> Vec<usize> {
+        // FIXME(sproul): put a bounds check on here based on the maximum lookahead
         get_active_validator_indices(&self.validators, epoch)
     }
 

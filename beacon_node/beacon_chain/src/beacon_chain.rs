@@ -16,7 +16,7 @@ use state_processing::per_block_processing::{
         AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
         ProposerSlashingValidationError,
     },
-    signature_sets::indexed_attestation_signature_set,
+    signature_sets::{indexed_attestation_signature_set, validator_pubkey, SignatureSet},
     verify_attestation_for_state, VerifySignatures,
 };
 use state_processing::{
@@ -1444,26 +1444,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Verify if a block is valid.
     ///
     /// This determines if a block is fit to be forwarded to other peers.
-    pub fn should_forward_block(&self, _block: &BeaconBlock<T::EthSpec>) -> bool {
-        true
-        /*
-         * TODO: Due to current optimisations. This logic needs to be re-worked.
-
+    pub fn should_forward_block(&self, block: &BeaconBlock<T::EthSpec>) -> bool {
         // Retrieve the parent block used to generate the signature.
         // This will eventually return false if this operation fails or returns an empty option.
         let parent_block_opt = if let Ok(Some(parent_block)) = self
             .store
             .get::<BeaconBlock<T::EthSpec>>(&block.parent_root)
         {
+            // FIXME(sproul): use head_info for speed
             if let Ok(head) = self.head() {
                 // Check if the parent block's state root is equal to the current state, if it is, then
                 // we can validate the block using the state in our chain head. This saves us from
                 // having to make an unnecessary database read.
                 let state_res = if head.beacon_state_root == parent_block.state_root {
-                    Ok(Some(head.beacon_state.clone()))
+                    Ok(Some(head.beacon_state))
                 } else {
                     self.store
-                        .get_state(&parent_block.state_root, Some(block.slot))
+                        .load_epoch_boundary_state(&parent_block.state_root)
                 };
 
                 // If we are unable to find a state for the block, we eventually return false. This
@@ -1520,8 +1517,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Verify the signature if we were able to get a proposer, otherwise, we eventually
             // return false.
             if let Ok(Ok(pubkey)) = pubkey_result {
-                let signature =
-                    SignatureSet::single(&block.signature, pubkey, &block.canonical_root(), domain);
+                let signature = SignatureSet::single(
+                    &block.signature,
+                    pubkey,
+                    block.canonical_root().as_bytes().to_vec(),
+                    domain,
+                );
 
                 // TODO: Downvote if the signature is invalid.
                 return signature.is_valid();
@@ -1529,7 +1530,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         false
-            */
     }
 
     /// Produce a new block at the given `slot`.

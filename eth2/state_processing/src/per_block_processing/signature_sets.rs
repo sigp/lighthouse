@@ -2,7 +2,8 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
-use bls::{G1Point, G1Ref, SignatureSet, SignedMessage};
+pub use bls::SignatureSet;
+use bls::{G1Point, G1Ref, SignedMessage};
 use std::borrow::Cow;
 use std::convert::TryInto;
 use tree_hash::{SignedRoot, TreeHash};
@@ -238,7 +239,7 @@ pub fn exit_signature_set<'a, T: EthSpec>(
 }
 
 /// Maps a validator index to a `PublicKey`.
-fn validator_pubkey<'a, T: EthSpec>(
+pub fn validator_pubkey<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     validator_index: usize,
 ) -> Result<Cow<'a, G1Point>> {
