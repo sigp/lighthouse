@@ -1,12 +1,4 @@
-#[allow(dead_code)]
-mod error;
-mod fork_choice_test_definition;
-mod proto_array;
-#[allow(dead_code)]
-mod proto_array_fork_choice;
-mod ssz_container;
-
-pub use fork_choice_test_definition::*;
+use proto_array_fork_choice::fork_choice_test_definition::*;
 use serde_yaml;
 use std::fs::File;
 
