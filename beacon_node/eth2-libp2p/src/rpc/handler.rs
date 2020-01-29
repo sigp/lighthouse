@@ -12,7 +12,7 @@ use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade, UpgradeError};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use slog::{crit, debug, error, warn};
+use slog::{crit, debug, error};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::time::{Duration, Instant};
@@ -319,12 +319,8 @@ where
                     substream: out,
                     request,
                 };
-                if let Some(_) = self
-                    .outbound_substreams
-                    .insert(id, (awaiting_stream, delay_key))
-                {
-                    warn!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", id));
-                }
+                self.outbound_substreams
+                    .insert(id, (awaiting_stream, delay_key));
             }
             _ => { // a response is not expected, drop the stream for all other requests
             }
