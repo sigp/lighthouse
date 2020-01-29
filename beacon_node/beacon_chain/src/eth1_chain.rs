@@ -5,11 +5,10 @@ use exit_future::Exit;
 use futures::Future;
 use integer_sqrt::IntegerSquareRoot;
 use rand::prelude::*;
-use slog::{crit, debug, error, trace, Logger};
+use slog::{crit, debug, trace, Logger};
 use state_processing::per_block_processing::get_new_eth1_data;
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
-use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{Error as StoreError, Store};
@@ -19,7 +18,6 @@ use types::{
 };
 
 type BlockNumber = u64;
-type Eth1DataBlockNumber = HashMap<Eth1Data, BlockNumber>;
 type Eth1DataVoteCount = HashMap<(Eth1Data, BlockNumber), u64>;
 
 #[derive(Debug, PartialEq)]
@@ -216,10 +214,6 @@ impl<T: EthSpec, S: Store<T>> CachingEth1Backend<T, S> {
 
 impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
     fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
-        // Note: we do not return random junk if this function call fails as it would be caused by
-        // an internal error.
-        let prev_eth1_hash = eth1_block_hash_at_start_of_voting_period(self.store.clone(), state)?;
-
         let period = T::SlotsPerEth1VotingPeriod::to_u64();
         let eth1_follow_distance = spec.eth1_follow_distance;
         let voting_period_start_slot = (state.slot / period) * period;
@@ -231,23 +225,19 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
 
         let blocks = self.core.blocks().read();
 
-        let (new_eth1_data, all_eth1_data) = if let Some(sets) = eth1_data_sets(
-            blocks.iter(),
-            prev_eth1_hash,
-            voting_period_start_seconds,
-            spec,
-            &self.log,
-        ) {
-            sets
+        let votes_to_consider = if let Some(votes) =
+            get_votes_to_consider(blocks.iter(), voting_period_start_seconds, spec)
+        {
+            votes
         } else {
-            // The algorithm was unable to find the `new_eth1_data` and `all_eth1_data` sets.
+            // The algorithm was unable to find the `votes_to_consider` HashMap.
             //
-            // This is likely because the caches are empty or the previous eth1 block hash is not
-            // in the cache.
+            // This is likely because the caches are empty.
             //
             // This situation can also be caused when a testnet does not have an adequate delay
             // between the eth1 genesis block and the eth2 genesis block. This delay needs to be at
             // least `2 * ETH1_FOLLOW_DISTANCE`.
+            // TODO: Is this still true? ^
             crit!(
                 self.log,
                 "Unable to find eth1 data sets";
@@ -262,12 +252,10 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
 
         trace!(
             self.log,
-            "Found eth1 data sets";
-            "all_eth1_data" => all_eth1_data.len(),
-            "new_eth1_data" => new_eth1_data.len(),
+            "Found eth1 data votes_to_consider";
+            "votes_to_consider" => votes_to_consider.len(),
         );
-
-        let valid_votes = collect_valid_votes(state, new_eth1_data, all_eth1_data);
+        let valid_votes = collect_valid_votes(state, votes_to_consider);
 
         let eth1_data = if let Some(eth1_data) = find_winning_vote(valid_votes) {
             eth1_data
@@ -373,122 +361,49 @@ fn random_eth1_data() -> Eth1Data {
     }
 }
 
-/// Returns `state.eth1_data.block_hash` at the start of eth1 voting period defined by
-/// `state.slot`.
-fn eth1_block_hash_at_start_of_voting_period<T: EthSpec, S: Store<T>>(
-    store: Arc<S>,
-    state: &BeaconState<T>,
-) -> Result<Hash256, Error> {
-    let period = T::SlotsPerEth1VotingPeriod::to_u64();
-
-    if !eth1_data_change_is_possible(state) {
-        // If there are less than 50% of the votes in the current state, it's impossible that the
-        // `eth1_data.block_hash` has changed from the value at `state.eth1_data.block_hash`.
-        Ok(state.eth1_data.block_hash)
-    } else {
-        // If there have been more than 50% of votes in this period it's possible (but not
-        // necessary) that the `state.eth1_data.block_hash` has been changed since the start of the
-        // voting period.
-        let slot = (state.slot / period) * period;
-        let prev_state_root = state
-            .get_state_root(slot)
-            .map_err(Error::UnableToGetPreviousStateRoot)?;
-
-        store
-            .get_state(&prev_state_root, Some(slot))
-            .map_err(Error::StoreError)?
-            .map(|state| state.eth1_data.block_hash)
-            .ok_or_else(|| Error::PreviousStateNotInDB(*prev_state_root))
-    }
-}
-
-/// Returns true if there are enough eth1 votes in the given `state` to have updated
-/// `state.eth1_data`.
-fn eth1_data_change_is_possible<E: EthSpec>(state: &BeaconState<E>) -> bool {
-    2 * state.eth1_data_votes.len() > E::SlotsPerEth1VotingPeriod::to_usize()
-}
-
-/// Calculates and returns `(new_eth1_data, all_eth1_data)` for the given `state`, based upon the
-/// blocks in the `block` iterator.
-///
-/// `prev_eth1_hash` is the `eth1_data.block_hash` at the start of the voting period defined by
-/// `state.slot`.
-fn eth1_data_sets<'a, I>(
+// TODO: maybe ignore `Eth1Block`s which don't have an associated block/deposit cache entry
+// and return Vec<Eth1Data>
+fn get_votes_to_consider<'a, I>(
     blocks: I,
-    prev_eth1_hash: Hash256,
     voting_period_start_seconds: u64,
     spec: &ChainSpec,
-    log: &Logger,
-) -> Option<(Eth1DataBlockNumber, Eth1DataBlockNumber)>
+) -> Option<HashMap<Eth1Data, u64>>
 where
     I: DoubleEndedIterator<Item = &'a Eth1Block> + Clone,
 {
-    let eth1_follow_distance = spec.eth1_follow_distance;
-
-    let in_scope_eth1_data = blocks
+    blocks
         .rev()
-        .skip_while(|eth1_block| eth1_block.timestamp > voting_period_start_seconds)
-        .skip(eth1_follow_distance as usize)
-        .filter_map(|block| Some((block.clone().eth1_data()?, block.number)));
-
-    if in_scope_eth1_data
-        .clone()
-        .any(|(eth1_data, _)| eth1_data.block_hash == prev_eth1_hash)
-    {
-        let new_eth1_data = in_scope_eth1_data
-            .clone()
-            .take(eth1_follow_distance as usize);
-        let all_eth1_data =
-            in_scope_eth1_data.take_while(|(eth1_data, _)| eth1_data.block_hash != prev_eth1_hash);
-
-        Some((
-            HashMap::from_iter(new_eth1_data),
-            HashMap::from_iter(all_eth1_data),
-        ))
-    } else {
-        error!(
-            log,
-            "The previous eth1 hash is not in cache";
-            "previous_hash" => format!("{:?}", prev_eth1_hash)
-        );
-
-        None
-    }
+        .take_while(|eth1_block| is_candidate_block(eth1_block, voting_period_start_seconds, spec))
+        .map(|eth1_block| {
+            (eth1_block
+                .clone()
+                .eth1_data()
+                .map(|eth1_data| (eth1_data, eth1_block.number)))
+        })
+        .collect()
 }
 
-/// Selects and counts the votes in `state.eth1_data_votes`, if they appear in `new_eth1_data` or
-/// `all_eth1_data` when it is the voting period tail.
 fn collect_valid_votes<T: EthSpec>(
     state: &BeaconState<T>,
-    new_eth1_data: Eth1DataBlockNumber,
-    all_eth1_data: Eth1DataBlockNumber,
+    votes_to_consider: HashMap<Eth1Data, BlockNumber>,
 ) -> Eth1DataVoteCount {
     let mut valid_votes = HashMap::new();
-
     state
         .eth1_data_votes
         .iter()
         .filter_map(|vote| {
-            new_eth1_data
-                .get(vote)
-                .map(|block_number| (vote.clone(), *block_number))
-                .or_else(|| {
-                    if is_period_tail(state) {
-                        all_eth1_data
-                            .get(vote)
-                            .map(|block_number| (vote.clone(), *block_number))
-                    } else {
-                        None
-                    }
-                })
+            if let Some(block_num) = votes_to_consider.get(vote) {
+                Some((vote.clone(), *block_num))
+            } else {
+                None
+            }
         })
         .for_each(|(eth1_data, block_number)| {
             valid_votes
                 .entry((eth1_data, block_number))
                 .and_modify(|count| *count += 1)
-                .or_insert(1_u64);
+                .or_insert(1_64);
         });
-
     valid_votes
 }
 
@@ -523,6 +438,14 @@ fn slot_start_seconds<T: EthSpec>(
     slot: Slot,
 ) -> u64 {
     genesis_unix_seconds + slot.as_u64() * milliseconds_per_slot / 1_000
+}
+
+/// Returns a boolean denoting if a given `Eth1Block` is a candidate for `Eth1Data` calculation
+/// at the timestamp `period_start`.
+fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) -> bool {
+    block.timestamp <= (period_start - (spec.seconds_per_eth1_block * spec.eth1_follow_distance))
+        && block.timestamp
+            >= (period_start - (spec.seconds_per_eth1_block * spec.eth1_follow_distance * 2))
 }
 
 #[cfg(test)]
