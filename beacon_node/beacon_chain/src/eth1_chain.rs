@@ -883,7 +883,7 @@ mod test {
                     &state
                         .get_state_root(prev_state.slot)
                         .expect("should find state root"),
-                    &prev_state,
+                    prev_state,
                 )
                 .expect("should store state");
 
@@ -953,7 +953,7 @@ mod test {
                     &state
                         .get_state_root(Slot::new(0))
                         .expect("should find state root"),
-                    &prev_state,
+                    prev_state,
                 )
                 .expect("should store state");
 

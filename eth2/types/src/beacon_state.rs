@@ -17,10 +17,12 @@ use tree_hash::TreeHash;
 use tree_hash_derive::{CachedTreeHash, TreeHash};
 
 pub use self::committee_cache::CommitteeCache;
+pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 
 #[macro_use]
 mod committee_cache;
+mod clone_config;
 mod exit_cache;
 mod pubkey_cache;
 mod tests;
@@ -979,7 +981,8 @@ impl<T: EthSpec> BeaconState<T> {
         })
     }
 
-    pub fn clone_without_caches(&self) -> Self {
+    /// Clone the state whilst preserving only the selected caches.
+    pub fn clone_with(&self, config: CloneConfig) -> Self {
         BeaconState {
             genesis_time: self.genesis_time,
             slot: self.slot,
@@ -1001,14 +1004,30 @@ impl<T: EthSpec> BeaconState<T> {
             previous_justified_checkpoint: self.previous_justified_checkpoint.clone(),
             current_justified_checkpoint: self.current_justified_checkpoint.clone(),
             finalized_checkpoint: self.finalized_checkpoint.clone(),
-            committee_caches: [
-                CommitteeCache::default(),
-                CommitteeCache::default(),
-                CommitteeCache::default(),
-            ],
-            pubkey_cache: PubkeyCache::default(),
-            exit_cache: ExitCache::default(),
-            tree_hash_cache: BeaconTreeHashCache::default(),
+            committee_caches: if config.committee_caches {
+                self.committee_caches.clone()
+            } else {
+                [
+                    CommitteeCache::default(),
+                    CommitteeCache::default(),
+                    CommitteeCache::default(),
+                ]
+            },
+            pubkey_cache: if config.pubkey_cache {
+                self.pubkey_cache.clone()
+            } else {
+                PubkeyCache::default()
+            },
+            exit_cache: if config.exit_cache {
+                self.exit_cache.clone()
+            } else {
+                ExitCache::default()
+            },
+            tree_hash_cache: if config.tree_hash_cache {
+                self.tree_hash_cache.clone()
+            } else {
+                BeaconTreeHashCache::default()
+            },
         }
     }
 

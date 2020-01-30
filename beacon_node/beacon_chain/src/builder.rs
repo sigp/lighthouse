@@ -1,4 +1,3 @@
-use crate::checkpoint_cache::CheckPointCache;
 use crate::eth1_chain::CachingEth1Backend;
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
@@ -219,7 +218,7 @@ where
         self.genesis_block_root = Some(beacon_block_root);
 
         store
-            .put_state(&beacon_state_root, &beacon_state)
+            .put_state(&beacon_state_root, beacon_state.clone())
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
             .put(&beacon_block_root, &beacon_block)
@@ -334,7 +333,6 @@ where
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
             head_tracker: self.head_tracker.unwrap_or_default(),
-            checkpoint_cache: CheckPointCache::default(),
             log: log.clone(),
         };
 
