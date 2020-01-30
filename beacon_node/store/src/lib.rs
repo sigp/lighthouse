@@ -79,6 +79,16 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         I::db_delete(self, key)
     }
 
+    /// Store a block in the store.
+    fn put_block(&self, block_root: &Hash256, block: &BeaconBlock<E>) -> Result<(), Error> {
+        self.put(block_root, block)
+    }
+
+    /// Fetch a block from the store.
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock<E>>, Error> {
+        self.get(block_root)
+    }
+
     /// Store a state in the store.
     fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
 

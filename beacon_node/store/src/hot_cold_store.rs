@@ -3,9 +3,11 @@ use crate::chunked_vector::{
 };
 use crate::forwards_iter::HybridForwardsBlockRootsIterator;
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
+use crate::metrics;
 use crate::{
     leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, SimpleStoreItem, Store, StoreItem,
 };
+use lru::LruCache;
 use parking_lot::RwLock;
 use slog::{debug, trace, warn, Logger};
 use ssz::{Decode, Encode};
@@ -22,6 +24,10 @@ use types::*;
 
 /// 32-byte key for accessing the `split` of the freezer DB.
 pub const SPLIT_DB_KEY: &str = "FREEZERDBSPLITFREEZERDBSPLITFREE";
+
+// FIXME(sproul): configurable
+const DEFAULT_BLOCK_CACHE_SIZE: usize = 50;
+const DEFAULT_STATE_CACHE_SIZE: usize = 10;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -41,6 +47,10 @@ pub struct HotColdDB<E: EthSpec> {
     ///
     /// The hot database also contains all blocks.
     pub(crate) hot_db: LevelDB<E>,
+    /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
+    block_cache: RwLock<LruCache<Hash256, BeaconBlock<E>>>,
+    /// LRU cache of deserialized states. Updated whenever a state is loaded.
+    state_cache: RwLock<LruCache<Hash256, BeaconState<E>>>,
     /// Chain spec.
     spec: ChainSpec,
     /// Logger.
@@ -98,6 +108,39 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         self.hot_db.key_delete(column, key)
     }
 
+    /// Store a block and update the LRU cache.
+    fn put_block(&self, block_root: &Hash256, block: &BeaconBlock<E>) -> Result<(), Error> {
+        // Store on disk.
+        self.put(block_root, block)?;
+
+        // Update cache.
+        // FIXME(sproul): take block by value?
+        self.block_cache.write().put(*block_root, block.clone());
+
+        Ok(())
+    }
+
+    /// Fetch a block from the store.
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock<E>>, Error> {
+        metrics::inc_counter(&metrics::BEACON_BLOCK_GET_COUNT);
+
+        // Check the cache.
+        if let Some(block) = self.block_cache.write().get(block_root) {
+            metrics::inc_counter(&metrics::BEACON_BLOCK_CACHE_HIT_COUNT);
+            return Ok(Some(block.clone()));
+        }
+
+        // Fetch from database.
+        match self.get::<BeaconBlock<E>>(block_root)? {
+            Some(block) => {
+                // Add to cache.
+                self.block_cache.write().put(*block_root, block.clone());
+                Ok(Some(block))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Store a state in the store.
     fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         if state.slot < self.get_split_slot() {
@@ -113,6 +156,8 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
+        metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
+
         if let Some(slot) = slot {
             if slot < self.get_split_slot() {
                 self.load_cold_state_by_slot(slot).map(Some)
@@ -229,9 +274,9 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
             ..
         }) = self.load_hot_state_summary(state_root)?
         {
+            // FIXME(sproul): could avoid looking up the summary for the boundary state
             let state = self
-                .hot_db
-                .get_state(&epoch_boundary_state_root, None)?
+                .load_hot_state(&epoch_boundary_state_root)?
                 .ok_or_else(|| {
                     HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
                 })?;
@@ -268,6 +313,8 @@ impl<E: EthSpec> HotColdDB<E> {
             slots_per_restore_point,
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
+            block_cache: RwLock::new(LruCache::new(DEFAULT_BLOCK_CACHE_SIZE)),
+            state_cache: RwLock::new(LruCache::new(DEFAULT_STATE_CACHE_SIZE)),
             spec,
             log,
             _phantom: PhantomData,
@@ -306,6 +353,9 @@ impl<E: EthSpec> HotColdDB<E> {
         // when doing a look up by state root.
         self.store_hot_state_summary(state_root, state)?;
 
+        // Store the state in the cache.
+        self.state_cache.write().put(*state_root, state.clone());
+
         Ok(())
     }
 
@@ -313,13 +363,25 @@ impl<E: EthSpec> HotColdDB<E> {
     ///
     /// Will replay blocks from the nearest epoch boundary.
     pub fn load_hot_state(&self, state_root: &Hash256) -> Result<Option<BeaconState<E>>, Error> {
+        metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
+
+        // Check the cache.
+        // FIXME(sproul): timeout on lock
+        if let Some(state) = self.state_cache.write().get(state_root) {
+            metrics::inc_counter(&metrics::BEACON_STATE_CACHE_HIT_COUNT);
+            let timer = metrics::start_timer(&metrics::BEACON_STATE_CACHE_READ_TIME);
+            let state = state.clone();
+            metrics::stop_timer(timer);
+            return Ok(Some(state));
+        }
+
         if let Some(HotStateSummary {
             slot,
             latest_block_root,
             epoch_boundary_state_root,
         }) = self.load_hot_state_summary(state_root)?
         {
-            let state: BeaconState<E> = self
+            let boundary_state = self
                 .hot_db
                 .get_state(&epoch_boundary_state_root, None)?
                 .ok_or_else(|| {
@@ -328,12 +390,18 @@ impl<E: EthSpec> HotColdDB<E> {
 
             // Optimization to avoid even *thinking* about replaying blocks if we're already
             // on an epoch boundary.
-            if slot % E::slots_per_epoch() == 0 {
-                Ok(Some(state))
+            let state = if slot % E::slots_per_epoch() == 0 {
+                boundary_state
             } else {
-                let blocks = self.load_blocks_to_replay(state.slot, slot, latest_block_root)?;
-                self.replay_blocks(state, blocks, slot).map(Some)
-            }
+                let blocks =
+                    self.load_blocks_to_replay(boundary_state.slot, slot, latest_block_root)?;
+                self.replay_blocks(boundary_state, blocks, slot)?
+            };
+
+            // Update the LRU cache.
+            self.state_cache.write().put(*state_root, state.clone());
+
+            Ok(Some(state))
         } else {
             Ok(None)
         }
