@@ -41,4 +41,13 @@ impl<E: EthSpec> CheckPoint<E> {
         self.beacon_state = beacon_state;
         self.beacon_state_root = beacon_state_root;
     }
+
+    pub fn clone_with_only_committee_caches(&self) -> Self {
+        Self {
+            beacon_block: self.beacon_block.clone(),
+            beacon_block_root: self.beacon_block_root,
+            beacon_state: self.beacon_state.clone_with_only_committee_caches(),
+            beacon_state_root: self.beacon_state_root,
+        }
+    }
 }
