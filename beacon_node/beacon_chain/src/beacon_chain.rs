@@ -164,7 +164,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let beacon_block_root = canonical_head.beacon_state.finalized_checkpoint.root;
             let beacon_block = self
                 .store
-                .get::<BeaconBlock<_>>(&beacon_block_root)?
+                .get_block(&beacon_block_root)?
                 .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
             let beacon_state_root = beacon_block.state_root;
             let beacon_state = self
@@ -418,8 +418,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
-        // FIXME(sproul): reduce clones in LRU cache
-        Ok(self.store.get_state(state_root, slot)?)
+        Ok(self.store.get_state_with(
+            state_root,
+            slot,
+            types::beacon_state::CloneConfig::committee_caches_only(),
+        )?)
     }
 
     /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";
@@ -1643,7 +1646,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), Error> {
         let finalized_block = self
             .store
-            .get::<BeaconBlock<T::EthSpec>>(&finalized_block_root)?
+            .get_block(&finalized_block_root)?
             .ok_or_else(|| Error::MissingBeaconBlock(finalized_block_root))?;
 
         let new_finalized_epoch = finalized_block.slot.epoch(T::EthSpec::slots_per_epoch());

@@ -20,14 +20,15 @@ use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
+use types::beacon_state::CloneConfig;
 use types::*;
 
 /// 32-byte key for accessing the `split` of the freezer DB.
 pub const SPLIT_DB_KEY: &str = "FREEZERDBSPLITFREEZERDBSPLITFREE";
 
 // FIXME(sproul): configurable
-const DEFAULT_BLOCK_CACHE_SIZE: usize = 50;
-const DEFAULT_STATE_CACHE_SIZE: usize = 10;
+const DEFAULT_BLOCK_CACHE_SIZE: usize = 5;
+const DEFAULT_STATE_CACHE_SIZE: usize = 5;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -156,16 +157,28 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
+        self.get_state_with(state_root, slot, CloneConfig::all())
+    }
+
+    /// Get a state from the store.
+    ///
+    /// Fetch a state from the store, controlling which cache fields are cloned.
+    fn get_state_with(
+        &self,
+        state_root: &Hash256,
+        slot: Option<Slot>,
+        clone_config: CloneConfig,
+    ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
 
         if let Some(slot) = slot {
             if slot < self.get_split_slot() {
                 self.load_cold_state_by_slot(slot).map(Some)
             } else {
-                self.load_hot_state(state_root)
+                self.load_hot_state(state_root, clone_config)
             }
         } else {
-            match self.load_hot_state(state_root)? {
+            match self.load_hot_state(state_root, clone_config)? {
                 Some(state) => Ok(Some(state)),
                 None => self.load_cold_state(state_root),
             }
@@ -276,7 +289,10 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         {
             // FIXME(sproul): could avoid looking up the summary for the boundary state
             let state = self
-                .load_hot_state(&epoch_boundary_state_root)?
+                .load_hot_state(
+                    &epoch_boundary_state_root,
+                    CloneConfig::committee_caches_only(),
+                )?
                 .ok_or_else(|| {
                     HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
                 })?;
@@ -362,16 +378,22 @@ impl<E: EthSpec> HotColdDB<E> {
     /// Load a post-finalization state from the hot database.
     ///
     /// Will replay blocks from the nearest epoch boundary.
-    pub fn load_hot_state(&self, state_root: &Hash256) -> Result<Option<BeaconState<E>>, Error> {
+    pub fn load_hot_state(
+        &self,
+        state_root: &Hash256,
+        clone_config: CloneConfig,
+    ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
         // Check the cache.
         // FIXME(sproul): timeout on lock
         if let Some(state) = self.state_cache.write().get(state_root) {
             metrics::inc_counter(&metrics::BEACON_STATE_CACHE_HIT_COUNT);
-            let timer = metrics::start_timer(&metrics::BEACON_STATE_CACHE_READ_TIME);
-            let state = state.clone();
+
+            let timer = metrics::start_timer(&metrics::BEACON_STATE_CACHE_CLONE_TIME);
+            let state = state.clone_with(clone_config);
             metrics::stop_timer(timer);
+
             return Ok(Some(state));
         }
 

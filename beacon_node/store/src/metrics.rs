@@ -62,8 +62,8 @@ lazy_static! {
         "store_beacon_state_cache_hit_total",
         "Number of hits to the store's state cache"
     );
-    pub static ref BEACON_STATE_CACHE_READ_TIME: Result<Histogram> = try_create_histogram(
-        "store_beacon_state_cache_read_time",
+    pub static ref BEACON_STATE_CACHE_CLONE_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_cache_clone_time",
         "Time to load a beacon block from the block cache"
     );
     pub static ref BEACON_STATE_READ_TIMES: Result<Histogram> = try_create_histogram(
@@ -109,8 +109,8 @@ lazy_static! {
         "store_beacon_block_cache_hit_total",
         "Number of hits to the store's block cache"
     );
-    pub static ref BEACON_BLOCK_CACHE_READ_TIME: Result<Histogram> = try_create_histogram(
-        "store_beacon_block_cache_read_time",
+    pub static ref BEACON_BLOCK_CACHE_CLONE_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_block_cache_clone_time",
         "Time to load a beacon block from the block cache"
     );
     pub static ref BEACON_BLOCK_READ_TIMES: Result<Histogram> = try_create_histogram(

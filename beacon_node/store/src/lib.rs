@@ -37,6 +37,7 @@ pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metrics::scrape_for_metrics;
+pub use types::beacon_state::CloneConfig;
 pub use types::*;
 
 /// An object capable of storing and retrieving objects implementing `StoreItem`.
@@ -98,6 +99,17 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error>;
+
+    /// Fetch a state from the store, controlling which cache fields are cloned.
+    fn get_state_with(
+        &self,
+        state_root: &Hash256,
+        slot: Option<Slot>,
+        _clone_config: CloneConfig,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        // Default impl ignores config. Overriden in `HotColdDb`.
+        self.get_state(state_root, slot)
+    }
 
     /// Given the root of an existing block in the store (`start_block_root`), return a parent
     /// block with the specified `slot`.
