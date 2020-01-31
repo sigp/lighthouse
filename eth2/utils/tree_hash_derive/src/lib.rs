@@ -225,7 +225,7 @@ pub fn cached_tree_hash_derive(input: TokenStream) -> TokenStream {
             },
             Some(caching_field) => quote! {
                 self.#field
-                    .recalculate_tree_hash_root(&mut cache.#caching_field)?
+                    .recalculate_tree_hash_root(arena, &mut cache.#caching_field)?
                     .as_bytes()
                     .to_vec()
             },
@@ -233,18 +233,19 @@ pub fn cached_tree_hash_derive(input: TokenStream) -> TokenStream {
 
     let output = quote! {
         impl #impl_generics cached_tree_hash::CachedTreeHash<#cache_type> for #name #ty_generics #where_clause {
-            fn new_tree_hash_cache() -> #cache_type {
+            fn new_tree_hash_cache(arena: &mut cached_tree_hash::VecArena) -> #cache_type {
                 // Call new cache for each sub type
                 #cache_type {
                     initialized: true,
                     #(
-                        #caching_field_cache_field: <#caching_field_ty>::new_tree_hash_cache()
+                        #caching_field_cache_field: <#caching_field_ty>::new_tree_hash_cache(arena)
                     ),*
                 }
             }
 
             fn recalculate_tree_hash_root(
                 &self,
+                arena: &mut cached_tree_hash::VecArena,
                 cache: &mut #cache_type)
             -> std::result::Result<Hash256, cached_tree_hash::Error>
             {

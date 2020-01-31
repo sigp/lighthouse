@@ -1,4 +1,4 @@
-use crate::{int_log, CachedTreeHash, Error, Hash256, TreeHashCache};
+use crate::{int_log, CachedTreeHash, Error, Hash256, TreeHashCache, VecArena};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, VariableList};
 use tree_hash::mix_in_length;
@@ -16,35 +16,24 @@ pub struct MultiTreeHashCache {
     value_caches: Vec<TreeHashCache>,
 }
 
-impl MultiTreeHashCache {
-    /// Returns the approximate size of the cache in bytes.
-    ///
-    /// The size is approximate because we ignore some stack-allocated `u64` and `Vec` pointers.
-    /// We focus instead on the lists of hashes, which should massively outweigh the items that we
-    /// ignore.
-    pub fn approx_mem_size(&self) -> usize {
-        self.list_cache.approx_mem_size()
-            + self
-                .value_caches
-                .iter()
-                .map(TreeHashCache::approx_mem_size)
-                .sum::<usize>()
-    }
-}
-
 impl<T, N> CachedTreeHash<MultiTreeHashCache> for VariableList<T, N>
 where
     T: CachedTreeHash<TreeHashCache>,
     N: Unsigned,
 {
-    fn new_tree_hash_cache() -> MultiTreeHashCache {
+    fn new_tree_hash_cache(arena: &mut VecArena) -> MultiTreeHashCache {
         MultiTreeHashCache {
-            list_cache: TreeHashCache::new(int_log(N::to_usize())),
+            list_cache: TreeHashCache::new(arena, int_log(N::to_usize())),
             value_caches: vec![],
         }
     }
 
-    fn recalculate_tree_hash_root(&self, cache: &mut MultiTreeHashCache) -> Result<Hash256, Error> {
+    fn recalculate_tree_hash_root(
+        &self,
+        arena: &mut VecArena,
+        cache: &mut MultiTreeHashCache,
+    ) -> Result<Hash256, Error> {
+        /*
         if self.len() < cache.value_caches.len() {
             return Err(Error::CannotShrink);
         }
@@ -52,22 +41,30 @@ where
         // Resize the value caches to the size of the list.
         cache
             .value_caches
-            .resize(self.len(), T::new_tree_hash_cache());
+            .resize_with(self.len(), || T::new_tree_hash_cache(arena));
 
         // Update all individual value caches.
-        self.iter()
+        let leaves = self
+            .iter()
             .zip(cache.value_caches.iter_mut())
-            .try_for_each(|(value, cache)| value.recalculate_tree_hash_root(cache).map(|_| ()))?;
+            .map(|(value, cache)| {
+                value.recalculate_tree_hash_root(arena, cache).map(|_| ())?;
+                Ok(cache.root(arena).to_fixed_bytes())
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
 
-        // Pipe the value roots into the list cache, then mix in the length.
-        // Note: it's possible to avoid this 2nd iteration (or an allocation) by using
-        // `itertools::process_results`, but it requires removing the `ExactSizeIterator`
-        // bound from `recalculate_merkle_root`, and only saves about 5% in benchmarks.
+        let list_root = cache
+            .list_cache
+            .recalculate_merkle_root(arena, leaves.into_iter())?;
+        */
+
         let list_root = cache.list_cache.recalculate_merkle_root(
-            cache
-                .value_caches
-                .iter()
-                .map(|value_cache| value_cache.root().to_fixed_bytes()),
+            arena,
+            self.iter().map(|item| {
+                let mut a = [0; 32];
+                a.copy_from_slice(&item.tree_hash_root());
+                a
+            }),
         )?;
 
         Ok(Hash256::from_slice(&mix_in_length(

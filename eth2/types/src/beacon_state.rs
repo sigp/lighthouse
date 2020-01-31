@@ -2,7 +2,7 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
-use cached_tree_hash::{CachedTreeHash, MultiTreeHashCache, TreeHashCache};
+use cached_tree_hash::{CachedTreeHash, MultiTreeHashCache, TreeHashCache, VecArena};
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
@@ -91,27 +91,6 @@ pub struct BeaconTreeHashCache {
     balances: TreeHashCache,
     randao_mixes: TreeHashCache,
     slashings: TreeHashCache,
-}
-
-impl BeaconTreeHashCache {
-    pub fn is_initialized(&self) -> bool {
-        self.initialized
-    }
-
-    /// Returns the approximate size of the cache in bytes.
-    ///
-    /// The size is approximate because we ignore some stack-allocated `u64` and `Vec` pointers.
-    /// We focus instead on the lists of hashes, which should massively outweigh the items that we
-    /// ignore.
-    pub fn approx_mem_size(&self) -> usize {
-        self.block_roots.approx_mem_size()
-            + self.state_roots.approx_mem_size()
-            + self.historical_roots.approx_mem_size()
-            + self.validators.approx_mem_size()
-            + self.balances.approx_mem_size()
-            + self.randao_mixes.approx_mem_size()
-            + self.slashings.approx_mem_size()
-    }
 }
 
 /// The state of the `BeaconChain` at some slot.
@@ -208,6 +187,12 @@ where
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
+    pub tree_hash_cache_arena: VecArena,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
     pub tree_hash_cache: BeaconTreeHashCache,
 }
 
@@ -263,6 +248,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
+            tree_hash_cache_arena: VecArena::default(),
             tree_hash_cache: BeaconTreeHashCache::default(),
         }
     }
@@ -929,7 +915,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
         if !self.tree_hash_cache.initialized {
-            self.tree_hash_cache = Self::new_tree_hash_cache();
+            self.tree_hash_cache = Self::new_tree_hash_cache(&mut self.tree_hash_cache_arena);
         }
     }
 
@@ -951,14 +937,17 @@ impl<T: EthSpec> BeaconState<T> {
         self.initialize_tree_hash_cache();
 
         let mut cache = std::mem::replace(&mut self.tree_hash_cache, <_>::default());
-        let result = self.recalculate_tree_hash_root(&mut cache);
+        let mut arena = std::mem::replace(&mut self.tree_hash_cache_arena, <_>::default());
+        let result = self.recalculate_tree_hash_root(&mut arena, &mut cache);
         std::mem::replace(&mut self.tree_hash_cache, cache);
+        std::mem::replace(&mut self.tree_hash_cache_arena, arena);
 
         Ok(result?)
     }
 
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
     pub fn drop_tree_hash_cache(&mut self) {
+        self.tree_hash_cache_arena = VecArena::default();
         self.tree_hash_cache = BeaconTreeHashCache::default();
     }
 
@@ -1008,6 +997,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
+            tree_hash_cache_arena: VecArena::default(),
             tree_hash_cache: BeaconTreeHashCache::default(),
         }
     }

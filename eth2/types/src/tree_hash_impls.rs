@@ -3,30 +3,34 @@
 //! It makes some assumptions about the layouts and update patterns of other structs in this
 //! crate, and should be updated carefully whenever those structs are changed.
 use crate::{Hash256, Validator};
-use cached_tree_hash::{int_log, CachedTreeHash, Error, TreeHashCache};
+use cached_tree_hash::{int_log, CachedTreeHash, Error, TreeHashCache, VecArena};
 use tree_hash::TreeHash;
 
 /// Number of struct fields on `Validator`.
 const NUM_VALIDATOR_FIELDS: usize = 8;
 
 impl CachedTreeHash<TreeHashCache> for Validator {
-    fn new_tree_hash_cache() -> TreeHashCache {
-        TreeHashCache::new(int_log(NUM_VALIDATOR_FIELDS))
+    fn new_tree_hash_cache(arena: &mut VecArena) -> TreeHashCache {
+        TreeHashCache::new(arena, int_log(NUM_VALIDATOR_FIELDS))
     }
 
     /// Efficiently tree hash a `Validator`, assuming it was updated by a valid state transition.
     ///
     /// Specifically, we assume that the `pubkey` and `withdrawal_credentials` fields are constant.
-    fn recalculate_tree_hash_root(&self, cache: &mut TreeHashCache) -> Result<Hash256, Error> {
+    fn recalculate_tree_hash_root(
+        &self,
+        arena: &mut VecArena,
+        cache: &mut TreeHashCache,
+    ) -> Result<Hash256, Error> {
         // If the cache is empty, hash every field to fill it.
-        if cache.leaves().is_empty() {
-            return cache.recalculate_merkle_root(field_tree_hash_iter(self));
+        if cache.leaves().is_empty(arena)? {
+            return cache.recalculate_merkle_root(arena, field_tree_hash_iter(self));
         }
 
         // Otherwise just check the fields which might have changed.
         let dirty_indices = cache
             .leaves()
-            .iter_mut()
+            .iter_mut(arena)
             .enumerate()
             .flat_map(|(i, leaf)| {
                 // Fields pubkey and withdrawal_credentials are constant
@@ -44,7 +48,7 @@ impl CachedTreeHash<TreeHashCache> for Validator {
             })
             .collect();
 
-        cache.update_merkle_root(dirty_indices)
+        cache.update_merkle_root(arena, dirty_indices)
     }
 }
 
@@ -88,18 +92,24 @@ mod test {
     use rand_xorshift::XorShiftRng;
 
     fn test_validator_tree_hash(v: &Validator) {
-        let mut cache = Validator::new_tree_hash_cache();
+        let arena = &mut VecArena::default();
+
+        let mut cache = Validator::new_tree_hash_cache(arena);
         // With a fresh cache
         assert_eq!(
             &v.tree_hash_root()[..],
-            v.recalculate_tree_hash_root(&mut cache).unwrap().as_bytes(),
+            v.recalculate_tree_hash_root(arena, &mut cache)
+                .unwrap()
+                .as_bytes(),
             "{:?}",
             v
         );
         // With a completely up-to-date cache
         assert_eq!(
             &v.tree_hash_root()[..],
-            v.recalculate_tree_hash_root(&mut cache).unwrap().as_bytes(),
+            v.recalculate_tree_hash_root(arena, &mut cache)
+                .unwrap()
+                .as_bytes(),
             "{:?}",
             v
         );
