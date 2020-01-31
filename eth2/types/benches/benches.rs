@@ -106,10 +106,33 @@ fn all_benches(c: &mut Criterion) {
     let inner_state = state.clone();
     c.bench(
         &format!("{}_validators", validator_count),
-        Benchmark::new("uinitialized_cached_tree_hash/beacon_state", move |b| {
+        Benchmark::new(
+            "initialized_cached_tree_hash_without_changes/beacon_state",
+            move |b| {
+                b.iter_batched_ref(
+                    || inner_state.clone(),
+                    |state| black_box(state.update_tree_hash_cache()),
+                    criterion::BatchSize::SmallInput,
+                )
+            },
+        )
+        .sample_size(10),
+    );
+
+    let mut inner_state = state.clone();
+    inner_state.drop_all_caches();
+    c.bench(
+        &format!("{}_validators", validator_count),
+        Benchmark::new("non_initialized_cached_tree_hash/beacon_state", move |b| {
             b.iter_batched_ref(
                 || inner_state.clone(),
-                |state| black_box(state.update_tree_hash_cache()),
+                |state| {
+                    black_box(
+                        state
+                            .update_tree_hash_cache()
+                            .expect("should update tree hash"),
+                    )
+                },
                 criterion::BatchSize::SmallInput,
             )
         })
