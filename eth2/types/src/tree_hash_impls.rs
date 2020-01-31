@@ -10,8 +10,8 @@ use tree_hash::TreeHash;
 const NUM_VALIDATOR_FIELDS: usize = 8;
 
 impl CachedTreeHash<TreeHashCache> for Validator {
-    fn new_tree_hash_cache(arena: &mut VecArena) -> TreeHashCache {
-        TreeHashCache::new(arena, int_log(NUM_VALIDATOR_FIELDS))
+    fn new_tree_hash_cache(&self, arena: &mut VecArena) -> TreeHashCache {
+        TreeHashCache::new(arena, int_log(NUM_VALIDATOR_FIELDS), NUM_VALIDATOR_FIELDS)
     }
 
     /// Efficiently tree hash a `Validator`, assuming it was updated by a valid state transition.
@@ -94,7 +94,7 @@ mod test {
     fn test_validator_tree_hash(v: &Validator) {
         let arena = &mut VecArena::default();
 
-        let mut cache = Validator::new_tree_hash_cache(arena);
+        let mut cache = v.new_tree_hash_cache(arena);
         // With a fresh cache
         assert_eq!(
             &v.tree_hash_root()[..],

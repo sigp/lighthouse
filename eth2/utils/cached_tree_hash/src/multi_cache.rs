@@ -21,9 +21,11 @@ where
     T: CachedTreeHash<TreeHashCache>,
     N: Unsigned,
 {
-    fn new_tree_hash_cache(arena: &mut VecArena) -> MultiTreeHashCache {
+    fn new_tree_hash_cache(&self, arena: &mut VecArena) -> MultiTreeHashCache {
         MultiTreeHashCache {
-            list_cache: TreeHashCache::new(arena, int_log(N::to_usize())),
+            // TODO: here we use `self.len()` for the leaf count. This will only work for composite
+            // values.
+            list_cache: TreeHashCache::new(arena, int_log(N::to_usize()), self.len()),
             value_caches: vec![],
         }
     }

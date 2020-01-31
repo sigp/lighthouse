@@ -216,6 +216,7 @@ pub fn cached_tree_hash_derive(input: TokenStream) -> TokenStream {
     let caching_field_cache_field = fields
         .iter()
         .flat_map(|(_, _, cache_field)| cache_field.as_ref());
+    let caching_field_struct_member = caching_field_cache_field.clone();
 
     let tree_hash_root_expr = fields
         .iter()
@@ -233,12 +234,12 @@ pub fn cached_tree_hash_derive(input: TokenStream) -> TokenStream {
 
     let output = quote! {
         impl #impl_generics cached_tree_hash::CachedTreeHash<#cache_type> for #name #ty_generics #where_clause {
-            fn new_tree_hash_cache(arena: &mut cached_tree_hash::VecArena) -> #cache_type {
+            fn new_tree_hash_cache(&self, arena: &mut cached_tree_hash::VecArena) -> #cache_type {
                 // Call new cache for each sub type
                 #cache_type {
                     initialized: true,
                     #(
-                        #caching_field_cache_field: <#caching_field_ty>::new_tree_hash_cache(arena)
+                        #caching_field_cache_field: self.#caching_field_struct_member.new_tree_hash_cache(arena)
                     ),*
                 }
             }

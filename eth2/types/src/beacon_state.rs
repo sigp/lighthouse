@@ -915,7 +915,9 @@ impl<T: EthSpec> BeaconState<T> {
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
         if !self.tree_hash_cache.initialized {
-            self.tree_hash_cache = Self::new_tree_hash_cache(&mut self.tree_hash_cache_arena);
+            let mut arena = std::mem::replace(&mut self.tree_hash_cache_arena, <_>::default());
+            self.tree_hash_cache = self.new_tree_hash_cache(&mut arena);
+            std::mem::replace(&mut self.tree_hash_cache_arena, arena);
         }
     }
 

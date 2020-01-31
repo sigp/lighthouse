@@ -10,6 +10,7 @@ type SubVecArena = vec_arena::SubVecArena<Hash256>;
 /// Sparse Merkle tree suitable for tree hashing vectors and lists.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct TreeHashCache {
+    initialized: bool,
     /// Depth is such that the tree has a capacity for 2^depth leaves
     depth: usize,
     /// Sparse layers.
@@ -19,12 +20,39 @@ pub struct TreeHashCache {
     layers: Vec<SubVecArena>,
 }
 
+fn nodes_per_layer(layer: usize, depth: usize, leaves: usize) -> usize {
+    if layer == depth {
+        leaves
+    } else {
+        let leaves_per_node = 1 << (depth - layer);
+        (leaves + leaves_per_node - 1) / leaves_per_node
+    }
+}
+
 impl TreeHashCache {
-    /// Create a new cache with the given `depth`, but no actual content.
-    pub fn new(arena: &mut VecArena, depth: usize) -> Self {
+    /// Create a new cache with the given `depth` with enough nodes allocated to suit `leaves`. All
+    /// leaves are set to `Hash256::zero()`>
+    pub fn new(arena: &mut VecArena, depth: usize, mut leaves: usize) -> Self {
+        // TODO: what about when leaves is zero?
+        let layers = (0..=depth)
+            .map(|i| {
+                let mut vec = arena.alloc();
+                vec.extend_with_vec(
+                    arena,
+                    vec![Hash256::zero(); nodes_per_layer(i, depth, leaves)],
+                )
+                .expect(
+                    "A newly allocated sub-arena cannot fail unless it has reached max capacity",
+                );
+
+                vec
+            })
+            .collect();
+
         TreeHashCache {
+            initialized: false,
             depth,
-            layers: (0..=depth).into_iter().map(|_| arena.alloc()).collect(),
+            layers,
         }
     }
 
@@ -59,7 +87,7 @@ impl TreeHashCache {
             .enumerate()
             .zip(&mut leaves)
             .flat_map(|((i, leaf), new_leaf)| {
-                if leaf.as_bytes() != new_leaf {
+                if leaf.as_bytes() != new_leaf || self.initialized == false {
                     leaf.assign_from_slice(&new_leaf);
                     Some(i)
                 } else {
@@ -74,6 +102,8 @@ impl TreeHashCache {
             .extend_with_vec(arena, leaves.map(|l| Hash256::from_slice(&l)).collect())
             // TODO: fix expect
             .expect("should extend");
+
+        self.initialized == true;
 
         Ok(dirty)
     }

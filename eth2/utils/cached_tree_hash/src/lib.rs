@@ -34,7 +34,7 @@ impl From<vec_arena::Error> for Error {
 /// Trait for types which can make use of a cache to accelerate calculation of their tree hash root.
 pub trait CachedTreeHash<Cache>: TreeHash {
     /// Create a new cache appropriate for use with values of this type.
-    fn new_tree_hash_cache(arena: &mut VecArena) -> Cache;
+    fn new_tree_hash_cache(&self, arena: &mut VecArena) -> Cache;
 
     /// Update the cache and use it to compute the tree hash root for `self`.
     fn recalculate_tree_hash_root(
