@@ -1,14 +1,13 @@
 use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
-use crate::types::{error, GossipTopic};
-use crate::NetworkConfig;
-use crate::PubsubMessage;
-use crate::TopicHash;
+use crate::{error, NetworkConfig};
+use crate::{GossipTopic, PubsubMessage, TopicHash};
+use enr::Enr;
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
     discv5::Discv5Event,
-    gossipsub::{Gossipsub, GossipsubEvent, GossipsubMessage, MessageId},
+    gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
     swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
     tokio_io::{AsyncRead, AsyncWrite},
@@ -42,7 +41,7 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
     /// A cache of recently seen gossip messages. This is used to filter out any possible
     /// duplicates that may still be seen over gossipsub.
     #[behaviour(ignore)]
-    seen_gossip_messages: LruCache<GossipsubMessage, ()>,
+    seen_gossip_messages: LruCache<MessageId, ()>,
     /// Logger for behaviour actions.
     #[behaviour(ignore)]
     log: slog::Logger,
@@ -54,7 +53,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         net_conf: &NetworkConfig,
         log: &slog::Logger,
     ) -> error::Result<Self> {
-        let local_peer_id = local_key.public().clone().into_peer_id();
+        let local_peer_id = local_key.public().into_peer_id();
         let behaviour_log = log.new(o!());
 
         let identify = Identify::new(
@@ -65,10 +64,10 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
 
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
-            gossipsub: Gossipsub::new(local_peer_id.clone(), net_conf.gs_config.clone()),
+            gossipsub: Gossipsub::new(local_peer_id, net_conf.gs_config.clone()),
             discovery: Discovery::new(local_key, net_conf, log)?,
             identify,
-            seen_gossip_messages: LruCache::new(256),
+            seen_gossip_messages: LruCache::new(100_000),
             events: Vec::new(),
             log: behaviour_log,
         })
@@ -92,7 +91,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
             GossipsubEvent::Message(propagation_source, id, gs_msg) => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
-                if self.seen_gossip_messages.put(gs_msg.clone(), ()).is_none() {
+                if self.seen_gossip_messages.put(id.clone(), ()).is_none() {
                     match PubsubMessage::decode(&gs_msg.topics, &gs_msg.data) {
                         Err(e) => {
                             debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
@@ -240,6 +239,16 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     /// Notify discovery that the peer has been unbanned.
     pub fn peer_unbanned(&mut self, peer_id: &PeerId) {
         self.discovery.peer_unbanned(peer_id);
+    }
+
+    /// Returns an iterator over all enr entries in the DHT.
+    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
+        self.discovery.enr_entries()
+    }
+
+    /// Add an ENR to the routing table of the discovery mechanism.
+    pub fn add_enr(&mut self, enr: Enr) {
+        self.discovery.add_enr(enr);
     }
 }
 

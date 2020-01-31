@@ -3,6 +3,7 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{Libp2pEvent, RPCEvent};
 use slog::{warn, Level};
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::prelude::*;
@@ -106,20 +107,19 @@ fn test_status_rpc() {
     });
 
     // execute the futures and check the result
-    let test_result = Arc::new(Mutex::new(false));
+    let test_result = Arc::new(AtomicBool::new(false));
     let error_result = test_result.clone();
     let thread_result = test_result.clone();
     tokio::run(
         sender_future
             .select(receiver_future)
             .timeout(Duration::from_millis(1000))
-            .map_err(move |_| *error_result.lock().unwrap() = false)
+            .map_err(move |_| error_result.store(false, Relaxed))
             .map(move |result| {
-                *thread_result.lock().unwrap() = result.0;
-                ()
+                thread_result.store(result.0, Relaxed);
             }),
     );
-    assert!(*test_result.lock().unwrap());
+    assert!(test_result.load(Relaxed));
 }
 
 #[test]
@@ -236,20 +236,19 @@ fn test_blocks_by_range_chunked_rpc() {
     });
 
     // execute the futures and check the result
-    let test_result = Arc::new(Mutex::new(false));
+    let test_result = Arc::new(AtomicBool::new(false));
     let error_result = test_result.clone();
     let thread_result = test_result.clone();
     tokio::run(
         sender_future
             .select(receiver_future)
             .timeout(Duration::from_millis(1000))
-            .map_err(move |_| *error_result.lock().unwrap() = false)
+            .map_err(move |_| error_result.store(false, Relaxed))
             .map(move |result| {
-                *thread_result.lock().unwrap() = result.0;
-                ()
+                thread_result.store(result.0, Relaxed);
             }),
     );
-    assert!(*test_result.lock().unwrap());
+    assert!(test_result.load(Relaxed));
 }
 
 #[test]
@@ -359,20 +358,19 @@ fn test_blocks_by_range_single_empty_rpc() {
     });
 
     // execute the futures and check the result
-    let test_result = Arc::new(Mutex::new(false));
+    let test_result = Arc::new(AtomicBool::new(false));
     let error_result = test_result.clone();
     let thread_result = test_result.clone();
     tokio::run(
         sender_future
             .select(receiver_future)
             .timeout(Duration::from_millis(1000))
-            .map_err(move |_| *error_result.lock().unwrap() = false)
+            .map_err(move |_| error_result.store(false, Relaxed))
             .map(move |result| {
-                *thread_result.lock().unwrap() = result.0;
-                ()
+                thread_result.store(result.0, Relaxed);
             }),
     );
-    assert!(*test_result.lock().unwrap());
+    assert!(test_result.load(Relaxed));
 }
 
 #[test]
@@ -486,20 +484,19 @@ fn test_blocks_by_root_chunked_rpc() {
     });
 
     // execute the futures and check the result
-    let test_result = Arc::new(Mutex::new(false));
+    let test_result = Arc::new(AtomicBool::new(false));
     let error_result = test_result.clone();
     let thread_result = test_result.clone();
     tokio::run(
         sender_future
             .select(receiver_future)
             .timeout(Duration::from_millis(1000))
-            .map_err(move |_| *error_result.lock().unwrap() = false)
+            .map_err(move |_| error_result.store(false, Relaxed))
             .map(move |result| {
-                *thread_result.lock().unwrap() = result.0;
-                ()
+                thread_result.store(result.0, Relaxed);
             }),
     );
-    assert!(*test_result.lock().unwrap());
+    assert!(test_result.load(Relaxed));
 }
 
 #[test]
@@ -558,18 +555,17 @@ fn test_goodbye_rpc() {
     });
 
     // execute the futures and check the result
-    let test_result = Arc::new(Mutex::new(false));
+    let test_result = Arc::new(AtomicBool::new(false));
     let error_result = test_result.clone();
     let thread_result = test_result.clone();
     tokio::run(
         sender_future
             .select(receiver_future)
             .timeout(Duration::from_millis(1000))
-            .map_err(move |_| *error_result.lock().unwrap() = false)
+            .map_err(move |_| error_result.store(false, Relaxed))
             .map(move |result| {
-                *thread_result.lock().unwrap() = result.0;
-                ()
+                thread_result.store(result.0, Relaxed);
             }),
     );
-    assert!(*test_result.lock().unwrap());
+    assert!(test_result.load(Relaxed));
 }

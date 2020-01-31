@@ -200,7 +200,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             );
 
             self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.head_slot
             > self.chain.slot().unwrap_or_else(|_| Slot::from(0u64)) + FUTURE_SLOT_TOLERANCE
         {
@@ -216,7 +216,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             "reason" => "different system clocks or genesis time"
             );
             self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.finalized_epoch <= local.finalized_epoch
             && remote.finalized_root != Hash256::zero()
             && local.finalized_root != Hash256::zero()
@@ -236,7 +236,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 "reason" => "different finalized chain"
             );
             self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.finalized_epoch < local.finalized_epoch {
             // The node has a lower finalized epoch, their chain is not useful to us. There are two
             // cases where a node can have a lower finalized epoch:
@@ -554,9 +554,9 @@ impl<T: BeaconChainTypes> Processor<T> {
                         self.log,
                         "Processed attestation";
                         "source" => "gossip",
-                        "outcome" => format!("{:?}", outcome),
                         "peer" => format!("{:?}",peer_id),
-                        "data" => format!("{:?}", msg.data)
+                        "block_root" => format!("{}", msg.data.beacon_block_root),
+                        "slot" => format!("{}", msg.data.slot),
                     );
                 }
                 AttestationProcessingOutcome::UnknownHeadBlock { beacon_block_root } => {

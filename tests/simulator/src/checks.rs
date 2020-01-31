@@ -41,7 +41,7 @@ pub fn verify_first_finalization<E: EthSpec>(
 }
 
 /// Delays for `epochs`, plus half a slot extra.
-fn epoch_delay(
+pub fn epoch_delay(
     epochs: Epoch,
     slot_duration: Duration,
     slots_per_epoch: u64,
@@ -60,7 +60,7 @@ fn slot_delay(slots: Slot, slot_duration: Duration) -> impl Future<Item = (), Er
 
 /// Verifies that all beacon nodes in the given network have a head state that has a finalized
 /// epoch of `epoch`.
-fn verify_all_finalized_at<E: EthSpec>(
+pub fn verify_all_finalized_at<E: EthSpec>(
     network: LocalNetwork<E>,
     epoch: Epoch,
 ) -> impl Future<Item = (), Error = String> {

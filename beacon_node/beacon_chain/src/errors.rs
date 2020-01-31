@@ -1,11 +1,11 @@
 use crate::eth1_chain::Error as Eth1ChainError;
 use crate::fork_choice::Error as ForkChoiceError;
+use operation_pool::OpPoolError;
 use ssz_types::Error as SszTypesError;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::BlockProcessingError;
 use state_processing::SlotProcessingError;
 use std::time::Duration;
-use store::block_root_tree::BlockRootTreeError;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -50,13 +50,11 @@ pub enum BeaconChainError {
     InvariantViolated(String),
     SszTypesError(SszTypesError),
     CanonicalHeadLockTimeout,
-    BlockRootTreeError(BlockRootTreeError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
 easy_from_to!(SszTypesError, BeaconChainError);
-easy_from_to!(BlockRootTreeError, BeaconChainError);
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {
@@ -67,6 +65,7 @@ pub enum BlockProductionError {
     BlockProcessingError(BlockProcessingError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
+    OpPoolError(OpPoolError),
     /// The `BeaconChain` was explicitly configured _without_ a connection to eth1, therefore it
     /// cannot produce blocks.
     NoEth1ChainConnection,

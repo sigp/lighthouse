@@ -99,9 +99,10 @@ impl AggregateSignature {
         for byte in bytes {
             if *byte != 0 {
                 let sig = RawAggregateSignature::from_bytes(&bytes).map_err(|_| {
-                    DecodeError::BytesInvalid(
-                        format!("Invalid AggregateSignature bytes: {:?}", bytes).to_string(),
-                    )
+                    DecodeError::BytesInvalid(format!(
+                        "Invalid AggregateSignature bytes: {:?}",
+                        bytes
+                    ))
                 })?;
 
                 return Ok(Self {

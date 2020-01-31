@@ -33,7 +33,6 @@ eth2_ssz_derive = "0.1.0"
 state_processing = { path = "../../eth2/state_processing" }
 tree_hash = "0.1.0"
 types = { path = "../../eth2/types" }
-lmd_ghost = { path = "../../eth2/lmd_ghost" }
 eth1 = { path = "../eth1" }
 websocket_server = { path = "../websocket_server" }
 futures = "0.1.25"
@@ -41,6 +40,7 @@ exit-future = "0.1.3"
 genesis = { path = "../genesis" }
 integer-sqrt = "0.1"
 rand = "0.7.2"
+proto_array_fork_choice = { path = "../../eth2/proto_array_fork_choice" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

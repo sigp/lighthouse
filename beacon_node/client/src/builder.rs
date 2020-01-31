@@ -4,7 +4,6 @@ use crate::Client;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
-    lmd_ghost::ThreadSafeReducedTree,
     slot_clock::{SlotClock, SystemTimeSlotClock},
     store::{
         migrate::{BackgroundMigrator, Migrate, NullMigrator},
@@ -21,7 +20,6 @@ use genesis::{
     generate_deterministic_keypairs, interop_genesis_state, state_from_ssz_file, Eth1GenesisService,
 };
 use lighthouse_bootstrap::Bootstrapper;
-use lmd_ghost::LmdGhost;
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
 use slog::info;
 use ssz::Decode;
@@ -67,24 +65,15 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
-        Witness<
-            TStore,
-            TStoreMigrator,
-            TSlotClock,
-            TLmdGhost,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-        >,
+        Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
     >
 where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -151,7 +140,7 @@ where
 
                 let builder = BeaconChainBuilder::new(eth_spec_instance)
                     .logger(context.log.clone())
-                    .store(store.clone())
+                    .store(store)
                     .store_migrator(store_migrator)
                     .custom_spec(spec.clone());
 
@@ -223,7 +212,7 @@ where
                             Box::new(future)
                         }
                         ClientGenesis::RemoteNode { server, .. } => {
-                            let future = Bootstrapper::connect(server.to_string(), &context.log)
+                            let future = Bootstrapper::connect(server, &context.log)
                                 .map_err(|e| {
                                     format!("Failed to initialize bootstrap client: {}", e)
                                 })
@@ -241,7 +230,10 @@ where
                             Box::new(future)
                         }
                         ClientGenesis::Resume => {
-                            let future = builder.resume_from_db().into_future().map(|v| (v, None));
+                            let future = builder
+                                .resume_from_db(config)
+                                .into_future()
+                                .map(|v| (v, None));
 
                             Box::new(future)
                         }
@@ -303,14 +295,14 @@ where
             .ok_or_else(|| "http_server requires a libp2p network sender")?;
 
         let network_info = rest_api::NetworkInfo {
-            network_service: network.clone(),
-            network_chan: network_send.clone(),
+            network_service: network,
+            network_chan: network_send,
         };
 
         let (exit_signal, listening_addr) = rest_api::start_server(
             &client_config.rest_api,
             &context.executor,
-            beacon_chain.clone(),
+            beacon_chain,
             network_info,
             client_config
                 .create_db_path()
@@ -364,17 +356,8 @@ where
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
     pub fn build(
         self,
-    ) -> Client<
-        Witness<
-            TStore,
-            TStoreMigrator,
-            TSlotClock,
-            TLmdGhost,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-        >,
-    > {
+    ) -> Client<Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>>
+    {
         Client {
             beacon_chain: self.beacon_chain,
             libp2p_network: self.libp2p_network,
@@ -387,21 +370,13 @@ where
 
 impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
-        Witness<
-            TStore,
-            TStoreMigrator,
-            TSlotClock,
-            ThreadSafeReducedTree<TStore, TEthSpec>,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-        >,
+        Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
     >
 where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -432,13 +407,12 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec>
+impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
     ClientBuilder<
         Witness<
             TStore,
             TStoreMigrator,
             TSlotClock,
-            TLmdGhost,
             TEth1Backend,
             TEthSpec,
             WebSocketSender<TEthSpec>,
@@ -448,8 +422,7 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
 {
     /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
@@ -482,13 +455,12 @@ where
     }
 }
 
-impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
             DiskStore<TEthSpec>,
             TStoreMigrator,
             TSlotClock,
-            TLmdGhost,
             TEth1Backend,
             TEthSpec,
             TEventHandler,
@@ -497,8 +469,7 @@ impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandle
 where
     TSlotClock: SlotClock + 'static,
     TStoreMigrator: store::Migrate<DiskStore<TEthSpec>, TEthSpec> + 'static,
-    TLmdGhost: LmdGhost<DiskStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, DiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -526,19 +497,18 @@ where
             spec,
             context.log,
         )
-        .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
+        .map_err(|e| format!("Unable to open database: {:?}", e))?;
         self.store = Some(Arc::new(store));
         Ok(self)
     }
 }
 
-impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
             SimpleDiskStore<TEthSpec>,
             TStoreMigrator,
             TSlotClock,
-            TLmdGhost,
             TEth1Backend,
             TEthSpec,
             TEventHandler,
@@ -547,27 +517,25 @@ impl<TStoreMigrator, TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandle
 where
     TSlotClock: SlotClock + 'static,
     TStoreMigrator: store::Migrate<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
-    TLmdGhost: LmdGhost<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, SimpleDiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     /// Specifies that the `Client` should use a `DiskStore` database.
     pub fn simple_disk_store(mut self, path: &Path) -> Result<Self, String> {
-        let store = SimpleDiskStore::open(path)
-            .map_err(|e| format!("Unable to open database: {:?}", e).to_string())?;
+        let store =
+            SimpleDiskStore::open(path).map_err(|e| format!("Unable to open database: {:?}", e))?;
         self.store = Some(Arc::new(store));
         Ok(self)
     }
 }
 
-impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
             MemoryStore<TEthSpec>,
             NullMigrator,
             TSlotClock,
-            TLmdGhost,
             TEth1Backend,
             TEthSpec,
             TEventHandler,
@@ -575,8 +543,7 @@ impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<MemoryStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, MemoryStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -591,13 +558,12 @@ where
     }
 }
 
-impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
             DiskStore<TEthSpec>,
             BackgroundMigrator<TEthSpec>,
             TSlotClock,
-            TLmdGhost,
             TEth1Backend,
             TEthSpec,
             TEventHandler,
@@ -605,8 +571,7 @@ impl<TSlotClock, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<DiskStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, DiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -619,13 +584,12 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TLmdGhost, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
             TStore,
             TStoreMigrator,
             TSlotClock,
-            TLmdGhost,
             CachingEth1Backend<TEthSpec, TStore>,
             TEthSpec,
             TEventHandler,
@@ -635,7 +599,6 @@ where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -657,7 +620,7 @@ where
             .ok_or_else(|| "caching_eth1_backend requires a store".to_string())?;
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
-            eth1_service_from_genesis.update_config(config.clone())?;
+            eth1_service_from_genesis.update_config(config)?;
 
             // This cache is not useful because it's first (earliest) block likely the block that
             // triggered genesis.
@@ -721,23 +684,14 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TLmdGhost, TEth1Backend, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
-        Witness<
-            TStore,
-            TStoreMigrator,
-            SystemTimeSlotClock,
-            TLmdGhost,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-        >,
+        Witness<TStore, TStoreMigrator, SystemTimeSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
     >
 where
     TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: store::Migrate<TStore, TEthSpec>,
-    TLmdGhost: LmdGhost<TStore, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {

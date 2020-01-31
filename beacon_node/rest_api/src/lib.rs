@@ -4,6 +4,7 @@ mod macros;
 extern crate lazy_static;
 extern crate network as client_network;
 
+mod advanced;
 mod beacon;
 pub mod config;
 mod consensus;
@@ -54,6 +55,8 @@ pub struct NetworkInfo<T: BeaconChainTypes> {
     pub network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
 }
 
+// Allowing more than 7 arguments.
+#[allow(clippy::too_many_arguments)]
 pub fn start_server<T: BeaconChainTypes>(
     config: &Config,
     executor: &TaskExecutor,
