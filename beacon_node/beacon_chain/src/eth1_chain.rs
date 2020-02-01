@@ -373,6 +373,7 @@ where
 {
     let votes: Option<HashMap<Eth1Data, u64>> = blocks
         .rev()
+        .skip_while(|eth1_block| !is_candidate_block(eth1_block, voting_period_start_seconds, spec))
         .take_while(|eth1_block| is_candidate_block(eth1_block, voting_period_start_seconds, spec))
         .map(|eth1_block| {
             (eth1_block
