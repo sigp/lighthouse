@@ -34,11 +34,11 @@ impl CachedTreeHash<TreeHashCache> for Validator {
             .enumerate()
             .flat_map(|(i, leaf)| {
                 // Fields pubkey and withdrawal_credentials are constant
-                if i == 0 || i == 1 {
+                if (i == 0 || i == 1) && cache.initialized {
                     None
                 } else {
                     let new_tree_hash = field_tree_hash_by_index(self, i);
-                    if leaf.as_bytes() != &new_tree_hash[..] {
+                    if leaf.as_bytes() != &new_tree_hash[..] || !cache.initialized {
                         leaf.assign_from_slice(&new_tree_hash);
                         Some(i)
                     } else {

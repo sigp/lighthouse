@@ -10,7 +10,7 @@ type SubVecArena = vec_arena::SubVecArena<Hash256>;
 /// Sparse Merkle tree suitable for tree hashing vectors and lists.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct TreeHashCache {
-    initialized: bool,
+    pub initialized: bool,
     /// Depth is such that the tree has a capacity for 2^depth leaves
     depth: usize,
     /// Sparse layers.
@@ -32,7 +32,7 @@ fn nodes_per_layer(layer: usize, depth: usize, leaves: usize) -> usize {
 impl TreeHashCache {
     /// Create a new cache with the given `depth` with enough nodes allocated to suit `leaves`. All
     /// leaves are set to `Hash256::zero()`>
-    pub fn new(arena: &mut VecArena, depth: usize, mut leaves: usize) -> Self {
+    pub fn new(arena: &mut VecArena, depth: usize, leaves: usize) -> Self {
         // TODO: what about when leaves is zero?
         let layers = (0..=depth)
             .map(|i| {
@@ -103,8 +103,6 @@ impl TreeHashCache {
             // TODO: fix expect
             .expect("should extend");
 
-        self.initialized == true;
-
         Ok(dirty)
     }
 
@@ -160,6 +158,8 @@ impl TreeHashCache {
             dirty_indices = new_dirty_indices;
             depth -= 1;
         }
+
+        self.initialized = true;
 
         Ok(self.root(arena))
     }

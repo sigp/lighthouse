@@ -127,7 +127,7 @@ impl<T: SszStaticType + CachedTreeHash<C>, C: Debug + Sync> Case for SszStaticTH
         check_tree_hash(&self.roots.root, &self.value.tree_hash_root())?;
 
         let arena = &mut VecArena::default();
-        let mut cache = T::new_tree_hash_cache(arena);
+        let mut cache = self.value.new_tree_hash_cache(arena);
         let cached_tree_hash_root = self
             .value
             .recalculate_tree_hash_root(arena, &mut cache)

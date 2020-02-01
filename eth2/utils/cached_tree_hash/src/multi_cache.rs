@@ -35,15 +35,14 @@ where
         arena: &mut VecArena,
         cache: &mut MultiTreeHashCache,
     ) -> Result<Hash256, Error> {
-        /*
         if self.len() < cache.value_caches.len() {
             return Err(Error::CannotShrink);
         }
 
         // Resize the value caches to the size of the list.
-        cache
-            .value_caches
-            .resize_with(self.len(), || T::new_tree_hash_cache(arena));
+        self.iter()
+            .skip(cache.value_caches.len())
+            .for_each(|value| cache.value_caches.push(value.new_tree_hash_cache(arena)));
 
         // Update all individual value caches.
         let leaves = self
@@ -58,16 +57,6 @@ where
         let list_root = cache
             .list_cache
             .recalculate_merkle_root(arena, leaves.into_iter())?;
-        */
-
-        let list_root = cache.list_cache.recalculate_merkle_root(
-            arena,
-            self.iter().map(|item| {
-                let mut a = [0; 32];
-                a.copy_from_slice(&item.tree_hash_root());
-                a
-            }),
-        )?;
 
         Ok(Hash256::from_slice(&mix_in_length(
             list_root.as_bytes(),
