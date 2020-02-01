@@ -61,6 +61,7 @@ pub enum Error {
     ExitCacheUninitialized,
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SszTypesError(ssz_types::Error),
+    TreeHashCacheNotInitialized,
     CachedTreeHashError(cached_tree_hash::Error),
     InvalidValidatorPubkey(ssz::DecodeError),
 }
@@ -193,7 +194,7 @@ where
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    pub tree_hash_cache: BeaconTreeHashCache,
+    pub tree_hash_cache: Option<(VecArena, BeaconTreeHashCache)>,
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -249,7 +250,7 @@ impl<T: EthSpec> BeaconState<T> {
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
             tree_hash_cache_arena: VecArena::default(),
-            tree_hash_cache: BeaconTreeHashCache::default(),
+            tree_hash_cache: None,
         }
     }
 
@@ -914,10 +915,10 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
-        if !self.tree_hash_cache.initialized {
-            let mut arena = std::mem::replace(&mut self.tree_hash_cache_arena, <_>::default());
-            self.tree_hash_cache = self.new_tree_hash_cache(&mut arena);
-            std::mem::replace(&mut self.tree_hash_cache_arena, arena);
+        if !self.tree_hash_cache.is_some() {
+            let mut arena = VecArena::default();
+            let cache = self.new_tree_hash_cache(&mut arena);
+            self.tree_hash_cache = Some((arena, cache))
         }
     }
 
@@ -928,7 +929,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Build the tree hash cache, with blatant disregard for any existing cache.
     pub fn force_build_tree_hash_cache(&mut self) -> Result<(), Error> {
-        self.tree_hash_cache.initialized = false;
+        self.tree_hash_cache = None;
         self.build_tree_hash_cache()
     }
 
@@ -938,19 +939,20 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
         self.initialize_tree_hash_cache();
 
-        let mut cache = std::mem::replace(&mut self.tree_hash_cache, <_>::default());
-        let mut arena = std::mem::replace(&mut self.tree_hash_cache_arena, <_>::default());
-        let result = self.recalculate_tree_hash_root(&mut arena, &mut cache);
-        std::mem::replace(&mut self.tree_hash_cache, cache);
-        std::mem::replace(&mut self.tree_hash_cache_arena, arena);
+        let tuple = std::mem::replace(&mut self.tree_hash_cache, None);
 
-        Ok(result?)
+        if let Some((mut arena, mut cache)) = tuple {
+            let result = self.recalculate_tree_hash_root(&mut arena, &mut cache);
+            self.tree_hash_cache = Some((arena, cache));
+            Ok(result?)
+        } else {
+            Err(Error::TreeHashCacheNotInitialized)
+        }
     }
 
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
     pub fn drop_tree_hash_cache(&mut self) {
-        self.tree_hash_cache_arena = VecArena::default();
-        self.tree_hash_cache = BeaconTreeHashCache::default();
+        self.tree_hash_cache = None;
     }
 
     /// Iterate through all validators and decompress their public key, unless it has already been
@@ -1000,7 +1002,7 @@ impl<T: EthSpec> BeaconState<T> {
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
             tree_hash_cache_arena: VecArena::default(),
-            tree_hash_cache: BeaconTreeHashCache::default(),
+            tree_hash_cache: None,
         }
     }
 
