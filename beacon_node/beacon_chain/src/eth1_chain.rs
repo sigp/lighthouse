@@ -461,6 +461,7 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 mod test {
     use super::*;
     use environment::null_logger;
+    use std::iter::FromIterator;
     use types::{test_utils::DepositTestTask, MinimalEthSpec};
 
     type E = MinimalEthSpec;
@@ -851,91 +852,84 @@ mod test {
             let spec = &E::default_spec();
             let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
-            let all_eth1_data = get_eth1_data_vec(slots, 0);
-            dbg!(&slots);
-            let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
+            let votes_to_consider = get_eth1_data_vec(slots, 0);
 
-            // let votes = collect_valid_votes(
-            //     &state,
-            //     HashMap::from_iter(new_eth1_data.clone().into_iter()),
-            //     HashMap::from_iter(all_eth1_data.clone().into_iter()),
-            // );
-            // assert_eq!(
-            //     votes.len(),
-            //     0,
-            //     "should not find any votes when state has no votes"
-            // );
+            let votes = collect_valid_votes(
+                &state,
+                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
+            );
+            assert_eq!(
+                votes.len(),
+                0,
+                "should not find any votes when state has no votes"
+            );
         }
 
-        // #[test]
-        // fn distinct_votes_in_state() {
-        //     let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-        //     let spec = &E::default_spec();
-        //     let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+        #[test]
+        fn distinct_votes_in_state() {
+            let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+            let spec = &E::default_spec();
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
-        //     let all_eth1_data = get_eth1_data_vec(slots, 0);
-        //     let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
+            let votes_to_consider = get_eth1_data_vec(slots, 0);
 
-        //     state.eth1_data_votes = new_eth1_data[0..slots as usize / 4]
-        //         .iter()
-        //         .map(|(eth1_data, _)| eth1_data)
-        //         .cloned()
-        //         .collect::<Vec<_>>()
-        //         .into();
+            state.eth1_data_votes = votes_to_consider[0..slots as usize / 4]
+                .iter()
+                .map(|(eth1_data, _)| eth1_data)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
 
-        //     let votes = collect_valid_votes(
-        //         &state,
-        //         HashMap::from_iter(new_eth1_data.clone().into_iter()),
-        //         HashMap::from_iter(all_eth1_data.clone().into_iter()),
-        //     );
-        //     assert_votes!(
-        //         votes,
-        //         new_eth1_data[0..slots as usize / 4].to_vec(),
-        //         "should find as many votes as were in the state"
-        //     );
-        // }
+            let votes = collect_valid_votes(
+                &state,
+                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
+            );
+            assert_votes!(
+                votes,
+                votes_to_consider[0..slots as usize / 4].to_vec(),
+                "should find as many votes as were in the state"
+            );
+        }
 
-        // #[test]
-        // fn duplicate_votes_in_state() {
-        //     let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-        //     let spec = &E::default_spec();
-        //     let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
+        #[test]
+        fn duplicate_votes_in_state() {
+            let slots = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+            let spec = &E::default_spec();
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
-        //     let all_eth1_data = get_eth1_data_vec(slots, 0);
-        //     let new_eth1_data = all_eth1_data[slots as usize / 2..].to_vec();
+            let votes_to_consider = get_eth1_data_vec(slots, 0);
 
-        //     let duplicate_eth1_data = new_eth1_data
-        //         .last()
-        //         .expect("should have some eth1 data")
-        //         .clone();
+            let duplicate_eth1_data = votes_to_consider
+                .last()
+                .expect("should have some eth1 data")
+                .clone();
 
-        //     state.eth1_data_votes = vec![duplicate_eth1_data.clone(); 4]
-        //         .iter()
-        //         .map(|(eth1_data, _)| eth1_data)
-        //         .cloned()
-        //         .collect::<Vec<_>>()
-        //         .into();
+            state.eth1_data_votes = vec![duplicate_eth1_data.clone(); 4]
+                .iter()
+                .map(|(eth1_data, _)| eth1_data)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
 
-        //     let votes = collect_valid_votes(
-        //         &state,
-        //         HashMap::from_iter(new_eth1_data.clone().into_iter()),
-        //         HashMap::from_iter(all_eth1_data.clone().into_iter()),
-        //     );
-        //     assert_votes!(
-        //         votes,
-        //         // There should only be one value if there's a duplicate
-        //         vec![duplicate_eth1_data.clone()],
-        //         "should find as many votes as were in the state"
-        //     );
+            let votes = collect_valid_votes(
+                &state,
+                &HashMap::from_iter(votes_to_consider.clone().into_iter()),
+            );
+            assert_votes!(
+                votes,
+                // There should only be one value if there's a duplicate
+                vec![duplicate_eth1_data.clone()],
+                "should find as many votes as were in the state"
+            );
 
-        //     assert_eq!(
-        //         *votes
-        //             .get(&duplicate_eth1_data)
-        //             .expect("should contain vote"),
-        //         4,
-        //         "should have four votes"
-        //     );
-        // }
+            assert_eq!(
+                *votes
+                    .get(&duplicate_eth1_data)
+                    .expect("should contain vote"),
+                4,
+                "should have four votes"
+            );
+        }
     }
 
     // mod winning_vote {
