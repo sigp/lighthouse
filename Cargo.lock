@@ -215,7 +215,6 @@ dependencies = [
  "exit-future 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "genesis 0.1.0",
- "integer-sqrt 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lighthouse_bootstrap 0.1.0",
  "lighthouse_metrics 0.1.0",

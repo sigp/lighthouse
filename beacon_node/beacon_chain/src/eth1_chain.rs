@@ -3,7 +3,6 @@ use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use exit_future::Exit;
 use futures::Future;
-use integer_sqrt::IntegerSquareRoot;
 use rand::prelude::*;
 use slog::{crit, debug, trace, Logger};
 use state_processing::per_block_processing::get_new_eth1_data;
@@ -295,7 +294,6 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
         debug!(
             self.log,
             "Produced vote for eth1 chain";
-            "is_period_tail" => is_period_tail(state),
             "deposit_root" => format!("{:?}", eth1_data.deposit_root),
             "deposit_count" => eth1_data.deposit_count,
             "block_hash" => format!("{:?}", eth1_data.block_hash),
@@ -361,8 +359,14 @@ fn random_eth1_data() -> Eth1Data {
     }
 }
 
-// TODO: maybe ignore `Eth1Block`s which don't have an associated block/deposit cache entry
-// and return a HashMap instead of None.
+/// Get all votes from eth1 blocks which are in the list of candidate blocks for the
+/// current eth1 voting period.
+///
+/// Returns `None` if any of the eth1 blocks in that range don't have an associated
+/// `deposit_root/count` or if there are no candidate eth1 blocks.
+/// Else, returns a hashmap of `Eth1Data` to its associated eth1 `block_number`.
+/// TODO: maybe ignore `Eth1Block`s which don't have an associated block/deposit cache entry
+/// and return a HashMap instead of `None`. This would invalidate the tests.
 fn get_votes_to_consider<'a, I>(
     blocks: I,
     voting_period_start_seconds: u64,
@@ -385,6 +389,8 @@ where
     votes.and_then(|v| if v.is_empty() { None } else { Some(v) })
 }
 
+/// Collect all valid votes that are cast during the current voting period.
+/// Return hashmap with count of each vote cast.
 fn collect_valid_votes<T: EthSpec>(
     state: &BeaconState<T>,
     votes_to_consider: &HashMap<Eth1Data, BlockNumber>,
@@ -407,15 +413,6 @@ fn collect_valid_votes<T: EthSpec>(
                 .or_insert(1_u64);
         });
     valid_votes
-}
-
-/// Indicates if the given `state` is in the tail of it's eth1 voting period (i.e., in the later
-/// slots).
-fn is_period_tail<E: EthSpec>(state: &BeaconState<E>) -> bool {
-    let slots_per_eth1_voting_period = E::SlotsPerEth1VotingPeriod::to_u64();
-    let slot = state.slot % slots_per_eth1_voting_period;
-
-    slot >= slots_per_eth1_voting_period.integer_sqrt()
 }
 
 /// Selects the winning vote from `valid_votes`.
