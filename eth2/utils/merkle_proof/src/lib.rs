@@ -221,7 +221,7 @@ fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index: usi
     for (i, leaf) in branch.iter().enumerate().take(depth) {
         let ith_bit = (index >> i) & 0x01;
         if ith_bit == 1 {
-            merkle_root = hash32_concat(leaf.as_bytes(), &merkle_root);
+            merkle_root = hash32_concat(leaf.as_bytes(), &merkle_root)[..].to_vec();
         } else {
             let mut input = merkle_root;
             input.extend_from_slice(leaf.as_bytes());
