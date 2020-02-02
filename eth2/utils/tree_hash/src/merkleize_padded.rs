@@ -1,5 +1,5 @@
 use super::BYTES_PER_CHUNK;
-use eth2_hashing::{hash, hash_concat, ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
+use eth2_hashing::{hash, hash32_concat, ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
 
 /// The size of the cache that stores padding nodes for a given height.
 ///
@@ -138,7 +138,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
                 "Both children should be `BYTES_PER_CHUNK` bytes."
             );
 
-            let hash = hash_concat(left, right);
+            let hash = hash32_concat(left, right);
 
             // Store a parent node.
             chunks

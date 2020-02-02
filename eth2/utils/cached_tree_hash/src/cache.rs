@@ -1,6 +1,6 @@
 use crate::vec_arena;
 use crate::{Error, Hash256};
-use eth2_hashing::{hash_concat, ZERO_HASHES};
+use eth2_hashing::{hash32_concat, ZERO_HASHES};
 use ssz_derive::{Decode, Encode};
 use tree_hash::BYTES_PER_CHUNK;
 
@@ -136,7 +136,7 @@ impl TreeHashCache {
                     .copied()
                     .unwrap_or_else(|| Hash256::from_slice(&ZERO_HASHES[self.depth - depth]));
 
-                let new_hash = hash_concat(left.as_bytes(), right.as_bytes());
+                let new_hash = hash32_concat(left.as_bytes(), right.as_bytes());
 
                 match self.layers[depth - 1].get_mut(arena, idx)? {
                     Some(hash) => {
