@@ -2,8 +2,9 @@
 //!
 //! It makes some assumptions about the layouts and update patterns of other structs in this
 //! crate, and should be updated carefully whenever those structs are changed.
-use crate::{Hash256, Validator};
+use crate::{Epoch, Hash256, Validator};
 use cached_tree_hash::{int_log, CachedTreeHash, Error, TreeHashCache, VecArena};
+use int_to_bytes::int_to_fixed_bytes32;
 use tree_hash::TreeHash;
 
 /// Number of struct fields on `Validator`.
@@ -22,11 +23,6 @@ impl CachedTreeHash<TreeHashCache> for Validator {
         arena: &mut VecArena,
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
-        // If the cache is empty, hash every field to fill it.
-        if cache.leaves().is_empty(arena)? {
-            return cache.recalculate_merkle_root(arena, field_tree_hash_iter(self));
-        }
-
         // Otherwise just check the fields which might have changed.
         let dirty_indices = cache
             .leaves()
@@ -37,9 +33,7 @@ impl CachedTreeHash<TreeHashCache> for Validator {
                 if (i == 0 || i == 1) && cache.initialized {
                     None
                 } else {
-                    let new_tree_hash = field_tree_hash_by_index(self, i);
-                    if leaf.as_bytes() != &new_tree_hash[..] || !cache.initialized {
-                        leaf.assign_from_slice(&new_tree_hash);
+                    if process_field_by_index(self, i, leaf, !cache.initialized) {
                         Some(i)
                     } else {
                         None
@@ -52,17 +46,21 @@ impl CachedTreeHash<TreeHashCache> for Validator {
     }
 }
 
-/// Get the tree hash root of a validator field by its position/index in the struct.
-fn field_tree_hash_by_index(v: &Validator, field_idx: usize) -> Vec<u8> {
+fn process_field_by_index(
+    v: &Validator,
+    field_idx: usize,
+    leaf: &mut Hash256,
+    force_update: bool,
+) -> bool {
     match field_idx {
-        0 => v.pubkey.tree_hash_root(),
-        1 => v.withdrawal_credentials.tree_hash_root(),
-        2 => v.effective_balance.tree_hash_root(),
-        3 => v.slashed.tree_hash_root(),
-        4 => v.activation_eligibility_epoch.tree_hash_root(),
-        5 => v.activation_epoch.tree_hash_root(),
-        6 => v.exit_epoch.tree_hash_root(),
-        7 => v.withdrawable_epoch.tree_hash_root(),
+        0 => process_vec_field(v.pubkey.tree_hash_root(), leaf, force_update),
+        1 => process_slice_field(v.withdrawal_credentials.as_bytes(), leaf, force_update),
+        2 => process_u64_field(v.effective_balance, leaf, force_update),
+        3 => process_bool_field(v.slashed, leaf, force_update),
+        4 => process_epoch_field(v.activation_eligibility_epoch, leaf, force_update),
+        5 => process_epoch_field(v.activation_epoch, leaf, force_update),
+        6 => process_epoch_field(v.exit_epoch, leaf, force_update),
+        7 => process_epoch_field(v.withdrawable_epoch, leaf, force_update),
         _ => panic!(
             "Validator type only has {} fields, {} out of bounds",
             NUM_VALIDATOR_FIELDS, field_idx
@@ -70,17 +68,39 @@ fn field_tree_hash_by_index(v: &Validator, field_idx: usize) -> Vec<u8> {
     }
 }
 
-/// Iterator over the tree hash roots of `Validator` fields.
-fn field_tree_hash_iter<'a>(
-    v: &'a Validator,
-) -> impl Iterator<Item = [u8; 32]> + ExactSizeIterator + 'a {
-    (0..NUM_VALIDATOR_FIELDS)
-        .map(move |i| field_tree_hash_by_index(v, i))
-        .map(|tree_hash_root| {
-            let mut res = [0; 32];
-            res.copy_from_slice(&tree_hash_root[0..32]);
-            res
-        })
+fn process_vec_field(new_tree_hash: Vec<u8>, leaf: &mut Hash256, force_update: bool) -> bool {
+    if force_update || leaf.as_bytes() != &new_tree_hash[..] {
+        leaf.assign_from_slice(&new_tree_hash);
+        true
+    } else {
+        false
+    }
+}
+
+fn process_slice_field(new_tree_hash: &[u8], leaf: &mut Hash256, force_update: bool) -> bool {
+    if force_update || leaf.as_bytes() != new_tree_hash {
+        leaf.assign_from_slice(&new_tree_hash);
+        true
+    } else {
+        false
+    }
+}
+
+fn process_u64_field(val: u64, leaf: &mut Hash256, force_update: bool) -> bool {
+    let new_tree_hash = int_to_fixed_bytes32(val);
+    process_slice_field(&new_tree_hash[..], leaf, force_update)
+}
+
+fn process_epoch_field(val: Epoch, leaf: &mut Hash256, force_update: bool) -> bool {
+    process_u64_field(val.as_u64(), leaf, force_update)
+}
+
+fn process_bool_field(val: bool, leaf: &mut Hash256, force_update: bool) -> bool {
+    let mut new_tree_hash = [0; 32];
+    if val {
+        new_tree_hash[0] = 1;
+    }
+    process_slice_field(&new_tree_hash[..], leaf, force_update)
 }
 
 #[cfg(test)]
