@@ -1,6 +1,5 @@
 mod cache;
 mod impls;
-mod multi_cache;
 #[cfg(test)]
 mod test;
 mod vec_arena;
@@ -9,7 +8,6 @@ pub type VecArena = vec_arena::VecArena<Hash256>;
 
 pub use crate::cache::TreeHashCache;
 pub use crate::impls::int_log;
-pub use crate::multi_cache::MultiTreeHashCache;
 use ethereum_types::H256 as Hash256;
 use tree_hash::TreeHash;
 
