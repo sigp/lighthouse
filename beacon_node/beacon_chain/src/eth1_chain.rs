@@ -1,9 +1,7 @@
-use crate::metrics;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use exit_future::Exit;
 use futures::Future;
-use rand::prelude::*;
 use slog::{debug, trace, warn, Logger};
 use state_processing::per_block_processing::get_new_eth1_data;
 use std::collections::HashMap;
@@ -310,31 +308,6 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
     }
 }
 
-/// Produces an `Eth1Data` with all fields sourced from `rand::thread_rng()`.
-fn random_eth1_data() -> Eth1Data {
-    let mut rng = rand::thread_rng();
-
-    metrics::inc_counter(&metrics::JUNK_ETH1_VOTES);
-
-    macro_rules! rand_bytes {
-        ($num_bytes: expr) => {{
-            let mut arr = [0_u8; $num_bytes];
-            rng.fill(&mut arr[..]);
-            arr
-        }};
-    }
-
-    // Note: it seems easier to just use `Hash256::random(..)` to get the hash values, however I
-    // prefer to be explicit about the source of entropy instead of relying upon the maintainers of
-    // `Hash256` to ensure their entropy is suitable for our purposes.
-
-    Eth1Data {
-        block_hash: Hash256::from_slice(&rand_bytes!(32)),
-        deposit_root: Hash256::from_slice(&rand_bytes!(32)),
-        deposit_count: u64::from_le_bytes(rand_bytes!(8)),
-    }
-}
-
 /// Get all votes from eth1 blocks which are in the list of candidate blocks for the
 /// current eth1 voting period.
 ///
@@ -454,11 +427,6 @@ mod test {
     }
 
     #[test]
-    fn random_eth1_data_doesnt_panic() {
-        random_eth1_data();
-    }
-
-    #[test]
     fn slot_start_time() {
         let zero_sec = 0;
         assert_eq!(slot_start_seconds::<E>(100, zero_sec, Slot::new(2)), 100);
@@ -537,7 +505,7 @@ mod test {
 
             assert!(
                 eth1_chain
-                    .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
+                    .deposits_for_block_inclusion(&state, &Eth1Data::default(), spec)
                     .is_ok(),
                 "should succeed if cache is empty but no deposits are required"
             );
@@ -546,7 +514,7 @@ mod test {
 
             assert!(
                 eth1_chain
-                    .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
+                    .deposits_for_block_inclusion(&state, &Eth1Data::default(), spec)
                     .is_err(),
                 "should fail to get deposits if required, but cache is empty"
             );
@@ -590,7 +558,7 @@ mod test {
 
             assert!(
                 eth1_chain
-                    .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
+                    .deposits_for_block_inclusion(&state, &Eth1Data::default(), spec)
                     .is_ok(),
                 "should succeed if no deposits are required"
             );
@@ -602,7 +570,7 @@ mod test {
                     state.eth1_data.deposit_count = i as u64;
 
                     let deposits_for_inclusion = eth1_chain
-                        .deposits_for_block_inclusion(&state, &random_eth1_data(), spec)
+                        .deposits_for_block_inclusion(&state, &Eth1Data::default(), spec)
                         .expect(&format!("should find deposit for {}", i));
 
                     let expected_len =
