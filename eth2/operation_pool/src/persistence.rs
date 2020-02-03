@@ -9,7 +9,7 @@ use types::*;
 ///
 /// Operations are stored in arbitrary order, so it's not a good idea to compare instances
 /// of this type (or its encoded form) for equality. Convert back to an `OperationPool` first.
-#[derive(Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct PersistedOperationPool<T: EthSpec> {
     /// Mapping from attestation ID to attestation mappings.
