@@ -1,3 +1,4 @@
+use crate::metrics;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use exit_future::Exit;
@@ -236,7 +237,7 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
         } else {
             // In this case, there are no valid votes available.
             //
-            // Here we choose the latest block in our voting window.
+            // Here we choose the eth1_data corresponding to the latest block in our voting window.
             // If no votes exist, choose `state.eth1_data` as default vote.
             let default_vote = votes_to_consider
                 .iter()
@@ -245,7 +246,7 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                     let vote = vote.0.clone();
                     warn!(
                         self.log,
-                        "No valid eth1_data votes present in cache";
+                        "No valid eth1_data votes";
                         "outcome" => "Casting vote corresponding to last candidate eth1 block",
                     );
                     vote
@@ -254,7 +255,7 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                     let vote = state.eth1_data.clone();
                     warn!(
                         self.log,
-                        "No valid eth1_data votes present in cache, `votes_to_consider` empty";
+                        "No valid eth1_data votes, `votes_to_consider` empty";
                         "lowest_block_number" => self.core.lowest_block_number(),
                         "earliest_block_timestamp" => self.core.earliest_block_timestamp(),
                         "genesis_time" => state.genesis_time,
@@ -262,6 +263,7 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                     );
                     vote
                 });
+            metrics::inc_counter(&metrics::DEFAULT_ETH1_VOTES);
             default_vote
         };
 
