@@ -21,7 +21,7 @@ fn max_leaves() {
     let arena = &mut VecArena::default();
     let depth = 4;
     let max_len = 2u64.pow(depth as u32);
-    let mut cache = TreeHashCache::new(arena, depth);
+    let mut cache = TreeHashCache::new(arena, depth, 2);
     assert!(cache
         .recalculate_merkle_root(arena, hash256_iter(&int_hashes(0, max_len - 1)))
         .is_ok());
@@ -45,7 +45,7 @@ fn cannot_shrink() {
     let list1 = List16::new(int_hashes(0, init_len)).unwrap();
     let list2 = List16::new(int_hashes(0, init_len - 1)).unwrap();
 
-    let mut cache = List16::new_tree_hash_cache(arena);
+    let mut cache = list1.new_tree_hash_cache(arena);
     assert!(list1.recalculate_tree_hash_root(arena, &mut cache).is_ok());
     assert_eq!(
         list2.recalculate_tree_hash_root(arena, &mut cache),
@@ -57,7 +57,7 @@ fn cannot_shrink() {
 fn empty_leaves() {
     let arena = &mut VecArena::default();
     let depth = 20;
-    let mut cache = TreeHashCache::new(arena, depth);
+    let mut cache = TreeHashCache::new(arena, depth, 0);
     assert_eq!(
         cache
             .recalculate_merkle_root(arena, vec![].into_iter())
@@ -73,7 +73,7 @@ fn fixed_vector_hash256() {
     let len = 16;
     let vec = Vector16::new(int_hashes(0, len)).unwrap();
 
-    let mut cache = Vector16::new_tree_hash_cache(arena);
+    let mut cache = vec.new_tree_hash_cache(arena);
 
     assert_eq!(
         Hash256::from_slice(&vec.tree_hash_root()),
@@ -87,7 +87,7 @@ fn fixed_vector_u64() {
     let len = 16;
     let vec = Vector16u64::new((0..len).collect()).unwrap();
 
-    let mut cache = Vector16u64::new_tree_hash_cache(arena);
+    let mut cache = vec.new_tree_hash_cache(arena);
 
     assert_eq!(
         Hash256::from_slice(&vec.tree_hash_root()),
@@ -101,7 +101,7 @@ fn variable_list_hash256() {
     let len = 13;
     let list = List16::new(int_hashes(0, len)).unwrap();
 
-    let mut cache = List16::new_tree_hash_cache(arena);
+    let mut cache = list.new_tree_hash_cache(arena);
 
     assert_eq!(
         Hash256::from_slice(&list.tree_hash_root()),
@@ -133,7 +133,8 @@ fn variable_list_h256_test<Len: Unsigned>(leaves_and_skips: Vec<(u64, bool)>) ->
         .collect();
 
     let mut list: VariableList<Hash256, Len>;
-    let mut cache = VariableList::<Hash256, Len>::new_tree_hash_cache(arena);
+    let init: VariableList<Hash256, Len> = VariableList::new(vec![]).unwrap();
+    let mut cache = init.new_tree_hash_cache(arena);
 
     for (end, (_, update_cache)) in leaves_and_skips.into_iter().enumerate() {
         list = VariableList::new(leaves[..end].to_vec()).unwrap();
