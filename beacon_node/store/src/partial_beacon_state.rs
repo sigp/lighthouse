@@ -219,7 +219,6 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
             committee_caches: <_>::default(),
             pubkey_cache: <_>::default(),
             exit_cache: <_>::default(),
-            tree_hash_cache_arena: <_>::default(),
             tree_hash_cache: <_>::default(),
         })
     }

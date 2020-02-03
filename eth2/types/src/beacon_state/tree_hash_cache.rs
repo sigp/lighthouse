@@ -1,13 +1,23 @@
 use super::Error;
 use crate::{BeaconState, EthSpec, Hash256, Unsigned, Validator};
 use cached_tree_hash::{int_log, CachedTreeHash, TreeHashCache, VecArena};
+use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
 use tree_hash::{mix_in_length, TreeHash};
 
+/// The number of validator record tree hash caches stored in each arena.
+///
+/// This is primarily used for concurrency; if we have 16 validators and set `VALIDATORS_PER_ARENA
+/// == 8` then it is possible to do a 2-core concurrent hash.
+///
+/// Do not set to 0.
+const VALIDATORS_PER_ARENA: usize = 4_096;
+
+/// A cache that performs a caching tree hash of the entire `BeaconState` struct.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct BeaconTreeHashCache {
     // Validators cache
-    validators: ValidatorsTreeHashCache,
+    validators: ValidatorsListTreeHashCache,
     // Arenas
     fixed_arena: VecArena,
     balances_arena: VecArena,
@@ -22,6 +32,10 @@ pub struct BeaconTreeHashCache {
 }
 
 impl BeaconTreeHashCache {
+    /// Instantiates a new cache.
+    ///
+    /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
+    /// hashing.
     pub fn new<T: EthSpec>(state: &BeaconState<T>) -> Self {
         let mut fixed_arena = VecArena::default();
         let block_roots = state.block_roots.new_tree_hash_cache(&mut fixed_arena);
@@ -29,7 +43,7 @@ impl BeaconTreeHashCache {
         let historical_roots = state.historical_roots.new_tree_hash_cache(&mut fixed_arena);
         let randao_mixes = state.randao_mixes.new_tree_hash_cache(&mut fixed_arena);
 
-        let validators = ValidatorsTreeHashCache::new::<T>(&state.validators[..]);
+        let validators = ValidatorsListTreeHashCache::new::<T>(&state.validators[..]);
 
         let mut balances_arena = VecArena::default();
         let balances = state.balances.new_tree_hash_cache(&mut balances_arena);
@@ -51,6 +65,10 @@ impl BeaconTreeHashCache {
         }
     }
 
+    /// Updates the cache and returns the tree hash root for the given `state`.
+    ///
+    /// The provided `state` should be a descendant of the last `state` given to this function, or
+    /// the `Self::new` function.
     pub fn recalculate_tree_hash_root<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
@@ -117,25 +135,21 @@ impl BeaconTreeHashCache {
     }
 }
 
-/// Multi-level tree hash cache.
-///
-/// Suitable for lists/vectors/containers holding values which themselves have caches.
-///
-/// Note: this cache could be made composable by replacing the hardcoded `Vec<TreeHashCache>` with
-/// `Vec<C>`, allowing arbitrary nesting, but for now we stick to 2-level nesting because that's all
-/// we need.
+/// A specialized cache for computing the tree hash root of `state.validators`.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
-pub struct ValidatorsTreeHashCache {
+struct ValidatorsListTreeHashCache {
     list_arena: VecArena,
-    values_arena: VecArena,
     list_cache: TreeHashCache,
-    value_caches: Vec<TreeHashCache>,
+    values: ParallelValidatorTreeHash,
 }
 
-impl ValidatorsTreeHashCache {
+impl ValidatorsListTreeHashCache {
+    /// Instantiates a new cache.
+    ///
+    /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
+    /// hashing.
     fn new<E: EthSpec>(validators: &[Validator]) -> Self {
         let mut list_arena = VecArena::default();
-        let mut values_arena = VecArena::default();
         Self {
             list_cache: TreeHashCache::new(
                 &mut list_arena,
@@ -143,53 +157,119 @@ impl ValidatorsTreeHashCache {
                 validators.len(),
             ),
             list_arena,
-            value_caches: validators
-                .iter()
-                .map(|v| v.new_tree_hash_cache(&mut values_arena))
-                .collect(),
-            values_arena,
+            values: ParallelValidatorTreeHash::new::<E>(validators),
         }
     }
 
+    /// Updates the cache and returns the tree hash root for the given `state`.
+    ///
+    /// This function makes assumptions that the `validators` list will only change in accordance
+    /// with valid per-block/per-slot state transitions.
     fn recalculate_tree_hash_root(&mut self, validators: &[Validator]) -> Result<Hash256, Error> {
         let mut list_arena = std::mem::replace(&mut self.list_arena, VecArena::default());
-        let mut values_arena = std::mem::replace(&mut self.values_arena, VecArena::default());
 
-        if validators.len() < self.value_caches.len() {
-            return Err(Error::ValidatorRegistryShrunk);
-        }
-
-        // Resize the value caches to the size of the list.
-        validators
-            .iter()
-            .skip(self.value_caches.len())
-            .for_each(|value| {
-                self.value_caches
-                    .push(value.new_tree_hash_cache(&mut values_arena))
-            });
-
-        // Update all individual value caches.
-        let leaves = validators
-            .iter()
-            .zip(self.value_caches.iter_mut())
-            .map(|(value, cache)| {
-                value
-                    .recalculate_tree_hash_root(&mut values_arena, cache)
-                    .map(|_| ())?;
-                Ok(cache.root(&mut values_arena).to_fixed_bytes())
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
+        let leaves = self
+            .values
+            .leaves(validators)?
+            .into_iter()
+            .flatten()
+            .map(|h| h.to_fixed_bytes())
+            .collect::<Vec<_>>();
 
         let list_root = self
             .list_cache
             .recalculate_merkle_root(&mut list_arena, leaves.into_iter())?;
 
         std::mem::replace(&mut self.list_arena, list_arena);
-        std::mem::replace(&mut self.values_arena, values_arena);
 
         Ok(Hash256::from_slice(&mix_in_length(
             list_root.as_bytes(),
             validators.len(),
         )))
+    }
+}
+
+/// Provides a cache for each of the `Validator` objects in `state.validators` and computes the
+/// roots of these using Rayon parallelization.
+#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
+pub struct ParallelValidatorTreeHash {
+    /// Each arena and it's associated sub-trees.
+    arenas: Vec<(VecArena, Vec<TreeHashCache>)>,
+}
+
+impl ParallelValidatorTreeHash {
+    /// Instantiates a new cache.
+    ///
+    /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
+    /// hashing.
+    fn new<E: EthSpec>(validators: &[Validator]) -> Self {
+        let num_arenas = (validators.len() + VALIDATORS_PER_ARENA - 1) / VALIDATORS_PER_ARENA;
+        let mut arenas = vec![(VecArena::default(), vec![]); num_arenas];
+
+        validators.iter().enumerate().for_each(|(i, v)| {
+            let (arena, caches) = &mut arenas[i / VALIDATORS_PER_ARENA];
+            caches.push(v.new_tree_hash_cache(arena))
+        });
+
+        Self { arenas }
+    }
+
+    /// Returns the number of validators stored in self.
+    fn len(&self) -> usize {
+        self.arenas.last().map_or(0, |last| {
+            // Subtraction cannot underflow because `.last()` ensures the `.len() > 0`.
+            (self.arenas.len() - 1) * VALIDATORS_PER_ARENA + last.1.len()
+        })
+    }
+
+    /// Updates the caches for each `Validator` in `validators` and returns a list that maps 1:1
+    /// with `validators` to the hash of each validator.
+    ///
+    /// This function makes assumptions that the `validators` list will only change in accordance
+    /// with valid per-block/per-slot state transitions.
+    fn leaves(&mut self, validators: &[Validator]) -> Result<Vec<Vec<Hash256>>, Error> {
+        if self.len() < validators.len() {
+            validators.iter().skip(self.len()).for_each(|v| {
+                if self
+                    .arenas
+                    .last()
+                    .map_or(true, |last| last.1.len() >= VALIDATORS_PER_ARENA)
+                {
+                    let mut arena = VecArena::default();
+                    let cache = v.new_tree_hash_cache(&mut arena);
+                    self.arenas.push((arena, vec![cache]))
+                } else {
+                    let (arena, caches) = &mut self
+                        .arenas
+                        .last_mut()
+                        .expect("Cannot reach this block if arenas is empty.");
+                    caches.push(v.new_tree_hash_cache(arena))
+                }
+            })
+        } else if validators.len() < self.len() {
+            return Err(Error::ValidatorRegistryShrunk);
+        }
+
+        self.arenas
+            .par_iter_mut()
+            .enumerate()
+            .map(|(arena_index, (arena, caches))| {
+                caches
+                    .iter_mut()
+                    .enumerate()
+                    .map(move |(cache_index, cache)| {
+                        let val_index = (arena_index * VALIDATORS_PER_ARENA) + cache_index;
+
+                        let validator = validators
+                            .get(val_index)
+                            .ok_or_else(|| Error::TreeHashCacheInconsistent)?;
+
+                        validator
+                            .recalculate_tree_hash_root(arena, cache)
+                            .map_err(Error::CachedTreeHashError)
+                    })
+                    .collect()
+            })
+            .collect()
     }
 }

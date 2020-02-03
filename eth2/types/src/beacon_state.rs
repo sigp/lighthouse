@@ -66,6 +66,7 @@ pub enum Error {
     CachedTreeHashError(cached_tree_hash::Error),
     InvalidValidatorPubkey(ssz::DecodeError),
     ValidatorRegistryShrunk,
+    TreeHashCacheInconsistent,
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
