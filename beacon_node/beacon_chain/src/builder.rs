@@ -218,7 +218,7 @@ where
         self.genesis_block_root = Some(beacon_block_root);
 
         store
-            .put_state(&beacon_state_root, &beacon_state)
+            .put_state(&beacon_state_root, beacon_state.clone())
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
             .put(&beacon_block_root, &beacon_block)

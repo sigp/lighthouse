@@ -2,6 +2,7 @@ use crate::chunked_vector::{
     store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
 use crate::forwards_iter::HybridForwardsBlockRootsIterator;
+use crate::impls::beacon_state::store_full_state;
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::metrics;
 use crate::{
@@ -143,9 +144,9 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
     }
 
     /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
+    fn put_state(&self, state_root: &Hash256, state: BeaconState<E>) -> Result<(), Error> {
         if state.slot < self.get_split_slot() {
-            self.store_cold_state(state_root, state)
+            self.store_cold_state(state_root, &state)
         } else {
             self.store_hot_state(state_root, state)
         }
@@ -351,7 +352,7 @@ impl<E: EthSpec> HotColdDB<E> {
     pub fn store_hot_state(
         &self,
         state_root: &Hash256,
-        state: &BeaconState<E>,
+        state: BeaconState<E>,
     ) -> Result<(), Error> {
         // On the epoch boundary, store the full state.
         if state.slot % E::slots_per_epoch() == 0 {
@@ -361,16 +362,16 @@ impl<E: EthSpec> HotColdDB<E> {
                 "slot" => state.slot.as_u64(),
                 "state_root" => format!("{:?}", state_root)
             );
-            self.hot_db.put_state(state_root, state)?;
+            store_full_state(&self.hot_db, state_root, &state)?;
         }
 
         // Store a summary of the state.
         // We store one even for the epoch boundary states, as we may need their slots
         // when doing a look up by state root.
-        self.store_hot_state_summary(state_root, state)?;
+        self.store_hot_state_summary(state_root, &state)?;
 
         // Store the state in the cache.
-        self.state_cache.write().put(*state_root, state.clone());
+        self.state_cache.write().put(*state_root, state);
 
         Ok(())
     }
@@ -386,7 +387,6 @@ impl<E: EthSpec> HotColdDB<E> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
         // Check the cache.
-        // FIXME(sproul): timeout on lock
         if let Some(state) = self.state_cache.write().get(state_root) {
             metrics::inc_counter(&metrics::BEACON_STATE_CACHE_HIT_COUNT);
 

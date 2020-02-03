@@ -1356,6 +1356,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Store all the states between the parent block state and this blocks slot before storing
         // the final state.
+        // FIXME(sproul): re-jig this
         for (i, intermediate_state) in intermediate_states.iter().enumerate() {
             // To avoid doing an unnecessary tree hash, use the following (slot + 1) state's
             // state_roots field to find the root.
@@ -1367,7 +1368,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 following_state.get_state_root(intermediate_state.slot)?;
 
             self.store
-                .put_state(&intermediate_state_root, intermediate_state)?;
+                .put_state(&intermediate_state_root, intermediate_state.clone())?;
         }
 
         // Store the block and state.
@@ -1376,7 +1377,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // solution would be to use a database transaction (once our choice of database and API
         // settles down).
         // See: https://github.com/sigp/lighthouse/issues/692
-        self.store.put_state(&state_root, &state)?;
+        self.store.put_state(&state_root, state)?;
         self.store.put_block(&block_root, &block)?;
 
         metrics::stop_timer(db_write_timer);

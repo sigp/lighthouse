@@ -91,7 +91,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
+    fn put_state(&self, state_root: &Hash256, state: BeaconState<E>) -> Result<(), Error>;
 
     /// Fetch a state from the store.
     fn get_state(
