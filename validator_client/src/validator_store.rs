@@ -66,9 +66,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .collect::<Vec<_>>();
 
         Ok(Self {
-            validators: Arc::new(RwLock::new(HashMap::from_iter(
-                validator_key_values.into_iter(),
-            ))),
+            validators: Arc::new(RwLock::new(HashMap::from_iter(validator_key_values))),
             spec: Arc::new(spec),
             log,
             temp_dir: None,
