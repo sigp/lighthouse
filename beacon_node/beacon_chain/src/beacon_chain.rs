@@ -1352,6 +1352,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(fork_choice_register_timer);
 
+        self.head_tracker.register_block(block_root, &block);
+        metrics::observe(
+            &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
+            block.body.attestations.len() as f64,
+        );
+
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
         // Store all the states between the parent block state and this blocks slot before storing
@@ -1378,17 +1384,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // settles down).
         // See: https://github.com/sigp/lighthouse/issues/692
         self.store.put_state(&state_root, state)?;
-        self.store.put_block(&block_root, &block)?;
+        self.store.put_block(&block_root, block)?;
 
         metrics::stop_timer(db_write_timer);
 
-        self.head_tracker.register_block(block_root, &block);
-
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
-        metrics::observe(
-            &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
-            block.body.attestations.len() as f64,
-        );
 
         metrics::stop_timer(full_timer);
 

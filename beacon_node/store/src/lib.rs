@@ -81,8 +81,8 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Store a block in the store.
-    fn put_block(&self, block_root: &Hash256, block: &BeaconBlock<E>) -> Result<(), Error> {
-        self.put(block_root, block)
+    fn put_block(&self, block_root: &Hash256, block: BeaconBlock<E>) -> Result<(), Error> {
+        self.put(block_root, &block)
     }
 
     /// Fetch a block from the store.

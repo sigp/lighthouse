@@ -7,7 +7,7 @@ use beacon_chain::{
     slot_clock::{SlotClock, SystemTimeSlotClock},
     store::{
         migrate::{BackgroundMigrator, Migrate, NullMigrator},
-        DiskStore, MemoryStore, SimpleDiskStore, Store,
+        DiskStore, MemoryStore, SimpleDiskStore, Store, StoreConfig,
     },
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
@@ -478,7 +478,7 @@ where
         mut self,
         hot_path: &Path,
         cold_path: &Path,
-        slots_per_restore_point: u64,
+        config: StoreConfig,
     ) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -490,14 +490,8 @@ where
             .clone()
             .ok_or_else(|| "disk_store requires a chain spec".to_string())?;
 
-        let store = DiskStore::open(
-            hot_path,
-            cold_path,
-            slots_per_restore_point,
-            spec,
-            context.log,
-        )
-        .map_err(|e| format!("Unable to open database: {:?}", e))?;
+        let store = DiskStore::open(hot_path, cold_path, config, spec, context.log)
+            .map_err(|e| format!("Unable to open database: {:?}", e))?;
         self.store = Some(Arc::new(store));
         Ok(self)
     }

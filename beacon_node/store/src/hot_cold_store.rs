@@ -1,6 +1,7 @@
 use crate::chunked_vector::{
     store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
+use crate::config::StoreConfig;
 use crate::forwards_iter::HybridForwardsBlockRootsIterator;
 use crate::impls::beacon_state::store_full_state;
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
@@ -27,10 +28,6 @@ use types::*;
 /// 32-byte key for accessing the `split` of the freezer DB.
 pub const SPLIT_DB_KEY: &str = "FREEZERDBSPLITFREEZERDBSPLITFREE";
 
-// FIXME(sproul): configurable
-const DEFAULT_BLOCK_CACHE_SIZE: usize = 5;
-const DEFAULT_STATE_CACHE_SIZE: usize = 5;
-
 /// On-disk database that stores finalized states efficiently.
 ///
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
@@ -41,8 +38,7 @@ pub struct HotColdDB<E: EthSpec> {
     /// States with slots less than `split.slot` are in the cold DB, while states with slots
     /// greater than or equal are in the hot DB.
     split: RwLock<Split>,
-    /// Number of slots per restore point state in the freezer database.
-    slots_per_restore_point: u64,
+    config: StoreConfig,
     /// Cold database containing compact historical data.
     pub(crate) cold_db: LevelDB<E>,
     /// Hot database containing duplicated but quick-to-access recent data.
@@ -111,13 +107,12 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
     }
 
     /// Store a block and update the LRU cache.
-    fn put_block(&self, block_root: &Hash256, block: &BeaconBlock<E>) -> Result<(), Error> {
+    fn put_block(&self, block_root: &Hash256, block: BeaconBlock<E>) -> Result<(), Error> {
         // Store on disk.
-        self.put(block_root, block)?;
+        self.put(block_root, &block)?;
 
         // Update cache.
-        // FIXME(sproul): take block by value?
-        self.block_cache.write().put(*block_root, block.clone());
+        self.block_cache.write().put(*block_root, block);
 
         Ok(())
     }
@@ -223,7 +218,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         for (state_root, slot) in
             state_root_iter.take_while(|&(_, slot)| slot >= current_split_slot)
         {
-            if slot % store.slots_per_restore_point == 0 {
+            if slot % store.config.slots_per_restore_point == 0 {
                 let state: BeaconState<E> = store
                     .hot_db
                     .get_state(&state_root, None)?
@@ -288,7 +283,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
             ..
         }) = self.load_hot_state_summary(state_root)?
         {
-            // FIXME(sproul): could avoid looking up the summary for the boundary state
+            // NOTE: minor inefficiency here because we load an unnecessary hot state summary
             let state = self
                 .load_hot_state(
                     &epoch_boundary_state_root,
@@ -319,19 +314,19 @@ impl<E: EthSpec> HotColdDB<E> {
     pub fn open(
         hot_path: &Path,
         cold_path: &Path,
-        slots_per_restore_point: u64,
+        config: StoreConfig,
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Self, Error> {
-        Self::verify_slots_per_restore_point(slots_per_restore_point)?;
+        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
-            slots_per_restore_point,
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
-            block_cache: RwLock::new(LruCache::new(DEFAULT_BLOCK_CACHE_SIZE)),
-            state_cache: RwLock::new(LruCache::new(DEFAULT_STATE_CACHE_SIZE)),
+            block_cache: RwLock::new(LruCache::new(config.block_cache_size)),
+            state_cache: RwLock::new(LruCache::new(config.state_cache_size)),
+            config,
             spec,
             log,
             _phantom: PhantomData,
@@ -438,7 +433,7 @@ impl<E: EthSpec> HotColdDB<E> {
         state_root: &Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
-        if state.slot % self.slots_per_restore_point != 0 {
+        if state.slot % self.config.slots_per_restore_point != 0 {
             warn!(
                 self.log,
                 "Not storing non-restore point state in freezer";
@@ -467,7 +462,7 @@ impl<E: EthSpec> HotColdDB<E> {
         store_updated_vector(RandaoMixes, db, state, &self.spec)?;
 
         // 3. Store restore point.
-        let restore_point_index = state.slot.as_u64() / self.slots_per_restore_point;
+        let restore_point_index = state.slot.as_u64() / self.config.slots_per_restore_point;
         self.store_restore_point_hash(restore_point_index, *state_root)?;
 
         Ok(())
@@ -487,8 +482,8 @@ impl<E: EthSpec> HotColdDB<E> {
     ///
     /// Will reconstruct the state if it lies between restore points.
     pub fn load_cold_state_by_slot(&self, slot: Slot) -> Result<BeaconState<E>, Error> {
-        if slot % self.slots_per_restore_point == 0 {
-            let restore_point_idx = slot.as_u64() / self.slots_per_restore_point;
+        if slot % self.config.slots_per_restore_point == 0 {
+            let restore_point_idx = slot.as_u64() / self.config.slots_per_restore_point;
             self.load_restore_point_by_index(restore_point_idx)
         } else {
             self.load_cold_intermediate_state(slot)
@@ -521,7 +516,7 @@ impl<E: EthSpec> HotColdDB<E> {
     /// Load a frozen state that lies between restore points.
     fn load_cold_intermediate_state(&self, slot: Slot) -> Result<BeaconState<E>, Error> {
         // 1. Load the restore points either side of the intermediate state.
-        let low_restore_point_idx = slot.as_u64() / self.slots_per_restore_point;
+        let low_restore_point_idx = slot.as_u64() / self.config.slots_per_restore_point;
         let high_restore_point_idx = low_restore_point_idx + 1;
 
         // Acquire the read lock, so that the split can't change while this is happening.
@@ -530,7 +525,7 @@ impl<E: EthSpec> HotColdDB<E> {
         let low_restore_point = self.load_restore_point_by_index(low_restore_point_idx)?;
         // If the slot of the high point lies outside the freezer, use the split state
         // as the upper restore point.
-        let high_restore_point = if high_restore_point_idx * self.slots_per_restore_point
+        let high_restore_point = if high_restore_point_idx * self.config.slots_per_restore_point
             >= split.slot.as_u64()
         {
             self.get_state(&split.state_root, Some(split.slot))?
@@ -643,7 +638,8 @@ impl<E: EthSpec> HotColdDB<E> {
 
     /// Fetch the slot of the most recently stored restore point.
     pub fn get_latest_restore_point_slot(&self) -> Slot {
-        (self.get_split_slot() - 1) / self.slots_per_restore_point * self.slots_per_restore_point
+        (self.get_split_slot() - 1) / self.config.slots_per_restore_point
+            * self.config.slots_per_restore_point
     }
 
     /// Load the split point from disk.
