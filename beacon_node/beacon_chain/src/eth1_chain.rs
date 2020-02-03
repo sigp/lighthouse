@@ -390,9 +390,6 @@ fn slot_start_seconds<T: EthSpec>(
 ///
 /// Note: `period_start` needs to be atleast (`spec.seconds_per_eth1_block * spec.eth1_follow_distance * 2`)
 /// for this function to return meaningful values.
-/// Shouldn't be a problem for mainnet and testnet as `genesis_time` is high but may
-/// be an issue for testing.
-/// TODO: consider returning an `Option<bool>`.
 fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) -> bool {
     block.timestamp
         <= period_start.saturating_sub(spec.seconds_per_eth1_block * spec.eth1_follow_distance)
