@@ -126,27 +126,34 @@ impl BeaconTreeHashCache {
 /// we need.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct ValidatorsTreeHashCache {
-    arena: VecArena,
+    list_arena: VecArena,
+    values_arena: VecArena,
     list_cache: TreeHashCache,
     value_caches: Vec<TreeHashCache>,
 }
 
 impl ValidatorsTreeHashCache {
     fn new<E: EthSpec>(validators: &[Validator]) -> Self {
-        let mut arena = VecArena::default();
+        let mut list_arena = VecArena::default();
+        let mut values_arena = VecArena::default();
         Self {
             list_cache: TreeHashCache::new(
-                &mut arena,
+                &mut list_arena,
                 int_log(E::ValidatorRegistryLimit::to_usize()),
                 validators.len(),
             ),
-            value_caches: vec![],
-            arena,
+            list_arena,
+            value_caches: validators
+                .iter()
+                .map(|v| v.new_tree_hash_cache(&mut values_arena))
+                .collect(),
+            values_arena,
         }
     }
 
     fn recalculate_tree_hash_root(&mut self, validators: &[Validator]) -> Result<Hash256, Error> {
-        let mut arena = std::mem::replace(&mut self.arena, VecArena::default());
+        let mut list_arena = std::mem::replace(&mut self.list_arena, VecArena::default());
+        let mut values_arena = std::mem::replace(&mut self.values_arena, VecArena::default());
 
         if validators.len() < self.value_caches.len() {
             return Err(Error::ValidatorRegistryShrunk);
@@ -158,7 +165,7 @@ impl ValidatorsTreeHashCache {
             .skip(self.value_caches.len())
             .for_each(|value| {
                 self.value_caches
-                    .push(value.new_tree_hash_cache(&mut arena))
+                    .push(value.new_tree_hash_cache(&mut values_arena))
             });
 
         // Update all individual value caches.
@@ -167,17 +174,18 @@ impl ValidatorsTreeHashCache {
             .zip(self.value_caches.iter_mut())
             .map(|(value, cache)| {
                 value
-                    .recalculate_tree_hash_root(&mut arena, cache)
+                    .recalculate_tree_hash_root(&mut values_arena, cache)
                     .map(|_| ())?;
-                Ok(cache.root(&mut arena).to_fixed_bytes())
+                Ok(cache.root(&mut values_arena).to_fixed_bytes())
             })
             .collect::<Result<Vec<_>, Error>>()?;
 
         let list_root = self
             .list_cache
-            .recalculate_merkle_root(&mut arena, leaves.into_iter())?;
+            .recalculate_merkle_root(&mut list_arena, leaves.into_iter())?;
 
-        std::mem::replace(&mut self.arena, arena);
+        std::mem::replace(&mut self.list_arena, list_arena);
+        std::mem::replace(&mut self.values_arena, values_arena);
 
         Ok(Hash256::from_slice(&mix_in_length(
             list_root.as_bytes(),
