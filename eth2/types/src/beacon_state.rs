@@ -2,6 +2,7 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
+use cached_tree_hash::{CachedTreeHash, VecArena};
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
@@ -13,11 +14,11 @@ use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_cache::BeaconTreeHashCache;
 use tree_hash_derive::TreeHash;
 
 pub use self::committee_cache::CommitteeCache;
 pub use eth_spec::*;
+pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
 mod committee_cache;
@@ -984,6 +985,24 @@ impl<T: EthSpec> BeaconState<T> {
         let mut state = self.clone_without_caches();
         state.committee_caches = self.committee_caches.clone();
         state
+    }
+}
+
+/// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
+/// recommended to use the methods directly on the beacon state instead.
+impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache> for BeaconState<T> {
+    fn new_tree_hash_cache(&self, _arena: &mut VecArena) -> BeaconTreeHashCache {
+        BeaconTreeHashCache::new(self)
+    }
+
+    fn recalculate_tree_hash_root(
+        &self,
+        _arena: &mut VecArena,
+        cache: &mut BeaconTreeHashCache,
+    ) -> Result<Hash256, cached_tree_hash::Error> {
+        cache
+            .recalculate_tree_hash_root(self)
+            .map_err(|_| cached_tree_hash::Error::CacheInconsistent)
     }
 }
 
