@@ -442,6 +442,16 @@ mod test {
         }
     }
 
+    fn get_voting_period_start_seconds(state: &BeaconState<E>, spec: &ChainSpec) -> u64 {
+        let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+        let voting_period_start_slot = (state.slot / period) * period;
+        slot_start_seconds::<E>(
+            state.genesis_time,
+            spec.milliseconds_per_slot,
+            voting_period_start_slot,
+        )
+    }
+
     #[test]
     fn random_eth1_data_doesnt_panic() {
         random_eth1_data();
@@ -642,23 +652,64 @@ mod test {
                 .expect("should produce default eth1 data vote");
             assert_eq!(
                 a, state.eth1_data,
-                "random votes should be returned with an empty cache"
+                "default vote should be same as state.eth1_data"
             );
+        }
+
+        #[test]
+        fn default_vote() {
+            let spec = &E::default_spec();
+            let slots_per_eth1_voting_period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
+            let eth1_follow_distance = spec.eth1_follow_distance;
+
+            let eth1_chain = get_eth1_chain();
+
+            assert_eq!(
+                eth1_chain.use_dummy_backend, false,
+                "test should not use dummy backend"
+            );
+
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+
+            state.slot = Slot::from(slots_per_eth1_voting_period * 10);
+            let follow_distance_seconds = eth1_follow_distance * spec.seconds_per_eth1_block;
+            let voting_period_start = get_voting_period_start_seconds(&state, &spec);
+            let start_eth1_block = voting_period_start - follow_distance_seconds * 2;
+            let end_eth1_block = voting_period_start - follow_distance_seconds;
+
+            // Populate blocks cache with candidate eth1 blocks
+            let blocks = (start_eth1_block..end_eth1_block)
+                .map(|i| get_eth1_block(i, i))
+                .collect::<Vec<_>>();
+
+            blocks.iter().for_each(|block| {
+                eth1_chain
+                    .backend
+                    .core
+                    .blocks()
+                    .write()
+                    .insert_root_or_child(block.clone())
+                    .expect("should add blocks to cache");
+            });
+            let vote = eth1_chain
+                .eth1_data_for_block_production(&state, &spec)
+                .expect("should produce default eth1 data vote");
+
+            assert_eq!(
+                vote,
+                blocks
+                    .last()
+                    .expect("should have blocks")
+                    .clone()
+                    .eth1_data()
+                    .expect("should have valid eth1 data"),
+                "default vote must correspond to last block in candidate blocks"
+            )
         }
     }
 
     mod eth1_data_sets {
         use super::*;
-
-        fn get_voting_period_start_seconds(state: &BeaconState<E>, spec: &ChainSpec) -> u64 {
-            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-            let voting_period_start_slot = (state.slot / period) * period;
-            slot_start_seconds::<E>(
-                state.genesis_time,
-                spec.milliseconds_per_slot,
-                voting_period_start_slot,
-            )
-        }
 
         #[test]
         fn empty_cache() {
