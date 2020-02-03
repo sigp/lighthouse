@@ -3350,6 +3350,7 @@ dependencies = [
  "eth2_ssz 0.1.2",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "operation_pool 0.1.0",
  "proto_array_fork_choice 0.1.0",
  "reqwest 0.9.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "rest_api 0.1.0",
