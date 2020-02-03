@@ -223,30 +223,8 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
 
         let blocks = self.core.blocks().read();
 
-        let votes_to_consider = if let Some(votes) =
-            get_votes_to_consider(blocks.iter(), voting_period_start_seconds, spec)
-        {
-            votes
-        } else {
-            // The algorithm was unable to find the `votes_to_consider` HashMap.
-            //
-            // This is likely because the caches are empty.
-            //
-            // This situation can also be caused when a testnet does not have an adequate delay
-            // between the eth1 genesis block and the eth2 genesis block. This delay needs to be at
-            // least `2 * ETH1_FOLLOW_DISTANCE`.
-            // TODO: Is this still true? ^
-            crit!(
-                self.log,
-                "Unable to find eth1 data sets";
-                "lowest_block_number" => self.core.lowest_block_number(),
-                "earliest_block_timestamp" => self.core.earliest_block_timestamp(),
-                "genesis_time" => state.genesis_time,
-                "outcome" => "casting random eth1 vote"
-            );
-
-            return Ok(random_eth1_data());
-        };
+        let votes_to_consider =
+            get_votes_to_consider(blocks.iter(), voting_period_start_seconds, spec);
 
         trace!(
             self.log,
@@ -258,14 +236,13 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
         let eth1_data = if let Some(eth1_data) = find_winning_vote(valid_votes) {
             eth1_data
         } else {
-            // In this case, there are no other viable votes (perhaps there are no votes yet or all
-            // the existing votes are junk).
+            // In this case, there are no valid votes available.
             //
             // Here we choose the latest block in our voting window.
             // If no votes exist, choose `state.eth1_data` as default vote.
             let default_vote = votes_to_consider
                 .iter()
-                .max_by(|x, y| x.1.cmp(y.1).reverse())
+                .max_by(|(_, x), (_, y)| x.cmp(y))
                 .map(|vote| {
                     let vote = vote.0.clone();
                     trace!(
@@ -276,18 +253,16 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                     );
                     vote
                 })
-                .map_or_else(
-                    || state.eth1_data.clone(),
-                    |vote| {
-                        trace!(
-                            self.log,
-                            "votes_to_consider empty, choosing state.eth1_data as default vote";
-                            "deposit_count" =>  vote.deposit_count,
-                            "deposit_root" => format!("{:?}", vote.deposit_root),
-                        );
-                        vote
-                    },
-                );
+                .unwrap_or_else(|| {
+                    let vote = state.eth1_data.clone();
+                    trace!(
+                        self.log,
+                        "votes_to_consider empty, choosing state.eth1_data as default vote";
+                        "deposit_count" =>  vote.deposit_count,
+                        "deposit_root" => format!("{:?}", vote.deposit_root),
+                    );
+                    vote
+                });
             default_vote
         };
 
@@ -362,31 +337,26 @@ fn random_eth1_data() -> Eth1Data {
 /// Get all votes from eth1 blocks which are in the list of candidate blocks for the
 /// current eth1 voting period.
 ///
-/// Returns `None` if any of the eth1 blocks in that range don't have an associated
-/// `deposit_root/count` or if there are no candidate eth1 blocks.
-/// Else, returns a hashmap of `Eth1Data` to its associated eth1 `block_number`.
-/// TODO: maybe ignore `Eth1Block`s which don't have an associated block/deposit cache entry
-/// and return a HashMap instead of `None`. This would invalidate the tests.
+/// Returns a hashmap of `Eth1Data` to its associated eth1 `block_number`.
 fn get_votes_to_consider<'a, I>(
     blocks: I,
     voting_period_start_seconds: u64,
     spec: &ChainSpec,
-) -> Option<HashMap<Eth1Data, u64>>
+) -> HashMap<Eth1Data, u64>
 where
     I: DoubleEndedIterator<Item = &'a Eth1Block> + Clone,
 {
-    let votes: Option<HashMap<Eth1Data, u64>> = blocks
+    blocks
         .rev()
         .skip_while(|eth1_block| !is_candidate_block(eth1_block, voting_period_start_seconds, spec))
         .take_while(|eth1_block| is_candidate_block(eth1_block, voting_period_start_seconds, spec))
-        .map(|eth1_block| {
-            (eth1_block
+        .filter_map(|eth1_block| {
+            eth1_block
                 .clone()
                 .eth1_data()
-                .map(|eth1_data| (eth1_data, eth1_block.number)))
+                .map(|eth1_data| (eth1_data, eth1_block.number))
         })
-        .collect();
-    votes.and_then(|v| if v.is_empty() { None } else { Some(v) })
+        .collect()
 }
 
 /// Collect all valid votes that are cast during the current voting period.
@@ -669,81 +639,10 @@ mod test {
 
             let a = eth1_chain
                 .eth1_data_for_block_production(&state, &spec)
-                .expect("should produce first random eth1 data");
-            let b = eth1_chain
-                .eth1_data_for_block_production(&state, &spec)
-                .expect("should produce second random eth1 data");
-
-            assert!(
-                a != b,
-                "random votes should be returned with an empty cache"
-            );
-        }
-
-        #[test]
-        fn eth1_data_unknown_previous_state() {
-            let spec = &E::default_spec();
-            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-
-            let eth1_chain = get_eth1_chain();
-            let store = eth1_chain.backend.store.clone();
-
+                .expect("should produce default eth1 data vote");
             assert_eq!(
-                eth1_chain.use_dummy_backend, false,
-                "test should not use dummy backend"
-            );
-
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
-            let mut prev_state = state.clone();
-
-            prev_state.slot = Slot::new(period * 1_000);
-            state.slot = Slot::new(period * 1_000 + period / 2);
-
-            // Add 50% of the votes so a lookup is required.
-            for _ in 0..period / 2 + 1 {
-                state
-                    .eth1_data_votes
-                    .push(random_eth1_data())
-                    .expect("should push eth1 vote");
-            }
-
-            (0..2048).for_each(|i| {
-                eth1_chain
-                    .backend
-                    .core
-                    .blocks()
-                    .write()
-                    .insert_root_or_child(get_eth1_block(i, i))
-                    .expect("should add blocks to cache");
-            });
-
-            let expected_root = Hash256::from_low_u64_be(u64::max_value());
-            prev_state.eth1_data.block_hash = expected_root;
-
-            assert!(
-                prev_state.eth1_data != state.eth1_data,
-                "test requires state eth1_data are different"
-            );
-
-            store
-                .put_state(
-                    &state
-                        .get_state_root(prev_state.slot)
-                        .expect("should find state root"),
-                    &prev_state,
-                )
-                .expect("should store state");
-
-            let a = eth1_chain
-                .eth1_data_for_block_production(&state, &spec)
-                .expect("should produce first random eth1 data");
-            let b = eth1_chain
-                .eth1_data_for_block_production(&state, &spec)
-                .expect("should produce second random eth1 data");
-
-            assert!(
-                a != b,
-                "random votes should be returned if the previous eth1 data block hash is unknown"
+                a, state.eth1_data,
+                "random votes should be returned with an empty cache"
             );
         }
     }
@@ -774,7 +673,7 @@ mod test {
                     get_voting_period_start_seconds(&state, spec),
                     &spec,
                 ),
-                None
+                HashMap::new()
             );
         }
 
@@ -798,8 +697,7 @@ mod test {
                 .collect::<Vec<_>>();
 
             let votes_to_consider =
-                get_votes_to_consider(blocks.iter(), voting_period_start, &spec)
-                    .expect("should find data");
+                get_votes_to_consider(blocks.iter(), voting_period_start, &spec);
             assert_eq!(
                 votes_to_consider.len() as u64,
                 end_eth1_block - start_eth1_block,
