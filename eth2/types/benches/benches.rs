@@ -151,6 +151,35 @@ fn all_benches(c: &mut Criterion) {
         })
         .sample_size(10),
     );
+
+    let inner_state = state.clone();
+    c.bench(
+        &format!("{}_validators", validator_count),
+        Benchmark::new(
+            "initialized_cached_tree_hash_with_new_validators/beacon_state",
+            move |b| {
+                b.iter_batched_ref(
+                    || {
+                        let mut state = inner_state.clone();
+                        for _ in 0..16 {
+                            state
+                                .validators
+                                .push(Validator::default())
+                                .expect("should push validatorj");
+                            state
+                                .balances
+                                .push(32_000_000_000)
+                                .expect("should push balance");
+                        }
+                        state
+                    },
+                    |state| black_box(state.update_tree_hash_cache()),
+                    criterion::BatchSize::SmallInput,
+                )
+            },
+        )
+        .sample_size(10),
+    );
 }
 
 criterion_group!(benches, all_benches,);
