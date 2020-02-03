@@ -363,7 +363,7 @@ impl<E: EthSpec> HotColdDB<E> {
         // Store a summary of the state.
         // We store one even for the epoch boundary states, as we may need their slots
         // when doing a look up by state root.
-        self.store_hot_state_summary(state_root, &state)?;
+        self.put_state_summary(state_root, HotStateSummary::new(state_root, &state)?)?;
 
         // Store the state in the cache.
         self.state_cache.write().put(*state_root, state);
@@ -701,33 +701,6 @@ impl<E: EthSpec> HotColdDB<E> {
         HotStateSummary::db_get(&self.hot_db, state_root)
     }
 
-    /// Store a summary of a hot database state.
-    fn store_hot_state_summary(
-        &self,
-        state_root: &Hash256,
-        state: &BeaconState<E>,
-    ) -> Result<(), Error> {
-        // Fill in the state root on the latest block header if necessary (this happens on all
-        // slots where there isn't a skip).
-        let latest_block_root = state.get_latest_block_root(*state_root);
-        let epoch_boundary_slot = state.slot / E::slots_per_epoch() * E::slots_per_epoch();
-        let epoch_boundary_state_root = if epoch_boundary_slot == state.slot {
-            *state_root
-        } else {
-            *state
-                .get_state_root(epoch_boundary_slot)
-                .map_err(HotColdDBError::HotStateSummaryError)?
-        };
-
-        HotStateSummary {
-            slot: state.slot,
-            latest_block_root,
-            epoch_boundary_state_root,
-        }
-        .db_put(&self.hot_db, state_root)
-        .map_err(Into::into)
-    }
-
     /// Check that the restore point frequency is valid.
     ///
     /// Specifically, check that it is:
@@ -801,6 +774,29 @@ impl SimpleStoreItem for HotStateSummary {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+impl HotStateSummary {
+    /// Construct a new summary of the given state.
+    pub fn new<E: EthSpec>(state_root: &Hash256, state: &BeaconState<E>) -> Result<Self, Error> {
+        // Fill in the state root on the latest block header if necessary (this happens on all
+        // slots where there isn't a skip).
+        let latest_block_root = state.get_latest_block_root(*state_root);
+        let epoch_boundary_slot = state.slot / E::slots_per_epoch() * E::slots_per_epoch();
+        let epoch_boundary_state_root = if epoch_boundary_slot == state.slot {
+            *state_root
+        } else {
+            *state
+                .get_state_root(epoch_boundary_slot)
+                .map_err(HotColdDBError::HotStateSummaryError)?
+        };
+
+        Ok(HotStateSummary {
+            slot: state.slot,
+            latest_block_root,
+            epoch_boundary_state_root,
+        })
     }
 }
 

@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
 };
-use store::{Error as DBError, Migrate, Store};
+use store::{Error as DBError, Migrate, StateBatch, Store};
 use tree_hash::TreeHash;
 use types::*;
 
@@ -1259,25 +1259,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
-        // Keep a list of any states that were "skipped" (block-less) in between the parent state
-        // slot and the block slot. These will need to be stored in the database.
-        let mut intermediate_states = vec![];
+        // Keep a batch of any states that were "skipped" (block-less) in between the parent state
+        // slot and the block slot. These will be stored in the database.
+        let mut intermediate_states = StateBatch::new();
 
         // Transition the parent state to the block slot.
         let mut state: BeaconState<T::EthSpec> = parent_state;
         let distance = block.slot.as_u64().saturating_sub(state.slot.as_u64());
         for i in 0..distance {
-            if i > 0 {
-                intermediate_states.push(state.clone());
-            }
-
             let state_root = if i == 0 {
-                Some(parent_block.state_root)
+                parent_block.state_root
             } else {
-                None
+                // This is a new state we've reached, so stage it for storage in the DB.
+                // Computing the state root here is time-equivalent to computing it during slot
+                // processing, but we get early access to it.
+                let state_root = state.update_tree_hash_cache()?;
+                intermediate_states.add_state(state_root, &state)?;
+                state_root
             };
 
-            per_slot_processing(&mut state, state_root, &self.spec)?;
+            per_slot_processing(&mut state, Some(state_root), &self.spec)?;
         }
 
         metrics::stop_timer(catchup_timer);
@@ -1360,22 +1361,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
-        // Store all the states between the parent block state and this blocks slot before storing
+        // Store all the states between the parent block state and this block's slot before storing
         // the final state.
-        // FIXME(sproul): re-jig this
-        for (i, intermediate_state) in intermediate_states.iter().enumerate() {
-            // To avoid doing an unnecessary tree hash, use the following (slot + 1) state's
-            // state_roots field to find the root.
-            let following_state = match intermediate_states.get(i + 1) {
-                Some(following_state) => following_state,
-                None => &state,
-            };
-            let intermediate_state_root =
-                following_state.get_state_root(intermediate_state.slot)?;
-
-            self.store
-                .put_state(&intermediate_state_root, intermediate_state.clone())?;
-        }
+        intermediate_states.commit(&*self.store)?;
 
         // Store the block and state.
         // NOTE: we store the block *after* the state to guard against inconsistency in the event of
