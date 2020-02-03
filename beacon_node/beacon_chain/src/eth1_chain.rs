@@ -4,7 +4,7 @@ use eth2_hashing::hash;
 use exit_future::Exit;
 use futures::Future;
 use rand::prelude::*;
-use slog::{crit, debug, trace, Logger};
+use slog::{debug, trace, warn, Logger};
 use state_processing::per_block_processing::get_new_eth1_data;
 use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
@@ -245,21 +245,22 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 .max_by(|(_, x), (_, y)| x.cmp(y))
                 .map(|vote| {
                     let vote = vote.0.clone();
-                    trace!(
+                    warn!(
                         self.log,
-                        "Casting default eth1_data vote";
-                        "deposit_count" =>  vote.deposit_count,
-                        "deposit_root" => format!("{:?}", vote.deposit_root),
+                        "No valid eth1_data votes present in cache";
+                        "outcome" => "Casting vote corresponding to last candidate eth1 block",
                     );
                     vote
                 })
                 .unwrap_or_else(|| {
                     let vote = state.eth1_data.clone();
-                    trace!(
+                    warn!(
                         self.log,
-                        "votes_to_consider empty, choosing state.eth1_data as default vote";
-                        "deposit_count" =>  vote.deposit_count,
-                        "deposit_root" => format!("{:?}", vote.deposit_root),
+                        "No valid eth1_data votes present in cache, `votes_to_consider` empty";
+                        "lowest_block_number" => self.core.lowest_block_number(),
+                        "earliest_block_timestamp" => self.core.earliest_block_timestamp(),
+                        "genesis_time" => state.genesis_time,
+                        "outcome" => "casting `state.eth1_data` as eth1 vote"
                     );
                     vote
                 });
