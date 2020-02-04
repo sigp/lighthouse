@@ -1,5 +1,6 @@
 //! This service keeps track of which shard subnet the beacon node should be subscribed to at any
-//! given time. It schedules subscriptions to shard subnets, requests peer discoveries and determines whether attestations should be aggregated and/or passed to the beacon node.
+//! given time. It schedules subscriptions to shard subnets, requests peer discoveries and
+//! determines whether attestations should be aggregated and/or passed to the beacon node.
 
 use crate::error;
 use crate::NetworkMessage;
@@ -8,7 +9,7 @@ use eth2_libp2p::topics::ATTESTATION_SUBNET_COUNT;
 use eth2_libp2p::SubnetId;
 use futures::prelude::*;
 use hashmap_delay::HashMapDelay;
-use slog::{debug, o, trace};
+use slog::{debug, error, o, trace};
 use std::boxed::Box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -17,10 +18,16 @@ use types::{Attestation, EthSpec};
 
 /// The number of epochs in advance we try to discover peers for a shard subnet.
 const EPOCHS_TO_DISCOVER_PEERS: u8 = 1;
+/// The number of random subnets to be connected to per validator.
+const RANDOM_SUBNETS_PER_VALIDATOR: u8 = 1;
+/// The minimum number of epochs to remain subscribed to a random subnet.
+const EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION: u16 = 256;
 
 pub enum AttestationServiceMessage<T: EthSpec> {
-    /// A raw attestation has been received
+    /// A raw attestation has been received.
     Attestation(SubnetId, Box<Attestation<T>>),
+    /// A validator has been subscribed.
+    ValidatorSubscription,
 }
 
 pub struct AttestationService<T: BeaconChainTypes> {
@@ -31,13 +38,16 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// A reference to the beacon chain to process received attestations.
     beacon_chain: Arc<BeaconChain<T>>,
 
-    /// A timeout list for when to start searching for peers for a particular shard.
+    /// The collection of currently subscribed random subnets.
+    random_subnets: HashMapDelay<SubnetId, ()>,
+
+    /// A collection of timeouts for when to start searching for peers for a particular shard.
     discover_peers: HashMapDelay<SubnetId, Instant>,
 
-    /// A timeout list for when to subscribe to a shard subnet.
+    /// A collection of timeouts for when to subscribe to a shard subnet.
     subscriptions: HashMapDelay<SubnetId, Instant>,
 
-    /// A timeout list for when to unsubscribe from a shard subnet.
+    /// A collection of timeouts for when to unsubscribe from a shard subnet.
     unsubscriptions: HashMapDelay<SubnetId, Instant>,
 
     /// The logger for the attestation service.
@@ -52,15 +62,17 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<AttestationServiceMessage<T::EthSpec>>> {
         let log = log.new(o!("service" => "attestation_service"));
+        let err_log = log.clone();
 
         trace!(log, "Service starting");
 
-        let (handler_send, handler_recv) = mpsc::unbounded_channel();
+        let (handler_send, mut handler_recv) = mpsc::unbounded_channel();
 
         // generate the Message handler
         let mut service = AttestationService {
             network_send,
             beacon_chain,
+            random_subnets: HashMapDelay::default(),
             discover_peers: HashMapDelay::default(),
             subscriptions: HashMapDelay::default(),
             unsubscriptions: HashMapDelay::default(),
@@ -69,22 +81,39 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         let main_task = {
             futures::future::poll_fn(move || {
-                while let Ok(Async::Ready(Some(discover))) = service.discover_peers.poll() {
+                // handle any discovery events
+                while let Async::Ready(Some(discover)) =
+                    service.discover_peers.poll().map_err(|e| {
+                        error!(err_log, "Failed to check for peer discovery requests"; "error"=> format!("{}", e));
+                    })?
+                {
                     service.handle_discover_peer(discover);
                 }
+
+                while let Async::Ready(Some(subscription)) = service.subscriptions.poll().map_err(|e| {
+                        error!(err_log, "Failed to check for peer discovery requests"; "error"=> format!("{}", e));
+                    })?
+                {
+                    service.handle_subscriptions(subscription);
+                }
+
+                while let Async::Ready(Some(subnet)) = service.random_subnets.poll().map_err(|e| { 
+                        error!(err_log, "Failed to check for peer discovery requests"; "error"=> format!("{}", e));
+                    })?
+                {
+                    service.handle_persistant_subnets(subnet);
+                }
+
+                while let Async::Ready(Some(msg)) = handler_recv.poll().map_err(|_| { 
+                        debug!(err_log, "Attestation service terminated");
+                    })?
+                {
+                    service.handle_message(msg);
+                }
+
                 Ok(Async::NotReady)
+
             })
-            /*service
-                .discover_peers
-                .for_each(|discover| Ok(service.handle_discover_peer(discover)))
-                .select(
-                    self.subsciptions
-                        .for_each(|sub| self.handle_subscriptions(sub)),
-                )
-            .map_err(|_| {
-                debug!(service.log, "Attestation Service terminated.");
-            })
-                */
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
@@ -93,7 +122,32 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         Ok(handler_send)
     }
 
-    fn handle_discover_peer(&mut self, _discover: (SubnetId, Instant)) {}
+    /// It is time to run a discovery query to find peers for a particular subnet.
+    fn handle_discover_peer(&mut self, discover: (SubnetId, Instant)) {
+        debug!(self.log, "Searching for peers for subnet"; "subnet" => *discover.0);
+
+
+
+
+    }
 
     fn handle_subscriptions(&mut self, _discover: (SubnetId, Instant)) {}
+
+    fn handle_persistant_subnets(&mut self, _subnet: (SubnetId, ())) {}
+
+    fn handle_attestation(&mut self, subnet: SubnetId, attestation: Box<Attestation<T::EthSpec>>) {}
+
+    fn handle_validator_subscription(&mut self) {}
+
+
+    fn handle_message(&mut self, msg: AttestationServiceMessage<T::EthSpec>) {
+        match msg {
+            AttestationServiceMessage::Attestation(subnet, attestation) => {
+                self.handle_attestation(subnet, attestation);
+            }
+            AttestationServiceMessage::ValidatorSubscription => {
+                self.handle_validator_subscription();
+            }
+        }
+    }
 }
