@@ -50,10 +50,6 @@ lazy_static! {
         "store_beacon_state_get_total",
         "Total number of beacon states requested from the store (cache or DB)"
     );
-    pub static ref BEACON_STATE_BOUNDARY_GET_COUNT: Result<IntCounter> = try_create_int_counter(
-        "store_beacon_state_boundary_get_total",
-        "Total number of epoch boundary states requested from the store (cache or DB)"
-    );
     pub static ref BEACON_STATE_HOT_GET_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_beacon_state_hot_get_total",
         "Total number of hot beacon states requested from the store (cache or DB)"
@@ -108,10 +104,6 @@ lazy_static! {
     pub static ref BEACON_BLOCK_CACHE_HIT_COUNT: Result<IntCounter> = try_create_int_counter(
         "store_beacon_block_cache_hit_total",
         "Number of hits to the store's block cache"
-    );
-    pub static ref BEACON_BLOCK_CACHE_CLONE_TIME: Result<Histogram> = try_create_histogram(
-        "store_beacon_block_cache_clone_time",
-        "Time to load a beacon block from the block cache"
     );
     pub static ref BEACON_BLOCK_READ_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_block_read_overhead_seconds",

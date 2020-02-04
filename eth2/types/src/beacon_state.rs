@@ -966,6 +966,7 @@ impl<T: EthSpec> BeaconState<T> {
         })
     }
 
+    /// Clone the state whilst preserving only the selected caches.
     pub fn clone_with(&self, config: CloneConfig) -> Self {
         BeaconState {
             genesis_time: self.genesis_time,
