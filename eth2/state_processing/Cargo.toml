@@ -31,6 +31,8 @@ tree_hash = "0.1.0"
 tree_hash_derive = "0.2"
 types = { path = "../types" }
 rayon = "1.2.0"
+eth2_hashing = { path = "../utils/eth2_hashing" }
+int_to_bytes = { path = "../utils/int_to_bytes" }
 
 [features]
 fake_crypto = ["bls/fake_crypto"]

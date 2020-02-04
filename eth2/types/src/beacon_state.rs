@@ -97,6 +97,21 @@ impl BeaconTreeHashCache {
     pub fn is_initialized(&self) -> bool {
         self.initialized
     }
+
+    /// Returns the approximate size of the cache in bytes.
+    ///
+    /// The size is approximate because we ignore some stack-allocated `u64` and `Vec` pointers.
+    /// We focus instead on the lists of hashes, which should massively outweigh the items that we
+    /// ignore.
+    pub fn approx_mem_size(&self) -> usize {
+        self.block_roots.approx_mem_size()
+            + self.state_roots.approx_mem_size()
+            + self.historical_roots.approx_mem_size()
+            + self.validators.approx_mem_size()
+            + self.balances.approx_mem_size()
+            + self.randao_mixes.approx_mem_size()
+            + self.slashings.approx_mem_size()
+    }
 }
 
 /// The state of the `BeaconChain` at some slot.
@@ -995,6 +1010,12 @@ impl<T: EthSpec> BeaconState<T> {
             exit_cache: ExitCache::default(),
             tree_hash_cache: BeaconTreeHashCache::default(),
         }
+    }
+
+    pub fn clone_with_only_committee_caches(&self) -> Self {
+        let mut state = self.clone_without_caches();
+        state.committee_caches = self.committee_caches.clone();
+        state
     }
 }
 
