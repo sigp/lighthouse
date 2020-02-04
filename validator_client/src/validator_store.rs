@@ -62,11 +62,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     .voting_keypair
                     .clone()
                     .map(|voting_keypair| (voting_keypair.pk, validator_directory))
-            })
-            .collect::<Vec<_>>();
+            });
 
         Ok(Self {
-            validators: Arc::new(RwLock::new(HashMap::from_iter(validator_key_values))),
+            validators: Arc::new(RwLock::new(HashMap::from_par_iter(validator_key_values))),
             spec: Arc::new(spec),
             log,
             temp_dir: None,
