@@ -1,6 +1,7 @@
 use crate::error;
+use crate::globals::NetworkGlobals;
 use crate::message_handler::{HandlerMessage, MessageHandler};
-use crate::persisted_dht::{PersistedDht, DHT_DB_KEY};
+use crate::persisted_dht::{load_dht, persist_dht};
 use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
@@ -9,22 +10,19 @@ use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, PeerI
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use slog::{debug, error, info, trace};
 use std::sync::Arc;
-use store::Store;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
-use types::Hash256;
 
 /// The time in seconds that a peer will be banned and prevented from reconnecting.
 const BAN_PEER_TIMEOUT: u64 = 30;
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service<T: BeaconChainTypes> {
-    libp2p_service: Arc<Mutex<LibP2PService>>,
     libp2p_port: u16,
-    store: Arc<T::Store>,
+    network_globals: RwLock<NetworkGlobals>,
     log: slog::Logger,
     _libp2p_exit: oneshot::Sender<()>,
     _network_send: mpsc::UnboundedSender<NetworkMessage>,
@@ -40,8 +38,6 @@ impl<T: BeaconChainTypes> Service<T> {
     ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage>)> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage>();
-        // Get a reference to the beacon chain store
-        let store = beacon_chain.store.clone();
         // launch message handler thread
         let message_handler_send = MessageHandler::spawn(
             beacon_chain,
@@ -51,36 +47,25 @@ impl<T: BeaconChainTypes> Service<T> {
         )?;
 
         // launch libp2p service
-        let libp2p_service = Arc::new(Mutex::new(LibP2PService::new(
-            config.clone(),
-            network_log.clone(),
-        )?));
+        let libp2p_service = LibP2PService::new(config.clone(), network_log.clone())?;
 
-        // Load DHT from store
-        let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
-        let enrs: Vec<Enr> = match store.get(&key) {
-            Ok(Some(p)) => {
-                let p: PersistedDht = p;
-                p.enrs
-            }
-            _ => Vec::new(),
-        };
-        for enr in enrs {
-            libp2p_service.lock().swarm.add_enr(enr);
+        for enr in load_dht::<T>(beacon_chain.store.clone()) {
+            libp2p_service.swarm.add_enr(enr);
         }
 
-        let libp2p_exit = spawn_service(
-            libp2p_service.clone(),
+        let libp2p_exit = spawn_service::<T>(
+            libp2p_service,
             network_recv,
             message_handler_send,
             executor,
+            beacon_chain.store.clone(),
             network_log.clone(),
             config.propagation_percentage,
         )?;
+
         let network_service = Service {
-            libp2p_service,
             libp2p_port: config.libp2p_port,
-            store,
+            network_globals: RwLock::new(NetworkGlobals::new()),
             log: network_log,
             _libp2p_exit: libp2p_exit,
             _network_send: network_send.clone(),
@@ -92,25 +77,18 @@ impl<T: BeaconChainTypes> Service<T> {
 
     /// Returns the local ENR from the underlying Discv5 behaviour that external peers may connect
     /// to.
-    pub fn local_enr(&self) -> Enr {
-        self.libp2p_service
-            .lock()
-            .swarm
-            .discovery()
-            .local_enr()
-            .clone()
+    pub fn local_enr(&self) -> Option<Enr> {
+        self.network_globals.read().local_enr.clone()
     }
 
     /// Returns the local libp2p PeerID.
-    pub fn local_peer_id(&self) -> PeerId {
-        self.libp2p_service.lock().local_peer_id.clone()
+    pub fn local_peer_id(&self) -> Option<PeerId> {
+        self.network_globals.read().peer_id.clone()
     }
 
     /// Returns the list of `Multiaddr` that the underlying libp2p instance is listening on.
     pub fn listen_multiaddrs(&self) -> Vec<Multiaddr> {
-        Swarm::listeners(&self.libp2p_service.lock().swarm)
-            .cloned()
-            .collect()
+        self.network_globals.read().listen_multiaddrs.clone()
     }
 
     /// Returns the libp2p port that this node has been configured to listen using.
@@ -120,51 +98,21 @@ impl<T: BeaconChainTypes> Service<T> {
 
     /// Returns the number of libp2p connected peers.
     pub fn connected_peers(&self) -> usize {
-        self.libp2p_service.lock().swarm.connected_peers()
+        self.network_globals.read().connected_peers.clone()
     }
 
     /// Returns the set of `PeerId` that are connected via libp2p.
     pub fn connected_peer_set(&self) -> Vec<PeerId> {
-        self.libp2p_service
-            .lock()
-            .swarm
-            .discovery()
-            .connected_peer_set()
-            .iter()
-            .cloned()
-            .collect()
-    }
-
-    /// Provides a reference to the underlying libp2p service.
-    pub fn libp2p_service(&self) -> Arc<Mutex<LibP2PService>> {
-        self.libp2p_service.clone()
-    }
-
-    /// Attempt to persist the enrs in the DHT to `self.store`.
-    pub fn persist_dht(&self) -> Result<(), store::Error> {
-        let enrs: Vec<Enr> = self
-            .libp2p_service()
-            .lock()
-            .swarm
-            .enr_entries()
-            .map(|x| x.clone())
-            .collect();
-        info!(
-            self.log,
-            "Persisting DHT to store";
-            "Number of peers" => format!("{}", enrs.len()),
-        );
-        let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
-        self.store.put(&key, &PersistedDht { enrs })?;
-        Ok(())
+        self.network_globals.read().connected_peer_set.clone()
     }
 }
 
-fn spawn_service(
-    libp2p_service: Arc<Mutex<LibP2PService>>,
+fn spawn_service<T: BeaconChainTypes>(
+    libp2p_service: LibP2PService,
     network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
     message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
     executor: &TaskExecutor,
+    store: Arc<T::Store>,
     log: slog::Logger,
     propagation_percentage: Option<u8>,
 ) -> error::Result<tokio::sync::oneshot::Sender<()>> {
@@ -173,26 +121,49 @@ fn spawn_service(
     // spawn on the current executor
     executor.spawn(
         network_service(
-            libp2p_service,
+            &libp2p_service,
             network_recv,
             message_handler_send,
             log.clone(),
             propagation_percentage,
         )
         // allow for manual termination
-        .select(exit_rx.then(|_| Ok(())))
-        .then(move |_| {
-            info!(log.clone(), "Network service shutdown");
-            Ok(())
-        }),
+        .select(
+            exit_rx
+                .then(|_| {
+                    // network thread is terminating
+                    let enrs: Vec<Enr> = libp2p_service.swarm.enr_entries().cloned().collect();
+                    info!(
+                        log,
+                        "Persisting DHT to store";
+                        "Number of peers" => format!("{}", enrs.len()),
+                    );
+
+                    match persist_dht(store, enrs) {
+                        Err(e) => error!(
+                            log,
+                            "Failed to persist DHT on drop";
+                            "error" => format!("{:?}", e)
+                        ),
+                        Ok(_) => info!(
+                            log,
+                            "Saved DHT state";
+                        ),
+                    }
+                    Ok(())
+                })
+                .then(move |_| {
+                    info!(log.clone(), "Network service shutdown");
+                    Ok(())
+                }),
+        ),
     );
 
     Ok(network_exit)
 }
 
-//TODO: Potentially handle channel errors
 fn network_service(
-    libp2p_service: Arc<Mutex<LibP2PService>>,
+    libp2p_service: LibP2PService,
     mut network_recv: mpsc::UnboundedReceiver<NetworkMessage>,
     mut message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
     log: slog::Logger,
@@ -206,7 +177,7 @@ fn network_service(
                 Ok(Async::Ready(Some(message))) => match message {
                     NetworkMessage::RPC(peer_id, rpc_event) => {
                         trace!(log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
-                        libp2p_service.lock().swarm.send_rpc(peer_id, rpc_event);
+                        libp2p_service.swarm.send_rpc(peer_id, rpc_event);
                     }
                     NetworkMessage::Propagate {
                         propagation_source,
@@ -231,7 +202,6 @@ fn network_service(
                             "message_id" => message_id.to_string(),
                             );
                             libp2p_service
-                                .lock()
                                 .swarm
                                 .propagate_message(&propagation_source, message_id);
                         }
@@ -252,11 +222,11 @@ fn network_service(
                             info!(log, "Random filter did not publish message");
                         } else {
                             debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
-                            libp2p_service.lock().swarm.publish(&topics, message);
+                            libp2p_service.swarm.publish(&topics, message);
                         }
                     }
                     NetworkMessage::Disconnect { peer_id } => {
-                        libp2p_service.lock().disconnect_and_ban_peer(
+                        libp2p_service.disconnect_and_ban_peer(
                             peer_id,
                             std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
                         );
@@ -275,7 +245,7 @@ fn network_service(
         // poll the swarm
         let mut peers_to_ban = Vec::new();
         loop {
-            match libp2p_service.lock().poll() {
+            match libp2p_service.poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
                         // trace!(log, "Received RPC"; "rpc" => format!("{}", rpc_event));
@@ -320,7 +290,7 @@ fn network_service(
 
         // ban and disconnect any peers that sent Goodbye requests
         while let Some(peer_id) = peers_to_ban.pop() {
-            libp2p_service.lock().disconnect_and_ban_peer(
+            libp2p_service.disconnect_and_ban_peer(
                 peer_id.clone(),
                 std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
             );
@@ -350,20 +320,7 @@ pub enum NetworkMessage {
 }
 
 impl<T: BeaconChainTypes> Drop for Service<T> {
-    fn drop(&mut self) {
-        if let Err(e) = self.persist_dht() {
-            error!(
-                self.log,
-                "Failed to persist DHT on drop";
-                "error" => format!("{:?}", e)
-            )
-        } else {
-            info!(
-                self.log,
-                "Saved DHT state";
-            )
-        }
-    }
+    fn drop(&mut self) {}
 }
 
 #[cfg(test)]
@@ -384,6 +341,7 @@ mod tests {
         builder.build().expect("should build logger")
     }
 
+    /*
     #[test]
     fn test_dht_persistence() {
         // Create new LevelDB store
@@ -435,13 +393,12 @@ mod tests {
 
         // Add enrs manually to dht
         for enr in enrs.iter() {
-            service.libp2p_service().lock().swarm.add_enr(enr.clone());
+            service.libp2p_service.swarm.add_enr(enr.clone());
         }
         assert_eq!(
             enrs.len(),
             service
                 .libp2p_service()
-                .lock()
                 .swarm
                 .enr_entries()
                 .collect::<Vec<_>>()
@@ -471,4 +428,5 @@ mod tests {
             "Recovered DHT should have 2 enrs"
         );
     }
+    */
 }

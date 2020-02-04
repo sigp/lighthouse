@@ -1,5 +1,6 @@
 /// This crate provides the network server for Lighthouse.
 pub mod error;
+pub mod globals;
 pub mod message_handler;
 pub mod message_processor;
 pub mod persisted_dht;
