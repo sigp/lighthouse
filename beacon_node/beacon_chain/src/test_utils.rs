@@ -10,6 +10,7 @@ use rayon::prelude::*;
 use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
@@ -18,8 +19,8 @@ use store::{
 };
 use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    AggregateSignature, Attestation, BeaconBlock, BeaconState, BitList, ChainSpec, Domain, EthSpec,
-    Hash256, Keypair, SecretKey, Signature, Slot,
+    AggregateSignature, Attestation, BeaconBlock, BeaconState, ChainSpec, Domain, EthSpec, Hash256,
+    Keypair, SecretKey, Signature, Slot,
 };
 
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
@@ -380,8 +381,6 @@ where
             .expect("should get committees")
             .iter()
             .for_each(|bc| {
-                let committee_size = bc.committee.len();
-
                 let mut local_attestations: Vec<Attestation<E>> = bc
                     .committee
                     .par_iter()
@@ -390,27 +389,26 @@ where
                         // Note: searching this array is worst-case `O(n)`. A hashset could be a better
                         // alternative.
                         if attesting_validators.contains(validator_index) {
-                            let data = self
+                            let mut attestation = self
                                 .chain
-                                .produce_attestation_data_for_block(
+                                .produce_attestation_for_block(
+                                    head_block_slot,
                                     bc.index,
                                     head_block_root,
-                                    head_block_slot,
-                                    state,
+                                    Cow::Borrowed(state),
                                 )
-                                .expect("should produce attestation data");
+                                .expect("should produce attestation");
 
-                            let mut aggregation_bits = BitList::with_capacity(committee_size)
-                                .expect("should make aggregation bits");
-                            aggregation_bits
+                            attestation
+                                .aggregation_bits
                                 .set(i, true)
                                 .expect("should be able to set aggregation bits");
 
-                            let signature = {
-                                let message = data.tree_hash_root();
+                            attestation.signature = {
+                                let message = attestation.data.tree_hash_root();
 
                                 let domain = spec.get_domain(
-                                    data.target.epoch,
+                                    attestation.data.target.epoch,
                                     Domain::BeaconAttester,
                                     fork,
                                 );
@@ -423,12 +421,6 @@ where
                                 ));
 
                                 agg_sig
-                            };
-
-                            let attestation = Attestation {
-                                aggregation_bits,
-                                data,
-                                signature,
                             };
 
                             Some(attestation)

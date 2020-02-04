@@ -110,6 +110,7 @@ pub struct HeadInfo {
     pub slot: Slot,
     pub block_root: Hash256,
     pub state_root: Hash256,
+    pub current_justified_checkpoint: types::Checkpoint,
     pub finalized_checkpoint: types::Checkpoint,
     pub fork: Fork,
 }
@@ -491,6 +492,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot: head.beacon_block.slot,
             block_root: head.beacon_block_root,
             state_root: head.beacon_state_root,
+            current_justified_checkpoint: head.beacon_state.current_justified_checkpoint.clone(),
             finalized_checkpoint: head.beacon_state.finalized_checkpoint.clone(),
             fork: head.beacon_state.fork.clone(),
         })
@@ -695,117 +697,96 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Produce an `Attestation` that is valid for the given `slot` and `index`.
-    ///
-    /// Always attests to the canonical chain.
     pub fn produce_attestation(
         &self,
         slot: Slot,
         index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
-        let state = self.state_at_slot(slot)?;
-        let head = self.head()?;
+        // Note: we're taking a lock on the head. The work involved here should be trivial enough
+        // that the lock should not be held for long.
+        let head = self
+            .canonical_head
+            .try_read_for(HEAD_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?;
 
-        let data = self.produce_attestation_data_for_block(
-            index,
-            head.beacon_block_root,
-            head.beacon_block.slot,
-            &state,
-        )?;
+        if slot >= head.beacon_block.slot {
+            self.produce_attestation_for_block(
+                slot,
+                index,
+                head.beacon_block_root,
+                Cow::Borrowed(&head.beacon_state),
+            )
+        } else {
+            // Note: this method will fail if `slot` is more than `state.block_roots.len()` slots
+            // prior to the head.
+            //
+            // This seems reasonable, producing an attestation at a slot so far
+            // in the past seems useless, definitely in mainnet spec. In minimal spec, when the
+            // block roots only contain two epochs of history, it's possible that you will fail to
+            // produce an attestation that would be valid to be included in a block. Given that
+            // minimal is only for testing, I think this is fine.
+            //
+            // It is important to note that what's _not_ allowed here is attesting to a slot in the
+            // past. You can still attest to a block an arbitrary distance in the past, just not as
+            // if you are in a slot in the past.
+            let beacon_block_root = *head.beacon_state.get_block_root(slot)?;
+            let state_root = *head.beacon_state.get_state_root(slot)?;
 
-        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+            // Avoid holding a lock on the head whilst doing database reads. Good boi functions
+            // don't hog locks.
+            drop(head);
 
-        Ok(Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)?,
-            data,
-            signature: AggregateSignature::new(),
-        })
-    }
+            let mut state = self
+                .get_state_caching_only_with_committee_caches(&state_root, Some(slot))?
+                .ok_or_else(|| Error::MissingBeaconState(state_root))?;
 
-    /// Produce an `AttestationData` that is valid for the given `slot`, `index`.
-    ///
-    /// Always attests to the canonical chain.
-    pub fn produce_attestation_data(
-        &self,
-        slot: Slot,
-        index: CommitteeIndex,
-    ) -> Result<AttestationData, Error> {
-        let state = self.state_at_slot(slot)?;
-        let head = self.head()?;
+            state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
-        self.produce_attestation_data_for_block(
-            index,
-            head.beacon_block_root,
-            head.beacon_block.slot,
-            &state,
-        )
+            self.produce_attestation_for_block(slot, index, beacon_block_root, Cow::Owned(state))
+        }
     }
 
     /// Produce an `AttestationData` that attests to the chain denoted by `block_root` and `state`.
     ///
     /// Permits attesting to any arbitrary chain. Generally, the `produce_attestation_data`
     /// function should be used as it attests to the canonical chain.
-    pub fn produce_attestation_data_for_block(
+    pub fn produce_attestation_for_block(
         &self,
+        slot: Slot,
         index: CommitteeIndex,
-        head_block_root: Hash256,
-        head_block_slot: Slot,
-        state: &BeaconState<T::EthSpec>,
-    ) -> Result<AttestationData, Error> {
-        // Collect some metrics.
-        metrics::inc_counter(&metrics::ATTESTATION_PRODUCTION_REQUESTS);
-        let timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_TIMES);
+        beacon_block_root: Hash256,
+        mut state: Cow<BeaconState<T::EthSpec>>,
+    ) -> Result<Attestation<T::EthSpec>, Error> {
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
-        let slots_per_epoch = T::EthSpec::slots_per_epoch();
-        let current_epoch_start_slot = state.current_epoch().start_slot(slots_per_epoch);
-
-        // The `target_root` is the root of the first block of the current epoch.
-        //
-        // The `state` does not know the root of the block for it's current slot (it only knows
-        // about blocks from prior slots). This creates an edge-case when the state is on the first
-        // slot of the epoch -- we're unable to obtain the `target_root` because it is not a prior
-        // root.
-        //
-        // This edge case is handled in two ways:
-        //
-        // - If the head block is on the same slot as the state, we use it's root.
-        // - Otherwise, assume the current slot has been skipped and use the block root from the
-        // prior slot.
-        //
-        // For all other cases, we simply read the `target_root` from `state.latest_block_roots`.
-        let target_root = if state.slot == current_epoch_start_slot {
-            if head_block_slot == current_epoch_start_slot {
-                head_block_root
-            } else {
-                *state.get_block_root(current_epoch_start_slot - 1)?
+        if state.slot > slot {
+            return Err(Error::CannotAttestToFutureState);
+        } else if state.current_epoch() + 1 < epoch {
+            let mut_state = state.to_mut();
+            while mut_state.current_epoch() + 1 < epoch {
+                // Note: here we provide `Hash256::zero()` as the root of the current state. This
+                // has the effect of setting the values of all historic state roots to the zero
+                // hash. This is an optimization, we don't need the state roots so why calculate
+                // them?
+                per_slot_processing(mut_state, Some(Hash256::zero()), &self.spec)?;
             }
-        } else {
-            *state.get_block_root(current_epoch_start_slot)?
-        };
+            mut_state.build_committee_cache(RelativeEpoch::Next, &self.spec)?;
+        }
 
-        let target = Checkpoint {
-            epoch: state.current_epoch(),
-            root: target_root,
-        };
-
-        // Collect some metrics.
-        metrics::inc_counter(&metrics::ATTESTATION_PRODUCTION_SUCCESSES);
-        metrics::stop_timer(timer);
-
-        trace!(
-            self.log,
-            "Produced beacon attestation data";
-            "beacon_block_root" => format!("{}", head_block_root),
-            "slot" => state.slot,
-            "index" => index
-        );
-
-        Ok(AttestationData {
-            slot: state.slot,
-            index,
-            beacon_block_root: head_block_root,
-            source: state.current_justified_checkpoint.clone(),
-            target,
+        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+        Ok(Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)?,
+            data: AttestationData {
+                slot,
+                index,
+                beacon_block_root: beacon_block_root,
+                source: state.current_justified_checkpoint.clone(),
+                target: Checkpoint {
+                    epoch,
+                    root: *state.get_block_root(epoch.start_slot(T::EthSpec::slots_per_epoch()))?,
+                },
+            },
+            signature: AggregateSignature::new(),
         })
     }
 
