@@ -475,7 +475,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .ok_or_else(|| Error::CanonicalHeadLockTimeout)
-            .map(|v| v.clone())
+            .map(|v| v.clone_with_only_committee_caches())
     }
 
     /// Returns info representing the head block and state.

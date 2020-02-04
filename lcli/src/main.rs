@@ -1,8 +1,10 @@
 #[macro_use]
 extern crate log;
 
+mod change_genesis_time;
 mod deploy_deposit_contract;
 mod eth1_genesis;
+mod interop_genesis;
 mod parse_hex;
 mod refund_deposit_contract;
 mod transition_blocks;
@@ -226,6 +228,59 @@ fn main() {
                         .help("The URL to the eth1 JSON-RPC http API."),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("interop-genesis")
+                .about(
+                    "Produces an interop-compatible genesis state using deterministic keypairs",
+                )
+                .arg(
+                    Arg::with_name("testnet-dir")
+                        .short("d")
+                        .long("testnet-dir")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
+                )
+                .arg(
+                    Arg::with_name("validator-count")
+                        .long("validator-count")
+                        .index(1)
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("1024")
+                        .help("The number of validators in the genesis state."),
+                )
+                .arg(
+                    Arg::with_name("genesis-time")
+                        .long("genesis-time")
+                        .short("t")
+                        .value_name("UNIX_EPOCH")
+                        .takes_value(true)
+                        .help("The value for state.genesis_time. Defaults to now."),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("change-genesis-time")
+                .about(
+                    "Loads a file with an SSZ-encoded BeaconState and modifies the genesis time.",
+                )
+                .arg(
+                    Arg::with_name("ssz-state")
+                        .index(1)
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The path to the SSZ file"),
+                )
+                .arg(
+                    Arg::with_name("genesis-time")
+                        .index(2)
+                        .value_name("UNIX_EPOCH")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The value for state.genesis_time."),
+                )
+        )
         .get_matches();
 
     macro_rules! run_with_spec {
@@ -306,6 +361,10 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) {
         }
         ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, matches)
             .unwrap_or_else(|e| error!("Failed to run eth1-genesis command: {}", e)),
+        ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(env, matches)
+            .unwrap_or_else(|e| error!("Failed to run interop-genesis command: {}", e)),
+        ("change-genesis-time", Some(matches)) => change_genesis_time::run::<T>(matches)
+            .unwrap_or_else(|e| error!("Failed to run change-genesis-time command: {}", e)),
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
 }

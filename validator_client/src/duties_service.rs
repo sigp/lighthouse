@@ -190,6 +190,7 @@ pub struct DutiesServiceBuilder<T, E: EthSpec> {
     slot_clock: Option<T>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
+    allow_unsynced_beacon_node: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
@@ -199,6 +200,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
             slot_clock: None,
             beacon_node: None,
             context: None,
+            allow_unsynced_beacon_node: false,
         }
     }
 
@@ -222,6 +224,12 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
         self
     }
 
+    /// Set to `true` to allow polling for duties when the beacon node is not synced.
+    pub fn allow_unsynced_beacon_node(mut self, allow_unsynced_beacon_node: bool) -> Self {
+        self.allow_unsynced_beacon_node = allow_unsynced_beacon_node;
+        self
+    }
+
     pub fn build(self) -> Result<DutiesService<T, E>, String> {
         Ok(DutiesService {
             inner: Arc::new(Inner {
@@ -238,6 +246,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or_else(|| "Cannot build DutiesService without runtime_context")?,
+                allow_unsynced_beacon_node: self.allow_unsynced_beacon_node,
             }),
         })
     }
@@ -250,6 +259,9 @@ pub struct Inner<T, E: EthSpec> {
     pub(crate) slot_clock: T,
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
+    /// If true, the duties service will poll for duties from the beacon node even if it is not
+    /// synced.
+    allow_unsynced_beacon_node: bool,
 }
 
 /// Maintains a store of the duties for all voting validators in the `validator_store`.
@@ -404,36 +416,38 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .and_then(move |(current_epoch, beacon_head_epoch)| {
                 let log = service_3.context.log.clone();
 
-                let future: Box<dyn Future<Item = (), Error = ()> + Send> =
-                    if beacon_head_epoch + 1 < current_epoch {
-                        error!(
-                            log,
-                            "Beacon node is not synced";
-                            "node_head_epoch" => format!("{}", beacon_head_epoch),
-                            "current_epoch" => format!("{}", current_epoch),
-                        );
+                let future: Box<dyn Future<Item = (), Error = ()> + Send> = if beacon_head_epoch + 1
+                    < current_epoch
+                    && !service_3.allow_unsynced_beacon_node
+                {
+                    error!(
+                        log,
+                        "Beacon node is not synced";
+                        "node_head_epoch" => format!("{}", beacon_head_epoch),
+                        "current_epoch" => format!("{}", current_epoch),
+                    );
 
-                        Box::new(future::ok(()))
-                    } else {
-                        Box::new(service_3.update_epoch(current_epoch).then(move |result| {
-                            if let Err(e) = result {
-                                error!(
-                                    log,
-                                    "Failed to get current epoch duties";
-                                    "http_error" => format!("{:?}", e)
-                                );
-                            }
+                    Box::new(future::ok(()))
+                } else {
+                    Box::new(service_3.update_epoch(current_epoch).then(move |result| {
+                        if let Err(e) = result {
+                            error!(
+                                log,
+                                "Failed to get current epoch duties";
+                                "http_error" => format!("{:?}", e)
+                            );
+                        }
 
-                            let log = service_4.context.log.clone();
-                            service_4.update_epoch(current_epoch + 1).map_err(move |e| {
-                                error!(
-                                    log,
-                                    "Failed to get next epoch duties";
-                                    "http_error" => format!("{:?}", e)
-                                );
-                            })
-                        }))
-                    };
+                        let log = service_4.context.log.clone();
+                        service_4.update_epoch(current_epoch + 1).map_err(move |e| {
+                            error!(
+                                log,
+                                "Failed to get next epoch duties";
+                                "http_error" => format!("{:?}", e)
+                            );
+                        })
+                    }))
+                };
 
                 future
             })

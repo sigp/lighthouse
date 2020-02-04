@@ -377,7 +377,6 @@ fn init_new_client<E: EthSpec>(
         eth2_testnet_config.deposit_contract_deploy_block;
 
     client_config.eth1.follow_distance = spec.eth1_follow_distance / 2;
-    client_config.dummy_eth1_backend = false;
     client_config.eth1.lowest_cached_block_number = client_config
         .eth1
         .deposit_contract_deploy_block

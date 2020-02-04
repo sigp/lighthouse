@@ -32,6 +32,9 @@ pub struct Config {
     ///
     /// Should be similar to `http://localhost:8080`
     pub http_server: String,
+    /// If true, the validator client will still poll for duties and produce blocks even if the
+    /// beacon node is not synced at startup.
+    pub allow_unsynced_beacon_node: bool,
 }
 
 impl Default for Config {
@@ -44,6 +47,7 @@ impl Default for Config {
             data_dir,
             key_source: <_>::default(),
             http_server: DEFAULT_HTTP_SERVER.to_string(),
+            allow_unsynced_beacon_node: false,
         }
     }
 }
@@ -71,7 +75,7 @@ impl Config {
             config.http_server = server.to_string();
         }
 
-        let config = match cli_args.subcommand() {
+        let mut config = match cli_args.subcommand() {
             ("testnet", Some(sub_cli_args)) => {
                 if cli_args.is_present("eth2-config") && sub_cli_args.is_present("bootstrap") {
                     return Err(
@@ -87,6 +91,8 @@ impl Config {
                 config
             }
         };
+
+        config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
 
         Ok(config)
     }

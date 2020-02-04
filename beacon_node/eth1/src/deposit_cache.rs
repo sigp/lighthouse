@@ -1,6 +1,6 @@
 use crate::DepositLog;
-use eth2_hashing::hash;
 use ssz_derive::{Decode, Encode};
+use state_processing::common::DepositDataTree;
 use std::cmp::Ordering;
 use tree_hash::TreeHash;
 use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
@@ -29,56 +29,6 @@ pub enum Error {
     DepositTreeError(merkle_proof::MerkleTreeError),
     /// An unexpected condition was encountered.
     InternalError(String),
-}
-
-/// Emulates the eth1 deposit contract merkle tree.
-pub struct DepositDataTree {
-    tree: merkle_proof::MerkleTree,
-    mix_in_length: usize,
-    depth: usize,
-}
-
-impl DepositDataTree {
-    /// Create a new Merkle tree from a list of leaves (`DepositData::tree_hash_root`) and a fixed depth.
-    pub fn create(leaves: &[Hash256], mix_in_length: usize, depth: usize) -> Self {
-        Self {
-            tree: merkle_proof::MerkleTree::create(leaves, depth),
-            mix_in_length,
-            depth,
-        }
-    }
-
-    /// Returns 32 bytes representing the "mix in length" for the merkle root of this tree.
-    fn length_bytes(&self) -> Vec<u8> {
-        int_to_bytes32(self.mix_in_length)
-    }
-
-    /// Retrieve the root hash of this Merkle tree with the length mixed in.
-    pub fn root(&self) -> Hash256 {
-        let mut preimage = [0; 64];
-        preimage[0..32].copy_from_slice(&self.tree.hash()[..]);
-        preimage[32..64].copy_from_slice(&self.length_bytes());
-        Hash256::from_slice(&hash(&preimage))
-    }
-
-    /// Return the leaf at `index` and a Merkle proof of its inclusion.
-    ///
-    /// The Merkle proof is in "bottom-up" order, starting with a leaf node
-    /// and moving up the tree. Its length will be exactly equal to `depth + 1`.
-    pub fn generate_proof(&self, index: usize) -> (Hash256, Vec<Hash256>) {
-        let (root, mut proof) = self.tree.generate_proof(index, self.depth);
-        proof.push(Hash256::from_slice(&self.length_bytes()));
-        (root, proof)
-    }
-
-    /// Add a deposit to the merkle tree.
-    pub fn push_leaf(&mut self, leaf: Hash256) -> Result<(), Error> {
-        self.tree
-            .push_leaf(leaf, self.depth)
-            .map_err(Error::DepositTreeError)?;
-        self.mix_in_length += 1;
-        Ok(())
-    }
 }
 
 #[derive(Encode, Decode, Clone)]
@@ -202,7 +152,9 @@ impl DepositCache {
                 let deposit = Hash256::from_slice(&log.deposit_data.tree_hash_root());
                 self.leaves.push(deposit);
                 self.logs.push(log);
-                self.deposit_tree.push_leaf(deposit)?;
+                self.deposit_tree
+                    .push_leaf(deposit)
+                    .map_err(Error::DepositTreeError)?;
                 self.deposit_roots.push(self.deposit_tree.root());
                 Ok(())
             }
@@ -332,13 +284,6 @@ impl DepositCache {
         let index = self.get_deposit_count_from_cache(block_number)?;
         Some(*self.deposit_roots.get(index as usize)?)
     }
-}
-
-/// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: usize) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
 }
 
 #[cfg(test)]
