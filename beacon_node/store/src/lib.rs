@@ -350,13 +350,12 @@ mod tests {
 
         let hot_dir = tempdir().unwrap();
         let cold_dir = tempdir().unwrap();
-        let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
         let spec = MinimalEthSpec::default_spec();
         let log = NullLoggerBuilder.build().unwrap();
         let store = DiskStore::open(
             &hot_dir.path(),
             &cold_dir.path(),
-            slots_per_restore_point,
+            StoreConfig::default(),
             spec,
             log,
         )
