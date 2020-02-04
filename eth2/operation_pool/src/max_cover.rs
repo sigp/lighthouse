@@ -167,7 +167,7 @@ mod test {
             HashSet::from_iter(vec![5, 6, 7, 8]),      // 4, 4*
             HashSet::from_iter(vec![0, 1, 2, 3, 4]),   // 5*
         ];
-        let cover = maximum_cover(sets.clone(), 3);
+        let cover = maximum_cover(sets, 3);
         assert_eq!(quality(&cover), 11);
     }
 
@@ -182,7 +182,7 @@ mod test {
             HashSet::from_iter(vec![1, 5, 6, 8]),
             HashSet::from_iter(vec![1, 7, 11, 19]),
         ];
-        let cover = maximum_cover(sets.clone(), 5);
+        let cover = maximum_cover(sets, 5);
         assert_eq!(quality(&cover), 19);
         assert_eq!(cover.len(), 5);
     }

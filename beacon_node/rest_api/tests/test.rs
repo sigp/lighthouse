@@ -6,7 +6,8 @@ use node_test_rig::{
     testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode,
 };
 use remote_beacon_node::{
-    Committee, HeadBeaconBlock, PublishStatus, ValidatorDuty, ValidatorResponse,
+    Committee, HeadBeaconBlock, PersistedOperationPool, PublishStatus, ValidatorDuty,
+    ValidatorResponse,
 };
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -47,8 +48,7 @@ fn get_randao_reveal<T: BeaconChainTypes>(
         .head()
         .expect("should get head")
         .beacon_state
-        .fork
-        .clone();
+        .fork;
     let proposer_index = beacon_chain
         .block_proposer(slot)
         .expect("should get proposer index");
@@ -69,8 +69,7 @@ fn sign_block<T: BeaconChainTypes>(
         .head()
         .expect("should get head")
         .beacon_state
-        .fork
-        .clone();
+        .fork;
     let proposer_index = beacon_chain
         .block_proposer(block.slot)
         .expect("should get proposer index");
@@ -91,11 +90,7 @@ fn validator_produce_attestation() {
         .client
         .beacon_chain()
         .expect("client should have beacon chain");
-    let state = beacon_chain
-        .head()
-        .expect("should get head")
-        .beacon_state
-        .clone();
+    let state = beacon_chain.head().expect("should get head").beacon_state;
 
     let validator_index = 0;
     let duties = state
@@ -169,7 +164,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestation(attestation.clone()),
+                .publish_attestation(attestation),
         )
         .expect("should publish attestation");
     assert!(
@@ -243,9 +238,11 @@ fn check_duties<T: BeaconChainTypes>(
         "there should be a duty for each validator"
     );
 
-    let state = beacon_chain
+    let mut state = beacon_chain
         .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
         .expect("should get state at slot");
+
+    state.build_all_caches(spec).expect("should build caches");
 
     validators
         .iter()
@@ -344,7 +341,7 @@ fn validator_block_post() {
             remote_node
                 .http
                 .validator()
-                .produce_block(slot, randao_reveal.clone()),
+                .produce_block(slot, randao_reveal),
         )
         .expect("should fetch block from http api");
 
@@ -423,7 +420,7 @@ fn validator_block_get() {
         .expect("client should have beacon chain");
 
     let slot = Slot::new(1);
-    let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
+    let randao_reveal = get_randao_reveal(beacon_chain, slot, spec);
 
     let block = env
         .runtime()
@@ -798,6 +795,53 @@ fn get_committees() {
             committee: c.committee.to_vec(),
         })
         .collect::<Vec<_>>();
+
+    assert_eq!(result, expected, "result should be as expected");
+}
+
+#[test]
+fn get_fork_choice() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let fork_choice = env
+        .runtime()
+        .block_on(remote_node.http.advanced().get_fork_choice())
+        .expect("should not error when getting fork choice");
+
+    assert_eq!(
+        fork_choice,
+        *node
+            .client
+            .beacon_chain()
+            .expect("node should have beacon chain")
+            .fork_choice
+            .core_proto_array(),
+        "result should be as expected"
+    );
+}
+
+#[test]
+fn get_operation_pool() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.advanced().get_operation_pool())
+        .expect("should not error when getting fork choice");
+
+    let expected = PersistedOperationPool::from_operation_pool(
+        &node
+            .client
+            .beacon_chain()
+            .expect("node should have chain")
+            .op_pool,
+    );
 
     assert_eq!(result, expected, "result should be as expected");
 }

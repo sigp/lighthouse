@@ -34,8 +34,8 @@ pub fn run_transition_blocks<T: EthSpec>(matches: &ArgMatches) -> Result<(), Str
 
     let post_state = do_transition(pre_state, block)?;
 
-    let mut output_file = File::create(output_path.clone())
-        .map_err(|e| format!("Unable to create output file: {:?}", e))?;
+    let mut output_file =
+        File::create(output_path).map_err(|e| format!("Unable to create output file: {:?}", e))?;
 
     output_file
         .write_all(&post_state.as_ssz_bytes())

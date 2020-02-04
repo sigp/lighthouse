@@ -138,6 +138,10 @@ lazy_static! {
         "beacon_fork_choice_process_attestation_seconds",
         "Time taken to add an attestation to fork choice"
     );
+    pub static ref BALANCES_CACHE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_balances_cache_hits_total", "Count of times balances cache fulfils request");
+    pub static ref BALANCES_CACHE_MISSES: Result<IntCounter> =
+        try_create_int_counter("beacon_balances_cache_misses_total", "Count of times balances cache fulfils request");
 
     /*
      * Persisting BeaconChain to disk
@@ -194,6 +198,18 @@ lazy_static! {
         try_create_int_gauge("beacon_head_state_withdrawn_validators_total", "Sum of all validator balances at the head of the chain");
     pub static ref HEAD_STATE_ETH1_DEPOSIT_INDEX: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_eth1_deposit_index", "Eth1 deposit index at the head of the chain");
+
+    /*
+     * Operation Pool
+     */
+    pub static ref OP_POOL_NUM_ATTESTATIONS: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_attestations_total", "Count of attestations in the op pool");
+    pub static ref OP_POOL_NUM_ATTESTER_SLASHINGS: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_attester_slashings_total", "Count of attester slashings in the op pool");
+    pub static ref OP_POOL_NUM_PROPOSER_SLASHINGS: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_proposer_slashings_total", "Count of proposer slashings in the op pool");
+    pub static ref OP_POOL_NUM_VOLUNTARY_EXITS: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_voluntary_exits_total", "Count of voluntary exits in the op pool");
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
@@ -202,6 +218,23 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     if let Ok(head) = beacon_chain.head() {
         scrape_head_state::<T>(&head.beacon_state, head.beacon_state_root)
     }
+
+    set_gauge_by_usize(
+        &OP_POOL_NUM_ATTESTATIONS,
+        beacon_chain.op_pool.num_attestations(),
+    );
+    set_gauge_by_usize(
+        &OP_POOL_NUM_ATTESTER_SLASHINGS,
+        beacon_chain.op_pool.num_attester_slashings(),
+    );
+    set_gauge_by_usize(
+        &OP_POOL_NUM_PROPOSER_SLASHINGS,
+        beacon_chain.op_pool.num_proposer_slashings(),
+    );
+    set_gauge_by_usize(
+        &OP_POOL_NUM_VOLUNTARY_EXITS,
+        beacon_chain.op_pool.num_voluntary_exits(),
+    );
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.

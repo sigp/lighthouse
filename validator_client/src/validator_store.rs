@@ -33,8 +33,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
-        let validator_iter = read_dir(&base_dir)
+        let validator_key_values = read_dir(&base_dir)
             .map_err(|e| format!("Failed to read base directory {:?}: {:?}", base_dir, e))?
+            .collect::<Vec<_>>()
+            .into_par_iter()
             .filter_map(|validator_dir| {
                 let path = validator_dir.ok()?.path();
 
@@ -63,7 +65,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             });
 
         Ok(Self {
-            validators: Arc::new(RwLock::new(HashMap::from_iter(validator_iter))),
+            validators: Arc::new(RwLock::new(HashMap::from_par_iter(validator_key_values))),
             spec: Arc::new(spec),
             log,
             temp_dir: None,

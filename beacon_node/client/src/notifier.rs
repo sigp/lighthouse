@@ -17,7 +17,7 @@ pub const WARN_PEER_COUNT: usize = 1;
 const SECS_PER_MINUTE: f64 = 60.0;
 const SECS_PER_HOUR: f64 = 3600.0;
 const SECS_PER_DAY: f64 = 86400.0; // non-leap
-const SECS_PER_WEEK: f64 = 604800.0; // non-leap
+const SECS_PER_WEEK: f64 = 604_800.0; // non-leap
 const DAYS_PER_WEEK: f64 = 7.0;
 const HOURS_PER_DAY: f64 = 24.0;
 const MINUTES_PER_HOUR: f64 = 60.0;
@@ -70,14 +70,14 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 usize::max_value()
             };
 
-            let head = beacon_chain.head()
+            let head_info = beacon_chain.head_info()
                 .map_err(|e| error!(
                     log,
-                    "Failed to get beacon chain head";
+                    "Failed to get beacon chain head info";
                     "error" => format!("{:?}", e)
                 ))?;
 
-            let head_slot = head.beacon_block.slot();
+            let head_slot = head_info.slot;
             let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
             let current_slot = beacon_chain.slot().map_err(|e| {
                 error!(
@@ -87,9 +87,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 )
             })?;
             let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-            let finalized_epoch = head.beacon_state.finalized_checkpoint.epoch;
-            let finalized_root = head.beacon_state.finalized_checkpoint.root;
-            let head_root = head.beacon_block_root;
+            let finalized_epoch = head_info.finalized_checkpoint.epoch;
+            let finalized_root = head_info.finalized_checkpoint.root;
+            let head_root = head_info.block_root;
 
             let mut speedo = speedo.lock();
             speedo.observe(head_slot, Instant::now());
@@ -166,13 +166,14 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         .then(move |result| {
             match result {
                 Ok(()) => Ok(()),
-                Err(e) => Ok(error!(
+                Err(e) => {
+                    error!(
                     log_3,
                     "Notifier failed to notify";
                     "error" => format!("{:?}", e)
-                ))
-            }
-        });
+                );
+                Ok(())
+            } } });
 
     let (exit_signal, exit) = exit_future::signal();
     context

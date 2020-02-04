@@ -16,6 +16,22 @@ pub struct MultiTreeHashCache {
     value_caches: Vec<TreeHashCache>,
 }
 
+impl MultiTreeHashCache {
+    /// Returns the approximate size of the cache in bytes.
+    ///
+    /// The size is approximate because we ignore some stack-allocated `u64` and `Vec` pointers.
+    /// We focus instead on the lists of hashes, which should massively outweigh the items that we
+    /// ignore.
+    pub fn approx_mem_size(&self) -> usize {
+        self.list_cache.approx_mem_size()
+            + self
+                .value_caches
+                .iter()
+                .map(TreeHashCache::approx_mem_size)
+                .sum::<usize>()
+    }
+}
+
 impl<T, N> CachedTreeHash<MultiTreeHashCache> for VariableList<T, N>
 where
     T: CachedTreeHash<TreeHashCache>,

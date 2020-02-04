@@ -46,7 +46,7 @@ fn get_hashable_fields_and_their_caches<'a>(
 ///
 /// Return `Some(cache_field_name)` if the field has a cached tree hash attribute,
 /// or `None` otherwise.
-fn get_cache_field_for<'a>(field: &'a syn::Field) -> Option<syn::Ident> {
+fn get_cache_field_for(field: &syn::Field) -> Option<syn::Ident> {
     use syn::{MetaList, NestedMeta};
 
     let parsed_attrs = cached_tree_hash_attr_metas(&field.attrs);

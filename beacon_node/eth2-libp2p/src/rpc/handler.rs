@@ -12,7 +12,7 @@ use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade, UpgradeError};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use slog::{crit, debug, error};
+use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::time::{Duration, Instant};
@@ -145,7 +145,7 @@ where
         // When terminating a stream, report the stream termination to the requesting user via
         // an RPC error
         let error = RPCErrorResponse::ServerError(ErrorMessage {
-            error_message: "Request timed out".as_bytes().to_vec(),
+            error_message: b"Request timed out".to_vec(),
         });
 
         // The stream termination type is irrelevant, this will terminate the
@@ -163,11 +163,16 @@ where
 
                 *self = InboundSubstreamState::ResponsePendingSend { substream, closing }
             }
-            InboundSubstreamState::ResponseIdle(substream) => {
-                *self = InboundSubstreamState::ResponsePendingSend {
-                    substream: substream.send(error),
-                    closing: true,
-                };
+            InboundSubstreamState::ResponseIdle(mut substream) => {
+                // check if the stream is already closed
+                if let Ok(Async::Ready(None)) = substream.poll() {
+                    *self = InboundSubstreamState::Closing(substream);
+                } else {
+                    *self = InboundSubstreamState::ResponsePendingSend {
+                        substream: substream.send(error),
+                        closing: true,
+                    };
+                }
             }
             InboundSubstreamState::Closing(substream) => {
                 // let the stream close
@@ -314,8 +319,12 @@ where
                     substream: out,
                     request,
                 };
-                self.outbound_substreams
-                    .insert(id, (awaiting_stream, delay_key));
+                if let Some(_) = self
+                    .outbound_substreams
+                    .insert(id, (awaiting_stream, delay_key))
+                {
+                    warn!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", id));
+                }
             }
             _ => { // a response is not expected, drop the stream for all other requests
             }
@@ -418,6 +427,8 @@ where
         };
         if self.pending_error.is_none() {
             self.pending_error = Some((request_id, error));
+        } else {
+            crit!(self.log, "Couldn't add error");
         }
     }
 
@@ -448,6 +459,7 @@ where
                 }
                 ProtocolsHandlerUpgrErr::Timeout | ProtocolsHandlerUpgrErr::Timer => {
                     // negotiation timeout, mark the request as failed
+                    debug!(self.log, "Active substreams before timeout"; "len" => self.outbound_substreams.len());
                     return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                         RPCEvent::Error(
                             request_id,
@@ -510,7 +522,7 @@ where
             // notify the user
             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                 RPCEvent::Error(
-                    stream_id.get_ref().clone(),
+                    *stream_id.get_ref(),
                     RPCError::Custom("Stream timed out".into()),
                 ),
             )));
@@ -707,21 +719,18 @@ where
         }
 
         // establish outbound substreams
-        if !self.dial_queue.is_empty() {
-            if self.dial_negotiated < self.max_dial_negotiated {
-                self.dial_negotiated += 1;
-                let rpc_event = self.dial_queue.remove(0);
-                if let RPCEvent::Request(id, req) = rpc_event {
-                    return Ok(Async::Ready(
-                        ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                            protocol: SubstreamProtocol::new(req.clone()),
-                            info: RPCEvent::Request(id, req),
-                        },
-                    ));
-                }
-            }
-        } else {
+        if !self.dial_queue.is_empty() && self.dial_negotiated < self.max_dial_negotiated {
+            self.dial_negotiated += 1;
+            let rpc_event = self.dial_queue.remove(0);
             self.dial_queue.shrink_to_fit();
+            if let RPCEvent::Request(id, req) = rpc_event {
+                return Ok(Async::Ready(
+                    ProtocolsHandlerEvent::OutboundSubstreamRequest {
+                        protocol: SubstreamProtocol::new(req.clone()),
+                        info: RPCEvent::Request(id, req),
+                    },
+                ));
+            }
         }
         Ok(Async::NotReady)
     }

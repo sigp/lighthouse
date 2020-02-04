@@ -1,6 +1,7 @@
 use crate::attestation_id::AttestationId;
 use crate::OperationPool;
 use parking_lot::RwLock;
+use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use types::*;
 
@@ -8,7 +9,8 @@ use types::*;
 ///
 /// Operations are stored in arbitrary order, so it's not a good idea to compare instances
 /// of this type (or its encoded form) for equality. Convert back to an `OperationPool` first.
-#[derive(Clone, Encode, Decode)]
+#[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec")]
 pub struct PersistedOperationPool<T: EthSpec> {
     /// Mapping from attestation ID to attestation mappings.
     // We could save space by not storing the attestation ID, but it might

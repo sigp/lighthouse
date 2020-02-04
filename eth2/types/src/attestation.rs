@@ -58,13 +58,13 @@ impl<T: EthSpec> Attestation<T> {
         if self
             .aggregation_bits
             .get(committee_position)
-            .map_err(|e| Error::SszTypesError(e))?
+            .map_err(Error::SszTypesError)?
         {
             Err(Error::AlreadySigned(committee_position))
         } else {
             self.aggregation_bits
                 .set(committee_position, true)
-                .map_err(|e| Error::SszTypesError(e))?;
+                .map_err(Error::SszTypesError)?;
 
             let domain = spec.get_domain(self.data.target.epoch, Domain::BeaconAttester, fork);
             let message = self.data.signing_root(domain);

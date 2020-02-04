@@ -1,4 +1,5 @@
 use super::signature_sets::Error as SignatureSetError;
+use merkle_proof::MerkleTreeError;
 use types::*;
 
 /// The error returned from the `per_block_processing` function. Indicates that a block is either
@@ -46,6 +47,7 @@ pub enum BlockProcessingError {
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    MerkleTreeError(MerkleTreeError),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {

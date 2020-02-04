@@ -127,6 +127,15 @@ impl TreeHashCache {
     pub fn leaves(&mut self) -> &mut Vec<Hash256> {
         &mut self.layers[self.depth]
     }
+
+    /// Returns the approximate size of the cache in bytes.
+    ///
+    /// The size is approximate because we ignore some stack-allocated `u64` and `Vec` pointers.
+    /// We focus instead on the lists of hashes, which should massively outweigh the items that we
+    /// ignore.
+    pub fn approx_mem_size(&self) -> usize {
+        self.layers.iter().map(|layer| layer.len() * 32).sum()
+    }
 }
 
 /// Compute the dirty indices for one layer up.
