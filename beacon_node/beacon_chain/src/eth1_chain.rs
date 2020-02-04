@@ -244,7 +244,7 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                 .max_by(|(_, x), (_, y)| x.cmp(y))
                 .map(|vote| {
                     let vote = vote.0.clone();
-                    warn!(
+                    debug!(
                         self.log,
                         "No valid eth1_data votes";
                         "outcome" => "Casting vote corresponding to last candidate eth1 block",
@@ -261,9 +261,9 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T> for CachingEth1Backend<T, S> {
                         "genesis_time" => state.genesis_time,
                         "outcome" => "casting `state.eth1_data` as eth1 vote"
                     );
+                    metrics::inc_counter(&metrics::DEFAULT_ETH1_VOTES);
                     vote
                 });
-            metrics::inc_counter(&metrics::DEFAULT_ETH1_VOTES);
             default_vote
         };
 
