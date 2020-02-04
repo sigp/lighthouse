@@ -156,6 +156,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
         .map_err(|_| ApiError::ServerError(String::from("Loaded state is in the wrong epoch")))?;
 
+    state.update_pubkey_cache()?;
     state
         .build_committee_cache(relative_epoch, &beacon_chain.spec)
         .map_err(|e| ApiError::ServerError(format!("Unable to build committee cache: {:?}", e)))?;

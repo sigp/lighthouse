@@ -28,7 +28,7 @@ pub enum MerkleTree {
     Zero(usize),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum MerkleTreeError {
     // Trying to push in a leaf
     LeafReached,

@@ -5,7 +5,6 @@
 
 use eth2_config::Eth2Config;
 use futures::{future, Future, IntoFuture};
-use proto_array_fork_choice::core::ProtoArray;
 use reqwest::{
     r#async::{Client, ClientBuilder, Response},
     StatusCode,
@@ -20,6 +19,8 @@ use types::{
 };
 use url::Url;
 
+pub use operation_pool::PersistedOperationPool;
+pub use proto_array_fork_choice::core::ProtoArray;
 pub use rest_api::{
     CanonicalHeadResponse, Committee, HeadBeaconBlock, ValidatorDutiesRequest, ValidatorDuty,
     ValidatorRequest, ValidatorResponse,
@@ -557,6 +558,16 @@ impl<E: EthSpec> Advanced<E> {
     pub fn get_fork_choice(&self) -> impl Future<Item = ProtoArray, Error = Error> {
         let client = self.0.clone();
         self.url("fork_choice")
+            .into_future()
+            .and_then(move |url| client.json_get(url, vec![]))
+    }
+
+    /// Gets the core `PersistedOperationPool` struct from the node.
+    pub fn get_operation_pool(
+        &self,
+    ) -> impl Future<Item = PersistedOperationPool<E>, Error = Error> {
+        let client = self.0.clone();
+        self.url("operation_pool")
             .into_future()
             .and_then(move |url| client.json_get(url, vec![]))
     }

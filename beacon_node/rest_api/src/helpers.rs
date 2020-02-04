@@ -137,16 +137,10 @@ pub fn state_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     slot: Slot,
 ) -> Result<(Hash256, BeaconState<T::EthSpec>), ApiError> {
-    let head_state = &beacon_chain.head()?.beacon_state;
+    let head = beacon_chain.head()?;
 
-    if head_state.slot == slot {
-        // The request slot is the same as the best block (head) slot.
-
-        // I'm not sure if this `.clone()` will be optimized out. If not, it seems unnecessary.
-        Ok((
-            beacon_chain.head()?.beacon_state_root,
-            beacon_chain.head()?.beacon_state,
-        ))
+    if head.beacon_state.slot == slot {
+        Ok((head.beacon_state_root, head.beacon_state))
     } else {
         let root = state_root_at_slot(beacon_chain, slot)?;
 

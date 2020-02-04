@@ -1,10 +1,13 @@
 use int_to_bytes::int_to_bytes8;
+use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
 use types::{AttestationData, BeaconState, ChainSpec, Domain, Epoch, EthSpec};
 
 /// Serialized `AttestationData` augmented with a domain to encode the fork info.
-#[derive(PartialEq, Eq, Clone, Hash, Debug, PartialOrd, Ord, Encode, Decode)]
+#[derive(
+    PartialEq, Eq, Clone, Hash, Debug, PartialOrd, Ord, Encode, Decode, Serialize, Deserialize,
+)]
 pub struct AttestationId {
     v: Vec<u8>,
 }

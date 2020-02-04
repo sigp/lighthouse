@@ -34,6 +34,7 @@ slot_clock = { path = "../../eth2/utils/slot_clock" }
 hex = "0.3"
 parking_lot = "0.9"
 futures = "0.1.29"
+operation_pool = { path = "../../eth2/operation_pool" }
 
 [dev-dependencies]
 remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }

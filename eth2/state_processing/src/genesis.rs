@@ -1,6 +1,7 @@
 use super::per_block_processing::{errors::BlockProcessingError, process_deposit};
+use crate::common::DepositDataTree;
 use tree_hash::TreeHash;
-use types::typenum::U4294967296;
+use types::DEPOSIT_TREE_DEPTH;
 use types::*;
 
 /// Initialize a `BeaconState` from genesis data.
@@ -26,14 +27,13 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // Seed RANDAO with Eth1 entropy
     state.fill_randao_mixes_with(eth1_block_hash);
 
-    // Process deposits
-    let leaves: Vec<_> = deposits
-        .iter()
-        .map(|deposit| deposit.data.clone())
-        .collect();
-    for (index, deposit) in deposits.into_iter().enumerate() {
-        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves[..=index].to_vec());
-        state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
+    let mut deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
+
+    for deposit in deposits.iter() {
+        deposit_tree
+            .push_leaf(Hash256::from_slice(&deposit.data.tree_hash_root()))
+            .map_err(BlockProcessingError::MerkleTreeError)?;
+        state.eth1_data.deposit_root = deposit_tree.root();
         process_deposit(&mut state, &deposit, spec, true)?;
     }
 

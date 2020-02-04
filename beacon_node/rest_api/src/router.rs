@@ -151,6 +151,9 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/advanced/fork_choice") => {
                 into_boxfut(advanced::get_fork_choice::<T>(req, beacon_chain))
             }
+            (&Method::GET, "/advanced/operation_pool") => {
+                into_boxfut(advanced::get_operation_pool::<T>(req, beacon_chain))
+            }
 
             (&Method::GET, "/metrics") => into_boxfut(metrics::get_prometheus::<T>(
                 req,
