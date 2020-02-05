@@ -890,8 +890,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or_else(|| Error::MissingBeaconState(attestation_head_block.state_root))?
             } else {
                 let mut state = self
-                    .store
-                    .get_state(
+                    .get_state_caching_only_with_committee_caches(
                         &attestation_head_block.state_root,
                         Some(attestation_head_block.slot),
                     )?
@@ -902,7 +901,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // the amount we're willing to fastforward without a valid signature.
                 for _ in state.slot.as_u64()..attestation_epoch.start_slot(slots_per_epoch).as_u64()
                 {
-                    per_slot_processing(&mut state, None, &self.spec)?;
+                    // Note: we provide the zero hash as the state root because the state root is
+                    // irrelevant to attestation processing and therefore a waste of time to
+                    // compute.
+                    per_slot_processing(&mut state, Some(Hash256::zero()), &self.spec)?;
                 }
 
                 state
