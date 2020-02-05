@@ -1033,9 +1033,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     pub fn clone_with_only_committee_caches(&self) -> Self {
-        let mut state = self.clone_without_caches();
-        state.committee_caches = self.committee_caches.clone();
-        state
+        self.clone_with(CloneConfig::committee_caches_only())
     }
 }
 

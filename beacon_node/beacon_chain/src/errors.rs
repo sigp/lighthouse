@@ -75,3 +75,8 @@ easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(Eth1ChainError, BlockProductionError);
+
+#[derive(Debug, PartialEq)]
+pub enum AttestationDropReason {
+    NoValidationState(BeaconStateError),
+}

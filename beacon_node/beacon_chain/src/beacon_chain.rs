@@ -909,7 +909,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: &Attestation<T::EthSpec>,
     ) -> Result<Option<(BeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>)>, Error> {
-        if let Some(block) = self.get_block_caching(&attestation.data.beacon_block_root)? {
+        if let Some(block) = self.get_block(&attestation.data.beacon_block_root)? {
             // If the attestation points to a block in the same epoch in which it was made,
             // then it is sufficient to load the state from that epoch's boundary, because
             // the epoch-variable fields like the justified checkpoints cannot have changed
@@ -932,9 +932,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Fastforward the state to the epoch in which the attestation was made.
                 // NOTE: this looks like a potential DoS vector, we should probably limit
                 // the amount we're willing to fastforward without a valid signature.
+                let null_state_root = Some(Hash256::zero());
                 for _ in state.slot.as_u64()..attestation_epoch.start_slot(slots_per_epoch).as_u64()
                 {
-                    per_slot_processing(&mut state, None, &self.spec)?;
+                    per_slot_processing(&mut state, null_state_root, &self.spec)?;
                 }
 
                 state
@@ -1049,56 +1050,53 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    ///  Validate an attestation.
+    ///
+    pub fn should_forward_aggregate_attestation(
+        &self,
+        aggregate_and_proof: &AggregateAndProof<T::EthSpec>,
+    ) -> bool {
+        // Validation conditions from:
+        // https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/specs/phase0/p2p-interface.md#global-topics
+
+        // Do checks in order of increasing cost where possible
+
+        // Slot check
+
+        // TODO: attestation uniqueness check
+        //
+        //
+    }
+
+    /// Validate an attestation.
     ///
     ///
     /// Determines if a given attestation should be forwarded to other peers.
     pub fn should_forward_attestation(&self, attestation: &Attestation<T::EthSpec>) -> bool {
-        // FIXME(sproul): might be quicker to skip the head check if we have good caching
-        // Attempt to validate the attestation's signature against the head state.
-        // In this case, we do not read anything from the database, which should be fast and will
-        // work for most attestations that get passed around the network.
-        if let Ok(head) = &self.head() {
-            // Convert the attestation to an indexed attestation.
-            if let Ok(indexed_attestation) =
-                get_indexed_attestation(&head.beacon_state, &attestation)
-            {
-                // Validate the signature and return true if it is valid. Otherwise, we move on and read
-                // the database to make certain we have the correct state.
-                if let Ok(signature) = indexed_attestation_signature_set(
-                    &head.beacon_state,
-                    &indexed_attestation.signature,
-                    &indexed_attestation,
-                    &self.spec,
-                ) {
-                    // An invalid signature here does not necessarily mean the attestation is invalid.
-                    // It could be the case that our state has a different validator registry.
-                    if signature.is_valid() {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        // If the first check did not pass, we retrieve the block for the beacon_block_root in the
-        // attestation's data and use that to check the signature.
         if let Ok(Some((_, state))) = self.get_attestation_validation_block_and_state(&attestation)
         {
-            // Convert the attestation to an indexed attestation.
-            if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
-                // Check if the signature is valid against the state we got from the database.
-                if let Ok(signature) = indexed_attestation_signature_set(
-                    &state,
-                    &indexed_attestation.signature,
-                    &indexed_attestation,
-                    &self.spec,
-                ) {
-                    // TODO: Maybe downvote peer if the signature is invalid.
-                    return signature.is_valid();
-                }
+            self.should_forward_attestation_using_state(attestation, &state)
+        } else {
+            false
+        }
+    }
+
+    pub fn should_forward_attestation_using_state(
+        &self,
+        attestation: &Attestation<T::EthSpec>,
+        state: &BeaconState<T::EthSpec>,
+    ) -> bool {
+        // Check signature
+        if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
+            if let Ok(signature) = indexed_attestation_signature_set(
+                &state,
+                &indexed_attestation.signature,
+                &indexed_attestation,
+                &self.spec,
+            ) {
+                // TODO: Maybe downvote peer if the signature is invalid.
+                return signature.is_valid();
             }
         }
-
         false
     }
 
