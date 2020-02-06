@@ -1,11 +1,11 @@
-use crate::vec_arena;
+use crate::cache_arena;
 use crate::{Error, Hash256};
 use eth2_hashing::{hash32_concat, ZERO_HASHES};
 use ssz_derive::{Decode, Encode};
 use tree_hash::BYTES_PER_CHUNK;
 
-type VecArena = vec_arena::VecArena<Hash256>;
-type SubVecArena = vec_arena::SubVecArena<Hash256>;
+type CacheArena = cache_arena::CacheArena<Hash256>;
+type CacheArenaAllocation = cache_arena::CacheArenaAllocation<Hash256>;
 
 /// Sparse Merkle tree suitable for tree hashing vectors and lists.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
@@ -17,7 +17,7 @@ pub struct TreeHashCache {
     ///
     /// The leaves are contained in `self.layers[self.depth]`, and each other layer `i`
     /// contains the parents of the nodes in layer `i + 1`.
-    layers: Vec<SubVecArena>,
+    layers: Vec<CacheArenaAllocation>,
 }
 
 fn nodes_per_layer(layer: usize, depth: usize, leaves: usize) -> usize {
@@ -32,7 +32,7 @@ fn nodes_per_layer(layer: usize, depth: usize, leaves: usize) -> usize {
 impl TreeHashCache {
     /// Create a new cache with the given `depth` with enough nodes allocated to suit `leaves`. All
     /// leaves are set to `Hash256::zero()`>
-    pub fn new(arena: &mut VecArena, depth: usize, leaves: usize) -> Self {
+    pub fn new(arena: &mut CacheArena, depth: usize, leaves: usize) -> Self {
         // TODO: what about when leaves is zero?
         let layers = (0..=depth)
             .map(|i| {
@@ -59,7 +59,7 @@ impl TreeHashCache {
     /// Compute the updated Merkle root for the given `leaves`.
     pub fn recalculate_merkle_root(
         &mut self,
-        arena: &mut VecArena,
+        arena: &mut CacheArena,
         leaves: impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator,
     ) -> Result<Hash256, Error> {
         let dirty_indices = self.update_leaves(arena, leaves)?;
@@ -69,7 +69,7 @@ impl TreeHashCache {
     /// Phase 1 of the algorithm: compute the indices of all dirty leaves.
     pub fn update_leaves(
         &mut self,
-        arena: &mut VecArena,
+        arena: &mut CacheArena,
         mut leaves: impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator,
     ) -> Result<Vec<usize>, Error> {
         let new_leaf_count = leaves.len();
@@ -111,7 +111,7 @@ impl TreeHashCache {
     /// Returns an error if `dirty_indices` is inconsistent with the cache.
     pub fn update_merkle_root(
         &mut self,
-        arena: &mut VecArena,
+        arena: &mut CacheArena,
         mut dirty_indices: Vec<usize>,
     ) -> Result<Hash256, Error> {
         if dirty_indices.is_empty() {
@@ -165,7 +165,7 @@ impl TreeHashCache {
     }
 
     /// Get the root of this cache, without doing any updates/computation.
-    pub fn root(&self, arena: &VecArena) -> Hash256 {
+    pub fn root(&self, arena: &CacheArena) -> Hash256 {
         self.layers[0]
             .get(arena, 0)
             // TODO: deal with expect
@@ -174,7 +174,7 @@ impl TreeHashCache {
             .unwrap_or_else(|| Hash256::from_slice(&ZERO_HASHES[self.depth]))
     }
 
-    pub fn leaves(&mut self) -> &mut SubVecArena {
+    pub fn leaves(&mut self) -> &mut CacheArenaAllocation {
         &mut self.layers[self.depth]
     }
 }
