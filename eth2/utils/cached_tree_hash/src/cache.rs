@@ -36,7 +36,7 @@ impl TreeHashCache {
         // TODO: what about when leaves is zero?
         let layers = (0..=depth)
             .map(|i| {
-                let mut vec = arena.alloc();
+                let vec = arena.alloc();
                 vec.extend_with_vec(
                     arena,
                     vec![Hash256::zero(); nodes_per_layer(i, depth, leaves)],

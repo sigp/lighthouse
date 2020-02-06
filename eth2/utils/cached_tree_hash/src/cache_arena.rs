@@ -13,7 +13,7 @@ pub enum Error {
 
 /// Inspired by the `TypedArena` crate, the `CachedArena` provides a single contiguous memory
 /// allocation from which smaller allocations can be produced. In effect this allows for having
-/// many `Vec<T>` all stored contiguously on the heap with the aim of reducing memory
+/// many `Vec<T>`-like objects all stored contiguously on the heap with the aim of reducing memory
 /// fragmentation.
 ///
 /// Because all of the allocations are stored in one big `Vec`, resizing any of the allocations
@@ -185,6 +185,9 @@ impl<T: Encode + Decode> CacheArena<T> {
 
 /// An allocation from a `CacheArena` that behaves like a `Vec<T>`.
 ///
+/// All functions will modify the given `arena` instead of `self`. As such, it is safe to have
+/// multiple instances of this allocation at once.
+///
 /// For all functions that accept a `CacheArena<T>` parameter, that arena should always be the one
 /// that created `Self`. I.e., do not mix-and-match allocations and arenas unless you _really_ know
 /// what you're doing (or want to have a bad time).
@@ -198,7 +201,7 @@ pub struct CacheArenaAllocation<T> {
 
 impl<T: Encode + Decode> CacheArenaAllocation<T> {
     /// Grow the allocation in `arena`, appending `vec` to the current values.
-    pub fn extend_with_vec(&mut self, arena: &mut CacheArena<T>, vec: Vec<T>) -> Result<(), Error> {
+    pub fn extend_with_vec(&self, arena: &mut CacheArena<T>, vec: Vec<T>) -> Result<(), Error> {
         let len = arena.len(self.alloc_id)?;
         arena.splice_forgetful(self.alloc_id, len..len, vec)?;
         Ok(())
@@ -207,7 +210,7 @@ impl<T: Encode + Decode> CacheArenaAllocation<T> {
     /// Push `item` to the end of the current allocation in `arena`.
     ///
     /// An error is returned if this allocation is not known to the given `arena`.
-    pub fn push(&mut self, arena: &mut CacheArena<T>, item: T) -> Result<(), Error> {
+    pub fn push(&self, arena: &mut CacheArena<T>, item: T) -> Result<(), Error> {
         let len = arena.len(self.alloc_id)?;
         arena.splice_forgetful(self.alloc_id, len..len, vec![item])?;
         Ok(())
@@ -224,7 +227,7 @@ impl<T: Encode + Decode> CacheArenaAllocation<T> {
     ///
     /// An error is returned if this allocation is not known to the given `arena`.
     pub fn get_mut<'a>(
-        &mut self,
+        &self,
         arena: &'a mut CacheArena<T>,
         i: usize,
     ) -> Result<Option<&'a mut T>, Error> {
@@ -237,10 +240,7 @@ impl<T: Encode + Decode> CacheArenaAllocation<T> {
     }
 
     /// Mutably iterate through all items in the `arena` (relative to this allocation).
-    pub fn iter_mut<'a>(
-        &mut self,
-        arena: &'a mut CacheArena<T>,
-    ) -> impl Iterator<Item = &'a mut T> {
+    pub fn iter_mut<'a>(&self, arena: &'a mut CacheArena<T>) -> impl Iterator<Item = &'a mut T> {
         arena.iter_mut(self.alloc_id)
     }
 
