@@ -5,7 +5,7 @@ use std::ops::Range;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
-    UnknownArenaId(usize),
+    UnknownAllocId(usize),
     OffsetOverflow,
     OffsetUnderflow,
     RangeOverFlow,
@@ -52,7 +52,7 @@ impl<T: Encode + Decode> CacheArena<T> {
                     Ok(())
                 })
         } else {
-            Err(Error::UnknownArenaId(alloc_id))
+            Err(Error::UnknownAllocId(alloc_id))
         }
     }
 
@@ -70,7 +70,7 @@ impl<T: Encode + Decode> CacheArena<T> {
                     Ok(())
                 })
         } else {
-            Err(Error::UnknownArenaId(alloc_id))
+            Err(Error::UnknownAllocId(alloc_id))
         }
     }
 
@@ -89,7 +89,7 @@ impl<T: Encode + Decode> CacheArena<T> {
         let offset = *self
             .offsets
             .get(alloc_id)
-            .ok_or_else(|| Error::UnknownArenaId(alloc_id))?;
+            .ok_or_else(|| Error::UnknownAllocId(alloc_id))?;
         let start = range
             .start
             .checked_add(offset)
@@ -117,7 +117,7 @@ impl<T: Encode + Decode> CacheArena<T> {
         let start = self
             .offsets
             .get(alloc_id)
-            .ok_or_else(|| Error::UnknownArenaId(alloc_id))?;
+            .ok_or_else(|| Error::UnknownAllocId(alloc_id))?;
         let end = self
             .offsets
             .get(alloc_id + 1)
@@ -133,7 +133,7 @@ impl<T: Encode + Decode> CacheArena<T> {
             let offset = self
                 .offsets
                 .get(alloc_id)
-                .ok_or_else(|| Error::UnknownArenaId(alloc_id))?;
+                .ok_or_else(|| Error::UnknownAllocId(alloc_id))?;
             Ok(self.backing.get(i + offset))
         } else {
             Ok(None)
@@ -146,7 +146,7 @@ impl<T: Encode + Decode> CacheArena<T> {
             let offset = self
                 .offsets
                 .get(alloc_id)
-                .ok_or_else(|| Error::UnknownArenaId(alloc_id))?;
+                .ok_or_else(|| Error::UnknownAllocId(alloc_id))?;
             Ok(self.backing.get_mut(i + offset))
         } else {
             Ok(None)
@@ -154,26 +154,29 @@ impl<T: Encode + Decode> CacheArena<T> {
     }
 
     /// Returns the range in `self.backing` that is occupied by some allocation.
-    fn range(&self, alloc_id: usize) -> Range<usize> {
-        let start = self.offsets[alloc_id];
+    fn range(&self, alloc_id: usize) -> Result<Range<usize>, Error> {
+        let start = *self
+            .offsets
+            .get(alloc_id)
+            .ok_or_else(|| Error::UnknownAllocId(alloc_id))?;
         let end = self
             .offsets
             .get(alloc_id + 1)
             .copied()
             .unwrap_or_else(|| self.backing.len());
 
-        start..end
+        Ok(start..end)
     }
 
     /// Iterate through all values in some allocation.
-    fn iter(&self, alloc_id: usize) -> impl Iterator<Item = &T> {
-        self.backing[self.range(alloc_id)].iter()
+    fn iter(&self, alloc_id: usize) -> Result<impl Iterator<Item = &T>, Error> {
+        Ok(self.backing[self.range(alloc_id)?].iter())
     }
 
     /// Mutably iterate through all values in some allocation.
-    fn iter_mut(&mut self, alloc_id: usize) -> impl Iterator<Item = &mut T> {
-        let range = self.range(alloc_id);
-        self.backing[range].iter_mut()
+    fn iter_mut(&mut self, alloc_id: usize) -> Result<impl Iterator<Item = &mut T>, Error> {
+        let range = self.range(alloc_id)?;
+        Ok(self.backing[range].iter_mut())
     }
 
     /// Returns the total number of items stored in the arena, the sum of all values in all
@@ -235,12 +238,15 @@ impl<T: Encode + Decode> CacheArenaAllocation<T> {
     }
 
     /// Iterate through all items in the `arena` (relative to this allocation).
-    pub fn iter<'a>(&self, arena: &'a CacheArena<T>) -> impl Iterator<Item = &'a T> {
+    pub fn iter<'a>(&self, arena: &'a CacheArena<T>) -> Result<impl Iterator<Item = &'a T>, Error> {
         arena.iter(self.alloc_id)
     }
 
     /// Mutably iterate through all items in the `arena` (relative to this allocation).
-    pub fn iter_mut<'a>(&self, arena: &'a mut CacheArena<T>) -> impl Iterator<Item = &'a mut T> {
+    pub fn iter_mut<'a>(
+        &self,
+        arena: &'a mut CacheArena<T>,
+    ) -> Result<impl Iterator<Item = &'a mut T>, Error> {
         arena.iter_mut(self.alloc_id)
     }
 
@@ -305,8 +311,16 @@ mod tests {
             len
         );
 
-        let collected = sub.iter(arena).cloned().collect::<Vec<_>>();
-        let collected_mut = sub.iter_mut(arena).map(|v| *v).collect::<Vec<_>>();
+        let collected = sub
+            .iter(arena)
+            .expect("should get iter")
+            .cloned()
+            .collect::<Vec<_>>();
+        let collected_mut = sub
+            .iter_mut(arena)
+            .expect("should get mut iter")
+            .map(|v| *v)
+            .collect::<Vec<_>>();
 
         for i in 0..len {
             assert_eq!(

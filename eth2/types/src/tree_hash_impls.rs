@@ -26,7 +26,7 @@ impl CachedTreeHash<TreeHashCache> for Validator {
         // Otherwise just check the fields which might have changed.
         let dirty_indices = cache
             .leaves()
-            .iter_mut(arena)
+            .iter_mut(arena)?
             .enumerate()
             .flat_map(|(i, leaf)| {
                 // Fields pubkey and withdrawal_credentials are constant

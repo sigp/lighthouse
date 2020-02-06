@@ -83,7 +83,7 @@ impl TreeHashCache {
         // Update the existing leaves
         let mut dirty = self
             .leaves()
-            .iter_mut(arena)
+            .iter_mut(arena)?
             .enumerate()
             .zip(&mut leaves)
             .flat_map(|((i, leaf), new_leaf)| {
