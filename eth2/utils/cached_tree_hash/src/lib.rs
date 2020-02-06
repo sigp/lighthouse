@@ -21,6 +21,8 @@ pub enum Error {
     /// Cache is inconsistent with the list of dirty indices provided.
     CacheInconsistent,
     CacheArenaError(cache_arena::Error),
+    /// Unable to find left index in Merkle tree.
+    MissingLeftIdx(usize),
 }
 
 impl From<cache_arena::Error> for Error {

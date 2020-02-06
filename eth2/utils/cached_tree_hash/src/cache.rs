@@ -20,15 +20,6 @@ pub struct TreeHashCache {
     layers: Vec<CacheArenaAllocation>,
 }
 
-fn nodes_per_layer(layer: usize, depth: usize, leaves: usize) -> usize {
-    if layer == depth {
-        leaves
-    } else {
-        let leaves_per_node = 1 << (depth - layer);
-        (leaves + leaves_per_node - 1) / leaves_per_node
-    }
-}
-
 impl TreeHashCache {
     /// Create a new cache with the given `depth` with enough nodes allocated to suit `leaves`. All
     /// leaves are set to `Hash256::zero()`>
@@ -99,9 +90,7 @@ impl TreeHashCache {
         // Push the rest of the new leaves (if any)
         dirty.extend(self.leaves().len(arena)?..new_leaf_count);
         self.leaves()
-            .extend_with_vec(arena, leaves.map(|l| Hash256::from_slice(&l)).collect())
-            // TODO: fix expect
-            .expect("should extend");
+            .extend_with_vec(arena, leaves.map(|l| Hash256::from_slice(&l)).collect())?;
 
         Ok(dirty)
     }
@@ -129,8 +118,7 @@ impl TreeHashCache {
 
                 let left = self.layers[depth]
                     .get(arena, left_idx)?
-                    // TODO: fix expect
-                    .expect("must have left idx");
+                    .ok_or_else(|| Error::MissingLeftIdx(left_idx))?;
                 let right = self.layers[depth]
                     .get(arena, right_idx)?
                     .copied()
@@ -147,10 +135,7 @@ impl TreeHashCache {
                         if idx != self.layers[depth - 1].len(arena)? {
                             return Err(Error::CacheInconsistent);
                         }
-                        self.layers[depth - 1]
-                            .push(arena, Hash256::from_slice(&new_hash))
-                            // TODO: fix expect
-                            .expect("should push");
+                        self.layers[depth - 1].push(arena, Hash256::from_slice(&new_hash))?;
                     }
                 }
             }
@@ -168,8 +153,7 @@ impl TreeHashCache {
     pub fn root(&self, arena: &CacheArena) -> Hash256 {
         self.layers[0]
             .get(arena, 0)
-            // TODO: deal with expect
-            .expect("arena should be known")
+            .expect("cached tree should have a root layer")
             .copied()
             .unwrap_or_else(|| Hash256::from_slice(&ZERO_HASHES[self.depth]))
     }
@@ -184,4 +168,53 @@ fn lift_dirty(dirty_indices: &[usize]) -> Vec<usize> {
     let mut new_dirty = dirty_indices.iter().map(|i| *i / 2).collect::<Vec<_>>();
     new_dirty.dedup();
     new_dirty
+}
+
+/// Returns the number of nodes that should be at each layer of a tree with the given `depth` and
+/// number of `leaves`.
+///
+/// Note: the top-most layer is `0` and a tree that has 8 leaves (4 layers) has a depth of 3 (_not_
+/// a depth of 4).
+///
+/// ## Example
+///
+/// Consider the following tree that has `depth = 3` and `leaves = 5`.
+///
+///```ignore
+/// 0        o      <-- height 0 has 1 node
+///        /   \
+/// 1    o      o   <-- height 1 has 2 nodes
+///     / \    /
+/// 2  o   o   o    <-- height 2 has 3 nodes
+///   /\   /\ /
+/// 3 o o o o o     <-- height 3 have 5 nodes
+/// ```
+fn nodes_per_layer(layer: usize, depth: usize, leaves: usize) -> usize {
+    if layer == depth {
+        leaves
+    } else {
+        let leaves_per_node = 1 << (depth - layer);
+        (leaves + leaves_per_node - 1) / leaves_per_node
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_node_per_layer_unbalanced_tree() {
+        assert_eq!(nodes_per_layer(0, 3, 5), 1);
+        assert_eq!(nodes_per_layer(1, 3, 5), 2);
+        assert_eq!(nodes_per_layer(2, 3, 5), 3);
+        assert_eq!(nodes_per_layer(3, 3, 5), 5);
+    }
+
+    #[test]
+    fn test_node_per_layer_balanced_tree() {
+        assert_eq!(nodes_per_layer(0, 3, 8), 1);
+        assert_eq!(nodes_per_layer(1, 3, 8), 2);
+        assert_eq!(nodes_per_layer(2, 3, 8), 4);
+        assert_eq!(nodes_per_layer(3, 3, 8), 8);
+    }
 }
