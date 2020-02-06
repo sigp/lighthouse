@@ -5,7 +5,7 @@ use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, PeerId, Topic, NetworkGlobals};
+use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, PeerId, Topic, NetworkGlobals, Swarm};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
@@ -14,6 +14,8 @@ use std::sync::{Arc, atomic::Ordering};
 use std::collections::HashSet;
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
+use tokio::timer::Delay;
+use std::time::{Instant, Duration};
 
 mod tests;
 
@@ -55,12 +57,17 @@ impl<T: BeaconChainTypes> Service<T> {
             libp2p_service.swarm.add_enr(enr);
         }
 
+        // a delay used to initialise code after the network has started
+        let initial_delay = Delay::new(Instant::now() + Duration::from_secs(1));
+
         let libp2p_exit = spawn_service::<T>(
             libp2p_service,
             network_recv,
             message_handler_send,
             executor,
             store,
+            network_globals.clone(),
+            initial_delay,
             network_log.clone(),
             propagation_percentage,
         )?;
@@ -114,6 +121,8 @@ fn spawn_service<T: BeaconChainTypes>(
     mut message_handler_send: mpsc::UnboundedSender<HandlerMessage>,
     executor: &TaskExecutor,
     store: Arc<T::Store>,
+    network_globals: Arc<NetworkGlobals>,
+    mut initial_delay: Delay,
     log: slog::Logger,
     propagation_percentage: Option<u8>,
 ) -> error::Result<tokio::sync::oneshot::Sender<()>> {
@@ -122,6 +131,14 @@ fn spawn_service<T: BeaconChainTypes>(
     // spawn on the current executor
     executor.spawn(
     futures::future::poll_fn(move || -> Result<_, ()> {
+
+
+        if !initial_delay.is_elapsed() {
+            if let Ok(Async::Ready(_)) = initial_delay.poll() {
+                        let multi_addrs = Swarm::listeners(&libp2p_service.swarm).cloned().collect();
+                        *network_globals.listen_multiaddrs.write() = multi_addrs;
+            }
+        }
 
         // perform termination tasks when the network is being shutdown
         if let Ok(Async::Ready(_)) = exit_rx.poll() {
