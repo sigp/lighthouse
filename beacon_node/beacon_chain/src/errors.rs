@@ -78,5 +78,12 @@ easy_from_to!(Eth1ChainError, BlockProductionError);
 
 #[derive(Debug, PartialEq)]
 pub enum AttestationDropReason {
-    NoValidationState(BeaconStateError),
+    SlotClockError,
+    TooNew { attestation_slot: Slot, now: Slot },
+    TooOld { attestation_slot: Slot, now: Slot },
+    NoValidationState(BeaconChainError),
+    BlockUnknown(Hash256),
+    BadIndexedAttestation(AttestationValidationError),
+    AggregatorNotInAttestingIndices,
+    AggregatorNotSelected,
 }

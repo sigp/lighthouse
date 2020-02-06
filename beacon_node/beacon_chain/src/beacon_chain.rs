@@ -1,5 +1,5 @@
 use crate::checkpoint::CheckPoint;
-use crate::errors::{BeaconChainError as Error, BlockProductionError};
+use crate::errors::{AttestationDropReason, BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
@@ -1050,21 +1050,115 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Check that an aggregate attestation is eligible to be propagated via the gossip network.
     ///
+    /// Validation conditions from:
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/specs/phase0/p2p-interface.md#global-topics
     pub fn should_forward_aggregate_attestation(
         &self,
         aggregate_and_proof: &AggregateAndProof<T::EthSpec>,
-    ) -> bool {
-        // Validation conditions from:
-        // https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/specs/phase0/p2p-interface.md#global-topics
+    ) -> Result<(), AttestationDropReason> {
+        // Do checks in order of increasing cost where possible.
+        let attestation = &aggregate_and_proof.aggregate;
 
-        // Do checks in order of increasing cost where possible
-
-        // Slot check
+        // Check slot (quick)
+        self.check_attestation_slot_for_gossip(attestation)?;
 
         // TODO: attestation uniqueness check
-        //
-        //
+
+        // Load validation state and check block validity (slow).
+        let (_, state) = self
+            .get_attestation_validation_block_and_state(&attestation)
+            .map_err(AttestationDropReason::NoValidationState)?
+            .ok_or_else(|| {
+                AttestationDropReason::BlockUnknown(attestation.data.beacon_block_root)
+            })?;
+
+        // Check the validity of the aggregator.
+        let indexed_attestation = get_indexed_attestation(&state, attestation)
+            .map_err(AttestationDropReason::BadIndexedAttestation)?;
+        self.check_attestation_aggregator(aggregate_and_proof, &indexed_attestation, &state)?;
+
+        // TODO: attestation signature check
+
+        Ok(())
+    }
+
+    /// Check that the `aggregator_index` in an aggregate attestation is as it should be.
+    fn check_attestation_aggregator(
+        &self,
+        aggregate_and_proof: &AggregateAndProof<T::EthSpec>,
+        indexed_attestation: &IndexedAttestation<T::EthSpec>,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<(), AttestationDropReason> {
+        let attestation = &aggregate_and_proof.aggregate;
+
+        // Check that aggregator index is part of the committee attesting (quick).
+        if !indexed_attestation
+            .attesting_indices
+            .contains(&aggregate_and_proof.aggregator_index)
+        {
+            Err(AttestationDropReason::AggregatorNotInAttestingIndices)
+        }
+        // Check that the aggregator is allowed to be aggregating (medium, one hash).
+        else if !state
+            .is_aggregator(
+                attestation.data.slot,
+                attestation.data.index,
+                &aggregate_and_proof.selection_proof,
+                &self.spec,
+            )
+            .unwrap_or(false)
+        {
+            Err(AttestationDropReason::AggregatorNotSelected)
+        }
+        // Check that the aggregator's selection proof is valid (slow-ish).
+        // TODO: fetch pubkey and call is_valid_selection_proof
+        else if true {
+            panic!()
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Check that an attestation's slot doesn't make it ineligible for gossip.
+    fn check_attestation_slot_for_gossip(
+        &self,
+        attestation: &Attestation<T::EthSpec>,
+    ) -> Result<(), AttestationDropReason> {
+        // `now_low_slot` is the slot of the current time minus MAXIMUM_GOSSIP_CLOCK_DISPARITY
+        // `now_high_slot` is the slot of the current time plus MAXIMUM_GOSSIP_CLOCK_DISPARITY
+        let (now_low_slot, now_high_slot) = self
+            .slot_clock
+            .now_duration()
+            .and_then(|now| {
+                let maximum_clock_disparity =
+                    Duration::from_millis(self.spec.maximum_gossip_clock_disparity_millis);
+                let now_low_duration = now.checked_sub(maximum_clock_disparity)?;
+                let now_high_duration = now.checked_add(maximum_clock_disparity)?;
+                Some((
+                    self.slot_clock.slot_of(now_low_duration)?,
+                    self.slot_clock.slot_of(now_high_duration)?,
+                ))
+            })
+            .ok_or_else(|| AttestationDropReason::SlotClockError)?;
+
+        let min_slot = attestation.data.slot;
+        let max_slot = min_slot + self.spec.attestation_propagation_slot_range;
+
+        if now_high_slot < min_slot {
+            Err(AttestationDropReason::TooNew {
+                attestation_slot: min_slot,
+                now: now_high_slot,
+            })
+        } else if now_low_slot > max_slot {
+            Err(AttestationDropReason::TooOld {
+                attestation_slot: min_slot,
+                now: now_low_slot,
+            })
+        } else {
+            Ok(())
+        }
     }
 
     /// Validate an attestation.

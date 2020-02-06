@@ -11,6 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
+use std::convert::TryInto;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -458,6 +459,30 @@ impl<T: EthSpec> BeaconState<T> {
             }
             i += 1;
         }
+    }
+
+    /// Return `true` if the validator who produced `slot_signature` is eligible to aggregate.
+    ///
+    /// Spec v0.10.1
+    pub fn is_aggregator(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+        slot_signature: &Signature,
+        spec: &ChainSpec,
+    ) -> Result<bool, Error> {
+        let committee = self.get_beacon_committee(slot, index)?;
+        let modulo = std::cmp::max(
+            1,
+            committee.committee.len() as u64 / spec.target_aggregators_per_committee,
+        );
+        let signature_hash = hash(&slot_signature.as_bytes());
+        let signature_hash_int = u64::from_le_bytes(
+            signature_hash[0..8]
+                .try_into()
+                .expect("first 8 bytes of signature should always convert to fixed array"),
+        );
+        Ok(signature_hash_int % modulo == 0)
     }
 
     /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
