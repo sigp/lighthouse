@@ -80,19 +80,19 @@ impl BeaconTreeHashCache {
         leaves.append(&mut state.fork.tree_hash_root());
         leaves.append(&mut state.latest_block_header.tree_hash_root());
         leaves.extend_from_slice(
-            &mut state
+            state
                 .block_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.block_roots)?
                 .as_bytes(),
         );
         leaves.extend_from_slice(
-            &mut state
+            state
                 .state_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.state_roots)?
                 .as_bytes(),
         );
         leaves.extend_from_slice(
-            &mut state
+            state
                 .historical_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.historical_roots)?
                 .as_bytes(),
@@ -101,25 +101,24 @@ impl BeaconTreeHashCache {
         leaves.append(&mut state.eth1_data_votes.tree_hash_root());
         leaves.append(&mut state.eth1_deposit_index.tree_hash_root());
         leaves.extend_from_slice(
-            &mut self
-                .validators
+            self.validators
                 .recalculate_tree_hash_root(&state.validators[..])?
                 .as_bytes(),
         );
         leaves.extend_from_slice(
-            &mut state
+            state
                 .balances
                 .recalculate_tree_hash_root(&mut self.balances_arena, &mut self.balances)?
                 .as_bytes(),
         );
         leaves.extend_from_slice(
-            &mut state
+            state
                 .randao_mixes
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.randao_mixes)?
                 .as_bytes(),
         );
         leaves.extend_from_slice(
-            &mut state
+            state
                 .slashings
                 .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?
                 .as_bytes(),
@@ -193,7 +192,7 @@ impl ValidatorsListTreeHashCache {
 /// roots of these using Rayon parallelization.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct ParallelValidatorTreeHash {
-    /// Each arena and it's associated sub-trees.
+    /// Each arena and its associated sub-trees.
     arenas: Vec<(CacheArena, Vec<TreeHashCache>)>,
 }
 

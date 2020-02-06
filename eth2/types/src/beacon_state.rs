@@ -891,7 +891,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
-        if !self.tree_hash_cache.is_some() {
+        if self.tree_hash_cache.is_none() {
             self.tree_hash_cache = Some(BeaconTreeHashCache::new(self))
         }
     }

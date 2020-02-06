@@ -22,7 +22,7 @@ pub struct TreeHashCache {
 
 impl TreeHashCache {
     /// Create a new cache with the given `depth` with enough nodes allocated to suit `leaves`. All
-    /// leaves are set to `Hash256::zero()`>
+    /// leaves are set to `Hash256::zero()`.
     pub fn new(arena: &mut CacheArena, depth: usize, leaves: usize) -> Self {
         // TODO: what about when leaves is zero?
         let layers = (0..=depth)
@@ -78,7 +78,7 @@ impl TreeHashCache {
             .enumerate()
             .zip(&mut leaves)
             .flat_map(|((i, leaf), new_leaf)| {
-                if leaf.as_bytes() != new_leaf || self.initialized == false {
+                if !self.initialized || leaf.as_bytes() != new_leaf {
                     leaf.assign_from_slice(&new_leaf);
                     Some(i)
                 } else {
