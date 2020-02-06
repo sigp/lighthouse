@@ -1,10 +1,10 @@
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::BeaconChainTypes;
 use eth2_libp2p::Enr;
 use rlp;
 use std::sync::Arc;
 use store::Store;
 use store::{DBColumn, Error as StoreError, SimpleStoreItem};
-use types::{EthSpec, Hash256};
+use types::Hash256;
 
 /// 32-byte key for accessing the `DhtEnrs`.
 pub const DHT_DB_KEY: &str = "PERSISTEDDHTPERSISTEDDHTPERSISTE";
@@ -31,7 +31,7 @@ pub fn persist_dht<T: BeaconChainTypes>(
     Ok(())
 }
 
-/// Wrapper around dht for persistence to disk.
+/// Wrapper around DHT for persistence to disk.
 pub struct PersistedDht {
     pub enrs: Vec<Enr>,
 }
