@@ -1,5 +1,5 @@
 use crate::impls::hash256_iter;
-use crate::{CachedTreeHash, Error, Hash256, TreeHashCache, VecArena};
+use crate::{CacheArena, CachedTreeHash, Error, Hash256, TreeHashCache};
 use eth2_hashing::ZERO_HASHES;
 use quickcheck_macros::quickcheck;
 use ssz_types::{
@@ -18,7 +18,7 @@ type Vector16u64 = FixedVector<u64, U16>;
 
 #[test]
 fn max_leaves() {
-    let arena = &mut VecArena::default();
+    let arena = &mut CacheArena::default();
     let depth = 4;
     let max_len = 2u64.pow(depth as u32);
     let mut cache = TreeHashCache::new(arena, depth, 2);
@@ -40,7 +40,7 @@ fn max_leaves() {
 
 #[test]
 fn cannot_shrink() {
-    let arena = &mut VecArena::default();
+    let arena = &mut CacheArena::default();
     let init_len = 12;
     let list1 = List16::new(int_hashes(0, init_len)).unwrap();
     let list2 = List16::new(int_hashes(0, init_len - 1)).unwrap();
@@ -55,7 +55,7 @@ fn cannot_shrink() {
 
 #[test]
 fn empty_leaves() {
-    let arena = &mut VecArena::default();
+    let arena = &mut CacheArena::default();
     let depth = 20;
     let mut cache = TreeHashCache::new(arena, depth, 0);
     assert_eq!(
@@ -69,7 +69,7 @@ fn empty_leaves() {
 
 #[test]
 fn fixed_vector_hash256() {
-    let arena = &mut VecArena::default();
+    let arena = &mut CacheArena::default();
     let len = 16;
     let vec = Vector16::new(int_hashes(0, len)).unwrap();
 
@@ -83,7 +83,7 @@ fn fixed_vector_hash256() {
 
 #[test]
 fn fixed_vector_u64() {
-    let arena = &mut VecArena::default();
+    let arena = &mut CacheArena::default();
     let len = 16;
     let vec = Vector16u64::new((0..len).collect()).unwrap();
 
@@ -97,7 +97,7 @@ fn fixed_vector_u64() {
 
 #[test]
 fn variable_list_hash256() {
-    let arena = &mut VecArena::default();
+    let arena = &mut CacheArena::default();
     let len = 13;
     let list = List16::new(int_hashes(0, len)).unwrap();
 
@@ -125,7 +125,7 @@ fn quickcheck_variable_list_h256_257(leaves_and_skips: Vec<(u64, bool)>) -> bool
 }
 
 fn variable_list_h256_test<Len: Unsigned>(leaves_and_skips: Vec<(u64, bool)>) -> bool {
-    let arena = &mut VecArena::default();
+    let arena = &mut CacheArena::default();
     let leaves: Vec<_> = leaves_and_skips
         .iter()
         .map(|(l, _)| Hash256::from_low_u64_be(*l))

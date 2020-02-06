@@ -11,28 +11,39 @@ pub enum Error {
     RangeOverFlow,
 }
 
+/// Inspired by the `TypedArena` crate, the `CachedArena` provides a single contiguous memory
+/// allocation from which smaller allocations can be produced. In effect this allows for having
+/// many `Vec<T>` all stored contiguously on the heap with the aim of reducing memory
+/// fragmentation.
+///
+/// Because all of the allocations are stored in one big `Vec`, resizing any of the allocations
+/// will mean all items to the right of that allocation will be moved.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
-pub struct VecArena<T: Encode + Decode> {
+pub struct CacheArena<T: Encode + Decode> {
+    /// The backing array, storing cached values.
     backing: Vec<T>,
+    /// A list of offsets indicating the start of each allocation.
     offsets: Vec<usize>,
 }
 
-impl<T: Encode + Decode> VecArena<T> {
-    pub fn alloc(&mut self) -> SubVecArena<T> {
-        let arena_id = self.offsets.len();
+impl<T: Encode + Decode> CacheArena<T> {
+    /// Produce an allocation of zero length at the end of the backing array.
+    pub fn alloc(&mut self) -> CacheArenaAllocation<T> {
+        let alloc_id = self.offsets.len();
         self.offsets.push(self.backing.len());
 
-        SubVecArena {
-            arena_id,
+        CacheArenaAllocation {
+            alloc_id,
             _phantom: PhantomData,
         }
     }
 
-    fn grow(&mut self, arena_id: usize, grow_by: usize) -> Result<(), Error> {
-        if arena_id < self.offsets.len() {
+    /// Update `self.offsets` to reflect an allocation increasing in size.
+    fn grow(&mut self, alloc_id: usize, grow_by: usize) -> Result<(), Error> {
+        if alloc_id < self.offsets.len() {
             self.offsets
                 .iter_mut()
-                .skip(arena_id + 1)
+                .skip(alloc_id + 1)
                 .try_for_each(|offset| {
                     *offset = offset
                         .checked_add(grow_by)
@@ -41,15 +52,16 @@ impl<T: Encode + Decode> VecArena<T> {
                     Ok(())
                 })
         } else {
-            Err(Error::UnknownArenaId(arena_id))
+            Err(Error::UnknownArenaId(alloc_id))
         }
     }
 
-    fn shrink(&mut self, arena_id: usize, shrink_by: usize) -> Result<(), Error> {
-        if arena_id < self.offsets.len() {
+    /// Update `self.offsets` to reflect an allocation decreasing in size.
+    fn shrink(&mut self, alloc_id: usize, shrink_by: usize) -> Result<(), Error> {
+        if alloc_id < self.offsets.len() {
             self.offsets
                 .iter_mut()
-                .skip(arena_id + 1)
+                .skip(alloc_id + 1)
                 .try_for_each(|offset| {
                     *offset = offset
                         .checked_sub(shrink_by)
@@ -58,20 +70,26 @@ impl<T: Encode + Decode> VecArena<T> {
                     Ok(())
                 })
         } else {
-            Err(Error::UnknownArenaId(arena_id))
+            Err(Error::UnknownArenaId(alloc_id))
         }
     }
 
+    /// Similar to `Vec::splice`, however the range is relative to some allocation (`alloc_id`) and
+    /// the replaced items are not returned (i.e., it is forgetful).
+    ///
+    /// To reiterate, the given `range` should be relative to the given `alloc_id`, not
+    /// `self.backing`. E.g., if the allocation has an offset of `20` and the range is `0..1`, then
+    /// the splice will translate to `self.backing[20..21]`.
     fn splice_forgetful<I: IntoIterator<Item = T>>(
         &mut self,
-        arena_id: usize,
+        alloc_id: usize,
         range: Range<usize>,
         replace_with: I,
     ) -> Result<(), Error> {
         let offset = *self
             .offsets
-            .get(arena_id)
-            .ok_or_else(|| Error::UnknownArenaId(arena_id))?;
+            .get(alloc_id)
+            .ok_or_else(|| Error::UnknownArenaId(alloc_id))?;
         let start = range
             .start
             .checked_add(offset)
@@ -86,123 +104,153 @@ impl<T: Encode + Decode> VecArena<T> {
         self.backing.splice(start..end, replace_with);
 
         if prev_len < self.backing.len() {
-            self.grow(arena_id, self.backing.len() - prev_len)?;
+            self.grow(alloc_id, self.backing.len() - prev_len)?;
         } else if prev_len > self.backing.len() {
-            self.shrink(arena_id, prev_len - self.backing.len())?;
+            self.shrink(alloc_id, prev_len - self.backing.len())?;
         }
 
         Ok(())
     }
 
-    fn len(&self, arena_id: usize) -> Result<usize, Error> {
+    /// Returns the length of the specified allocation.
+    fn len(&self, alloc_id: usize) -> Result<usize, Error> {
         let start = self
             .offsets
-            .get(arena_id)
-            .ok_or_else(|| Error::UnknownArenaId(arena_id))?;
+            .get(alloc_id)
+            .ok_or_else(|| Error::UnknownArenaId(alloc_id))?;
         let end = self
             .offsets
-            .get(arena_id + 1)
+            .get(alloc_id + 1)
             .copied()
             .unwrap_or_else(|| self.backing.len());
 
         Ok(end - start)
     }
 
-    fn get(&self, arena_id: usize, i: usize) -> Result<Option<&T>, Error> {
-        if i < self.len(arena_id)? {
+    /// Get the value at position `i`, relative to the offset at `alloc_id`.
+    fn get(&self, alloc_id: usize, i: usize) -> Result<Option<&T>, Error> {
+        if i < self.len(alloc_id)? {
             let offset = self
                 .offsets
-                .get(arena_id)
-                .ok_or_else(|| Error::UnknownArenaId(arena_id))?;
+                .get(alloc_id)
+                .ok_or_else(|| Error::UnknownArenaId(alloc_id))?;
             Ok(self.backing.get(i + offset))
         } else {
             Ok(None)
         }
     }
 
-    fn get_mut(&mut self, arena_id: usize, i: usize) -> Result<Option<&mut T>, Error> {
-        if i < self.len(arena_id)? {
+    /// Mutably get the value at position `i`, relative to the offset at `alloc_id`.
+    fn get_mut(&mut self, alloc_id: usize, i: usize) -> Result<Option<&mut T>, Error> {
+        if i < self.len(alloc_id)? {
             let offset = self
                 .offsets
-                .get(arena_id)
-                .ok_or_else(|| Error::UnknownArenaId(arena_id))?;
+                .get(alloc_id)
+                .ok_or_else(|| Error::UnknownArenaId(alloc_id))?;
             Ok(self.backing.get_mut(i + offset))
         } else {
             Ok(None)
         }
     }
 
-    fn range(&self, arena_id: usize) -> Range<usize> {
-        let start = self.offsets[arena_id];
+    /// Returns the range in `self.backing` that is occupied by some allocation.
+    fn range(&self, alloc_id: usize) -> Range<usize> {
+        let start = self.offsets[alloc_id];
         let end = self
             .offsets
-            .get(arena_id + 1)
+            .get(alloc_id + 1)
             .copied()
             .unwrap_or_else(|| self.backing.len());
 
         start..end
     }
 
-    fn iter(&self, arena_id: usize) -> impl Iterator<Item = &T> {
-        self.backing[self.range(arena_id)].iter()
+    /// Iterate through all values in some allocation.
+    fn iter(&self, alloc_id: usize) -> impl Iterator<Item = &T> {
+        self.backing[self.range(alloc_id)].iter()
     }
 
-    fn iter_mut(&mut self, arena_id: usize) -> impl Iterator<Item = &mut T> {
-        let range = self.range(arena_id);
+    /// Mutably iterate through all values in some allocation.
+    fn iter_mut(&mut self, alloc_id: usize) -> impl Iterator<Item = &mut T> {
+        let range = self.range(alloc_id);
         self.backing[range].iter_mut()
     }
 
+    /// Returns the total number of items stored in the arena, the sum of all values in all
+    /// allocations.
     pub fn backing_len(&self) -> usize {
         self.backing.len()
     }
 }
 
+/// An allocation from a `CacheArena` that behaves like a `Vec<T>`.
+///
+/// For all functions that accept a `CacheArena<T>` parameter, that arena should always be the one
+/// that created `Self`. I.e., do not mix-and-match allocations and arenas unless you _really_ know
+/// what you're doing (or want to have a bad time).
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
-pub struct SubVecArena<T> {
-    arena_id: usize,
+pub struct CacheArenaAllocation<T> {
+    alloc_id: usize,
     #[ssz(skip_serializing)]
     #[ssz(skip_deserializing)]
     _phantom: PhantomData<T>,
 }
 
-impl<T: Encode + Decode> SubVecArena<T> {
-    pub fn extend_with_vec(&mut self, arena: &mut VecArena<T>, vec: Vec<T>) -> Result<(), Error> {
-        let len = arena.len(self.arena_id)?;
-        arena.splice_forgetful(self.arena_id, len..len, vec)?;
+impl<T: Encode + Decode> CacheArenaAllocation<T> {
+    /// Grow the allocation in `arena`, appending `vec` to the current values.
+    pub fn extend_with_vec(&mut self, arena: &mut CacheArena<T>, vec: Vec<T>) -> Result<(), Error> {
+        let len = arena.len(self.alloc_id)?;
+        arena.splice_forgetful(self.alloc_id, len..len, vec)?;
         Ok(())
     }
 
-    pub fn push(&mut self, arena: &mut VecArena<T>, item: T) -> Result<(), Error> {
-        let len = arena.len(self.arena_id)?;
-        arena.splice_forgetful(self.arena_id, len..len, vec![item])?;
+    /// Push `item` to the end of the current allocation in `arena`.
+    ///
+    /// An error is returned if this allocation is not known to the given `arena`.
+    pub fn push(&mut self, arena: &mut CacheArena<T>, item: T) -> Result<(), Error> {
+        let len = arena.len(self.alloc_id)?;
+        arena.splice_forgetful(self.alloc_id, len..len, vec![item])?;
         Ok(())
     }
 
-    pub fn get<'a>(&self, arena: &'a VecArena<T>, i: usize) -> Result<Option<&'a T>, Error> {
-        arena.get(self.arena_id, i)
+    /// Get the i'th item in the `arena` (relative to this allocation).
+    ///
+    /// An error is returned if this allocation is not known to the given `arena`.
+    pub fn get<'a>(&self, arena: &'a CacheArena<T>, i: usize) -> Result<Option<&'a T>, Error> {
+        arena.get(self.alloc_id, i)
     }
 
+    /// Mutably get the i'th item in the `arena` (relative to this allocation).
+    ///
+    /// An error is returned if this allocation is not known to the given `arena`.
     pub fn get_mut<'a>(
         &mut self,
-        arena: &'a mut VecArena<T>,
+        arena: &'a mut CacheArena<T>,
         i: usize,
     ) -> Result<Option<&'a mut T>, Error> {
-        arena.get_mut(self.arena_id, i)
+        arena.get_mut(self.alloc_id, i)
     }
 
-    pub fn iter<'a>(&self, arena: &'a VecArena<T>) -> impl Iterator<Item = &'a T> {
-        arena.iter(self.arena_id)
+    /// Iterate through all items in the `arena` (relative to this allocation).
+    pub fn iter<'a>(&self, arena: &'a CacheArena<T>) -> impl Iterator<Item = &'a T> {
+        arena.iter(self.alloc_id)
     }
 
-    pub fn iter_mut<'a>(&mut self, arena: &'a mut VecArena<T>) -> impl Iterator<Item = &'a mut T> {
-        arena.iter_mut(self.arena_id)
+    /// Mutably iterate through all items in the `arena` (relative to this allocation).
+    pub fn iter_mut<'a>(
+        &mut self,
+        arena: &'a mut CacheArena<T>,
+    ) -> impl Iterator<Item = &'a mut T> {
+        arena.iter_mut(self.alloc_id)
     }
 
-    pub fn len(&self, arena: &VecArena<T>) -> Result<usize, Error> {
-        arena.len(self.arena_id)
+    /// Return the number of items stored in this allocation.
+    pub fn len(&self, arena: &CacheArena<T>) -> Result<usize, Error> {
+        arena.len(self.alloc_id)
     }
 
-    pub fn is_empty(&self, arena: &VecArena<T>) -> Result<bool, Error> {
+    /// Returns true if this allocation is empty.
+    pub fn is_empty(&self, arena: &CacheArena<T>) -> Result<bool, Error> {
         self.len(arena).map(|len| len == 0)
     }
 }
@@ -211,14 +259,14 @@ impl<T: Encode + Decode> SubVecArena<T> {
 mod tests {
     use crate::Hash256;
 
-    type VecArena = super::VecArena<Hash256>;
-    type SubVecArena = super::SubVecArena<Hash256>;
+    type CacheArena = super::CacheArena<Hash256>;
+    type CacheArenaAllocation = super::CacheArenaAllocation<Hash256>;
 
     fn hash(i: usize) -> Hash256 {
         Hash256::from_low_u64_be(i as u64)
     }
 
-    fn test_routine(arena: &mut VecArena, sub: &mut SubVecArena) {
+    fn test_routine(arena: &mut CacheArena, sub: &mut CacheArenaAllocation) {
         let mut len = sub.len(arena).expect("should exist");
 
         sub.push(arena, hash(len)).expect("should push");
@@ -291,7 +339,7 @@ mod tests {
 
     #[test]
     fn single() {
-        let arena = &mut VecArena::default();
+        let arena = &mut CacheArena::default();
 
         assert_eq!(arena.backing.len(), 0, "should start with an empty backing");
         assert_eq!(arena.offsets.len(), 0, "should start without any offsets");
@@ -314,7 +362,7 @@ mod tests {
 
     #[test]
     fn double() {
-        let arena = &mut VecArena::default();
+        let arena = &mut CacheArena::default();
 
         assert_eq!(arena.backing.len(), 0, "should start with an empty backing");
         assert_eq!(arena.offsets.len(), 0, "should start without any offsets");
@@ -349,7 +397,7 @@ mod tests {
 
     #[test]
     fn one_then_other() {
-        let arena = &mut VecArena::default();
+        let arena = &mut CacheArena::default();
 
         assert_eq!(arena.backing.len(), 0, "should start with an empty backing");
         assert_eq!(arena.offsets.len(), 0, "should start without any offsets");
@@ -387,7 +435,7 @@ mod tests {
 
     #[test]
     fn many() {
-        let arena = &mut VecArena::default();
+        let arena = &mut CacheArena::default();
 
         assert_eq!(arena.backing.len(), 0, "should start with an empty backing");
         assert_eq!(arena.offsets.len(), 0, "should start without any offsets");

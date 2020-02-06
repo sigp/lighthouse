@@ -2,7 +2,7 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
-use cached_tree_hash::{CachedTreeHash, VecArena};
+use cached_tree_hash::{CacheArena, CachedTreeHash};
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
@@ -991,13 +991,13 @@ impl<T: EthSpec> BeaconState<T> {
 /// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
 /// recommended to use the methods directly on the beacon state instead.
 impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache> for BeaconState<T> {
-    fn new_tree_hash_cache(&self, _arena: &mut VecArena) -> BeaconTreeHashCache {
+    fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache {
         BeaconTreeHashCache::new(self)
     }
 
     fn recalculate_tree_hash_root(
         &self,
-        _arena: &mut VecArena,
+        _arena: &mut CacheArena,
         cache: &mut BeaconTreeHashCache,
     ) -> Result<Hash256, cached_tree_hash::Error> {
         cache

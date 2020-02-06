@@ -1,4 +1,4 @@
-use crate::{CachedTreeHash, Error, Hash256, TreeHashCache, VecArena};
+use crate::{CacheArena, CachedTreeHash, Error, Hash256, TreeHashCache};
 use ssz_types::{typenum::Unsigned, FixedVector, VariableList};
 use std::mem::size_of;
 use tree_hash::{mix_in_length, BYTES_PER_CHUNK};
@@ -47,7 +47,7 @@ pub fn u64_iter<'a>(
 }
 
 impl<N: Unsigned> CachedTreeHash<TreeHashCache> for FixedVector<Hash256, N> {
-    fn new_tree_hash_cache(&self, arena: &mut VecArena) -> TreeHashCache {
+    fn new_tree_hash_cache(&self, arena: &mut CacheArena) -> TreeHashCache {
         TreeHashCache::new(
             arena,
             int_log(N::to_usize()),
@@ -57,7 +57,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for FixedVector<Hash256, N> {
 
     fn recalculate_tree_hash_root(
         &self,
-        arena: &mut VecArena,
+        arena: &mut CacheArena,
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
         cache.recalculate_merkle_root(arena, hash256_iter(&self))
@@ -65,7 +65,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for FixedVector<Hash256, N> {
 }
 
 impl<N: Unsigned> CachedTreeHash<TreeHashCache> for FixedVector<u64, N> {
-    fn new_tree_hash_cache(&self, arena: &mut VecArena) -> TreeHashCache {
+    fn new_tree_hash_cache(&self, arena: &mut CacheArena) -> TreeHashCache {
         let vals_per_chunk = BYTES_PER_CHUNK / size_of::<u64>();
         TreeHashCache::new(
             arena,
@@ -76,7 +76,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for FixedVector<u64, N> {
 
     fn recalculate_tree_hash_root(
         &self,
-        arena: &mut VecArena,
+        arena: &mut CacheArena,
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
         cache.recalculate_merkle_root(arena, u64_iter(&self))
@@ -84,7 +84,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for FixedVector<u64, N> {
 }
 
 impl<N: Unsigned> CachedTreeHash<TreeHashCache> for VariableList<Hash256, N> {
-    fn new_tree_hash_cache(&self, arena: &mut VecArena) -> TreeHashCache {
+    fn new_tree_hash_cache(&self, arena: &mut CacheArena) -> TreeHashCache {
         TreeHashCache::new(
             arena,
             int_log(N::to_usize()),
@@ -94,7 +94,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for VariableList<Hash256, N> {
 
     fn recalculate_tree_hash_root(
         &self,
-        arena: &mut VecArena,
+        arena: &mut CacheArena,
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
         Ok(Hash256::from_slice(&mix_in_length(
@@ -107,7 +107,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for VariableList<Hash256, N> {
 }
 
 impl<N: Unsigned> CachedTreeHash<TreeHashCache> for VariableList<u64, N> {
-    fn new_tree_hash_cache(&self, arena: &mut VecArena) -> TreeHashCache {
+    fn new_tree_hash_cache(&self, arena: &mut CacheArena) -> TreeHashCache {
         let vals_per_chunk = BYTES_PER_CHUNK / size_of::<u64>();
         TreeHashCache::new(
             arena,
@@ -118,7 +118,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for VariableList<u64, N> {
 
     fn recalculate_tree_hash_root(
         &self,
-        arena: &mut VecArena,
+        arena: &mut CacheArena,
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
         Ok(Hash256::from_slice(&mix_in_length(
