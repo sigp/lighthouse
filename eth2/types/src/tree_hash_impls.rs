@@ -96,11 +96,7 @@ fn process_epoch_field(val: Epoch, leaf: &mut Hash256, force_update: bool) -> bo
 }
 
 fn process_bool_field(val: bool, leaf: &mut Hash256, force_update: bool) -> bool {
-    let mut new_tree_hash = [0; 32];
-    if val {
-        new_tree_hash[0] = 1;
-    }
-    process_slice_field(&new_tree_hash[..], leaf, force_update)
+    process_u64_field(val as u64, leaf, force_update)
 }
 
 #[cfg(test)]

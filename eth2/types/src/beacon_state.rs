@@ -913,13 +913,13 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
         self.initialize_tree_hash_cache();
 
-        let cache = std::mem::replace(&mut self.tree_hash_cache, None);
+        let cache = self.tree_hash_cache.take();
 
         if let Some(mut cache) = cache {
             // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
             // None. There's no need to keep a cache that fails.
             let root = cache.recalculate_tree_hash_root(self)?;
-            std::mem::replace(&mut self.tree_hash_cache, Some(cache));
+            self.tree_hash_cache = Some(cache);
             Ok(root)
         } else {
             Err(Error::TreeHashCacheNotInitialized)
