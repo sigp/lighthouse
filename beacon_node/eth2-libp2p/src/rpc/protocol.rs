@@ -5,6 +5,7 @@ use crate::rpc::{
     codec::{
         base::{BaseInboundCodec, BaseOutboundCodec},
         ssz::{SSZInboundCodec, SSZOutboundCodec},
+        ssz_snappy::{SSZSnappyInboundCodec, SSZSnappyOutboundCodec},
         InboundCodec, OutboundCodec,
     },
     methods::ResponseTermination,
@@ -145,8 +146,9 @@ where
     ) -> Self::Future {
         match protocol.encoding.as_str() {
             "ssz_snappy" => {
-                let ssz_codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol, MAX_RPC_SIZE));
-                let codec = InboundCodec::SSZ(ssz_codec);
+                let ssz_snappy_codec =
+                    BaseInboundCodec::new(SSZSnappyInboundCodec::new(protocol, MAX_RPC_SIZE));
+                let codec = InboundCodec::SSZSnappy(ssz_snappy_codec);
                 let mut timed_socket = TimeoutStream::new(socket);
                 timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
                 Framed::new(timed_socket, codec)
@@ -214,20 +216,20 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
         match self {
             // add more protocols when versions/encodings are supported
             RPCRequest::Status(_) => vec![
-                ProtocolId::new(RPC_STATUS, "1", "ssz"),
                 ProtocolId::new(RPC_STATUS, "1", "ssz_snappy"),
+                ProtocolId::new(RPC_STATUS, "1", "ssz"),
             ],
             RPCRequest::Goodbye(_) => vec![
-                ProtocolId::new(RPC_GOODBYE, "1", "ssz"),
                 ProtocolId::new(RPC_GOODBYE, "1", "ssz_snappy"),
+                ProtocolId::new(RPC_GOODBYE, "1", "ssz"),
             ],
             RPCRequest::BlocksByRange(_) => vec![
-                ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
                 ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz_snappy"),
+                ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
             ],
             RPCRequest::BlocksByRoot(_) => vec![
-                ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
                 ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz_snappy"),
+                ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
             ],
         }
     }
@@ -294,6 +296,12 @@ where
         protocol: Self::Info,
     ) -> Self::Future {
         match protocol.encoding.as_str() {
+            "ssz_snappy" => {
+                let ssz_snappy_codec =
+                    BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(protocol, MAX_RPC_SIZE));
+                let codec = OutboundCodec::SSZSnappy(ssz_snappy_codec);
+                Framed::new(socket, codec).send(self)
+            }
             "ssz" | _ => {
                 let ssz_codec =
                     BaseOutboundCodec::new(SSZOutboundCodec::new(protocol, MAX_RPC_SIZE));
@@ -311,6 +319,8 @@ pub enum RPCError {
     ReadError(upgrade::ReadOneError),
     /// Error when decoding the raw buffer from ssz.
     SSZDecodeError(ssz::DecodeError),
+    /// Snappy error
+    SnappyError(snap::Error),
     /// Invalid Protocol ID.
     InvalidProtocol(&'static str),
     /// IO Error.
@@ -358,6 +368,12 @@ impl From<io::Error> for RPCError {
     }
 }
 
+impl From<snap::Error> for RPCError {
+    fn from(err: snap::Error) -> Self {
+        RPCError::SnappyError(err)
+    }
+}
+
 // Error trait is required for `ProtocolsHandler`
 impl std::fmt::Display for RPCError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -368,6 +384,7 @@ impl std::fmt::Display for RPCError {
             RPCError::IoError(ref err) => write!(f, "IO Error: {}", err),
             RPCError::RPCErrorResponse => write!(f, "RPC Response Error"),
             RPCError::StreamTimeout => write!(f, "Stream Timeout"),
+            RPCError::SnappyError(ref err) => write!(f, "Snappy error: {}", err),
             RPCError::Custom(ref err) => write!(f, "{}", err),
         }
     }
@@ -378,6 +395,7 @@ impl std::error::Error for RPCError {
         match *self {
             RPCError::ReadError(ref err) => Some(err),
             RPCError::SSZDecodeError(_) => None,
+            RPCError::SnappyError(ref err) => Some(err),
             RPCError::InvalidProtocol(_) => None,
             RPCError::IoError(ref err) => Some(err),
             RPCError::StreamTimeout => None,
