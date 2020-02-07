@@ -1,5 +1,7 @@
 use crate::checkpoint::CheckPoint;
-use crate::errors::{AttestationDropReason, BeaconChainError as Error, BlockProductionError};
+use crate::errors::{
+    AttestationDropReason, BeaconChainError as Error, BlockDropReason, BlockProductionError,
+};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
@@ -1197,8 +1199,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), AttestationDropReason> {
         let (_, state) = self
             .get_attestation_validation_block_and_state(&attestation)
-            .map_err(AttestationDropReason::NoValidationState)?;
-        let indexed_attestation = get_indexed_attestation(attestation, &state)
+            .map_err(AttestationDropReason::NoValidationState)?
+            .ok_or_else(|| {
+                AttestationDropReason::BlockUnknown(attestation.data.beacon_block_root)
+            })?;
+        let indexed_attestation = get_indexed_attestation(&state, attestation)
             .map_err(AttestationDropReason::BadIndexedAttestation)?;
         self.check_attestation_signature(&indexed_attestation, &state)
     }
@@ -1545,37 +1550,60 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Verify if a block is valid.
     ///
     /// This determines if a block is fit to be forwarded to other peers.
-    pub fn should_forward_block(&self, block: &BeaconBlock<T::EthSpec>) -> bool {
+    pub fn should_forward_block(
+        &self,
+        block: &BeaconBlock<T::EthSpec>,
+    ) -> Result<(), BlockDropReason> {
+        // Check slot first.
+        // Add MAXIMUM_GOSSIP_CLOCK_DISPARITY to the current time before computing the slot,
+        // to make the check more lenient.
+        let current_slot = self
+            .slot_clock
+            .now_duration()
+            .and_then(|now| {
+                let max_disparity =
+                    Duration::from_millis(self.spec.maximum_gossip_clock_disparity_millis);
+                let now_high = now.checked_add(max_disparity)?;
+                self.slot_clock.slot_of(now_high)
+            })
+            .ok_or_else(|| BlockDropReason::SlotClockError)?;
+
+        if block.slot > current_slot {
+            return Err(BlockDropReason::TooNew {
+                block_slot: block.slot,
+                now: current_slot,
+            });
+        }
+
+        // FIXME(sproul): reconsider/clean-up below
         // Retrieve the parent block used to generate the signature.
         // This will eventually return false if this operation fails or returns an empty option.
-        let parent_block_opt = if let Ok(Some(parent_block)) = self
-            .store
-            .get::<BeaconBlock<T::EthSpec>>(&block.parent_root)
-        {
-            // FIXME(sproul): use head_info for speed
-            if let Ok(head) = self.head() {
-                // Check if the parent block's state root is equal to the current state, if it is, then
-                // we can validate the block using the state in our chain head. This saves us from
-                // having to make an unnecessary database read.
-                let state_res = if head.beacon_state_root == parent_block.state_root {
-                    Ok(Some(head.beacon_state))
-                } else {
-                    self.store
-                        .load_epoch_boundary_state(&parent_block.state_root)
-                };
+        let parent_block_opt =
+            if let Ok(Some(parent_block)) = self.store.get_block(&block.parent_root) {
+                // FIXME(sproul): use head_info for speed
+                if let Ok(head) = self.head() {
+                    // Check if the parent block's state root is equal to the current state, if it is, then
+                    // we can validate the block using the state in our chain head. This saves us from
+                    // having to make an unnecessary database read.
+                    let state_res = if head.beacon_state_root == parent_block.state_root {
+                        Ok(Some(head.beacon_state))
+                    } else {
+                        self.store
+                            .load_epoch_boundary_state(&parent_block.state_root)
+                    };
 
-                // If we are unable to find a state for the block, we eventually return false. This
-                // should never be the case though.
-                match state_res {
-                    Ok(Some(state)) => Some((parent_block, state)),
-                    _ => None,
+                    // If we are unable to find a state for the block, we eventually return false. This
+                    // should never be the case though.
+                    match state_res {
+                        Ok(Some(state)) => Some((parent_block, state)),
+                        _ => None,
+                    }
+                } else {
+                    None
                 }
             } else {
                 None
-            }
-        } else {
-            None
-        };
+            };
 
         // If we found a parent block and state to validate the signature with, we enter this
         // section and find the proposer for the block's slot, otherwise, we return false.
@@ -1589,7 +1617,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 for _ in state.slot.as_u64()..block.slot.as_u64() {
                     if per_slot_processing(&mut state, None, &self.spec).is_err() {
                         // Return false if something goes wrong.
-                        return false;
+                        return Err(BlockDropReason::ValidationFailure);
                     }
                 }
 
@@ -1599,7 +1627,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .build_committee_cache(RelativeEpoch::Current, &self.spec)
                     .is_err()
                 {
-                    return false;
+                    return Err(BlockDropReason::ValidationFailure);
                 }
             }
 
@@ -1626,11 +1654,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
 
                 // TODO: Downvote if the signature is invalid.
-                return signature.is_valid();
+                if signature.is_valid() {
+                    return Ok(());
+                }
             }
         }
 
-        false
+        Err(BlockDropReason::ValidationFailure)
     }
 
     /// Produce a new block at the given `slot`.

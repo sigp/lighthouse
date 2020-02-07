@@ -76,6 +76,7 @@ easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(Eth1ChainError, BlockProductionError);
 
+/// A reason for not propagating an attestation (single or aggregate).
 #[derive(Debug, PartialEq)]
 pub enum AttestationDropReason {
     SlotClockError,
@@ -88,4 +89,13 @@ pub enum AttestationDropReason {
     AggregatorNotSelected,
     AggregatorSelectionProofInvalid,
     SignatureInvalid,
+}
+
+/// A reason for not propagating a block.
+#[derive(Debug, PartialEq)]
+pub enum BlockDropReason {
+    SlotClockError,
+    TooNew { block_slot: Slot, now: Slot },
+    // FIXME(sproul): add detail here
+    ValidationFailure,
 }
