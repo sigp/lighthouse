@@ -2,7 +2,7 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
-use cached_tree_hash::{CachedTreeHash, MultiTreeHashCache, TreeHashCache};
+use cached_tree_hash::{CacheArena, CachedTreeHash};
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
@@ -14,16 +14,18 @@ use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::{CachedTreeHash, TreeHash};
+use tree_hash_derive::TreeHash;
 
 pub use self::committee_cache::CommitteeCache;
 pub use eth_spec::*;
+pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
 mod committee_cache;
 mod exit_cache;
 mod pubkey_cache;
 mod tests;
+mod tree_hash_cache;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
@@ -61,8 +63,11 @@ pub enum Error {
     ExitCacheUninitialized,
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SszTypesError(ssz_types::Error),
+    TreeHashCacheNotInitialized,
     CachedTreeHashError(cached_tree_hash::Error),
     InvalidValidatorPubkey(ssz::DecodeError),
+    ValidatorRegistryShrunk,
+    TreeHashCacheInconsistent,
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -81,39 +86,6 @@ impl AllowNextEpoch {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
-pub struct BeaconTreeHashCache {
-    initialized: bool,
-    block_roots: TreeHashCache,
-    state_roots: TreeHashCache,
-    historical_roots: TreeHashCache,
-    validators: MultiTreeHashCache,
-    balances: TreeHashCache,
-    randao_mixes: TreeHashCache,
-    slashings: TreeHashCache,
-}
-
-impl BeaconTreeHashCache {
-    pub fn is_initialized(&self) -> bool {
-        self.initialized
-    }
-
-    /// Returns the approximate size of the cache in bytes.
-    ///
-    /// The size is approximate because we ignore some stack-allocated `u64` and `Vec` pointers.
-    /// We focus instead on the lists of hashes, which should massively outweigh the items that we
-    /// ignore.
-    pub fn approx_mem_size(&self) -> usize {
-        self.block_roots.approx_mem_size()
-            + self.state_roots.approx_mem_size()
-            + self.historical_roots.approx_mem_size()
-            + self.validators.approx_mem_size()
-            + self.balances.approx_mem_size()
-            + self.randao_mixes.approx_mem_size()
-            + self.slashings.approx_mem_size()
-    }
-}
-
 /// The state of the `BeaconChain` at some slot.
 ///
 /// Spec v0.9.1
@@ -127,11 +99,9 @@ impl BeaconTreeHashCache {
     Encode,
     Decode,
     TreeHash,
-    CachedTreeHash,
     CompareFields,
 )]
 #[serde(bound = "T: EthSpec")]
-#[cached_tree_hash(type = "BeaconTreeHashCache")]
 pub struct BeaconState<T>
 where
     T: EthSpec,
@@ -144,12 +114,9 @@ where
     // History
     pub latest_block_header: BeaconBlockHeader,
     #[compare_fields(as_slice)]
-    #[cached_tree_hash(block_roots)]
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     #[compare_fields(as_slice)]
-    #[cached_tree_hash(state_roots)]
     pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
-    #[cached_tree_hash(historical_roots)]
     pub historical_roots: VariableList<Hash256, T::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
@@ -159,18 +126,14 @@ where
 
     // Registry
     #[compare_fields(as_slice)]
-    #[cached_tree_hash(validators)]
     pub validators: VariableList<Validator, T::ValidatorRegistryLimit>,
     #[compare_fields(as_slice)]
-    #[cached_tree_hash(balances)]
     pub balances: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Randomness
-    #[cached_tree_hash(randao_mixes)]
     pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
 
     // Slashings
-    #[cached_tree_hash(slashings)]
     pub slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations
@@ -208,7 +171,7 @@ where
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    pub tree_hash_cache: BeaconTreeHashCache,
+    pub tree_hash_cache: Option<BeaconTreeHashCache>,
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -263,7 +226,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
-            tree_hash_cache: BeaconTreeHashCache::default(),
+            tree_hash_cache: None,
         }
     }
 
@@ -928,8 +891,8 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
-        if !self.tree_hash_cache.initialized {
-            self.tree_hash_cache = Self::new_tree_hash_cache();
+        if self.tree_hash_cache.is_none() {
+            self.tree_hash_cache = Some(BeaconTreeHashCache::new(self))
         }
     }
 
@@ -940,7 +903,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Build the tree hash cache, with blatant disregard for any existing cache.
     pub fn force_build_tree_hash_cache(&mut self) -> Result<(), Error> {
-        self.tree_hash_cache.initialized = false;
+        self.tree_hash_cache = None;
         self.build_tree_hash_cache()
     }
 
@@ -950,16 +913,22 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
         self.initialize_tree_hash_cache();
 
-        let mut cache = std::mem::replace(&mut self.tree_hash_cache, <_>::default());
-        let result = self.recalculate_tree_hash_root(&mut cache);
-        std::mem::replace(&mut self.tree_hash_cache, cache);
+        let cache = self.tree_hash_cache.take();
 
-        Ok(result?)
+        if let Some(mut cache) = cache {
+            // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
+            // None. There's no need to keep a cache that fails.
+            let root = cache.recalculate_tree_hash_root(self)?;
+            self.tree_hash_cache = Some(cache);
+            Ok(root)
+        } else {
+            Err(Error::TreeHashCacheNotInitialized)
+        }
     }
 
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
     pub fn drop_tree_hash_cache(&mut self) {
-        self.tree_hash_cache = BeaconTreeHashCache::default();
+        self.tree_hash_cache = None;
     }
 
     /// Iterate through all validators and decompress their public key, unless it has already been
@@ -1008,7 +977,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
-            tree_hash_cache: BeaconTreeHashCache::default(),
+            tree_hash_cache: None,
         }
     }
 
@@ -1016,6 +985,24 @@ impl<T: EthSpec> BeaconState<T> {
         let mut state = self.clone_without_caches();
         state.committee_caches = self.committee_caches.clone();
         state
+    }
+}
+
+/// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
+/// recommended to use the methods directly on the beacon state instead.
+impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache> for BeaconState<T> {
+    fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache {
+        BeaconTreeHashCache::new(self)
+    }
+
+    fn recalculate_tree_hash_root(
+        &self,
+        _arena: &mut CacheArena,
+        cache: &mut BeaconTreeHashCache,
+    ) -> Result<Hash256, cached_tree_hash::Error> {
+        cache
+            .recalculate_tree_hash_root(self)
+            .map_err(|_| cached_tree_hash::Error::CacheInconsistent)
     }
 }
 
