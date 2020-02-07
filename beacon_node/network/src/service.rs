@@ -323,7 +323,3 @@ pub enum NetworkMessage {
     /// Disconnect and bans a peer id.
     Disconnect { peer_id: PeerId },
 }
-
-impl<T: BeaconChainTypes> Drop for Service<T> {
-    fn drop(&mut self) {}
-}
