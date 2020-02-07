@@ -141,10 +141,10 @@ fn spawn_service<T: BeaconChainTypes>(
         }
 
         // perform termination tasks when the network is being shutdown
-        if let Ok(Async::Ready(_)) = exit_rx.poll() {
+        if let Ok(Async::Ready(_)) | Err(_) = exit_rx.poll() {
                     // network thread is terminating
                     let enrs: Vec<Enr> = libp2p_service.swarm.enr_entries().cloned().collect();
-                    info!(
+                    debug!(
                         log,
                         "Persisting DHT to store";
                         "Number of peers" => format!("{}", enrs.len()),
