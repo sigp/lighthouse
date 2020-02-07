@@ -5,17 +5,19 @@ use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, PeerId, Topic, NetworkGlobals, Swarm};
+use eth2_libp2p::{
+    rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, NetworkGlobals, PeerId, Swarm, Topic,
+};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
 use slog::{debug, error, info, trace};
-use std::sync::{Arc, atomic::Ordering};
 use std::collections::HashSet;
+use std::sync::{atomic::Ordering, Arc};
+use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
 use tokio::timer::Delay;
-use std::time::{Instant, Duration};
 
 mod tests;
 
@@ -51,7 +53,8 @@ impl<T: BeaconChainTypes> Service<T> {
 
         let propagation_percentage = config.propagation_percentage;
         // launch libp2p service
-        let (network_globals, mut libp2p_service) = LibP2PService::new(config, network_log.clone())?;
+        let (network_globals, mut libp2p_service) =
+            LibP2PService::new(config, network_log.clone())?;
 
         for enr in load_dht::<T>(store.clone()) {
             libp2p_service.swarm.add_enr(enr);
@@ -165,7 +168,6 @@ fn spawn_service<T: BeaconChainTypes>(
                     info!(log.clone(), "Network service shutdown");
                     return Ok(Async::Ready(()));
         }
-        
 
         // processes the network channel before processing the libp2p swarm
         loop {
@@ -303,7 +305,6 @@ fn spawn_service<T: BeaconChainTypes>(
     Ok(network_exit)
 }
 
-
 /// Types of messages that the network service can receive.
 #[derive(Debug)]
 pub enum NetworkMessage {
@@ -326,5 +327,3 @@ pub enum NetworkMessage {
 impl<T: BeaconChainTypes> Drop for Service<T> {
     fn drop(&mut self) {}
 }
-
-
