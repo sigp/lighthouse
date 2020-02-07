@@ -165,9 +165,9 @@ fn test_clone_config<E: EthSpec>(base_state: &BeaconState<E>, clone_config: Clon
             .expect_err("exit cache doesn't exist");
     }
     if clone_config.tree_hash_cache {
-        assert!(state.tree_hash_cache.initialized);
+        assert!(state.tree_hash_cache.is_some());
     } else {
-        assert!(!state.tree_hash_cache.initialized, "{:?}", clone_config);
+        assert!(state.tree_hash_cache.is_none(), "{:?}", clone_config);
     }
 }
 

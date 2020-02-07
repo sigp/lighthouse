@@ -46,7 +46,7 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
     /// A cache of recently seen gossip messages. This is used to filter out any possible
     /// duplicates that may still be seen over gossipsub.
     #[behaviour(ignore)]
-    seen_gossip_messages: LruCache<PubsubMessage, ()>,
+    seen_gossip_messages: LruCache<MessageId, ()>,
     /// Logger for behaviour actions.
     #[behaviour(ignore)]
     log: slog::Logger,
@@ -79,7 +79,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
             discovery: Discovery::new(local_key, net_conf, log)?,
             ping: Ping::new(ping_config),
             identify,
-            seen_gossip_messages: LruCache::new(256),
+            seen_gossip_messages: LruCache::new(100_000),
             events: Vec::new(),
             log: behaviour_log,
         })
@@ -105,7 +105,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<GossipsubE
 
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
-                if self.seen_gossip_messages.put(msg.clone(), ()).is_none() {
+                if self.seen_gossip_messages.put(id.clone(), ()).is_none() {
                     // if this message isn't a duplicate, notify the network
                     self.events.push(BehaviourEvent::GossipMessage {
                         id,

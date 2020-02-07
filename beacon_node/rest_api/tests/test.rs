@@ -6,7 +6,8 @@ use node_test_rig::{
     testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode,
 };
 use remote_beacon_node::{
-    Committee, HeadBeaconBlock, PublishStatus, ValidatorDuty, ValidatorResponse,
+    Committee, HeadBeaconBlock, PersistedOperationPool, PublishStatus, ValidatorDuty,
+    ValidatorResponse,
 };
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -237,9 +238,11 @@ fn check_duties<T: BeaconChainTypes>(
         "there should be a duty for each validator"
     );
 
-    let state = beacon_chain
+    let mut state = beacon_chain
         .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
         .expect("should get state at slot");
+
+    state.build_all_caches(spec).expect("should build caches");
 
     validators
         .iter()
@@ -814,6 +817,29 @@ fn get_fork_choice() {
             .core_proto_array(),
         "result should be as expected"
     );
+}
+
+#[test]
+fn get_operation_pool() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.advanced().get_operation_pool())
+        .expect("should not error when getting fork choice");
+
+    let expected = PersistedOperationPool::from_operation_pool(
+        &node
+            .client
+            .beacon_chain()
+            .expect("node should have chain")
+            .op_pool,
+    );
+
+    assert_eq!(result, expected, "result should be as expected");
 }
 
 fn compare_validator_response<T: EthSpec>(

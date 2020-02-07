@@ -210,6 +210,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     .validator_store(validator_store.clone())
                     .beacon_node(beacon_node.clone())
                     .runtime_context(context.service_context("duties".into()))
+                    .allow_unsynced_beacon_node(config.allow_unsynced_beacon_node)
                     .build()?;
 
                 let block_service = BlockServiceBuilder::new()

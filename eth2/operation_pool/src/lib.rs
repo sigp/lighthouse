@@ -284,6 +284,16 @@ impl<T: EthSpec> OperationPool<T> {
         });
     }
 
+    /// Total number of attester slashings in the pool.
+    pub fn num_attester_slashings(&self) -> usize {
+        self.attester_slashings.read().len()
+    }
+
+    /// Total number of proposer slashings in the pool.
+    pub fn num_proposer_slashings(&self) -> usize {
+        self.proposer_slashings.read().len()
+    }
+
     /// Insert a voluntary exit, validating it almost-entirely (future exits are permitted).
     pub fn insert_voluntary_exit(
         &self,
@@ -326,6 +336,11 @@ impl<T: EthSpec> OperationPool<T> {
         self.prune_proposer_slashings(finalized_state);
         self.prune_attester_slashings(finalized_state, spec);
         self.prune_voluntary_exits(finalized_state);
+    }
+
+    /// Total number of voluntary exits in the pool.
+    pub fn num_voluntary_exits(&self) -> usize {
+        self.voluntary_exits.read().len()
     }
 }
 

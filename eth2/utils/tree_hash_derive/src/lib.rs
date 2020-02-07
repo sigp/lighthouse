@@ -3,7 +3,6 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use std::collections::HashMap;
 use syn::{parse_macro_input, Attribute, DeriveInput, Meta};
 
 /// Return a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
@@ -67,37 +66,6 @@ fn cached_tree_hash_attr_metas(attrs: &[Attribute]) -> Vec<Meta> {
         .filter(|attr| attr.path.is_ident("cached_tree_hash"))
         .flat_map(|attr| attr.parse_meta())
         .collect()
-}
-
-/// Parse the top-level cached_tree_hash struct attribute.
-///
-/// Return the type from `#[cached_tree_hash(type = "T")]`.
-///
-/// **Panics** if the attribute is missing or the type is malformed.
-fn parse_cached_tree_hash_struct_attrs(attrs: &[Attribute]) -> syn::Type {
-    use syn::{Lit, MetaList, MetaNameValue, NestedMeta};
-
-    let parsed_attrs = cached_tree_hash_attr_metas(attrs);
-    if let [Meta::List(MetaList { nested, .. })] = &parsed_attrs[..] {
-        let eqns = nested
-            .iter()
-            .flat_map(|x| match x {
-                NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                    ident,
-                    lit: Lit::Str(lit_str),
-                    ..
-                })) => Some((ident.to_string(), lit_str.clone())),
-                _ => None,
-            })
-            .collect::<HashMap<_, _>>();
-
-        eqns["type"]
-            .clone()
-            .parse()
-            .expect("valid type required for cache")
-    } else {
-        panic!("missing attribute `#[cached_tree_hash(type = ...)` on struct");
-    }
 }
 
 /// Returns true if some field has an attribute declaring it should not be hashed.
@@ -179,82 +147,6 @@ pub fn tree_hash_signed_root_derive(input: TokenStream) -> TokenStream {
                 )*
 
                 tree_hash::merkle_root(&leaves, 0)
-            }
-        }
-    };
-    output.into()
-}
-
-/// Derive the `CachedTreeHash` trait for a type.
-///
-/// Requires two attributes:
-/// * `#[cached_tree_hash(type = "T")]` on the struct, declaring
-///   that the type `T` should be used as the tree hash cache.
-/// * `#[cached_tree_hash(f)]` on each struct field that makes use
-///   of the cache, which declares that the sub-cache for that field
-///   can be found in the field `cache.f` of the struct's cache.
-#[proc_macro_derive(CachedTreeHash, attributes(cached_tree_hash))]
-pub fn cached_tree_hash_derive(input: TokenStream) -> TokenStream {
-    let item = parse_macro_input!(input as DeriveInput);
-
-    let name = &item.ident;
-
-    let cache_type = parse_cached_tree_hash_struct_attrs(&item.attrs);
-
-    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
-
-    let struct_data = match &item.data {
-        syn::Data::Struct(s) => s,
-        _ => panic!("tree_hash_derive only supports structs."),
-    };
-
-    let fields = get_hashable_fields_and_their_caches(&struct_data);
-    let caching_field_ty = fields
-        .iter()
-        .filter(|(_, _, cache_field)| cache_field.is_some())
-        .map(|(_, ty, _)| ty);
-    let caching_field_cache_field = fields
-        .iter()
-        .flat_map(|(_, _, cache_field)| cache_field.as_ref());
-
-    let tree_hash_root_expr = fields
-        .iter()
-        .map(|(field, _, caching_field)| match caching_field {
-            None => quote! {
-                self.#field.tree_hash_root()
-            },
-            Some(caching_field) => quote! {
-                self.#field
-                    .recalculate_tree_hash_root(&mut cache.#caching_field)?
-                    .as_bytes()
-                    .to_vec()
-            },
-        });
-
-    let output = quote! {
-        impl #impl_generics cached_tree_hash::CachedTreeHash<#cache_type> for #name #ty_generics #where_clause {
-            fn new_tree_hash_cache() -> #cache_type {
-                // Call new cache for each sub type
-                #cache_type {
-                    initialized: true,
-                    #(
-                        #caching_field_cache_field: <#caching_field_ty>::new_tree_hash_cache()
-                    ),*
-                }
-            }
-
-            fn recalculate_tree_hash_root(
-                &self,
-                cache: &mut #cache_type)
-            -> std::result::Result<Hash256, cached_tree_hash::Error>
-            {
-                let mut leaves = vec![];
-
-                #(
-                    leaves.append(&mut #tree_hash_root_expr);
-                )*
-
-                Ok(Hash256::from_slice(&tree_hash::merkle_root(&leaves, 0)))
             }
         }
     };
