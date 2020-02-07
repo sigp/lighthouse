@@ -238,25 +238,12 @@ pub fn exit_signature_set<'a, T: EthSpec>(
     ))
 }
 
-/// Maps a validator index to a `PublicKey`.
 pub fn validator_pubkey<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     validator_index: usize,
 ) -> Result<Cow<'a, G1Point>> {
-    let pubkey_bytes = &state
-        .validators
-        .get(validator_index)
-        .ok_or_else(|| Error::ValidatorUnknown(validator_index as u64))?
-        .pubkey;
-
-    if let Some(pubkey) = pubkey_bytes.decompressed() {
-        Ok(Cow::Borrowed(&pubkey.as_raw().point))
-    } else {
-        pubkey_bytes
-            .try_into()
-            .map(|pubkey: PublicKey| Cow::Owned(pubkey.as_raw().point.clone()))
-            .map_err(|_| Error::BadBlsBytes {
-                validator_index: validator_index as u64,
-            })
-    }
+    Ok(match state.get_validator_pubkey(validator_index as u64)? {
+        Cow::Borrowed(pubkey) => Cow::Borrowed(&pubkey.as_raw().point),
+        Cow::Owned(pubkey) => Cow::Owned(pubkey.into_raw().point),
+    })
 }

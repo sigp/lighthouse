@@ -1061,7 +1061,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Do checks in order of increasing cost where possible.
         let attestation = &aggregate_and_proof.aggregate;
 
-        // Check slot (quick)
+        // Check slot (quick).
         self.check_attestation_slot_for_gossip(attestation)?;
 
         // TODO: attestation uniqueness check
@@ -1079,7 +1079,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(AttestationDropReason::BadIndexedAttestation)?;
         self.check_attestation_aggregator(aggregate_and_proof, &indexed_attestation, &state)?;
 
-        // TODO: attestation signature check
+        // Finally, check the attestation signature (slow).
+        self.check_attestation_signature(&indexed_attestation, &state)?;
 
         Ok(())
     }
@@ -1113,9 +1114,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Err(AttestationDropReason::AggregatorNotSelected)
         }
         // Check that the aggregator's selection proof is valid (slow-ish).
-        // TODO: fetch pubkey and call is_valid_selection_proof
-        else if true {
-            panic!()
+        else if !aggregate_and_proof.is_valid_selection_proof(
+            state
+                .get_validator_pubkey(aggregate_and_proof.aggregator_index)
+                .map_err(|_| AttestationDropReason::AggregatorSelectionProofInvalid)?
+                .as_ref(),
+        ) {
+            Err(AttestationDropReason::AggregatorSelectionProofInvalid)
         } else {
             Ok(())
         }
@@ -1161,37 +1166,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Check that an attestation's signature is valid before propagating it.
+    fn check_attestation_signature(
+        &self,
+        indexed_attestation: &IndexedAttestation<T::EthSpec>,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<(), AttestationDropReason> {
+        if indexed_attestation_signature_set(
+            &state,
+            &indexed_attestation.signature,
+            &indexed_attestation,
+            &self.spec,
+        )
+        .map(|signature| signature.is_valid())
+        .unwrap_or(false)
+        {
+            Ok(())
+        } else {
+            Err(AttestationDropReason::SignatureInvalid)
+        }
+    }
+
     /// Validate an attestation.
     ///
     ///
     /// Determines if a given attestation should be forwarded to other peers.
-    pub fn should_forward_attestation(&self, attestation: &Attestation<T::EthSpec>) -> bool {
-        if let Ok(Some((_, state))) = self.get_attestation_validation_block_and_state(&attestation)
-        {
-            self.should_forward_attestation_using_state(attestation, &state)
-        } else {
-            false
-        }
-    }
-
-    pub fn should_forward_attestation_using_state(
+    pub fn should_forward_attestation(
         &self,
         attestation: &Attestation<T::EthSpec>,
-        state: &BeaconState<T::EthSpec>,
-    ) -> bool {
-        // Check signature
-        if let Ok(indexed_attestation) = get_indexed_attestation(&state, &attestation) {
-            if let Ok(signature) = indexed_attestation_signature_set(
-                &state,
-                &indexed_attestation.signature,
-                &indexed_attestation,
-                &self.spec,
-            ) {
-                // TODO: Maybe downvote peer if the signature is invalid.
-                return signature.is_valid();
-            }
-        }
-        false
+    ) -> Result<(), AttestationDropReason> {
+        let (_, state) = self
+            .get_attestation_validation_block_and_state(&attestation)
+            .map_err(AttestationDropReason::NoValidationState)?;
+        let indexed_attestation = get_indexed_attestation(attestation, &state)
+            .map_err(AttestationDropReason::BadIndexedAttestation)?;
+        self.check_attestation_signature(&indexed_attestation, &state)
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.

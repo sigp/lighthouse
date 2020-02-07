@@ -29,6 +29,11 @@ impl PublicKey {
         &self.0
     }
 
+    /// Convert the `PublicKey` into its raw form.
+    pub fn into_raw(self) -> RawPublicKey {
+        self.0
+    }
+
     /// Returns the underlying point as compressed bytes.
     ///
     /// Identical to `self.as_uncompressed_bytes()`.

@@ -86,4 +86,6 @@ pub enum AttestationDropReason {
     BadIndexedAttestation(AttestationValidationError),
     AggregatorNotInAttestingIndices,
     AggregatorNotSelected,
+    AggregatorSelectionProofInvalid,
+    SignatureInvalid,
 }

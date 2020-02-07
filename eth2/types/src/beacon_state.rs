@@ -11,6 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
+use std::borrow::Cow;
 use std::convert::TryInto;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
@@ -35,7 +36,7 @@ const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 pub enum Error {
     EpochOutOfBounds,
     SlotOutOfBounds,
-    UnknownValidator,
+    UnknownValidator(u64),
     UnableToDetermineProducer,
     InvalidBitfield,
     ValidatorIsWithdrawable,
@@ -296,6 +297,26 @@ impl<T: EthSpec> BeaconState<T> {
                 cache_len: self.pubkey_cache.len(),
                 registry_len: self.validators.len(),
             })
+        }
+    }
+
+    /// Get the public key for the validator with the given index.
+    ///
+    /// Spec v0.10.1
+    pub fn get_validator_pubkey(&self, validator_index: u64) -> Result<Cow<PublicKey>, Error> {
+        let pubkey_bytes = &self
+            .validators
+            .get(validator_index as usize)
+            .ok_or_else(|| Error::UnknownValidator(validator_index))?
+            .pubkey;
+
+        if let Some(pubkey) = pubkey_bytes.decompressed() {
+            Ok(Cow::Borrowed(pubkey))
+        } else {
+            pubkey_bytes
+                .try_into()
+                .map(|pubkey: PublicKey| Cow::Owned(pubkey))
+                .map_err(Error::InvalidValidatorPubkey)
         }
     }
 
@@ -768,7 +789,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.validators
             .get(validator_index)
             .map(|v| v.effective_balance)
-            .ok_or_else(|| Error::UnknownValidator)
+            .ok_or_else(|| Error::UnknownValidator(validator_index as u64))
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
