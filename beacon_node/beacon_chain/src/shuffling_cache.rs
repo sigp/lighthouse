@@ -1,7 +1,7 @@
 use lru::LruCache;
 use types::{
-    beacon_state::CommitteeCache, BeaconState, BeaconStateError, EthSpec, RelativeEpoch,
-    ShufflingId,
+    beacon_state::CommitteeCache, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256,
+    RelativeEpoch, ShufflingId,
 };
 
 /// The size of the LRU cache that stores committee caches for quicker verification.
@@ -16,7 +16,7 @@ const CACHE_SIZE: usize = 16;
 /// It has been named `ShufflingCache` because `CommitteeCacheCache` is a bit weird and looks like
 /// a find/replace error.
 pub struct ShufflingCache {
-    cache: LruCache<ShufflingId, CommitteeCache>,
+    cache: LruCache<(Epoch, Hash256), CommitteeCache>,
 }
 
 // TODO: add a prune method to the cache.
@@ -28,23 +28,15 @@ impl ShufflingCache {
         }
     }
 
-    pub fn get(&mut self, shuffling_id: &ShufflingId) -> Option<&CommitteeCache> {
-        self.cache.get(shuffling_id)
+    pub fn get(&mut self, epoch: Epoch, root: Hash256) -> Option<&CommitteeCache> {
+        self.cache.get(&(epoch, root))
     }
 
-    pub fn process_state<T: EthSpec>(
-        &mut self,
-        state: &BeaconState<T>,
-    ) -> Result<(), BeaconStateError> {
-        let shuffling_id = ShufflingId::of_current_epoch(state)?;
+    pub fn insert(&mut self, epoch: Epoch, root: Hash256, committee_cache: &CommitteeCache) {
+        let key = (epoch, root);
 
-        if !self.cache.contains(&shuffling_id) {
-            self.cache.put(
-                shuffling_id,
-                state.committee_cache(RelativeEpoch::Current)?.clone(),
-            );
+        if !self.cache.contains(&key) {
+            self.cache.put(key, committee_cache.clone());
         }
-
-        Ok(())
     }
 }

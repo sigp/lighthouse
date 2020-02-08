@@ -120,6 +120,10 @@ pub enum AttestationProcessingOutcome {
     UnknownTargetRoot(Hash256),
     AttestationDataIsKnownToBeInvalid,
     InvalidSignature,
+    NoCommittee {
+        slot: Slot,
+        index: CommitteeIndex,
+    },
     Invalid(AttestationValidationError),
 }
 
@@ -847,7 +851,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         outcome
     }
 
-    pub fn process_attestation_internal_2(
+    pub fn process_attestation_internal(
         &self,
         attestation: Attestation<T::EthSpec>,
     ) -> Result<AttestationProcessingOutcome, Error> {
@@ -881,9 +885,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Attestation target must be for a known block.
         //
         // We do not delay consideration for later, we simply drop the attestation.
-        if !self.fork_choice.contains_block(&target.root) {
-            return Ok(AttestationProcessingOutcome::UnknownTargetRoot(target.root));
-        }
+        let (target_block_slot, target_block_state_root) =
+            if let Some(tuple) = self.fork_choice.block_slot_and_state_root(&target.root) {
+                tuple
+            } else {
+                return Ok(AttestationProcessingOutcome::UnknownHeadBlock {
+                    beacon_block_root: attestation.data.beacon_block_root,
+                });
+            };
 
         // Load the slot and state root for `attestation.data.beacon_block_root`.
         //
@@ -893,16 +902,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let (block_slot, block_state_root) = if let Some(state_root) = self
+        let (block_slot, block_state_root) = if let Some(tuple) = self
             .fork_choice
             .block_slot_and_state_root(&attestation.data.beacon_block_root)
         {
-            state_root
+            tuple
         } else {
             return Ok(AttestationProcessingOutcome::UnknownHeadBlock {
                 beacon_block_root: attestation.data.beacon_block_root,
             });
         };
+
+        // TODO: check FFG stuff?
 
         // Attestations must not be for blocks in the future. If this is the case, the attestation
         // should not be considered.
@@ -913,11 +924,60 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        // TODO: check for FFG stuff?
+        let mut shuffling_cache = self
+            .shuffling_cache
+            .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
 
-        todo!("verify signature")
+        let verify_signature = |committee_cache: &CommitteeCache| -> AttestationProcessingOutcome {
+            if let Some(committee) =
+                committee_cache.get_beacon_committee(attestation.data.slot, attestation.data.index)
+            {
+                if self.verify_attestation_signature(&attestation, committee.committee) {
+                    AttestationProcessingOutcome::Processed
+                } else {
+                    AttestationProcessingOutcome::InvalidSignature
+                }
+            } else {
+                AttestationProcessingOutcome::NoCommittee {
+                    slot: attestation.data.slot,
+                    index: attestation.data.index,
+                }
+            }
+        };
+
+        if let Some(committee_cache) = shuffling_cache.get(attestation_epoch, target.root) {
+            Ok(verify_signature(committee_cache))
+        } else {
+            let mut state = self
+                .get_state_caching(&target_block_state_root, Some(target_block_slot))?
+                .ok_or_else(|| Error::MissingBeaconState(target_block_state_root))?;
+
+            while state.current_epoch() + 1 < attestation_epoch {
+                per_slot_processing(&mut state, Some(Hash256::zero()), &self.spec)?
+            }
+
+            let relative_epoch =
+                RelativeEpoch::from_epoch(state.current_epoch(), attestation_epoch)
+                    .map_err(Error::IncorrectStateForAttestation)?;
+
+            let committee_cache = state.committee_cache(relative_epoch)?;
+
+            shuffling_cache.insert(attestation_epoch, target.root, &committee_cache);
+
+            Ok(verify_signature(committee_cache))
+        }
     }
 
+    pub fn verify_attestation_signature(
+        &self,
+        attestation: &Attestation<T::EthSpec>,
+        committee: &[usize],
+    ) -> bool {
+        todo!()
+    }
+
+    /*
     pub fn process_attestation_internal(
         &self,
         attestation: Attestation<T::EthSpec>,
@@ -1127,6 +1187,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(AttestationProcessingOutcome::Processed)
         }
     }
+    */
 
     /// Accept some exit and queue it for inclusion in an appropriate block.
     pub fn process_voluntary_exit(
