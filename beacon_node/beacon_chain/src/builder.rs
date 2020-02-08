@@ -3,6 +3,7 @@ use crate::eth1_chain::CachingEth1Backend;
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+use crate::shuffling_cache::ShufflingCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::{
     BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
@@ -335,6 +336,7 @@ where
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
             head_tracker: self.head_tracker.unwrap_or_default(),
             checkpoint_cache: CheckPointCache::default(),
+            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             log: log.clone(),
         };
 
@@ -385,6 +387,7 @@ where
 
             let backend = ProtoArrayForkChoice::new(
                 finalized_checkpoint.beacon_block.slot,
+                finalized_checkpoint.beacon_block.state_root,
                 // Note: here we set the `justified_epoch` to be the same as the epoch of the
                 // finalized checkpoint. Whilst this finalized checkpoint may actually point to
                 // a _later_ justified checkpoint, that checkpoint won't yet exist in the fork

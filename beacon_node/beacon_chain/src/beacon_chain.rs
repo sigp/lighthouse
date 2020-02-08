@@ -7,6 +7,7 @@ use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+use crate::shuffling_cache::ShufflingCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{debug, error, info, trace, warn, Logger};
@@ -54,6 +55,10 @@ const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
 /// head.
 const HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// The time-out before failure during an operation to take a read/write RwLock on the
+/// attestation cache.
+const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
     /// Block was valid and imported into the block graph.
@@ -94,15 +99,27 @@ pub enum AttestationProcessingOutcome {
     },
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
-    AttestsToFutureState {
-        state: Slot,
+    AttestsToFutureBlock {
+        block: Slot,
         attestation: Slot,
     },
     /// The slot is finalized, no need to import.
     FinalizedSlot {
-        attestation: Epoch,
-        finalized: Epoch,
+        attestation: Slot,
+        finalized: Slot,
     },
+    FutureEpoch {
+        attestation_epoch: Epoch,
+        current_epoch: Epoch,
+    },
+    PastEpoch {
+        attestation_epoch: Epoch,
+        current_epoch: Epoch,
+    },
+    BadTargetEpoch,
+    UnknownTargetRoot(Hash256),
+    AttestationDataIsKnownToBeInvalid,
+    InvalidSignature,
     Invalid(AttestationValidationError),
 }
 
@@ -151,6 +168,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) head_tracker: HeadTracker,
     /// Provides a small cache of `BeaconState` and `BeaconBlock`.
     pub(crate) checkpoint_cache: CheckPointCache<T::EthSpec>,
+    pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
 }
@@ -872,6 +890,77 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         outcome
+    }
+
+    pub fn process_attestation_internal_2(
+        &self,
+        attestation: Attestation<T::EthSpec>,
+    ) -> Result<AttestationProcessingOutcome, Error> {
+        // There is no point in processing an attestation with an empty bitfield. Reject
+        // it immediately.
+        if attestation.aggregation_bits.num_set_bits() == 0 {
+            return Ok(AttestationProcessingOutcome::EmptyAggregationBitfield);
+        }
+
+        let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
+        let epoch_now = self.epoch()?;
+        let target = &attestation.data.target;
+
+        // Attestation must be from the current or previous epoch.
+        if attestation_epoch > epoch_now {
+            return Ok(AttestationProcessingOutcome::FutureEpoch {
+                attestation_epoch,
+                current_epoch: epoch_now,
+            });
+        } else if attestation_epoch + 1 < epoch_now {
+            return Ok(AttestationProcessingOutcome::PastEpoch {
+                attestation_epoch,
+                current_epoch: epoch_now,
+            });
+        }
+
+        if target.epoch != attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()) {
+            return Ok(AttestationProcessingOutcome::BadTargetEpoch);
+        }
+
+        // Attestation target must be for a known block.
+        //
+        // We do not delay consideration for later, we simply drop the attestation.
+        if !self.fork_choice.contains_block(&target.root) {
+            return Ok(AttestationProcessingOutcome::UnknownTargetRoot(target.root));
+        }
+
+        // Load the slot and state root for `attestation.data.beacon_block_root`.
+        //
+        // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
+        // choice. Any known, non-finalized block should be in fork choice, so this check
+        // immediately filters out attestations that attest to a block that has not been processed.
+        //
+        // Attestations must be for a known block. If the block is unknown, we simply drop the
+        // attestation and do not delay consideration for later.
+        let (block_slot, block_state_root) = if let Some(state_root) = self
+            .fork_choice
+            .block_slot_and_state_root(&attestation.data.beacon_block_root)
+        {
+            state_root
+        } else {
+            return Ok(AttestationProcessingOutcome::UnknownHeadBlock {
+                beacon_block_root: attestation.data.beacon_block_root,
+            });
+        };
+
+        // Attestations must not be for blocks in the future. If this is the case, the attestation
+        // should not be considered.
+        if block_slot > attestation.data.slot {
+            return Ok(AttestationProcessingOutcome::AttestsToFutureBlock {
+                block: block_slot,
+                attestation: attestation.data.slot,
+            });
+        }
+
+        // TODO: check for FFG stuff?
+
+        todo!("verify signature")
     }
 
     pub fn process_attestation_internal(

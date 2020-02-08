@@ -27,6 +27,7 @@ pub mod historical_batch;
 pub mod indexed_attestation;
 pub mod pending_attestation;
 pub mod proposer_slashing;
+pub mod shuffling_id;
 pub mod utils;
 pub mod voluntary_exit;
 #[macro_use]
@@ -60,6 +61,7 @@ pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
+pub use crate::shuffling_id::ShufflingId;
 pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::slot_height::SlotHeight;
 pub use crate::validator::Validator;

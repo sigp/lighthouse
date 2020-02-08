@@ -8,7 +8,7 @@ use ssz_derive::{Decode, Encode};
 use state_processing::common::get_attesting_indices;
 use std::marker::PhantomData;
 use store::Error as StoreError;
-use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, Hash256};
+use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, Hash256, Slot};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -105,6 +105,11 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         self.backend.contains_block(block_root)
     }
 
+    /// Returns the state root for the given block is known to fork choice.
+    pub fn block_slot_and_state_root(&self, block_root: &Hash256) -> Option<(Slot, Hash256)> {
+        self.backend.block_slot_and_state_root(block_root)
+    }
+
     /// Process all attestations in the given `block`.
     ///
     /// Assumes the block (and therefore its attestations) are valid. It is a logic error to
@@ -143,6 +148,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             block.slot,
             block_root,
             block.parent_root,
+            block.state_root,
             state.current_justified_checkpoint.epoch,
             state.finalized_checkpoint.epoch,
         )?;

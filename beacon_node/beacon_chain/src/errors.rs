@@ -50,6 +50,8 @@ pub enum BeaconChainError {
     InvariantViolated(String),
     SszTypesError(SszTypesError),
     CanonicalHeadLockTimeout,
+    AttestationCacheLockTimeout,
+    IncorrectStateForAttestation(RelativeEpochError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
