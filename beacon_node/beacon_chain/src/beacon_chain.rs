@@ -902,7 +902,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let (block_slot, block_state_root) = if let Some(tuple) = self
+        let (block_slot, _block_state_root) = if let Some(tuple) = self
             .fork_choice
             .block_slot_and_state_root(&attestation.data.beacon_block_root)
         {

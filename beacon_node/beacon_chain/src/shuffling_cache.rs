@@ -6,9 +6,9 @@ use types::{
 
 /// The size of the LRU cache that stores committee caches for quicker verification.
 ///
-/// Each entry should be `8 + 800,000 = 800,008` bytes in size with 100k validators. (8-byte hash + 100k indices). Therefore, this cache should be approx `16 * 800,008 = 12.8 MB`. (Note: this ignores a few extra bytes in the caches that should be insignificant compared to the indices).
-///
-/// I have used a size `16` because it allows for 4 epochs since finality with 4 different forks.
+/// Each entry should be `8 + 800,000 = 800,008` bytes in size with 100k validators. (8-byte hash +
+/// 100k indices). Therefore, this cache should be approx `16 * 800,008 = 12.8 MB`. (Note: this
+/// ignores a few extra bytes in the caches that should be insignificant compared to the indices).
 const CACHE_SIZE: usize = 16;
 
 /// Provides an LRU cache for `CommitteeCache`.
