@@ -10,7 +10,7 @@ HTTP Path | Description |
 [`/beacon/head`](#beaconhead) | Info about the block at the head of the chain.
 [`/beacon/heads`](#beaconheads) | Returns a list of all known chain heads.
 [`/beacon/block_root`](#beaconblock_root) | Resolve a slot to a block root.
-[`/beacon/block`](#beaconblock) | Get a `BeaconBlock` by slot or root.
+[`/beacon/block`](#beaconblock) | Get a `SignedBeaconBlock` by slot or root.
 [`/beacon/state_root`](#beaconstate_root) | Resolve a slot to a state root.
 [`/beacon/state`](#beaconstate) | Get a `BeaconState` by slot or root.
 [`/beacon/validators`](#beaconvalidators) | Query for one or more validators.
@@ -131,7 +131,7 @@ canonical chain.
 
 ### Returns
 
-Returns an object containing a single [`BeaconBlock`](https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/core/0_beacon-chain.md#beaconblock) and its signed root.
+Returns an object containing a single [`SignedBeaconBlock`](https://github.com/ethereum/eth2.0-specs/blob/v0.10.0/specs/phase0/beacon-chain.md#signedbeaconblock) and the block root of the inner [`BeaconBlock`](https://github.com/ethereum/eth2.0-specs/blob/v0.10.0/specs/phase0/beacon-chain.md#beaconblock).
 
 ### Example Response
 
@@ -139,22 +139,24 @@ Returns an object containing a single [`BeaconBlock`](https://github.com/ethereu
 {
     "root": "0xc35ddf4e71c31774e0594bd7eb32dfe50b54dbc40abd594944254b4ec8895196",
     "beacon_block": {
-        "slot": 0,
-        "parent_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "state_root": "0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f",
-        "body": {
-            "randao_reveal": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-            "eth1_data": {
-                "deposit_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "deposit_count": 0,
-                "block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-            },
-            "graffiti": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "proposer_slashings": [],
-            "attester_slashings": [],
-            "attestations": [],
-            "deposits": [],
-            "voluntary_exits": []
+        "message": {
+            "slot": 0,
+            "parent_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "state_root": "0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f",
+            "body": {
+                "randao_reveal": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                "eth1_data": {
+                    "deposit_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "deposit_count": 0,
+                    "block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
+                "graffiti": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "proposer_slashings": [],
+                "attester_slashings": [],
+                "attestations": [],
+                "deposits": [],
+                "voluntary_exits": []
+            }
         },
         "signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
     }
@@ -214,7 +216,7 @@ canonical chain.
 ### Returns
 
 Returns an object containing a single
-[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.9.2/specs/core/0_beacon-chain.md#beaconstate)
+[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/specs/phase0/beacon-chain.md#beaconstate)
 and its tree hash root.
 
 ### Example Response

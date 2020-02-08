@@ -562,7 +562,7 @@ macro_rules! all_tests {
         new_tests!($type);
         math_between_tests!($type, $type);
         math_tests!($type);
-        ssz_tests!($type);
+        ssz_and_tree_hash_tests!($type);
 
         mod u64_tests {
             use super::*;

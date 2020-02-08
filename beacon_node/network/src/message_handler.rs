@@ -14,7 +14,7 @@ use slog::{debug, o, trace, warn};
 use ssz::{Decode, DecodeError};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Attestation, AttesterSlashing, BeaconBlock, ProposerSlashing, VoluntaryExit};
+use types::{Attestation, AttesterSlashing, ProposerSlashing, SignedBeaconBlock, VoluntaryExit};
 
 /// Handles messages received from the network and client and organises syncing. This
 /// functionality of this struct is to validate an decode messages from the network before
@@ -319,9 +319,9 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
     fn decode_gossip_block(
         &self,
         beacon_block: Vec<u8>,
-    ) -> Result<BeaconBlock<T::EthSpec>, DecodeError> {
+    ) -> Result<SignedBeaconBlock<T::EthSpec>, DecodeError> {
         //TODO: Apply verification before decoding.
-        BeaconBlock::from_ssz_bytes(&beacon_block)
+        SignedBeaconBlock::from_ssz_bytes(&beacon_block)
     }
 
     fn decode_gossip_attestation(
@@ -355,13 +355,13 @@ impl<T: BeaconChainTypes> MessageHandler<T> {
 
     /* Req/Resp Domain Decoding  */
 
-    /// Verifies and decodes an ssz-encoded `BeaconBlock`. If `None` is passed, this represents a
+    /// Verifies and decodes an ssz-encoded `SignedBeaconBlock`. If `None` is passed, this represents a
     /// stream termination.
     fn decode_beacon_block(
         &self,
         beacon_block: Vec<u8>,
-    ) -> Result<BeaconBlock<T::EthSpec>, DecodeError> {
+    ) -> Result<SignedBeaconBlock<T::EthSpec>, DecodeError> {
         //TODO: Implement faster block verification before decoding entirely
-        BeaconBlock::from_ssz_bytes(&beacon_block)
+        SignedBeaconBlock::from_ssz_bytes(&beacon_block)
     }
 }

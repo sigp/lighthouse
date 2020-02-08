@@ -1,11 +1,16 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
-use utils::{u32_from_hex_str, u32_to_hex_str, u8_from_hex_str, u8_to_hex_str};
+use std::fs::File;
+use std::path::Path;
+use utils::{
+    fork_from_hex_str, fork_to_hex_str, u32_from_hex_str, u32_to_hex_str, u8_from_hex_str,
+    u8_to_hex_str,
+};
 
 /// Each of the BLS signature domains.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub enum Domain {
     BeaconProposer,
     BeaconAttester,
@@ -16,18 +21,18 @@ pub enum Domain {
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
     /*
      * Constants
      */
+    pub genesis_slot: Slot,
     #[serde(skip_serializing)] // skipped because Serde TOML has trouble with u64::max
     pub far_future_epoch: Epoch,
     pub base_rewards_per_epoch: u64,
     pub deposit_contract_tree_depth: u64,
-    pub seconds_per_day: u64,
 
     /*
      * Misc
@@ -51,20 +56,25 @@ pub struct ChainSpec {
     /*
      * Initial Values
      */
-    pub genesis_slot: Slot,
+    #[serde(
+        serialize_with = "fork_to_hex_str",
+        deserialize_with = "fork_from_hex_str"
+    )]
+    pub genesis_fork_version: [u8; 4],
     #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
     pub bls_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
      */
+    pub min_genesis_delay: u64,
     pub milliseconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
+    pub min_epochs_to_inactivity_penalty: u64,
     pub min_validator_withdrawability_delay: Epoch,
     pub persistent_committee_period: u64,
-    pub min_epochs_to_inactivity_penalty: u64,
 
     /*
      * Reward and penalty quotients
@@ -93,17 +103,16 @@ pub struct ChainSpec {
      * Eth1
      */
     pub eth1_follow_distance: u64,
+    pub seconds_per_eth1_block: u64,
 
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
-
-    pub genesis_fork: Fork,
 }
 
 impl ChainSpec {
     /// Get the domain number, unmodified by the fork.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn get_domain_constant(&self, domain: Domain) -> u32 {
         match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
@@ -116,28 +125,30 @@ impl ChainSpec {
 
     /// Get the domain number that represents the fork meta and signature domain.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
-        let domain_constant = self.get_domain_constant(domain);
-
-        let mut bytes: Vec<u8> = int_to_bytes4(domain_constant);
-        bytes.append(&mut fork.get_fork_version(epoch).to_vec());
-
-        let mut fork_and_domain = [0; 8];
-        fork_and_domain.copy_from_slice(&bytes);
-
-        u64::from_le_bytes(fork_and_domain)
+        let fork_version = fork.get_fork_version(epoch);
+        self.compute_domain(domain, fork_version)
     }
 
     /// Get the domain for a deposit signature.
     ///
     /// Deposits are valid across forks, thus the deposit domain is computed
-    /// with the fork zeroed.
+    /// with the genesis fork version.
     ///
-    /// Spec v0.8.1
+    /// Spec v0.10.1
     pub fn get_deposit_domain(&self) -> u64 {
-        let mut bytes: Vec<u8> = int_to_bytes4(self.domain_deposit);
-        bytes.append(&mut vec![0; 4]);
+        self.compute_domain(Domain::Deposit, self.genesis_fork_version)
+    }
+
+    /// Compute a domain by applying the given `fork_version`.
+    ///
+    /// Spec v0.10.1
+    pub fn compute_domain(&self, domain: Domain, fork_version: [u8; 4]) -> u64 {
+        let domain_constant = self.get_domain_constant(domain);
+
+        let mut bytes: Vec<u8> = int_to_bytes4(domain_constant);
+        bytes.append(&mut fork_version.to_vec());
 
         let mut fork_and_domain = [0; 8];
         fork_and_domain.copy_from_slice(&bytes);
@@ -147,16 +158,16 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn mainnet() -> Self {
         Self {
             /*
              * Constants
              */
+            genesis_slot: Slot::new(0),
             far_future_epoch: Epoch::new(u64::max_value()),
             base_rewards_per_epoch: 4,
             deposit_contract_tree_depth: 32,
-            seconds_per_day: 86400,
 
             /*
              * Misc
@@ -166,7 +177,7 @@ impl ChainSpec {
             min_per_epoch_churn_limit: 4,
             churn_limit_quotient: 65_536,
             shuffle_round_count: 90,
-            min_genesis_active_validator_count: 65_536,
+            min_genesis_active_validator_count: 16_384,
             min_genesis_time: 1_578_009_600, // Jan 3, 2020
 
             /*
@@ -180,19 +191,20 @@ impl ChainSpec {
             /*
              * Initial Values
              */
-            genesis_slot: Slot::new(0),
+            genesis_fork_version: [0; 4],
             bls_withdrawal_prefix_byte: 0,
 
             /*
              * Time parameters
              */
+            min_genesis_delay: 86400, // 1 day
             milliseconds_per_slot: 12_000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
+            min_epochs_to_inactivity_penalty: 4,
             min_validator_withdrawability_delay: Epoch::new(256),
             persistent_committee_period: 2_048,
-            min_epochs_to_inactivity_penalty: 4,
 
             /*
              * Reward and penalty quotients
@@ -221,15 +233,7 @@ impl ChainSpec {
              * Eth1
              */
             eth1_follow_distance: 1_024,
-
-            /*
-             * Fork
-             */
-            genesis_fork: Fork {
-                previous_version: [0; 4],
-                current_version: [0; 4],
-                epoch: Epoch::new(0),
-            },
+            seconds_per_eth1_block: 14,
 
             /*
              * Network specific
@@ -239,11 +243,9 @@ impl ChainSpec {
         }
     }
 
-    /// Ethereum Foundation minimal spec, as defined here:
+    /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.9.1/configs/minimal.yaml
-    ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn minimal() -> Self {
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];
@@ -253,10 +255,12 @@ impl ChainSpec {
             target_committee_size: 4,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
+            eth1_follow_distance: 16,
+            genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
+            min_genesis_delay: 300,
+            milliseconds_per_slot: 6_000,
             network_id: 2, // lighthouse testnet network id
             boot_nodes,
-            eth1_follow_distance: 16,
-            milliseconds_per_slot: 6_000,
             ..ChainSpec::mainnet()
         }
     }
@@ -295,7 +299,11 @@ mod tests {
     }
 
     fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
-        let fork = &spec.genesis_fork;
+        let fork = Fork {
+            previous_version: spec.genesis_fork_version,
+            current_version: spec.genesis_fork_version,
+            epoch: MinimalEthSpec::genesis_epoch(),
+        };
         let epoch = Epoch::new(0);
 
         let domain = spec.get_domain(epoch, domain_type, &fork);
@@ -318,19 +326,20 @@ mod tests {
     }
 }
 
-// Yaml Config is declared here in order to access domain fields of ChainSpec which are private fields.
+/// Union of a ChainSpec struct and an EthSpec struct that holds constants used for the configs
+/// from the Ethereum 2 specs repo (https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
+///
+/// Spec v0.10.1
+// Yaml Config is declared here in order to access domain fields of ChainSpec which are private.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[serde(deny_unknown_fields)]
-/// Union of a ChainSpec struct and an EthSpec struct that holds constants used for the configs folder of the Ethereum 2 spec (https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
-/// Spec v0.9.1
 pub struct YamlConfig {
     // ChainSpec
     far_future_epoch: u64,
     base_rewards_per_epoch: u64,
     deposit_contract_tree_depth: u64,
-    seconds_per_day: u64,
     max_committees_per_slot: usize,
     target_committee_size: usize,
     min_per_epoch_churn_limit: u64,
@@ -338,29 +347,32 @@ pub struct YamlConfig {
     shuffle_round_count: u8,
     min_genesis_active_validator_count: u64,
     min_genesis_time: u64,
+    min_genesis_delay: u64,
     min_deposit_amount: u64,
     max_effective_balance: u64,
     ejection_balance: u64,
     effective_balance_increment: u64,
     genesis_slot: u64,
+    #[serde(
+        serialize_with = "fork_to_hex_str",
+        deserialize_with = "fork_from_hex_str"
+    )]
+    genesis_fork_version: [u8; 4],
     #[serde(deserialize_with = "u8_from_hex_str", serialize_with = "u8_to_hex_str")]
     bls_withdrawal_prefix: u8,
     seconds_per_slot: u64,
     min_attestation_inclusion_delay: u64,
     min_seed_lookahead: u64,
     max_seed_lookahead: u64,
+    min_epochs_to_inactivity_penalty: u64,
     min_validator_withdrawability_delay: u64,
     persistent_committee_period: u64,
-    min_epochs_to_inactivity_penalty: u64,
     base_reward_factor: u64,
     whistleblower_reward_quotient: u64,
     proposer_reward_quotient: u64,
     inactivity_penalty_quotient: u64,
     min_slashing_penalty_quotient: u64,
     safe_slots_to_update_justified: u64,
-
-    #[serde(skip_serializing)]
-    genesis_fork: Fork,
 
     #[serde(
         deserialize_with = "u32_from_hex_str",
@@ -408,12 +420,14 @@ pub struct YamlConfig {
     max_deposits: u32,
     max_voluntary_exits: u32,
 
-    // Eth1
+    // Validator
     eth1_follow_distance: u64,
+    target_aggregators_per_committee: u64,
+    random_subnets_per_validator: u64,
+    epochs_per_random_subnet_subscription: u64,
+    seconds_per_eth1_block: u64,
 
-    // Unused
-    #[serde(skip_serializing)]
-    early_derived_secret_penalty_max_future_epochs: u32,
+    // Deposit Contract (unused)
     #[serde(skip_serializing)]
     deposit_contract_address: String,
 
@@ -438,6 +452,8 @@ pub struct YamlConfig {
     domain_shard_attester: u32,
     #[serde(skip_serializing)]
     max_epochs_per_crosslink: u64,
+    #[serde(skip_serializing)]
+    early_derived_secret_penalty_max_future_epochs: u32,
 }
 
 impl Default for YamlConfig {
@@ -447,7 +463,7 @@ impl Default for YamlConfig {
     }
 }
 
-/// Spec v0.8.1
+/// Spec v0.10.1
 impl YamlConfig {
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
@@ -455,7 +471,6 @@ impl YamlConfig {
             far_future_epoch: spec.far_future_epoch.into(),
             base_rewards_per_epoch: spec.base_rewards_per_epoch,
             deposit_contract_tree_depth: spec.deposit_contract_tree_depth,
-            seconds_per_day: spec.seconds_per_day,
             max_committees_per_slot: spec.max_committees_per_slot,
             target_committee_size: spec.target_committee_size,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
@@ -463,6 +478,7 @@ impl YamlConfig {
             shuffle_round_count: spec.shuffle_round_count,
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
+            min_genesis_delay: spec.min_genesis_delay,
             min_deposit_amount: spec.min_deposit_amount,
             max_effective_balance: spec.max_effective_balance,
             ejection_balance: spec.ejection_balance,
@@ -481,7 +497,7 @@ impl YamlConfig {
             proposer_reward_quotient: spec.proposer_reward_quotient,
             inactivity_penalty_quotient: spec.inactivity_penalty_quotient,
             min_slashing_penalty_quotient: spec.min_slashing_penalty_quotient,
-            genesis_fork: spec.genesis_fork.clone(),
+            genesis_fork_version: spec.genesis_fork_version.clone(),
             safe_slots_to_update_justified: spec.safe_slots_to_update_justified,
             domain_beacon_proposer: spec.domain_beacon_proposer,
             domain_beacon_attester: spec.domain_beacon_attester,
@@ -506,11 +522,14 @@ impl YamlConfig {
             max_deposits: T::MaxDeposits::to_u32(),
             max_voluntary_exits: T::MaxVoluntaryExits::to_u32(),
 
-            // Eth1
+            // Validator
             eth1_follow_distance: spec.eth1_follow_distance,
+            target_aggregators_per_committee: 0,
+            random_subnets_per_validator: 0,
+            epochs_per_random_subnet_subscription: 0,
+            seconds_per_eth1_block: spec.seconds_per_eth1_block,
 
-            // Unused
-            early_derived_secret_penalty_max_future_epochs: 0,
+            // Deposit Contract (unused)
             deposit_contract_address: String::new(),
 
             // Phase 1
@@ -524,7 +543,15 @@ impl YamlConfig {
             domain_shard_proposer: 0,
             domain_shard_attester: 0,
             max_epochs_per_crosslink: 0,
+            early_derived_secret_penalty_max_future_epochs: 0,
         }
+    }
+
+    pub fn from_file(filename: &Path) -> Result<Self, String> {
+        let f = File::open(filename)
+            .map_err(|e| format!("Error opening spec at {}: {:?}", filename.display(), e))?;
+        serde_yaml::from_reader(f)
+            .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))
     }
 
     pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
@@ -553,7 +580,6 @@ impl YamlConfig {
             far_future_epoch: Epoch::from(self.far_future_epoch),
             base_rewards_per_epoch: self.base_rewards_per_epoch,
             deposit_contract_tree_depth: self.deposit_contract_tree_depth,
-            seconds_per_day: self.seconds_per_day,
             target_committee_size: self.target_committee_size,
             min_per_epoch_churn_limit: self.min_per_epoch_churn_limit,
             churn_limit_quotient: self.churn_limit_quotient,
@@ -561,6 +587,7 @@ impl YamlConfig {
             min_genesis_active_validator_count: self.min_genesis_active_validator_count,
             min_genesis_time: self.min_genesis_time,
             min_deposit_amount: self.min_deposit_amount,
+            min_genesis_delay: self.min_genesis_delay,
             max_effective_balance: self.max_effective_balance,
             ejection_balance: self.ejection_balance,
             effective_balance_increment: self.effective_balance_increment,
@@ -585,7 +612,7 @@ impl YamlConfig {
             domain_deposit: self.domain_deposit,
             domain_voluntary_exit: self.domain_voluntary_exit,
             boot_nodes: chain_spec.boot_nodes.clone(),
-            genesis_fork: chain_spec.genesis_fork.clone(),
+            genesis_fork_version: chain_spec.genesis_fork_version.clone(),
             eth1_follow_distance: self.eth1_follow_distance,
             ..*chain_spec
         })

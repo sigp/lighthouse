@@ -11,10 +11,10 @@ use remote_beacon_node::{
 };
 use std::convert::TryInto;
 use std::sync::Arc;
-use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlock, BeaconState, ChainSpec, Domain, Epoch,
-    EthSpec, MinimalEthSpec, PublicKey, RelativeEpoch, Signature, Slot, Validator,
+    EthSpec, MinimalEthSpec, PublicKey, RelativeEpoch, Signature, SignedBeaconBlock, SignedRoot,
+    Slot, Validator,
 };
 use version;
 
@@ -54,17 +54,17 @@ fn get_randao_reveal<T: BeaconChainTypes>(
         .expect("should get proposer index");
     let keypair = generate_deterministic_keypair(proposer_index);
     let epoch = slot.epoch(E::slots_per_epoch());
-    let message = epoch.tree_hash_root();
     let domain = spec.get_domain(epoch, Domain::Randao, &fork);
-    Signature::new(&message, domain, &keypair.sk)
+    let message = epoch.signing_root(domain);
+    Signature::new(message.as_bytes(), &keypair.sk)
 }
 
 /// Signs the given block (assuming the given `beacon_chain` uses deterministic keypairs).
 fn sign_block<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
-    block: &mut BeaconBlock<T::EthSpec>,
+    block: BeaconBlock<T::EthSpec>,
     spec: &ChainSpec,
-) {
+) -> SignedBeaconBlock<T::EthSpec> {
     let fork = beacon_chain
         .head()
         .expect("should get head")
@@ -74,7 +74,7 @@ fn sign_block<T: BeaconChainTypes>(
         .block_proposer(block.slot)
         .expect("should get proposer index");
     let keypair = generate_deterministic_keypair(proposer_index);
-    block.sign(&keypair.sk, &fork, spec);
+    block.sign(&keypair.sk, &fork, spec)
 }
 
 #[test]
@@ -335,7 +335,7 @@ fn validator_block_post() {
     let slot = Slot::new(1);
     let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
 
-    let mut block = env
+    let block = env
         .runtime()
         .block_on(
             remote_node
@@ -346,9 +346,13 @@ fn validator_block_post() {
         .expect("should fetch block from http api");
 
     // Try publishing the block without a signature, ensure it is flagged as invalid.
+    let empty_sig_block = SignedBeaconBlock {
+        message: block.clone(),
+        signature: Signature::empty_signature(),
+    };
     let publish_status = env
         .runtime()
-        .block_on(remote_node.http.validator().publish_block(block.clone()))
+        .block_on(remote_node.http.validator().publish_block(empty_sig_block))
         .expect("should publish block");
     if cfg!(not(feature = "fake_crypto")) {
         assert!(
@@ -357,12 +361,12 @@ fn validator_block_post() {
         );
     }
 
-    sign_block(beacon_chain, &mut block, spec);
-    let block_root = block.canonical_root();
+    let signed_block = sign_block(beacon_chain.clone(), block, spec);
+    let block_root = signed_block.canonical_root();
 
     let publish_status = env
         .runtime()
-        .block_on(remote_node.http.validator().publish_block(block))
+        .block_on(remote_node.http.validator().publish_block(signed_block))
         .expect("should publish block");
 
     if cfg!(not(feature = "fake_crypto")) {
