@@ -1550,6 +1550,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let fork_choice_register_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
 
+        // If there are new validators in this block, update our pubkey cache.
+        //
+        // We perform this _before_ adding the block to fork choice because the pubkey cache is
+        // used by attestation processing which will only process an attestation if the block is
+        // known to fork choice. This ordering ensure that the pubkey cache is always up-to-date.
+        self.validator_pubkey_cache
+            .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?
+            .import_new_pubkeys(&state)?;
+
         // Register the new block with the fork choice service.
         if let Err(e) = self
             .fork_choice
