@@ -52,8 +52,11 @@ pub enum BeaconChainError {
     SszTypesError(SszTypesError),
     CanonicalHeadLockTimeout,
     AttestationCacheLockTimeout,
+    ValidatorPubkeyCacheLockTimeout,
     IncorrectStateForAttestation(RelativeEpochError),
     InvalidValidatorPubkeyBytes(DecodeError),
+    ValidatorPubkeyCacheIncomplete(usize),
+    SignatureSetError(state_processing::signature_sets::Error),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

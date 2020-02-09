@@ -86,9 +86,9 @@ lazy_static! {
         "beacon_attestation_processing_seconds",
         "Full runtime of attestation processing"
     );
-    pub static ref ATTESTATION_PROCESSING_CORE: Result<Histogram> = try_create_histogram(
-        "beacon_attestation_processing_core_seconds",
-        "Time spent on the core spec processing of attestation processing"
+    pub static ref ATTESTATION_PROCESSING_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_signature_seconds",
+        "Time spent on the signature verification of attestation processing"
     );
 
     /*

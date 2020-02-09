@@ -22,7 +22,9 @@ use state_processing::per_block_processing::{
     verify_attestation_for_state, VerifySignatures,
 };
 use state_processing::{
-    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
+    common::get_indexed_attestation, per_block_processing, per_slot_processing,
+    signature_sets::indexed_attestation_signature_set_from_pubkeys, BlockProcessingError,
+    BlockSignatureStrategy,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -59,6 +61,10 @@ const HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// attestation cache.
 const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// The time-out before failure during an operation to take a read/write RwLock on the
+/// validator pubkey cache.
+const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -119,9 +125,8 @@ pub enum AttestationProcessingOutcome {
     },
     BadTargetEpoch,
     UnknownTargetRoot(Hash256),
-    AttestationDataIsKnownToBeInvalid,
     InvalidSignature,
-    NoCommittee {
+    NoCommitteeForSlotAndIndex {
         slot: Slot,
         index: CommitteeIndex,
     },
@@ -804,11 +809,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
     ) -> Result<AttestationProcessingOutcome, Error> {
+        metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
+        let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
+
         let outcome = self.process_attestation_internal(attestation.clone());
 
         match &outcome {
             Ok(outcome) => match outcome {
                 AttestationProcessingOutcome::Processed => {
+                    metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_SUCCESSES);
                     trace!(
                         self.log,
                         "Beacon attestation imported";
@@ -850,6 +859,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        metrics::stop_timer(timer);
         outcome
     }
 
@@ -931,25 +941,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
             .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
 
-        let verify_signature = |committee_cache: &CommitteeCache| -> AttestationProcessingOutcome {
-            if let Some(committee) =
-                committee_cache.get_beacon_committee(attestation.data.slot, attestation.data.index)
-            {
-                if self.verify_attestation_signature(&attestation, committee.committee) {
-                    AttestationProcessingOutcome::Processed
+        let verify_signature =
+            |committee_cache: &CommitteeCache| -> Result<AttestationProcessingOutcome, Error> {
+                if let Some(committee) = committee_cache
+                    .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                {
+                    let timer =
+                        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
+
+                    let indexed_attestation =
+                        get_indexed_attestation(committee.committee, &attestation)?;
+
+                    // TODO: update this cache when we get new blocks.
+                    let pubkey_cache = self
+                        .validator_pubkey_cache
+                        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+                        .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+
+                    let pubkeys = indexed_attestation
+                        .attesting_indices
+                        .iter()
+                        .map(|i| {
+                            pubkey_cache
+                                .get(*i as usize)
+                                .ok_or_else(|| Error::ValidatorPubkeyCacheIncomplete(*i as usize))
+                        })
+                        .collect::<Result<Vec<&PublicKey>, Error>>()?;
+
+                    let fork = self
+                        .canonical_head
+                        .try_read_for(HEAD_LOCK_TIMEOUT)
+                        .ok_or_else(|| Error::CanonicalHeadLockTimeout)
+                        .map(|head| head.beacon_state.fork.clone())?;
+
+                    let signature_set = indexed_attestation_signature_set_from_pubkeys(
+                        pubkeys,
+                        &attestation.signature,
+                        &indexed_attestation,
+                        &fork,
+                        &self.spec,
+                    )
+                    .map_err(Error::SignatureSetError)?;
+
+                    let signature_is_valid = signature_set.is_valid();
+
+                    metrics::stop_timer(timer);
+
+                    if signature_is_valid {
+                        Ok(AttestationProcessingOutcome::Processed)
+                    } else {
+                        Ok(AttestationProcessingOutcome::InvalidSignature)
+                    }
                 } else {
-                    AttestationProcessingOutcome::InvalidSignature
+                    Ok(AttestationProcessingOutcome::NoCommitteeForSlotAndIndex {
+                        slot: attestation.data.slot,
+                        index: attestation.data.index,
+                    })
                 }
-            } else {
-                AttestationProcessingOutcome::NoCommittee {
-                    slot: attestation.data.slot,
-                    index: attestation.data.index,
-                }
-            }
-        };
+            };
 
         if let Some(committee_cache) = shuffling_cache.get(attestation_epoch, target.root) {
-            Ok(verify_signature(committee_cache))
+            verify_signature(committee_cache)
         } else {
             let mut state = self
                 .get_state_caching(&target_block_state_root, Some(target_block_slot))?
@@ -963,20 +1015,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 RelativeEpoch::from_epoch(state.current_epoch(), attestation_epoch)
                     .map_err(Error::IncorrectStateForAttestation)?;
 
+            state.build_committee_cache(relative_epoch, &self.spec)?;
+
             let committee_cache = state.committee_cache(relative_epoch)?;
 
             shuffling_cache.insert(attestation_epoch, target.root, &committee_cache);
 
-            Ok(verify_signature(committee_cache))
+            verify_signature(committee_cache)
         }
-    }
-
-    pub fn verify_attestation_signature(
-        &self,
-        attestation: &Attestation<T::EthSpec>,
-        committee: &[usize],
-    ) -> bool {
-        todo!()
     }
 
     /*
