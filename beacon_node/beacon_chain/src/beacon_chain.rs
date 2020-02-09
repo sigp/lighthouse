@@ -938,16 +938,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(initial_validation_timer);
 
-        let cache_wait_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
-
-        let mut shuffling_cache = self
-            .shuffling_cache
-            .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
-
-        metrics::stop_timer(cache_wait_timer);
-
         let verify_signature =
             |committee_cache: &CommitteeCache| -> Result<AttestationProcessingOutcome, Error> {
                 if let Some(committee) = committee_cache
@@ -1025,9 +1015,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             };
 
-        if let Some(committee_cache) = shuffling_cache.get(attestation_epoch, target.root) {
-            verify_signature(committee_cache)
+        let cache_wait_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
+
+        // Note: benchmarking on a hex-core CPU showed that cloning the committee cache here was a
+        // 8x improvement instead of holding the write lock throughout signature verification.
+        let cached_shuffling_opt = self
+            .shuffling_cache
+            .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::AttestationCacheLockTimeout)?
+            .get(attestation_epoch, target.root)
+            .cloned();
+
+        metrics::stop_timer(cache_wait_timer);
+
+        if let Some(committee_cache) = cached_shuffling_opt {
+            verify_signature(&committee_cache)
         } else {
+            debug!(
+                self.log,
+                "Attestation processing cache miss";
+                "attn_epoch" => attestation_epoch.as_u64(),
+                "head_block_epoch" => block_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
+            );
+
             let committee_building_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
 
@@ -1050,7 +1061,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let committee_cache = state.committee_cache(relative_epoch)?;
 
-            shuffling_cache.insert(attestation_epoch, target.root, &committee_cache);
+            self.shuffling_cache
+                .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+                .ok_or_else(|| Error::AttestationCacheLockTimeout)?
+                .insert(attestation_epoch, target.root, committee_cache);
 
             metrics::stop_timer(committee_building_timer);
 
