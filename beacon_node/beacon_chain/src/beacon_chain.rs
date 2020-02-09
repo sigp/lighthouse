@@ -979,8 +979,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "head_block_epoch" => block_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
                 );
 
-                let committee_building_timer =
-                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
+                let state_read_timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
                 let mut state = self
                     .get_state_caching_only_with_committee_caches(
@@ -989,9 +989,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )?
                     .ok_or_else(|| Error::MissingBeaconState(target_block_state_root))?;
 
+                metrics::stop_timer(state_read_timer);
+                let state_skip_timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
+
                 while state.current_epoch() + 1 < attestation_epoch {
                     per_slot_processing(&mut state, Some(Hash256::zero()), &self.spec)?
                 }
+
+                metrics::stop_timer(state_skip_timer);
+                let committee_building_timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
 
                 let relative_epoch =
                     RelativeEpoch::from_epoch(state.current_epoch(), attestation_epoch)

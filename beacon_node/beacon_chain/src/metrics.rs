@@ -98,6 +98,14 @@ lazy_static! {
         "beacon_attestation_processing_committee_building_seconds",
         "Time spent on building committees during attestation processing"
     );
+    pub static ref ATTESTATION_PROCESSING_STATE_READ_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_state_read_seconds",
+        "Time spent on reading the state during attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_STATE_SKIP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_state_skip_seconds",
+        "Time spent on reading the state during attestation processing"
+    );
     pub static ref ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_signature_setup_seconds",
         "Time spent on setting up for the signature verification of attestation processing"
@@ -130,7 +138,10 @@ lazy_static! {
         "beacon_attestation_production_seconds",
         "Full runtime of attestation production"
     );
+}
 
+// Second lazy-static block is used to account for macro recursion limit.
+lazy_static! {
     /*
      * Fork Choice
      */
