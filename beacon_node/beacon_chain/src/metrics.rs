@@ -86,6 +86,18 @@ lazy_static! {
         "beacon_attestation_processing_seconds",
         "Full runtime of attestation processing"
     );
+    pub static ref ATTESTATION_PROCESSING_INITIAL_VALIDATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_initial_validation_seconds",
+        "Time spent on the initial_validation of attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_shuffling_cache_wait_seconds",
+        "Time spent on waiting for the shuffling cache lock during attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_committee_building_seconds",
+        "Time spent on building committees during attestation processing"
+    );
     pub static ref ATTESTATION_PROCESSING_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_signature_seconds",
         "Time spent on the signature verification of attestation processing"

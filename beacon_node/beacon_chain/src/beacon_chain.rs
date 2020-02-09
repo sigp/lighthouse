@@ -864,6 +864,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
     ) -> Result<AttestationProcessingOutcome, Error> {
+        let initial_validation_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_INITIAL_VALIDATION_TIMES);
+
         // There is no point in processing an attestation with an empty bitfield. Reject
         // it immediately.
         if attestation.aggregation_bits.num_set_bits() == 0 {
@@ -933,17 +936,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
+        metrics::stop_timer(initial_validation_timer);
+
+        let cache_wait_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
+
         let mut shuffling_cache = self
             .shuffling_cache
             .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
             .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
+
+        metrics::stop_timer(cache_wait_timer);
 
         let verify_signature =
             |committee_cache: &CommitteeCache| -> Result<AttestationProcessingOutcome, Error> {
                 if let Some(committee) = committee_cache
                     .get_beacon_committee(attestation.data.slot, attestation.data.index)
                 {
-                    let timer =
+                    let signature_verification_timer =
                         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
 
                     let indexed_attestation =
@@ -982,7 +992,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                     let signature_is_valid = signature_set.is_valid();
 
-                    metrics::stop_timer(timer);
+                    metrics::stop_timer(signature_verification_timer);
 
                     if signature_is_valid {
                         // Provide the attestation to fork choice, updating the validator latest messages but
@@ -1018,8 +1028,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(committee_cache) = shuffling_cache.get(attestation_epoch, target.root) {
             verify_signature(committee_cache)
         } else {
+            let committee_building_timer =
+                metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
+
             let mut state = self
-                .get_state_caching(&target_block_state_root, Some(target_block_slot))?
+                .get_state_caching_only_with_committee_caches(
+                    &target_block_state_root,
+                    Some(target_block_slot),
+                )?
                 .ok_or_else(|| Error::MissingBeaconState(target_block_state_root))?;
 
             while state.current_epoch() + 1 < attestation_epoch {
@@ -1035,6 +1051,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let committee_cache = state.committee_cache(relative_epoch)?;
 
             shuffling_cache.insert(attestation_epoch, target.root, &committee_cache);
+
+            metrics::stop_timer(committee_building_timer);
 
             verify_signature(committee_cache)
         }
