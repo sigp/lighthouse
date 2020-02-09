@@ -949,6 +949,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let indexed_attestation =
                         get_indexed_attestation(committee.committee, &attestation)?;
 
+                    // Explicitly drop the committee so it does not need to occupy memory during
+                    // signature verification.
+                    drop(committee);
+
                     // TODO: update this cache when we get new blocks.
                     let pubkey_cache = self
                         .validator_pubkey_cache
@@ -989,7 +993,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         // _without_ finding and updating the head.
                         if let Err(e) = self
                             .fork_choice
-                            .process_attestation(committee.committee, &attestation)
+                            .process_indexed_attestation(&indexed_attestation)
                         {
                             error!(
                                 self.log,

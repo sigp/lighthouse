@@ -5,10 +5,10 @@ use checkpoint_manager::{get_effective_balances, CheckpointManager, CheckpointWi
 use parking_lot::{RwLock, RwLockReadGuard};
 use proto_array_fork_choice::{core::ProtoArray, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
-use state_processing::common::get_attesting_indices;
+use state_processing::common::get_indexed_attestation;
 use std::marker::PhantomData;
 use store::Error as StoreError;
-use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, Hash256, Slot};
+use types::{BeaconBlock, BeaconState, BeaconStateError, Epoch, Hash256, IndexedAttestation, Slot};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -24,6 +24,7 @@ pub enum Error {
     UnknownJustifiedBlock(Hash256),
     UnknownJustifiedState(Hash256),
     UnableToJsonEncode(String),
+    InvalidAttestation,
 }
 
 pub struct ForkChoice<T: BeaconChainTypes> {
@@ -140,7 +141,10 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             {
                 let committee =
                     state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
-                self.process_attestation(committee.committee, attestation)?;
+                let indexed_attestation =
+                    get_indexed_attestation(committee.committee, &attestation)
+                        .map_err(|_| Error::InvalidAttestation)?;
+                self.process_indexed_attestation(&indexed_attestation)?;
             }
         }
 
@@ -163,10 +167,9 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Process an attestation which references `block` in `attestation.data.beacon_block_root`.
     ///
     /// Assumes the attestation is valid.
-    pub fn process_attestation(
+    pub fn process_indexed_attestation(
         &self,
-        committee: &[usize],
-        attestation: &Attestation<T::EthSpec>,
+        attestation: &IndexedAttestation<T::EthSpec>,
     ) -> Result<()> {
         let timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
@@ -188,15 +191,9 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         //
         // Additionally, don't add any block hash to fork choice unless we have imported the block.
         if block_hash != Hash256::zero() {
-            let validator_indices = get_attesting_indices::<T::EthSpec>(
-                committee,
-                &attestation.data,
-                &attestation.aggregation_bits,
-            )?;
-
-            for validator_index in validator_indices {
+            for validator_index in attestation.attesting_indices.iter() {
                 self.backend.process_attestation(
-                    validator_index,
+                    *validator_index as usize,
                     block_hash,
                     attestation.data.target.epoch,
                 )?;
