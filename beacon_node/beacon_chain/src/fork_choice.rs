@@ -186,8 +186,13 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         //
         // Additionally, don't add any block hash to fork choice unless we have imported the block.
         if block_hash != Hash256::zero() {
-            let validator_indices =
-                get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
+            let committee =
+                state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+            let validator_indices = get_attesting_indices::<T::EthSpec>(
+                committee.committee,
+                &attestation.data,
+                &attestation.aggregation_bits,
+            )?;
 
             for validator_index in validator_indices {
                 self.backend.process_attestation(
