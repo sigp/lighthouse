@@ -9,6 +9,7 @@ use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::shuffling_cache::ShufflingCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
+use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -173,6 +174,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides a small cache of `BeaconState` and `BeaconBlock`.
     pub(crate) checkpoint_cache: CheckPointCache<T::EthSpec>,
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
 }

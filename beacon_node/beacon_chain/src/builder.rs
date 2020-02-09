@@ -5,6 +5,7 @@ use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::shuffling_cache::ShufflingCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
+use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
     ForkChoice,
@@ -310,6 +311,11 @@ where
             return Err("beacon_block.state_root != beacon_state".to_string());
         }
 
+        let validator_pubkey_cache = TimeoutRwLock::new(
+            ValidatorPubkeyCache::new(&canonical_head.beacon_state)
+                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))?,
+        );
+
         let beacon_chain = BeaconChain {
             spec: self.spec,
             store: self
@@ -338,6 +344,7 @@ where
             head_tracker: self.head_tracker.unwrap_or_default(),
             checkpoint_cache: CheckPointCache::default(),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
+            validator_pubkey_cache,
             log: log.clone(),
         };
 
