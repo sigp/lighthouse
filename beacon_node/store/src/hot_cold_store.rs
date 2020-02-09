@@ -10,7 +10,7 @@ use crate::{
     leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, SimpleStoreItem, Store, StoreItem,
 };
 use lru::LruCache;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use slog::{debug, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -46,9 +46,9 @@ pub struct HotColdDB<E: EthSpec> {
     /// The hot database also contains all blocks.
     pub(crate) hot_db: LevelDB<E>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
-    block_cache: RwLock<LruCache<Hash256, BeaconBlock<E>>>,
+    block_cache: Mutex<LruCache<Hash256, BeaconBlock<E>>>,
     /// LRU cache of deserialized states. Updated whenever a state is loaded.
-    state_cache: RwLock<LruCache<Hash256, BeaconState<E>>>,
+    state_cache: Mutex<LruCache<Hash256, BeaconState<E>>>,
     /// Chain spec.
     spec: ChainSpec,
     /// Logger.
@@ -112,7 +112,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         self.put(block_root, &block)?;
 
         // Update cache.
-        self.block_cache.write().put(*block_root, block);
+        self.block_cache.lock().put(*block_root, block);
 
         Ok(())
     }
@@ -122,7 +122,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         metrics::inc_counter(&metrics::BEACON_BLOCK_GET_COUNT);
 
         // Check the cache.
-        if let Some(block) = self.block_cache.write().get(block_root) {
+        if let Some(block) = self.block_cache.lock().get(block_root) {
             metrics::inc_counter(&metrics::BEACON_BLOCK_CACHE_HIT_COUNT);
             return Ok(Some(block.clone()));
         }
@@ -131,7 +131,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         match self.get::<BeaconBlock<E>>(block_root)? {
             Some(block) => {
                 // Add to cache.
-                self.block_cache.write().put(*block_root, block.clone());
+                self.block_cache.lock().put(*block_root, block.clone());
                 Ok(Some(block))
             }
             None => Ok(None),
@@ -324,8 +324,8 @@ impl<E: EthSpec> HotColdDB<E> {
             split: RwLock::new(Split::default()),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
-            block_cache: RwLock::new(LruCache::new(config.block_cache_size)),
-            state_cache: RwLock::new(LruCache::new(config.state_cache_size)),
+            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            state_cache: Mutex::new(LruCache::new(config.state_cache_size)),
             config,
             spec,
             log,
@@ -366,7 +366,7 @@ impl<E: EthSpec> HotColdDB<E> {
         self.put_state_summary(state_root, HotStateSummary::new(state_root, &state)?)?;
 
         // Store the state in the cache.
-        self.state_cache.write().put(*state_root, state);
+        self.state_cache.lock().put(*state_root, state);
 
         Ok(())
     }
@@ -382,7 +382,7 @@ impl<E: EthSpec> HotColdDB<E> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
         // Check the cache.
-        if let Some(state) = self.state_cache.write().get(state_root) {
+        if let Some(state) = self.state_cache.lock().get(state_root) {
             metrics::inc_counter(&metrics::BEACON_STATE_CACHE_HIT_COUNT);
 
             let timer = metrics::start_timer(&metrics::BEACON_STATE_CACHE_CLONE_TIME);
@@ -416,7 +416,7 @@ impl<E: EthSpec> HotColdDB<E> {
             };
 
             // Update the LRU cache.
-            self.state_cache.write().put(*state_root, state.clone());
+            self.state_cache.lock().put(*state_root, state.clone());
 
             Ok(Some(state))
         } else {
