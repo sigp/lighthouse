@@ -1592,6 +1592,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?
             .import_new_pubkeys(&state)?;
 
+        // If the imported block is in the previous or current epochs (according to the
+        // wall-clock), check to see if this is the first block of the epoch. If so, add the
+        // committee to the shuffling cache.
+        if state.current_epoch() + 1 >= self.epoch()? {
+            // If the parent was in a previous epoch then this block must be the "target" for any
+            // attestation from the current epoch.
+            if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch() {
+                let mut shuffling_cache = self
+                    .shuffling_cache
+                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+                    .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
+
+                let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
+
+                shuffling_cache.insert(state.current_epoch(), block_root, committee_cache);
+            }
+        }
+
         // Register the new block with the fork choice service.
         if let Err(e) = self
             .fork_choice
