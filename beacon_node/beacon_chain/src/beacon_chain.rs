@@ -938,141 +938,152 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(initial_validation_timer);
 
-        let verify_signature =
-            |committee_cache: &CommitteeCache| -> Result<AttestationProcessingOutcome, Error> {
-                if let Some(committee) = committee_cache
-                    .get_beacon_committee(attestation.data.slot, attestation.data.index)
-                {
-                    let signature_verification_timer =
-                        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
-
-                    let indexed_attestation =
-                        get_indexed_attestation(committee.committee, &attestation)?;
-
-                    // Explicitly drop the committee so it does not need to occupy memory during
-                    // signature verification.
-                    drop(committee);
-
-                    // TODO: update this cache when we get new blocks.
-                    let pubkey_cache = self
-                        .validator_pubkey_cache
-                        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-                        .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
-
-                    let pubkeys = indexed_attestation
-                        .attesting_indices
-                        .iter()
-                        .map(|i| {
-                            pubkey_cache
-                                .get(*i as usize)
-                                .ok_or_else(|| Error::ValidatorPubkeyCacheIncomplete(*i as usize))
-                        })
-                        .collect::<Result<Vec<&PublicKey>, Error>>()?;
-
-                    let fork = self
-                        .canonical_head
-                        .try_read_for(HEAD_LOCK_TIMEOUT)
-                        .ok_or_else(|| Error::CanonicalHeadLockTimeout)
-                        .map(|head| head.beacon_state.fork.clone())?;
-
-                    let signature_set = indexed_attestation_signature_set_from_pubkeys(
-                        pubkeys,
-                        &attestation.signature,
-                        &indexed_attestation,
-                        &fork,
-                        &self.spec,
-                    )
-                    .map_err(Error::SignatureSetError)?;
-
-                    let signature_is_valid = signature_set.is_valid();
-
-                    metrics::stop_timer(signature_verification_timer);
-
-                    if signature_is_valid {
-                        // Provide the attestation to fork choice, updating the validator latest messages but
-                        // _without_ finding and updating the head.
-                        if let Err(e) = self
-                            .fork_choice
-                            .process_indexed_attestation(&indexed_attestation)
-                        {
-                            error!(
-                                self.log,
-                                "Add attestation to fork choice failed";
-                                "beacon_block_root" =>  format!("{}", attestation.data.beacon_block_root),
-                                "error" => format!("{:?}", e)
-                            );
-                            return Err(e.into());
-                        }
-
-                        // Insert the attestation in the op pool.
-                        self.op_pool
-                            .insert_attestation(attestation, &fork, &self.spec)?;
-                        Ok(AttestationProcessingOutcome::Processed)
-                    } else {
-                        Ok(AttestationProcessingOutcome::InvalidSignature)
-                    }
-                } else {
-                    Ok(AttestationProcessingOutcome::NoCommitteeForSlotAndIndex {
-                        slot: attestation.data.slot,
-                        index: attestation.data.index,
-                    })
-                }
-            };
-
         let cache_wait_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
 
-        // Note: benchmarking on a hex-core CPU showed that cloning the committee cache here was a
-        // 8x improvement instead of holding the write lock throughout signature verification.
-        let cached_shuffling_opt = self
+        let mut shuffling_cache = self
             .shuffling_cache
             .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::AttestationCacheLockTimeout)?
-            .get(attestation_epoch, target.root)
-            .cloned();
+            .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
 
         metrics::stop_timer(cache_wait_timer);
 
-        if let Some(committee_cache) = cached_shuffling_opt {
-            verify_signature(&committee_cache)
-        } else {
-            debug!(
-                self.log,
-                "Attestation processing cache miss";
-                "attn_epoch" => attestation_epoch.as_u64(),
-                "head_block_epoch" => block_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
-            );
+        let indexed_attestation =
+            if let Some(committee_cache) = shuffling_cache.get(attestation_epoch, target.root) {
+                if let Some(committee) = committee_cache
+                    .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                {
+                    let indexed_attestation =
+                        get_indexed_attestation(committee.committee, &attestation)?;
 
-            let committee_building_timer =
-                metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
+                    // Drop the shuffling cache to avoid holding the lock for any longer than
+                    // required.
+                    drop(shuffling_cache);
 
-            let mut state = self
-                .get_state_caching_only_with_committee_caches(
-                    &target_block_state_root,
-                    Some(target_block_slot),
-                )?
-                .ok_or_else(|| Error::MissingBeaconState(target_block_state_root))?;
+                    indexed_attestation
+                } else {
+                    return Ok(AttestationProcessingOutcome::NoCommitteeForSlotAndIndex {
+                        slot: attestation.data.slot,
+                        index: attestation.data.index,
+                    });
+                }
+            } else {
+                // Drop the shuffling cache to avoid holding the lock for any longer than
+                // required.
+                drop(shuffling_cache);
 
-            while state.current_epoch() + 1 < attestation_epoch {
-                per_slot_processing(&mut state, Some(Hash256::zero()), &self.spec)?
+                debug!(
+                    self.log,
+                    "Attestation processing cache miss";
+                    "attn_epoch" => attestation_epoch.as_u64(),
+                    "head_block_epoch" => block_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
+                );
+
+                let committee_building_timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
+
+                let mut state = self
+                    .get_state_caching_only_with_committee_caches(
+                        &target_block_state_root,
+                        Some(target_block_slot),
+                    )?
+                    .ok_or_else(|| Error::MissingBeaconState(target_block_state_root))?;
+
+                while state.current_epoch() + 1 < attestation_epoch {
+                    per_slot_processing(&mut state, Some(Hash256::zero()), &self.spec)?
+                }
+
+                let relative_epoch =
+                    RelativeEpoch::from_epoch(state.current_epoch(), attestation_epoch)
+                        .map_err(Error::IncorrectStateForAttestation)?;
+
+                state.build_committee_cache(relative_epoch, &self.spec)?;
+
+                let committee_cache = state.committee_cache(relative_epoch)?;
+
+                self.shuffling_cache
+                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+                    .ok_or_else(|| Error::AttestationCacheLockTimeout)?
+                    .insert(attestation_epoch, target.root, committee_cache);
+
+                metrics::stop_timer(committee_building_timer);
+
+                if let Some(committee) = committee_cache
+                    .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                {
+                    get_indexed_attestation(committee.committee, &attestation)?
+                } else {
+                    return Ok(AttestationProcessingOutcome::NoCommitteeForSlotAndIndex {
+                        slot: attestation.data.slot,
+                        index: attestation.data.index,
+                    });
+                }
+            };
+
+        let signature_setup_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
+
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        let pubkeys = indexed_attestation
+            .attesting_indices
+            .iter()
+            .map(|i| {
+                pubkey_cache
+                    .get(*i as usize)
+                    .ok_or_else(|| Error::ValidatorPubkeyCacheIncomplete(*i as usize))
+            })
+            .collect::<Result<Vec<&PublicKey>, Error>>()?;
+
+        let fork = self
+            .canonical_head
+            .try_read_for(HEAD_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::CanonicalHeadLockTimeout)
+            .map(|head| head.beacon_state.fork.clone())?;
+
+        let signature_set = indexed_attestation_signature_set_from_pubkeys(
+            pubkeys,
+            &attestation.signature,
+            &indexed_attestation,
+            &fork,
+            &self.spec,
+        )
+        .map_err(Error::SignatureSetError)?;
+
+        metrics::stop_timer(signature_setup_timer);
+
+        let signature_verification_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
+
+        let signature_is_valid = signature_set.is_valid();
+
+        metrics::stop_timer(signature_verification_timer);
+
+        if signature_is_valid {
+            // Provide the attestation to fork choice, updating the validator latest messages but
+            // _without_ finding and updating the head.
+            if let Err(e) = self
+                .fork_choice
+                .process_indexed_attestation(&indexed_attestation)
+            {
+                error!(
+                    self.log,
+                    "Add attestation to fork choice failed";
+                    "beacon_block_root" =>  format!("{}", attestation.data.beacon_block_root),
+                    "error" => format!("{:?}", e)
+                );
+                return Err(e.into());
             }
 
-            let relative_epoch =
-                RelativeEpoch::from_epoch(state.current_epoch(), attestation_epoch)
-                    .map_err(Error::IncorrectStateForAttestation)?;
-
-            state.build_committee_cache(relative_epoch, &self.spec)?;
-
-            let committee_cache = state.committee_cache(relative_epoch)?;
-
-            self.shuffling_cache
-                .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                .ok_or_else(|| Error::AttestationCacheLockTimeout)?
-                .insert(attestation_epoch, target.root, committee_cache);
-
-            metrics::stop_timer(committee_building_timer);
-
-            verify_signature(committee_cache)
+            // Insert the attestation in the op pool.
+            self.op_pool
+                .insert_attestation(attestation, &fork, &self.spec)?;
+            Ok(AttestationProcessingOutcome::Processed)
+        } else {
+            Ok(AttestationProcessingOutcome::InvalidSignature)
         }
     }
 

@@ -98,10 +98,22 @@ lazy_static! {
         "beacon_attestation_processing_committee_building_seconds",
         "Time spent on building committees during attestation processing"
     );
+    pub static ref ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_signature_setup_seconds",
+        "Time spent on setting up for the signature verification of attestation processing"
+    );
     pub static ref ATTESTATION_PROCESSING_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_signature_seconds",
         "Time spent on the signature verification of attestation processing"
     );
+
+    /*
+     * Shuffling cache
+     */
+    pub static ref SHUFFLING_CACHE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_hits_total", "Count of times shuffling cache fulfils request");
+    pub static ref SHUFFLING_CACHE_MISSES: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_misses_total", "Count of times shuffling cache fulfils request");
 
     /*
      * Attestation Production

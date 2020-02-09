@@ -1,8 +1,6 @@
+use crate::metrics;
 use lru::LruCache;
-use types::{
-    beacon_state::CommitteeCache, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256,
-    RelativeEpoch, ShufflingId,
-};
+use types::{beacon_state::CommitteeCache, Epoch, Hash256};
 
 /// The size of the LRU cache that stores committee caches for quicker verification.
 ///
@@ -19,8 +17,6 @@ pub struct ShufflingCache {
     cache: LruCache<(Epoch, Hash256), CommitteeCache>,
 }
 
-// TODO: add a prune method to the cache.
-
 impl ShufflingCache {
     pub fn new() -> Self {
         Self {
@@ -29,7 +25,15 @@ impl ShufflingCache {
     }
 
     pub fn get(&mut self, epoch: Epoch, root: Hash256) -> Option<&CommitteeCache> {
-        self.cache.get(&(epoch, root))
+        let opt = self.cache.get(&(epoch, root));
+
+        if opt.is_some() {
+            metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
+        } else {
+            metrics::inc_counter(&metrics::SHUFFLING_CACHE_MISSES);
+        }
+
+        opt
     }
 
     pub fn insert(&mut self, epoch: Epoch, root: Hash256, committee_cache: &CommitteeCache) {
