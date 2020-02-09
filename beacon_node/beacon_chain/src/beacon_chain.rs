@@ -1384,8 +1384,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // wall-clock), check to see if this is the first block of the epoch. If so, add the
         // committee to the shuffling cache.
         if state.current_epoch() + 1 >= self.epoch()? {
-            // If the parent was in a previous epoch then this block must be the "target" for any
-            // attestation from the current epoch.
+            // If the parent was in a previous epoch then this state must contain some new
+            // shuffling that may be of use to the shuffling cache.
             if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch() {
                 let mut shuffling_cache = self
                     .shuffling_cache
@@ -1394,7 +1394,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
 
-                shuffling_cache.insert(state.current_epoch(), block_root, committee_cache);
+                let epoch_start_slot = state
+                    .current_epoch()
+                    .start_slot(T::EthSpec::slots_per_epoch());
+                let target_root = if state.slot == epoch_start_slot {
+                    block_root
+                } else {
+                    *state.get_block_root(epoch_start_slot)?
+                };
+
+                shuffling_cache.insert(state.current_epoch(), target_root, committee_cache);
             }
         }
 
