@@ -138,7 +138,9 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
                 .backend
                 .contains_block(&attestation.data.beacon_block_root)
             {
-                self.process_attestation(state, attestation)?;
+                let committee =
+                    state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+                self.process_attestation(committee.committee, attestation)?;
             }
         }
 
@@ -163,7 +165,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Assumes the attestation is valid.
     pub fn process_attestation(
         &self,
-        state: &BeaconState<T::EthSpec>,
+        committee: &[usize],
         attestation: &Attestation<T::EthSpec>,
     ) -> Result<()> {
         let timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
@@ -186,10 +188,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         //
         // Additionally, don't add any block hash to fork choice unless we have imported the block.
         if block_hash != Hash256::zero() {
-            let committee =
-                state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
             let validator_indices = get_attesting_indices::<T::EthSpec>(
-                committee.committee,
+                committee,
                 &attestation.data,
                 &attestation.aggregation_bits,
             )?;

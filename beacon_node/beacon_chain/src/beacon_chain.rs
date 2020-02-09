@@ -14,12 +14,9 @@ use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::{
-    errors::{
-        AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
-        ProposerSlashingValidationError,
-    },
-    verify_attestation_for_state, VerifySignatures,
+use state_processing::per_block_processing::errors::{
+    AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
+    ProposerSlashingValidationError,
 };
 use state_processing::{
     common::get_indexed_attestation, per_block_processing, per_slot_processing,
@@ -875,7 +872,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
         let epoch_now = self.epoch()?;
-        let target = &attestation.data.target;
+        let target = attestation.data.target.clone();
 
         // Attestation must be from the current or previous epoch.
         if attestation_epoch > epoch_now {
@@ -988,6 +985,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     metrics::stop_timer(timer);
 
                     if signature_is_valid {
+                        // Provide the attestation to fork choice, updating the validator latest messages but
+                        // _without_ finding and updating the head.
+                        if let Err(e) = self
+                            .fork_choice
+                            .process_attestation(committee.committee, &attestation)
+                        {
+                            error!(
+                                self.log,
+                                "Add attestation to fork choice failed";
+                                "beacon_block_root" =>  format!("{}", attestation.data.beacon_block_root),
+                                "error" => format!("{:?}", e)
+                            );
+                            return Err(e.into());
+                        }
+
+                        // Insert the attestation in the op pool.
+                        self.op_pool
+                            .insert_attestation(attestation, &fork, &self.spec)?;
                         Ok(AttestationProcessingOutcome::Processed)
                     } else {
                         Ok(AttestationProcessingOutcome::InvalidSignature)

@@ -40,6 +40,6 @@ impl ValidatorPubkeyCache {
     }
 
     pub fn get(&self, i: usize) -> Option<&PublicKey> {
-        self.get(i)
+        self.pubkeys.get(i)
     }
 }

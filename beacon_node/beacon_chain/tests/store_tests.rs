@@ -309,8 +309,8 @@ fn epoch_boundary_state_attestation_processing() {
             assert_eq!(
                 res,
                 Ok(AttestationProcessingOutcome::FinalizedSlot {
-                    attestation: attestation.data.target.epoch,
-                    finalized: finalized_epoch,
+                    attestation: attestation.data.slot,
+                    finalized: finalized_epoch.start_slot(E::slots_per_epoch()),
                 })
             );
         } else {

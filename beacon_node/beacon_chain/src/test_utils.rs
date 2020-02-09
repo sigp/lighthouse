@@ -10,6 +10,7 @@ use rayon::prelude::*;
 use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
+use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
@@ -410,6 +411,7 @@ where
                                 let message = data.signing_root(domain);
 
                                 let mut agg_sig = AggregateSignature::new();
+
                                 agg_sig.add(&Signature::new(
                                     message.as_bytes(),
                                     self.get_sk(*validator_index),
