@@ -105,6 +105,18 @@ pub enum AttestationProcessingOutcome {
     Invalid(AttestationValidationError),
 }
 
+/// Defines how a `BeaconState` should be "skipped" through skip-slots.
+pub enum StateSkipConfig {
+    /// Calculate the state root during each skip slot, producing a fully-valid `BeaconState`.
+    WithStateRoots,
+    /// Don't calculate the state root at each slot, instead just use the zero hash. This is orders
+    /// of magnitude faster, however it produces a partially invalid state.
+    ///
+    /// This state is useful for operations that don't use the state roots; e.g., for calculating
+    /// the shuffling.
+    WithoutStateRoots,
+}
+
 pub struct HeadInfo {
     pub slot: Slot,
     pub block_root: Hash256,
@@ -470,7 +482,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns `None` when the state is not found in the database or there is an error skipping
     /// to a future state.
-    pub fn state_at_slot(&self, slot: Slot) -> Result<BeaconState<T::EthSpec>, Error> {
+    pub fn state_at_slot(
+        &self,
+        slot: Slot,
+        config: StateSkipConfig,
+    ) -> Result<BeaconState<T::EthSpec>, Error> {
         let head_state = self.head()?.beacon_state;
 
         match slot.cmp(&head_state.slot) {
@@ -491,6 +507,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 let head_state_slot = head_state.slot;
                 let mut state = head_state;
+
+                let skip_state_root = match config {
+                    StateSkipConfig::WithStateRoots => None,
+                    StateSkipConfig::WithoutStateRoots => Some(Hash256::zero()),
+                };
+
                 while state.slot < slot {
                     // Do not allow and forward state skip that takes longer than the maximum task duration.
                     //
@@ -506,7 +528,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                     // Note: supplying some `state_root` when it is known would be a cheap and easy
                     // optimization.
-                    match per_slot_processing(&mut state, None, &self.spec) {
+                    match per_slot_processing(&mut state, skip_state_root, &self.spec) {
                         Ok(()) => (),
                         Err(e) => {
                             warn!(
@@ -546,7 +568,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///  Returns `None` when there is an error skipping to a future state or the slot clock cannot
     ///  be read.
     pub fn wall_clock_state(&self) -> Result<BeaconState<T::EthSpec>, Error> {
-        self.state_at_slot(self.slot()?)
+        self.state_at_slot(self.slot()?, StateSkipConfig::WithStateRoots)
     }
 
     /// Returns the slot of the highest block in the canonical chain.
@@ -603,7 +625,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut state = if epoch(slot) == epoch(head_state.slot) {
             self.head()?.beacon_state
         } else {
-            self.state_at_slot(slot)?
+            // The block proposer shuffling is not affected by the state roots, so we don't need to
+            // calculate them.
+            self.state_at_slot(slot, StateSkipConfig::WithoutStateRoots)?
         };
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
@@ -636,7 +660,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut state = if epoch == as_epoch(head_state.slot) {
             self.head()?.beacon_state
         } else {
-            self.state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))?
+            // The validator shuffling is not affected by the state roots, so we don't need to
+            // calculate them.
+            self.state_at_slot(
+                epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                StateSkipConfig::WithoutStateRoots,
+            )?
         };
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
@@ -1385,7 +1414,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         let state = self
-            .state_at_slot(slot - 1)
+            .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
             .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
         self.produce_block_on_state(state, slot, randao_reveal)

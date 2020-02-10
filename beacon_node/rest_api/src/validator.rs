@@ -5,6 +5,7 @@ use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
+    StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use futures::{Future, Stream};
@@ -80,7 +81,7 @@ pub fn get_all_validator_duties<T: BeaconChainTypes>(
 
     let epoch = query.epoch()?;
 
-    let state = get_state_for_epoch(&beacon_chain, epoch)?;
+    let state = get_state_for_epoch(&beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
 
     let validator_pubkeys = state
         .validators
@@ -102,7 +103,7 @@ pub fn get_active_validator_duties<T: BeaconChainTypes>(
 
     let epoch = query.epoch()?;
 
-    let state = get_state_for_epoch(&beacon_chain, epoch)?;
+    let state = get_state_for_epoch(&beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
 
     let validator_pubkeys = state
         .validators
@@ -120,6 +121,7 @@ pub fn get_active_validator_duties<T: BeaconChainTypes>(
 pub fn get_state_for_epoch<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     epoch: Epoch,
+    config: StateSkipConfig,
 ) -> Result<BeaconState<T::EthSpec>, ApiError> {
     let slots_per_epoch = T::EthSpec::slots_per_epoch();
     let head_epoch = beacon_chain.head()?.beacon_state.current_epoch();
@@ -139,7 +141,7 @@ pub fn get_state_for_epoch<T: BeaconChainTypes>(
             (epoch + 2).start_slot(slots_per_epoch) - 1
         };
 
-        beacon_chain.state_at_slot(slot).map_err(|e| {
+        beacon_chain.state_at_slot(slot, config).map_err(|e| {
             ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
         })
     }
@@ -151,7 +153,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
     epoch: Epoch,
     validator_pubkeys: Vec<PublicKeyBytes>,
 ) -> Result<Vec<ValidatorDuty>, ApiError> {
-    let mut state = get_state_for_epoch(&beacon_chain, epoch)?;
+    let mut state = get_state_for_epoch(&beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
         .map_err(|_| ApiError::ServerError(String::from("Loaded state is in the wrong epoch")))?;

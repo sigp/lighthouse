@@ -3,6 +3,7 @@ use crate::{
     eth1_chain::CachingEth1Backend,
     events::NullEventHandler,
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
+    StateSkipConfig,
 };
 use eth1::Config as Eth1Config;
 use genesis::interop_genesis_state;
@@ -233,7 +234,7 @@ where
             };
 
             self.chain
-                .state_at_slot(state_slot)
+                .state_at_slot(state_slot, StateSkipConfig::WithStateRoots)
                 .expect("should find state for slot")
         };
 
