@@ -3,7 +3,7 @@ use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use exit_future::Exit;
 use futures::Future;
-use slog::{debug, trace, warn, Logger};
+use slog::{debug, error, trace, Logger};
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::get_new_eth1_data;
 use std::cmp::Ordering;
@@ -317,7 +317,7 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T, S> for CachingEth1Backend<T, S
                 })
                 .unwrap_or_else(|| {
                     let vote = state.eth1_data.clone();
-                    warn!(
+                    error!(
                         self.log,
                         "No valid eth1_data votes, `votes_to_consider` empty";
                         "lowest_block_number" => self.core.lowest_block_number(),
