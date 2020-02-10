@@ -4,7 +4,7 @@ use crate::rpc::RPCEvent;
 use crate::types::error;
 use crate::NetworkConfig;
 use crate::PubsubMessage;
-use crate::TopicHash;
+use crate::{NetworkGlobals, TopicHash};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -17,6 +17,7 @@ use slog::{crit, debug, error, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::timer::DelayQueue;
 use types::EthSpec;
@@ -49,24 +50,30 @@ pub struct Service<TSpec: EthSpec> {
 }
 
 impl<TSpec: EthSpec> Service<TSpec> {
-    pub fn new(config: NetworkConfig, log: slog::Logger) -> error::Result<Self> {
+    pub fn new(
+        config: &NetworkConfig,
+        log: slog::Logger,
+    ) -> error::Result<(Arc<NetworkGlobals>, Self)> {
         trace!(log, "Libp2p Service starting");
 
         let local_keypair = if let Some(hex_bytes) = &config.secret_key_hex {
             keypair_from_hex(hex_bytes)?
         } else {
-            load_private_key(&config, &log)
+            load_private_key(config, &log)
         };
 
         // load the private key from CLI flag, disk or generate a new one
         let local_peer_id = PeerId::from(local_keypair.public());
         info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", local_peer_id));
 
+        // set up a collection of variables accessible outside of the network crate
+        let network_globals = Arc::new(NetworkGlobals::new(local_peer_id.clone()));
+
         let mut swarm = {
             // Set up the transport - tcp/ws with secio and mplex/yamux
             let transport = build_transport(local_keypair.clone());
             // Lighthouse network behaviour
-            let behaviour = Behaviour::new(&local_keypair, &config, &log)?;
+            let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
             Swarm::new(transport, behaviour, local_peer_id.clone())
         };
 
@@ -95,7 +102,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         };
 
         // helper closure for dialing peers
-        let mut dial_addr = |multiaddr: Multiaddr| {
+        let mut dial_addr = |multiaddr: &Multiaddr| {
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
                 Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => format!("{}", multiaddr)),
                 Err(err) => debug!(
@@ -106,13 +113,13 @@ impl<TSpec: EthSpec> Service<TSpec> {
         };
 
         // attempt to connect to user-input libp2p nodes
-        for multiaddr in config.libp2p_nodes {
+        for multiaddr in &config.libp2p_nodes {
             dial_addr(multiaddr);
         }
 
         // attempt to connect to any specified boot-nodes
-        for bootnode_enr in config.boot_nodes {
-            for multiaddr in bootnode_enr.multiaddr() {
+        for bootnode_enr in &config.boot_nodes {
+            for multiaddr in &bootnode_enr.multiaddr() {
                 // ignore udp multiaddr if it exists
                 let components = multiaddr.iter().collect::<Vec<_>>();
                 if let Protocol::Udp(_) = components[1] {
@@ -123,7 +130,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         }
 
         let mut subscribed_topics: Vec<String> = vec![];
-        for topic in config.topics {
+        for topic in &config.topics {
             let topic_string: String = topic.clone().into();
             if swarm.subscribe(topic.clone()) {
                 trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic_string));
@@ -134,13 +141,15 @@ impl<TSpec: EthSpec> Service<TSpec> {
         }
         info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
 
-        Ok(Service {
+        let service = Service {
             local_peer_id,
             swarm,
             peers_to_ban: DelayQueue::new(),
             peer_ban_timeout: DelayQueue::new(),
             log,
-        })
+        };
+
+        Ok((network_globals, service))
     }
 
     /// Adds a peer to be banned for a period of time, specified by a timeout.

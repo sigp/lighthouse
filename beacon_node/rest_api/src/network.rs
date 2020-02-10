@@ -34,7 +34,12 @@ pub fn get_enr<T: BeaconChainTypes>(
     req: Request<Body>,
     network: Arc<NetworkService<T>>,
 ) -> ApiResult {
-    ResponseBuilder::new(&req)?.body_no_ssz(&network.local_enr().to_base64())
+    ResponseBuilder::new(&req)?.body_no_ssz(
+        &network
+            .local_enr()
+            .map(|enr| enr.to_base64())
+            .unwrap_or_else(|| "".into()),
+    )
 }
 
 /// HTTP handler to return the `PeerId` from the client's libp2p service.

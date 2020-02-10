@@ -8,6 +8,7 @@ extern crate lazy_static;
 pub mod behaviour;
 mod config;
 mod discovery;
+mod globals;
 mod metrics;
 mod pubsub;
 pub mod rpc;
@@ -16,6 +17,7 @@ pub mod types;
 
 pub use crate::types::{error, topics, GossipTopic, SubnetId};
 pub use config::Config as NetworkConfig;
+pub use globals::NetworkGlobals;
 pub use libp2p::enr::Enr;
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{multiaddr, Multiaddr};

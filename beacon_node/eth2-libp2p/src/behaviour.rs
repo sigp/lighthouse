@@ -1,7 +1,6 @@
 use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
-use crate::{error, NetworkConfig};
-use crate::{GossipTopic, PubsubMessage, TopicHash};
+use crate::{error, GossipTopic, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use enr::Enr;
 use futures::prelude::*;
 use libp2p::{
@@ -15,6 +14,7 @@ use libp2p::{
 };
 use lru::LruCache;
 use slog::{debug, o, warn};
+use std::sync::Arc;
 use types::EthSpec;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 20;
@@ -42,8 +42,8 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
     /// duplicates that may still be seen over gossipsub.
     #[behaviour(ignore)]
     seen_gossip_messages: LruCache<MessageId, ()>,
-    /// Logger for behaviour actions.
     #[behaviour(ignore)]
+    /// Logger for behaviour actions.
     log: slog::Logger,
 }
 
@@ -51,6 +51,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     pub fn new(
         local_key: &Keypair,
         net_conf: &NetworkConfig,
+        network_globals: Arc<NetworkGlobals>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let local_peer_id = local_key.public().into_peer_id();
@@ -65,10 +66,10 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
             gossipsub: Gossipsub::new(local_peer_id, net_conf.gs_config.clone()),
-            discovery: Discovery::new(local_key, net_conf, log)?,
+            discovery: Discovery::new(local_key, net_conf, network_globals, log)?,
             identify,
-            seen_gossip_messages: LruCache::new(100_000),
             events: Vec::new(),
+            seen_gossip_messages: LruCache::new(100_000),
             log: behaviour_log,
         })
     }
