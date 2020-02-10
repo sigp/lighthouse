@@ -14,7 +14,9 @@ use slog::{error, info, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, RelativeEpoch, Slot};
+use types::{
+    Attestation, BeaconState, CommitteeIndex, Epoch, RelativeEpoch, SignedBeaconBlock, Slot,
+};
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorDuty {
@@ -256,7 +258,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&new_block)
 }
 
-/// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
+/// HTTP Handler to publish a SignedBeaconBlock, which has been signed by a validator.
 pub fn publish_beacon_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
@@ -272,11 +274,11 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
             .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
             .and_then(|chunks| {
                 serde_json::from_slice(&chunks).map_err(|e| {
-                    ApiError::BadRequest(format!("Unable to parse JSON into BeaconBlock: {:?}", e))
+                    ApiError::BadRequest(format!("Unable to parse JSON into SignedBeaconBlock: {:?}", e))
                 })
             })
-            .and_then(move |block: BeaconBlock<T::EthSpec>| {
-                let slot = block.slot;
+            .and_then(move |block: SignedBeaconBlock<T::EthSpec>| {
+                let slot = block.slot();
                 match beacon_chain.process_block(block.clone()) {
                     Ok(BlockProcessingOutcome::Processed { block_root }) => {
                         // Block was processed, publish via gossipsub
@@ -329,7 +331,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
                         );
 
                         Err(ApiError::ProcessingError(format!(
-                            "The BeaconBlock could not be processed and has not been published: {:?}",
+                            "The SignedBeaconBlock could not be processed and has not been published: {:?}",
                             outcome
                         )))
                     }
@@ -386,7 +388,7 @@ pub fn publish_attestation<T: BeaconChainTypes>(
             .and_then(|chunks| {
                 serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
                     ApiError::BadRequest(format!(
-                        "Unable to deserialize JSON into a BeaconBlock: {:?}",
+                        "Unable to deserialize JSON into a SignedBeaconBlock: {:?}",
                         e
                     ))
                 })

@@ -17,39 +17,19 @@ pub struct Signature {
 
 impl Signature {
     /// Instantiate a new Signature from a message and a SecretKey.
-    pub fn new(msg: &[u8], domain: u64, sk: &SecretKey) -> Self {
+    pub fn new(msg: &[u8], sk: &SecretKey) -> Self {
         Signature {
-            signature: RawSignature::new(msg, domain, sk.as_raw()),
-            is_empty: false,
-        }
-    }
-
-    /// Instantiate a new Signature from a message and a SecretKey, where the message has already
-    /// been hashed.
-    pub fn new_hashed(x_real_hashed: &[u8], x_imaginary_hashed: &[u8], sk: &SecretKey) -> Self {
-        Signature {
-            signature: RawSignature::new_hashed(x_real_hashed, x_imaginary_hashed, sk.as_raw()),
+            signature: RawSignature::new(msg, sk.as_raw()),
             is_empty: false,
         }
     }
 
     /// Verify the Signature against a PublicKey.
-    pub fn verify(&self, msg: &[u8], domain: u64, pk: &PublicKey) -> bool {
+    pub fn verify(&self, msg: &[u8], pk: &PublicKey) -> bool {
         if self.is_empty {
             return false;
         }
-        self.signature.verify(msg, domain, pk.as_raw())
-    }
-
-    /// Verify the Signature against a PublicKey, where the message has already been hashed.
-    pub fn verify_hashed(
-        &self,
-        x_real_hashed: &[u8],
-        x_imaginary_hashed: &[u8],
-        pk: &PublicKey,
-    ) -> bool {
-        self.signature
-            .verify_hashed(x_real_hashed, x_imaginary_hashed, pk.as_raw())
+        self.signature.verify(msg, pk.as_raw())
     }
 
     /// Returns the underlying signature.
@@ -141,7 +121,7 @@ mod tests {
     pub fn test_ssz_round_trip() {
         let keypair = Keypair::random();
 
-        let original = Signature::new(&[42, 42], 0, &keypair.sk);
+        let original = Signature::new(&[42, 42], &keypair.sk);
 
         let bytes = ssz_encode(&original);
         let decoded = Signature::from_ssz_bytes(&bytes).unwrap();
@@ -153,7 +133,7 @@ mod tests {
     pub fn test_byte_size() {
         let keypair = Keypair::random();
 
-        let signature = Signature::new(&[42, 42], 0, &keypair.sk);
+        let signature = Signature::new(&[42, 42], &keypair.sk);
         let bytes = ssz_encode(&signature);
         assert_eq!(bytes.len(), BLS_SIG_BYTE_SIZE);
     }

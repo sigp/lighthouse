@@ -267,7 +267,7 @@ fn epoch_boundary_state_attestation_processing() {
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
             head.beacon_block_root,
-            head.beacon_block.slot,
+            head.beacon_block.slot(),
         ));
 
         harness.advance_slot();
@@ -283,9 +283,9 @@ fn epoch_boundary_state_attestation_processing() {
     for attestation in late_attestations {
         // load_epoch_boundary_state is idempotent!
         let block_root = attestation.data.beacon_block_root;
-        let block: BeaconBlock<E> = store.get(&block_root).unwrap().expect("block exists");
+        let block = store.get_block(&block_root).unwrap().expect("block exists");
         let epoch_boundary_state = store
-            .load_epoch_boundary_state(&block.state_root)
+            .load_epoch_boundary_state(&block.state_root())
             .expect("no error")
             .expect("epoch boundary state exists");
         let ebs_of_ebs = store
@@ -396,7 +396,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
     // Check the forwards block roots iterator against the chain dump
     let chain_dump_block_roots = chain_dump
         .iter()
-        .map(|checkpoint| (checkpoint.beacon_block_root, checkpoint.beacon_block.slot))
+        .map(|checkpoint| (checkpoint.beacon_block_root, checkpoint.beacon_block.slot()))
         .collect::<Vec<_>>();
 
     let head = harness.chain.head().expect("should get head");

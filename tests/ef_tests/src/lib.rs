@@ -7,6 +7,7 @@ pub use cases::{
 };
 pub use error::Error;
 pub use handler::*;
+pub use type_name::TypeName;
 
 mod bls_setting;
 mod case_result;

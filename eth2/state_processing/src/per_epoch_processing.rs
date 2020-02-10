@@ -19,7 +19,7 @@ pub use validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
 /// returned, a state might be "half-processed" and therefore in an invalid state.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn per_epoch_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -66,7 +66,7 @@ pub fn per_epoch_processing<T: EthSpec>(
 /// - `finalized_epoch`
 /// - `finalized_root`
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 #[allow(clippy::if_same_then_else)] // For readability and consistency with spec.
 pub fn process_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -134,7 +134,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
 
 /// Finish up an epoch update.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_final_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,

@@ -33,7 +33,7 @@ impl std::ops::AddAssign for Delta {
 
 /// Apply attester and proposer rewards.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
@@ -67,7 +67,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 
 /// For each attesting validator, reward the proposer who was first to include their attestation.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 fn get_proposer_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -100,7 +100,7 @@ fn get_proposer_deltas<T: EthSpec>(
 
 /// Apply rewards for participation in attestations during the previous epoch.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 fn get_attestation_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -133,7 +133,7 @@ fn get_attestation_deltas<T: EthSpec>(
 
 /// Determine the delta for a single validator, sans proposer rewards.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 fn get_attestation_delta<T: EthSpec>(
     validator: &ValidatorStatus,
     total_balances: &TotalBalances,

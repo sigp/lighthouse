@@ -306,8 +306,11 @@ impl CheckpointManager {
                 .ok_or_else(|| Error::UnknownJustifiedBlock(block_root))?;
 
             let state = chain
-                .get_state_caching_only_with_committee_caches(&block.state_root, Some(block.slot))?
-                .ok_or_else(|| Error::UnknownJustifiedState(block.state_root))?;
+                .get_state_caching_only_with_committee_caches(
+                    &block.state_root(),
+                    Some(block.slot()),
+                )?
+                .ok_or_else(|| Error::UnknownJustifiedState(block.state_root()))?;
 
             Ok(get_effective_balances(&state))
         }

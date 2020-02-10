@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 
 /// Historical block and state roots.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct HistoricalBatch<T: EthSpec> {
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
@@ -22,5 +22,5 @@ mod tests {
 
     pub type FoundationHistoricalBatch = HistoricalBatch<MainnetEthSpec>;
 
-    ssz_tests!(FoundationHistoricalBatch);
+    ssz_and_tree_hash_tests!(FoundationHistoricalBatch);
 }

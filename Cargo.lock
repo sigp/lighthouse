@@ -80,7 +80,11 @@ dependencies = [
 [[package]]
 name = "amcl"
 version = "0.2.0"
-source = "git+https://github.com/sigp/milagro_bls?tag=v0.11.2#f01a8b6f9fd9364dfb9635038e00787f29972b2b"
+source = "git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10#52fab41dd086951ade699894b690e95ede1efafd"
+dependencies = [
+ "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "ansi_term"
@@ -358,7 +362,7 @@ dependencies = [
  "eth2_ssz 0.1.2",
  "eth2_ssz_types 0.2.0",
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "milagro_bls 0.11.2 (git+https://github.com/sigp/milagro_bls?tag=v0.11.2)",
+ "milagro_bls 1.0.0 (git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10)",
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1163,7 +1167,7 @@ dependencies = [
  "eth2_hashing 0.1.1",
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "milagro_bls 0.11.2 (git+https://github.com/sigp/milagro_bls?tag=v0.11.2)",
+ "milagro_bls 1.0.0 (git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10)",
  "num-bigint 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2500,14 +2504,13 @@ dependencies = [
 
 [[package]]
 name = "milagro_bls"
-version = "0.11.2"
-source = "git+https://github.com/sigp/milagro_bls?tag=v0.11.2#f01a8b6f9fd9364dfb9635038e00787f29972b2b"
+version = "1.0.0"
+source = "git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10#52fab41dd086951ade699894b690e95ede1efafd"
 dependencies = [
- "amcl 0.2.0 (git+https://github.com/sigp/milagro_bls?tag=v0.11.2)",
+ "amcl 0.2.0 (git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10)",
  "hex 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "ring 0.16.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "yaml-rust 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "zeroize 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -5120,7 +5123,7 @@ dependencies = [
 "checksum aesni 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2f70a6b5f971e473091ab7cfb5ffac6cde81666c4556751d8d5620ead8abf100"
 "checksum ahash 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)" = "6f33b5018f120946c1dcf279194f238a9f146725593ead1c08fa47ff22b0b5d3"
 "checksum aho-corasick 0.7.6 (registry+https://github.com/rust-lang/crates.io-index)" = "58fb5e95d83b38284460a5fda7d6470aa0b8844d283a0b614b8535e880800d2d"
-"checksum amcl 0.2.0 (git+https://github.com/sigp/milagro_bls?tag=v0.11.2)" = "<none>"
+"checksum amcl 0.2.0 (git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10)" = "<none>"
 "checksum ansi_term 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b"
 "checksum anyhow 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)" = "7825f6833612eb2414095684fcf6c635becf3ce97fe48cf6421321e93bfbd53c"
 "checksum arc-swap 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)" = "d7b8a9123b8027467bce0099fe556c628a53c8d83df0507084c31e9ba2e39aff"
@@ -5317,7 +5320,7 @@ dependencies = [
 "checksum maybe-uninit 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "60302e4db3a61da70c0cb7991976248362f30319e88850c487b9b95bbf059e00"
 "checksum memchr 2.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3197e20c7edb283f87c071ddfc7a2cca8f8e0b888c242959846a6fce03c72223"
 "checksum memoffset 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "75189eb85871ea5c2e2c15abbdd541185f63b408415e5051f5cac122d8c774b9"
-"checksum milagro_bls 0.11.2 (git+https://github.com/sigp/milagro_bls?tag=v0.11.2)" = "<none>"
+"checksum milagro_bls 1.0.0 (git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10)" = "<none>"
 "checksum mime 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "ba626b8a6de5da682e1caa06bdb42a335aee5a84db8e5046a3e8ab17ba0a3ae0"
 "checksum mime 0.3.16 (registry+https://github.com/rust-lang/crates.io-index)" = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
 "checksum mime_guess 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "1a0ed03949aef72dbdf3116a383d7b38b4768e6f960528cd6a6044aa9ed68599"

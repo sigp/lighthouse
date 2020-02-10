@@ -13,10 +13,10 @@ fn error(reason: ExitInvalid) -> BlockOperationError<ExitInvalid> {
 ///
 /// Returns `Ok(())` if the `Exit` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn verify_exit<T: EthSpec>(
     state: &BeaconState<T>,
-    exit: &VoluntaryExit,
+    exit: &SignedVoluntaryExit,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
@@ -25,10 +25,10 @@ pub fn verify_exit<T: EthSpec>(
 
 /// Like `verify_exit` but doesn't run checks which may become true in future states.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn verify_exit_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
-    exit: &VoluntaryExit,
+    exit: &SignedVoluntaryExit,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
@@ -37,14 +37,16 @@ pub fn verify_exit_time_independent_only<T: EthSpec>(
 
 /// Parametric version of `verify_exit` that skips some checks if `time_independent_only` is true.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 fn verify_exit_parametric<T: EthSpec>(
     state: &BeaconState<T>,
-    exit: &VoluntaryExit,
+    signed_exit: &SignedVoluntaryExit,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
     time_independent_only: bool,
 ) -> Result<()> {
+    let exit = &signed_exit.message;
+
     let validator = state
         .validators
         .get(exit.validator_index as usize)
@@ -82,7 +84,7 @@ fn verify_exit_parametric<T: EthSpec>(
 
     if verify_signatures.is_true() {
         verify!(
-            exit_signature_set(state, exit, spec)?.is_valid(),
+            exit_signature_set(state, signed_exit, spec)?.is_valid(),
             ExitInvalid::BadSignature
         );
     }
