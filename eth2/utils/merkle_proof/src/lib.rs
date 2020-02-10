@@ -1,4 +1,4 @@
-use eth2_hashing::{hash, hash_concat, ZERO_HASHES};
+use eth2_hashing::{hash, hash32_concat, ZERO_HASHES};
 use ethereum_types::H256;
 use lazy_static::lazy_static;
 
@@ -65,7 +65,7 @@ impl MerkleTree {
 
                 let left_subtree = MerkleTree::create(left_leaves, depth - 1);
                 let right_subtree = MerkleTree::create(right_leaves, depth - 1);
-                let hash = H256::from_slice(&hash_concat(
+                let hash = H256::from_slice(&hash32_concat(
                     left_subtree.hash().as_bytes(),
                     right_subtree.hash().as_bytes(),
                 ));
@@ -124,7 +124,7 @@ impl MerkleTree {
                     // All other possibilities are invalid MerkleTrees
                     (_, _) => return Err(MerkleTreeError::Invalid),
                 };
-                hash.assign_from_slice(&hash_concat(
+                hash.assign_from_slice(&hash32_concat(
                     left.hash().as_bytes(),
                     right.hash().as_bytes(),
                 ));
@@ -221,7 +221,7 @@ fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index: usi
     for (i, leaf) in branch.iter().enumerate().take(depth) {
         let ith_bit = (index >> i) & 0x01;
         if ith_bit == 1 {
-            merkle_root = hash_concat(leaf.as_bytes(), &merkle_root);
+            merkle_root = hash32_concat(leaf.as_bytes(), &merkle_root)[..].to_vec();
         } else {
             let mut input = merkle_root;
             input.extend_from_slice(leaf.as_bytes());
@@ -296,10 +296,10 @@ mod tests {
         let leaf_b10 = H256::from([0xCC; 32]);
         let leaf_b11 = H256::from([0xDD; 32]);
 
-        let node_b0x = H256::from_slice(&hash_concat(leaf_b00.as_bytes(), leaf_b01.as_bytes()));
-        let node_b1x = H256::from_slice(&hash_concat(leaf_b10.as_bytes(), leaf_b11.as_bytes()));
+        let node_b0x = H256::from_slice(&hash32_concat(leaf_b00.as_bytes(), leaf_b01.as_bytes()));
+        let node_b1x = H256::from_slice(&hash32_concat(leaf_b10.as_bytes(), leaf_b11.as_bytes()));
 
-        let root = H256::from_slice(&hash_concat(node_b0x.as_bytes(), node_b1x.as_bytes()));
+        let root = H256::from_slice(&hash32_concat(node_b0x.as_bytes(), node_b1x.as_bytes()));
 
         let tree = MerkleTree::create(&[leaf_b00, leaf_b01, leaf_b10, leaf_b11], 2);
         assert_eq!(tree.hash(), root);
@@ -313,10 +313,10 @@ mod tests {
         let leaf_b10 = H256::from([0xCC; 32]);
         let leaf_b11 = H256::from([0xDD; 32]);
 
-        let node_b0x = H256::from_slice(&hash_concat(leaf_b00.as_bytes(), leaf_b01.as_bytes()));
-        let node_b1x = H256::from_slice(&hash_concat(leaf_b10.as_bytes(), leaf_b11.as_bytes()));
+        let node_b0x = H256::from_slice(&hash32_concat(leaf_b00.as_bytes(), leaf_b01.as_bytes()));
+        let node_b1x = H256::from_slice(&hash32_concat(leaf_b10.as_bytes(), leaf_b11.as_bytes()));
 
-        let root = H256::from_slice(&hash_concat(node_b0x.as_bytes(), node_b1x.as_bytes()));
+        let root = H256::from_slice(&hash32_concat(node_b0x.as_bytes(), node_b1x.as_bytes()));
 
         // Run some proofs
         assert!(verify_merkle_proof(

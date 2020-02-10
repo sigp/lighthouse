@@ -53,6 +53,14 @@ pub fn int_to_bytes32(int: u64) -> Vec<u8> {
     bytes.to_vec()
 }
 
+/// Returns `int` as little-endian bytes with a length of 32.
+pub fn int_to_fixed_bytes32(int: u64) -> [u8; 32] {
+    let mut bytes = [0; 32];
+    let int_bytes = int.to_le_bytes();
+    bytes[0..int_bytes.len()].copy_from_slice(&int_bytes);
+    bytes
+}
+
 /// Returns `int` as little-endian bytes with a length of 48.
 pub fn int_to_bytes48(int: u64) -> Vec<u8> {
     let mut bytes = BytesMut::with_capacity(48);
@@ -75,6 +83,13 @@ mod tests {
     use hex;
     use std::{fs::File, io::prelude::*, path::PathBuf};
     use yaml_rust::yaml;
+
+    #[test]
+    fn fixed_bytes32() {
+        for x in &[0, 1, 3, 256, 1024, 2943784] {
+            assert_eq!(&int_to_bytes32(*x), &int_to_fixed_bytes32(*x));
+        }
+    }
 
     #[test]
     fn int_to_bytes3_returns_none() {
