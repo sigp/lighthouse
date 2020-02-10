@@ -9,8 +9,8 @@
 //! for padding and verification.
 //!
 //! Adheres to the Ethereum 2.0 [SSZ
-//! specification](https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/specs/simple-serialize.md)
-//! at v0.8.1 .
+//! specification](https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/ssz/simple-serialize.md)
+//! at v0.10.1.
 //!
 //! ## Example
 //! ```

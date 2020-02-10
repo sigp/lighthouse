@@ -4,13 +4,13 @@ use state_processing::{
     per_block_processing, test_utils::BlockBuilder, BlockProcessingError, BlockSignatureStrategy,
 };
 use types::{
-    AggregateSignature, BeaconBlock, BeaconState, ChainSpec, EthSpec, Keypair, MinimalEthSpec,
-    Signature, Slot,
+    AggregateSignature, BeaconState, ChainSpec, EthSpec, Keypair, MinimalEthSpec, Signature,
+    SignedBeaconBlock, Slot,
 };
 
 const VALIDATOR_COUNT: usize = 64;
 
-fn get_block<T, F>(mut mutate_builder: F) -> (BeaconBlock<T>, BeaconState<T>)
+fn get_block<T, F>(mut mutate_builder: F) -> (SignedBeaconBlock<T>, BeaconState<T>)
 where
     T: EthSpec,
     F: FnMut(&mut BlockBuilder<T>),
@@ -27,7 +27,7 @@ fn test_scenario<T: EthSpec, F, G>(mutate_builder: F, mut invalidate_block: G, s
 where
     T: EthSpec,
     F: FnMut(&mut BlockBuilder<T>),
-    G: FnMut(&mut BeaconBlock<T>),
+    G: FnMut(&mut SignedBeaconBlock<T>),
 {
     let (mut block, mut state) = get_block::<T, _>(mutate_builder);
 
@@ -100,7 +100,7 @@ fn agg_sig() -> AggregateSignature {
 // TODO: use lazy static
 fn sig() -> Signature {
     let keypair = Keypair::random();
-    Signature::new(&[42, 42], 12, &keypair.sk)
+    Signature::new(&[42, 42], &keypair.sk)
 }
 
 type TestEthSpec = MinimalEthSpec;
@@ -119,7 +119,11 @@ mod signatures_minimal {
     fn randao() {
         let spec = &TestEthSpec::default_spec();
 
-        test_scenario::<TestEthSpec, _, _>(|_| {}, |block| block.body.randao_reveal = sig(), spec);
+        test_scenario::<TestEthSpec, _, _>(
+            |_| {},
+            |block| block.message.body.randao_reveal = sig(),
+            spec,
+        );
     }
 
     #[test]
@@ -130,14 +134,22 @@ mod signatures_minimal {
             |mut builder| {
                 builder.num_proposer_slashings = 1;
             },
-            |block| block.body.proposer_slashings[0].header_1.signature = sig(),
+            |block| {
+                block.message.body.proposer_slashings[0]
+                    .signed_header_1
+                    .signature = sig()
+            },
             spec,
         );
         test_scenario::<TestEthSpec, _, _>(
             |mut builder| {
                 builder.num_proposer_slashings = 1;
             },
-            |block| block.body.proposer_slashings[0].header_2.signature = sig(),
+            |block| {
+                block.message.body.proposer_slashings[0]
+                    .signed_header_2
+                    .signature = sig()
+            },
             spec,
         );
     }
@@ -150,14 +162,22 @@ mod signatures_minimal {
             |mut builder| {
                 builder.num_attester_slashings = 1;
             },
-            |block| block.body.attester_slashings[0].attestation_1.signature = agg_sig(),
+            |block| {
+                block.message.body.attester_slashings[0]
+                    .attestation_1
+                    .signature = agg_sig()
+            },
             spec,
         );
         test_scenario::<TestEthSpec, _, _>(
             |mut builder| {
                 builder.num_attester_slashings = 1;
             },
-            |block| block.body.attester_slashings[0].attestation_2.signature = agg_sig(),
+            |block| {
+                block.message.body.attester_slashings[0]
+                    .attestation_2
+                    .signature = agg_sig()
+            },
             spec,
         );
     }
@@ -170,7 +190,7 @@ mod signatures_minimal {
             |mut builder| {
                 builder.num_attestations = 1;
             },
-            |block| block.body.attestations[0].signature = agg_sig(),
+            |block| block.message.body.attestations[0].signature = agg_sig(),
             spec,
         );
     }
@@ -185,7 +205,7 @@ mod signatures_minimal {
             |mut builder| {
                 builder.num_deposits = 1;
             },
-            |block| block.body.deposits[0].data.signature = sig().into(),
+            |block| block.message.body.deposits[0].data.signature = sig().into(),
             spec,
         );
     }
@@ -201,7 +221,7 @@ mod signatures_minimal {
             |mut builder| {
                 builder.num_exits = 1;
             },
-            |block| block.body.voluntary_exits[0].signature = sig(),
+            |block| block.message.body.voluntary_exits[0].signature = sig(),
             spec,
         );
     }

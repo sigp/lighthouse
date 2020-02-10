@@ -14,7 +14,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 ///
 /// Returns `Ok(())` if the `ProposerSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn verify_proposer_slashing<T: EthSpec>(
     proposer_slashing: &ProposerSlashing,
     state: &BeaconState<T>,
@@ -28,16 +28,17 @@ pub fn verify_proposer_slashing<T: EthSpec>(
 
     // Verify slots match
     verify!(
-        proposer_slashing.header_1.slot == proposer_slashing.header_2.slot,
+        proposer_slashing.signed_header_1.message.slot
+            == proposer_slashing.signed_header_2.message.slot,
         Invalid::ProposalSlotMismatch(
-            proposer_slashing.header_1.slot,
-            proposer_slashing.header_2.slot
+            proposer_slashing.signed_header_1.message.slot,
+            proposer_slashing.signed_header_2.message.slot
         )
     );
 
     // But the headers are different
     verify!(
-        proposer_slashing.header_1 != proposer_slashing.header_2,
+        proposer_slashing.signed_header_1 != proposer_slashing.signed_header_2,
         Invalid::ProposalsIdentical
     );
 

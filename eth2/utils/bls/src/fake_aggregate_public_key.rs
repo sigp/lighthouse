@@ -1,5 +1,10 @@
 use super::{PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
+use hex::encode as hex_encode;
 use milagro_bls::G1Point;
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
+use serde_hex::PrefixedHexVisitor;
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 
 /// A BLS aggregate public key.
 ///
@@ -15,6 +20,20 @@ pub struct FakeAggregatePublicKey {
 impl FakeAggregatePublicKey {
     pub fn new() -> Self {
         Self::zero()
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.len() != BLS_PUBLIC_KEY_BYTE_SIZE {
+            Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: BLS_PUBLIC_KEY_BYTE_SIZE,
+            })
+        } else {
+            Ok(Self {
+                bytes: bytes.to_vec(),
+                point: G1Point::new(),
+            })
+        }
     }
 
     pub fn add_without_affine(&mut self, _public_key: &PublicKey) {
@@ -51,5 +70,34 @@ impl FakeAggregatePublicKey {
 
     pub fn as_bytes(&self) -> Vec<u8> {
         self.bytes.clone()
+    }
+}
+
+impl_ssz!(
+    FakeAggregatePublicKey,
+    BLS_PUBLIC_KEY_BYTE_SIZE,
+    "FakeAggregatePublicKey"
+);
+
+impl_tree_hash!(FakeAggregatePublicKey, BLS_PUBLIC_KEY_BYTE_SIZE);
+
+impl Serialize for FakeAggregatePublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&hex_encode(ssz_encode(self)))
+    }
+}
+
+impl<'de> Deserialize<'de> for FakeAggregatePublicKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
+        let pubkey = <_>::from_ssz_bytes(&bytes[..])
+            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
+        Ok(pubkey)
     }
 }

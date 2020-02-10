@@ -1,5 +1,5 @@
 use std::convert::TryInto;
-use tree_hash::SignedRoot;
+use tree_hash::TreeHash;
 use types::test_utils::{
     AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ExitTestTask,
     ProposerSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
@@ -41,7 +41,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (mut state, keypairs) = self.state_builder.build();
 
         let builder = &mut self.block_builder;
@@ -51,7 +51,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
             None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.signed_root(),
+                &state.latest_block_header.tree_hash_root(),
             )),
         }
 
@@ -84,7 +84,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (mut state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -93,7 +93,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
             None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.signed_root(),
+                &state.latest_block_header.tree_hash_root(),
             )),
         }
 
@@ -141,7 +141,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -150,7 +150,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
             None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.signed_root(),
+                &state.latest_block_header.tree_hash_root(),
             )),
         }
 
@@ -184,7 +184,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -193,7 +193,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
             None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.signed_root(),
+                &state.latest_block_header.tree_hash_root(),
             )),
         }
 
@@ -233,7 +233,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -242,7 +242,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
             None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.signed_root(),
+                &state.latest_block_header.tree_hash_root(),
             )),
         }
 
@@ -275,7 +275,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         randao_sk: Option<SecretKey>,
         previous_block_root: Option<Hash256>,
         spec: &ChainSpec,
-    ) -> (BeaconBlock<T>, BeaconState<T>) {
+    ) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 
@@ -284,7 +284,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
             None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.signed_root(),
+                &state.latest_block_header.tree_hash_root(),
             )),
         }
 

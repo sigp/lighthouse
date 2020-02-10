@@ -50,7 +50,7 @@ use std::collections::HashSet;
 use std::ops::Sub;
 use std::sync::Weak;
 use tokio::sync::{mpsc, oneshot};
-use types::{BeaconBlock, EthSpec, Hash256};
+use types::{EthSpec, Hash256, SignedBeaconBlock};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -73,18 +73,18 @@ pub enum SyncMessage<T: EthSpec> {
     BlocksByRangeResponse {
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<Box<BeaconBlock<T>>>,
+        beacon_block: Option<Box<SignedBeaconBlock<T>>>,
     },
 
     /// A `BlocksByRoot` response has been received.
     BlocksByRootResponse {
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<Box<BeaconBlock<T>>>,
+        beacon_block: Option<Box<SignedBeaconBlock<T>>>,
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, Box<BeaconBlock<T>>),
+    UnknownBlock(PeerId, Box<SignedBeaconBlock<T>>),
 
     /// A peer has sent an object that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -107,7 +107,7 @@ pub enum SyncMessage<T: EthSpec> {
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
 struct ParentRequests<T: EthSpec> {
     /// The blocks that have currently been downloaded.
-    downloaded_blocks: Vec<BeaconBlock<T>>,
+    downloaded_blocks: Vec<SignedBeaconBlock<T>>,
 
     /// The number of failed attempts to retrieve a parent block. If too many attempts occur, this
     /// lookup is failed and rejected.
@@ -290,7 +290,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        block: Option<BeaconBlock<T::EthSpec>>,
+        block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) {
         // check if this is a single block lookup - i.e we were searching for a specific hash
         if block.is_some() {
@@ -344,7 +344,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn single_block_lookup_response(
         &mut self,
         peer_id: PeerId,
-        block: BeaconBlock<T::EthSpec>,
+        block: SignedBeaconBlock<T::EthSpec>,
         expected_block_hash: Hash256,
     ) {
         // verify the hash is correct and try and process the block
@@ -398,7 +398,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     /// A block has been sent to us that has an unknown parent. This begins a parent lookup search
     /// to find the parent or chain of parents that match our current chain.
-    fn add_unknown_block(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) {
+    fn add_unknown_block(&mut self, peer_id: PeerId, block: SignedBeaconBlock<T::EthSpec>) {
         // If we are not in regular sync mode, ignore this block
         if self.state != ManagerState::Regular {
             return;
@@ -516,7 +516,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // fail loudly
         }
         let previous_index = parent_request.downloaded_blocks.len() - 2;
-        let expected_hash = parent_request.downloaded_blocks[previous_index].parent_root;
+        let expected_hash = parent_request.downloaded_blocks[previous_index].parent_root();
 
         // Note: the length must be greater than 2 so this cannot panic.
         let block_hash = parent_request
@@ -626,7 +626,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .downloaded_blocks
             .last()
             .expect("The parent queue should never be empty")
-            .parent_root;
+            .parent_root();
         let request = BlocksByRootRequest {
             block_roots: vec![parent_hash],
         };

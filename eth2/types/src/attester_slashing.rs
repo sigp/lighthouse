@@ -7,7 +7,7 @@ use tree_hash_derive::TreeHash;
 
 /// Two conflicting attestations.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct AttesterSlashing<T: EthSpec> {
@@ -20,5 +20,5 @@ mod tests {
     use super::*;
     use crate::*;
 
-    ssz_tests!(AttesterSlashing<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(AttesterSlashing<MainnetEthSpec>);
 }

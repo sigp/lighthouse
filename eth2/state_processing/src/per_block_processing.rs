@@ -3,7 +3,7 @@ use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithI
 use rayon::prelude::*;
 use signature_sets::{block_proposal_signature_set, randao_signature_set};
 use std::convert::TryInto;
-use tree_hash::SignedRoot;
+use tree_hash::TreeHash;
 use types::*;
 
 pub use self::verify_attester_slashing::{
@@ -64,23 +64,27 @@ impl VerifySignatures {
 /// Returns `Ok(())` if the block is valid and the state was successfully updated. Otherwise
 /// returns an error describing why the block was invalid or how the function failed to execute.
 ///
-/// If `block_signed_root` is `Some`, this root is used for verification of the proposers
-/// signature. If it is `None` the signed root is calculated here. This parameter only exists to
-/// avoid re-calculating the root when it is already known.
+/// If `block_root` is `Some`, this root is used for verification of the proposer's signature. If it
+/// is `None` the signing root is computed from scratch. This parameter only exists to avoid
+/// re-calculating the root when it is already known. Note `block_root` should be equal to the
+/// tree hash root of the block, NOT the signing root of the block. This function takes
+/// care of mixing in the domain.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn per_block_processing<T: EthSpec>(
     mut state: &mut BeaconState<T>,
-    block: &BeaconBlock<T>,
-    block_signed_root: Option<Hash256>,
+    signed_block: &SignedBeaconBlock<T>,
+    block_root: Option<Hash256>,
     block_signature_strategy: BlockSignatureStrategy,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    let block = &signed_block.message;
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
             block_verify!(
-                BlockSignatureVerifier::verify_entire_block(state, block, spec).is_ok(),
+                BlockSignatureVerifier::verify_entire_block(state, signed_block, block_root, spec)
+                    .is_ok(),
                 BlockProcessingError::BulkSignatureVerificationFailed
             );
             VerifySignatures::False
@@ -89,7 +93,11 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::NoVerification => VerifySignatures::False,
     };
 
-    process_block_header(state, block, block_signed_root, verify_signatures, spec)?;
+    process_block_header(state, block, spec)?;
+
+    if verify_signatures.is_true() {
+        verify_block_signature(&state, signed_block, block_root, &spec)?;
+    }
 
     // Ensure the current and previous epoch caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
@@ -128,18 +136,16 @@ pub fn per_block_processing<T: EthSpec>(
 
 /// Processes the block header.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
-    block_signed_root: Option<Hash256>,
-    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(block.slot == state.slot, HeaderInvalid::StateSlotMismatch);
 
     let expected_previous_block_root =
-        Hash256::from_slice(&state.latest_block_header.signed_root());
+        Hash256::from_slice(&state.latest_block_header.tree_hash_root());
     verify!(
         block.parent_root == expected_previous_block_root,
         HeaderInvalid::ParentBlockRootMismatch {
@@ -158,24 +164,20 @@ pub fn process_block_header<T: EthSpec>(
         HeaderInvalid::ProposerSlashed(proposer_idx)
     );
 
-    if verify_signatures.is_true() {
-        verify_block_signature(&state, &block, block_signed_root, &spec)?;
-    }
-
     Ok(())
 }
 
 /// Verifies the signature of a block.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn verify_block_signature<T: EthSpec>(
     state: &BeaconState<T>,
-    block: &BeaconBlock<T>,
-    block_signed_root: Option<Hash256>,
+    block: &SignedBeaconBlock<T>,
+    block_root: Option<Hash256>,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(
-        block_proposal_signature_set(state, block, block_signed_root, spec)?.is_valid(),
+        block_proposal_signature_set(state, block, block_root, spec)?.is_valid(),
         HeaderInvalid::ProposalSignatureInvalid
     );
 
@@ -185,7 +187,7 @@ pub fn verify_block_signature<T: EthSpec>(
 /// Verifies the `randao_reveal` against the block's proposer pubkey and updates
 /// `state.latest_randao_mixes`.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_randao<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
@@ -208,7 +210,7 @@ pub fn process_randao<T: EthSpec>(
 
 /// Update the `state.eth1_data_votes` based upon the `eth1_data` provided.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_eth1_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     eth1_data: &Eth1Data,
@@ -225,7 +227,7 @@ pub fn process_eth1_data<T: EthSpec>(
 /// Returns `Some(eth1_data)` if adding the given `eth1_data` to `state.eth1_data_votes` would
 /// result in a change to `state.eth1_data`.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn get_new_eth1_data<T: EthSpec>(
     state: &BeaconState<T>,
     eth1_data: &Eth1Data,
@@ -249,7 +251,7 @@ pub fn get_new_eth1_data<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_proposer_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     proposer_slashings: &[ProposerSlashing],
@@ -278,7 +280,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_attester_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     attester_slashings: &[AttesterSlashing<T>],
@@ -332,7 +334,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_attestations<T: EthSpec>(
     state: &mut BeaconState<T>,
     attestations: &[Attestation<T>],
@@ -378,7 +380,7 @@ pub fn process_attestations<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_deposits<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposits: &[Deposit],
@@ -415,7 +417,7 @@ pub fn process_deposits<T: EthSpec>(
 
 /// Process a single deposit, optionally verifying its merkle proof.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_deposit<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposit: &Deposit,
@@ -481,10 +483,10 @@ pub fn process_deposit<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_exits<T: EthSpec>(
     state: &mut BeaconState<T>,
-    voluntary_exits: &[VoluntaryExit],
+    voluntary_exits: &[SignedVoluntaryExit],
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -498,7 +500,7 @@ pub fn process_exits<T: EthSpec>(
 
     // Update the state in series.
     for exit in voluntary_exits {
-        initiate_validator_exit(state, exit.validator_index as usize, spec)?;
+        initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }
 
     Ok(())

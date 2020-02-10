@@ -152,8 +152,8 @@ lazy_static! {
     /*
      * Eth1
      */
-    pub static ref JUNK_ETH1_VOTES: Result<IntCounter> =
-        try_create_int_counter("beacon_eth1_junk_votes", "Count of times we have voted junk for eth1 dat");
+    pub static ref DEFAULT_ETH1_VOTES: Result<IntCounter> =
+        try_create_int_counter("beacon_eth1_default_votes", "Count of times we have voted default value for eth1 data");
 
     /*
      * Chain Head

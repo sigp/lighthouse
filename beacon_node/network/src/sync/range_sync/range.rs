@@ -52,7 +52,7 @@ use slog::{debug, error, trace, warn};
 use std::collections::HashSet;
 use std::sync::Weak;
 use tokio::sync::mpsc;
-use types::{BeaconBlock, EthSpec};
+use types::{EthSpec, SignedBeaconBlock};
 
 /// The primary object dealing with long range/batch syncing. This contains all the active and
 /// non-active chains that need to be processed before the syncing is considered complete. This
@@ -231,7 +231,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         network: &mut SyncNetworkContext,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<BeaconBlock<T::EthSpec>>,
+        beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) {
         // Find the request. Most likely the first finalized chain (the syncing chain). If there
         // are no finalized chains, then it will be a head chain. At most, there should only be

@@ -144,7 +144,7 @@ impl ValidatorStatuses {
     /// - Active validators
     /// - Total balances for the current and previous epochs.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -184,7 +184,7 @@ impl ValidatorStatuses {
     /// Process some attestations from the given `state` updating the `statuses` and
     /// `total_balances` fields.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn process_attestations<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
@@ -263,7 +263,7 @@ impl ValidatorStatuses {
 /// Returns `true` if the attestation's FFG target is equal to the hash of the `state`'s first
 /// beacon block in the given `epoch`.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 fn target_matches_epoch_start_block<T: EthSpec>(
     a: &PendingAttestation<T>,
     state: &BeaconState<T>,
@@ -278,7 +278,7 @@ fn target_matches_epoch_start_block<T: EthSpec>(
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
 /// the current slot of the `PendingAttestation`.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 fn has_common_beacon_block_root<T: EthSpec>(
     a: &PendingAttestation<T>,
     state: &BeaconState<T>,

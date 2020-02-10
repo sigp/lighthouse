@@ -6,7 +6,7 @@ use types::*;
 
 /// Initialize a `BeaconState` from genesis data.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 // TODO: this is quite inefficient and we probably want to rethink how we do this
 pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     eth1_block_hash: Hash256,
@@ -15,7 +15,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, BlockProcessingError> {
     let genesis_time =
-        eth1_timestamp - eth1_timestamp % spec.seconds_per_day + 2 * spec.seconds_per_day;
+        eth1_timestamp - eth1_timestamp % spec.min_genesis_delay + 2 * spec.min_genesis_delay;
     let eth1_data = Eth1Data {
         // Temporary deposit root
         deposit_root: Hash256::zero(),
@@ -47,7 +47,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 
 /// Determine whether a candidate genesis state is suitable for starting the chain.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> bool {
     state.genesis_time >= spec.min_genesis_time
         && state.get_active_validator_indices(T::genesis_epoch()).len() as u64
@@ -56,7 +56,7 @@ pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSp
 
 /// Activate genesis validators, if their balance is acceptable.
 ///
-/// Spec v0.8.0
+/// Spec v0.10.1
 pub fn process_activations<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) {
     for (index, validator) in state.validators.iter_mut().enumerate() {
         let balance = state.balances[index];

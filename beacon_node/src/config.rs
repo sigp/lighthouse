@@ -11,7 +11,7 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{Epoch, EthSpec, Fork};
+use types::EthSpec;
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
@@ -377,11 +377,7 @@ fn init_new_client<E: EthSpec>(
     let spec = &mut eth2_config.spec;
 
     // For now, assume that all networks will use the lighthouse genesis fork.
-    spec.genesis_fork = Fork {
-        previous_version: [0, 0, 0, 0],
-        current_version: [1, 3, 3, 7],
-        epoch: Epoch::new(0),
-    };
+    spec.genesis_fork_version = [1, 3, 3, 7];
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
@@ -559,11 +555,7 @@ fn process_testnet_subcommand(
             spec.ejection_balance = 1_600_000_000;
             spec.effective_balance_increment = 100_000_000;
             spec.min_genesis_time = 0;
-            spec.genesis_fork = Fork {
-                previous_version: [0; 4],
-                current_version: [0, 0, 0, 2],
-                epoch: Epoch::new(0),
-            };
+            spec.genesis_fork_version = [0, 0, 0, 2];
 
             client_config.eth1.deposit_contract_address =
                 "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();

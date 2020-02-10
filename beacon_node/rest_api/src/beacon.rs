@@ -10,8 +10,8 @@ use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::Store;
 use types::{
-    BeaconBlock, BeaconState, CommitteeIndex, EthSpec, Hash256, PublicKeyBytes, RelativeEpoch,
-    Slot, Validator,
+    BeaconState, CommitteeIndex, EthSpec, Hash256, PublicKeyBytes, RelativeEpoch,
+    SignedBeaconBlock, Slot, Validator,
 };
 
 /// Information about the block and state that are at head of the beacon chain.
@@ -70,7 +70,7 @@ pub struct HeadBeaconBlock {
     pub beacon_block_slot: Slot,
 }
 
-/// HTTP handler to return a list of head BeaconBlocks.
+/// HTTP handler to return a list of head block roots.
 pub fn get_heads<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
@@ -91,10 +91,10 @@ pub fn get_heads<T: BeaconChainTypes>(
 #[serde(bound = "T: EthSpec")]
 pub struct BlockResponse<T: EthSpec> {
     pub root: Hash256,
-    pub beacon_block: BeaconBlock<T>,
+    pub beacon_block: SignedBeaconBlock<T>,
 }
 
-/// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
+/// HTTP handler to return a `SignedBeaconBlock` at a given `root` or `slot`.
 pub fn get_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
@@ -107,22 +107,22 @@ pub fn get_block<T: BeaconChainTypes>(
             let target = parse_slot(&value)?;
 
             block_root_at_slot(&beacon_chain, target)?.ok_or_else(|| {
-                ApiError::NotFound(format!("Unable to find BeaconBlock for slot {:?}", target))
+                ApiError::NotFound(format!(
+                    "Unable to find SignedBeaconBlock for slot {:?}",
+                    target
+                ))
             })?
         }
         ("root", value) => parse_root(&value)?,
         _ => return Err(ApiError::ServerError("Unexpected query parameter".into())),
     };
 
-    let block = beacon_chain
-        .store
-        .get::<BeaconBlock<T::EthSpec>>(&block_root)?
-        .ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "Unable to find BeaconBlock for root {:?}",
-                block_root
-            ))
-        })?;
+    let block = beacon_chain.store.get_block(&block_root)?.ok_or_else(|| {
+        ApiError::NotFound(format!(
+            "Unable to find SignedBeaconBlock for root {:?}",
+            block_root
+        ))
+    })?;
 
     let response = BlockResponse {
         root: block_root,
@@ -132,7 +132,7 @@ pub fn get_block<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&response)
 }
 
-/// HTTP handler to return a `BeaconBlock` root at a given `slot`.
+/// HTTP handler to return a `SignedBeaconBlock` root at a given `slot`.
 pub fn get_block_root<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
@@ -141,7 +141,10 @@ pub fn get_block_root<T: BeaconChainTypes>(
     let target = parse_slot(&slot_string)?;
 
     let root = block_root_at_slot(&beacon_chain, target)?.ok_or_else(|| {
-        ApiError::NotFound(format!("Unable to find BeaconBlock for slot {:?}", target))
+        ApiError::NotFound(format!(
+            "Unable to find SignedBeaconBlock for slot {:?}",
+            target
+        ))
     })?;
 
     ResponseBuilder::new(&req)?.body(&root)

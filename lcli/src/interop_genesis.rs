@@ -4,7 +4,7 @@ use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::interop_genesis_state;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use types::{test_utils::generate_deterministic_keypairs, Epoch, EthSpec, Fork};
+use types::{test_utils::generate_deterministic_keypairs, EthSpec};
 
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let validator_count = matches
@@ -49,11 +49,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             )
         })?;
 
-    spec.genesis_fork = Fork {
-        previous_version: [0, 0, 0, 0],
-        current_version: [1, 3, 3, 7],
-        epoch: Epoch::new(0),
-    };
+    spec.genesis_fork_version = [1, 3, 3, 7];
 
     let keypairs = generate_deterministic_keypairs(validator_count);
     let genesis_state = interop_genesis_state(&keypairs, genesis_time, &spec)?;

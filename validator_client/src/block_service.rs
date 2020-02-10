@@ -235,15 +235,15 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                 PublishStatus::Valid => info!(
                                     log_1,
                                     "Successfully published block";
-                                    "deposits" => block.body.deposits.len(),
-                                    "attestations" => block.body.attestations.len(),
-                                    "slot" => block.slot.as_u64(),
+                                    "deposits" => block.message.body.deposits.len(),
+                                    "attestations" => block.message.body.attestations.len(),
+                                    "slot" => block.slot().as_u64(),
                                 ),
                                 PublishStatus::Invalid(msg) => crit!(
                                     log_1,
                                     "Published block was invalid";
                                     "message" => msg,
-                                    "slot" => block.slot.as_u64(),
+                                    "slot" => block.slot().as_u64(),
                                 ),
                                 PublishStatus::Unknown => {
                                     crit!(log_1, "Unknown condition when publishing block")
