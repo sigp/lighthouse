@@ -3,7 +3,7 @@ use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use exit_future::Exit;
 use futures::Future;
-use slog::{debug, trace, warn, Logger};
+use slog::{debug, error, trace, Logger};
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::get_new_eth1_data;
 use std::cmp::Ordering;
@@ -317,7 +317,7 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T, S> for CachingEth1Backend<T, S
                 })
                 .unwrap_or_else(|| {
                     let vote = state.eth1_data.clone();
-                    warn!(
+                    error!(
                         self.log,
                         "No valid eth1_data votes, `votes_to_consider` empty";
                         "lowest_block_number" => self.core.lowest_block_number(),
@@ -760,53 +760,6 @@ mod test {
                 "default vote must correspond to last block in candidate blocks"
             );
         }
-
-        /* FIXME(sproul): delete? annoying
-        #[test]
-        fn with_store_lookup() {
-            let spec = &E::default_spec();
-            let store = Arc::new(MemoryStore::open());
-
-            let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
-
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
-            let mut prev_state = state.clone();
-
-            state.slot = Slot::new(period / 2);
-
-            // Add 50% of the votes so a lookup is required.
-            for _ in 0..=period / 2 {
-                state
-                    .eth1_data_votes
-                    .push(Eth1Data::default())
-                    .expect("should push eth1 vote");
-            }
-
-            let expected_root = Hash256::from_low_u64_be(42);
-
-            prev_state.eth1_data.block_hash = expected_root;
-
-            assert!(
-                prev_state.eth1_data != state.eth1_data,
-                "test requires state eth1_data are different"
-            );
-
-            store
-                .put_state(
-                    &state
-                        .get_state_root(Slot::new(0))
-                        .expect("should find state root"),
-                    prev_state,
-                )
-                .expect("should store state");
-
-            assert_eq!(
-                eth1_block_hash_at_start_of_voting_period(store, &state),
-                Ok(expected_root),
-                "should return the eth1_data from the previous state"
-            );
-        }
-        */
     }
 
     mod eth1_data_sets {
