@@ -774,6 +774,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+
+        let target_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let target_root = if state.slot == target_slot {
+            beacon_block_root
+        } else {
+            *state.get_block_root(epoch.start_slot(T::EthSpec::slots_per_epoch()))?
+        };
+
         Ok(Attestation {
             aggregation_bits: BitList::with_capacity(committee_len)?,
             data: AttestationData {
@@ -783,7 +791,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 source: state.current_justified_checkpoint.clone(),
                 target: Checkpoint {
                     epoch,
-                    root: *state.get_block_root(epoch.start_slot(T::EthSpec::slots_per_epoch()))?,
+                    root: target_root,
                 },
             },
             signature: AggregateSignature::new(),
