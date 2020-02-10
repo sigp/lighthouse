@@ -60,7 +60,8 @@ impl<T: BeaconChainTypes> Service<T> {
             libp2p_service.swarm.add_enr(enr);
         }
 
-        // a delay used to initialise code after the network has started
+        // A delay used to initialise code after the network has started
+        // This is currently used to obtain the listening addresses from the libp2p service.
         let initial_delay = Delay::new(Instant::now() + Duration::from_secs(1));
 
         let libp2p_exit = spawn_service::<T>(

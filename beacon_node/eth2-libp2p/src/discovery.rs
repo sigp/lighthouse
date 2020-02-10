@@ -56,7 +56,6 @@ pub struct Discovery<TSubstream> {
     discovery: Discv5<TSubstream>,
 
     /// A collection of network constants that can be read from other threads.
-    /// behaviour.
     network_globals: Arc<NetworkGlobals>,
 
     /// Logger for the discovery behaviour.
