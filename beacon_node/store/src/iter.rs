@@ -343,7 +343,7 @@ mod test {
 
         let state_a_root = hashes.next().unwrap();
         state_b.state_roots[0] = state_a_root;
-        store.put_state(&state_a_root, &state_a).unwrap();
+        store.put_state(&state_a_root, state_a).unwrap();
 
         let iter = BlockRootsIterator::new(store, &state_b);
 
@@ -391,8 +391,8 @@ mod test {
         let state_a_root = Hash256::from_low_u64_be(slots_per_historical_root as u64);
         let state_b_root = Hash256::from_low_u64_be(slots_per_historical_root as u64 * 2);
 
-        store.put_state(&state_a_root, &state_a).unwrap();
-        store.put_state(&state_b_root, &state_b).unwrap();
+        store.put_state(&state_a_root, state_a).unwrap();
+        store.put_state(&state_b_root, state_b.clone()).unwrap();
 
         let iter = StateRootsIterator::new(store, &state_b);
 

@@ -302,7 +302,7 @@ impl CheckpointManager {
             metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
 
             let block = chain
-                .get_block_caching(&block_root)?
+                .get_block(&block_root)?
                 .ok_or_else(|| Error::UnknownJustifiedBlock(block_root))?;
 
             let state = chain

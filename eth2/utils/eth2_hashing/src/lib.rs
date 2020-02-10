@@ -5,7 +5,7 @@
 //! defining it once in this crate makes it easy to replace.
 
 #[cfg(not(target_arch = "wasm32"))]
-use ring::digest::{digest, SHA256};
+use ring::digest::{digest, Context, SHA256};
 
 #[cfg(target_arch = "wasm32")]
 use sha2::{Digest, Sha256};
@@ -27,10 +27,35 @@ pub fn hash(input: &[u8]) -> Vec<u8> {
 }
 
 /// Compute the hash of two slices concatenated.
-pub fn hash_concat(h1: &[u8], h2: &[u8]) -> Vec<u8> {
-    let mut vec1 = h1.to_vec();
-    vec1.extend_from_slice(h2);
-    hash(&vec1)
+///
+/// # Panics
+///
+/// Will panic if either `h1` or `h2` are not 32 bytes in length.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn hash32_concat(h1: &[u8], h2: &[u8]) -> [u8; 32] {
+    let mut context = Context::new(&SHA256);
+    context.update(h1);
+    context.update(h2);
+
+    let mut output = [0; 32];
+    output[..].copy_from_slice(context.finish().as_ref());
+    output
+}
+
+/// Compute the hash of two slices concatenated.
+///
+/// # Panics
+///
+/// Will panic if either `h1` or `h2` are not 32 bytes in length.
+#[cfg(target_arch = "wasm32")]
+pub fn hash32_concat(h1: &[u8], h2: &[u8]) -> [u8; 32] {
+    let mut preimage = [0; 64];
+    preimage[0..32].copy_from_slice(h1);
+    preimage[32..64].copy_from_slice(h2);
+
+    let mut output = [0; 32];
+    output[..].copy_from_slice(&hash(&preimage));
+    output
 }
 
 /// The max index that can be used with `ZERO_HASHES`.
@@ -44,7 +69,7 @@ lazy_static! {
         let mut hashes = vec![vec![0; 32]; ZERO_HASHES_MAX_INDEX + 1];
 
         for i in 0..ZERO_HASHES_MAX_INDEX {
-            hashes[i + 1] = hash_concat(&hashes[i], &hashes[i]);
+            hashes[i + 1] = hash32_concat(&hashes[i], &hashes[i])[..].to_vec();
         }
 
         hashes

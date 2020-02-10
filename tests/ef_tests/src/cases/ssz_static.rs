@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::SszStaticType;
 use crate::decode::yaml_decode_file;
-use cached_tree_hash::CachedTreeHash;
+use cached_tree_hash::{CacheArena, CachedTreeHash};
 use serde_derive::Deserialize;
 use std::fs;
 use std::marker::PhantomData;
@@ -126,8 +126,12 @@ impl<T: SszStaticType + CachedTreeHash<C>, C: Debug + Sync> Case for SszStaticTH
         check_serialization(&self.value, &self.serialized)?;
         check_tree_hash(&self.roots.root, &self.value.tree_hash_root())?;
 
-        let mut cache = T::new_tree_hash_cache();
-        let cached_tree_hash_root = self.value.recalculate_tree_hash_root(&mut cache).unwrap();
+        let arena = &mut CacheArena::default();
+        let mut cache = self.value.new_tree_hash_cache(arena);
+        let cached_tree_hash_root = self
+            .value
+            .recalculate_tree_hash_root(arena, &mut cache)
+            .unwrap();
         check_tree_hash(&self.roots.root, cached_tree_hash_root.as_bytes())?;
 
         Ok(())

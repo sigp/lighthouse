@@ -2,7 +2,7 @@ use crate::*;
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
-use types::beacon_state::{CommitteeCache, CACHED_EPOCHS};
+use types::beacon_state::{CloneConfig, CommitteeCache, CACHED_EPOCHS};
 
 pub fn store_full_state<S: Store<E>, E: EthSpec>(
     store: &S,
@@ -58,7 +58,7 @@ impl<T: EthSpec> StorageContainer<T> {
     /// Create a new instance for storing a `BeaconState`.
     pub fn new(state: &BeaconState<T>) -> Self {
         Self {
-            state: state.clone_without_caches(),
+            state: state.clone_with(CloneConfig::none()),
             committee_caches: state.committee_caches.to_vec(),
         }
     }
