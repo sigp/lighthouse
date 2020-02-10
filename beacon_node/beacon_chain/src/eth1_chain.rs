@@ -744,6 +744,7 @@ mod test {
                     .insert_root_or_child(block.clone())
                     .expect("should add blocks to cache");
             });
+
             let vote = eth1_chain
                 .eth1_data_for_block_production(&state, &spec)
                 .expect("should produce default eth1 data vote");
@@ -795,7 +796,7 @@ mod test {
                     &state
                         .get_state_root(Slot::new(0))
                         .expect("should find state root"),
-                    &prev_state,
+                    prev_state,
                 )
                 .expect("should store state");
 

@@ -1,5 +1,4 @@
 use crate::checkpoint::CheckPoint;
-use crate::checkpoint_cache::CheckPointCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
@@ -23,7 +22,6 @@ use state_processing::{
     signature_sets::indexed_attestation_signature_set_from_pubkeys, BlockProcessingError,
     BlockSignatureStrategy,
 };
-use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fs;
 use std::io::prelude::*;
@@ -32,7 +30,7 @@ use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
 };
-use store::{Error as DBError, Migrate, Store};
+use store::{Error as DBError, Migrate, StateBatch, Store};
 use tree_hash::TreeHash;
 use types::*;
 
@@ -174,7 +172,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: HeadTracker,
     /// Provides a small cache of `BeaconState` and `BeaconBlock`.
-    pub(crate) checkpoint_cache: CheckPointCache<T::EthSpec>,
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// Logging to CLI, etc.
@@ -198,7 +195,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
             let beacon_state_root = beacon_block.state_root();
             let beacon_state = self
-                .get_state_caching(&beacon_state_root, Some(beacon_block.slot()))?
+                .get_state(&beacon_state_root, Some(beacon_block.slot()))?
                 .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
 
             CheckPoint {
@@ -299,14 +296,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
     ) -> Result<ReverseBlockRootIterator<T::EthSpec, T::Store>, Error> {
         let block = self
-            .get_block_caching(&block_root)?
+            .get_block(&block_root)?
             .ok_or_else(|| Error::MissingBeaconBlock(block_root))?;
         let state = self
-            .get_state_caching(&block.state_root, Some(block.slot))?
-            .ok_or_else(|| Error::MissingBeaconState(block.state_root))?;
+            .get_state(&block.state_root(), Some(block.slot()))?
+            .ok_or_else(|| Error::MissingBeaconState(block.state_root()))?;
         let iter = BlockRootsIterator::owned(self.store.clone(), state);
         Ok(ReverseBlockRootIterator::new(
-            (block_root, block.slot),
+            (block_root, block.slot()),
             iter,
         ))
     }
@@ -392,54 +389,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get_state(state_root, slot)?)
     }
 
-    /// Returns the signed block at the given root, if any.
-    ///
-    /// ## Errors
-    ///
-    /// May return a database error.
-    pub fn get_signed_block_caching(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
-        if let Some(block) = self.checkpoint_cache.get_block(block_root) {
-            Ok(Some(block))
-        } else {
-            Ok(self.store.get(block_root)?)
-        }
-    }
-
-    /// Returns the unsigned block at the given root, if any.
-    pub fn get_block_caching(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<BeaconBlock<T::EthSpec>>, Error> {
-        Ok(self
-            .get_signed_block_caching(block_root)?
-            .map(|block| block.message))
-    }
-
-    /// Returns the state at the given root, if any.
-    ///
-    /// ## Errors
-    ///
-    /// May return a database error.
-    pub fn get_state_caching(
-        &self,
-        state_root: &Hash256,
-        slot: Option<Slot>,
-    ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
-        if let Some(state) = self.checkpoint_cache.get_state(state_root) {
-            Ok(Some(state))
-        } else {
-            Ok(self.store.get_state(state_root, slot)?)
-        }
-    }
-
     /// Returns the state at the given root, if any.
     ///
     /// The return state does not contain any caches other than the committee caches. This method
-    /// is much faster than `Self::get_state_caching` because it does not clone the tree hash cache
-    /// when the state is found in the checkpoint cache.
+    /// is much faster than `Self::get_state` because it does not clone the tree hash cache
+    /// when the state is found in the cache.
     ///
     /// ## Errors
     ///
@@ -449,14 +403,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
-        if let Some(state) = self
-            .checkpoint_cache
-            .get_state_only_with_committee_cache(state_root)
-        {
-            Ok(Some(state))
-        } else {
-            Ok(self.store.get_state(state_root, slot)?)
-        }
+        Ok(self.store.get_state_with(
+            state_root,
+            slot,
+            types::beacon_state::CloneConfig::committee_caches_only(),
+        )?)
     }
 
     /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";
@@ -562,7 +513,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or_else(|| Error::NoStateForSlot(slot))?;
 
                 Ok(self
-                    .get_state_caching(&state_root, Some(slot))?
+                    .get_state(&state_root, Some(slot))?
                     .ok_or_else(|| Error::NoStateForSlot(slot))?)
             }
         }
@@ -1290,7 +1241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
-        let parent_block = match self.get_block_caching(&block.parent_root)? {
+        let parent_block = match self.get_block(&block.parent_root)? {
             Some(block) => block,
             None => {
                 return Ok(BlockProcessingOutcome::ParentUnknown {
@@ -1302,9 +1253,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Load the parent blocks state from the database, returning an error if it is not found.
         // It is an error because if we know the parent block we should also know the parent state.
-        let parent_state_root = parent_block.state_root;
+        let parent_state_root = parent_block.state_root();
         let parent_state = self
-            .get_state_caching(&parent_state_root, Some(parent_block.slot))?
+            .get_state(&parent_state_root, Some(parent_block.slot()))?
             .ok_or_else(|| {
                 Error::DBInconsistent(format!("Missing state {:?}", parent_state_root))
             })?;
@@ -1315,25 +1266,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
-        // Keep a list of any states that were "skipped" (block-less) in between the parent state
-        // slot and the block slot. These will need to be stored in the database.
-        let mut intermediate_states = vec![];
+        // Keep a batch of any states that were "skipped" (block-less) in between the parent state
+        // slot and the block slot. These will be stored in the database.
+        let mut intermediate_states = StateBatch::new();
 
         // Transition the parent state to the block slot.
         let mut state: BeaconState<T::EthSpec> = parent_state;
         let distance = block.slot.as_u64().saturating_sub(state.slot.as_u64());
         for i in 0..distance {
-            if i > 0 {
-                intermediate_states.push(state.clone());
-            }
-
             let state_root = if i == 0 {
-                Some(parent_block.state_root)
+                parent_block.state_root()
             } else {
-                None
+                // This is a new state we've reached, so stage it for storage in the DB.
+                // Computing the state root here is time-equivalent to computing it during slot
+                // processing, but we get early access to it.
+                let state_root = state.update_tree_hash_cache()?;
+                intermediate_states.add_state(state_root, &state)?;
+                state_root
             };
 
-            per_slot_processing(&mut state, state_root, &self.spec)?;
+            per_slot_processing(&mut state, Some(state_root), &self.spec)?;
         }
 
         metrics::stop_timer(catchup_timer);
@@ -1409,7 +1361,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if state.current_epoch() + 1 >= self.epoch()? {
             // If the parent was in a previous epoch then this state must contain some new
             // shuffling that may be of use to the shuffling cache.
-            if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch() {
+            if parent_block.slot().epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch() {
                 let mut shuffling_cache = self
                     .shuffling_cache
                     .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
@@ -1445,23 +1397,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(fork_choice_register_timer);
 
+        self.head_tracker.register_block(block_root, &block);
+        metrics::observe(
+            &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
+            block.body.attestations.len() as f64,
+        );
+
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
-        // Store all the states between the parent block state and this blocks slot before storing
+        // Store all the states between the parent block state and this block's slot before storing
         // the final state.
-        for (i, intermediate_state) in intermediate_states.iter().enumerate() {
-            // To avoid doing an unnecessary tree hash, use the following (slot + 1) state's
-            // state_roots field to find the root.
-            let following_state = match intermediate_states.get(i + 1) {
-                Some(following_state) => following_state,
-                None => &state,
-            };
-            let intermediate_state_root =
-                following_state.get_state_root(intermediate_state.slot)?;
-
-            self.store
-                .put_state(&intermediate_state_root, intermediate_state)?;
-        }
+        intermediate_states.commit(&*self.store)?;
 
         // Store the block and state.
         // NOTE: we store the block *after* the state to guard against inconsistency in the event of
@@ -1469,29 +1415,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // solution would be to use a database transaction (once our choice of database and API
         // settles down).
         // See: https://github.com/sigp/lighthouse/issues/692
-        self.store.put_state(&state_root, &state)?;
-        self.store.put(&block_root, &signed_block)?;
+        self.store.put_state(&state_root, state)?;
+        self.store.put_block(&block_root, signed_block)?;
 
         metrics::stop_timer(db_write_timer);
 
-        self.head_tracker.register_block(block_root, &block);
-
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
-        metrics::observe(
-            &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
-            block.body.attestations.len() as f64,
-        );
-
-        // Store the block in the checkpoint cache.
-        //
-        // A block that was just imported is likely to be referenced by the next block that we
-        // import.
-        self.checkpoint_cache.insert(Cow::Owned(CheckPoint {
-            beacon_block_root: block_root,
-            beacon_block: signed_block,
-            beacon_state_root: state_root,
-            beacon_state: state,
-        }));
 
         metrics::stop_timer(full_timer);
 
@@ -1630,12 +1559,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
             let beacon_block = self
-                .get_signed_block_caching(&beacon_block_root)?
+                .get_block(&beacon_block_root)?
                 .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
 
             let beacon_state_root = beacon_block.state_root();
             let beacon_state: BeaconState<T::EthSpec> = self
-                .get_state_caching(&beacon_state_root, Some(beacon_block.slot()))?
+                .get_state(&beacon_state_root, Some(beacon_block.slot()))?
                 .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
 
             let previous_slot = self.head_info()?.slot;
@@ -1703,11 +1632,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 new_head.beacon_state.build_all_caches(&self.spec)?;
 
                 let timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
-
-                // Store the head in the checkpoint cache.
-                //
-                // The head block is likely to be referenced by the next imported block.
-                self.checkpoint_cache.insert(Cow::Borrowed(&new_head));
 
                 // Update the checkpoint that stores the head of the chain at the time it received the
                 // block.

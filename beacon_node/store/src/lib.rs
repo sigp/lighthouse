@@ -21,6 +21,7 @@ mod leveldb_store;
 mod memory_store;
 mod metrics;
 mod partial_beacon_state;
+mod state_batch;
 
 pub mod iter;
 pub mod migrate;
@@ -28,7 +29,7 @@ pub mod migrate;
 use std::sync::Arc;
 
 pub use self::config::StoreConfig;
-pub use self::hot_cold_store::HotColdDB as DiskStore;
+pub use self::hot_cold_store::{HotColdDB as DiskStore, HotStateSummary};
 pub use self::leveldb_store::LevelDB as SimpleDiskStore;
 pub use self::memory_store::MemoryStore;
 pub use self::migrate::Migrate;
@@ -36,6 +37,8 @@ pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metrics::scrape_for_metrics;
+pub use state_batch::StateBatch;
+pub use types::beacon_state::CloneConfig;
 pub use types::*;
 
 /// An object capable of storing and retrieving objects implementing `StoreItem`.
@@ -78,12 +81,28 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         I::db_delete(self, key)
     }
 
-    /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
+    /// Store a block in the store.
+    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
+        self.put(block_root, &block)
+    }
 
     /// Fetch a block from the store.
     fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
         self.get(block_root)
+    }
+
+    /// Store a state in the store.
+    fn put_state(&self, state_root: &Hash256, state: BeaconState<E>) -> Result<(), Error>;
+
+    /// Store a state summary in the store.
+    // NOTE: this is a hack for the HotColdDb, we could consider splitting this
+    // trait and removing the generic `S: Store` types everywhere?
+    fn put_state_summary(
+        &self,
+        state_root: &Hash256,
+        summary: HotStateSummary,
+    ) -> Result<(), Error> {
+        summary.db_put(self, state_root).map_err(Into::into)
     }
 
     /// Fetch a state from the store.
@@ -92,6 +111,17 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error>;
+
+    /// Fetch a state from the store, controlling which cache fields are cloned.
+    fn get_state_with(
+        &self,
+        state_root: &Hash256,
+        slot: Option<Slot>,
+        _clone_config: CloneConfig,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        // Default impl ignores config. Overriden in `HotColdDb`.
+        self.get_state(state_root, slot)
+    }
 
     /// (Optionally) Move all data before the frozen slot to the freezer database.
     fn freeze_to_state(
@@ -306,13 +336,12 @@ mod tests {
 
         let hot_dir = tempdir().unwrap();
         let cold_dir = tempdir().unwrap();
-        let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
         let spec = MinimalEthSpec::default_spec();
         let log = NullLoggerBuilder.build().unwrap();
         let store = DiskStore::open(
             &hot_dir.path(),
             &cold_dir.path(),
-            slots_per_restore_point,
+            StoreConfig::default(),
             spec,
             log,
         )

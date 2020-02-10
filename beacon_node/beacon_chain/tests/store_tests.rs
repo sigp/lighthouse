@@ -10,7 +10,7 @@ use beacon_chain::AttestationProcessingOutcome;
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
-use store::{DiskStore, Store};
+use store::{DiskStore, Store, StoreConfig};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::test_utils::{SeedableRng, XorShiftRng};
@@ -31,10 +31,10 @@ fn get_store(db_path: &TempDir) -> Arc<DiskStore<E>> {
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
-    let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
+    let config = StoreConfig::default();
     let log = NullLoggerBuilder.build().expect("logger should build");
     Arc::new(
-        DiskStore::open(&hot_path, &cold_path, slots_per_restore_point, spec, log)
+        DiskStore::open(&hot_path, &cold_path, config, spec, log)
             .expect("disk store should initialize"),
     )
 }
