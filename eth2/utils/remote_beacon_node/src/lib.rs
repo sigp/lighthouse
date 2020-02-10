@@ -178,7 +178,7 @@ impl PublishStatus {
     }
 }
 
-/// Provides the functions on the `/beacon` endpoint of the node.
+/// Provides the functions on the `/validator` endpoint of the node.
 #[derive(Clone)]
 pub struct Validator<E>(HttpClient<E>);
 

@@ -16,7 +16,7 @@ pub use types::Slot;
 ///
 /// The clock is not required to be monotonically increasing and may go backwards.
 pub trait SlotClock: Send + Sync + Sized {
-    /// Creates a new slot clock where the first slot is `genesis_slot`, genesis occured
+    /// Creates a new slot clock where the first slot is `genesis_slot`, genesis occurred
     /// `genesis_duration` after the `UNIX_EPOCH` and each slot is `slot_duration` apart.
     fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self;
 

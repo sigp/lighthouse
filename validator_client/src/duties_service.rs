@@ -23,7 +23,7 @@ const PRUNE_DEPTH: u64 = 4;
 type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, ValidatorDuty>>;
 
 /// Stores the duties for some validator for an epoch.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct ValidatorDuty {
     /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
     pub validator_pubkey: PublicKey,
@@ -35,6 +35,20 @@ pub struct ValidatorDuty {
     pub attestation_committee_position: Option<usize>,
     /// The slots in which a validator must propose a block (can be empty).
     pub block_proposal_slots: Vec<Slot>,
+    /// Flag indicating if this duty has been subscribed to the beacon node.
+    pub subscribed: bool,
+}
+
+// This is manually implemented to ensure validator duties are considered the identical,
+// regardless of whether they have been subscribed to or not.
+impl PartialEq for ValidatorDuty {
+    fn eq(&self, other: &Self) -> bool {
+        self.validator_pubkey == other.validator_pubkey
+            && self.attestation_slot == other.attestation_slot
+            && self.attestation_committee_index == other.attestation_committee_index
+            && self.attestation_committee_position == other.attestation_committee_position
+            && self.block_proposal_slots == other.block_proposal_slots
+    }
 }
 
 impl TryInto<ValidatorDuty> for remote_beacon_node::ValidatorDuty {
@@ -49,6 +63,7 @@ impl TryInto<ValidatorDuty> for remote_beacon_node::ValidatorDuty {
             attestation_committee_index: self.attestation_committee_index,
             attestation_committee_position: self.attestation_committee_position,
             block_proposal_slots: self.block_proposal_slots,
+            subscribed: false,
         })
     }
 }
@@ -120,6 +135,42 @@ impl DutiesStore {
                 })
             })
             .collect()
+    }
+
+    /// Gets a list of validator duties for an epoch that have not yet been subscribed
+    /// to the beacon node.
+    // Note: Potentially we should modify the data structure to store the unsubscribed epoch duties for validator clients with a large number of validators. This currently adds an O(N) search each slot.
+    fn unsubscribed_epoch_duties(&self, epoch: &Epoch) -> Vec<ValidatorDuty> {
+        self.store
+            .read()
+            .iter()
+            .filter_map(|(_validator_pubkey, validator_map)| {
+                validator_map.get(epoch).and_then(|duties| {
+                    if !duties.subscribed {
+                        Some(duties)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Marks a duty as being subscribed to the beacon node. This is called by the attestation
+    /// service once it has been sent.
+    fn subscribe_duty(&self, validator: &PublicKey, slot: Slot, slots_per_epoch: u64) {
+        let epoch = slot.epoch(slots_per_epoch);
+
+        let mut store = self.store.write();
+        if let Some(map) = store.get_mut(validator) {
+            if let Some(duty) = map.get_mut(&epoch) {
+                if duty.attestation_slot == Some(slot) {
+                    // mark the duty as subscribed
+                    duty.subscribed = true;
+                }
+            }
+        }
     }
 
     fn attesters(&self, slot: Slot, slots_per_epoch: u64) -> Vec<ValidatorDuty> {
@@ -317,6 +368,17 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     /// Returns all `ValidatorDuty` for the given `slot`.
     pub fn attesters(&self, slot: Slot) -> Vec<ValidatorDuty> {
         self.store.attesters(slot, E::slots_per_epoch())
+    }
+
+    /// Returns all `ValidatorDuty` that have not been registered with the beacon node.
+    pub fn unsubscribed_epoch_duties(&self, epoch: &Epoch) -> Vec<ValidatorDuty> {
+        self.store.unsubscribed_epoch_duties(epoch)
+    }
+
+    /// Marks the duty as being subscribed to the beacon node.
+    pub fn subscribe_duty(&mut self, validator: &PublicKey, slot: Slot) {
+        self.store
+            .subscribe_duty(validator, slot, E::slots_per_epoch())
     }
 
     /// Start the service that periodically polls the beacon node for validator duties.
