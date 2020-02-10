@@ -16,10 +16,9 @@ use store::{
     migrate::{BlockingMigrator, NullMigrator},
     DiskStore, MemoryStore, Migrate, Store,
 };
-use tree_hash::{SignedRoot, TreeHash};
 use types::{
-    AggregateSignature, Attestation, BeaconBlock, BeaconState, BitList, ChainSpec, Domain, EthSpec,
-    Hash256, Keypair, SecretKey, Signature, Slot,
+    AggregateSignature, Attestation, BeaconState, BitList, ChainSpec, Domain, EthSpec, Hash256,
+    Keypair, SecretKey, Signature, SignedBeaconBlock, SignedRoot, Slot,
 };
 
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
@@ -279,7 +278,7 @@ where
         mut state: BeaconState<E>,
         slot: Slot,
         block_strategy: BlockStrategy,
-    ) -> (BeaconBlock<E>, BeaconState<E>) {
+    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         if slot < state.slot {
             panic!("produce slot cannot be prior to the state slot");
         }
@@ -308,24 +307,19 @@ where
 
         let randao_reveal = {
             let epoch = slot.epoch(E::slots_per_epoch());
-            let message = epoch.tree_hash_root();
             let domain = self.spec.get_domain(epoch, Domain::Randao, fork);
-            Signature::new(&message, domain, sk)
+            let message = epoch.signing_root(domain);
+            Signature::new(message.as_bytes(), sk)
         };
 
-        let (mut block, state) = self
+        let (block, state) = self
             .chain
             .produce_block_on_state(state, slot, randao_reveal)
             .expect("should produce block");
 
-        block.signature = {
-            let message = block.signed_root();
-            let epoch = block.slot.epoch(E::slots_per_epoch());
-            let domain = self.spec.get_domain(epoch, Domain::BeaconProposer, fork);
-            Signature::new(&message, domain, sk)
-        };
+        let signed_block = block.sign(sk, &state.fork, &self.spec);
 
-        (block, state)
+        (signed_block, state)
     }
 
     /// Adds attestations to the `BeaconChain` operations pool and fork choice.
@@ -407,18 +401,17 @@ where
                                 .expect("should be able to set aggregation bits");
 
                             let signature = {
-                                let message = data.tree_hash_root();
-
                                 let domain = spec.get_domain(
                                     data.target.epoch,
                                     Domain::BeaconAttester,
                                     fork,
                                 );
 
+                                let message = data.signing_root(domain);
+
                                 let mut agg_sig = AggregateSignature::new();
                                 agg_sig.add(&Signature::new(
-                                    &message,
-                                    domain,
+                                    message.as_bytes(),
                                     self.get_sk(*validator_index),
                                 ));
 
@@ -464,7 +457,7 @@ where
             .head()
             .expect("should get head")
             .beacon_block
-            .slot;
+            .slot();
 
         // Move to the next slot so we may produce some more blocks on the head.
         self.advance_slot();

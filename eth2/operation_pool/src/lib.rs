@@ -22,7 +22,7 @@ use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    EthSpec, ProposerSlashing, RelativeEpoch, Validator, VoluntaryExit,
+    EthSpec, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit, Validator,
 };
 
 #[derive(Default, Debug)]
@@ -34,7 +34,7 @@ pub struct OperationPool<T: EthSpec + Default> {
     /// Map from proposer index to slashing.
     proposer_slashings: RwLock<HashMap<u64, ProposerSlashing>>,
     /// Map from exiting validator to their exit data.
-    voluntary_exits: RwLock<HashMap<u64, VoluntaryExit>>,
+    voluntary_exits: RwLock<HashMap<u64, SignedVoluntaryExit>>,
     _phantom: PhantomData<T>,
 }
 
@@ -297,14 +297,14 @@ impl<T: EthSpec> OperationPool<T> {
     /// Insert a voluntary exit, validating it almost-entirely (future exits are permitted).
     pub fn insert_voluntary_exit(
         &self,
-        exit: VoluntaryExit,
+        exit: SignedVoluntaryExit,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), ExitValidationError> {
         verify_exit_time_independent_only(state, &exit, VerifySignatures::True, spec)?;
         self.voluntary_exits
             .write()
-            .insert(exit.validator_index, exit);
+            .insert(exit.message.validator_index, exit);
         Ok(())
     }
 
@@ -313,7 +313,7 @@ impl<T: EthSpec> OperationPool<T> {
         &self,
         state: &BeaconState<T>,
         spec: &ChainSpec,
-    ) -> Vec<VoluntaryExit> {
+    ) -> Vec<SignedVoluntaryExit> {
         filter_limit_operations(
             self.voluntary_exits.read().values(),
             |exit| verify_exit(state, exit, VerifySignatures::False, spec).is_ok(),

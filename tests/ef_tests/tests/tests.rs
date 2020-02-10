@@ -1,7 +1,30 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
+use std::path::PathBuf;
 use types::*;
+
+// Check that the config from the Eth2.0 spec tests matches our minimal/mainnet config.
+fn config_test<E: EthSpec + TypeName>() {
+    let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("eth2.0-spec-tests")
+        .join("tests")
+        .join(E::name())
+        .join("config.yaml");
+    let yaml_config = YamlConfig::from_file(&config_path).expect("config file loads OK");
+    let spec = E::default_spec();
+    assert_eq!(yaml_config.apply_to_chain_spec::<E>(&spec), Some(spec));
+}
+
+#[test]
+fn mainnet_config_ok() {
+    config_test::<MainnetEthSpec>();
+}
+
+#[test]
+fn minimal_config_ok() {
+    config_test::<MinimalEthSpec>();
+}
 
 #[test]
 fn shuffling() {
@@ -17,8 +40,8 @@ fn operations_deposit() {
 
 #[test]
 fn operations_exit() {
-    OperationsHandler::<MinimalEthSpec, VoluntaryExit>::run();
-    OperationsHandler::<MainnetEthSpec, VoluntaryExit>::run();
+    OperationsHandler::<MinimalEthSpec, SignedVoluntaryExit>::run();
+    OperationsHandler::<MainnetEthSpec, SignedVoluntaryExit>::run();
 }
 
 #[test]
@@ -59,41 +82,37 @@ fn sanity_slots() {
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
-fn bls_aggregate_pubkeys() {
-    BlsAggregatePubkeysHandler::run();
-}
-
-#[test]
-#[cfg(not(feature = "fake_crypto"))]
-fn bls_aggregate_sigs() {
+fn bls_aggregate() {
     BlsAggregateSigsHandler::run();
 }
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
-fn bls_msg_hash_g2_compressed() {
-    BlsG2CompressedHandler::run();
-}
-
-#[test]
-#[cfg(not(feature = "fake_crypto"))]
-fn bls_priv_to_pub() {
-    BlsPrivToPubHandler::run();
-}
-
-#[test]
-#[cfg(not(feature = "fake_crypto"))]
-fn bls_sign_msg() {
+fn bls_sign() {
     BlsSignMsgHandler::run();
+}
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn bls_verify() {
+    BlsVerifyMsgHandler::run();
+}
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn bls_aggregate_verify() {
+    BlsAggregateVerifyHandler::run();
+}
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn bls_fast_aggregate_verify() {
+    BlsFastAggregateVerifyHandler::run();
 }
 
 #[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test {
-    // Signed-root
-    ($test_name:ident, $typ:ident$(<$generics:tt>)?, SR) => {
-        ssz_static_test!($test_name, SszStaticSRHandler, $typ$(<$generics>)?);
-    };
-    // Non-signed root, non-tree hash caching
+    // Non-tree hash caching
     ($test_name:ident, $typ:ident$(<$generics:tt>)?) => {
         ssz_static_test!($test_name, SszStaticHandler, $typ$(<$generics>)?);
     };
@@ -128,15 +147,15 @@ macro_rules! ssz_static_test {
 
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
-    use ef_tests::{Handler, SszStaticHandler, SszStaticSRHandler, SszStaticTHCHandler};
+    use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler};
     use types::*;
 
-    ssz_static_test!(attestation, Attestation<_>, SR);
+    ssz_static_test!(attestation, Attestation<_>);
     ssz_static_test!(attestation_data, AttestationData);
     ssz_static_test!(attester_slashing, AttesterSlashing<_>);
-    ssz_static_test!(beacon_block, BeaconBlock<_>, SR);
+    ssz_static_test!(beacon_block, BeaconBlock<_>);
     ssz_static_test!(beacon_block_body, BeaconBlockBody<_>);
-    ssz_static_test!(beacon_block_header, BeaconBlockHeader, SR);
+    ssz_static_test!(beacon_block_header, BeaconBlockHeader);
     ssz_static_test!(
         beacon_state,
         SszStaticTHCHandler, {
@@ -146,17 +165,18 @@ mod ssz_static {
     );
     ssz_static_test!(checkpoint, Checkpoint);
     ssz_static_test!(deposit, Deposit);
-    ssz_static_test!(deposit_data, DepositData, SR);
+    ssz_static_test!(deposit_data, DepositData);
     ssz_static_test!(eth1_data, Eth1Data);
     ssz_static_test!(fork, Fork);
     ssz_static_test!(historical_batch, HistoricalBatch<_>);
-    ssz_static_test!(indexed_attestation, IndexedAttestation<_>, SR);
+    ssz_static_test!(indexed_attestation, IndexedAttestation<_>);
     ssz_static_test!(pending_attestation, PendingAttestation<_>);
     ssz_static_test!(proposer_slashing, ProposerSlashing);
     ssz_static_test!(validator, Validator);
-    ssz_static_test!(voluntary_exit, VoluntaryExit, SR);
+    ssz_static_test!(voluntary_exit, VoluntaryExit);
 }
 
+/* NOTE: SSZ generic tests disabled, missing from v0.10.0
 #[test]
 fn ssz_generic() {
     SszGenericHandler::<BasicVector>::run();
@@ -166,6 +186,7 @@ fn ssz_generic() {
     SszGenericHandler::<Uints>::run();
     SszGenericHandler::<Containers>::run();
 }
+*/
 
 #[test]
 fn epoch_processing_justification_and_finalization() {

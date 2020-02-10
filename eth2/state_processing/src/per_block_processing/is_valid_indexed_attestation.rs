@@ -11,7 +11,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 
 /// Verify an `IndexedAttestation`.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn is_valid_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation<T>,
@@ -26,14 +26,13 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
         Invalid::MaxIndicesExceed(T::MaxValidatorsPerCommittee::to_usize(), indices.len())
     );
 
-    // Check that indices are sorted
+    // Check that indices are sorted and unique
     let check_sorted = |list: &[u64]| -> Result<()> {
         list.windows(2).enumerate().try_for_each(|(i, pair)| {
-            // The spec allows duplicates, so use strict comparison (>).
-            if pair[0] > pair[1] {
-                Err(error(Invalid::BadValidatorIndicesOrdering(i)))
-            } else {
+            if pair[0] < pair[1] {
                 Ok(())
+            } else {
+                Err(error(Invalid::BadValidatorIndicesOrdering(i)))
             }
         })?;
         Ok(())

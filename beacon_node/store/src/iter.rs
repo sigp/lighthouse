@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{
-    typenum::Unsigned, BeaconBlock, BeaconState, BeaconStateError, EthSpec, Hash256, Slot,
+    typenum::Unsigned, BeaconState, BeaconStateError, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// Implemented for types that have ancestors (e.g., blocks, states) that may be iterated over.
@@ -18,12 +18,14 @@ pub trait AncestorIter<U: Store<E>, E: EthSpec, I: Iterator> {
 }
 
 impl<'a, U: Store<E>, E: EthSpec> AncestorIter<U, E, BlockRootsIterator<'a, E, U>>
-    for BeaconBlock<E>
+    for SignedBeaconBlock<E>
 {
     /// Iterates across all available prior block roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(&self, store: Arc<U>) -> Option<BlockRootsIterator<'a, E, U>> {
-        let state = store.get_state(&self.state_root, Some(self.slot)).ok()??;
+        let state = store
+            .get_state(&self.message.state_root, Some(self.message.slot))
+            .ok()??;
 
         Some(BlockRootsIterator::owned(store, state))
     }
@@ -120,7 +122,7 @@ impl<'a, E: EthSpec, S: Store<E>> ParentRootBlockIterator<'a, E, S> {
 }
 
 impl<'a, E: EthSpec, S: Store<E>> Iterator for ParentRootBlockIterator<'a, E, S> {
-    type Item = (Hash256, BeaconBlock<E>);
+    type Item = (Hash256, SignedBeaconBlock<E>);
 
     fn next(&mut self) -> Option<Self::Item> {
         // Stop once we reach the zero parent, otherwise we'll keep returning the genesis
@@ -129,15 +131,15 @@ impl<'a, E: EthSpec, S: Store<E>> Iterator for ParentRootBlockIterator<'a, E, S>
             None
         } else {
             let block_root = self.next_block_root;
-            let block: BeaconBlock<E> = self.store.get(&block_root).ok()??;
-            self.next_block_root = block.parent_root;
+            let block = self.store.get_block(&block_root).ok()??;
+            self.next_block_root = block.message.parent_root;
             Some((block_root, block))
         }
     }
 }
 
 #[derive(Clone)]
-/// Extends `BlockRootsIterator`, returning `BeaconBlock` instances, instead of their roots.
+/// Extends `BlockRootsIterator`, returning `SignedBeaconBlock` instances, instead of their roots.
 pub struct BlockIterator<'a, T: EthSpec, U> {
     roots: BlockRootsIterator<'a, T, U>,
 }
@@ -159,11 +161,11 @@ impl<'a, T: EthSpec, U: Store<T>> BlockIterator<'a, T, U> {
 }
 
 impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockIterator<'a, T, U> {
-    type Item = BeaconBlock<T>;
+    type Item = SignedBeaconBlock<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let (root, _slot) = self.roots.next()?;
-        self.roots.store.get(&root).ok()?
+        self.roots.store.get_block(&root).ok()?
     }
 }
 

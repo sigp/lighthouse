@@ -6,7 +6,7 @@ use serde_derive::Deserialize;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
 };
-use types::{BeaconBlock, BeaconState, EthSpec, RelativeEpoch};
+use types::{BeaconState, EthSpec, RelativeEpoch, SignedBeaconBlock};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {
@@ -20,7 +20,7 @@ pub struct Metadata {
 pub struct SanityBlocks<E: EthSpec> {
     pub metadata: Metadata,
     pub pre: BeaconState<E>,
-    pub blocks: Vec<BeaconBlock<E>>,
+    pub blocks: Vec<SignedBeaconBlock<E>>,
     pub post: Option<BeaconState<E>>,
 }
 
@@ -28,7 +28,7 @@ impl<E: EthSpec> LoadCase for SanityBlocks<E> {
     fn load_from_dir(path: &Path) -> Result<Self, Error> {
         let metadata: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         let pre = ssz_decode_file(&path.join("pre.ssz"))?;
-        let blocks: Vec<BeaconBlock<E>> = (0..metadata.blocks_count)
+        let blocks: Vec<SignedBeaconBlock<E>> = (0..metadata.blocks_count)
             .map(|i| {
                 let filename = format!("blocks_{}.ssz", i);
                 ssz_decode_file(&path.join(filename))
@@ -75,7 +75,8 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
         let result = self
             .blocks
             .iter()
-            .try_for_each(|block| {
+            .try_for_each(|signed_block| {
+                let block = &signed_block.message;
                 while bulk_state.slot < block.slot {
                     per_slot_processing(&mut bulk_state, None, spec).unwrap();
                     per_slot_processing(&mut indiv_state, None, spec).unwrap();
@@ -91,7 +92,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
 
                 per_block_processing(
                     &mut indiv_state,
-                    block,
+                    signed_block,
                     None,
                     BlockSignatureStrategy::VerifyIndividual,
                     spec,
@@ -99,7 +100,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
 
                 per_block_processing(
                     &mut bulk_state,
-                    block,
+                    signed_block,
                     None,
                     BlockSignatureStrategy::VerifyBulk,
                     spec,

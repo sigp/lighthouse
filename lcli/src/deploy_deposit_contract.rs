@@ -5,7 +5,7 @@ use eth2_testnet_config::Eth2TestnetConfig;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use types::{ChainSpec, Epoch, EthSpec, Fork, YamlConfig};
+use types::{ChainSpec, EthSpec, YamlConfig};
 use web3::{transports::Http, Web3};
 
 pub const SECONDS_PER_ETH1_BLOCK: u64 = 15;
@@ -128,13 +128,9 @@ pub fn lighthouse_testnet_spec(mut spec: ChainSpec) -> ChainSpec {
     // slot of that new chain.
     //
     // With a follow distance of 16, this is 40mins.
-    spec.seconds_per_day = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2 * 5;
+    spec.min_genesis_delay = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2 * 5;
 
-    spec.genesis_fork = Fork {
-        previous_version: [0, 0, 0, 0],
-        current_version: [1, 3, 3, 7],
-        epoch: Epoch::new(0),
-    };
+    spec.genesis_fork_version = [1, 3, 3, 7];
 
     spec
 }

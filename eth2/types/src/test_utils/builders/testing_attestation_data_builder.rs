@@ -55,27 +55,16 @@ impl TestingAttestationDataBuilder {
                 slot = state.slot - spec.min_attestation_inclusion_delay + 1
             }
             AttestationTestTask::IncludedTooLate => slot -= T::SlotsPerEpoch::to_u64(),
-            AttestationTestTask::BadTargetEpoch => {
+            AttestationTestTask::TargetEpochSlotMismatch => {
                 target = Checkpoint {
-                    epoch: Epoch::from(5 as u64),
+                    epoch: current_epoch + 1,
                     root: Hash256::zero(),
-                }
+                };
+                assert_ne!(target.epoch, slot.epoch(T::slots_per_epoch()));
             }
             AttestationTestTask::WrongJustifiedCheckpoint => {
                 source = Checkpoint {
                     epoch: Epoch::from(0 as u64),
-                    root: Hash256::zero(),
-                }
-            }
-            AttestationTestTask::BadTargetTooLow => {
-                target = Checkpoint {
-                    epoch: Epoch::from(0 as u64),
-                    root: Hash256::zero(),
-                }
-            }
-            AttestationTestTask::BadTargetTooHigh => {
-                target = Checkpoint {
-                    epoch: Epoch::from(10 as u64),
                     root: Hash256::zero(),
                 }
             }

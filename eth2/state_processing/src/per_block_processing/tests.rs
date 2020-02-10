@@ -3,7 +3,6 @@
 use super::block_processing_builder::BlockProcessingBuilder;
 use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
-use tree_hash::SignedRoot;
 use types::test_utils::{
     AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ExitTestTask,
     ProposerSlashingTestTask,
@@ -15,6 +14,8 @@ pub const VALIDATOR_COUNT: usize = 10;
 pub const SLOT_OFFSET: u64 = 4;
 pub const EXIT_SLOT_OFFSET: u64 = 2048;
 pub const NUM_ATTESTATIONS: u64 = 1;
+
+type E = MainnetEthSpec;
 
 #[test]
 fn valid_block_ok() {
@@ -40,7 +41,7 @@ fn invalid_block_header_state_slot() {
     let (mut block, mut state) = builder.build(None, None, &spec);
 
     state.slot = Slot::new(133_713);
-    block.slot = Slot::new(424_242);
+    block.message.slot = Slot::new(424_242);
 
     let result = per_block_processing(
         &mut state,
@@ -77,8 +78,8 @@ fn invalid_parent_block_root() {
         result,
         Err(BlockProcessingError::HeaderInvalid {
             reason: HeaderInvalid::ParentBlockRootMismatch {
-                state: Hash256::from_slice(&state.latest_block_header.signed_root()),
-                block: block.parent_root
+                state: state.latest_block_header.canonical_root(),
+                block: block.parent_root()
             }
         })
     );
@@ -88,14 +89,11 @@ fn invalid_parent_block_root() {
 fn invalid_block_signature() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let (mut block, mut state) = builder.build(None, None, &spec);
+    let (block, mut state) = builder.build(None, None, &spec);
 
     // sign the block with a keypair that is not the expected proposer
     let keypair = Keypair::random();
-    let message = block.signed_root();
-    let epoch = block.slot.epoch(MainnetEthSpec::slots_per_epoch());
-    let domain = spec.get_domain(epoch, Domain::BeaconProposer, &state.fork);
-    block.signature = Signature::new(&message, domain, &keypair.sk);
+    let block = block.message.sign(&keypair.sk, &state.fork, &spec);
 
     // process block with invalid block signature
     let result = per_block_processing(
@@ -630,60 +628,6 @@ fn invalid_attestation_wrong_justified_checkpoint() {
 }
 
 #[test]
-fn invalid_attestation_bad_target_too_low() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::BadTargetTooLow;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting BadTargetEpoch because we manually set the
-    // target field of the AttestationData object to be invalid
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::AttestationInvalid {
-            index: 0,
-            reason: AttestationInvalid::BadTargetEpoch
-        })
-    );
-}
-
-#[test]
-fn invalid_attestation_bad_target_too_high() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::BadTargetTooHigh;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting BadTargetEpoch because we manually set the
-    // target field of the AttestationData object to be invalid
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::AttestationInvalid {
-            index: 0,
-            reason: AttestationInvalid::BadTargetEpoch
-        })
-    );
-}
-
-#[test]
 fn invalid_attestation_bad_indexed_attestation_bad_signature() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec, SLOT_OFFSET, 33); // minmium number of validators required for this test
@@ -787,7 +731,7 @@ fn invalid_attestation_included_too_early() {
             reason: AttestationInvalid::IncludedTooEarly {
                 state: state.slot,
                 delay: spec.min_attestation_inclusion_delay,
-                attestation: block.body.attestations[0].data.slot,
+                attestation: block.message.body.attestations[0].data.slot,
             }
         })
     );
@@ -816,18 +760,18 @@ fn invalid_attestation_included_too_late() {
             index: 0,
             reason: AttestationInvalid::IncludedTooLate {
                 state: state.slot,
-                attestation: block.body.attestations[0].data.slot,
+                attestation: block.message.body.attestations[0].data.slot,
             }
         })
     );
 }
 
 #[test]
-fn invalid_attestation_bad_target_epoch() {
+fn invalid_attestation_target_epoch_slot_mismatch() {
     let spec = MainnetEthSpec::default_spec();
     // note to maintainer: might need to increase validator count if we get NoCommittee
     let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::BadTargetEpoch;
+    let test_task = AttestationTestTask::TargetEpochSlotMismatch;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
 
@@ -839,20 +783,16 @@ fn invalid_attestation_bad_target_epoch() {
         &spec,
     );
 
-    // Expecting BadTargetEpoch because the target epoch is bigger by one than the epoch expected
-    assert!(
-        result
-            == Err(BlockProcessingError::BeaconStateError(
-                BeaconStateError::NoCommittee {
-                    slot: Slot::new(0),
-                    index: 0
-                }
-            ))
-            || result
-                == Err(BlockProcessingError::AttestationInvalid {
-                    index: 0,
-                    reason: AttestationInvalid::BadTargetEpoch
-                })
+    let attestation = &block.message.body.attestations[0].data;
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::TargetEpochSlotMismatch {
+                target_epoch: attestation.target.epoch,
+                slot_epoch: attestation.slot.epoch(E::slots_per_epoch()),
+            }
+        })
     );
 }
 

@@ -10,7 +10,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-mod block_at_slot;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
@@ -83,12 +82,12 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Store a block in the store.
-    fn put_block(&self, block_root: &Hash256, block: BeaconBlock<E>) -> Result<(), Error> {
+    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
         self.put(block_root, &block)
     }
 
     /// Fetch a block from the store.
-    fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock<E>>, Error> {
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
         self.get(block_root)
     }
 
@@ -122,19 +121,6 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     ) -> Result<Option<BeaconState<E>>, Error> {
         // Default impl ignores config. Overriden in `HotColdDb`.
         self.get_state(state_root, slot)
-    }
-
-    /// Given the root of an existing block in the store (`start_block_root`), return a parent
-    /// block with the specified `slot`.
-    ///
-    /// Returns `None` if no parent block exists at that slot, or if `slot` is greater than the
-    /// slot of `start_block_root`.
-    fn get_block_at_preceeding_slot(
-        &self,
-        start_block_root: Hash256,
-        slot: Slot,
-    ) -> Result<Option<(Hash256, BeaconBlock<E>)>, Error> {
-        block_at_slot::get_block_at_preceeding_slot::<_, E>(self, slot, start_block_root)
     }
 
     /// (Optionally) Move all data before the frozen slot to the freezer database.

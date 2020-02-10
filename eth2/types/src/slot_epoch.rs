@@ -10,8 +10,8 @@
 //! implement `Into<u64>`, however this would allow operations between `Slots` and `Epochs` which
 //! may lead to programming errors which are not detected by the compiler.
 
-use crate::slot_height::SlotHeight;
 use crate::test_utils::TestRandom;
+use crate::SignedRoot;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use slog;
@@ -39,10 +39,6 @@ impl Slot {
 
     pub fn epoch(self, slots_per_epoch: u64) -> Epoch {
         Epoch::from(self.0 / slots_per_epoch)
-    }
-
-    pub fn height(self, genesis_slot: Slot) -> SlotHeight {
-        SlotHeight::from(self.0.saturating_sub(genesis_slot.as_u64()))
     }
 
     pub fn max_value() -> Slot {
@@ -96,6 +92,8 @@ impl Epoch {
         }
     }
 }
+
+impl SignedRoot for Epoch {}
 
 pub struct SlotIter<'a> {
     current_iteration: u64,

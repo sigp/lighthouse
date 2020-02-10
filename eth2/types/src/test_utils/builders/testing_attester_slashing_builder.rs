@@ -1,6 +1,5 @@
 use crate::test_utils::AttesterSlashingTestTask;
 use crate::*;
-use tree_hash::TreeHash;
 
 /// Builds an `AttesterSlashing`.
 ///
@@ -22,14 +21,15 @@ impl TestingAttesterSlashingBuilder {
         test_task: AttesterSlashingTestTask,
         validator_indices: &[u64],
         signer: F,
+        fork: &Fork,
+        spec: &ChainSpec,
     ) -> AttesterSlashing<T>
     where
-        F: Fn(u64, &[u8], Epoch, Domain) -> Signature,
+        F: Fn(u64, &[u8]) -> Signature,
     {
         let slot = Slot::new(1);
         let index = 0;
         let epoch_1 = Epoch::new(1);
-        let epoch_2 = Epoch::new(2);
         let hash_1 = Hash256::from_low_u64_le(1);
         let hash_2 = Hash256::from_low_u64_le(2);
         let checkpoint_1 = Checkpoint {
@@ -83,15 +83,12 @@ impl TestingAttesterSlashingBuilder {
         };
 
         let add_signatures = |attestation: &mut IndexedAttestation<T>| {
-            let message = attestation.data.tree_hash_root();
+            let domain =
+                spec.get_domain(attestation.data.target.epoch, Domain::BeaconAttester, fork);
+            let message = attestation.data.signing_root(domain);
 
             for validator_index in validator_indices {
-                let signature = signer(
-                    *validator_index,
-                    &message[..],
-                    epoch_2,
-                    Domain::BeaconAttester,
-                );
+                let signature = signer(*validator_index, message.as_bytes());
                 attestation.signature.add(&signature);
             }
         };

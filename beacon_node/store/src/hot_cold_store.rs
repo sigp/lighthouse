@@ -46,7 +46,7 @@ pub struct HotColdDB<E: EthSpec> {
     /// The hot database also contains all blocks.
     pub(crate) hot_db: LevelDB<E>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
-    block_cache: Mutex<LruCache<Hash256, BeaconBlock<E>>>,
+    block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// LRU cache of deserialized states. Updated whenever a state is loaded.
     state_cache: Mutex<LruCache<Hash256, BeaconState<E>>>,
     /// Chain spec.
@@ -107,7 +107,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
     }
 
     /// Store a block and update the LRU cache.
-    fn put_block(&self, block_root: &Hash256, block: BeaconBlock<E>) -> Result<(), Error> {
+    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
         // Store on disk.
         self.put(block_root, &block)?;
 
@@ -118,7 +118,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
     }
 
     /// Fetch a block from the store.
-    fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock<E>>, Error> {
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_BLOCK_GET_COUNT);
 
         // Check the cache.
@@ -128,7 +128,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         }
 
         // Fetch from database.
-        match self.get::<BeaconBlock<E>>(block_root)? {
+        match self.get::<SignedBeaconBlock<E>>(block_root)? {
             Some(block) => {
                 // Add to cache.
                 self.block_cache.lock().put(*block_root, block.clone());
@@ -569,15 +569,15 @@ impl<E: EthSpec> HotColdDB<E> {
         start_slot: Slot,
         end_slot: Slot,
         end_block_hash: Hash256,
-    ) -> Result<Vec<BeaconBlock<E>>, Error> {
+    ) -> Result<Vec<SignedBeaconBlock<E>>, Error> {
         let mut blocks = ParentRootBlockIterator::new(self, end_block_hash)
             .map(|(_, block)| block)
             // Include the block at the end slot (if any), it needs to be
             // replayed in order to construct the canonical state at `end_slot`.
-            .filter(|block| block.slot <= end_slot)
+            .filter(|block| block.message.slot <= end_slot)
             // Exclude the block at the start slot (if any), because it has already
             // been applied to the starting state.
-            .take_while(|block| block.slot > start_slot)
+            .take_while(|block| block.message.slot > start_slot)
             .collect::<Vec<_>>();
         blocks.reverse();
         Ok(blocks)
@@ -590,12 +590,12 @@ impl<E: EthSpec> HotColdDB<E> {
     fn replay_blocks(
         &self,
         mut state: BeaconState<E>,
-        blocks: Vec<BeaconBlock<E>>,
+        blocks: Vec<SignedBeaconBlock<E>>,
         target_slot: Slot,
     ) -> Result<BeaconState<E>, Error> {
         let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
             if i > 0 {
-                let prev_block = &blocks[i - 1];
+                let prev_block = &blocks[i - 1].message;
                 if prev_block.slot == state.slot {
                     Some(prev_block.state_root)
                 } else {
@@ -607,7 +607,7 @@ impl<E: EthSpec> HotColdDB<E> {
         };
 
         for (i, block) in blocks.iter().enumerate() {
-            while state.slot < block.slot {
+            while state.slot < block.message.slot {
                 let state_root = state_root_from_prev_block(i, &state);
                 per_slot_processing(&mut state, state_root, &self.spec)
                     .map_err(HotColdDBError::BlockReplaySlotError)?;
