@@ -1,6 +1,6 @@
 use super::Error;
 use crate::{BeaconState, EthSpec, Hash256, Unsigned, Validator};
-use cached_tree_hash::{int_log, CachedTreeHash, TreeHashCache, VecArena};
+use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
 use tree_hash::{mix_in_length, TreeHash};
@@ -19,9 +19,9 @@ pub struct BeaconTreeHashCache {
     // Validators cache
     validators: ValidatorsListTreeHashCache,
     // Arenas
-    fixed_arena: VecArena,
-    balances_arena: VecArena,
-    slashings_arena: VecArena,
+    fixed_arena: CacheArena,
+    balances_arena: CacheArena,
+    slashings_arena: CacheArena,
     // Caches
     block_roots: TreeHashCache,
     state_roots: TreeHashCache,
@@ -37,7 +37,7 @@ impl BeaconTreeHashCache {
     /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
     /// hashing.
     pub fn new<T: EthSpec>(state: &BeaconState<T>) -> Self {
-        let mut fixed_arena = VecArena::default();
+        let mut fixed_arena = CacheArena::default();
         let block_roots = state.block_roots.new_tree_hash_cache(&mut fixed_arena);
         let state_roots = state.state_roots.new_tree_hash_cache(&mut fixed_arena);
         let historical_roots = state.historical_roots.new_tree_hash_cache(&mut fixed_arena);
@@ -45,10 +45,10 @@ impl BeaconTreeHashCache {
 
         let validators = ValidatorsListTreeHashCache::new::<T>(&state.validators[..]);
 
-        let mut balances_arena = VecArena::default();
+        let mut balances_arena = CacheArena::default();
         let balances = state.balances.new_tree_hash_cache(&mut balances_arena);
 
-        let mut slashings_arena = VecArena::default();
+        let mut slashings_arena = CacheArena::default();
         let slashings = state.slashings.new_tree_hash_cache(&mut slashings_arena);
 
         Self {
@@ -80,19 +80,19 @@ impl BeaconTreeHashCache {
         leaves.append(&mut state.fork.tree_hash_root());
         leaves.append(&mut state.latest_block_header.tree_hash_root());
         leaves.extend_from_slice(
-            &mut state
+            state
                 .block_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.block_roots)?
                 .as_bytes(),
         );
         leaves.extend_from_slice(
-            &mut state
+            state
                 .state_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.state_roots)?
                 .as_bytes(),
         );
         leaves.extend_from_slice(
-            &mut state
+            state
                 .historical_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.historical_roots)?
                 .as_bytes(),
@@ -101,25 +101,24 @@ impl BeaconTreeHashCache {
         leaves.append(&mut state.eth1_data_votes.tree_hash_root());
         leaves.append(&mut state.eth1_deposit_index.tree_hash_root());
         leaves.extend_from_slice(
-            &mut self
-                .validators
+            self.validators
                 .recalculate_tree_hash_root(&state.validators[..])?
                 .as_bytes(),
         );
         leaves.extend_from_slice(
-            &mut state
+            state
                 .balances
                 .recalculate_tree_hash_root(&mut self.balances_arena, &mut self.balances)?
                 .as_bytes(),
         );
         leaves.extend_from_slice(
-            &mut state
+            state
                 .randao_mixes
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.randao_mixes)?
                 .as_bytes(),
         );
         leaves.extend_from_slice(
-            &mut state
+            state
                 .slashings
                 .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?
                 .as_bytes(),
@@ -138,7 +137,7 @@ impl BeaconTreeHashCache {
 /// A specialized cache for computing the tree hash root of `state.validators`.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 struct ValidatorsListTreeHashCache {
-    list_arena: VecArena,
+    list_arena: CacheArena,
     list_cache: TreeHashCache,
     values: ParallelValidatorTreeHash,
 }
@@ -149,7 +148,7 @@ impl ValidatorsListTreeHashCache {
     /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
     /// hashing.
     fn new<E: EthSpec>(validators: &[Validator]) -> Self {
-        let mut list_arena = VecArena::default();
+        let mut list_arena = CacheArena::default();
         Self {
             list_cache: TreeHashCache::new(
                 &mut list_arena,
@@ -166,7 +165,7 @@ impl ValidatorsListTreeHashCache {
     /// This function makes assumptions that the `validators` list will only change in accordance
     /// with valid per-block/per-slot state transitions.
     fn recalculate_tree_hash_root(&mut self, validators: &[Validator]) -> Result<Hash256, Error> {
-        let mut list_arena = std::mem::replace(&mut self.list_arena, VecArena::default());
+        let mut list_arena = std::mem::replace(&mut self.list_arena, CacheArena::default());
 
         let leaves = self
             .values
@@ -193,8 +192,8 @@ impl ValidatorsListTreeHashCache {
 /// roots of these using Rayon parallelization.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct ParallelValidatorTreeHash {
-    /// Each arena and it's associated sub-trees.
-    arenas: Vec<(VecArena, Vec<TreeHashCache>)>,
+    /// Each arena and its associated sub-trees.
+    arenas: Vec<(CacheArena, Vec<TreeHashCache>)>,
 }
 
 impl ParallelValidatorTreeHash {
@@ -204,7 +203,7 @@ impl ParallelValidatorTreeHash {
     /// hashing.
     fn new<E: EthSpec>(validators: &[Validator]) -> Self {
         let num_arenas = (validators.len() + VALIDATORS_PER_ARENA - 1) / VALIDATORS_PER_ARENA;
-        let mut arenas = vec![(VecArena::default(), vec![]); num_arenas];
+        let mut arenas = vec![(CacheArena::default(), vec![]); num_arenas];
 
         validators.iter().enumerate().for_each(|(i, v)| {
             let (arena, caches) = &mut arenas[i / VALIDATORS_PER_ARENA];
@@ -235,7 +234,7 @@ impl ParallelValidatorTreeHash {
                     .last()
                     .map_or(true, |last| last.1.len() >= VALIDATORS_PER_ARENA)
                 {
-                    let mut arena = VecArena::default();
+                    let mut arena = CacheArena::default();
                     let cache = v.new_tree_hash_cache(&mut arena);
                     self.arenas.push((arena, vec![cache]))
                 } else {

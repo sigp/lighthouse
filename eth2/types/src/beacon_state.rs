@@ -2,7 +2,11 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
+<<<<<<< HEAD
 use cached_tree_hash::{CachedTreeHash, VecArena};
+=======
+use cached_tree_hash::{CacheArena, CachedTreeHash};
+>>>>>>> master
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
@@ -17,11 +21,13 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 pub use self::committee_cache::CommitteeCache;
+pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
 mod committee_cache;
+mod clone_config;
 mod exit_cache;
 mod pubkey_cache;
 mod tests;
@@ -891,7 +897,11 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
+<<<<<<< HEAD
         if !self.tree_hash_cache.is_some() {
+=======
+        if self.tree_hash_cache.is_none() {
+>>>>>>> master
             self.tree_hash_cache = Some(BeaconTreeHashCache::new(self))
         }
     }
@@ -913,13 +923,21 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
         self.initialize_tree_hash_cache();
 
+<<<<<<< HEAD
         let cache = std::mem::replace(&mut self.tree_hash_cache, None);
+=======
+        let cache = self.tree_hash_cache.take();
+>>>>>>> master
 
         if let Some(mut cache) = cache {
             // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
             // None. There's no need to keep a cache that fails.
             let root = cache.recalculate_tree_hash_root(self)?;
+<<<<<<< HEAD
             std::mem::replace(&mut self.tree_hash_cache, Some(cache));
+=======
+            self.tree_hash_cache = Some(cache);
+>>>>>>> master
             Ok(root)
         } else {
             Err(Error::TreeHashCacheNotInitialized)
@@ -948,7 +966,8 @@ impl<T: EthSpec> BeaconState<T> {
         })
     }
 
-    pub fn clone_without_caches(&self) -> Self {
+    /// Clone the state whilst preserving only the selected caches.
+    pub fn clone_with(&self, config: CloneConfig) -> Self {
         BeaconState {
             genesis_time: self.genesis_time,
             slot: self.slot,
@@ -970,6 +989,7 @@ impl<T: EthSpec> BeaconState<T> {
             previous_justified_checkpoint: self.previous_justified_checkpoint.clone(),
             current_justified_checkpoint: self.current_justified_checkpoint.clone(),
             finalized_checkpoint: self.finalized_checkpoint.clone(),
+<<<<<<< HEAD
             committee_caches: [
                 CommitteeCache::default(),
                 CommitteeCache::default(),
@@ -978,13 +998,55 @@ impl<T: EthSpec> BeaconState<T> {
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
             tree_hash_cache: None,
+=======
+            committee_caches: if config.committee_caches {
+                self.committee_caches.clone()
+            } else {
+                [
+                    CommitteeCache::default(),
+                    CommitteeCache::default(),
+                    CommitteeCache::default(),
+                ]
+            },
+            pubkey_cache: if config.pubkey_cache {
+                self.pubkey_cache.clone()
+            } else {
+                PubkeyCache::default()
+            },
+            exit_cache: if config.exit_cache {
+                self.exit_cache.clone()
+            } else {
+                ExitCache::default()
+            },
+            tree_hash_cache: if config.tree_hash_cache {
+                self.tree_hash_cache.clone()
+            } else {
+                None
+            },
+>>>>>>> master
         }
     }
 
     pub fn clone_with_only_committee_caches(&self) -> Self {
-        let mut state = self.clone_without_caches();
-        state.committee_caches = self.committee_caches.clone();
-        state
+        self.clone_with(CloneConfig::committee_caches_only())
+    }
+}
+
+/// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
+/// recommended to use the methods directly on the beacon state instead.
+impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache> for BeaconState<T> {
+    fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache {
+        BeaconTreeHashCache::new(self)
+    }
+
+    fn recalculate_tree_hash_root(
+        &self,
+        _arena: &mut CacheArena,
+        cache: &mut BeaconTreeHashCache,
+    ) -> Result<Hash256, cached_tree_hash::Error> {
+        cache
+            .recalculate_tree_hash_root(self)
+            .map_err(|_| cached_tree_hash::Error::CacheInconsistent)
     }
 }
 

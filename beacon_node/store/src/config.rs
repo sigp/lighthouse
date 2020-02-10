@@ -1,36 +1,28 @@
 use serde_derive::{Deserialize, Serialize};
-use std::path::PathBuf;
 use types::{EthSpec, MinimalEthSpec};
 
-/// Default directory name for the freezer database under the top-level data dir.
-const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
-
-/// Default value for the freezer DB's restore point frequency.
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
+pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 5;
+pub const DEFAULT_STATE_CACHE_SIZE: usize = 5;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Database configuration parameters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoreConfig {
-    /// Name of the directory inside the data directory where the main "hot" DB is located.
-    pub db_name: String,
-    /// Path where the freezer database will be located.
-    pub freezer_db_path: Option<PathBuf>,
     /// Number of slots to wait between storing restore points in the freezer database.
     pub slots_per_restore_point: u64,
+    /// Maximum number of blocks to store in the in-memory block cache.
+    pub block_cache_size: usize,
+    /// Maximum number of states to store in the in-memory state cache.
+    pub state_cache_size: usize,
 }
 
 impl Default for StoreConfig {
     fn default() -> Self {
         Self {
-            db_name: "chain_db".to_string(),
-            freezer_db_path: None,
             // Safe default for tests, shouldn't ever be read by a CLI node.
             slots_per_restore_point: MinimalEthSpec::slots_per_historical_root() as u64,
+            block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
+            state_cache_size: DEFAULT_STATE_CACHE_SIZE,
         }
-    }
-}
-
-impl StoreConfig {
-    pub fn default_freezer_db_dir(&self) -> &'static str {
-        DEFAULT_FREEZER_DB_DIR
     }
 }

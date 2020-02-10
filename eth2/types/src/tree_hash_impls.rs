@@ -3,7 +3,7 @@
 //! It makes some assumptions about the layouts and update patterns of other structs in this
 //! crate, and should be updated carefully whenever those structs are changed.
 use crate::{Epoch, Hash256, Validator};
-use cached_tree_hash::{int_log, CachedTreeHash, Error, TreeHashCache, VecArena};
+use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, Error, TreeHashCache};
 use int_to_bytes::int_to_fixed_bytes32;
 use tree_hash::TreeHash;
 
@@ -11,7 +11,7 @@ use tree_hash::TreeHash;
 const NUM_VALIDATOR_FIELDS: usize = 8;
 
 impl CachedTreeHash<TreeHashCache> for Validator {
-    fn new_tree_hash_cache(&self, arena: &mut VecArena) -> TreeHashCache {
+    fn new_tree_hash_cache(&self, arena: &mut CacheArena) -> TreeHashCache {
         TreeHashCache::new(arena, int_log(NUM_VALIDATOR_FIELDS), NUM_VALIDATOR_FIELDS)
     }
 
@@ -20,13 +20,13 @@ impl CachedTreeHash<TreeHashCache> for Validator {
     /// Specifically, we assume that the `pubkey` and `withdrawal_credentials` fields are constant.
     fn recalculate_tree_hash_root(
         &self,
-        arena: &mut VecArena,
+        arena: &mut CacheArena,
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
         // Otherwise just check the fields which might have changed.
         let dirty_indices = cache
             .leaves()
-            .iter_mut(arena)
+            .iter_mut(arena)?
             .enumerate()
             .flat_map(|(i, leaf)| {
                 // Fields pubkey and withdrawal_credentials are constant
@@ -96,11 +96,7 @@ fn process_epoch_field(val: Epoch, leaf: &mut Hash256, force_update: bool) -> bo
 }
 
 fn process_bool_field(val: bool, leaf: &mut Hash256, force_update: bool) -> bool {
-    let mut new_tree_hash = [0; 32];
-    if val {
-        new_tree_hash[0] = 1;
-    }
-    process_slice_field(&new_tree_hash[..], leaf, force_update)
+    process_u64_field(val as u64, leaf, force_update)
 }
 
 #[cfg(test)]
@@ -112,7 +108,7 @@ mod test {
     use rand_xorshift::XorShiftRng;
 
     fn test_validator_tree_hash(v: &Validator) {
-        let arena = &mut VecArena::default();
+        let arena = &mut CacheArena::default();
 
         let mut cache = v.new_tree_hash_cache(arena);
         // With a fresh cache
