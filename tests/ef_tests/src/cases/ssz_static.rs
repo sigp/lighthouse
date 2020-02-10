@@ -2,11 +2,7 @@ use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::SszStaticType;
 use crate::decode::yaml_decode_file;
-<<<<<<< HEAD
-use cached_tree_hash::{CachedTreeHash, VecArena};
-=======
 use cached_tree_hash::{CacheArena, CachedTreeHash};
->>>>>>> master
 use serde_derive::Deserialize;
 use std::fs;
 use std::marker::PhantomData;
