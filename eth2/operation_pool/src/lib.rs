@@ -548,7 +548,7 @@ mod release_tests {
                     spec,
                     None,
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         }
 
@@ -617,9 +617,9 @@ mod release_tests {
                 None,
             );
             op_pool
-                .insert_attestation(att.clone(), state, spec)
+                .insert_attestation(att.clone(), &state.fork, spec)
                 .unwrap();
-            op_pool.insert_attestation(att, state, spec).unwrap();
+            op_pool.insert_attestation(att, &state.fork, spec).unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
@@ -656,7 +656,7 @@ mod release_tests {
                     spec,
                     None,
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         }
 
@@ -704,7 +704,7 @@ mod release_tests {
                     spec,
                     if i == 0 { None } else { Some(0) },
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         };
 
@@ -777,7 +777,7 @@ mod release_tests {
                     spec,
                     if i == 0 { None } else { Some(0) },
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         };
 
@@ -817,8 +817,14 @@ mod release_tests {
 
         for att in &best_attestations {
             let fresh_validators_bitlist = earliest_attestation_validators(att, state);
-            let att_indices =
-                get_attesting_indices(state, &att.data, &fresh_validators_bitlist).unwrap();
+            let committee = state
+                .get_beacon_committee(att.data.slot, att.data.index)
+                .expect("should get beacon committee");
+            let att_indices = get_attesting_indices::<MainnetEthSpec>(
+                committee.committee,
+                &fresh_validators_bitlist,
+            )
+            .unwrap();
             let fresh_indices = &att_indices - &seen_indices;
 
             let rewards = fresh_indices

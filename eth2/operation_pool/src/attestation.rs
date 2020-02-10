@@ -21,8 +21,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         let committee = state
             .get_beacon_committee(att.data.slot, att.data.index)
             .ok()?;
-        let indices =
-            get_attesting_indices::<T>(committee.committee, &att.data, &fresh_validators).ok()?;
+        let indices = get_attesting_indices::<T>(committee.committee, &fresh_validators).ok()?;
         let fresh_validators_rewards: HashMap<u64, u64> = indices
             .iter()
             .map(|i| *i as u64)

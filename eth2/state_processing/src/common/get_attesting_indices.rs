@@ -6,7 +6,6 @@ use types::*;
 /// Spec v0.10.1
 pub fn get_attesting_indices<T: EthSpec>(
     committee: &[usize],
-    attestation_data: &AttestationData,
     bitlist: &BitList<T::MaxValidatorsPerCommittee>,
 ) -> Result<BTreeSet<usize>, BeaconStateError> {
     if bitlist.len() != committee.len() {

@@ -2,7 +2,7 @@ use int_to_bytes::int_to_bytes8;
 use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
-use types::{AttestationData, ChainSpec, Domain, Epoch, EthSpec, Fork};
+use types::{AttestationData, ChainSpec, Domain, Epoch, Fork};
 
 /// Serialized `AttestationData` augmented with a domain to encode the fork info.
 #[derive(

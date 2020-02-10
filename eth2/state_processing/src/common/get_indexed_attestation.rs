@@ -11,8 +11,7 @@ pub fn get_indexed_attestation<T: EthSpec>(
     committee: &[usize],
     attestation: &Attestation<T>,
 ) -> Result<IndexedAttestation<T>> {
-    let attesting_indices =
-        get_attesting_indices::<T>(committee, &attestation.data, &attestation.aggregation_bits)?;
+    let attesting_indices = get_attesting_indices::<T>(committee, &attestation.aggregation_bits)?;
 
     Ok(IndexedAttestation {
         attesting_indices: VariableList::new(
