@@ -5,21 +5,9 @@ use parking_lot::{RwLock, RwLockReadGuard};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{Epoch, Hash256, ShufflingId, Slot};
+use types::{Epoch, Hash256, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
-
-/// Additional information that is not required for fork choice but is made available for other
-/// components to access (e.g., for attestation processing).
-pub struct ExtraBlockInfo {
-    /// Set to `block.message.state_root`.
-    state_root: Hash256,
-    /// The ID of the shuffling for the current epoch of this block.
-    shuffling_id: ShufflingId,
-    /// The root of the ancestor of this block at the start of the blocks epoch (equal to the root
-    /// of the block if the block is the first of the epoch).
-    target_root: Hash256,
-}
 
 #[derive(Default, PartialEq, Clone, Encode, Decode)]
 pub struct VoteTracker {

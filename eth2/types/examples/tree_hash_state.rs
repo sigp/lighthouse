@@ -1,7 +1,6 @@
 //! These examples only really exist so we can use them for flamegraph. If they get annoying to
 //! maintain, feel free to delete.
 
-use ssz::{Decode, Encode};
 use types::{
     test_utils::generate_deterministic_keypair, BeaconState, Eth1Data, EthSpec, Hash256,
     MinimalEthSpec, Validator,

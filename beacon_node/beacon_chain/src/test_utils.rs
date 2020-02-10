@@ -10,7 +10,6 @@ use rayon::prelude::*;
 use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
-use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{

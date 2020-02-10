@@ -442,11 +442,23 @@ fn attestations_with_increasing_slots() {
         harness.advance_slot();
     }
 
+    let current_epoch = harness.chain.epoch().expect("should get epoch");
+
     for attestation in attestations {
-        assert_eq!(
-            harness.chain.process_attestation(attestation),
-            Ok(AttestationProcessingOutcome::Processed)
-        )
+        let attestation_epoch = attestation.data.target.epoch;
+        let res = harness.chain.process_attestation(attestation);
+
+        if attestation_epoch + 1 < current_epoch {
+            assert_eq!(
+                res,
+                Ok(AttestationProcessingOutcome::PastEpoch {
+                    attestation_epoch,
+                    current_epoch,
+                })
+            )
+        } else {
+            assert_eq!(res, Ok(AttestationProcessingOutcome::Processed))
+        }
     }
 }
 
