@@ -252,7 +252,7 @@ pub fn get_configs<E: EthSpec>(
     };
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
-        client_config.store.freezer_db_path = Some(PathBuf::from(freezer_dir));
+        client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
 
     if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
@@ -264,6 +264,18 @@ pub fn get_configs<E: EthSpec>(
             E::slots_per_historical_root() as u64,
             store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
         );
+    }
+
+    if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {
+        client_config.store.block_cache_size = block_cache_size
+            .parse()
+            .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    }
+
+    if let Some(state_cache_size) = cli_args.value_of("state-cache-size") {
+        client_config.store.state_cache_size = state_cache_size
+            .parse()
+            .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
     if eth2_config.spec_constants != client_config.spec_constants {
