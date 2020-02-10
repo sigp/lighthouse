@@ -5,6 +5,7 @@ mod tests {
     use beacon_chain::builder::BeaconChainBuilder;
     use beacon_chain::slot_clock::TestingSlotClock;
     use eth2_libp2p::Enr;
+    use futures::{Future, IntoFuture};
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use slog::Logger;
     use sloggers::{null::NullLoggerBuilder, Build};
@@ -60,27 +61,19 @@ mod tests {
         let enrs = vec![enr1, enr2];
 
         let runtime = Runtime::new().unwrap();
+        let executor = runtime.executor();
 
         let mut config = NetworkConfig::default();
         config.boot_nodes = enrs.clone();
-        // Create new network service
-        let (service, _) = Service::new(
-            beacon_chain.clone(),
-            &config,
-            &runtime.executor(),
-            log.clone(),
-        )
-        .unwrap();
-
-        // Dropping the `NetworkService`should write the dht state to the store.
-        std::mem::drop(service);
-        let (_, _) = Service::new(
-            beacon_chain,
-            &NetworkConfig::default(),
-            &runtime.executor(),
-            log.clone(),
-        )
-        .unwrap();
+        runtime
+            .block_on_all(
+                // Create a new network service which implicitly gets dropped at the
+                // end of the block.
+                Service::new(beacon_chain.clone(), &config, &executor, log.clone())
+                    .into_future()
+                    .and_then(move |(_service, _)| Ok(())),
+            )
+            .unwrap();
 
         // Load the persisted dht from the store
         let persisted_enrs = load_dht::<
