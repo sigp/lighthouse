@@ -36,7 +36,16 @@ pub struct ValidatorDuty {
     /// The slots in which a validator must propose a block (can be empty).
     pub block_proposal_slots: Vec<Slot>,
     /// Flag indicating if this duty has been subscribed to the beacon node.
-    pub subscribed: bool,
+    pub state: DutyState,
+}
+
+pub enum DutyState {
+    /// This duty has not been subscribed to the beacon node.
+    NotSubscribed
+    /// The duty has been subscribed to the beacon node.
+    Subscribed
+    /// The duty has been subscribed and the validator is an aggregator for this duty.
+    SubscribedAggregator
 }
 
 // This is manually implemented to ensure validator duties are considered the identical,
@@ -50,6 +59,25 @@ impl PartialEq for ValidatorDuty {
             && self.block_proposal_slots == other.block_proposal_slots
     }
 }
+
+impl ValidatorDuty {
+    pub fn is_aggregator(&self) -> bool {
+        match self.state {
+            DutyState::NotSubscribed => false
+            DutyState::Subscribed => false
+            DutyState::SubscribedAggregator => true
+        }
+    }
+
+    pub fn is_subscribed(&self) -> bool {
+        match self.state {
+            DutyState::NotSubscribed => false
+            DutyState::Subscribed => true 
+            DutyState::SubscribedAggregator => true
+        }
+    }
+}
+
 
 impl TryInto<ValidatorDuty> for remote_beacon_node::ValidatorDuty {
     type Error = String;
@@ -146,7 +174,7 @@ impl DutiesStore {
             .iter()
             .filter_map(|(_validator_pubkey, validator_map)| {
                 validator_map.get(epoch).and_then(|duties| {
-                    if !duties.subscribed {
+                    if !duties.is_subscribed() {
                         Some(duties)
                     } else {
                         None

@@ -41,19 +41,23 @@ pub struct ValidatorDutiesRequest {
 /// The container sent when a validator subscribes to a slot to perform optional aggregation
 /// duties.
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct ValidatorSubscription {
+pub struct ValidatorSubscriptions {
     pub pubkeys: Vec<PublicKeyBytes>,
     pub slots: Vec<Slot>,
     pub slot_signatures: Vec<Signature>,
 }
 
-impl ValidatorSubscription {
-    pub fn is_valid(&self) -> bool {
-        self.pubkeys.len() == self.slots.len() && self.pubkeys.len() == self.slot_signatures.len()
+impl ValidatorSubscriptions {
+    pub fn new() -> Self {
+        ValidatorSubscriptions {
+            pubkeys: Vec::new(),
+            slots: Vec::new(),
+            slot_signatures: Vec::new(),
+        }
     }
 }
 
-/// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch. This
+/// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
 /// method allows for collecting bulk sets of validator duties without risking exceeding the max
 /// URL length with query pairs.
 pub fn post_validator_duties<T: BeaconChainTypes>(

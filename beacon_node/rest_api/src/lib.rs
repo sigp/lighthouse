@@ -45,7 +45,7 @@ pub use beacon::{
     ValidatorRequest, ValidatorResponse,
 };
 pub use config::Config;
-pub use validator::{ValidatorDutiesRequest, ValidatorDuty};
+pub use validator::{ValidatorDutiesRequest, ValidatorDuty, ValidatorSubscriptions};
 
 pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 pub type NetworkChannel<T> = Arc<RwLock<mpsc::UnboundedSender<NetworkMessage<T>>>>;

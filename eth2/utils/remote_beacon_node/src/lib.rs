@@ -23,7 +23,7 @@ pub use operation_pool::PersistedOperationPool;
 pub use proto_array_fork_choice::core::ProtoArray;
 pub use rest_api::{
     CanonicalHeadResponse, Committee, HeadBeaconBlock, ValidatorDutiesRequest, ValidatorDuty,
-    ValidatorRequest, ValidatorResponse,
+    ValidatorRequest, ValidatorResponse, ValidatorSubscriptions,
 };
 
 // Setting a long timeout for debug ensures that crypto-heavy operations can still succeed.
@@ -63,6 +63,8 @@ pub enum Error {
     SerdeJsonError(serde_json::Error),
     /// The server responded to the request, however it did not return a 200-type success code.
     DidNotSucceed { status: StatusCode, body: String },
+    /// The request input was invalid.
+    InvalidInput,
 }
 
 #[derive(Clone)]
@@ -300,19 +302,12 @@ impl<E: EthSpec> Validator<E> {
 
     pub fn subscribe(
         &self,
-        pubkeys: Vec<Publickey>,
-        slots: Vec<Slot>,
-        slot_signatures: Vec<Signature>,
+        subscriptions: ValidatorSubscriptions,
     ) -> impl Future<Item = PublishStatus, Error = Error> {
-        let subscription = ValidatorSubscription {
-            pubkeys,
-            slots,
-            slot_signatures,
-        };
         let client = self.0.clone();
         self.url("subscribe")
             .into_future()
-            .and_then(move |url| client.json_post::<_>(url, subscription))
+            .and_then(move |url| client.json_post::<_>(url, subscriptions))
             .and_then(|mut response| {
                 response
                     .text()

@@ -189,20 +189,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let epoch = slot.epoch(E::slots_per_epoch());
         // Check if any attestation subscriptions are required. If there a new attestation duties for
         // this epoch or the next, send them to the beacon node
-        service
-            .duties_service
-            .unsubscribed_epoch_duties(&epoch)
-            .into_iter()
-            .for_each(|duty| {
-                service
-                    .context
-                    .executor
-                    .spawn(self.clone().send_subscription(duty));
-            });
+        let duties_to_subscribe = service.duties_service.unsubscribed_epoch_duties(&epoch);
 
-.and_then(|| {
-                        service.duties_service.subscribe_duty(duty);
-                        Ok(())
+        // spawn a task to subscribe all the duties
+        service
+            .context
+            .executor
+            .spawn(self.clone().send_subscriptions(duties_to_subscribe));
 
         // Builds a map of committee index and spawn individiual tasks to process raw attestations
         let mut committee_indices: HashMap<CommitteeIndex, Vec<ValidatorDuty>> = HashMap::new();
@@ -235,33 +228,52 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         Ok(())
     }
 
-    fn send_subscription(&self, validator_pubkey: &PublicKey, slot: Slot) -> impl Future<Item = (), Error = ()> {
+    fn send_subscriptions(&self, duties: Vec<ValidatorDuty>) -> impl Future<Item = (), Error = ()> {
+        let mut validator_subscriptions = ValidatorSubscriptions::new();
+        let mut successful_duties = Vec::new();
 
-        self.validator_store.sign_slot(validator_pubkey, slot).ok_or_else(|| Err(())).into_future().and_then(|slot_signature| 
-        self.beacon_node.http.validator().subscribe(validator, slot, slot_signature))
-            .map_err(|e| format!("Failed to subscribe to slot {} for validator {}. Error: {:?}", slot, validator_pubkey, e))
-            .map(
-                    .map(|publish_status| (attestation, publish_status))
-                    .map_err(|e| format!("Failed to publish attestation: {:?}", e))
-            })
-            .map(move |(attestation, publish_status)| match publish_status {
+        // builds a single subscriptions objects
+        for duty in &duties {
+            let slot = duty
+                .attestation_slot
+                .expect("Subscription duty must have an attestation slot");
+
+            if let Some(slot_signature) =
+                self.validator_store.sign_slot(duty.validator_pubkey, slot)
+            {
+                validator_subscriptions
+                    .pubkeys
+                    .push(duty.validator_pubkey.clone().into());
+                validator_subscriptions.slots.push(slot);
+                validator_subscriptions.slot_signatures.push(slot_signature);
+                successful_duties.push(duty);
+            }
+        }
+
+        self.beacon_node
+            .http
+            .validator()
+            .subscribe(validator_subscriptions)
+            .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
+            .map(|publish_status| match publish_status {
                 PublishStatus::Valid => info!(
                     log_1,
-                    "Successfully published attestation";
-                    "signatures" => attestation.aggregation_bits.num_set_bits(),
-                    "head_block" => format!("{}", attestation.data.beacon_block_root),
-                    "committee_index" => attestation.data.index,
-                    "slot" => attestation.data.slot.as_u64(),
+                    "Successfully subscribed validators";
+                    "validators" => duties.len(),
+                    "failed_validators" => duties.len() - successful_duties.len(),
                 ),
                 PublishStatus::Invalid(msg) => crit!(
                     log_1,
-                    "Published attestation was invalid";
+                    "Validator Subscription was invalid";
                     "message" => msg,
-                    "committee_index" => attestation.data.index,
-                    "slot" => attestation.data.slot.as_u64(),
                 ),
                 PublishStatus::Unknown => {
                     crit!(log_1, "Unknown condition when publishing attestation")
+                }
+            })
+            .and_then(|successful_duties| {
+                for duty in successful_duties {
+                    self.duties_service.subscribe_duty(duty);
                 }
             })
             .map_err(move |e| {
