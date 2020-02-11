@@ -297,6 +297,35 @@ impl<E: EthSpec> Validator<E> {
             )
         })
     }
+
+    pub fn subscribe(
+        &self,
+        validator: &Pubkey,
+        slot: Slot,
+        slot_signature: Signature,
+    ) -> impl Future<Item = SubscribeStatus, Error = Error> {
+
+        let client = self.0.clone();
+        self.url("subscribe")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, attestation))
+            .and_then(|mut response| {
+                response
+                    .text()
+                    .map(|text| (response, text))
+                    .map_err(Error::from)
+            })
+            .and_then(|(response, text)| match response.status() {
+                StatusCode::OK => Ok(PublishStatus::Valid),
+                StatusCode::ACCEPTED => Ok(PublishStatus::Invalid(text)),
+                _ => response
+                    .error_for_status()
+                    .map_err(Error::from)
+                    .map(|_| PublishStatus::Unknown),
+            })
+    }
+        &self,
+
 }
 
 /// Provides the functions on the `/beacon` endpoint of the node.

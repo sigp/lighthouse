@@ -5,7 +5,7 @@ use utils::{u32_from_hex_str, u32_to_hex_str, u8_from_hex_str, u8_to_hex_str};
 
 /// Each of the BLS signature domains.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub enum Domain {
     BeaconProposer,
     BeaconAttester,

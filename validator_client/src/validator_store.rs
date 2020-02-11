@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tempdir::TempDir;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
+    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature, Slot,
 };
 
 #[derive(Clone)]
@@ -198,5 +198,25 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
                 Some(())
             })
+    }
+
+    /// Signs a slot for a given validator.
+    ///
+    /// This is used to subscribe a validator to a beacon node and is used to determine if the
+    /// validator is to aggregate attestations for this slot.
+    pub fn sign_slot(&self, validator_pubkey: &PublicKey, slot: Slot) -> Option<Signature> {
+        let validator_dir = self.validators.read().get(validator_pubkey)?;
+
+        let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+
+        let domain = self.spec.get_domain(
+            slot.epoch(E::slots_per_epoch()),
+            Domain::BeaconAttester,
+            &self.fork()?,
+        );
+
+        let message = slot.as_u64().tree_hash_root();
+
+        Some(Signature::new(&message, domain, &voting_keypair.sk))
     }
 }

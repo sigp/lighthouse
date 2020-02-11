@@ -30,7 +30,6 @@ pub struct Service<T: BeaconChainTypes> {
     libp2p_port: u16,
     network_globals: Arc<NetworkGlobals>,
     _libp2p_exit: oneshot::Sender<()>,
-    _network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     _phantom: PhantomData<T>,
 }
 
@@ -82,7 +81,6 @@ impl<T: BeaconChainTypes> Service<T> {
             libp2p_port: config.libp2p_port,
             network_globals,
             _libp2p_exit: libp2p_exit,
-            _network_send: network_send.clone(),
             _phantom: PhantomData,
         };
 

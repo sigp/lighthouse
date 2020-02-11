@@ -185,17 +185,23 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .slot_clock
             .now()
             .ok_or_else(|| "Failed to read slot clock".to_string())?;
-    
+
         let epoch = slot.epoch(E::slots_per_epoch());
         // Check if any attestation subscriptions are required. If there a new attestation duties for
         // this epoch or the next, send them to the beacon node
-        service.duties_service
-            .unsubscribed_epoch_duties(&epoch).into_iter().for_each(|duty| {
-                self.generate_subscription
-        
-
-
-
+        service
+            .duties_service
+            .unsubscribed_epoch_duties(&epoch)
+            .into_iter()
+            .for_each(|duty| {
+                service
+                    .context
+                    .executor
+                    .spawn(self.send_subscription(duty).and_then(|| {
+                        service.duties_service.subscribe_duty(duty);
+                        Ok(())
+                    }));
+            });
 
         // Builds a map of committee index and spawn individiual tasks to process raw attestations
         let mut committee_indices: HashMap<CommitteeIndex, Vec<ValidatorDuty>> = HashMap::new();
@@ -226,6 +232,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             });
 
         Ok(())
+    }
+
+    fn send_subscription(duty: ValidatorDuty) -> impl Future<Item = (), Error = ()> {
+        self.beacon_node.http.validator().Ok(()).into_future()
     }
 
     /// For a given `committee_index`, download the attestation, have it signed by all validators

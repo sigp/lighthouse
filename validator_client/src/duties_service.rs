@@ -376,9 +376,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Marks the duty as being subscribed to the beacon node.
-    pub fn subscribe_duty(&mut self, validator: &PublicKey, slot: Slot) {
-        self.store
-            .subscribe_duty(validator, slot, E::slots_per_epoch())
+    pub fn subscribe_duty(&mut self, duty: ValidatorDuty) {
+        if let Some(slot) = duty.attestation_slot {
+            self.store
+                .subscribe_duty(&duty.validator_pubkey, slot, E::slots_per_epoch())
+        }
     }
 
     /// Start the service that periodically polls the beacon node for validator duties.
