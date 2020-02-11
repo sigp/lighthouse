@@ -1,25 +1,14 @@
-// #![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::AttestationProcessingOutcome;
 use beacon_chain::{
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, PersistedBeaconChain,
-        BEACON_CHAIN_DB_KEY,
-    },
-    BeaconChain, BeaconChainTypes, BlockProcessingOutcome, StateSkipConfig,
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy},
+    StateSkipConfig,
 };
-use state_processing::{
-    per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
-};
-use store::Store;
 use tree_hash::TreeHash;
-use types::{
-    AggregateSignature, BeaconStateError, EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch,
-    Slot,
-};
+use types::{AggregateSignature, EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, Slot};
 
 pub const VALIDATOR_COUNT: usize = 16;
 
@@ -107,12 +96,15 @@ fn produces_attestations() {
                 committee_len,
                 "bad committee len"
             );
+            assert!(
+                attestation.aggregation_bits.is_zero(),
+                "some committee bits are set"
+            );
             assert_eq!(
                 attestation.signature,
                 AggregateSignature::new(),
                 "bad signature"
             );
-            // TODO: check all bits are zero.
             assert_eq!(data.index, index, "bad index");
             assert_eq!(data.slot, slot, "bad slot");
             assert_eq!(data.beacon_block_root, block_root, "bad block root");

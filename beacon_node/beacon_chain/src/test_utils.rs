@@ -8,7 +8,7 @@ use crate::{
 use eth1::Config as Eth1Config;
 use genesis::interop_genesis_state;
 use rayon::prelude::*;
-use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
+use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
@@ -83,10 +83,7 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
         let spec = E::default_spec();
 
-        let log = TerminalLoggerBuilder::new()
-            .level(Severity::Warning)
-            .build()
-            .expect("logger should build");
+        let log = NullLoggerBuilder.build().expect("logger should build");
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -125,10 +122,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     ) -> Self {
         let spec = E::default_spec();
 
-        let log = TerminalLoggerBuilder::new()
-            .level(Severity::Warning)
-            .build()
-            .expect("logger should build");
+        let log = NullLoggerBuilder.build().expect("logger should build");
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -165,10 +159,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     ) -> Self {
         let spec = E::default_spec();
 
-        let log = TerminalLoggerBuilder::new()
-            .level(Severity::Warning)
-            .build()
-            .expect("logger should build");
+        let log = NullLoggerBuilder.build().expect("logger should build");
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
