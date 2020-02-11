@@ -6,7 +6,7 @@ use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
-use bls::PublicKeyBytes;
+use bls::{PublicKeyBytes, Signature};
 use futures::{Future, Stream};
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,21 @@ pub struct ValidatorDuty {
 pub struct ValidatorDutiesRequest {
     pub epoch: Epoch,
     pub pubkeys: Vec<PublicKeyBytes>,
+}
+
+/// The container sent when a validator subscribes to a slot to perform optional aggregation
+/// duties.
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
+pub struct ValidatorSubscription {
+    pub pubkeys: Vec<PublicKeyBytes>,
+    pub slots: Vec<Slot>,
+    pub slot_signatures: Vec<Signature>,
+}
+
+impl ValidatorSubscription {
+    pub fn is_valid(&self) -> bool {
+        self.pubkeys.len() == self.slots.len() && self.pubkeys.len() == self.slot_signatures.len()
+    }
 }
 
 /// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch. This

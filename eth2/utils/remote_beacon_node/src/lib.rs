@@ -300,15 +300,19 @@ impl<E: EthSpec> Validator<E> {
 
     pub fn subscribe(
         &self,
-        validator: &Pubkey,
-        slot: Slot,
-        slot_signature: Signature,
-    ) -> impl Future<Item = SubscribeStatus, Error = Error> {
-
+        pubkeys: Vec<Publickey>,
+        slots: Vec<Slot>,
+        slot_signatures: Vec<Signature>,
+    ) -> impl Future<Item = PublishStatus, Error = Error> {
+        let subscription = ValidatorSubscription {
+            pubkeys,
+            slots,
+            slot_signatures,
+        };
         let client = self.0.clone();
         self.url("subscribe")
             .into_future()
-            .and_then(move |url| client.json_post::<_>(url, attestation))
+            .and_then(move |url| client.json_post::<_>(url, subscription))
             .and_then(|mut response| {
                 response
                     .text()
@@ -324,8 +328,6 @@ impl<E: EthSpec> Validator<E> {
                     .map(|_| PublishStatus::Unknown),
             })
     }
-        &self,
-
 }
 
 /// Provides the functions on the `/beacon` endpoint of the node.

@@ -197,11 +197,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 service
                     .context
                     .executor
-                    .spawn(self.send_subscription(duty).and_then(|| {
+                    .spawn(self.clone().send_subscription(duty));
+            });
+
+.and_then(|| {
                         service.duties_service.subscribe_duty(duty);
                         Ok(())
-                    }));
-            });
 
         // Builds a map of committee index and spawn individiual tasks to process raw attestations
         let mut committee_indices: HashMap<CommitteeIndex, Vec<ValidatorDuty>> = HashMap::new();
@@ -234,8 +235,42 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         Ok(())
     }
 
-    fn send_subscription(duty: ValidatorDuty) -> impl Future<Item = (), Error = ()> {
-        self.beacon_node.http.validator().Ok(()).into_future()
+    fn send_subscription(&self, validator_pubkey: &PublicKey, slot: Slot) -> impl Future<Item = (), Error = ()> {
+
+        self.validator_store.sign_slot(validator_pubkey, slot).ok_or_else(|| Err(())).into_future().and_then(|slot_signature| 
+        self.beacon_node.http.validator().subscribe(validator, slot, slot_signature))
+            .map_err(|e| format!("Failed to subscribe to slot {} for validator {}. Error: {:?}", slot, validator_pubkey, e))
+            .map(
+                    .map(|publish_status| (attestation, publish_status))
+                    .map_err(|e| format!("Failed to publish attestation: {:?}", e))
+            })
+            .map(move |(attestation, publish_status)| match publish_status {
+                PublishStatus::Valid => info!(
+                    log_1,
+                    "Successfully published attestation";
+                    "signatures" => attestation.aggregation_bits.num_set_bits(),
+                    "head_block" => format!("{}", attestation.data.beacon_block_root),
+                    "committee_index" => attestation.data.index,
+                    "slot" => attestation.data.slot.as_u64(),
+                ),
+                PublishStatus::Invalid(msg) => crit!(
+                    log_1,
+                    "Published attestation was invalid";
+                    "message" => msg,
+                    "committee_index" => attestation.data.index,
+                    "slot" => attestation.data.slot.as_u64(),
+                ),
+                PublishStatus::Unknown => {
+                    crit!(log_1, "Unknown condition when publishing attestation")
+                }
+            })
+            .map_err(move |e| {
+                crit!(
+                    log_2,
+                    "Error during attestation production";
+                    "error" => e
+                )
+            })
     }
 
     /// For a given `committee_index`, download the attestation, have it signed by all validators
