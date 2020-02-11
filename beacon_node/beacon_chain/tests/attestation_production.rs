@@ -17,6 +17,10 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
+/// This test builds a chain that is just long enough to finalize an epoch then it produces an
+/// attestation at each slot from genesis through to three epochs past the head.
+///
+/// It checks the produced attestation against some locally computed values.
 #[test]
 fn produces_attestations() {
     let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 4;
