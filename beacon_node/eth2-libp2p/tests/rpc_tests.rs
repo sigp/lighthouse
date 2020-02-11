@@ -7,9 +7,11 @@ use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::prelude::*;
-use types::{Epoch, Hash256, Slot};
+use types::{BeaconBlock, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot};
 
 mod common;
+
+type E = MinimalEthSpec;
 
 #[test]
 // Tests the STATUS RPC message
@@ -73,7 +75,7 @@ fn test_status_rpc() {
                         warn!(sender_log, "Sender Completed");
                         return Ok(Async::Ready(true));
                     }
-                    _ => panic!("Received invalid RPC message"),
+                    e => panic!("Received invalid RPC message {}", e),
                 },
                 Async::Ready(Some(_)) => (),
                 Async::Ready(None) | Async::NotReady => return Ok(Async::NotReady),
@@ -98,7 +100,7 @@ fn test_status_rpc() {
                             RPCEvent::Response(id, RPCErrorResponse::Success(rpc_response.clone())),
                         );
                     }
-                    _ => panic!("Received invalid RPC message"),
+                    e => panic!("Received invalid RPC message {}", e),
                 },
                 Async::Ready(Some(_)) => (),
                 Async::Ready(None) | Async::NotReady => return Ok(Async::NotReady),
@@ -145,7 +147,8 @@ fn test_blocks_by_range_chunked_rpc() {
     });
 
     // BlocksByRange Response
-    let rpc_response = RPCResponse::BlocksByRange(vec![13, 13, 13]);
+    let spec = E::default_spec();
+    let rpc_response = RPCResponse::BlocksByRange(Box::new(BeaconBlock::empty(&spec)));
 
     let sender_request = rpc_request.clone();
     let sender_log = log.clone();
@@ -272,7 +275,8 @@ fn test_blocks_by_range_single_empty_rpc() {
     });
 
     // BlocksByRange Response
-    let rpc_response = RPCResponse::BlocksByRange(vec![]);
+    let spec = E::default_spec();
+    let rpc_response = RPCResponse::BlocksByRange(Box::new(BeaconBlock::empty(&spec)));
 
     let sender_request = rpc_request.clone();
     let sender_log = log.clone();
@@ -393,7 +397,8 @@ fn test_blocks_by_root_chunked_rpc() {
     });
 
     // BlocksByRoot Response
-    let rpc_response = RPCResponse::BlocksByRoot(vec![13, 13, 13]);
+    let spec = E::default_spec();
+    let rpc_response = RPCResponse::BlocksByRange(Box::new(BeaconBlock::empty(&spec)));
 
     let sender_request = rpc_request.clone();
     let sender_log = log.clone();

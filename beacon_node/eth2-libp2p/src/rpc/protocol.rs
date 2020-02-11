@@ -172,7 +172,7 @@ where
                 Framed::new(timed_socket, codec)
                     .into_future()
                     .timeout(Duration::from_secs(REQUEST_TIMEOUT))
-                    .map_err(RPCError::from as FnMapErr<TSocket>)
+                    .map_err(RPCError::from as FnMapErr<TSocket, TSpec>)
                     .and_then({
                         |(req, stream)| match req {
                             Some(req) => futures::future::ok((req, stream)),
@@ -180,7 +180,7 @@ where
                                 "Stream terminated early".into(),
                             )),
                         }
-                    } as FnAndThen<TSocket>)
+                    } as FnAndThen<TSocket, TSpec>)
             }
         }
     }
@@ -231,6 +231,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
                 ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz_snappy"),
                 ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
             ],
+            RPCRequest::Phantom(_) => Vec::new(),
         }
     }
 

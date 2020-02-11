@@ -56,20 +56,10 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyInboundCodec<TSpec> {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
         };
-        if !bytes.is_empty() {
-            if snap::max_compress_len(bytes.len()) == 0 {
-                return Err(RPCError::SnappyError(snap::Error::TooBig {
-                    given: bytes.len() as u64,
-                    max: self.max_packet_size as u64,
-                }));
-            }
-            self.encoder.compress(&bytes, dst).map_err(RPCError::from)?;
-        } else {
-            // payload is empty, add a 0-byte length prefix
-            // TODO: should ssz_snappy have similar behaviour as snappy?
-            dst.reserve(1);
-            dst.put_u8(0);
-        }
+        println!("Size of uncompressed bytes: {}", bytes.len());
+        let encoded_bytes = self.encoder.compress_vec(&bytes).map_err(RPCError::from)?;
+        dst.extend_from_slice(&encoded_bytes);
+        println!("Size of compressed bytes with response code: {}", dst.len());
         Ok(())
     }
 }
@@ -80,6 +70,9 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        println!("Decoding side: Size of recived bytes: {}", src.len());
+        let len = snap::decompress_len(src)?;
+        println!("Decoding side: Size of decompressed bytes: {}", len);
         match self.decoder.decompress_vec(src).map_err(RPCError::from) {
             Ok(packet) => match self.protocol.message_name.as_str() {
                 RPC_STATUS => match self.protocol.version.as_str() {
@@ -108,7 +101,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 },
                 _ => unreachable!("Cannot negotiate an unknown protocol"),
             },
-            Err(e) => Err(e),
+            Err(e) => {
+                dbg!(&e);
+                Err(e)
+            }
         }
     }
 }
@@ -150,7 +146,13 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyOutboundCodec<TSpec> {
             RPCRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
             RPCRequest::Phantom(_) => unreachable!("Never encode phantom data"),
         };
-        let _bytes_written = self.encoder.compress(&bytes, dst).map_err(RPCError::from)?;
+        // Set the length of the output buffer to the max compress len.
+        // Note: if total bytes to compress is > 2^32, we should split the stream.
+        println!("Size of uncompressed bytes: {}", bytes.len());
+        dst.resize(snap::max_compress_len(bytes.len()), 0);
+        let bytes_written = self.encoder.compress(&bytes, dst).map_err(RPCError::from)?;
+        dst.truncate(bytes_written);
+        println!("Size of compressed bytes: {}", bytes_written);
         Ok(())
     }
 }
@@ -165,6 +167,9 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        println!("Decoding side: Size of recived bytes: {}", src.len());
+        let len = snap::decompress_len(src)?;
+        println!("Decoding side: Size of decompressed bytes: {}", len);
         if src.len() == 1 && src[0] == 0_u8 {
             // the object is empty. We return the empty object if this is the case
             // clear the buffer and return an empty object
@@ -234,7 +239,10 @@ impl<TSpec: EthSpec> OutboundCodec for SSZSnappyOutboundCodec<TSpec> {
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {
         match self.decoder.decompress_vec(src).map_err(RPCError::from) {
             Ok(packet) => Ok(Some(ErrorMessage::from_ssz_bytes(&packet)?)),
-            Err(e) => Err(e),
+            Err(e) => {
+                println!("Got errror: {:?}", e);
+                Err(e)
+            }
         }
     }
 }
