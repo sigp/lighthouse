@@ -6,56 +6,14 @@ use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
 };
-use bls::{PublicKeyBytes, Signature};
+use bls::PublicKeyBytes;
 use futures::{Future, Stream};
 use hyper::{Body, Request};
-use serde::{Deserialize, Serialize};
+use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscriptions};
 use slog::{error, info, warn, Logger};
-use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, RelativeEpoch, Slot};
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-pub struct ValidatorDuty {
-    /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
-    pub validator_pubkey: PublicKeyBytes,
-    /// The validator's index in `state.validators`
-    pub validator_index: Option<usize>,
-    /// The slot at which the validator must attest.
-    pub attestation_slot: Option<Slot>,
-    /// The index of the committee within `slot` of which the validator is a member.
-    pub attestation_committee_index: Option<CommitteeIndex>,
-    /// The position of the validator in the committee.
-    pub attestation_committee_position: Option<usize>,
-    /// The slots in which a validator must propose a block (can be empty).
-    pub block_proposal_slots: Vec<Slot>,
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct ValidatorDutiesRequest {
-    pub epoch: Epoch,
-    pub pubkeys: Vec<PublicKeyBytes>,
-}
-
-/// The container sent when a validator subscribes to a slot to perform optional aggregation
-/// duties.
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct ValidatorSubscriptions {
-    pub pubkeys: Vec<PublicKeyBytes>,
-    pub slots: Vec<Slot>,
-    pub slot_signatures: Vec<Signature>,
-}
-
-impl ValidatorSubscriptions {
-    pub fn new() -> Self {
-        ValidatorSubscriptions {
-            pubkeys: Vec::new(),
-            slots: Vec::new(),
-            slot_signatures: Vec::new(),
-        }
-    }
-}
+use types::{Attestation, BeaconBlock, BeaconState, Epoch, RelativeEpoch, Slot};
 
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
 /// method allows for collecting bulk sets of validator duties without risking exceeding the max
@@ -169,7 +127,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     epoch: Epoch,
     validator_pubkeys: Vec<PublicKeyBytes>,
-) -> Result<Vec<ValidatorDuty>, ApiError> {
+) -> Result<Vec<ValidatorDutyBytes>, ApiError> {
     let mut state = get_state_for_epoch(&beacon_chain, epoch)?;
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)

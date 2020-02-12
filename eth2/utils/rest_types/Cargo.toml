@@ -1,0 +1,13 @@
+[package]
+name = "rest_types"
+version = "0.1.0"
+authors = ["Age Manning <Age@AgeManning.com>"]
+edition = "2018"
+
+[dependencies]
+types = { path = "../../types" }
+eth2_ssz_derive = { path = "../ssz_derive" }
+eth2_ssz = { path = "../ssz" }
+bls = { path = "../bls" }
+serde = "1.0.102"
+serde_derive = "1.0.102"

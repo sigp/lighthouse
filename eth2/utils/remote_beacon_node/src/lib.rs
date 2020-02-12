@@ -21,8 +21,8 @@ use url::Url;
 
 pub use operation_pool::PersistedOperationPool;
 pub use proto_array_fork_choice::core::ProtoArray;
-pub use rest_api::{
-    CanonicalHeadResponse, Committee, HeadBeaconBlock, ValidatorDutiesRequest, ValidatorDuty,
+pub use rest_types::{
+    CanonicalHeadResponse, Committee, HeadBeaconBlock, ValidatorDutiesRequest, ValidatorDutyBytes,
     ValidatorRequest, ValidatorResponse, ValidatorSubscriptions,
 };
 
@@ -239,7 +239,7 @@ impl<E: EthSpec> Validator<E> {
         &self,
         epoch: Epoch,
         validator_pubkeys: &[PublicKey],
-    ) -> impl Future<Item = Vec<ValidatorDuty>, Error = Error> {
+    ) -> impl Future<Item = Vec<ValidatorDutyBytes>, Error = Error> {
         let client = self.0.clone();
 
         let bulk_request = ValidatorDutiesRequest {

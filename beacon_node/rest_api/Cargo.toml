@@ -7,6 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 bls = { path = "../../eth2/utils/bls" }
+rest_types = { path = "../../eth2/utils/rest_types" }
 beacon_chain = { path = "../beacon_chain" }
 network = { path = "../network" }
 eth2-libp2p = { path = "../eth2-libp2p" }

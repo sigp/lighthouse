@@ -1,11 +1,9 @@
-use crate::{
-    duties_service::{DutiesService, ValidatorDuty},
-    validator_store::ValidatorStore,
-};
+use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{Future, Stream};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
+use rest_types::{ValidatorDuty, ValidatorSubscriptions};
 use slog::{crit, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -232,6 +230,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let mut validator_subscriptions = ValidatorSubscriptions::new();
         let mut successful_duties = Vec::new();
 
+        let log_1 = self.context.log.clone();
+        let log_2 = self.context.log.clone();
+
         // builds a single subscriptions objects
         for duty in &duties {
             let slot = duty
@@ -239,7 +240,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .expect("Subscription duty must have an attestation slot");
 
             if let Some(slot_signature) =
-                self.validator_store.sign_slot(duty.validator_pubkey, slot)
+                self.validator_store.sign_slot(&duty.validator_pubkey, slot)
             {
                 validator_subscriptions
                     .pubkeys
@@ -255,26 +256,30 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .validator()
             .subscribe(validator_subscriptions)
             .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
-            .map(|publish_status| match publish_status {
-                PublishStatus::Valid => info!(
-                    log_1,
-                    "Successfully subscribed validators";
-                    "validators" => duties.len(),
-                    "failed_validators" => duties.len() - successful_duties.len(),
-                ),
-                PublishStatus::Invalid(msg) => crit!(
-                    log_1,
-                    "Validator Subscription was invalid";
-                    "message" => msg,
-                ),
-                PublishStatus::Unknown => {
-                    crit!(log_1, "Unknown condition when publishing attestation")
+            .map(|publish_status| {
+                match publish_status {
+                    PublishStatus::Valid => info!(
+                        log_1,
+                        "Successfully subscribed validators";
+                        "validators" => duties.len(),
+                        "failed_validators" => duties.len() - successful_duties.len(),
+                    ),
+                    PublishStatus::Invalid(msg) => crit!(
+                        log_1,
+                        "Validator Subscription was invalid";
+                        "message" => msg,
+                    ),
+                    PublishStatus::Unknown => {
+                        crit!(log_1, "Unknown condition when publishing attestation")
+                    }
                 }
+                Ok(successful_duties)
             })
             .and_then(|successful_duties| {
                 for duty in successful_duties {
                     self.duties_service.subscribe_duty(duty);
                 }
+                Ok(())
             })
             .map_err(move |e| {
                 crit!(

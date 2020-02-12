@@ -40,12 +40,7 @@ use tokio::sync::mpsc;
 use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
-pub use beacon::{
-    BlockResponse, CanonicalHeadResponse, Committee, HeadBeaconBlock, StateResponse,
-    ValidatorRequest, ValidatorResponse,
-};
 pub use config::Config;
-pub use validator::{ValidatorDutiesRequest, ValidatorDuty, ValidatorSubscriptions};
 
 pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 pub type NetworkChannel<T> = Arc<RwLock<mpsc::UnboundedSender<NetworkMessage<T>>>>;
