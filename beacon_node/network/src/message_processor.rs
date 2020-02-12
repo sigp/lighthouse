@@ -581,10 +581,16 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     // we don't know the block, get the sync manager to handle the block lookup
                     self.send_to_sync(SyncMessage::UnknownBlockHash(peer_id, beacon_block_root));
                 }
-                AttestationProcessingOutcome::AttestsToFutureState { .. }
+                AttestationProcessingOutcome::FutureEpoch { .. }
+                | AttestationProcessingOutcome::PastEpoch { .. }
+                | AttestationProcessingOutcome::UnknownTargetRoot { .. }
                 | AttestationProcessingOutcome::FinalizedSlot { .. } => {} // ignore the attestation
                 AttestationProcessingOutcome::Invalid { .. }
-                | AttestationProcessingOutcome::EmptyAggregationBitfield { .. } => {
+                | AttestationProcessingOutcome::EmptyAggregationBitfield { .. }
+                | AttestationProcessingOutcome::AttestsToFutureBlock { .. }
+                | AttestationProcessingOutcome::InvalidSignature
+                | AttestationProcessingOutcome::NoCommitteeForSlotAndIndex { .. }
+                | AttestationProcessingOutcome::BadTargetEpoch { .. } => {
                     // the peer has sent a bad attestation. Remove them.
                     self.network.disconnect(peer_id, GoodbyeReason::Fault);
                 }
