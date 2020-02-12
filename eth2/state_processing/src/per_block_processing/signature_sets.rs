@@ -15,7 +15,6 @@ use types::{
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
-type CowPubkey<'a> = Cow<'a, PublicKey>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -41,31 +40,6 @@ impl From<BeaconStateError> for Error {
     }
 }
 
-pub struct OwnedPubkeys<'a>(Vec<CowPubkey<'a>>);
-
-impl<'a> OwnedPubkeys<'a> {
-    pub fn from_state<T: EthSpec>(state: &BeaconState<T>) -> Result<Self> {
-        state
-            .validators
-            .iter()
-            .map(|v| {
-                (&v.pubkey)
-                    .try_into()
-                    .map(Cow::Owned)
-                    .map_err(Error::SignatureInvalid)
-            })
-            .collect::<Result<_>>()
-            .map(Self)
-    }
-
-    pub fn to_pubkeys(&'a self) -> Pubkeys<'a> {
-        Pubkeys(&self.0[..])
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct Pubkeys<'a>(pub &'a [CowPubkey<'a>]);
-
 pub fn get_pubkey_from_state<'a, T>(
     state: &'a BeaconState<T>,
 ) -> impl Fn(usize) -> Option<Cow<'a, G1Point>> + Clone
@@ -81,16 +55,6 @@ where
                 pk
             })
             .map(|pk| Cow::Owned(pk.into_point()))
-    }
-}
-
-impl<'a> Pubkeys<'a> {
-    fn get(&self, validator_index: usize) -> Result<Cow<'a, G1Point>> {
-        match self.0.get(validator_index) {
-            Some(Cow::Borrowed(val)) => Ok(Cow::Borrowed(val.as_point())),
-            Some(Cow::Owned(val)) => Ok(Cow::Borrowed(val.as_point())),
-            None => Err(Error::ValidatorUnknown(validator_index as u64)),
-        }
     }
 }
 

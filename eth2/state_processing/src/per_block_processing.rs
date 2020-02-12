@@ -21,7 +21,7 @@ pub use verify_deposit::{
 pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
 
 pub mod block_processing_builder;
-mod block_signature_verifier;
+pub mod block_signature_verifier;
 pub mod errors;
 mod is_valid_indexed_attestation;
 pub mod signature_sets;
