@@ -1,5 +1,5 @@
 use super::errors::{BlockOperationError, ProposerSlashingInvalid as Invalid};
-use super::signature_sets::{proposer_slashing_signature_set, OwnedPubkeys};
+use super::signature_sets::{get_pubkey_from_state, proposer_slashing_signature_set};
 use crate::VerifySignatures;
 use types::*;
 
@@ -48,12 +48,10 @@ pub fn verify_proposer_slashing<T: EthSpec>(
         Invalid::ProposerNotSlashable(proposer_slashing.proposer_index)
     );
 
-    let owned_pubkeys = OwnedPubkeys::from_state(state)?;
-
     if verify_signatures.is_true() {
         let (signature_set_1, signature_set_2) = proposer_slashing_signature_set(
             state,
-            owned_pubkeys.to_pubkeys(),
+            get_pubkey_from_state(state),
             proposer_slashing,
             spec,
         )?;

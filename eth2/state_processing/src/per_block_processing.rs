@@ -1,7 +1,7 @@
 use crate::common::{initiate_validator_exit, slash_validator};
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex};
 use rayon::prelude::*;
-use signature_sets::{block_proposal_signature_set, randao_signature_set, OwnedPubkeys};
+use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use std::convert::TryInto;
 use tree_hash::TreeHash;
 use types::*;
@@ -85,7 +85,7 @@ pub fn per_block_processing<T: EthSpec>(
             block_verify!(
                 BlockSignatureVerifier::verify_entire_block(
                     state,
-                    OwnedPubkeys::from_state(state)?.to_pubkeys(),
+                    get_pubkey_from_state(state),
                     signed_block,
                     block_root,
                     spec
@@ -183,14 +183,8 @@ pub fn verify_block_signature<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(
-        block_proposal_signature_set(
-            state,
-            OwnedPubkeys::from_state(state)?.to_pubkeys(),
-            block,
-            block_root,
-            spec
-        )?
-        .is_valid(),
+        block_proposal_signature_set(state, get_pubkey_from_state(state), block, block_root, spec)?
+            .is_valid(),
         HeaderInvalid::ProposalSignatureInvalid
     );
 
@@ -210,13 +204,7 @@ pub fn process_randao<T: EthSpec>(
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         block_verify!(
-            randao_signature_set(
-                state,
-                OwnedPubkeys::from_state(state)?.to_pubkeys(),
-                block,
-                spec
-            )?
-            .is_valid(),
+            randao_signature_set(state, get_pubkey_from_state(state), block, spec)?.is_valid(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }

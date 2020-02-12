@@ -1,4 +1,6 @@
 use crate::errors::BeaconChainError;
+use state_processing::signature_sets::Pubkeys;
+use std::borrow::Cow;
 use std::convert::TryInto;
 use types::{BeaconState, EthSpec, PublicKey};
 
@@ -41,5 +43,11 @@ impl ValidatorPubkeyCache {
 
     pub fn get(&self, i: usize) -> Option<&PublicKey> {
         self.pubkeys.get(i)
+    }
+
+    pub fn pubkeys(&self, validator_count: usize) -> Option<&PublicKey> {
+        self.pubkeys
+            .get(0..validator_count)
+            .map(|slice| slice.iter().map(Cow::Borrowed).collect())
     }
 }
