@@ -22,6 +22,9 @@ pub struct ValidatorDutyBase<T> {
     pub attestation_committee_position: Option<usize>,
     /// The slots in which a validator must propose a block (can be empty).
     pub block_proposal_slots: Vec<Slot>,
+    /// Indicates if this duty requires the validator to aggregate attestations. This is false if
+    /// there is no `attestation_slot`.
+    pub is_aggregator: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
