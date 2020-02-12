@@ -201,7 +201,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 Ok(packet) => {
                     // take the bytes from the buffer
                     let raw_bytes = packet;
-
+                    src.clear();
                     match self.protocol.message_name.as_str() {
                         RPC_STATUS => match self.protocol.version.as_str() {
                             "1" => Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
