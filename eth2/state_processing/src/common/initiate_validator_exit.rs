@@ -10,7 +10,7 @@ pub fn initiate_validator_exit<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     if index >= state.validators.len() {
-        return Err(Error::UnknownValidator);
+        return Err(Error::UnknownValidator(index as u64));
     }
 
     // Return if the validator already initiated exit

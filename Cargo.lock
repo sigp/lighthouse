@@ -3880,6 +3880,7 @@ version = "0.1.0"
 dependencies = [
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lighthouse_metrics 0.1.0",
+ "parking_lot 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "types 0.1.0",
 ]
 
