@@ -48,6 +48,7 @@ impl From<BlockOperationError<AttestationInvalid>> for Error {
 /// `Self::verify_entire_block(..)` function).
 pub struct BlockSignatureVerifier<'a, T: EthSpec> {
     block: &'a SignedBeaconBlock<T>,
+    pubkeys: Pubkeys<'a>,
     state: &'a BeaconState<T>,
     spec: &'a ChainSpec,
     sets: Vec<SignatureSet<'a>>,
@@ -58,11 +59,13 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     /// add signatures, and the `verify`
     pub fn new(
         state: &'a BeaconState<T>,
+        pubkeys: Pubkeys<'a>,
         block: &'a SignedBeaconBlock<T>,
         spec: &'a ChainSpec,
     ) -> Self {
         Self {
             block,
+            pubkeys,
             state,
             spec,
             sets: vec![],
@@ -78,11 +81,12 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     /// See `Self::verify` for more detail.
     pub fn verify_entire_block(
         state: &'a BeaconState<T>,
+        pubkeys: Pubkeys<'a>,
         block: &'a SignedBeaconBlock<T>,
         block_root: Option<Hash256>,
         spec: &'a ChainSpec,
     ) -> Result<()> {
-        let mut verifier = Self::new(state, block, spec);
+        let mut verifier = Self::new(state, pubkeys, block, spec);
 
         verifier.include_block_proposal(block_root)?;
         verifier.include_randao_reveal()?;
@@ -129,14 +133,20 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
 
     /// Includes the block signature for `self.block` for verification.
     fn include_block_proposal(&mut self, block_root: Option<Hash256>) -> Result<()> {
-        let set = block_proposal_signature_set(self.state, self.block, block_root, self.spec)?;
+        let set = block_proposal_signature_set(
+            self.state,
+            self.pubkeys,
+            self.block,
+            block_root,
+            self.spec,
+        )?;
         self.sets.push(set);
         Ok(())
     }
 
     /// Includes the randao signature for `self.block` for verification.
     fn include_randao_reveal(&mut self) -> Result<()> {
-        let set = randao_signature_set(self.state, &self.block.message, self.spec)?;
+        let set = randao_signature_set(self.state, self.pubkeys, &self.block.message, self.spec)?;
         self.sets.push(set);
         Ok(())
     }
@@ -150,8 +160,12 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             .proposer_slashings
             .iter()
             .map(|proposer_slashing| {
-                let (set_1, set_2) =
-                    proposer_slashing_signature_set(self.state, proposer_slashing, self.spec)?;
+                let (set_1, set_2) = proposer_slashing_signature_set(
+                    self.state,
+                    self.pubkeys,
+                    proposer_slashing,
+                    self.spec,
+                )?;
                 Ok(vec![set_1, set_2])
             })
             .collect::<SignatureSetResult<Vec<Vec<SignatureSet>>>>()?
@@ -171,8 +185,12 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             .attester_slashings
             .iter()
             .try_for_each(|attester_slashing| {
-                let (set_1, set_2) =
-                    attester_slashing_signature_sets(&self.state, attester_slashing, &self.spec)?;
+                let (set_1, set_2) = attester_slashing_signature_sets(
+                    &self.state,
+                    self.pubkeys,
+                    attester_slashing,
+                    &self.spec,
+                )?;
 
                 self.sets.push(set_1);
                 self.sets.push(set_2);
@@ -193,6 +211,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
 
                 self.sets.push(indexed_attestation_signature_set(
                     &self.state,
+                    self.pubkeys,
                     &attestation.signature,
                     &indexed_attestation,
                     &self.spec,
@@ -212,7 +231,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             .body
             .voluntary_exits
             .iter()
-            .map(|exit| exit_signature_set(&self.state, exit, &self.spec))
+            .map(|exit| exit_signature_set(&self.state, self.pubkeys, exit, &self.spec))
             .collect::<SignatureSetResult<_>>()?;
 
         self.sets.append(&mut sets);

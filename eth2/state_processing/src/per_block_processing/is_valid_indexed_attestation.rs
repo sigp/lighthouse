@@ -1,5 +1,5 @@
 use super::errors::{BlockOperationError, IndexedAttestationInvalid as Invalid};
-use super::signature_sets::indexed_attestation_signature_set;
+use super::signature_sets::{indexed_attestation_signature_set, OwnedPubkeys};
 use crate::VerifySignatures;
 use types::*;
 
@@ -43,6 +43,7 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
         verify!(
             indexed_attestation_signature_set(
                 state,
+                OwnedPubkeys::from_state(state)?.to_pubkeys(),
                 &indexed_attestation.signature,
                 &indexed_attestation,
                 spec

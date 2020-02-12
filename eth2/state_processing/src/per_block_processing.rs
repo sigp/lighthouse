@@ -1,7 +1,7 @@
 use crate::common::{initiate_validator_exit, slash_validator};
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex};
 use rayon::prelude::*;
-use signature_sets::{block_proposal_signature_set, randao_signature_set};
+use signature_sets::{block_proposal_signature_set, randao_signature_set, OwnedPubkeys};
 use std::convert::TryInto;
 use tree_hash::TreeHash;
 use types::*;
@@ -83,8 +83,14 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
             block_verify!(
-                BlockSignatureVerifier::verify_entire_block(state, signed_block, block_root, spec)
-                    .is_ok(),
+                BlockSignatureVerifier::verify_entire_block(
+                    state,
+                    OwnedPubkeys::from_state(state)?.to_pubkeys(),
+                    signed_block,
+                    block_root,
+                    spec
+                )
+                .is_ok(),
                 BlockProcessingError::BulkSignatureVerificationFailed
             );
             VerifySignatures::False
@@ -177,7 +183,14 @@ pub fn verify_block_signature<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(
-        block_proposal_signature_set(state, block, block_root, spec)?.is_valid(),
+        block_proposal_signature_set(
+            state,
+            OwnedPubkeys::from_state(state)?.to_pubkeys(),
+            block,
+            block_root,
+            spec
+        )?
+        .is_valid(),
         HeaderInvalid::ProposalSignatureInvalid
     );
 
@@ -197,7 +210,13 @@ pub fn process_randao<T: EthSpec>(
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         block_verify!(
-            randao_signature_set(state, block, spec)?.is_valid(),
+            randao_signature_set(
+                state,
+                OwnedPubkeys::from_state(state)?.to_pubkeys(),
+                block,
+                spec
+            )?
+            .is_valid(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }

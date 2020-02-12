@@ -1,5 +1,5 @@
 use super::{SecretKey, BLS_PUBLIC_KEY_BYTE_SIZE};
-use milagro_bls::PublicKey as RawPublicKey;
+use milagro_bls::{G1Point, PublicKey as RawPublicKey};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -24,9 +24,19 @@ impl PublicKey {
         Self(raw)
     }
 
-    /// Returns the underlying signature.
+    /// Returns a reference to the underlying signature.
     pub fn as_raw(&self) -> &RawPublicKey {
         &self.0
+    }
+
+    /// Consumes self and returns the underlying signature.
+    pub fn as_point(&self) -> &G1Point {
+        &self.0.point
+    }
+
+    /// Consumes self and returns the underlying signature.
+    pub fn into_point(self) -> G1Point {
+        self.0.point
     }
 
     /// Returns the underlying point as compressed bytes.
