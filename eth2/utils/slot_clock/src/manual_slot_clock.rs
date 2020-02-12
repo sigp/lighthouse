@@ -15,6 +15,17 @@ pub struct ManualSlotClock {
     slot_duration: Duration,
 }
 
+impl Clone for ManualSlotClock {
+    fn clone(&self) -> Self {
+        ManualSlotClock {
+            genesis_slot: self.genesis_slot.clone(),
+            genesis_duration: self.genesis_duration.clone(),
+            current_time: RwLock::new(self.current_time.read().clone()),
+            slot_duration: self.slot_duration.clone(),
+        }
+    }
+}
+
 impl ManualSlotClock {
     pub fn set_slot(&self, slot: u64) {
         let slots_since_genesis = slot
