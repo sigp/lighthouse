@@ -230,6 +230,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let mut validator_subscriptions = ValidatorSubscriptions::new();
         let mut successful_duties = Vec::new();
 
+        let service_1 = self.clone();
+
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
 
@@ -251,33 +253,33 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             }
         }
 
+        let duties_no = duties.len();
+        let failed_duties = duties_no - successful_duties.len();
+
         self.beacon_node
             .http
             .validator()
             .subscribe(validator_subscriptions)
             .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
-            .map(|publish_status| {
-                match publish_status {
-                    PublishStatus::Valid => info!(
-                        log_1,
-                        "Successfully subscribed validators";
-                        "validators" => duties.len(),
-                        "failed_validators" => duties.len() - successful_duties.len(),
-                    ),
-                    PublishStatus::Invalid(msg) => crit!(
-                        log_1,
-                        "Validator Subscription was invalid";
-                        "message" => msg,
-                    ),
-                    PublishStatus::Unknown => {
-                        crit!(log_1, "Unknown condition when publishing attestation")
-                    }
+            .map(move |publish_status| match publish_status {
+                PublishStatus::Valid => info!(
+                    log_1,
+                    "Successfully subscribed validators";
+                    "validators" => duties_no,
+                    "failed_validators" => failed_duties,
+                ),
+                PublishStatus::Invalid(msg) => crit!(
+                    log_1,
+                    "Validator Subscription was invalid";
+                    "message" => msg,
+                ),
+                PublishStatus::Unknown => {
+                    crit!(log_1, "Unknown condition when publishing attestation")
                 }
-                Ok(successful_duties)
             })
-            .and_then(|successful_duties| {
+            .and_then(move |_| {
                 for duty in successful_duties {
-                    self.duties_service.subscribe_duty(duty);
+                    service_1.duties_service.subscribe_duty(&duty);
                 }
                 Ok(())
             })

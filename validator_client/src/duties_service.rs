@@ -394,7 +394,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Marks the duty as being subscribed to the beacon node.
-    pub fn subscribe_duty(&mut self, duty: ValidatorDuty, is_aggregator: bool) {
+    pub fn subscribe_duty(&self, duty: ValidatorDuty, is_aggregator: bool) {
         let state = match is_aggregator {
             true => DutyState::SubscribedAggregator,
             false => DutyState::Subscribed,
