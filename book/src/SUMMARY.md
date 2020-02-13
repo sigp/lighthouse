@@ -16,6 +16,7 @@
 	    * [/consensus](./http_consensus.md)
 	    * [/network](./http_network.md)
 	    * [/spec](./http_spec.md)
+	    * [/advanced](./http_advanced.md)
 	* [WebSocket](./websockets.md)
 * [Advanced Usage](./advanced.md)
     * [Database Configuration](./advanced_database.md)
