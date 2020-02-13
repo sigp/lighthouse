@@ -1,4 +1,4 @@
-use super::{Attestation, EthSpec, PublicKey, Signature};
+use super::{Attestation, ChainSpec, Domain, EthSpec, Fork, PublicKey, SecretKey, Signature};
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -26,6 +26,24 @@ impl<T: EthSpec> AggregateAndProof<T> {
         let message = self.aggregate.data.slot.as_u64().tree_hash_root();
         // FIXME(sproul): remove domain when merging with v0.10 branch
         self.selection_proof.verify(&message, 0, validator_pubkey)
+    }
+
+    /// Converts Self into a SignedAggregateAndProof.
+    pub fn into_signed(
+        self,
+        secret_key: &SecretKey,
+        fork: &Fork,
+        spec: &ChainSpec,
+    ) -> SignedAggregateAndProof<T> {
+        let sign_message = self.tree_hash_root();
+        let target_epoch = self.aggregate.data.slot.epoch(T::slots_per_epoch());
+        let domain = spec.get_domain(target_epoch, Domain::AggregateAndProof, &fork);
+        let signature = Signature::new(&sign_message, domain, &secret_key);
+
+        SignedAggregateAndProof {
+            message: self,
+            signature,
+        }
     }
 }
 

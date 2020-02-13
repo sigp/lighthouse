@@ -251,7 +251,7 @@ impl<E: EthSpec> Validator<E> {
             })
     }
 
-    /// Posts an attestation to the beacon node, expecting it to verify it and publish it to the network.
+    /// Posts a list of signed aggregates and proofs to the beacon node, expecting it to verify it and publish it to the network.
     pub fn publish_aggregate_and_proof(
         &self,
         signed_aggregate_and_proofs: Vec<SignedAggregateAndProof<E>>,

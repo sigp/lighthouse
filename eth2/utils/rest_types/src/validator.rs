@@ -15,7 +15,7 @@ pub struct ValidatorDutyBase<T> {
     /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
     pub validator_pubkey: T,
     /// The validator's index in `state.validators`
-    pub validator_index: Option<usize>,
+    pub validator_index: Option<u64>,
     /// The slot at which the validator must attest.
     pub attestation_slot: Option<Slot>,
     /// The index of the committee within `slot` of which the validator is a member.

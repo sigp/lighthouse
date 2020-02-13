@@ -192,7 +192,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
 
                 Ok(ValidatorDutyBytes {
                     validator_pubkey,
-                    validator_index: Some(validator_index),
+                    validator_index: Some(validator_index as u64),
                     attestation_slot: duties.map(|d| d.slot),
                     attestation_committee_index: duties.map(|d| d.index),
                     attestation_committee_position: duties.map(|d| d.committee_position),

@@ -227,23 +227,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn sign_aggregate_and_proof(
         &self,
         validator_pubkey: &PublicKey,
-        aggregate_and_proof: AggregateAndProof,
-    ) -> Option<SignedAggregateAndProof> {
+        aggregate_and_proof: AggregateAndProof<E>,
+    ) -> Option<SignedAggregateAndProof<E>> {
         let validators = self.validators.read();
         let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
 
-        let domain = self.spec.get_domain(
-            slot.epoch(E::slots_per_epoch()),
-            Domain::AggregateAndProof,
-            &self.fork()?,
-        );
-
-        let message = aggregate_and_proof.tree_hash_root();
-        let signature = Signature::new(&message, domain, &voting_keypair.sk)
-
-        Some(SignedAggregateAndProof {
-            message: aggregate_and_proof,
-            signature
-        })
+        Some(aggregate_and_proof.into_signed(&voting_keypair.sk, &self.fork()?, &self.spec))
     }
 }

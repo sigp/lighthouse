@@ -56,8 +56,8 @@ impl DutyAndState {
 
     /// Returns the selection proof if the duty is an aggregation duty.
     pub fn selection_proof(&self) -> Option<Signature> {
-        match self.state {
-            DutyState::SubscribedAggregator(proof) => Some(proof),
+        match &self.state {
+            DutyState::SubscribedAggregator(proof) => Some(proof.clone()),
             _ => None,
         }
     }

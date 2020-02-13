@@ -1,4 +1,7 @@
-use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
+use crate::{
+    duties_service::{DutiesService, DutyAndState},
+    validator_store::ValidatorStore,
+};
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{Future, Stream};
@@ -11,7 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::{Delay, Interval};
-use types::{ChainSpec, CommitteeIndex, EthSpec, Slot};
+use types::{AggregateAndProof, ChainSpec, CommitteeIndex, EthSpec, Slot};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T, E: EthSpec> {
@@ -190,11 +193,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         // If a validator needs to publish an aggregate attestation, they must do so at 2/3
         // through the slot. This delay triggers at this time
-        let aggregator_delay = {
+        let aggregator_delay_instant = {
             if duration_to_next_slot <= slot_duration / 3 {
-                Delay::new(Instant::now())
+                Instant::now()
             } else {
-                Delay::new(Instant::now() + duration_to_next_slot - (slot_duration / 3))
+                Instant::now() + duration_to_next_slot - (slot_duration / 3)
             }
         };
 
@@ -234,10 +237,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     // If this duty entails the validator aggregating attestations, perform
                     // aggregation tasks
                     if duty_and_state.is_aggregator() {
-                        let validator_duties = committee_indices
+                        let validator_duties = aggregator_committee_indices
                             .entry(committee_index)
                             .or_insert_with(|| vec![]);
-                        aggregator_committee_indices.push(duty_and_state);
+                        validator_duties.push(duty_and_state);
                     }
                 }
             });
@@ -258,7 +261,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         aggregator_committee_indices
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
-                // Spawn a separate task for each attestation.
+                // Spawn a separate task for each aggregate attestation.
                 service
                     .context
                     .executor
@@ -266,6 +269,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         slot,
                         committee_index,
                         validator_duties,
+                        Delay::new(aggregator_delay_instant.clone()),
                     ));
             });
         Ok(())
@@ -295,13 +299,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             if let Some(slot_signature) =
                 self.validator_store.sign_slot(&duty.validator_pubkey, slot)
             {
-                let is_aggregator_proof = 
-                if duty.is_aggregator(&slot_signature) {
+                let is_aggregator_proof = if duty.is_aggregator(&slot_signature) {
                     Some(slot_signature.clone())
-                }
-                else {
+                } else {
                     None
-                }
+                };
 
                 validator_subscriptions
                     .pubkeys
@@ -383,9 +385,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             duty_slot,
                             duty_committee_index,
                             validator_committee_position,
+                            _,
                         )) = attestation_duties(duty)
                         {
-                            let raw_attestation = attestation.clone();
+                            let mut raw_attestation = attestation.clone();
                             if duty_slot == slot && duty_committee_index == committee_index {
                                 if service_1
                                     .validator_store
@@ -458,6 +461,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         slot: Slot,
         committee_index: CommitteeIndex,
         validator_duties: Vec<DutyAndState>,
+        aggregator_delay: Delay,
     ) -> impl Future<Item = (), Error = ()> {
         let service_1 = self.clone();
         let service_2 = self.clone();
@@ -475,40 +479,53 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     |(mut aggregate_and_proof_list, attestation), duty_and_state| {
                         let log = service_1.context.log.clone();
 
-                        match (duty_and_state.selection_proof(), attestation_duties(duty_and_state.duty)) {
-                            (Some(selection_proof), Some((duty_slot, duty_committee_index, validator_committee_position))) => {
+                        match (
+                            duty_and_state.selection_proof(),
+                            attestation_duties(&duty_and_state.duty),
+                        ) {
+                            (
+                                Some(selection_proof),
+                                Some((duty_slot, duty_committee_index, _, aggregator_index)),
+                            ) => {
                                 let raw_attestation = attestation.clone();
                                 if duty_slot == slot && duty_committee_index == committee_index {
                                     // build the `AggregateAndProof` struct for each validator
                                     let aggregate_and_proof = AggregateAndProof {
-                                        aggregator_index: duty_and_state.duty.validator_index,
+                                        aggregator_index,
                                         aggregate: raw_attestation,
                                         selection_proof,
                                     };
 
-                                    if let Some(signed_aggregate_and_proof) = service_1
-                                        .validator_store
-                                        .sign_aggregate_and_proof(
-                                            &duty.validator_pubkey,
+                                    if let Some(signed_aggregate_and_proof) =
+                                        service_1.validator_store.sign_aggregate_and_proof(
+                                            &duty_and_state.duty.validator_pubkey,
                                             aggregate_and_proof,
                                         )
                                     {
-                                        aggregate_and_proof_list.push(raw_attestation);
+                                        aggregate_and_proof_list.push(signed_aggregate_and_proof);
                                     } else {
                                         crit!(log, "Failed to sign attestation");
                                     }
-                            } else {
-                                crit!(log, "Inconsistent validator duties during signing");
+                                } else {
+                                    crit!(log, "Inconsistent validator duties during signing");
+                                }
                             }
-                            }
-                            _ => { crit!(log, "Missing validator duties or not aggregate duty when signing") }
+                            _ => crit!(
+                                log,
+                                "Missing validator duties or not aggregate duty when signing"
+                            ),
                         }
 
                         (aggregate_and_proof_list, attestation)
                     },
                 )
             })
-            .and_then(move |aggregate_and_proof_list, attestation| {
+            .and_then(move |(aggregate_and_proof_list, attestation)| {
+                aggregator_delay
+                    .map(move |_| (aggregate_and_proof_list, attestation))
+                    .map_err(move |e| format!("Error during aggregator delay: {:?}", e))
+            })
+            .and_then(move |(aggregate_and_proof_list, attestation)| {
                 service_2
                     .beacon_node
                     .http
@@ -547,10 +564,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     }
 }
 
-fn attestation_duties(duty: &ValidatorDuty) -> Option<(Slot, CommitteeIndex, usize)> {
+fn attestation_duties(duty: &ValidatorDuty) -> Option<(Slot, CommitteeIndex, usize, u64)> {
     Some((
         duty.attestation_slot?,
         duty.attestation_committee_index?,
         duty.attestation_committee_position?,
+        duty.validator_index?,
     ))
 }
