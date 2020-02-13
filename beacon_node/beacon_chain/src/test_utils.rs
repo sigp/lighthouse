@@ -21,7 +21,6 @@ use types::{
     Keypair, SecretKey, Signature, SignedBeaconBlock, SignedRoot, Slot,
 };
 
-pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 pub use types::test_utils::generate_deterministic_keypairs;
 
 // 4th September 2019

@@ -159,32 +159,33 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Persists the current head to disk, ensuring that we start with it next boot.
-    pub fn persist_head(&self) -> Result<(), Error> {
-        let timer = metrics::start_timer(&metrics::PERSIST_HEAD);
-
+    fn get_head_for_persistence(&self) -> Result<PersistedBeaconChain, Error> {
         let canonical_head_block_root = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
             .beacon_block_root;
 
-        let p = PersistedBeaconChain {
+        Ok(PersistedBeaconChain {
             canonical_head_block_root,
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
-        };
+        })
+    }
+
+    /// Persists the current head to disk, ensuring that we start with it next boot.
+    fn persist_head(&self, persisted_head: PersistedBeaconChain) -> Result<(), Error> {
+        let timer = metrics::start_timer(&metrics::PERSIST_HEAD);
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
-        self.store.put(&key, &p)?;
+        self.store.put(&key, &persisted_head)?;
 
         metrics::stop_timer(timer);
 
         Ok(())
     }
 
-    /// Persists the current head to disk, ensuring that we start with it next boot.
-    pub fn persist_op_pool(&self) -> Result<(), Error> {
+    fn persist_op_pool(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
         self.store.put(
@@ -197,11 +198,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Persists the current head to disk, ensuring that we start with it next boot.
-    pub fn persist_eth1_cache(&self) -> Result<(), Error> {
+    fn persist_eth1_cache(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
-        if let Some(eth1_chain) = self.eth1_chain {
+        if let Some(eth1_chain) = self.eth1_chain.as_ref() {
             self.store.put(
                 &Hash256::from_slice(&ETH1_CACHE_DB_KEY.as_bytes()),
                 &eth1_chain.as_ssz_container(),
@@ -213,8 +213,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Persists the current head to disk, ensuring that we start with it next boot.
-    pub fn persist_fork_choice(&self) -> Result<(), Error> {
+    fn persist_fork_choice(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
 
         self.store.put(
@@ -1576,8 +1575,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 metrics::stop_timer(timer);
 
-                // Save `self` to `self.store`.
-                self.persist()?;
+                if previous_slot.epoch(T::EthSpec::slots_per_epoch())
+                    < new_slot.epoch(T::EthSpec::slots_per_epoch())
+                {
+                    let head = self.get_head_for_persistence()?;
+                    self.persist_fork_choice()?;
+                    self.persist_head(head)?;
+                }
 
                 let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
                     reorg: is_reorg,
@@ -1715,16 +1719,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
     fn drop(&mut self) {
-        if let Err(e) = self.persist() {
+        let drop = || -> Result<(), Error> {
+            let head = self.get_head_for_persistence()?;
+            self.persist_fork_choice()?;
+            self.persist_head(head)?;
+            self.persist_op_pool()?;
+            self.persist_eth1_cache()
+        };
+
+        if let Err(e) = drop() {
             error!(
                 self.log,
-                "Failed to persist BeaconChain on drop";
+                "Failed to persist on BeaconChain drop";
                 "error" => format!("{:?}", e)
             )
         } else {
             info!(
                 self.log,
-                "Saved beacon chain state";
+                "Saved beacon chain to disk";
             )
         }
     }
