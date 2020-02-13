@@ -71,7 +71,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
-    persisted_beacon_chain: Option<PersistedBeaconChain<T>>,
+    persisted_beacon_chain: Option<PersistedBeaconChain>,
     head_tracker: Option<HeadTracker>,
     spec: ChainSpec,
     log: Option<Logger>,

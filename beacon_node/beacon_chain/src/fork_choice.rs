@@ -4,10 +4,11 @@ use crate::{errors::BeaconChainError, metrics, BeaconChain, BeaconChainTypes};
 use checkpoint_manager::{get_effective_balances, CheckpointManager, CheckpointWithBalances};
 use parking_lot::{RwLock, RwLockReadGuard};
 use proto_array_fork_choice::{core::ProtoArray, ProtoArrayForkChoice};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::common::get_attesting_indices;
 use std::marker::PhantomData;
-use store::Error as StoreError;
+use store::{DBColumn, Error as StoreError, SimpleStoreItem};
 use types::{Attestation, BeaconBlock, BeaconState, BeaconStateError, Epoch, Hash256};
 
 type Result<T> = std::result::Result<T, Error>;
@@ -273,5 +274,19 @@ impl From<StoreError> for Error {
 impl From<String> for Error {
     fn from(e: String) -> Error {
         Error::BackendError(e)
+    }
+}
+
+impl SimpleStoreItem for SszForkChoice {
+    fn db_column() -> DBColumn {
+        DBColumn::ForkChoice
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> std::result::Result<Self, StoreError> {
+        Self::from_ssz_bytes(bytes).map_err(Into::into)
     }
 }
