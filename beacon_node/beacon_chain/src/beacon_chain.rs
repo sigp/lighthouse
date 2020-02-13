@@ -1587,7 +1587,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 metrics::stop_timer(timer);
 
                 if previous_slot.epoch(T::EthSpec::slots_per_epoch())
-                    != new_slot.epoch(T::EthSpec::slots_per_epoch())
+                    < new_slot.epoch(T::EthSpec::slots_per_epoch())
+                    || is_reorg
                 {
                     self.persist_head_and_fork_choice()?;
                 }
