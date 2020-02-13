@@ -6,10 +6,9 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-/// A Validators aggregate attestation and proof to publish on the `beacon_aggregate_and_proof`
-/// gossipsub topic.
+/// A Validators aggregate attestation and selection proof.
 ///
-/// Spec v0.10.0
+/// Spec v0.10.1
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 #[serde(bound = "T: EthSpec")]
 pub struct AggregateAndProof<T: EthSpec> {
@@ -27,5 +26,25 @@ impl<T: EthSpec> AggregateAndProof<T> {
         let message = self.aggregate.data.slot.as_u64().tree_hash_root();
         // FIXME(sproul): remove domain when merging with v0.10 branch
         self.selection_proof.verify(&message, 0, validator_pubkey)
+    }
+}
+
+/// A Validators signed aggregate proof to publish on the `beacon_aggregate_and_proof`
+/// gossipsub topic.
+///
+/// Spec v0.10.1
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[serde(bound = "T: EthSpec")]
+pub struct SignedAggregateAndProof<T: EthSpec> {
+    /// The index of the validator that created the attestation.
+    pub message: AggregateAndProof<T>,
+    /// The aggregate attestation.
+    pub signature: Signature,
+}
+
+impl<T: EthSpec> SignedAggregateAndProof<T> {
+    pub fn is_valid_signature(&self, validator_pubkey: &PublicKey, domain: u64) -> bool {
+        let message = self.message.tree_hash_root();
+        self.signature.verify(&message, domain, validator_pubkey)
     }
 }

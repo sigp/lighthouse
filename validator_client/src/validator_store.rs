@@ -13,7 +13,8 @@ use std::sync::Arc;
 use tempdir::TempDir;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature, Slot,
+    AggregateAndProof, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
+    PublicKey, Signature, SignedAggregateAndProof, Slot,
 };
 
 #[derive(Clone)]
@@ -210,12 +211,39 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let domain = self.spec.get_domain(
             slot.epoch(E::slots_per_epoch()),
-            Domain::BeaconAttester,
+            Domain::SelectionProof,
             &self.fork()?,
         );
 
         let message = slot.as_u64().tree_hash_root();
 
         Some(Signature::new(&message, domain, &voting_keypair.sk))
+    }
+
+    /// Signs an `AggregateAndProof` for a given validator.
+    ///
+    /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
+    /// modified by actors other than the signing validator.
+    pub fn sign_aggregate_and_proof(
+        &self,
+        validator_pubkey: &PublicKey,
+        aggregate_and_proof: AggregateAndProof,
+    ) -> Option<SignedAggregateAndProof> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
+
+        let domain = self.spec.get_domain(
+            slot.epoch(E::slots_per_epoch()),
+            Domain::AggregateAndProof,
+            &self.fork()?,
+        );
+
+        let message = aggregate_and_proof.tree_hash_root();
+        let signature = Signature::new(&message, domain, &voting_keypair.sk)
+
+        Some(SignedAggregateAndProof {
+            message: aggregate_and_proof,
+            signature
+        })
     }
 }

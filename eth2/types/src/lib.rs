@@ -40,7 +40,7 @@ pub mod validator;
 
 use ethereum_types::{H160, H256};
 
-pub use crate::aggregate_and_proof::AggregateAndProof;
+pub use crate::aggregate_and_proof::{AggregateAndProof, SignedAggregateAndProof};
 pub use crate::attestation::{Attestation, Error as AttestationError};
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;

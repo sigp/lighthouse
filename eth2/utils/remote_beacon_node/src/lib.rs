@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork, Hash256,
-    PublicKey, Signature, Slot,
+    PublicKey, Signature, SignedAggregateAndProof, Slot,
 };
 use url::Url;
 
@@ -168,7 +168,7 @@ pub enum PublishStatus {
     Valid,
     /// The object was not valid and may or may not have been published to the network.
     Invalid(String),
-    /// The server responsed with an unknown status code. The object may or may not have been
+    /// The server responded with an unknown status code. The object may or may not have been
     /// published to the network.
     Unknown,
 }
@@ -209,15 +209,57 @@ impl<E: EthSpec> Validator<E> {
             .and_then(move |url| client.json_get(url, query_params))
     }
 
-    /// Posts an attestation to the beacon node, expecting it to verify it and publish it to the network.
-    pub fn publish_attestation(
+    /// Produces an aggregate attestation.
+    pub fn produce_aggregate_attestation(
         &self,
-        attestation: Attestation<E>,
+        slot: Slot,
+        committee_index: CommitteeIndex,
+    ) -> impl Future<Item = Attestation<E>, Error = Error> {
+        let query_params = vec![
+            ("slot".into(), format!("{}", slot)),
+            ("committee_index".into(), format!("{}", committee_index)),
+        ];
+
+        let client = self.0.clone();
+        self.url("aggregate_attestation")
+            .into_future()
+            .and_then(move |url| client.json_get(url, query_params))
+    }
+
+    /// Posts a list of attestations to the beacon node, expecting it to verify it and publish it to the network.
+    pub fn publish_attestations(
+        &self,
+        attestation: Vec<Attestation<E>>,
     ) -> impl Future<Item = PublishStatus, Error = Error> {
         let client = self.0.clone();
         self.url("attestation")
             .into_future()
             .and_then(move |url| client.json_post::<_>(url, attestation))
+            .and_then(|mut response| {
+                response
+                    .text()
+                    .map(|text| (response, text))
+                    .map_err(Error::from)
+            })
+            .and_then(|(response, text)| match response.status() {
+                StatusCode::OK => Ok(PublishStatus::Valid),
+                StatusCode::ACCEPTED => Ok(PublishStatus::Invalid(text)),
+                _ => response
+                    .error_for_status()
+                    .map_err(Error::from)
+                    .map(|_| PublishStatus::Unknown),
+            })
+    }
+
+    /// Posts an attestation to the beacon node, expecting it to verify it and publish it to the network.
+    pub fn publish_aggregate_and_proof(
+        &self,
+        signed_aggregate_and_proofs: Vec<SignedAggregateAndProof<E>>,
+    ) -> impl Future<Item = PublishStatus, Error = Error> {
+        let client = self.0.clone();
+        self.url("aggregate_and_proofs")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, signed_aggregate_and_proofs))
             .and_then(|mut response| {
                 response
                     .text()

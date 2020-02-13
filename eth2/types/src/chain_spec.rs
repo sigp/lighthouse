@@ -12,6 +12,8 @@ pub enum Domain {
     Randao,
     Deposit,
     VoluntaryExit,
+    SelectionProof,
+    AggregateAndProof,
 }
 
 /// Holds all the "constants" for a BeaconChain.
@@ -83,6 +85,8 @@ pub struct ChainSpec {
     domain_randao: u32,
     domain_deposit: u32,
     domain_voluntary_exit: u32,
+    domain_selection_proof: u32,
+    domain_aggregate_and_proof: u32,
 
     /*
      * Fork choice
@@ -118,6 +122,8 @@ impl ChainSpec {
             Domain::Randao => self.domain_randao,
             Domain::Deposit => self.domain_deposit,
             Domain::VoluntaryExit => self.domain_voluntary_exit,
+            Domain::SelectionProof => self.domain_selection_proof,
+            Domain::AggregateAndProof => self.domain_aggregate_and_proof,
         }
     }
 
@@ -218,6 +224,8 @@ impl ChainSpec {
             domain_randao: 2,
             domain_deposit: 3,
             domain_voluntary_exit: 4,
+            domain_selection_proof: 5,
+            domain_aggregate_and_proof: 6,
 
             /*
              * Fork choice

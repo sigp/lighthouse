@@ -1,4 +1,5 @@
 use crate::validator_store::ValidatorStore;
+use bls::Signature;
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{future, Future, IntoFuture, Stream};
@@ -26,7 +27,7 @@ type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, DutyAndState>>;
 #[derive(Debug, Clone)]
 pub struct DutyAndState {
     /// The validator duty.
-    duty: ValidatorDuty,
+    pub duty: ValidatorDuty,
     /// The current state of the validator duty.
     state: DutyState,
 }
@@ -37,24 +38,36 @@ pub enum DutyState {
     NotSubscribed,
     /// The duty has been subscribed to the beacon node.
     Subscribed,
-    /// The duty has been subscribed and the validator is an aggregator for this duty.
-    SubscribedAggregator,
+    /// The duty has been subscribed and the validator is an aggregator for this duty. The
+    /// selection proof is provided to construct the `AggregateAndProof` struct.
+    SubscribedAggregator(Signature),
 }
 
 impl DutyAndState {
+    /// Returns true if the duty is an aggregation duty (the validator must aggregate all
+    /// attestations.
     pub fn is_aggregator(&self) -> bool {
         match self.state {
             DutyState::NotSubscribed => false,
             DutyState::Subscribed => false,
-            DutyState::SubscribedAggregator => true,
+            DutyState::SubscribedAggregator(_) => true,
         }
     }
 
+    /// Returns the selection proof if the duty is an aggregation duty.
+    pub fn selection_proof(&self) -> Option<Signature> {
+        match self.state {
+            DutyState::SubscribedAggregator(proof) => Some(proof),
+            _ => None,
+        }
+    }
+
+    /// Returns true if the this duty has been subscribed with the beacon node.
     pub fn is_subscribed(&self) -> bool {
         match self.state {
             DutyState::NotSubscribed => false,
             DutyState::Subscribed => true,
-            DutyState::SubscribedAggregator => true,
+            DutyState::SubscribedAggregator(_) => true,
         }
     }
 }
@@ -192,7 +205,7 @@ impl DutiesStore {
         }
     }
 
-    fn attesters(&self, slot: Slot, slots_per_epoch: u64) -> Vec<ValidatorDuty> {
+    fn attesters(&self, slot: Slot, slots_per_epoch: u64) -> Vec<DutyAndState> {
         self.store
             .read()
             .iter()
@@ -209,7 +222,7 @@ impl DutiesStore {
                     }
                 })
             })
-            .map(|duty_and_state| duty_and_state.duty.clone())
+            .cloned()
             .collect()
     }
 
@@ -385,7 +398,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Returns all `ValidatorDuty` for the given `slot`.
-    pub fn attesters(&self, slot: Slot) -> Vec<ValidatorDuty> {
+    pub fn attesters(&self, slot: Slot) -> Vec<DutyAndState> {
         self.store.attesters(slot, E::slots_per_epoch())
     }
 
@@ -395,10 +408,12 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Marks the duty as being subscribed to the beacon node.
-    pub fn subscribe_duty(&self, duty: &ValidatorDuty, is_aggregator: bool) {
-        let state = match is_aggregator {
-            true => DutyState::SubscribedAggregator,
-            false => DutyState::Subscribed,
+    ///
+    /// If the duty is to be marked as an aggregator duty, a selection proof is also provided.
+    pub fn subscribe_duty(&self, duty: &ValidatorDuty, aggregator_proof: Option<Signature>) {
+        let state = match aggregator_proof {
+            Some(proof) => DutyState::SubscribedAggregator(proof),
+            None => DutyState::Subscribed,
         };
         if let Some(slot) = duty.attestation_slot {
             self.store
