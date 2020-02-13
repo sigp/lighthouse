@@ -114,6 +114,7 @@ pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
     encoder: snap::Encoder,
     decoder: snap::Decoder,
     max_packet_size: usize,
+    len: Option<usize>,
     protocol: ProtocolId,
     phantom: PhantomData<TSpec>,
 }
@@ -127,6 +128,7 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
             encoder: snap::Encoder::new(),
             decoder: snap::Decoder::new(),
             max_packet_size,
+            len: None,
             protocol,
             phantom: PhantomData,
         }
@@ -168,68 +170,58 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         println!("Decoding side: Size of recived bytes: {}", src.len());
-        let len = snap::decompress_len(src)?;
-        println!("Decoding side: Size of decompressed bytes: {}", len);
-        if src.len() == 1 && src[0] == 0_u8 {
-            // the object is empty. We return the empty object if this is the case
-            // clear the buffer and return an empty object
-            src.clear();
-            match self.protocol.message_name.as_str() {
-                RPC_STATUS => match self.protocol.version.as_str() {
-                    "1" => Err(RPCError::Custom(
-                        "Status stream terminated unexpectedly".into(),
-                    )), // cannot have an empty HELLO message. The stream has terminated unexpectedly
-                    _ => unreachable!("Cannot negotiate an unknown version"),
-                },
-                RPC_GOODBYE => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
-                RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-                    "1" => Err(RPCError::Custom(
-                        "Status stream terminated unexpectedly, empty block".into(),
-                    )), // cannot have an empty block message.
-                    _ => unreachable!("Cannot negotiate an unknown version"),
-                },
-                RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-                    "1" => Err(RPCError::Custom(
-                        "Status stream terminated unexpectedly, empty block".into(),
-                    )), // cannot have an empty block message.
-                    _ => unreachable!("Cannot negotiate an unknown version"),
-                },
-                _ => unreachable!("Cannot negotiate an unknown protocol"),
-            }
-        } else {
-            match self.decoder.decompress_vec(src).map_err(RPCError::from) {
-                Ok(packet) => {
-                    // take the bytes from the buffer
-                    let raw_bytes = packet;
-                    src.clear();
-                    match self.protocol.message_name.as_str() {
-                        RPC_STATUS => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
-                                &raw_bytes,
-                            )?))),
-                            _ => unreachable!("Cannot negotiate an unknown version"),
-                        },
-                        RPC_GOODBYE => {
-                            Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response"))
+        if self.len.is_none() {
+            self.len = Some(snap::decompress_len(src)?);
+        }
+        println!("Decoding side: Size of decompressed bytes: {:?}", self.len);
+        if let Some(len) = self.len {
+            if src.len() >= len {
+                let data = src.split_to(len);
+                match self.decoder.decompress_vec(&data).map_err(RPCError::from) {
+                    Ok(packet) => {
+                        // take the bytes from the buffer
+                        let raw_bytes = packet;
+                        self.len = None;
+                        match self.protocol.message_name.as_str() {
+                            RPC_STATUS => match self.protocol.version.as_str() {
+                                "1" => {
+                                    return Ok(Some(RPCResponse::Status(
+                                        StatusMessage::from_ssz_bytes(&raw_bytes)?,
+                                    )))
+                                }
+                                _ => unreachable!("Cannot negotiate an unknown version"),
+                            },
+                            RPC_GOODBYE => {
+                                return Err(RPCError::InvalidProtocol(
+                                    "GOODBYE doesn't have a response",
+                                ))
+                            }
+                            RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
+                                "1" => {
+                                    return Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                                        BeaconBlock::from_ssz_bytes(&raw_bytes)?,
+                                    ))))
+                                }
+                                _ => unreachable!("Cannot negotiate an unknown version"),
+                            },
+                            RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
+                                "1" => {
+                                    return Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                        BeaconBlock::from_ssz_bytes(&raw_bytes)?,
+                                    ))))
+                                }
+                                _ => unreachable!("Cannot negotiate an unknown version"),
+                            },
+                            _ => unreachable!("Cannot negotiate an unknown protocol"),
                         }
-                        RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                                BeaconBlock::from_ssz_bytes(&raw_bytes)?,
-                            )))),
-                            _ => unreachable!("Cannot negotiate an unknown version"),
-                        },
-                        RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                BeaconBlock::from_ssz_bytes(&raw_bytes)?,
-                            )))),
-                            _ => unreachable!("Cannot negotiate an unknown version"),
-                        },
-                        _ => unreachable!("Cannot negotiate an unknown protocol"),
                     }
+                    Err(e) => return Err(e),
                 }
-                Err(e) => Err(e),
+            } else {
+                return Ok(None);
             }
         }
+        return Ok(None);
     }
 }
 
