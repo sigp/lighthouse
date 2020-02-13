@@ -159,7 +159,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    fn get_head_for_persistence(&self) -> Result<PersistedBeaconChain, Error> {
+    pub fn get_head_for_persistence(&self) -> Result<PersistedBeaconChain, Error> {
         let canonical_head_block_root = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
@@ -174,7 +174,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Persists the current head to disk, ensuring that we start with it next boot.
-    fn persist_head(&self, persisted_head: PersistedBeaconChain) -> Result<(), Error> {
+    pub fn persist_head(&self, persisted_head: PersistedBeaconChain) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_HEAD);
 
         let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
@@ -185,7 +185,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    fn persist_op_pool(&self) -> Result<(), Error> {
+    pub fn persist_op_pool(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
         self.store.put(
@@ -198,7 +198,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    fn persist_eth1_cache(&self) -> Result<(), Error> {
+    pub fn persist_eth1_cache(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
         if let Some(eth1_chain) = self.eth1_chain.as_ref() {
@@ -213,7 +213,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    fn persist_fork_choice(&self) -> Result<(), Error> {
+    pub fn persist_fork_choice(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
 
         self.store.put(
@@ -1576,7 +1576,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 metrics::stop_timer(timer);
 
                 if previous_slot.epoch(T::EthSpec::slots_per_epoch())
-                    < new_slot.epoch(T::EthSpec::slots_per_epoch())
+                    != new_slot.epoch(T::EthSpec::slots_per_epoch())
                 {
                     let head = self.get_head_for_persistence()?;
                     self.persist_fork_choice()?;
