@@ -20,8 +20,9 @@ use state_processing::per_block_processing::errors::{
 use state_processing::{
     common::get_indexed_attestation, per_block_processing, per_slot_processing,
     signature_sets::indexed_attestation_signature_set_from_pubkeys, BlockProcessingError,
-    BlockSignatureStrategy,
+    BlockSignatureStrategy, BlockSignatureVerifier,
 };
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fs;
 use std::io::prelude::*;
@@ -64,7 +65,10 @@ const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
     /// Block was valid and imported into the block graph.
-    Processed { block_root: Hash256 },
+    Processed {
+        block_root: Hash256,
+    },
+    InvalidSignature,
     /// The parent block was unknown.
     ParentUnknown {
         parent: Hash256,
@@ -76,7 +80,10 @@ pub enum BlockProcessingOutcome {
         block_slot: Slot,
     },
     /// The block state_root does not match the generated state.
-    StateRootMismatch { block: Hash256, local: Hash256 },
+    StateRootMismatch {
+        block: Hash256,
+        local: Hash256,
+    },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
@@ -987,16 +994,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
 
-        let pubkeys = indexed_attestation
-            .attesting_indices
-            .iter()
-            .map(|i| {
-                pubkey_cache
-                    .get(*i as usize)
-                    .ok_or_else(|| Error::ValidatorPubkeyCacheIncomplete(*i as usize))
-            })
-            .collect::<Result<Vec<&PublicKey>, Error>>()?;
-
         let fork = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
@@ -1004,7 +1001,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|head| head.beacon_state.fork.clone())?;
 
         let signature_set = indexed_attestation_signature_set_from_pubkeys(
-            pubkeys,
+            |validator_index| {
+                pubkey_cache
+                    .get(validator_index)
+                    .map(|pk| Cow::Borrowed(pk.as_point()))
+            },
             &attestation.signature,
             &indexed_attestation,
             &fork,
@@ -1020,6 +1021,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let signature_is_valid = signature_set.is_valid();
 
         metrics::stop_timer(signature_verification_timer);
+
+        drop(pubkey_cache);
 
         if signature_is_valid {
             // Provide the attestation to fork choice, updating the validator latest messages but
@@ -1305,13 +1308,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
+        let validator_pubkey_cache = self
+            .validator_pubkey_cache
+            .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        let signature_verification_result = BlockSignatureVerifier::verify_entire_block(
+            &state,
+            |validator_index| {
+                if validator_index < state.validators.len() {
+                    validator_pubkey_cache
+                        .get(validator_index)
+                        .map(|pk| Cow::Borrowed(pk.as_point()))
+                } else {
+                    None
+                }
+            },
+            &signed_block,
+            Some(block_root),
+            &self.spec,
+        );
+
+        if signature_verification_result.is_err() {
+            return Ok(BlockProcessingOutcome::InvalidSignature);
+        }
+
+        drop(validator_pubkey_cache);
+
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).
         match per_block_processing(
             &mut state,
             &signed_block,
             Some(block_root),
-            BlockSignatureStrategy::VerifyBulk,
+            BlockSignatureStrategy::NoVerification,
             &self.spec,
         ) {
             Err(BlockProcessingError::BeaconStateError(e)) => {
