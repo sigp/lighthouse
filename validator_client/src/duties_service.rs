@@ -37,13 +37,24 @@ pub enum DutyState {
     NotSubscribed,
     /// The duty has been subscribed to the beacon node.
     Subscribed,
+    /// The duty has been subscribed and the validator is an aggregator for this duty.
+    SubscribedAggregator,
 }
 
 impl DutyAndState {
+    pub fn is_aggregator(&self) -> bool {
+        match self.state {
+            DutyState::NotSubscribed => false,
+            DutyState::Subscribed => false,
+            DutyState::SubscribedAggregator => true,
+        }
+    }
+
     pub fn is_subscribed(&self) -> bool {
         match self.state {
             DutyState::NotSubscribed => false,
             DutyState::Subscribed => true,
+            DutyState::SubscribedAggregator => true,
         }
     }
 }
@@ -61,7 +72,7 @@ impl TryInto<DutyAndState> for ValidatorDutyBytes {
             attestation_committee_index: self.attestation_committee_index,
             attestation_committee_position: self.attestation_committee_position,
             block_proposal_slots: self.block_proposal_slots,
-            is_aggregator: self.is_aggregator,
+            aggregator_modulo: self.aggregator_modulo,
         };
         Ok(DutyAndState {
             duty,
@@ -161,15 +172,21 @@ impl DutiesStore {
 
     /// Marks a duty as being subscribed to the beacon node. This is called by the attestation
     /// service once it has been sent.
-    fn subscribe_duty(&self, validator: &PublicKey, slot: Slot, slots_per_epoch: u64) {
+    fn set_duty_state(
+        &self,
+        validator: &PublicKey,
+        slot: Slot,
+        state: DutyState,
+        slots_per_epoch: u64,
+    ) {
         let epoch = slot.epoch(slots_per_epoch);
 
         let mut store = self.store.write();
         if let Some(map) = store.get_mut(validator) {
             if let Some(duty) = map.get_mut(&epoch) {
                 if duty.duty.attestation_slot == Some(slot) {
-                    // subscribe the duty
-                    duty.state = DutyState::Subscribed;
+                    // set the duty state
+                    duty.state = state;
                 }
             }
         }
@@ -206,11 +223,6 @@ impl DutiesStore {
         if let Some(validator_map) = store.get_mut(&duties.duty.validator_pubkey) {
             if let Some(known_duties) = validator_map.get_mut(&epoch) {
                 if known_duties.duty == duties.duty {
-                    InsertOutcome::Identical
-                } else if known_duties.duty.compare_aggregator(&duties.duty) {
-                    // The duties are equivalent, but we now know the validator is an aggregator
-                    // We just replace the old duty, but consider the outcome identical
-                    *known_duties = duties;
                     InsertOutcome::Identical
                 } else {
                     *known_duties = duties;
@@ -383,10 +395,14 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Marks the duty as being subscribed to the beacon node.
-    pub fn subscribe_duty(&self, duty: &ValidatorDuty) {
+    pub fn subscribe_duty(&self, duty: &ValidatorDuty, is_aggregator: bool) {
+        let state = match is_aggregator {
+            true => DutyState::SubscribedAggregator,
+            false => DutyState::Subscribed,
+        };
         if let Some(slot) = duty.attestation_slot {
             self.store
-                .subscribe_duty(&duty.validator_pubkey, slot, E::slots_per_epoch())
+                .set_duty_state(&duty.validator_pubkey, slot, state, E::slots_per_epoch())
         }
     }
 

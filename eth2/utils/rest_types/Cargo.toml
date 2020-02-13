@@ -8,6 +8,7 @@ edition = "2018"
 types = { path = "../../types" }
 eth2_ssz_derive = { path = "../ssz_derive" }
 eth2_ssz = { path = "../ssz" }
+eth2_hashing = { path = "../eth2_hashing" }
 bls = { path = "../bls" }
 serde = "1.0.102"
 serde_derive = "1.0.102"

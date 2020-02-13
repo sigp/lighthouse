@@ -1,6 +1,8 @@
 use bls::{PublicKey, PublicKeyBytes, Signature};
+use eth2_hashing::hash;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use std::convert::TryInto;
 use types::{CommitteeIndex, Epoch, Slot};
 
 /// A Validator duty with the validator public key represented a `PublicKeyBytes`.
@@ -9,7 +11,7 @@ pub type ValidatorDutyBytes = ValidatorDutyBase<PublicKeyBytes>;
 pub type ValidatorDuty = ValidatorDutyBase<PublicKey>;
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-pub struct ValidatorDutyBase<T: PartialEq> {
+pub struct ValidatorDutyBase<T> {
     /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
     pub validator_pubkey: T,
     /// The validator's index in `state.validators`
@@ -22,23 +24,28 @@ pub struct ValidatorDutyBase<T: PartialEq> {
     pub attestation_committee_position: Option<usize>,
     /// The slots in which a validator must propose a block (can be empty).
     pub block_proposal_slots: Vec<Slot>,
-    /// Indicates if this duty requires the validator to aggregate attestations. This is false if
-    /// there is no `attestation_slot`.
-    pub is_aggregator: bool,
+    /// This provides the modulo: `max(1, len(committee) // TARGET_AGGREGATORS_PER_COMMITTEE)`
+    /// which allows the validator client to determine if this duty requires the validator to be
+    /// aggregate attestations.
+    pub aggregator_modulo: Option<u64>,
 }
 
-impl<T: PartialEq> ValidatorDutyBase<T> {
-    /// Compares two Validator Duties. If they are equivalent but differ only by the
-    /// `is_aggregator` this will return true, all other cases returns false.
-    /// This function is used to compare new duties and will notify that a duty has been
-    /// replaced on in the event the duty has changed more than just the `is_aggregator` field.
-    pub fn compare_aggregator(&self, other: &ValidatorDutyBase<T>) -> bool {
-        self.validator_pubkey == other.validator_pubkey
-            && self.validator_index == other.validator_index
-            && self.attestation_slot == other.attestation_slot
-            && self.attestation_committee_index == other.attestation_committee_index
-            && self.attestation_committee_position == other.attestation_committee_position
-            && self.block_proposal_slots == other.block_proposal_slots
+impl<T> ValidatorDutyBase<T> {
+    /// Given a `slot_signature` determines if the validator of this duty is an aggregator.
+    // Note that we assume the signature is for the associated pubkey to avoid the signature
+    // verification
+    pub fn is_aggregator(&self, slot_signature: &Signature) -> bool {
+        if let Some(modulo) = self.aggregator_modulo {
+            let signature_hash = hash(&slot_signature.as_bytes());
+            let signature_hash_int = u64::from_le_bytes(
+                signature_hash[0..8]
+                    .try_into()
+                    .expect("first 8 bytes of signature should always convert to fixed array"),
+            );
+            signature_hash_int % modulo == 0
+        } else {
+            false
+        }
     }
 }
 

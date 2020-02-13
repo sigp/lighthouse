@@ -231,12 +231,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let mut successful_duties = Vec::new();
 
         let service_1 = self.clone();
+        let duties_no = duties.len();
 
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
 
         // builds a single subscriptions objects
-        for duty in &duties {
+        for duty in duties {
             let slot = duty
                 .attestation_slot
                 .expect("Subscription duty must have an attestation slot");
@@ -244,16 +245,20 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             if let Some(slot_signature) =
                 self.validator_store.sign_slot(&duty.validator_pubkey, slot)
             {
+                let is_aggregator = duty.is_aggregator(&slot_signature);
+
                 validator_subscriptions
                     .pubkeys
                     .push(duty.validator_pubkey.clone().into());
                 validator_subscriptions.slots.push(slot);
                 validator_subscriptions.slot_signatures.push(slot_signature);
-                successful_duties.push(duty);
+
+                // add successful duties to the list, along with whether they are aggregation
+                // duties or not
+                successful_duties.push((duty, is_aggregator));
             }
         }
 
-        let duties_no = duties.len();
         let failed_duties = duties_no - successful_duties.len();
 
         self.beacon_node
@@ -278,8 +283,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 }
             })
             .and_then(move |_| {
-                for duty in successful_duties {
-                    service_1.duties_service.subscribe_duty(&duty);
+                for (duty, is_aggregator) in successful_duties {
+                    service_1
+                        .duties_service
+                        .subscribe_duty(&duty, is_aggregator);
                 }
                 Ok(())
             })

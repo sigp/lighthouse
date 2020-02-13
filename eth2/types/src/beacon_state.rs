@@ -776,7 +776,7 @@ impl<T: EthSpec> BeaconState<T> {
         ))
     }
 
-    /// Returns the `slot`, `index` and `committee_position` for which a validator must produce an
+    /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an
     /// attestation.
     ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.

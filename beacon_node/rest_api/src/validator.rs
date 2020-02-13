@@ -176,6 +176,14 @@ fn return_validator_duties<T: BeaconChainTypes>(
                         ))
                     })?;
 
+                let aggregator_modulo = duties.map(|d| {
+                    std::cmp::max(
+                        1,
+                        d.committee_len as u64
+                            / &beacon_chain.spec.target_aggregators_per_committee,
+                    )
+                });
+
                 let block_proposal_slots = validator_proposers
                     .iter()
                     .filter(|(i, _slot)| validator_index == *i)
@@ -189,6 +197,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
                     attestation_committee_index: duties.map(|d| d.index),
                     attestation_committee_position: duties.map(|d| d.committee_position),
                     block_proposal_slots,
+                    aggregator_modulo,
                 })
             } else {
                 Ok(ValidatorDutyBytes {
@@ -198,6 +207,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
                     attestation_committee_index: None,
                     attestation_committee_position: None,
                     block_proposal_slots: vec![],
+                    aggregator_modulo: None,
                 })
             }
         })
