@@ -159,32 +159,55 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub fn get_head_for_persistence(&self) -> Result<PersistedBeaconChain, Error> {
+    /// Persists the core `BeaconChain` components (including the head block) and the fork choice.
+    ///
+    /// ## Notes:
+    ///
+    /// In this function we first obtain the head, persist fork choice, then persist the head. We
+    /// do it in this order to ensure that the persisted head is always from a time prior to fork
+    /// choice.
+    ///
+    /// We want to ensure that the head never out dates the fork choice to avoid having references
+    /// to blocks that do not exist in fork choice.
+    pub fn persist_head_and_fork_choice(&self) -> Result<(), Error> {
         let canonical_head_block_root = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
             .beacon_block_root;
 
-        Ok(PersistedBeaconChain {
+        let persisted_head = PersistedBeaconChain {
             canonical_head_block_root,
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
-        })
-    }
+        };
 
-    /// Persists the current head to disk, ensuring that we start with it next boot.
-    pub fn persist_head(&self, persisted_head: PersistedBeaconChain) -> Result<(), Error> {
-        let timer = metrics::start_timer(&metrics::PERSIST_HEAD);
+        let fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
 
-        let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
-        self.store.put(&key, &persisted_head)?;
+        self.store.put(
+            &Hash256::from_slice(&FORK_CHOICE_DB_KEY.as_bytes()),
+            &self.fork_choice.as_ssz_container(),
+        )?;
 
-        metrics::stop_timer(timer);
+        metrics::stop_timer(fork_choice_timer);
+        let head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
+
+        self.store.put(
+            &Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes()),
+            &persisted_head,
+        )?;
+
+        metrics::stop_timer(head_timer);
 
         Ok(())
     }
 
+    /// Persists `self.op_pool` to disk.
+    ///
+    /// ## Notes
+    ///
+    /// This operation is typically slow and causes a lot of allocations. It should be used
+    /// sparingly.
     pub fn persist_op_pool(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
@@ -198,6 +221,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
+    /// Persists `self.eth1_chain` and its caches to disk.
     pub fn persist_eth1_cache(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
@@ -207,19 +231,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &eth1_chain.as_ssz_container(),
             )?;
         }
-
-        metrics::stop_timer(timer);
-
-        Ok(())
-    }
-
-    pub fn persist_fork_choice(&self) -> Result<(), Error> {
-        let timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
-
-        self.store.put(
-            &Hash256::from_slice(&FORK_CHOICE_DB_KEY.as_bytes()),
-            &self.fork_choice.as_ssz_container(),
-        )?;
 
         metrics::stop_timer(timer);
 
@@ -1578,9 +1589,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if previous_slot.epoch(T::EthSpec::slots_per_epoch())
                     != new_slot.epoch(T::EthSpec::slots_per_epoch())
                 {
-                    let head = self.get_head_for_persistence()?;
-                    self.persist_fork_choice()?;
-                    self.persist_head(head)?;
+                    self.persist_head_and_fork_choice()?;
                 }
 
                 let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
@@ -1720,9 +1729,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
     fn drop(&mut self) {
         let drop = || -> Result<(), Error> {
-            let head = self.get_head_for_persistence()?;
-            self.persist_fork_choice()?;
-            self.persist_head(head)?;
+            self.persist_head_and_fork_choice()?;
             self.persist_op_pool()?;
             self.persist_eth1_cache()
         };
