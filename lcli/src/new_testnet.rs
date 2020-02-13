@@ -12,6 +12,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     )?;
     let min_genesis_time = parse_u64_opt(matches, "min-genesis-time")?;
     let min_genesis_delay = parse_u64(matches, "min-genesis-delay")?;
+    let min_genesis_active_validator_count = parse_u64(matches, "min-genesis-active-validator-")?;
     let min_deposit_amount = parse_u64(matches, "min-deposit-amount")?;
     let max_effective_balance = parse_u64(matches, "max-effective-balance")?;
     let eth1_follow_distance = parse_u64(matches, "eth1-follow-distance")?;
@@ -33,6 +34,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         spec.min_genesis_time = time_now()?;
     }
     spec.min_deposit_amount = min_deposit_amount;
+    spec.min_genesis_active_validator_count = min_genesis_active_validator_count;
     spec.max_effective_balance = max_effective_balance;
     spec.eth1_follow_distance = eth1_follow_distance;
     spec.min_genesis_delay = min_genesis_delay;

@@ -277,6 +277,14 @@ fn main() {
                               the genesis time. Defaults to now."),
                 )
                 .arg(
+                    Arg::with_name("min-genesis-active-validator-count")
+                        .long("min-genesis-active-validator-count")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("16384")
+                        .help("The number of validators required to trigger eth2 genesis."),
+                )
+                .arg(
                     Arg::with_name("min-genesis-delay")
                         .long("min-genesis-delay")
                         .value_name("UNIX_SECONDS")
