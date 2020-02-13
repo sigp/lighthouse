@@ -182,7 +182,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
                     .map(|(_i, slot)| *slot)
                     .collect();
 
-                Ok(ValidatorDuty {
+                Ok(ValidatorDutyBytes {
                     validator_pubkey,
                     validator_index: Some(validator_index),
                     attestation_slot: duties.map(|d| d.slot),
@@ -191,7 +191,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
                     block_proposal_slots,
                 })
             } else {
-                Ok(ValidatorDuty {
+                Ok(ValidatorDutyBytes {
                     validator_pubkey,
                     validator_index: None,
                     attestation_slot: None,

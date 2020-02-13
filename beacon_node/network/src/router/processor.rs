@@ -472,13 +472,15 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// Template function to be called on a block to determine if the block should be propagated
     /// across the network.
     pub fn should_forward_block(&mut self, block: &BeaconBlock<T::EthSpec>) -> bool {
-        self.chain.should_forward_block(block)
+        // TODO: Propagate error once complete
+        self.chain.should_forward_block(block).is_ok()
     }
 
     /// Template function to be called on an attestation to determine if the attestation should be propagated
     /// across the network.
     pub fn _should_forward_attestation(&mut self, attestation: &Attestation<T::EthSpec>) -> bool {
-        self.chain.should_forward_attestation(attestation)
+        // TODO: Propagate error once complete
+        self.chain.should_forward_attestation(attestation).is_ok()
     }
 
     /// Process a gossip message declaring a new block.
