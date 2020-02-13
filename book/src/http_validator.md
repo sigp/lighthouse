@@ -229,7 +229,7 @@ Typical Responses | 200
 
 ### Returns
 
-Returns a `Attestation` object with a default signature. The `signature` field should be replaced by the valid signature over the tree hash root of the `Attestation` object.
+Returns a `Attestation` object with a default signature. The `signature` field should be replaced by the valid signature.
 
 #### Response Body
 

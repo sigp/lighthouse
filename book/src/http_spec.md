@@ -72,7 +72,7 @@ Typical Responses | 200
 
 ## `/spec/eth2_config`
 
-Requests the full spec object that a node's running along with the spec_constants.
+Requests the full `Eth2Config` object.
 
 ### HTTP Specification
 
