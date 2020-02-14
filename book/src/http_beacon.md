@@ -570,7 +570,6 @@ Returns an object containing the [`Fork`](https://github.com/ethereum/eth2.0-spe
 ### Example Response
 
 ```json
-"0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f"
 {
     "previous_version": "0x00000000",
     "current_version": "0x00000000",
