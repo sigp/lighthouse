@@ -13,7 +13,7 @@ you to hack on our client!
 
 To make things easier for you we've prepared:
 
-- A list of hackathon project [ideas](#ideas), to help get you started.
+- A list of hackathon project [ideas](#project-ideas), to help get you started.
 - A public testnet, especially for you.
 - Created the [`ethdenver`](https://github.com/sigp/lighthouse/pull/854) fork on [sigp/lighthouse](https://github.com/sigp/lighthouse) so we can move quickly with
 	your development needs.
