@@ -157,6 +157,11 @@ where
             backend_bytes: self.backend.as_bytes(),
         }
     }
+
+    /// Consumes `self`, returning the backend.
+    pub fn into_backend(self) -> T {
+        self.backend
+    }
 }
 
 pub trait Eth1ChainBackend<T: EthSpec, S: Store<T>>: Sized + Send + Sync {
