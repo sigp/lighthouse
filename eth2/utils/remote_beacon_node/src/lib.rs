@@ -14,8 +14,8 @@ use ssz::Encode;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork, Hash256,
-    PublicKey, Signature, SignedBeaconBlock, Slot,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork,
+    Hash256, ProposerSlashing, PublicKey, Signature, SignedBeaconBlock, Slot,
 };
 use url::Url;
 
@@ -499,6 +499,38 @@ impl<E: EthSpec> Beacon<E> {
         self.url("committees").into_future().and_then(move |url| {
             client.json_get(url, vec![("epoch".into(), format!("{}", epoch.as_u64()))])
         })
+    }
+
+    pub fn proposer_slashing(
+        &self,
+        proposer_slashing: ProposerSlashing,
+    ) -> impl Future<Item = bool, Error = Error> {
+        let client = self.0.clone();
+
+        self.url("proposer_slashing")
+            .into_future()
+            .and_then(move |url| {
+                client
+                    .json_post::<_>(url, proposer_slashing)
+                    .and_then(|response| error_for_status(response).map_err(Error::from))
+                    .and_then(|mut success| success.json().map_err(Error::from))
+            })
+    }
+
+    pub fn attester_slashing(
+        &self,
+        attester_slashing: AttesterSlashing<E>,
+    ) -> impl Future<Item = bool, Error = Error> {
+        let client = self.0.clone();
+
+        self.url("attester_slashing")
+            .into_future()
+            .and_then(move |url| {
+                client
+                    .json_post::<_>(url, attester_slashing)
+                    .and_then(|response| error_for_status(response).map_err(Error::from))
+                    .and_then(|mut success| success.json().map_err(Error::from))
+            })
     }
 }
 
