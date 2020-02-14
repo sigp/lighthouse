@@ -39,6 +39,7 @@ To make things easier for you we've prepared:
   - [Noisy Network](#noisy-network)
   - [Optimizations](#optimizations)
   - [Slashing detection](#slashing-detection)
+  - [Twitter Bots](#twitter-bots)
 
 ## Lighthouse Overview
 
@@ -199,3 +200,12 @@ protection:
 	offense, submit it to one of the Lighthouse [slashing
 	endpoints](./http_beacon.md). Make sure you're running a validator so it
 	will include the slashings in a block when it gets a chance.
+
+## Twitter Bots
+
+For a bit of fun, make a twitter/social media bot that tweets when someone gets
+slashed or ejected. Perhaps even a skipped block would be interesting?
+
+Use the [WebSocket API](./websockets.md) to learn about new blocks and then use
+the [HTTP API](./http.md) to learn about which validator produced the block or
+slashable offense.
