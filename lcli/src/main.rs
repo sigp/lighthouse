@@ -309,6 +309,22 @@ fn main() {
                         .help("The amount required to become a validator."),
                 )
                 .arg(
+                    Arg::with_name("effective-balance-increment")
+                        .long("effective-balance-increment")
+                        .value_name("GWEI")
+                        .takes_value(true)
+                        .default_value("100000000")    // 0.1 Eth
+                        .help("The steps in effective balance calculation."),
+                )
+                .arg(
+                    Arg::with_name("ejection-balance")
+                        .long("ejection-balance")
+                        .value_name("GWEI")
+                        .takes_value(true)
+                        .default_value("1600000000")    // 1.6 Eth
+                        .help("The balance at which a validator gets ejected."),
+                )
+                .arg(
                     Arg::with_name("eth1-follow-distance")
                         .long("eth1-follow-distance")
                         .value_name("ETH1_BLOCKS")
