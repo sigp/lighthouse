@@ -1,5 +1,8 @@
 # Websocket API
 
+**Note: the WebSocket server _only_ emits events. It does not accept any
+requests. Use the [HTTP API](./http.md) for requests.**
+
 By default, a Lighthouse `beacon_node` exposes a websocket server on `localhost:5053`.
 
 The following CLI flags control the websocket server:
