@@ -15,10 +15,12 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork,
-    Hash256, ProposerSlashing, PublicKey, Signature, Slot,
+    Hash256, ProposerSlashing, PublicKey, Signature, SignedBeaconBlock, Slot,
 };
 use url::Url;
 
+pub use operation_pool::PersistedOperationPool;
+pub use proto_array_fork_choice::core::ProtoArray;
 pub use rest_api::{
     CanonicalHeadResponse, Committee, HeadBeaconBlock, ValidatorDutiesRequest, ValidatorDuty,
     ValidatorRequest, ValidatorResponse,
@@ -99,6 +101,10 @@ impl<E: EthSpec> HttpClient<E> {
 
     pub fn node(&self) -> Node<E> {
         Node(self.clone())
+    }
+
+    pub fn advanced(&self) -> Advanced<E> {
+        Advanced(self.clone())
     }
 
     fn url(&self, path: &str) -> Result<Url, Error> {
@@ -252,7 +258,7 @@ impl<E: EthSpec> Validator<E> {
     /// Posts a block to the beacon node, expecting it to verify it and publish it to the network.
     pub fn publish_block(
         &self,
-        block: BeaconBlock<E>,
+        block: SignedBeaconBlock<E>,
     ) -> impl Future<Item = PublishStatus, Error = Error> {
         let client = self.0.clone();
         self.url("block")
@@ -341,7 +347,7 @@ impl<E: EthSpec> Beacon<E> {
     pub fn get_block_by_slot(
         &self,
         slot: Slot,
-    ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
+    ) -> impl Future<Item = (SignedBeaconBlock<E>, Hash256), Error = Error> {
         self.get_block("slot".to_string(), format!("{}", slot.as_u64()))
     }
 
@@ -349,7 +355,7 @@ impl<E: EthSpec> Beacon<E> {
     pub fn get_block_by_root(
         &self,
         root: Hash256,
-    ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
+    ) -> impl Future<Item = (SignedBeaconBlock<E>, Hash256), Error = Error> {
         self.get_block("root".to_string(), root_as_string(root))
     }
 
@@ -358,7 +364,7 @@ impl<E: EthSpec> Beacon<E> {
         &self,
         query_key: String,
         query_param: String,
-    ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
+    ) -> impl Future<Item = (SignedBeaconBlock<E>, Hash256), Error = Error> {
         let client = self.0.clone();
         self.url("block")
             .into_future()
@@ -568,10 +574,41 @@ impl<E: EthSpec> Node<E> {
     }
 }
 
+/// Provides the functions on the `/advanced` endpoint of the node.
+#[derive(Clone)]
+pub struct Advanced<E>(HttpClient<E>);
+
+impl<E: EthSpec> Advanced<E> {
+    fn url(&self, path: &str) -> Result<Url, Error> {
+        self.0
+            .url("advanced/")
+            .and_then(move |url| url.join(path).map_err(Error::from))
+            .map_err(Into::into)
+    }
+
+    /// Gets the core `ProtoArray` struct from the node.
+    pub fn get_fork_choice(&self) -> impl Future<Item = ProtoArray, Error = Error> {
+        let client = self.0.clone();
+        self.url("fork_choice")
+            .into_future()
+            .and_then(move |url| client.json_get(url, vec![]))
+    }
+
+    /// Gets the core `PersistedOperationPool` struct from the node.
+    pub fn get_operation_pool(
+        &self,
+    ) -> impl Future<Item = PersistedOperationPool<E>, Error = Error> {
+        let client = self.0.clone();
+        self.url("operation_pool")
+            .into_future()
+            .and_then(move |url| client.json_get(url, vec![]))
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct BlockResponse<T: EthSpec> {
-    pub beacon_block: BeaconBlock<T>,
+    pub beacon_block: SignedBeaconBlock<T>,
     pub root: Hash256,
 }
 

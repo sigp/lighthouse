@@ -2,7 +2,7 @@
 use super::*;
 use crate::test_utils::*;
 
-ssz_tests!(FoundationBeaconState);
+ssz_and_tree_hash_tests!(FoundationBeaconState);
 
 fn test_beacon_proposer_index<T: EthSpec>() {
     let spec = T::default_spec();
@@ -123,6 +123,75 @@ fn cache_initialization() {
     test_cache_initialization(&mut state, RelativeEpoch::Previous, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::Current, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::Next, &spec);
+}
+
+fn test_clone_config<E: EthSpec>(base_state: &BeaconState<E>, clone_config: CloneConfig) {
+    let state = base_state.clone_with(clone_config.clone());
+    if clone_config.committee_caches {
+        state
+            .committee_cache(RelativeEpoch::Previous)
+            .expect("committee cache exists");
+        state
+            .committee_cache(RelativeEpoch::Current)
+            .expect("committee cache exists");
+        state
+            .committee_cache(RelativeEpoch::Next)
+            .expect("committee cache exists");
+    } else {
+        state
+            .committee_cache(RelativeEpoch::Previous)
+            .expect_err("shouldn't exist");
+        state
+            .committee_cache(RelativeEpoch::Current)
+            .expect_err("shouldn't exist");
+        state
+            .committee_cache(RelativeEpoch::Next)
+            .expect_err("shouldn't exist");
+    }
+    if clone_config.pubkey_cache {
+        assert_ne!(state.pubkey_cache.len(), 0);
+    } else {
+        assert_eq!(state.pubkey_cache.len(), 0);
+    }
+    if clone_config.exit_cache {
+        state
+            .exit_cache
+            .check_initialized()
+            .expect("exit cache exists");
+    } else {
+        state
+            .exit_cache
+            .check_initialized()
+            .expect_err("exit cache doesn't exist");
+    }
+    if clone_config.tree_hash_cache {
+        assert!(state.tree_hash_cache.is_some());
+    } else {
+        assert!(state.tree_hash_cache.is_none(), "{:?}", clone_config);
+    }
+}
+
+#[test]
+fn clone_config() {
+    let spec = MinimalEthSpec::default_spec();
+
+    let builder: TestingBeaconStateBuilder<MinimalEthSpec> =
+        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
+    let (mut state, _keypairs) = builder.build();
+
+    state.build_all_caches(&spec).unwrap();
+
+    let num_caches = 4;
+    let all_configs = (0..2u8.pow(num_caches)).map(|i| CloneConfig {
+        committee_caches: (i & 1) != 0,
+        pubkey_cache: ((i >> 1) & 1) != 0,
+        exit_cache: ((i >> 2) & 1) != 0,
+        tree_hash_cache: ((i >> 3) & 1) != 0,
+    });
+
+    for config in all_configs {
+        test_clone_config(&state, config);
+    }
 }
 
 #[test]

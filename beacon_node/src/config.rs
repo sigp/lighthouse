@@ -11,7 +11,7 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{Epoch, EthSpec, Fork};
+use types::EthSpec;
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
@@ -100,7 +100,6 @@ pub fn get_configs<E: EthSpec>(
             .parse()
             .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
         client_config.network.listen_address = listen_address;
-        client_config.network.discovery_address = listen_address;
     }
 
     if let Some(max_peers_str) = cli_args.value_of("maxpeers") {
@@ -140,9 +139,11 @@ pub fn get_configs<E: EthSpec>(
     }
 
     if let Some(discovery_address_str) = cli_args.value_of("discovery-address") {
-        client_config.network.discovery_address = discovery_address_str
-            .parse()
-            .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?
+        client_config.network.discovery_address = Some(
+            discovery_address_str
+                .parse()
+                .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?,
+        )
     }
 
     if let Some(disc_port_str) = cli_args.value_of("disc-port") {
@@ -251,7 +252,7 @@ pub fn get_configs<E: EthSpec>(
     };
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
-        client_config.store.freezer_db_path = Some(PathBuf::from(freezer_dir));
+        client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
 
     if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
@@ -265,10 +266,22 @@ pub fn get_configs<E: EthSpec>(
         );
     }
 
+    if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {
+        client_config.store.block_cache_size = block_cache_size
+            .parse()
+            .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    }
+
+    if let Some(state_cache_size) = cli_args.value_of("state-cache-size") {
+        client_config.store.state_cache_size = state_cache_size
+            .parse()
+            .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    }
+
     if eth2_config.spec_constants != client_config.spec_constants {
         crit!(log, "Specification constants do not match.";
               "client_config" => client_config.spec_constants.to_string(),
-              "eth2_config" => eth2_config.spec_constants.to_string()
+              "eth2_config" => eth2_config.spec_constants
         );
         return Err("Specification constant mismatch".into());
     }
@@ -283,8 +296,8 @@ pub fn get_configs<E: EthSpec>(
      * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
-            client_config.network.discovery_address = "127.0.0.1".parse().expect("Valid IP address")
+        if client_config.network.discovery_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
+            client_config.network.discovery_address = None
         }
         client_config.network.libp2p_port =
             unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
@@ -294,13 +307,14 @@ pub fn get_configs<E: EthSpec>(
         client_config.websocket_server.port = 0;
     }
 
-    // ENR ip needs to be explicit for node to be discoverable
-    if client_config.network.discovery_address == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
+    // ENR IP needs to be explicit for node to be discoverable
+    if client_config.network.discovery_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
         warn!(
             log,
             "Discovery address cannot be 0.0.0.0, Setting to to 127.0.0.1"
         );
-        client_config.network.discovery_address = "127.0.0.1".parse().expect("Valid IP address")
+        client_config.network.discovery_address =
+            Some("127.0.0.1".parse().expect("Valid IP address"))
     }
     Ok((client_config, eth2_config, log))
 }
@@ -363,11 +377,7 @@ fn init_new_client<E: EthSpec>(
     let spec = &mut eth2_config.spec;
 
     // For now, assume that all networks will use the lighthouse genesis fork.
-    spec.genesis_fork = Fork {
-        previous_version: [0, 0, 0, 0],
-        current_version: [1, 3, 3, 7],
-        epoch: Epoch::new(0),
-    };
+    spec.genesis_fork_version = [1, 3, 3, 7];
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
@@ -375,7 +385,6 @@ fn init_new_client<E: EthSpec>(
         eth2_testnet_config.deposit_contract_deploy_block;
 
     client_config.eth1.follow_distance = spec.eth1_follow_distance / 2;
-    client_config.dummy_eth1_backend = false;
     client_config.eth1.lowest_cached_block_number = client_config
         .eth1
         .deposit_contract_deploy_block
@@ -546,11 +555,7 @@ fn process_testnet_subcommand(
             spec.ejection_balance = 1_600_000_000;
             spec.effective_balance_increment = 100_000_000;
             spec.min_genesis_time = 0;
-            spec.genesis_fork = Fork {
-                previous_version: [0; 4],
-                current_version: [0, 0, 0, 2],
-                epoch: Epoch::new(0),
-            };
+            spec.genesis_fork_version = [0, 0, 0, 2];
 
             client_config.eth1.deposit_contract_address =
                 "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();

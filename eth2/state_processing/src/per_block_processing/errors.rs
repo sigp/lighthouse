@@ -1,4 +1,5 @@
 use super::signature_sets::Error as SignatureSetError;
+use merkle_proof::MerkleTreeError;
 use types::*;
 
 /// The error returned from the `per_block_processing` function. Indicates that a block is either
@@ -46,6 +47,7 @@ pub enum BlockProcessingError {
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    MerkleTreeError(MerkleTreeError),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -208,6 +210,11 @@ pub enum AttestationInvalid {
     },
     /// Attestation slot is too far in the past to be included in a block.
     IncludedTooLate { state: Slot, attestation: Slot },
+    /// Attestation target epoch does not match attestation slot.
+    TargetEpochSlotMismatch {
+        target_epoch: Epoch,
+        slot_epoch: Epoch,
+    },
     /// Attestation target epoch does not match the current or previous epoch.
     BadTargetEpoch,
     /// Attestation justified checkpoint doesn't match the state's current or previous justified

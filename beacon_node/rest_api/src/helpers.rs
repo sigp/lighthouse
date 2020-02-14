@@ -13,8 +13,8 @@ use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
 use tokio::sync::mpsc;
 use types::{
-    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
-    Signature, Slot,
+    Attestation, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch, Signature,
+    SignedBeaconBlock, Slot,
 };
 
 /// Parse a slot.
@@ -113,7 +113,7 @@ pub fn parse_pubkey_bytes(string: &str) -> Result<PublicKeyBytes, ApiError> {
     }
 }
 
-/// Returns the root of the `BeaconBlock` in the canonical chain of `beacon_chain` at the given
+/// Returns the root of the `SignedBeaconBlock` in the canonical chain of `beacon_chain` at the given
 /// `slot`, if possible.
 ///
 /// May return a root for a previous slot, in the case of skip slots.
@@ -137,16 +137,10 @@ pub fn state_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     slot: Slot,
 ) -> Result<(Hash256, BeaconState<T::EthSpec>), ApiError> {
-    let head_state = &beacon_chain.head()?.beacon_state;
+    let head = beacon_chain.head()?;
 
-    if head_state.slot == slot {
-        // The request slot is the same as the best block (head) slot.
-
-        // I'm not sure if this `.clone()` will be optimized out. If not, it seems unnecessary.
-        Ok((
-            beacon_chain.head()?.beacon_state_root,
-            beacon_chain.head()?.beacon_state,
-        ))
+    if head.beacon_state.slot == slot {
+        Ok((head.beacon_state_root, head.beacon_state))
     } else {
         let root = state_root_at_slot(beacon_chain, slot)?;
 
@@ -233,7 +227,7 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
-    block: BeaconBlock<T::EthSpec>,
+    block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // create the network topic to send on
     let topic = GossipTopic::BeaconBlock;

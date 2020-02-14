@@ -2,6 +2,12 @@
 
 _* Testnet validator_
 
+---
+**The lighthouse testnet is currently down. We expect to bring it up again in
+late-January or early-February. Thanks to all who participated in the testnet,
+we look forward to having your input again in the future.**
+---
+
 Running Lighthouse validator is easy if you're familiar with the terminal. It
 runs on Linux, MacOS and Windows and we have a Docker work-flow.
 

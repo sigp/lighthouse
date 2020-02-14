@@ -14,6 +14,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value(&DEFAULT_HTTP_SERVER)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("allow-unsynced")
+                .long("allow-unsynced")
+                .help("If present, the validator client will still poll for duties if the beacon
+                      node is not synced.")
+        )
         /*
          * The "testnet" sub-command.
          *

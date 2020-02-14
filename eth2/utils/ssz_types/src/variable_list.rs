@@ -247,15 +247,15 @@ mod test {
     #[test]
     fn new() {
         let vec = vec![42; 5];
-        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec.clone());
+        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec);
         assert!(fixed.is_err());
 
         let vec = vec![42; 3];
-        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec.clone());
+        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec);
         assert!(fixed.is_ok());
 
         let vec = vec![42; 4];
-        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec.clone());
+        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec);
         assert!(fixed.is_ok());
     }
 
@@ -285,7 +285,7 @@ mod test {
         assert_eq!(&fixed[..], &vec![42, 42, 42][..]);
 
         let vec = vec![];
-        let fixed: VariableList<u64, U4> = VariableList::from(vec.clone());
+        let fixed: VariableList<u64, U4> = VariableList::from(vec);
         assert_eq!(&fixed[..], &vec![][..]);
     }
 

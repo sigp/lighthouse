@@ -1,35 +1,52 @@
 use crate::max_cover::MaxCover;
-use types::{Attestation, BeaconState, BitList, EthSpec};
+use state_processing::common::{get_attesting_indices, get_base_reward};
+use std::collections::HashMap;
+use types::{Attestation, BeaconState, BitList, ChainSpec, EthSpec};
 
 pub struct AttMaxCover<'a, T: EthSpec> {
     /// Underlying attestation.
     att: &'a Attestation<T>,
-    /// Bitfield of validators that are covered by this attestation.
-    fresh_validators: BitList<T::MaxValidatorsPerCommittee>,
+    /// Mapping of validator indices and their rewards.
+    fresh_validators_rewards: HashMap<u64, u64>,
 }
 
 impl<'a, T: EthSpec> AttMaxCover<'a, T> {
     pub fn new(
         att: &'a Attestation<T>,
-        fresh_validators: BitList<T::MaxValidatorsPerCommittee>,
-    ) -> Self {
-        Self {
+        state: &BeaconState<T>,
+        total_active_balance: u64,
+        spec: &ChainSpec,
+    ) -> Option<Self> {
+        let fresh_validators = earliest_attestation_validators(att, state);
+        let indices = get_attesting_indices(state, &att.data, &fresh_validators).ok()?;
+        let fresh_validators_rewards: HashMap<u64, u64> = indices
+            .iter()
+            .map(|i| *i as u64)
+            .flat_map(|validator_index| {
+                let reward =
+                    get_base_reward(state, validator_index as usize, total_active_balance, spec)
+                        .ok()?
+                        / spec.proposer_reward_quotient;
+                Some((validator_index, reward))
+            })
+            .collect();
+        Some(Self {
             att,
-            fresh_validators,
-        }
+            fresh_validators_rewards,
+        })
     }
 }
 
 impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
     type Object = Attestation<T>;
-    type Set = BitList<T::MaxValidatorsPerCommittee>;
+    type Set = HashMap<u64, u64>;
 
     fn object(&self) -> Attestation<T> {
         self.att.clone()
     }
 
-    fn covering_set(&self) -> &BitList<T::MaxValidatorsPerCommittee> {
-        &self.fresh_validators
+    fn covering_set(&self) -> &HashMap<u64, u64> {
+        &self.fresh_validators_rewards
     }
 
     /// Sneaky: we keep all the attestations together in one bucket, even though
@@ -40,15 +57,16 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
     fn update_covering_set(
         &mut self,
         best_att: &Attestation<T>,
-        covered_validators: &BitList<T::MaxValidatorsPerCommittee>,
+        covered_validators: &HashMap<u64, u64>,
     ) {
         if self.att.data.slot == best_att.data.slot && self.att.data.index == best_att.data.index {
-            self.fresh_validators.difference_inplace(covered_validators);
+            self.fresh_validators_rewards
+                .retain(|k, _| !covered_validators.contains_key(k))
         }
     }
 
     fn score(&self) -> usize {
-        self.fresh_validators.num_set_bits()
+        self.fresh_validators_rewards.values().sum::<u64>() as usize
     }
 }
 

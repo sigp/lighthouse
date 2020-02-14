@@ -10,7 +10,7 @@ use beacon_chain::AttestationProcessingOutcome;
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
-use store::{DiskStore, Store};
+use store::{DiskStore, Store, StoreConfig};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::test_utils::{SeedableRng, XorShiftRng};
@@ -31,10 +31,10 @@ fn get_store(db_path: &TempDir) -> Arc<DiskStore<E>> {
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
-    let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
+    let config = StoreConfig::default();
     let log = NullLoggerBuilder.build().expect("logger should build");
     Arc::new(
-        DiskStore::open(&hot_path, &cold_path, slots_per_restore_point, spec, log)
+        DiskStore::open(&hot_path, &cold_path, config, spec, log)
             .expect("disk store should initialize"),
     )
 }
@@ -267,7 +267,7 @@ fn epoch_boundary_state_attestation_processing() {
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
             head.beacon_block_root,
-            head.beacon_block.slot,
+            head.beacon_block.slot(),
         ));
 
         harness.advance_slot();
@@ -283,9 +283,9 @@ fn epoch_boundary_state_attestation_processing() {
     for attestation in late_attestations {
         // load_epoch_boundary_state is idempotent!
         let block_root = attestation.data.beacon_block_root;
-        let block: BeaconBlock<E> = store.get(&block_root).unwrap().expect("block exists");
+        let block = store.get_block(&block_root).unwrap().expect("block exists");
         let epoch_boundary_state = store
-            .load_epoch_boundary_state(&block.state_root)
+            .load_epoch_boundary_state(&block.state_root())
             .expect("no error")
             .expect("epoch boundary state exists");
         let ebs_of_ebs = store
@@ -396,7 +396,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
     // Check the forwards block roots iterator against the chain dump
     let chain_dump_block_roots = chain_dump
         .iter()
-        .map(|checkpoint| (checkpoint.beacon_block_root, checkpoint.beacon_block.slot))
+        .map(|checkpoint| (checkpoint.beacon_block_root, checkpoint.beacon_block.slot()))
         .collect::<Vec<_>>();
 
     let head = harness.chain.head().expect("should get head");

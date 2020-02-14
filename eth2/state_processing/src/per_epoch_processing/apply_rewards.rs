@@ -1,6 +1,7 @@
+use super::super::common::get_base_reward;
 use super::validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 use super::Error;
-use integer_sqrt::IntegerSquareRoot;
+
 use types::*;
 
 /// Use to track the changes to a validators balance.
@@ -32,7 +33,7 @@ impl std::ops::AddAssign for Delta {
 
 /// Apply attester and proposer rewards.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
@@ -66,7 +67,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 
 /// For each attesting validator, reward the proposer who was first to include their attestation.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 fn get_proposer_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -99,7 +100,7 @@ fn get_proposer_deltas<T: EthSpec>(
 
 /// Apply rewards for participation in attestations during the previous epoch.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 fn get_attestation_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -132,7 +133,7 @@ fn get_attestation_deltas<T: EthSpec>(
 
 /// Determine the delta for a single validator, sans proposer rewards.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 fn get_attestation_delta<T: EthSpec>(
     validator: &ValidatorStatus,
     total_balances: &TotalBalances,
@@ -210,25 +211,4 @@ fn get_attestation_delta<T: EthSpec>(
     // delta for a validator.
 
     delta
-}
-
-/// Returns the base reward for some validator.
-///
-/// Spec v0.9.1
-fn get_base_reward<T: EthSpec>(
-    state: &BeaconState<T>,
-    index: usize,
-    // Should be == get_total_active_balance(state, spec)
-    total_active_balance: u64,
-    spec: &ChainSpec,
-) -> Result<u64, BeaconStateError> {
-    if total_active_balance == 0 {
-        Ok(0)
-    } else {
-        Ok(
-            state.get_effective_balance(index, spec)? * spec.base_reward_factor
-                / total_active_balance.integer_sqrt()
-                / spec.base_rewards_per_epoch,
-        )
-    }
 }

@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// Contains data obtained from the Eth1 chain.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 #[derive(
     Debug,
     PartialEq,
@@ -33,5 +33,5 @@ pub struct Eth1Data {
 mod tests {
     use super::*;
 
-    ssz_tests!(Eth1Data);
+    ssz_and_tree_hash_tests!(Eth1Data);
 }

@@ -12,7 +12,7 @@ use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade, UpgradeError};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use slog::{crit, debug, error, trace};
+use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::time::{Duration, Instant};
@@ -57,7 +57,7 @@ where
 
     /// Current inbound substreams awaiting processing.
     inbound_substreams:
-        FnvHashMap<InboundRequestId, (InboundSubstreamState<TSubstream>, delay_queue::Key)>,
+        FnvHashMap<InboundRequestId, (InboundSubstreamState<TSubstream>, Option<delay_queue::Key>)>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     inbound_substreams_delay: DelayQueue<InboundRequestId>,
@@ -132,6 +132,57 @@ pub enum OutboundSubstreamState<TSubstream> {
     Closing(OutboundFramed<TSubstream>),
     /// Temporary state during processing
     Poisoned,
+}
+
+impl<TSubstream> InboundSubstreamState<TSubstream>
+where
+    TSubstream: AsyncRead + AsyncWrite,
+{
+    /// Moves the substream state to closing and informs the connected peer. The
+    /// `queued_outbound_items` must be given as a parameter to add stream termination messages to
+    /// the outbound queue.
+    pub fn close(&mut self, outbound_queue: &mut Vec<RPCErrorResponse>) {
+        // When terminating a stream, report the stream termination to the requesting user via
+        // an RPC error
+        let error = RPCErrorResponse::ServerError(ErrorMessage {
+            error_message: b"Request timed out".to_vec(),
+        });
+
+        // The stream termination type is irrelevant, this will terminate the
+        // stream
+        let stream_termination =
+            RPCErrorResponse::StreamTermination(ResponseTermination::BlocksByRange);
+
+        match std::mem::replace(self, InboundSubstreamState::Poisoned) {
+            InboundSubstreamState::ResponsePendingSend { substream, closing } => {
+                if !closing {
+                    outbound_queue.push(error);
+                    outbound_queue.push(stream_termination);
+                }
+                // if the stream is closing after the send, allow it to finish
+
+                *self = InboundSubstreamState::ResponsePendingSend { substream, closing }
+            }
+            InboundSubstreamState::ResponseIdle(mut substream) => {
+                // check if the stream is already closed
+                if let Ok(Async::Ready(None)) = substream.poll() {
+                    *self = InboundSubstreamState::Closing(substream);
+                } else {
+                    *self = InboundSubstreamState::ResponsePendingSend {
+                        substream: substream.send(error),
+                        closing: true,
+                    };
+                }
+            }
+            InboundSubstreamState::Closing(substream) => {
+                // let the stream close
+                *self = InboundSubstreamState::Closing(substream);
+            }
+            InboundSubstreamState::Poisoned => {
+                unreachable!("Coding error: Timeout poisoned substream")
+            }
+        };
+    }
 }
 
 impl<TSubstream> RPCHandler<TSubstream>
@@ -233,7 +284,7 @@ where
         let awaiting_stream = InboundSubstreamState::ResponseIdle(substream);
         self.inbound_substreams.insert(
             self.current_inbound_substream_id,
-            (awaiting_stream, delay_key),
+            (awaiting_stream, Some(delay_key)),
         );
 
         self.events_out
@@ -268,8 +319,12 @@ where
                     substream: out,
                     request,
                 };
-                self.outbound_substreams
-                    .insert(id, (awaiting_stream, delay_key));
+                if let Some(_) = self
+                    .outbound_substreams
+                    .insert(id, (awaiting_stream, delay_key))
+                {
+                    warn!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", id));
+                }
             }
             _ => { // a response is not expected, drop the stream for all other requests
             }
@@ -294,7 +349,7 @@ where
                             InboundSubstreamState::ResponseIdle(substream) => {
                                 // close the stream if there is no response
                                 if let RPCErrorResponse::StreamTermination(_) = response {
-                                    trace!(self.log, "Stream termination sent. Ending the stream");
+                                    //trace!(self.log, "Stream termination sent. Ending the stream");
                                     *substream_state = InboundSubstreamState::Closing(substream);
                                 } else {
                                     // send the response
@@ -372,6 +427,8 @@ where
         };
         if self.pending_error.is_none() {
             self.pending_error = Some((request_id, error));
+        } else {
+            crit!(self.log, "Couldn't add error");
         }
     }
 
@@ -402,6 +459,7 @@ where
                 }
                 ProtocolsHandlerUpgrErr::Timeout | ProtocolsHandlerUpgrErr::Timer => {
                     // negotiation timeout, mark the request as failed
+                    debug!(self.log, "Active substreams before timeout"; "len" => self.outbound_substreams.len());
                     return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                         RPCEvent::Error(
                             request_id,
@@ -442,47 +500,15 @@ where
             let rpc_id = stream_id.get_ref();
 
             // handle a stream timeout for various states
-            if let Some((substream_state, _)) = self.inbound_substreams.get_mut(rpc_id) {
-                // When terminating a stream, report the stream termination to the requesting user via
-                // an RPC error
-                let error = RPCErrorResponse::ServerError(ErrorMessage {
-                    error_message: "Request timed out".as_bytes().to_vec(),
-                });
-                // The stream termination type is irrelevant, this will terminate the
-                // stream
-                let stream_termination =
-                    RPCErrorResponse::StreamTermination(ResponseTermination::BlocksByRange);
+            if let Some((substream_state, delay_key)) = self.inbound_substreams.get_mut(rpc_id) {
+                // the delay has been removed
+                *delay_key = None;
 
-                match std::mem::replace(substream_state, InboundSubstreamState::Poisoned) {
-                    InboundSubstreamState::ResponsePendingSend { substream, closing } => {
-                        if !closing {
-                            // if the stream is not closing, add an error to the stream queue and exit
-                            let queue = self
-                                .queued_outbound_items
-                                .entry(*rpc_id)
-                                .or_insert_with(Vec::new);
-                            queue.push(error);
-                            queue.push(stream_termination);
-                        }
-                        // if the stream is closing after the send, allow it to finish
-
-                        *substream_state =
-                            InboundSubstreamState::ResponsePendingSend { substream, closing }
-                    }
-                    InboundSubstreamState::ResponseIdle(substream) => {
-                        *substream_state = InboundSubstreamState::ResponsePendingSend {
-                            substream: substream.send(error),
-                            closing: true,
-                        };
-                    }
-                    InboundSubstreamState::Closing(substream) => {
-                        // let the stream close
-                        *substream_state = InboundSubstreamState::Closing(substream);
-                    }
-                    InboundSubstreamState::Poisoned => {
-                        unreachable!("Coding error: Timeout poisoned substream")
-                    }
-                };
+                let outbound_queue = self
+                    .queued_outbound_items
+                    .entry(*rpc_id)
+                    .or_insert_with(Vec::new);
+                substream_state.close(outbound_queue);
             }
         }
 
@@ -496,7 +522,7 @@ where
             // notify the user
             return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                 RPCEvent::Error(
-                    stream_id.get_ref().clone(),
+                    *stream_id.get_ref(),
                     RPCError::Custom("Stream timed out".into()),
                 ),
             )));
@@ -546,8 +572,9 @@ where
                                             };
                                     }
                                     Err(e) => {
-                                        let delay_key = &entry.get().1;
-                                        self.inbound_substreams_delay.remove(delay_key);
+                                        if let Some(delay_key) = &entry.get().1 {
+                                            self.inbound_substreams_delay.remove(delay_key);
+                                        }
                                         entry.remove_entry();
                                         return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                                             RPCEvent::Error(0, e),
@@ -565,10 +592,11 @@ where
                             InboundSubstreamState::Closing(mut substream) => {
                                 match substream.close() {
                                     Ok(Async::Ready(())) | Err(_) => {
-                                        trace!(self.log, "Inbound stream dropped");
-                                        let delay_key = &entry.get().1;
+                                        //trace!(self.log, "Inbound stream dropped");
+                                        if let Some(delay_key) = &entry.get().1 {
+                                            self.inbound_substreams_delay.remove(delay_key);
+                                        }
                                         self.queued_outbound_items.remove(&request_id);
-                                        self.inbound_substreams_delay.remove(delay_key);
                                         entry.remove();
                                     } // drop the stream
                                     Ok(Async::NotReady) => {
@@ -613,7 +641,7 @@ where
                                 } else {
                                     // either this is a single response request or we received an
                                     // error
-                                    trace!(self.log, "Closing single stream request");
+                                    //trace!(self.log, "Closing single stream request");
                                     // only expect a single response, close the stream
                                     entry.get_mut().0 = OutboundSubstreamState::Closing(substream);
                                 }
@@ -626,7 +654,7 @@ where
                                 // stream closed
                                 // if we expected multiple streams send a stream termination,
                                 // else report the stream terminating only.
-                                trace!(self.log, "RPC Response - stream closed by remote");
+                                //trace!(self.log, "RPC Response - stream closed by remote");
                                 // drop the stream
                                 let delay_key = &entry.get().1;
                                 self.outbound_substreams_delay.remove(delay_key);
@@ -670,7 +698,7 @@ where
                         },
                         OutboundSubstreamState::Closing(mut substream) => match substream.close() {
                             Ok(Async::Ready(())) | Err(_) => {
-                                trace!(self.log, "Outbound stream dropped");
+                                //trace!(self.log, "Outbound stream dropped");
                                 // drop the stream
                                 let delay_key = &entry.get().1;
                                 self.outbound_substreams_delay.remove(delay_key);
@@ -691,21 +719,18 @@ where
         }
 
         // establish outbound substreams
-        if !self.dial_queue.is_empty() {
-            if self.dial_negotiated < self.max_dial_negotiated {
-                self.dial_negotiated += 1;
-                let rpc_event = self.dial_queue.remove(0);
-                if let RPCEvent::Request(id, req) = rpc_event {
-                    return Ok(Async::Ready(
-                        ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                            protocol: SubstreamProtocol::new(req.clone()),
-                            info: RPCEvent::Request(id, req),
-                        },
-                    ));
-                }
-            }
-        } else {
+        if !self.dial_queue.is_empty() && self.dial_negotiated < self.max_dial_negotiated {
+            self.dial_negotiated += 1;
+            let rpc_event = self.dial_queue.remove(0);
             self.dial_queue.shrink_to_fit();
+            if let RPCEvent::Request(id, req) = rpc_event {
+                return Ok(Async::Ready(
+                    ProtocolsHandlerEvent::OutboundSubstreamRequest {
+                        protocol: SubstreamProtocol::new(req.clone()),
+                        info: RPCEvent::Request(id, req),
+                    },
+                ));
+            }
         }
         Ok(Async::NotReady)
     }

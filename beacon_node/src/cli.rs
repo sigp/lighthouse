@@ -90,7 +90,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("discovery-address")
                 .value_name("ADDRESS")
                 .help("The IP address to broadcast to other peers on how to reach this node. \
-                       Default is determined automatically.")
+                       Default will load previous values from disk failing this it is set to 127.0.0.1 \
+                       and will be updated when connecting to other nodes on the network.")
                 .takes_value(true),
         )
         .arg(
@@ -196,6 +197,20 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SLOT_COUNT")
                 .help("Specifies how often a freezer DB restore point should be stored. \
                        DO NOT DECREASE AFTER INITIALIZATION. [default: 2048 (mainnet) or 64 (minimal)]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("block-cache-size")
+                .long("block-cache-size")
+                .value_name("SIZE")
+                .help("Specifies how many blocks the database should cache in memory [default: 5]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("state-cache-size")
+                .long("state-cache-size")
+                .value_name("SIZE")
+                .help("Specifies how many states the database should cache in memory [default: 5]")
                 .takes_value(true)
         )
         /*

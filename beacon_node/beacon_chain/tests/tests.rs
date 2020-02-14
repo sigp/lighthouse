@@ -121,7 +121,7 @@ fn iterators() {
 
     assert_eq!(
         *block_roots.first().expect("should have some block roots"),
-        (head.beacon_block_root, head.beacon_block.slot),
+        (head.beacon_block_root, head.beacon_block.slot()),
         "first block root and slot should be for the head block"
     );
 
@@ -391,7 +391,7 @@ fn free_attestations_added_to_fork_choice_some_none() {
         if slot <= num_blocks_produced && slot != 0 {
             assert_eq!(
                 latest_message.unwrap().1,
-                slot,
+                slot.epoch(MinimalEthSpec::slots_per_epoch()),
                 "Latest message slot for {} should be equal to slot {}.",
                 validator,
                 slot
@@ -435,7 +435,7 @@ fn attestations_with_increasing_slots() {
                     .head()
                     .expect("should get head")
                     .beacon_block
-                    .slot,
+                    .slot(),
             ),
         );
 
@@ -483,7 +483,7 @@ fn free_attestations_added_to_fork_choice_all_updated() {
 
         assert_eq!(
             latest_message.unwrap().1,
-            slot,
+            slot.epoch(MinimalEthSpec::slots_per_epoch()),
             "Latest message slot should be equal to attester duty."
         );
 
@@ -524,7 +524,7 @@ fn run_skip_slot_test(skip_slots: u64) {
             .head()
             .expect("should get head")
             .beacon_block
-            .slot,
+            .slot(),
         Slot::new(skip_slots + 1)
     );
     assert_eq!(
@@ -533,7 +533,7 @@ fn run_skip_slot_test(skip_slots: u64) {
             .head()
             .expect("should get head")
             .beacon_block
-            .slot,
+            .slot(),
         Slot::new(0)
     );
 
@@ -566,7 +566,7 @@ fn run_skip_slot_test(skip_slots: u64) {
             .head()
             .expect("should get head")
             .beacon_block
-            .slot,
+            .slot(),
         Slot::new(skip_slots + 1)
     );
 }

@@ -1,10 +1,12 @@
 use super::signature_sets::{Error as SignatureSetError, Result as SignatureSetResult, *};
+
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use bls::{verify_signature_sets, SignatureSet};
 use rayon::prelude::*;
 use types::{
-    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256, IndexedAttestation,
+    BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256, IndexedAttestation,
+    SignedBeaconBlock,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -40,12 +42,12 @@ impl From<BlockOperationError<AttestationInvalid>> for Error {
     }
 }
 
-/// Reads the BLS signatures and keys from a `BeaconBlock`, storing them as a `Vec<SignatureSet>`.
+/// Reads the BLS signatures and keys from a `SignedBeaconBlock`, storing them as a `Vec<SignatureSet>`.
 ///
 /// This allows for optimizations related to batch BLS operations (see the
 /// `Self::verify_entire_block(..)` function).
 pub struct BlockSignatureVerifier<'a, T: EthSpec> {
-    block: &'a BeaconBlock<T>,
+    block: &'a SignedBeaconBlock<T>,
     state: &'a BeaconState<T>,
     spec: &'a ChainSpec,
     sets: Vec<SignatureSet<'a>>,
@@ -54,7 +56,11 @@ pub struct BlockSignatureVerifier<'a, T: EthSpec> {
 impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     /// Create a new verifier without any included signatures. See the `include...` functions to
     /// add signatures, and the `verify`
-    pub fn new(state: &'a BeaconState<T>, block: &'a BeaconBlock<T>, spec: &'a ChainSpec) -> Self {
+    pub fn new(
+        state: &'a BeaconState<T>,
+        block: &'a SignedBeaconBlock<T>,
+        spec: &'a ChainSpec,
+    ) -> Self {
         Self {
             block,
             state,
@@ -63,7 +69,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
         }
     }
 
-    /// Verify all* the signatures in the given `BeaconBlock`, returning `Ok(())` if the signatures
+    /// Verify all* the signatures in the given `SignedBeaconBlock`, returning `Ok(())` if the signatures
     /// are valid.
     ///
     /// * : _Does not verify any signatures in `block.body.deposits`. A block is still valid if it
@@ -72,12 +78,13 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     /// See `Self::verify` for more detail.
     pub fn verify_entire_block(
         state: &'a BeaconState<T>,
-        block: &'a BeaconBlock<T>,
+        block: &'a SignedBeaconBlock<T>,
+        block_root: Option<Hash256>,
         spec: &'a ChainSpec,
     ) -> Result<()> {
         let mut verifier = Self::new(state, block, spec);
 
-        verifier.include_block_proposal(None)?;
+        verifier.include_block_proposal(block_root)?;
         verifier.include_randao_reveal()?;
         verifier.include_proposer_slashings()?;
         verifier.include_attester_slashings()?;
@@ -129,7 +136,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
 
     /// Includes the randao signature for `self.block` for verification.
     fn include_randao_reveal(&mut self) -> Result<()> {
-        let set = randao_signature_set(self.state, self.block, self.spec)?;
+        let set = randao_signature_set(self.state, &self.block.message, self.spec)?;
         self.sets.push(set);
         Ok(())
     }
@@ -138,6 +145,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     fn include_proposer_slashings(&mut self) -> Result<()> {
         let mut sets: Vec<SignatureSet> = self
             .block
+            .message
             .body
             .proposer_slashings
             .iter()
@@ -158,6 +166,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     /// Includes all signatures in `self.block.body.attester_slashings` for verification.
     fn include_attester_slashings(&mut self) -> Result<()> {
         self.block
+            .message
             .body
             .attester_slashings
             .iter()
@@ -175,6 +184,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     /// Includes all signatures in `self.block.body.attestations` for verification.
     fn include_attestations(&mut self) -> Result<Vec<IndexedAttestation<T>>> {
         self.block
+            .message
             .body
             .attestations
             .iter()
@@ -198,6 +208,7 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
     fn include_exits(&mut self) -> Result<()> {
         let mut sets = self
             .block
+            .message
             .body
             .voluntary_exits
             .iter()

@@ -11,9 +11,9 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
-use tree_hash::TreeHash;
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
+    SignedBeaconBlock, SignedRoot,
 };
 
 #[derive(Clone)]
@@ -33,8 +33,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
-        let validator_iter = read_dir(&base_dir)
+        let validator_key_values = read_dir(&base_dir)
             .map_err(|e| format!("Failed to read base directory {:?}: {:?}", base_dir, e))?
+            .collect::<Vec<_>>()
+            .into_par_iter()
             .filter_map(|validator_dir| {
                 let path = validator_dir.ok()?.path();
 
@@ -63,7 +65,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             });
 
         Ok(Self {
-            validators: Arc::new(RwLock::new(HashMap::from_iter(validator_iter))),
+            validators: Arc::new(RwLock::new(HashMap::from_par_iter(validator_key_values))),
             spec: Arc::new(spec),
             log,
             temp_dir: None,
@@ -142,26 +144,25 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .get(validator_pubkey)
             .and_then(|validator_dir| {
                 let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                let message = epoch.tree_hash_root();
                 let domain = self.spec.get_domain(epoch, Domain::Randao, &self.fork()?);
+                let message = epoch.signing_root(domain);
 
-                Some(Signature::new(&message, domain, &voting_keypair.sk))
+                Some(Signature::new(message.as_bytes(), &voting_keypair.sk))
             })
     }
 
     pub fn sign_block(
         &self,
         validator_pubkey: &PublicKey,
-        mut block: BeaconBlock<E>,
-    ) -> Option<BeaconBlock<E>> {
+        block: BeaconBlock<E>,
+    ) -> Option<SignedBeaconBlock<E>> {
         // TODO: check for slashing.
         self.validators
             .read()
             .get(validator_pubkey)
             .and_then(|validator_dir| {
                 let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                block.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
-                Some(block)
+                Some(block.sign(&voting_keypair.sk, &self.fork()?, &self.spec))
             })
     }
 

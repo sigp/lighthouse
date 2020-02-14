@@ -39,7 +39,7 @@ Like all Ethereum 2.0 clients, Lighthouse is a work-in-progress.
 
 Current development overview:
 
-- Specification `v0.8.3` implemented, optimized and passing test vectors.
+- Specification `v0.10.1` implemented, optimized and passing test vectors.
 - Rust-native libp2p with Gossipsub and Discv5.
 - RESTful JSON API via HTTP server.
 - Events via WebSocket.
@@ -49,11 +49,10 @@ Current development overview:
 
 - ~~**April 2019**: Inital single-client testnets.~~
 - ~~**September 2019**: Inter-operability with other Ethereum 2.0 clients.~~
-- **Q4 2019**: `lighthouse-0.0.1` release: All major phase 0
-     features implemented.
-- **Q4 2019**: Public, multi-client testnet with user-facing functionality.
-- **Q4 2019**: Third-party security review.
-- **Q1 2020**: Production Beacon Chain testnet (tentative).
+- ~~ **Q1 2020**: `lighthouse-0.1.0` release: All major phase 0 features implemented.~~
+- **Q1 2020**: Public, multi-client testnet with user-facing functionality.
+- **Q2 2020**: Third-party security review.
+- **Q3 2020**: Production Beacon Chain testnet (tentative).
 
 
 ## Documentation

@@ -6,18 +6,18 @@ use node_test_rig::{
     testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode,
 };
 use remote_beacon_node::{
-    Committee, HeadBeaconBlock, PublishStatus, ValidatorDuty, ValidatorResponse,
+    Committee, HeadBeaconBlock, PersistedOperationPool, PublishStatus, ValidatorDuty,
+    ValidatorResponse,
 };
 use std::convert::TryInto;
 use std::sync::Arc;
-use tree_hash::TreeHash;
 use types::{
     test_utils::{
         build_double_vote_attester_slashing, build_proposer_slashing,
         generate_deterministic_keypair, AttesterSlashingTestTask, ProposerSlashingTestTask,
     },
     BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec, PublicKey,
-    RelativeEpoch, Signature, Slot, Validator,
+    RelativeEpoch, Signature, SignedBeaconBlock, Slot, Validator,
 };
 use version;
 
@@ -57,17 +57,17 @@ fn get_randao_reveal<T: BeaconChainTypes>(
         .expect("should get proposer index");
     let keypair = generate_deterministic_keypair(proposer_index);
     let epoch = slot.epoch(E::slots_per_epoch());
-    let message = epoch.tree_hash_root();
     let domain = spec.get_domain(epoch, Domain::Randao, &fork);
-    Signature::new(&message, domain, &keypair.sk)
+    let message = epoch.signing_root(domain);
+    Signature::new(message.as_bytes(), &keypair.sk)
 }
 
 /// Signs the given block (assuming the given `beacon_chain` uses deterministic keypairs).
 fn sign_block<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
-    block: &mut BeaconBlock<T::EthSpec>,
+    block: BeaconBlock<T::EthSpec>,
     spec: &ChainSpec,
-) {
+) -> SignedBeaconBlock<T::EthSpec> {
     let fork = beacon_chain
         .head()
         .expect("should get head")
@@ -77,7 +77,7 @@ fn sign_block<T: BeaconChainTypes>(
         .block_proposer(block.slot)
         .expect("should get proposer index");
     let keypair = generate_deterministic_keypair(proposer_index);
-    block.sign(&keypair.sk, &fork, spec);
+    block.sign(&keypair.sk, &fork, spec)
 }
 
 #[test]
@@ -241,9 +241,11 @@ fn check_duties<T: BeaconChainTypes>(
         "there should be a duty for each validator"
     );
 
-    let state = beacon_chain
+    let mut state = beacon_chain
         .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
         .expect("should get state at slot");
+
+    state.build_all_caches(spec).expect("should build caches");
 
     validators
         .iter()
@@ -336,7 +338,7 @@ fn validator_block_post() {
     let slot = Slot::new(1);
     let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
 
-    let mut block = env
+    let block = env
         .runtime()
         .block_on(
             remote_node
@@ -347,9 +349,13 @@ fn validator_block_post() {
         .expect("should fetch block from http api");
 
     // Try publishing the block without a signature, ensure it is flagged as invalid.
+    let empty_sig_block = SignedBeaconBlock {
+        message: block.clone(),
+        signature: Signature::empty_signature(),
+    };
     let publish_status = env
         .runtime()
-        .block_on(remote_node.http.validator().publish_block(block.clone()))
+        .block_on(remote_node.http.validator().publish_block(empty_sig_block))
         .expect("should publish block");
     if cfg!(not(feature = "fake_crypto")) {
         assert!(
@@ -358,12 +364,12 @@ fn validator_block_post() {
         );
     }
 
-    sign_block(beacon_chain, &mut block, spec);
-    let block_root = block.canonical_root();
+    let signed_block = sign_block(beacon_chain.clone(), block, spec);
+    let block_root = signed_block.canonical_root();
 
     let publish_status = env
         .runtime()
-        .block_on(remote_node.http.validator().publish_block(block))
+        .block_on(remote_node.http.validator().publish_block(signed_block))
         .expect("should publish block");
 
     if cfg!(not(feature = "fake_crypto")) {
@@ -792,6 +798,53 @@ fn get_committees() {
             committee: c.committee.to_vec(),
         })
         .collect::<Vec<_>>();
+
+    assert_eq!(result, expected, "result should be as expected");
+}
+
+#[test]
+fn get_fork_choice() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let fork_choice = env
+        .runtime()
+        .block_on(remote_node.http.advanced().get_fork_choice())
+        .expect("should not error when getting fork choice");
+
+    assert_eq!(
+        fork_choice,
+        *node
+            .client
+            .beacon_chain()
+            .expect("node should have beacon chain")
+            .fork_choice
+            .core_proto_array(),
+        "result should be as expected"
+    );
+}
+
+#[test]
+fn get_operation_pool() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let result = env
+        .runtime()
+        .block_on(remote_node.http.advanced().get_operation_pool())
+        .expect("should not error when getting fork choice");
+
+    let expected = PersistedOperationPool::from_operation_pool(
+        &node
+            .client
+            .beacon_chain()
+            .expect("node should have chain")
+            .op_pool,
+    );
 
     assert_eq!(result, expected, "result should be as expected");
 }

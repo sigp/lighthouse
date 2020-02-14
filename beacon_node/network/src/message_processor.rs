@@ -11,8 +11,7 @@ use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::{mpsc, oneshot};
-use tree_hash::SignedRoot;
-use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
+use types::{Attestation, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 //TODO: Rate limit requests
 
@@ -120,6 +119,16 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     /// Sends a `Status` message to the peer.
     pub fn on_connect(&mut self, peer_id: PeerId) {
         if let Some(status_message) = status_message(&self.chain) {
+            debug!(
+                self.log,
+                "Sending Status Request";
+                "peer" => format!("{:?}", peer_id),
+                "fork_version" => format!("{:?}", status_message.fork_version),
+                "finalized_root" => format!("{:?}", status_message.finalized_root),
+                "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
+                "head_root" => format!("{}", status_message.head_root),
+                "head_slot" => format!("{}", status_message.head_slot),
+            );
             self.network
                 .send_rpc_request(peer_id, RPCRequest::Status(status_message));
         }
@@ -134,9 +143,18 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         request_id: RequestId,
         status: StatusMessage,
     ) {
-        // ignore status responses if we are shutting down
-        trace!(self.log, "StatusRequest"; "peer" => format!("{:?}", peer_id));
+        debug!(
+            self.log,
+            "Received Status Request";
+            "peer" => format!("{:?}", peer_id),
+            "fork_version" => format!("{:?}", status.fork_version),
+            "finalized_root" => format!("{:?}", status.finalized_root),
+            "finalized_epoch" => format!("{:?}", status.finalized_epoch),
+            "head_root" => format!("{}", status.head_root),
+            "head_slot" => format!("{}", status.head_slot),
+        );
 
+        // ignore status responses if we are shutting down
         if let Some(status_message) = status_message(&self.chain) {
             // Say status back.
             self.network.send_rpc_response(
@@ -184,7 +202,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             );
 
             self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.head_slot
             > self.chain.slot().unwrap_or_else(|_| Slot::from(0u64)) + FUTURE_SLOT_TOLERANCE
         {
@@ -200,7 +218,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             "reason" => "different system clocks or genesis time"
             );
             self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.finalized_epoch <= local.finalized_epoch
             && remote.finalized_root != Hash256::zero()
             && local.finalized_root != Hash256::zero()
@@ -220,7 +238,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 "reason" => "different finalized chain"
             );
             self.network
-                .disconnect(peer_id.clone(), GoodbyeReason::IrrelevantNetwork);
+                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.finalized_epoch < local.finalized_epoch {
             // The node has a lower finalized epoch, their chain is not useful to us. There are two
             // cases where a node can have a lower finalized epoch:
@@ -244,7 +262,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         } else if self
             .chain
             .store
-            .exists::<BeaconBlock<T::EthSpec>>(&remote.head_root)
+            .exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)
             .unwrap_or_else(|_| false)
         {
             trace!(
@@ -281,7 +299,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     ) {
         let mut send_block_count = 0;
         for root in request.block_roots.iter() {
-            if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
+            if let Ok(Some(block)) = self.chain.store.get_block(root) {
                 self.network.send_rpc_response(
                     peer_id.clone(),
                     request_id,
@@ -361,11 +379,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
 
         let mut blocks_sent = 0;
         for root in block_roots {
-            if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
+            if let Ok(Some(block)) = self.chain.store.get_block(&root) {
                 // Due to skip slots, blocks could be out of the range, we ensure they are in the
                 // range before sending
-                if block.slot >= req.start_slot
-                    && block.slot < req.start_slot + req.count * req.step
+                if block.slot() >= req.start_slot
+                    && block.slot() < req.start_slot + req.count * req.step
                 {
                     blocks_sent += 1;
                     self.network.send_rpc_response(
@@ -418,7 +436,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<BeaconBlock<T::EthSpec>>,
+        beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) {
         let beacon_block = beacon_block.map(Box::new);
         trace!(
@@ -439,7 +457,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<BeaconBlock<T::EthSpec>>,
+        beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) {
         let beacon_block = beacon_block.map(Box::new);
         trace!(
@@ -460,7 +478,11 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     /// Attempts to apply to block to the beacon chain. May queue the block for later processing.
     ///
     /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers.
-    pub fn on_block_gossip(&mut self, peer_id: PeerId, block: BeaconBlock<T::EthSpec>) -> bool {
+    pub fn on_block_gossip(
+        &mut self,
+        peer_id: PeerId,
+        block: SignedBeaconBlock<T::EthSpec>,
+    ) -> bool {
         match self.chain.process_block(block.clone()) {
             Ok(outcome) => match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
@@ -493,7 +515,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     // Inform the sync manager to find parents for this block
                     trace!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
-                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, Box::new(block.clone())));
+                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, Box::new(block)));
                     SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::FutureSlot {
@@ -509,8 +531,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                         self.log,
                         "Invalid gossip beacon block";
                         "outcome" => format!("{:?}", other),
-                        "block root" => format!("{}", Hash256::from_slice(&block.signed_root()[..])),
-                        "block slot" => block.slot
+                        "block root" => format!("{}", block.canonical_root()),
+                        "block slot" => block.slot()
                     );
                     trace!(
                         self.log,
@@ -543,14 +565,14 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                         self.log,
                         "Processed attestation";
                         "source" => "gossip",
-                        "outcome" => format!("{:?}", outcome),
                         "peer" => format!("{:?}",peer_id),
-                        "data" => format!("{:?}", msg.data)
+                        "block_root" => format!("{}", msg.data.beacon_block_root),
+                        "slot" => format!("{}", msg.data.slot),
                     );
                 }
                 AttestationProcessingOutcome::UnknownHeadBlock { beacon_block_root } => {
                     // TODO: Maintain this attestation and re-process once sync completes
-                    debug!(
+                    trace!(
                     self.log,
                     "Attestation for unknown block";
                     "peer_id" => format!("{:?}", peer_id),

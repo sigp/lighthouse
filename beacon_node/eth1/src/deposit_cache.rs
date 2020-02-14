@@ -1,5 +1,7 @@
 use crate::DepositLog;
-use eth2_hashing::hash;
+use ssz_derive::{Decode, Encode};
+use state_processing::common::DepositDataTree;
+use std::cmp::Ordering;
 use tree_hash::TreeHash;
 use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
@@ -29,53 +31,45 @@ pub enum Error {
     InternalError(String),
 }
 
-/// Emulates the eth1 deposit contract merkle tree.
-pub struct DepositDataTree {
-    tree: merkle_proof::MerkleTree,
-    mix_in_length: usize,
-    depth: usize,
+#[derive(Encode, Decode, Clone)]
+pub struct SszDepositCache {
+    logs: Vec<DepositLog>,
+    leaves: Vec<Hash256>,
+    deposit_contract_deploy_block: u64,
+    deposit_roots: Vec<Hash256>,
 }
 
-impl DepositDataTree {
-    /// Create a new Merkle tree from a list of leaves (`DepositData::tree_hash_root`) and a fixed depth.
-    pub fn create(leaves: &[Hash256], mix_in_length: usize, depth: usize) -> Self {
+impl SszDepositCache {
+    pub fn from_deposit_cache(cache: &DepositCache) -> Self {
         Self {
-            tree: merkle_proof::MerkleTree::create(leaves, depth),
-            mix_in_length,
-            depth,
+            logs: cache.logs.clone(),
+            leaves: cache.leaves.clone(),
+            deposit_contract_deploy_block: cache.deposit_contract_deploy_block,
+            deposit_roots: cache.deposit_roots.clone(),
         }
     }
 
-    /// Returns 32 bytes representing the "mix in length" for the merkle root of this tree.
-    fn length_bytes(&self) -> Vec<u8> {
-        int_to_bytes32(self.mix_in_length)
-    }
-
-    /// Retrieve the root hash of this Merkle tree with the length mixed in.
-    pub fn root(&self) -> Hash256 {
-        let mut preimage = [0; 64];
-        preimage[0..32].copy_from_slice(&self.tree.hash()[..]);
-        preimage[32..64].copy_from_slice(&self.length_bytes());
-        Hash256::from_slice(&hash(&preimage))
-    }
-
-    /// Return the leaf at `index` and a Merkle proof of its inclusion.
-    ///
-    /// The Merkle proof is in "bottom-up" order, starting with a leaf node
-    /// and moving up the tree. Its length will be exactly equal to `depth + 1`.
-    pub fn generate_proof(&self, index: usize) -> (Hash256, Vec<Hash256>) {
-        let (root, mut proof) = self.tree.generate_proof(index, self.depth);
-        proof.push(Hash256::from_slice(&self.length_bytes()));
-        (root, proof)
-    }
-
-    /// Add a deposit to the merkle tree.
-    pub fn push_leaf(&mut self, leaf: Hash256) -> Result<(), Error> {
-        self.tree
-            .push_leaf(leaf, self.depth)
-            .map_err(Error::DepositTreeError)?;
-        self.mix_in_length += 1;
-        Ok(())
+    pub fn to_deposit_cache(&self) -> Result<DepositCache, String> {
+        let deposit_tree =
+            DepositDataTree::create(&self.leaves, self.leaves.len(), DEPOSIT_TREE_DEPTH);
+        // Check for invalid SszDepositCache conditions
+        if self.leaves.len() != self.logs.len() {
+            return Err("Invalid SszDepositCache: logs and leaves should have equal length".into());
+        }
+        // `deposit_roots` also includes the zero root
+        if self.leaves.len() + 1 != self.deposit_roots.len() {
+            return Err(
+                "Invalid SszDepositCache: deposit_roots length must be only one more than leaves"
+                    .into(),
+            );
+        }
+        Ok(DepositCache {
+            logs: self.logs.clone(),
+            leaves: self.leaves.clone(),
+            deposit_contract_deploy_block: self.deposit_contract_deploy_block,
+            deposit_tree,
+            deposit_roots: self.deposit_roots.clone(),
+        })
     }
 }
 
@@ -153,24 +147,28 @@ impl DepositCache {
     /// - If a log with index `log.index - 1` is not already present in `self` (ignored when empty).
     /// - If a log with `log.index` is already known, but the given `log` is distinct to it.
     pub fn insert_log(&mut self, log: DepositLog) -> Result<(), Error> {
-        if log.index == self.logs.len() as u64 {
-            let deposit = Hash256::from_slice(&log.deposit_data.tree_hash_root());
-            self.leaves.push(deposit);
-            self.logs.push(log);
-            self.deposit_tree.push_leaf(deposit)?;
-            self.deposit_roots.push(self.deposit_tree.root());
-            Ok(())
-        } else if log.index < self.logs.len() as u64 {
-            if self.logs[log.index as usize] == log {
+        match log.index.cmp(&(self.logs.len() as u64)) {
+            Ordering::Equal => {
+                let deposit = Hash256::from_slice(&log.deposit_data.tree_hash_root());
+                self.leaves.push(deposit);
+                self.logs.push(log);
+                self.deposit_tree
+                    .push_leaf(deposit)
+                    .map_err(Error::DepositTreeError)?;
+                self.deposit_roots.push(self.deposit_tree.root());
                 Ok(())
-            } else {
-                Err(Error::DuplicateDistinctLog(log.index))
             }
-        } else {
-            Err(Error::NonConsecutive {
+            Ordering::Less => {
+                if self.logs[log.index as usize] == log {
+                    Ok(())
+                } else {
+                    Err(Error::DuplicateDistinctLog(log.index))
+                }
+            }
+            Ordering::Greater => Err(Error::NonConsecutive {
                 log_index: log.index,
                 expected: self.logs.len(),
-            })
+            }),
         }
     }
 
@@ -269,14 +267,12 @@ impl DepositCache {
             .logs
             .binary_search_by(|deposit| deposit.block_number.cmp(&block_number));
         match index {
-            Ok(index) => return self.logs.get(index).map(|x| x.index + 1),
-            Err(next) => {
-                return Some(
-                    self.logs
-                        .get(next.saturating_sub(1))
-                        .map_or(0, |x| x.index + 1),
-                )
-            }
+            Ok(index) => self.logs.get(index).map(|x| x.index + 1),
+            Err(next) => Some(
+                self.logs
+                    .get(next.saturating_sub(1))
+                    .map_or(0, |x| x.index + 1),
+            ),
         }
     }
 
@@ -286,15 +282,8 @@ impl DepositCache {
     /// and queries the `deposit_roots` map to get the corresponding `deposit_root`.
     pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
         let index = self.get_deposit_count_from_cache(block_number)?;
-        Some(self.deposit_roots.get(index as usize)?.clone())
+        Some(*self.deposit_roots.get(index as usize)?)
     }
-}
-
-/// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: usize) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
 }
 
 #[cfg(test)]

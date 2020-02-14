@@ -22,7 +22,6 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     }
 
     state.validators = (0..validator_count)
-        .into_iter()
         .collect::<Vec<_>>()
         .par_iter()
         .map(|&i| Validator {
@@ -101,6 +100,84 @@ fn all_benches(c: &mut Criterion) {
                 criterion::BatchSize::SmallInput,
             )
         })
+        .sample_size(10),
+    );
+
+    let inner_state = state.clone();
+    c.bench(
+        &format!("{}_validators", validator_count),
+        Benchmark::new("clone/tree_hash_cache", move |b| {
+            b.iter_batched_ref(
+                || inner_state.clone(),
+                |state| black_box(state.tree_hash_cache.clone()),
+                criterion::BatchSize::SmallInput,
+            )
+        })
+        .sample_size(10),
+    );
+
+    let inner_state = state.clone();
+    c.bench(
+        &format!("{}_validators", validator_count),
+        Benchmark::new(
+            "initialized_cached_tree_hash_without_changes/beacon_state",
+            move |b| {
+                b.iter_batched_ref(
+                    || inner_state.clone(),
+                    |state| black_box(state.update_tree_hash_cache()),
+                    criterion::BatchSize::SmallInput,
+                )
+            },
+        )
+        .sample_size(10),
+    );
+
+    let mut inner_state = state.clone();
+    inner_state.drop_all_caches();
+    c.bench(
+        &format!("{}_validators", validator_count),
+        Benchmark::new("non_initialized_cached_tree_hash/beacon_state", move |b| {
+            b.iter_batched_ref(
+                || inner_state.clone(),
+                |state| {
+                    black_box(
+                        state
+                            .update_tree_hash_cache()
+                            .expect("should update tree hash"),
+                    )
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        })
+        .sample_size(10),
+    );
+
+    let inner_state = state.clone();
+    c.bench(
+        &format!("{}_validators", validator_count),
+        Benchmark::new(
+            "initialized_cached_tree_hash_with_new_validators/beacon_state",
+            move |b| {
+                b.iter_batched_ref(
+                    || {
+                        let mut state = inner_state.clone();
+                        for _ in 0..16 {
+                            state
+                                .validators
+                                .push(Validator::default())
+                                .expect("should push validatorj");
+                            state
+                                .balances
+                                .push(32_000_000_000)
+                                .expect("should push balance");
+                        }
+                        state
+                    },
+                    |state| black_box(state.update_tree_hash_cache()),
+                    criterion::BatchSize::SmallInput,
+                )
+            },
+        )
         .sample_size(10),
     );
 }
