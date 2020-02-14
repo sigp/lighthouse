@@ -18,6 +18,8 @@ Endpoint | Description |
 [`/validator`](./http_validator.md) | Provides functionality to validator clients.
 [`/consensus`](./http_consensus.md) | Proof-of-stake voting statistics.
 [`/network`](./http_network.md) | Information about the p2p network.
+[`/spec`](./http_spec.md) | Information about the specs that the client is running.
+[`/advanced`](./http_advanced.md) | Provides endpoints for advanced inspection of Lighthouse specific objects.
 
 _Please note: The OpenAPI format at
 [SwaggerHub: Lighthouse REST
