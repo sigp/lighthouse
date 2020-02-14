@@ -1,4 +1,4 @@
-# ETHDenver 2020
+# ETHDenver Hacker Guide
 
 <img style="height:300px" src="https://www.ethdenver.com/wp-content/themes/understrap/img/hero-logo-2020.png"/>
 
@@ -23,6 +23,23 @@ To make things easier for you we've prepared:
 	reach them on our
 	[Discord](https://sexysciencefacts.files.wordpress.com/2015/07/kangaroo.jpg).
 
+## Contents
+
+- [Lighthouse Overview](#lighthouse-overview)
+- [The ETHDenver Testnet](#the-ethdenver-testnet)
+  - [Connecting to the Testnet](#connecting-to-the-testnet)
+  - [Becoming a Validator](#becoming-a-validator)
+- [Using the `ethdenver` branch and Docker images](#using-the-ethdenver-branch-and-docker-images)
+- [Project Ideas](#project-ideas)
+  - [Evil Validators](#evil-validators-from-the-ef-bounties-doc)
+    - [Produce double blocks](#produce-double-blocks)
+	- [Produce slashable attestations](#slashable-attestations-aka-double-attestations)
+	- [Invalid Eth1 votes](#invalid-eth1-votes)
+  - [Creating local testnets and co-ordinating attacks](#creating-local-testnets-and-co-ordinating-attacks)
+  - [Noisy Network](#noisy-network)
+  - [Optimizations](#optimizations)
+  - [Slashing detection](#slashing-detection)
+
 ## Lighthouse Overview
 
 There are two main components to Lighthouse:
@@ -35,7 +52,42 @@ There are two main components to Lighthouse:
 You can learn how to use these two components and connect to our testnet in
 [Become a Validator](./become-a-validator.md).
 
-## Ideas
+All the interesting information about the beacon chain comes from the beacon
+node. Use its [HTTP JSON API](./http.md) to query for information, or listen to
+events from the [JSON WebSocket API](./websockets.md).
+
+## The ETHDenver Testnet
+
+We've started up a new testnet just for ETHDevnver. It's much smaller than our
+existing testnets (only 4,096 validators) for a few reasons:
+
+- Smaller testnets are less load on your computer. You might be running off
+	battery or need the computation for other things.
+- Small testnets sync faster. Lets face it, you don't have a whole lot of time
+	on your hands.
+- Small testnets are easier to gain a majority on, if you're feeling nefarious.
+- Small testnets are easier for us to reboot if you're successful at breaking
+	it.
+
+
+### Connecting to the testnet
+
+[Install Lighthouse](./installation.md), then run `$ lighthouse bn --http`.
+You're now syncing a testnet with the HTTP API running. Access it on
+`localhost:5052`.
+
+### Becoming a Validator
+
+See the [Become a Validator](./become-a-validator.md) docs.
+
+## Using the `ethdenver` branch and Docker images
+
+As mentioned previously, we've dedicated a [branch](https://github.com/sigp/lighthouse/pull/854) specifically to ETHDenver so we can move quickly without needing lengthy merging-to-master reviews on our end. If you're building Lighthouse from source, use that `ethdenver` branch.
+
+If you're using Docker, use the `sigp/lighthouse:ethdenver` image from Docker
+Hub.
+
+## Project Ideas
 
 ### Evil Validators (from the EF bounties doc)
 
@@ -130,3 +182,20 @@ them, but these ones might be interesting:
 	block/attestation processing times then we'll be _very, very_ grateful!
 	We have some time put away for this next week, if you can do it at the
 	hackathon we can focus on other things!
+
+## Slashing detection
+
+Lighthouse does not currently detect and submit slashings to the network (this
+is our next major project). There are two ways you can go about adding slashing
+protection:
+
+- **Easy but not comprehensive**: look for times when a validator tries to
+	change their vote during the same epoch when fork choice is [processing
+	their votes](https://github.com/sigp/lighthouse/blob/371e5adcf89d99a5958b802cf9925a990bd66ba6/eth2/proto_array_fork_choice/src/proto_array_fork_choice.rs#L92-L107). This is low-hanging fruit, but it's also very easy for validators to evade this method. It also doesn't detect slashable blocks.
+- **Hard and comprehensive**: build a standalone service that listens to the
+	[WebSocket API](./websockets.md) for attestations/blocks then polls the [HTTP
+	API](./http.md) to find the committees that produced the attestation/block.
+	Compare these to previously known attestations/blocks and if you find a
+	offense, submit it to one of the Lighthouse [slashing
+	endpoints](./http_beacon.md). Make sure you're running a validator so it
+	will include the slashings in a block when it gets a chance.
