@@ -10,6 +10,11 @@ HTTP Path | Description |
 [`/validator/duties`](#validatorduties) | Provides block and attestation production information for validators.
 [`/validator/duties/all`](#validatordutiesall) | Provides block and attestation production information for all validators.
 [`/validator/duties/active`](#validatordutiesactive) | Provides block and attestation production information for all active validators.
+[`/validator/block`](#validatorblock) | Produces a `BeaconBlock` object from current state.
+[`/validator/attestation`](#validatorattestation) | Produces an unsigned `Attestation` object from current state.
+[`/validator/block`](#validatorblock) | Processes a `SignedBeaconBlock` object and publishes it to the network.
+[`/validator/attestation`](#validatorattestation) | Processes a signed `Attestation` and publishes it to the network.
+
 
 ## `/validator/duties`
 
@@ -151,3 +156,210 @@ parameter. This parameter is required.
 ### Returns
 
 The return format is identical to the [Validator Duties](#validator-duties) response body.
+
+## `/validator/block`
+
+Produces and returns a `BeaconBlock` object from the current state.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/validator/block`
+Method | GET
+JSON Encoding | Object
+Query Parameters | `slot`, `randao_reveal`
+Typical Responses | 200
+
+### Parameters
+
+
+- `slot` (`Slot`): The slot number for which the block is to be produced.
+- `randao_reveal` (`Signature`): 96 bytes `Signature` for the randomness.
+
+
+### Returns
+
+Returns a `BeaconBlock` object.
+
+#### Response Body
+
+```json
+{
+    "slot": 100,
+    "parent_root": "0xb6528491793fcda1c0629a10886d0046a25e0f1375094304c2355d3db9594166",
+    "state_root": "0x8db5a59e109a30dd951fe40db6440659cae0f0c517f7c7025fee625a47e85eae",
+    "body": {
+        "randao_reveal": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "eth1_data": {
+            "deposit_root": "0x66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
+            "deposit_count": 8,
+            "block_hash": "0x2b32db6c2c0a6235fb1397e8225ea85e0f0e6e8c7b126d0016ccbde0e667151e"
+        },
+        "graffiti": "0x736967702f6c69676874686f7573652d302e312e312d70726572656c65617365",
+        "proposer_slashings": [],
+        "attester_slashings": [],
+        "attestations": [],
+        "deposits": [],
+        "voluntary_exits": []
+    }
+}
+```
+
+## `/validator/attestation`
+
+Produces and returns an unsigned `Attestation` from the current state.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/validator/attestation`
+Method | GET
+JSON Encoding | Object
+Query Parameters | `slot`, `committee_index`
+Typical Responses | 200
+
+### Parameters
+
+
+- `slot` (`Slot`): The slot number for which the attestation is to be produced.
+- `committee_index` (`CommitteeIndex`): The index of the committee that makes the attestation.
+
+
+### Returns
+
+Returns a `Attestation` object with a default signature. The `signature` field should be replaced by the valid signature.
+
+#### Response Body
+
+```json
+{
+    "aggregation_bits": "0x01",
+    "data": {
+        "slot": 100,
+        "index": 0,
+        "beacon_block_root": "0xf22e4ec281136d119eabcd4d9d248aeacd042eb63d8d7642f73ad3e71f1c9283",
+        "source": {
+            "epoch": 2,
+            "root": "0x34c1244535c923f08e7f83170d41a076e4f1ec61013846b3a615a1d109d3c329"
+        },
+        "target": {
+            "epoch": 3,
+            "root": "0xaefd23b384994dc0c1a6b77836bdb2f24f209ebfe6c4819324d9685f4a43b4e1"
+        }
+    },
+    "signature": "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+}
+```
+
+## `/validator/block`
+
+Publishes a `SignedBeaconBlock` object to the network.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/validator/block`
+Method | POST
+JSON Encoding | Object
+Query Parameters | None
+Typical Responses | 200/202
+
+
+### Request Body
+
+Expects a JSON encoded `SignedBeaconBlock` in the POST request body:
+
+### Returns
+
+Returns a null object if the block passed all block validation and is published to the network.
+Else, returns a processing error description.
+
+### Example
+
+### Request Body
+
+```json
+{
+  "message": {
+    "slot": 33,
+    "parent_root": "0xf54de54bd33e33aee4706cffff4bd991bcbf522f2551ab007180479c63f4fe912",
+    "state_root": "0x615c887bad27bc05754d627d941e1730e1b4c77b2eb4378c195ac8a8203bbf26",
+    "body": {
+      "randao_reveal": "0x8d7b2a32b026e9c79aae6ec6b83eabae89d60cacd65ac41ed7d2f4be9dd8c89c1bf7cd3d700374e18d03d12f6a054c23006f64f0e4e8b7cf37d6ac9a4c7d815c858120c54673b7d3cb2bb1550a4d659eaf46e34515677c678b70d6f62dbf89f",
+      "eth1_data": {
+        "deposit_root": "0x66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
+        "deposit_count": 8,
+        "block_hash": "0x2b32db6c2c0a6235fb1397e8225ea85e0f0e6e8c7b126d0016ccbde0e667151e"
+      },
+      "graffiti": "0x736967702f6c69676874686f7573652d302e312e312d7076572656c65617365",
+      "proposer_slashings": [
+
+      ],
+      "attester_slashings": [
+
+      ],
+      "attestations": [
+
+      ],
+      "deposits": [
+
+      ],
+      "voluntary_exits": [
+
+      ]
+    }
+  },
+  "signature": "0x965ced900dbabd0a78b81a0abb5d03407be0d38762104316416347f2ea6f82652b5759396f402e85df8ee18ba2c60145037c73b1c335f4272f1751a1cd89862b7b4937c035e350d0108554bd4a8930437ec3311c801a65fe8e5ba022689b5c24"
+}
+```
+
+## `/validator/attestation`
+
+Publishes a `Attestation` object to the network.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/validator/attestation`
+Method | POST
+JSON Encoding | Object
+Query Parameters | None
+Typical Responses | 200/202
+
+
+### Request Body
+
+Expects a JSON encoded signed`Attestation` object in the POST request body:
+
+### Returns
+
+Returns a null object if the attestation passed all validation and is published to the network.
+Else, returns a processing error description.
+
+### Example
+
+### Request Body
+
+```json
+{
+  "aggregation_bits": "0x03",
+  "data": {
+    "slot": 3,
+    "index": 0,
+    "beacon_block_root": "0x0b6a1f7a9baa38d00ef079ba861b7587662565ca2502fb9901741c1feb8bb3c9",
+    "source": {
+      "epoch": 0,
+      "root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "target": {
+      "epoch": 0,
+      "root": "0xad2c360ab8c8523db278a7d7ced22f3810800f2fdc282defb6db216689d376bd"
+    }
+  },
+  "signature": "0xb76a1768c18615b5ade91a92e7d2ed0294f7e088e56e30fbe7e3aa6799c443b11bccadd578ca2cbd95d395ab689b9e4d03c88a56641791ab38dfa95dc1f4d24d1b19b9d36c96c20147ad03$649bd3c6c7e8a39cf2ffb99e07b4964d52854559f"
+}
+```
