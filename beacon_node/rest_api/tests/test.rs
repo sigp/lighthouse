@@ -17,7 +17,7 @@ use types::{
         generate_deterministic_keypair, AttesterSlashingTestTask, ProposerSlashingTestTask,
     },
     BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec, PublicKey,
-    RelativeEpoch, Signature, SignedBeaconBlock, Slot, Validator,
+    RelativeEpoch, Signature, SignedBeaconBlock, SignedRoot, Slot, Validator,
 };
 use version;
 
@@ -926,7 +926,7 @@ fn proposer_slashing() {
         fork,
         spec,
     );
-    invalid_proposer_slashing.header_2 = invalid_proposer_slashing.header_1.clone();
+    invalid_proposer_slashing.signed_header_2 = invalid_proposer_slashing.signed_header_1.clone();
 
     let result = env.runtime().block_on(
         remote_node
