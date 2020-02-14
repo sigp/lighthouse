@@ -7,7 +7,7 @@ beacon chain and also historical information about beacon blocks and states.
 
 HTTP Path | Description |
 | --- | -- |
-[`/beacon/attester_slashing`](#beaconattester_slashing) | Insert an attestesr slashing
+[`/beacon/attester_slashing`](#beaconattester_slashing) | Insert an attester slashing
 [`/beacon/block`](#beaconblock) | Get a `BeaconBlock` by slot or root.
 [`/beacon/block_root`](#beaconblock_root) | Resolve a slot to a block root.
 [`/beacon/committees`](#beaconcommittees) | Get the shuffling for an epoch.
@@ -25,7 +25,7 @@ HTTP Path | Description |
 
 ## `/beacon/attester_slashing`
 
-Adds the specified `attester_slashing` to the operation pool.
+Accepts an `attester_slashing` and verifies it. If it is valid, it is added to the operations pool for potential inclusion in a future block. Returns a 400 error if the `attester_slashing` is invalid.
 
 ### HTTP Specification
 
@@ -35,7 +35,7 @@ Path | `/beacon/attester_slashing`
 Method | POST
 JSON Encoding | Object
 Query Parameters | None
-Typical Responses | 200
+Typical Responses | 200/400
 
 ### Parameters
 
@@ -226,7 +226,7 @@ Path | `/beacon/committees`
 Method | GET
 JSON Encoding | Object
 Query Parameters | `epoch`
-Typical Responses | 200
+Typical Responses | 200/500
 
 ### Parameters
 
@@ -348,7 +348,7 @@ Typical Responses | 200
 
 ## `/beacon/proposer_slashing`
 
-Adds the specified `proposer_slashing` to the operation pool.
+Accepts a `proposer_slashing` and verifies it. If it is valid, it is added to the operations pool for potential inclusion in a future block. Returns an 400 error if the `proposer_slashing` is invalid.
 
 ### HTTP Specification
 
@@ -358,7 +358,7 @@ Path | `/beacon/proposer_slashing`
 Method | POST
 JSON Encoding | Object
 Query Parameters | None
-Typical Responses | 200
+Typical Responses | 200/400
 
 ### Request Body
 
