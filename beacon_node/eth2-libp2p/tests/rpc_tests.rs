@@ -398,7 +398,7 @@ fn test_blocks_by_root_chunked_rpc() {
 
     // BlocksByRoot Response
     let spec = E::default_spec();
-    let rpc_response = RPCResponse::BlocksByRange(Box::new(BeaconBlock::empty(&spec)));
+    let rpc_response = RPCResponse::BlocksByRoot(Box::new(BeaconBlock::empty(&spec)));
 
     let sender_request = rpc_request.clone();
     let sender_log = log.clone();
