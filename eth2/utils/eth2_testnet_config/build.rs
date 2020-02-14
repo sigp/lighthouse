@@ -1,3 +1,4 @@
+/// Pulls down the latest Lighthouse testnet from https://github.com/eth2-clients/eth2-testnets
 use reqwest;
 use std::env;
 use std::fs::File;
