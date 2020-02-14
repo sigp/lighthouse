@@ -13,7 +13,7 @@ you to hack on our client!
 
 To make things easier for you we've prepared:
 
-- This guide, to help get you started.
+- A list of hackathon project [ideas](#ideas), to help get you started.
 - A public testnet, especially for you.
 - Created the [`ethdenver`](https://github.com/sigp/lighthouse/pull/854) fork on [sigp/lighthouse](https://github.com/sigp/lighthouse) so we can move quickly with
 	your development needs.
@@ -112,8 +112,8 @@ code, so this ones probably not a good fit for Lighthouse. Sorry!
 
 ## Optimizations
 
-Optimizing Lighthouse is really rewarding, especially since you can really easy
-see how long operations are taking whilst the node is running with taking using
+Optimizing Lighthouse is really rewarding, especially since you can easy see
+how long operations are taking whilst the node is running with taking using
 [lighthouse-metrics](https://github.com/sigp/lighthouse-metrics).
 
 Issue [#847](https://github.com/sigp/lighthouse/issues/847) is tracking the
@@ -126,7 +126,7 @@ them, but these ones might be interesting:
 - Analyzing memory usage in Lighthouse. Presently we're seeing lots more
 	physical RAM usage in `htop` than compared to what shows in `valgrind` or
 	`heaptrack`. We suspect this is fragmentation, but that's quite hard to
-	prove. If you can cut our RAM usage in half without comprimising
+	prove. If you can cut our RAM usage in half without compromising
 	block/attestation processing times then we'll be _very, very_ grateful!
 	We have some time put away for this next week, if you can do it at the
 	hackathon we can focus on other things!
