@@ -44,7 +44,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     }
 
     let testnet: Eth2TestnetConfig<T> = Eth2TestnetConfig {
-        deposit_contract_address: format!("0x{:?}", deposit_contract_address),
+        deposit_contract_address: format!("{:?}", deposit_contract_address),
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
         genesis_state: None,
