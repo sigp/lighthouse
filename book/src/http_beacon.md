@@ -248,10 +248,7 @@ Path | `/beacon/state/genesis`
 Method | GET
 JSON Encoding | Object
 Query Parameters | None
-Typical Responses | 200, 404
-
-### Parameters
-
+Typical Responses | 200
 
 
 ### Returns
@@ -287,10 +284,7 @@ Path | `/beacon/genesis_time`
 Method | GET
 JSON Encoding | Object
 Query Parameters | None
-Typical Responses | 200, 404
-
-### Parameters
-
+Typical Responses | 200
 
 
 ### Returns
@@ -315,10 +309,7 @@ Path | `/beacon/fork`
 Method | GET
 JSON Encoding | Object
 Query Parameters | None
-Typical Responses | 200, 404
-
-### Parameters
-
+Typical Responses | 200
 
 
 ### Returns

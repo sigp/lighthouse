@@ -7,7 +7,7 @@ The `/advanced` endpoints provide information Lighthouse specific data structure
 HTTP Path | Description |
 | --- | -- |
 [`/advanced/fork_choice`](#advancedfork_choice) | Get the `proto_array` fork choice object.
-[`/spec/slots_per_epoch`](#advancedoperation_pool) | Get the Lighthouse `PersistedOperationPool` object.
+[`/advanced/operation_pool`](#advancedoperation_pool) | Get the Lighthouse `PersistedOperationPool` object.
 
 
 ## `/advanced/fork_choice`
