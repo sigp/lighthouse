@@ -139,7 +139,7 @@ Modify `eth1_data` and you're done.
 ### Creating local testnets and co-ordinating attacks
 
 We use local testnets a lot during development so we've made it quick and easy
-to start them. Check out the (Simple Local Testnet)[./simple-testnet.md] page
+to start them. Check out the [Simple Local Testnet](./simple-testnet.md) page
 to start a local testnet with two nodes in 3 commands.
 
 You may want to include some tactics from the previous "Evil Validators"
