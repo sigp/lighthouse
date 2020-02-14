@@ -149,7 +149,21 @@ where
     /// Attempt to load an existing chain from the builder's `Store`.
     ///
     /// May initialize several components; including the op_pool and finalized checkpoints.
-    pub fn resume_from_db(mut self, config: Eth1Config) -> Result<Self, String> {
+    pub fn get_persisted_eth1_backend(&self) -> Result<Option<SszEth1>, String> {
+        let store = self
+            .store
+            .clone()
+            .ok_or_else(|| "get_persisted_eth1_backend requires a store.".to_string())?;
+
+        store
+            .get::<SszEth1>(&Hash256::from_slice(&ETH1_CACHE_DB_KEY.as_bytes()))
+            .map_err(|e| format!("DB error whilst reading eth1 cache: {:?}", e))
+    }
+
+    /// Attempt to load an existing chain from the builder's `Store`.
+    ///
+    /// May initialize several components; including the op_pool and finalized checkpoints.
+    pub fn resume_from_db(mut self) -> Result<Self, String> {
         let log = self
             .log
             .as_ref()
@@ -169,7 +183,10 @@ where
         let chain = store
             .get::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes()))
             .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
-            .ok_or_else(|| "No persisted beacon chain found in store".to_string())?;
+            .ok_or_else(|| {
+                "No persisted beacon chain found in store. Try deleting the .lighthouse/beacon dir."
+                    .to_string()
+            })?;
 
         self.genesis_block_root = Some(chain.genesis_block_root);
         self.head_tracker = Some(
@@ -188,18 +205,15 @@ where
             .map_err(|e| format!("DB error when reading head state: {:?}", e))?
             .ok_or_else(|| "Head state not found in store".to_string())?;
 
-        self.op_pool = store
-            .get::<PersistedOperationPool<TEthSpec>>(&Hash256::from_slice(
-                &OP_POOL_DB_KEY.as_bytes(),
-            ))
-            .map_err(|e| format!("DB error whilst reading persisted op pool: {:?}", e))?
-            .map(|persisted| persisted.into_operation_pool(&head_state, &self.spec));
-
-        self.eth1_chain = store
-            .get::<SszEth1>(&Hash256::from_slice(&ETH1_CACHE_DB_KEY.as_bytes()))
-            .map_err(|e| format!("DB error whilst reading eth1 cache: {:?}", e))?
-            .map(|persisted| Eth1Chain::from_ssz_container(&persisted, config, store.clone(), log))
-            .transpose()?;
+        self.op_pool = Some(
+            store
+                .get::<PersistedOperationPool<TEthSpec>>(&Hash256::from_slice(
+                    &OP_POOL_DB_KEY.as_bytes(),
+                ))
+                .map_err(|e| format!("DB error whilst reading persisted op pool: {:?}", e))?
+                .map(|persisted| persisted.into_operation_pool(&head_state, &self.spec))
+                .unwrap_or_else(|| OperationPool::new()),
+        );
 
         let finalized_block_root = head_state.finalized_checkpoint.root;
         let finalized_block = store
@@ -465,11 +479,6 @@ where
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
-    /// Sets the `BeaconChain` eth1 back-end to `CachingEth1Backend`.
-    pub fn caching_eth1_backend(self, backend: CachingEth1Backend<TEthSpec, TStore>) -> Self {
-        self.eth1_backend(Some(backend))
-    }
-
     /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
     pub fn no_eth1_backend(self) -> Self {
         self.eth1_backend(None)
