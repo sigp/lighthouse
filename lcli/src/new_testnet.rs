@@ -17,6 +17,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let min_deposit_amount = parse_u64(matches, "min-deposit-amount")?;
     let max_effective_balance = parse_u64(matches, "max-effective-balance")?;
     let effective_balance_increment = parse_u64(matches, "effective-balance-increment")?;
+    let ejection_balance = parse_u64(matches, "ejection-balance")?;
     let eth1_follow_distance = parse_u64(matches, "eth1-follow-distance")?;
     let deposit_contract_deploy_block = parse_u64(matches, "deposit-contract-deploy-block")?;
     let genesis_fork_version = parse_fork_opt(matches, "genesis-fork-version")?;
@@ -39,6 +40,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     spec.min_genesis_active_validator_count = min_genesis_active_validator_count;
     spec.max_effective_balance = max_effective_balance;
     spec.effective_balance_increment = effective_balance_increment;
+    spec.ejection_balance = ejection_balance;
     spec.eth1_follow_distance = eth1_follow_distance;
     spec.min_genesis_delay = min_genesis_delay;
     if let Some(v) = genesis_fork_version {

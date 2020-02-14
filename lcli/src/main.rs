@@ -317,6 +317,14 @@ fn main() {
                         .help("The steps in effective balance calculation."),
                 )
                 .arg(
+                    Arg::with_name("ejection-balance")
+                        .long("ejection-balance")
+                        .value_name("GWEI")
+                        .takes_value(true)
+                        .default_value("1600000000")    // 1.6 Eth
+                        .help("The balance at which a validator gets ejected."),
+                )
+                .arg(
                     Arg::with_name("eth1-follow-distance")
                         .long("eth1-follow-distance")
                         .value_name("ETH1_BLOCKS")
