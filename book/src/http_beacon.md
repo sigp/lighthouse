@@ -13,6 +13,9 @@ HTTP Path | Description |
 [`/beacon/block`](#beaconblock) | Get a `SignedBeaconBlock` by slot or root.
 [`/beacon/state_root`](#beaconstate_root) | Resolve a slot to a state root.
 [`/beacon/state`](#beaconstate) | Get a `BeaconState` by slot or root.
+[`/beacon/state/genesis`](#beaconstategenesis) | Get a `BeaconState` at genesis.
+[`/beacon/genesis_time`](#beacongenesis_time) | Get the genesis time from the beacon state.
+[`/beacon/fork`](#beaconfork) | Get the fork of the head of the chain.
 [`/beacon/validators`](#beaconvalidators) | Query for one or more validators.
 [`/beacon/validators/all`](#beaconvalidatorsall) | Get all validators.
 [`/beacon/validators/active`](#beaconvalidatorsactive) | Get all active validators.
@@ -232,6 +235,96 @@ and its tree hash root.
 ```
 
 _Truncated for brevity._
+
+## `/beacon/state/genesis`
+
+Request that the node return a beacon chain state at genesis (slot 0).
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/beacon/state/genesis`
+Method | GET
+JSON Encoding | Object
+Query Parameters | None
+Typical Responses | 200
+
+
+### Returns
+
+Returns an object containing the genesis
+[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/specs/phase0/beacon-chain.md#beaconstate).
+
+### Example Response
+
+```json
+{
+    "genesis_time": 1581576353,
+    "slot": 0,
+    "fork": {
+        "previous_version": "0x00000000",
+        "current_version": "0x00000000",
+        "epoch": 0
+    },
+}
+```
+
+_Truncated for brevity._
+
+## `/beacon/genesis_time`
+
+Request that the node return the genesis time from the beacon state.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/beacon/genesis_time`
+Method | GET
+JSON Encoding | Object
+Query Parameters | None
+Typical Responses | 200
+
+
+### Returns
+
+Returns an object containing the genesis time.
+
+### Example Response
+
+```json
+1581576353
+```
+
+## `/beacon/fork`
+
+Request that the node return the `fork` of the current head.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/beacon/fork`
+Method | GET
+JSON Encoding | Object
+Query Parameters | None
+Typical Responses | 200
+
+
+### Returns
+
+Returns an object containing the [`Fork`](https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/specs/phase0/beacon-chain.md#fork) of the current head.
+
+### Example Response
+
+```json
+{
+    "previous_version": "0x00000000",
+    "current_version": "0x00000000",
+    "epoch": 0
+}
+```
 
 ## `/beacon/validators`
 
