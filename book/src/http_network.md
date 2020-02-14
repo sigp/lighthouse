@@ -8,8 +8,11 @@ Lighthouse uses to communicate with other beacon nodes.
 HTTP Path | Description |
 | --- | -- |
 [`/network/peer_id`](#networkpeer_id) | Get a node's libp2p `PeerId`.
+[`/network/peer_count`](#networkpeer_count) | Get the count of connected peers.
 [`/network/peers`](#networkpeers) | List a node's libp2p peers (as `PeerIds`).
 [`/network/enr`](#networkenr) | Get a node's discovery `ENR` address.
+[`/network/listen_port`](#networklisten_port) | Get a node's libp2p listening port.
+[`/network/listen_addresses`](#networklisten_addresses) | Get a list of libp2p multiaddr the node is listening on.
 
 ## `/network/peer_id`
 
@@ -29,6 +32,26 @@ Typical Responses | 200
 
 ```json
 "QmVFcULBYZecPdCKgGmpEYDqJLqvMecfhJadVBtB371Avd"
+```
+
+## `/network/peer_count`
+
+Requests the count of peers connected to the client.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/network/peer_id`
+Method | GET
+JSON Encoding | Number
+Query Parameters | None
+Typical Responses | 200
+
+### Example Response
+
+```json
+5
 ```
 
 ## `/network/peers`
@@ -72,4 +95,54 @@ Typical Responses | 200
 
 ```json
 "-IW4QPYyGkXJSuJ2Eji8b-m4PTNrW4YMdBsNOBrYAdCk8NLMJcddAiQlpcv6G_hdNjiLACOPTkqTBhUjnC0wtIIhyQkEgmlwhKwqAPqDdGNwgiMog3VkcIIjKIlzZWNwMjU2azGhA1sBKo0yCfw4Z_jbggwflNfftjwKACu-a-CoFAQHJnrm"
+```
+
+## `/network/listen_port`
+
+Requests the TCP port that the client's libp2p service is listening on.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/network/listen_port`
+Method | GET
+JSON Encoding | Number
+Query Parameters | None
+Typical Responses | 200
+
+### Example Response
+
+```json
+9000
+```
+
+## `/network/listen_addresses`
+
+Requests the list of multiaddr that the client's libp2p service is listening on.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/network/listen_addresses`
+Method | GET
+JSON Encoding | Array
+Query Parameters | None
+Typical Responses | 200
+
+### Example Response
+
+```json
+[
+    "/ip4/127.0.0.1/tcp/9000",
+    "/ip4/192.168.31.115/tcp/9000",
+    "/ip4/172.24.0.1/tcp/9000",
+    "/ip4/172.21.0.1/tcp/9000",
+    "/ip4/172.17.0.1/tcp/9000",
+    "/ip4/172.18.0.1/tcp/9000",
+    "/ip4/172.19.0.1/tcp/9000",
+    "/ip4/172.42.0.1/tcp/9000",
+    "/ip6/::1/tcp/9000"
+]
 ```
