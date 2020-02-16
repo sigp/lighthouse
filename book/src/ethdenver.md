@@ -13,7 +13,7 @@ you to hack on our client!
 
 To make things easier for you we've prepared:
 
-- A list of hackathon project [ideas](#ideas), to help get you started.
+- A list of hackathon project [ideas](#project-ideas), to help get you started.
 - A public testnet, especially for you.
 - Created the [`ethdenver`](https://github.com/sigp/lighthouse/pull/854) fork on [sigp/lighthouse](https://github.com/sigp/lighthouse) so we can move quickly with
 	your development needs.
@@ -39,6 +39,7 @@ To make things easier for you we've prepared:
   - [Noisy Network](#noisy-network)
   - [Optimizations](#optimizations)
   - [Slashing detection](#slashing-detection)
+  - [Twitter Bots](#twitter-bots)
 
 ## Lighthouse Overview
 
@@ -139,7 +140,7 @@ Modify `eth1_data` and you're done.
 ### Creating local testnets and co-ordinating attacks
 
 We use local testnets a lot during development so we've made it quick and easy
-to start them. Check out the (Simple Local Testnet)[./simple-testnet.md] page
+to start them. Check out the [Simple Local Testnet](./simple-testnet.md) page
 to start a local testnet with two nodes in 3 commands.
 
 You may want to include some tactics from the previous "Evil Validators"
@@ -199,3 +200,12 @@ protection:
 	offense, submit it to one of the Lighthouse [slashing
 	endpoints](./http_beacon.md). Make sure you're running a validator so it
 	will include the slashings in a block when it gets a chance.
+
+## Twitter Bots
+
+For a bit of fun, make a twitter/social media bot that tweets when someone gets
+slashed or ejected. Perhaps even a skipped block would be interesting?
+
+Use the [WebSocket API](./websockets.md) to learn about new blocks and then use
+the [HTTP API](./http.md) to learn about which validator produced the block or
+slashable offense.
