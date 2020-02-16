@@ -1020,3 +1020,61 @@ fn attester_slashing() {
     assert_eq!(attester_slashings.len(), 1);
     assert_eq!(attester_slashing, attester_slashings[0]);
 }
+
+/*
+ * TODO: fix these tests by building out the canonical chain.
+ *
+#[test]
+fn consensus_individual_votes() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let state = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain")
+        .head()
+        .expect("should get head")
+        .beacon_state;
+
+    let pubkeys = state.validators.iter().map(|v| v.pubkey.clone()).collect();
+
+    // Note: this is a very basic test, we just ensure that it doesn't error.
+    env.runtime()
+        .block_on(
+            remote_node
+                .http
+                .consensus()
+                .get_individual_votes(state.current_epoch(), pubkeys),
+        )
+        .expect("should not error when getting individual votes");
+}
+
+#[test]
+fn consensus_vote_count() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let state = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain")
+        .head()
+        .expect("should get head")
+        .beacon_state;
+
+    // Note: this is a very basic test, we just ensure that it doesn't error.
+    env.runtime()
+        .block_on(
+            remote_node
+                .http
+                .consensus()
+                .get_vote_count(state.current_epoch()),
+        )
+        .expect("should not error when getting vote count");
+}
+*/
