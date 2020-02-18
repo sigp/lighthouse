@@ -27,6 +27,14 @@ pub struct CacheArena<T: Encode + Decode> {
 }
 
 impl<T: Encode + Decode> CacheArena<T> {
+    /// Instantiate self with a backing array of the given `capacity`.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            backing: Vec::with_capacity(capacity),
+            offsets: vec![],
+        }
+    }
+
     /// Produce an allocation of zero length at the end of the backing array.
     pub fn alloc(&mut self) -> CacheArenaAllocation<T> {
         let alloc_id = self.offsets.len();

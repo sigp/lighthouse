@@ -5,6 +5,9 @@ use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
 use tree_hash::{mix_in_length, TreeHash};
 
+/// The number of nodes in the Merkle tree of a validator record.
+const NODES_PER_VALIDATOR: usize = 15;
+
 /// The number of validator record tree hash caches stored in each arena.
 ///
 /// This is primarily used for concurrency; if we have 16 validators and set `VALIDATORS_PER_ARENA
@@ -202,8 +205,22 @@ impl ParallelValidatorTreeHash {
     /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
     /// hashing.
     fn new<E: EthSpec>(validators: &[Validator]) -> Self {
-        let num_arenas = (validators.len() + VALIDATORS_PER_ARENA - 1) / VALIDATORS_PER_ARENA;
-        let mut arenas = vec![(CacheArena::default(), vec![]); num_arenas];
+        let num_arenas = std::cmp::max(
+            1,
+            (validators.len() + VALIDATORS_PER_ARENA - 1) / VALIDATORS_PER_ARENA,
+        );
+
+        let mut arenas = (1..=num_arenas)
+            .map(|i| {
+                let num_validators = if i == num_arenas {
+                    validators.len() % VALIDATORS_PER_ARENA
+                } else {
+                    VALIDATORS_PER_ARENA
+                };
+                NODES_PER_VALIDATOR * num_validators
+            })
+            .map(|capacity| (CacheArena::with_capacity(capacity), vec![]))
+            .collect::<Vec<_>>();
 
         validators.iter().enumerate().for_each(|(i, v)| {
             let (arena, caches) = &mut arenas[i / VALIDATORS_PER_ARENA];
@@ -270,5 +287,18 @@ impl ParallelValidatorTreeHash {
                     .collect()
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn validator_node_count() {
+        let mut arena = CacheArena::default();
+        let v = Validator::default();
+        let _cache = v.new_tree_hash_cache(&mut arena);
+        assert_eq!(arena.backing_len(), NODES_PER_VALIDATOR);
     }
 }
