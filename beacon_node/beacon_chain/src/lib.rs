@@ -12,6 +12,7 @@ mod fork_choice;
 mod head_tracker;
 mod metrics;
 mod persisted_beacon_chain;
+mod state_cache;
 pub mod test_utils;
 mod timeout_rw_lock;
 

@@ -6,6 +6,7 @@ use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+use crate::state_cache::StateCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{debug, error, info, trace, warn, Logger};
@@ -51,6 +52,10 @@ const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
 /// The time-out before failure during an operation to take a read/write RwLock on the canonical
 /// head.
 const HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// The time-out before failure during an operation to take a read/write RwLock on the block
+/// processing cache.
+const BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -147,6 +152,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub event_handler: T::EventHandler,
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: HeadTracker,
+    /// A cache dedicated to block processing.
+    pub(crate) block_processing_cache: TimeoutRwLock<StateCache<T::EthSpec>>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
 }
@@ -1180,26 +1187,37 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // processing.
         let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
-        // Load the blocks parent block from the database, returning invalid if that block is not
-        // found.
-        let parent_block = match self.get_block(&block.parent_root)? {
-            Some(block) => block,
-            None => {
-                return Ok(BlockProcessingOutcome::ParentUnknown {
-                    parent: block.parent_root,
-                    reference_location: "database",
-                });
-            }
-        };
+        let cached_checkpoint = self
+            .block_processing_cache
+            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .and_then(|mut block_processing_cache| block_processing_cache.get(block.parent_root));
 
-        // Load the parent blocks state from the database, returning an error if it is not found.
-        // It is an error because if we know the parent block we should also know the parent state.
-        let parent_state_root = parent_block.state_root();
-        let parent_state = self
-            .get_state(&parent_state_root, Some(parent_block.slot()))?
-            .ok_or_else(|| {
-                Error::DBInconsistent(format!("Missing state {:?}", parent_state_root))
-            })?;
+        let (parent_block, parent_state) = if let Some(checkpoint) = cached_checkpoint {
+            (checkpoint.beacon_block, checkpoint.beacon_state)
+        } else {
+            // Load the blocks parent block from the database, returning invalid if that block is not
+            // found.
+            let parent_block = match self.get_block(&block.parent_root)? {
+                Some(block) => block,
+                None => {
+                    return Ok(BlockProcessingOutcome::ParentUnknown {
+                        parent: block.parent_root,
+                        reference_location: "database",
+                    });
+                }
+            };
+
+            // Load the parent blocks state from the database, returning an error if it is not found.
+            // It is an error because if we know the parent block we should also know the parent state.
+            let parent_state_root = parent_block.state_root();
+            let parent_state = self
+                .get_state(&parent_state_root, Some(parent_block.slot()))?
+                .ok_or_else(|| {
+                    Error::DBInconsistent(format!("Missing state {:?}", parent_state_root))
+                })?;
+
+            (parent_block, parent_state)
+        };
 
         metrics::stop_timer(db_read_timer);
 
@@ -1319,8 +1337,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // solution would be to use a database transaction (once our choice of database and API
         // settles down).
         // See: https://github.com/sigp/lighthouse/issues/692
-        self.store.put_state(&state_root, state)?;
-        self.store.put_block(&block_root, signed_block)?;
+        self.store.put_state(&state_root, &state)?;
+        self.store.put_block(&block_root, signed_block.clone())?;
+
+        self.block_processing_cache
+            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .map(|mut block_processing_cache| {
+                block_processing_cache.insert(CheckPoint {
+                    beacon_block: signed_block,
+                    beacon_block_root: block_root,
+                    beacon_state: state,
+                    beacon_state_root: state_root,
+                });
+            })
+            .unwrap_or_else(|| {
+                error!(
+                    self.log,
+                    "Failed to obtain cache write lock";
+                    "lock" => "block_processing_cache",
+                    "task" => "process block"
+                );
+            });
 
         metrics::stop_timer(db_write_timer);
 
@@ -1546,6 +1583,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 metrics::stop_timer(timer);
 
+                self.block_processing_cache
+                    .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                    .map(|mut block_processing_cache| {
+                        block_processing_cache.update_head(beacon_block_root);
+                    })
+                    .unwrap_or_else(|| {
+                        error!(
+                            self.log,
+                            "Failed to obtain cache write lock";
+                            "lock" => "block_processing_cache",
+                            "task" => "update head"
+                        );
+                    });
+
                 // Save `self` to `self.store`.
                 self.persist()?;
 
@@ -1598,6 +1649,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
         } else {
             self.fork_choice.prune()?;
+
+            self.block_processing_cache
+                .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                .map(|mut block_processing_cache| {
+                    block_processing_cache.prune(new_finalized_epoch);
+                })
+                .unwrap_or_else(|| {
+                    error!(
+                        self.log,
+                        "Failed to obtain cache write lock";
+                        "lock" => "block_processing_cache",
+                        "task" => "prune"
+                    );
+                });
 
             let finalized_state = self
                 .get_state_caching_only_with_committee_caches(
