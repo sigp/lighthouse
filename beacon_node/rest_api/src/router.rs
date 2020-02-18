@@ -24,8 +24,8 @@ where
 pub fn route<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_service: Arc<NetworkService<T>>,
-    network_channel: NetworkChannel,
+    network_service: Option<Arc<NetworkService<T>>>,
+    network_channel: Option<NetworkChannel>,
     eth2_config: Arc<Eth2Config>,
     local_log: slog::Logger,
     db_path: PathBuf,

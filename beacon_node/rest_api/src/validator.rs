@@ -262,7 +262,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes>(
 pub fn publish_beacon_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_chan: NetworkChannel,
+    network_chan_opt: Option<NetworkChannel>,
     log: Logger,
 ) -> BoxFut {
     try_future!(check_content_type_for_json(&req));
@@ -289,7 +289,15 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
                             "block_slot" => slot,
                         );
 
-                        publish_beacon_block_to_network::<T>(network_chan, block)?;
+                        if let Some(network_chan) = network_chan_opt {
+                            publish_beacon_block_to_network::<T>(network_chan, block)?;
+                        } else {
+                            warn!(
+                                log,
+                                "Block published without a network";
+                                "desc" => "no peers will receive the block",
+                            );
+                        }
 
                         // Run the fork choice algorithm and enshrine a new canonical head, if
                         // found.
@@ -374,7 +382,7 @@ pub fn get_new_attestation<T: BeaconChainTypes>(
 pub fn publish_attestation<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_chan: NetworkChannel,
+    network_chan_opt: Option<NetworkChannel>,
     log: Logger,
 ) -> BoxFut {
     try_future!(check_content_type_for_json(&req));
@@ -405,7 +413,17 @@ pub fn publish_attestation<T: BeaconChainTypes>(
                             "index" => attestation.data.index,
                             "slot" => attestation.data.slot,
                         );
-                        publish_attestation_to_network::<T>(network_chan, attestation)
+
+                        if let Some(network_chan) = network_chan_opt {
+                            publish_attestation_to_network::<T>(network_chan, attestation)
+                        } else {
+                            warn!(
+                                log,
+                                "Attestation published without a network";
+                                "desc" => "no peers will receive the attestation",
+                            );
+                            Ok(())
+                        }
                     }
                     Ok(outcome) => {
                         warn!(

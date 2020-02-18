@@ -61,7 +61,7 @@ pub fn start_server<T: BeaconChainTypes>(
     config: &Config,
     executor: &TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_info: NetworkInfo<T>,
+    network_info_opt: Option<NetworkInfo<T>>,
     db_path: PathBuf,
     freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
@@ -75,8 +75,18 @@ pub fn start_server<T: BeaconChainTypes>(
         let beacon_chain = beacon_chain.clone();
         let log = inner_log.clone();
         let eth2_config = eth2_config.clone();
-        let network_service = network_info.network_service.clone();
-        let network_channel = Arc::new(RwLock::new(network_info.network_chan.clone()));
+
+        // Cloning is required as this is an `FnMut`.
+        let (network_service, network_channel) =
+            if let Some(network_info) = network_info_opt.as_ref() {
+                (
+                    Some(network_info.network_service.clone()),
+                    Some(Arc::new(RwLock::new(network_info.network_chan.clone()))),
+                )
+            } else {
+                (None, None)
+            };
+
         let db_path = db_path.clone();
         let freezer_db_path = freezer_db_path.clone();
 

@@ -32,7 +32,7 @@ const SPEEDO_OBSERVATIONS: usize = 4;
 pub fn spawn_notifier<T: BeaconChainTypes>(
     context: RuntimeContext<T::EthSpec>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network: Arc<NetworkService<T>>,
+    network_opt: Option<Arc<NetworkService<T>>>,
     milliseconds_per_slot: u64,
 ) -> Result<Signal, String> {
     let log_1 = context.log.clone();
@@ -60,15 +60,15 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         .for_each(move |_| {
             let log = log_2.clone();
 
-            let connected_peer_count = if let Some(libp2p) = network
-                .libp2p_service()
-                .try_lock_until(Instant::now() + LIBP2P_LOCK_TIMEOUT)
-            {
-                libp2p.swarm.connected_peers()
-            } else {
-                // Use max_value here and we'll print something pretty later.
-                usize::max_value()
-            };
+            let connected_peer_count = network_opt
+                .as_ref()
+                .and_then(|network| {
+                    network
+                        .libp2p_service()
+                        .try_lock_until(Instant::now() + LIBP2P_LOCK_TIMEOUT)
+                        .map(|libp2p| libp2p.swarm.connected_peers())
+                })
+                .unwrap_or_else(|| usize::max_value());
 
             let head_info = beacon_chain.head_info()
                 .map_err(|e| error!(

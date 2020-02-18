@@ -39,6 +39,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          * Network parameters.
          */
         .arg(
+            Arg::with_name("disable-networking")
+                .long("disable-networking")
+                .help("P2P networking is disabled if present. Use for testing only.")
+        )
+        .arg(
             Arg::with_name("zero-ports")
                 .long("zero-ports")
                 .short("z")

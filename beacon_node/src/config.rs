@@ -88,6 +88,10 @@ pub fn get_configs<E: EthSpec>(
     /*
      * Networking
      */
+    if cli_args.is_present("disable-networking") {
+        client_config.network.enabled = false;
+    }
+
     // If a network dir has been specified, override the `datadir` definition.
     if let Some(dir) = cli_args.value_of("network-dir") {
         client_config.network.network_dir = PathBuf::from(dir);

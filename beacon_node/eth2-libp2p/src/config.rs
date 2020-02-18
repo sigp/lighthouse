@@ -11,6 +11,9 @@ use std::time::Duration;
 #[serde(default)]
 /// Network configuration for lighthouse.
 pub struct Config {
+    /// If false, the network will not be started.
+    pub enabled: bool,
+
     /// Data directory where node's keyfile is stored
     pub network_dir: PathBuf,
 
@@ -84,6 +87,7 @@ impl Default for Config {
         };
 
         Config {
+            enabled: true,
             network_dir,
             listen_address: "127.0.0.1".parse().expect("valid ip address"),
             libp2p_port: 9000,

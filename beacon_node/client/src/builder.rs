@@ -21,7 +21,7 @@ use genesis::{
 };
 use lighthouse_bootstrap::Bootstrapper;
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
-use slog::info;
+use slog::{info, warn};
 use ssz::Decode;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -285,19 +285,22 @@ where
             .as_ref()
             .ok_or_else(|| "http_server requires a runtime_context")?
             .service_context("http".into());
-        let network = self
-            .libp2p_network
-            .clone()
-            .ok_or_else(|| "http_server requires a libp2p network")?;
-        let network_send = self
-            .libp2p_network_send
-            .clone()
-            .ok_or_else(|| "http_server requires a libp2p network sender")?;
+        let network = self.libp2p_network.clone();
+        let network_send = self.libp2p_network_send.clone();
 
-        let network_info = rest_api::NetworkInfo {
-            network_service: network,
-            network_chan: network_send,
-        };
+        let network_info =
+            if let (Some(network_service), Some(network_chan)) = (network, network_send) {
+                Some(rest_api::NetworkInfo {
+                    network_service,
+                    network_chan,
+                })
+            } else {
+                warn!(
+                    context.log,
+                    "Starting without a network";
+                );
+                None
+            };
 
         let (exit_signal, listening_addr) = rest_api::start_server(
             &client_config.rest_api,
@@ -332,10 +335,7 @@ where
             .beacon_chain
             .clone()
             .ok_or_else(|| "slot_notifier requires a beacon chain")?;
-        let network = self
-            .libp2p_network
-            .clone()
-            .ok_or_else(|| "slot_notifier requires a libp2p network")?;
+        let network = self.libp2p_network.clone();
         let milliseconds_per_slot = self
             .chain_spec
             .as_ref()
