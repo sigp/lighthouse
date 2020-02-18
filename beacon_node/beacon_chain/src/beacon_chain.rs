@@ -1570,7 +1570,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     beacon_state_root,
                 };
 
-                new_head.beacon_state.build_all_caches(&self.spec)?;
+                new_head
+                    .beacon_state
+                    .build_all_committee_caches(&self.spec)?;
 
                 let timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
 
