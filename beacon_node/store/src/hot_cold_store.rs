@@ -577,7 +577,7 @@ impl<E: EthSpec> HotColdDB<E> {
             .filter(|block| block.message.slot <= end_slot)
             // Include the block at the start slot (if any). Whilst it doesn't need to be applied
             // to the state, it contains a potentially useful state root.
-            .take_while(|block| block.message.slot > start_slot)
+            .take_while(|block| block.message.slot >= start_slot)
             .collect::<Vec<_>>();
         blocks.reverse();
         Ok(blocks)
