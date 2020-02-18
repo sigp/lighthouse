@@ -284,7 +284,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "http_server requires a runtime_context")?
-            .service_context("http".into());
+            .service_context("client_builder".into());
         let network = self.libp2p_network.clone();
         let network_send = self.libp2p_network_send.clone();
 
