@@ -1,14 +1,18 @@
-/*
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::persisted_dht::load_dht;
+    use crate::{NetworkConfig, Service};
     use beacon_chain::builder::BeaconChainBuilder;
+    use beacon_chain::slot_clock::TestingSlotClock;
     use eth2_libp2p::Enr;
+    use futures::{Future, IntoFuture};
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use slog::Logger;
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
+    use std::sync::Arc;
     use store::{migrate::NullMigrator, SimpleDiskStore};
+    use tempdir::TempDir;
     use tokio::runtime::Runtime;
     use types::{EthSpec, MinimalEthSpec};
 
@@ -20,8 +24,8 @@ mod tests {
     #[test]
     fn test_dht_persistence() {
         // Create new LevelDB store
-        let path = "/tmp";
-        let store = Arc::new(SimpleDiskStore::open(&std::path::PathBuf::from(path)).unwrap());
+        let path = TempDir::new("persistence_test").unwrap();
+        let store = Arc::new(SimpleDiskStore::open(&path.into_path()).unwrap());
         // Create a `BeaconChain` object to pass to `Service`
         let validator_count = 8;
         let genesis_time = 13371337;
@@ -37,7 +41,7 @@ mod tests {
         .expect("should create interop genesis state");
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
-            .store(store)
+            .store(store.clone())
             .store_migrator(NullMigrator)
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
@@ -50,58 +54,41 @@ mod tests {
             .expect("should add fork choice to builder")
             .build()
             .expect("should build");
+
         let beacon_chain = Arc::new(chain);
         let enr1 = Enr::from_str("enr:-IS4QHCYrYZbAKWCBRlAy5zzaDZXJBGkcnh4MHcBFZntXNFrdvJjX04jRzjzCBOonrkTfj499SZuOh8R33Ls8RRcy5wBgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQPKY0yuDUmstAHYpMa2_oxVtw0RW_QAdpzBQA8yWM0xOIN1ZHCCdl8").unwrap();
         let enr2 = Enr::from_str("enr:-IS4QJ2d11eu6dC7E7LoXeLMgMP3kom1u3SE8esFSWvaHoo0dP1jg8O3-nx9ht-EO3CmG7L6OkHcMmoIh00IYWB92QABgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQIB_c-jQMOXsbjWkbN-Oj99H57gfId5pfb4wa1qxwV4CIN1ZHCCIyk").unwrap();
         let enrs = vec![enr1, enr2];
 
         let runtime = Runtime::new().unwrap();
+        let executor = runtime.executor();
 
-        // Create new network service
-        let (service, _) = Service::new(
-            beacon_chain.clone(),
-            &NetworkConfig::default(),
-            &runtime.executor(),
-            log.clone(),
-        )
-        .unwrap();
+        let mut config = NetworkConfig::default();
+        config.boot_nodes = enrs.clone();
+        runtime
+            .block_on_all(
+                // Create a new network service which implicitly gets dropped at the
+                // end of the block.
+                Service::new(beacon_chain.clone(), &config, &executor, log.clone())
+                    .into_future()
+                    .and_then(move |(_service, _)| Ok(())),
+            )
+            .unwrap();
 
-        // Add enrs manually to dht
-        for enr in enrs.iter() {
-            service.libp2p_service.swarm.add_enr(enr.clone());
-        }
-        assert_eq!(
-            enrs.len(),
-            service
-                .libp2p_service()
-                .swarm
-                .enr_entries()
-                .collect::<Vec<_>>()
-                .len(),
-            "DHT should have 2 enrs"
-        );
-        // Drop the service value
-        std::mem::drop(service);
-
-        // Recover the network service from beacon chain store and fresh network config
-        let (recovered_service, _) = Service::new(
-            beacon_chain,
-            &NetworkConfig::default(),
-            &runtime.executor(),
-            log.clone(),
-        )
-        .unwrap();
-        assert_eq!(
-            enrs.len(),
-            recovered_service
-                .libp2p_service()
-                .lock()
-                .swarm
-                .enr_entries()
-                .collect::<Vec<_>>()
-                .len(),
-            "Recovered DHT should have 2 enrs"
-        );
+        // Load the persisted dht from the store
+        let persisted_enrs = load_dht::<
+            beacon_chain::builder::Witness<
+                SimpleDiskStore<types::eth_spec::MinimalEthSpec>,
+                store::migrate::NullMigrator,
+                TestingSlotClock,
+                beacon_chain::eth1_chain::CachingEth1Backend<
+                    types::eth_spec::MinimalEthSpec,
+                    SimpleDiskStore<types::eth_spec::MinimalEthSpec>,
+                >,
+                types::eth_spec::MinimalEthSpec,
+                beacon_chain::events::NullEventHandler<types::eth_spec::MinimalEthSpec>,
+            >,
+        >(store);
+        assert_eq!(enrs, persisted_enrs, "should have persisted dht to store");
     }
 }
-*/

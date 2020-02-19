@@ -43,7 +43,7 @@ pub fn build_libp2p_instance(
 ) -> LibP2PService {
     let config = build_config(port, boot_nodes, secret_key);
     // launch libp2p service
-    LibP2PService::new(config, log.clone()).unwrap()
+    LibP2PService::new(&config, log.clone()).unwrap().1
 }
 
 #[allow(dead_code)]
