@@ -522,6 +522,7 @@ fn genesis_block<T: EthSpec>(genesis_state: &BeaconState<T>, spec: &ChainSpec) -
     genesis_block
 }
 
+#[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
     use super::*;
