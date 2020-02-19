@@ -106,6 +106,9 @@ mod test {
             eth2_hashing::hash(&preimage)
         };
 
-        assert_eq!(mix_in_length(&[42; BYTES_PER_CHUNK], 42), hash);
+        assert_eq!(
+            mix_in_length(&Hash256::from_slice(&[42; BYTES_PER_CHUNK]), 42).as_bytes(),
+            &hash[..]
+        );
     }
 }

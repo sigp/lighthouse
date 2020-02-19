@@ -238,7 +238,9 @@ macro_rules! impl_ssz {
             }
 
             fn tree_hash_root(&self) -> tree_hash::Hash256 {
-                tree_hash::Hash256::from_low_u64_le(self.0)
+                let mut bytes = [0; tree_hash::HASHSIZE];
+                bytes[0..8].copy_from_slice(&self.0.to_le_bytes());
+                tree_hash::Hash256::from_slice(&bytes)
             }
         }
 

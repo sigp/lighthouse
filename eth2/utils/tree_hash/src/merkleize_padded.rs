@@ -230,8 +230,8 @@ fn next_even_number(n: usize) -> usize {
 mod test {
     use super::*;
 
-    pub fn reference_root(bytes: &[u8]) -> Vec<u8> {
-        crate::merkleize_standard(&bytes)[0..32].to_vec()
+    pub fn reference_root(bytes: &[u8]) -> Hash256 {
+        crate::merkleize_standard(&bytes)
     }
 
     macro_rules! common_tests {
@@ -290,7 +290,7 @@ mod test {
                 let input = vec![0; 10 * BYTES_PER_CHUNK];
                 let min_nodes = 2usize.pow(MAX_TREE_DEPTH as u32);
                 assert_eq!(
-                    merkleize_padded(&input, min_nodes),
+                    merkleize_padded(&input, min_nodes).as_bytes(),
                     get_zero_hash(MAX_TREE_DEPTH)
                 );
             }

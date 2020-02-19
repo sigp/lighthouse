@@ -17,12 +17,12 @@ use eth2_hashing::hash;
 ///  - Duplicates the input `bytes`.
 ///  - Stores all internal nodes, even if they are padding.
 ///  - Does not free up unused memory during operation.
-pub fn merkleize_standard(bytes: &[u8]) -> Vec<u8> {
+pub fn merkleize_standard(bytes: &[u8]) -> Hash256 {
     // If the bytes are just one chunk (or less than one chunk) just return them.
     if bytes.len() <= HASHSIZE {
         let mut o = bytes.to_vec();
         o.resize(HASHSIZE, 0);
-        return o;
+        return Hash256::from_slice(&o[0..HASHSIZE]);
     }
 
     let leaves = num_sanitized_leaves(bytes.len());
@@ -67,7 +67,7 @@ pub fn merkleize_standard(bytes: &[u8]) -> Vec<u8> {
         o[j..j + HASHSIZE].copy_from_slice(&hash);
     }
 
-    o
+    Hash256::from_slice(&o[0..HASHSIZE])
 }
 
 fn num_sanitized_leaves(num_bytes: usize) -> usize {
