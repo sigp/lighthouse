@@ -25,21 +25,19 @@ impl TreeHashCache {
     /// Create a new cache with the given `depth` with enough nodes allocated to suit `leaves`. All
     /// leaves are set to `Hash256::zero()`.
     pub fn new(arena: &mut CacheArena, depth: usize, leaves: usize) -> Self {
-        // TODO: what about when leaves is zero?
-        let layers = (0..=depth)
-            .map(|i| {
-                let vec = arena.alloc();
-                vec.extend_with_vec(
-                    arena,
-                    vec![Hash256::zero(); nodes_per_layer(i, depth, leaves)],
-                )
-                .expect(
-                    "A newly allocated sub-arena cannot fail unless it has reached max capacity",
-                );
+        let mut layers = SmallVec::with_capacity(depth + 1);
 
-                vec
-            })
-            .collect();
+        // TODO: what about when leaves is zero?
+        for i in 0..=depth {
+            let vec = arena.alloc();
+            vec.extend_with_vec(
+                arena,
+                vec![Hash256::zero(); nodes_per_layer(i, depth, leaves)],
+            )
+            .expect("A newly allocated sub-arena cannot fail unless it has reached max capacity");
+
+            layers.push(vec)
+        }
 
         TreeHashCache {
             initialized: false,
