@@ -7,6 +7,7 @@ use tree_hash::BYTES_PER_CHUNK;
 
 type CacheArena = cache_arena::CacheArena<Hash256>;
 type CacheArenaAllocation = cache_arena::CacheArenaAllocation<Hash256>;
+type SmallVec8<T> = SmallVec<[T; 8]>;
 
 /// Sparse Merkle tree suitable for tree hashing vectors and lists.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
@@ -18,7 +19,7 @@ pub struct TreeHashCache {
     ///
     /// The leaves are contained in `self.layers[self.depth]`, and each other layer `i`
     /// contains the parents of the nodes in layer `i + 1`.
-    layers: SmallVec<[CacheArenaAllocation; 8]>,
+    layers: SmallVec8<CacheArenaAllocation>,
 }
 
 impl TreeHashCache {
@@ -61,7 +62,7 @@ impl TreeHashCache {
         &mut self,
         arena: &mut CacheArena,
         mut leaves: impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator,
-    ) -> Result<Vec<usize>, Error> {
+    ) -> Result<SmallVec8<usize>, Error> {
         let new_leaf_count = leaves.len();
 
         if new_leaf_count < self.leaves().len(arena)? {
@@ -70,21 +71,19 @@ impl TreeHashCache {
             return Err(Error::TooManyLeaves);
         }
 
+        let mut dirty = SmallVec8::new();
+
         // Update the existing leaves
-        let mut dirty = self
-            .leaves()
+        self.leaves()
             .iter_mut(arena)?
             .enumerate()
             .zip(&mut leaves)
-            .flat_map(|((i, leaf), new_leaf)| {
+            .for_each(|((i, leaf), new_leaf)| {
                 if !self.initialized || leaf.as_bytes() != new_leaf {
                     leaf.assign_from_slice(&new_leaf);
-                    Some(i)
-                } else {
-                    None
+                    dirty.push(i);
                 }
-            })
-            .collect::<Vec<_>>();
+            });
 
         // Push the rest of the new leaves (if any)
         dirty.extend(self.leaves().len(arena)?..new_leaf_count);
@@ -100,7 +99,7 @@ impl TreeHashCache {
     pub fn update_merkle_root(
         &mut self,
         arena: &mut CacheArena,
-        mut dirty_indices: Vec<usize>,
+        mut dirty_indices: SmallVec8<usize>,
     ) -> Result<Hash256, Error> {
         if dirty_indices.is_empty() {
             return Ok(self.root(arena));
@@ -163,8 +162,13 @@ impl TreeHashCache {
 }
 
 /// Compute the dirty indices for one layer up.
-fn lift_dirty(dirty_indices: &[usize]) -> Vec<usize> {
-    let mut new_dirty = dirty_indices.iter().map(|i| *i / 2).collect::<Vec<_>>();
+fn lift_dirty(dirty_indices: &[usize]) -> SmallVec8<usize> {
+    let mut new_dirty = SmallVec8::with_capacity(dirty_indices.len());
+
+    for i in 0..dirty_indices.len() {
+        new_dirty.push(dirty_indices[i] / 2)
+    }
+
     new_dirty.dedup();
     new_dirty
 }

@@ -165,4 +165,13 @@ mod test {
             "tree hash impl requires that key byte size is less than 64 bytes"
         );
     }
+
+    #[test]
+    pub fn smallvec_size_check() {
+        // If this test fails we need to go and reassess the length of the `SmallVec` in
+        // `cached_tree_hash::TreeHashCache`. If the size of the `SmallVec` is too slow we're going
+        // to start doing heap allocations for each validator, this will fragment memory and slow
+        // us down.
+        assert!(NUM_VALIDATOR_FIELDS <= 8,);
+    }
 }
