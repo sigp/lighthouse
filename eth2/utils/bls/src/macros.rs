@@ -111,6 +111,10 @@ macro_rules! bytes_struct {
                 self.bytes.to_vec()
             }
 
+            pub fn as_slice(&self) -> &[u8] {
+                &self.bytes
+            }
+
             fn get_bytes(bytes: &[u8]) -> Result<[u8; $byte_size], ssz::DecodeError> {
                 let mut result = [0; $byte_size];
                 if bytes.len() != $byte_size {
