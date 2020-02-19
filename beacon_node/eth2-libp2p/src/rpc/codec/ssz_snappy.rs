@@ -7,7 +7,7 @@ use crate::rpc::{
     },
 };
 use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
-use libp2p::bytes::{Bytes, BytesMut};
+use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
@@ -16,33 +16,25 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use tokio::codec::{Decoder, Encoder};
 use types::{BeaconBlock, EthSpec};
-use unsigned_varint::codec::UviBytes;
+use unsigned_varint::{decode, encode};
 
 /* Inbound Codec */
 
 pub struct SSZSnappyInboundCodec<TSpec: EthSpec> {
-    encoder: snap::raw::Encoder,
     decoder: snap::raw::Decoder,
     protocol: ProtocolId,
-    inner: UviBytes,
     phantom: PhantomData<TSpec>,
-    writer: FrameEncoder<Vec<u8>>,
 }
 
 impl<T: EthSpec> SSZSnappyInboundCodec<T> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
-        let mut uvi_codec = UviBytes::default();
-        uvi_codec.set_max_len(max_packet_size);
         // this encoding only applies to ssz_snappy.
         debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
 
         SSZSnappyInboundCodec {
-            encoder: snap::raw::Encoder::new(),
             decoder: snap::raw::Decoder::new(),
             protocol,
             phantom: PhantomData,
-            inner: uvi_codec,
-            writer: FrameEncoder::new(Vec::new()),
         }
     }
 }
@@ -67,22 +59,14 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyInboundCodec<TSpec> {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
         };
-        // let compressed_bytes = self.encoder.compress_vec(&bytes).map_err(RPCError::from)?;
-        // self.inner
-        //     .encode(Bytes::from(compressed_bytes), dst)
-        //     .map_err(RPCError::from)
-        println!("Encoder Size of uncompressed bytes: {}", bytes.len());
         let mut writer = FrameEncoder::new(Vec::new());
         writer.write_all(&bytes).map_err(RPCError::from)?;
         writer.flush().map_err(RPCError::from)?;
 
-        // let mut reader = FrameDecoder::new(self.writer.get_ref().as_slice());
-        // let mut uncompressed = Vec::new();
-        // let a = reader.read_to_end(&mut uncompressed)?;
-        // assert_eq!(uncompressed.len(), bytes.len());
-
+        // Length prefix of uncompressed bytes
+        dst.extend_from_slice(encode::u64(bytes.len() as u64, &mut encode::u64_buffer()));
+        // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
-        println!("Encoder Size of compressed bytes: {}", dst.len());
         Ok(())
     }
 }
@@ -134,17 +118,13 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
 pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
     encoder: snap::raw::Encoder,
     decoder: snap::raw::Decoder,
-    inner: UviBytes,
+    len: Option<usize>,
     protocol: ProtocolId,
     phantom: PhantomData<TSpec>,
-    reader: FrameDecoder<Cursor<Vec<u8>>>,
-    decoded_buffer: Vec<u8>,
 }
 
 impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
-        let mut uvi_codec = UviBytes::default();
-        uvi_codec.set_max_len(max_packet_size);
         // this encoding only applies to ssz_snappy.
         debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
 
@@ -152,10 +132,8 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
             encoder: snap::raw::Encoder::new(),
             decoder: snap::raw::Decoder::new(),
             protocol,
+            len: None,
             phantom: PhantomData,
-            inner: uvi_codec,
-            reader: FrameDecoder::new(Cursor::new(Vec::new())),
-            decoded_buffer: Vec::new(),
         }
     }
 }
@@ -192,48 +170,36 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        const len: usize = 392;
-        println!("Suprabhat");
-        println!("Size of src: {}", src.len());
+        // Decode the length of the uncompressed bytes
+        let length = self.len.unwrap_or_else(|| {
+            let (length, remaining) = decode::u64(src).unwrap();
+            let input_len = src.len();
+            let remaining_len = remaining.len();
+            src.split_to(input_len - remaining_len);
+            self.len = Some(length as usize);
+            length as usize
+        });
+
         let mut reader = FrameDecoder::new(Cursor::new(&src));
-        // if src.len() < len {
-        //     return Ok(None);
-        // }
-        // let inner = reader.get_mut();
-        // // let to_write = src.split_to(len);
-        // // println!(
-        // //     "Size of to_write: {} and src after {}",
-        // //     to_write.len(),
-        // //     src.len()
-        // // );
-        // inner.write_all(&src)?;
-        // inner.set_position(0);
-        // let pos = inner.position();
-        // dbg!(self.reader.get_ref());
-        let mut decoded_buffer = [1; len];
+        let mut decoded_buffer = vec![0; length];
         match reader.read_exact(&mut decoded_buffer) {
-            // Ok(0) => {
-            //     dbg!("Dafuq");
-            //     return Ok(None);
-            // }
             Ok(()) => {
-                // dbg!(n);
+                // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
+                self.len = None;
+                src.split_to(n as usize);
                 match self.protocol.message_name.as_str() {
                     RPC_STATUS => match self.protocol.version.as_str() {
                         "1" => {
                             let resp = RPCResponse::Status(StatusMessage::from_ssz_bytes(
                                 &decoded_buffer,
                             )?);
-                            src.split_to(n as usize);
-                            dbg!("Hey a status");
                             return Ok(Some(resp));
                         }
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },
                     RPC_GOODBYE => {
                         let resp = RPCError::InvalidProtocol("GOODBYE doesn't have a response");
-                        src.split_to(n as usize);
                         return Err(resp);
                     }
                     RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
@@ -241,8 +207,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                             let resp = RPCResponse::BlocksByRange(Box::new(
                                 BeaconBlock::from_ssz_bytes(&decoded_buffer)?,
                             ));
-                            src.split_to(n as usize);
-                            // self.decoded_buffer.clear();
                             return Ok(Some(resp));
                         }
                         _ => unreachable!("Cannot negotiate an unknown version"),
@@ -252,9 +216,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                             let resp = RPCResponse::BlocksByRoot(Box::new(
                                 BeaconBlock::from_ssz_bytes(&decoded_buffer)?,
                             ));
-                            // decoded_buffer.clear();
-                            src.split_to(n as usize);
-                            dbg!("Hey a block");
                             return Ok(Some(resp));
                         }
                         _ => unreachable!("Cannot negotiate an unknown version"),
@@ -262,9 +223,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                     TESTING => match self.protocol.version.as_str() {
                         "1" => {
                             let resp = RPCResponse::Testing(decoded_buffer.to_vec());
-                            src.split_to(n as usize);
-
-                            // self.decoded_buffer.clear();
                             return Ok(Some(resp));
                         }
                         _ => unreachable!("Cannot negotiate an unknown version"),
@@ -273,63 +231,13 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 }
             }
             Err(e) => match e.kind() {
+                // Haven't received enough bytes to decode yet
                 std::io::ErrorKind::UnexpectedEof => {
-                    dbg!(e);
                     return Ok(None);
                 }
                 _ => return Err(e).map_err(RPCError::from),
             },
         }
-
-        // // match self.reader.read_to_end(&mut self.decoded_buffer)? {
-        // //     n => {
-        // //         if v.
-        // //     }
-        // // }
-        // match self.inner.decode(src).map_err(RPCError::from)? {
-        //     Some(compressed_bytes) => {
-        //         match self
-        //             .decoder
-        //             .decompress_vec(&compressed_bytes)
-        //             .map_err(RPCError::from)
-        //         {
-        //             Ok(raw_bytes) => match self.protocol.message_name.as_str() {
-        //                 RPC_STATUS => match self.protocol.version.as_str() {
-        //                     "1" => {
-        //                         return Ok(Some(RPCResponse::Status(
-        //                             StatusMessage::from_ssz_bytes(&raw_bytes)?,
-        //                         )))
-        //                     }
-        //                     _ => unreachable!("Cannot negotiate an unknown version"),
-        //                 },
-        //                 RPC_GOODBYE => {
-        //                     return Err(RPCError::InvalidProtocol(
-        //                         "GOODBYE doesn't have a response",
-        //                     ))
-        //                 }
-        //                 RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-        //                     "1" => {
-        //                         return Ok(Some(RPCResponse::BlocksByRange(Box::new(
-        //                             BeaconBlock::from_ssz_bytes(&raw_bytes)?,
-        //                         ))))
-        //                     }
-        //                     _ => unreachable!("Cannot negotiate an unknown version"),
-        //                 },
-        //                 RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-        //                     "1" => {
-        //                         return Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-        //                             BeaconBlock::from_ssz_bytes(&raw_bytes)?,
-        //                         ))))
-        //                     }
-        //                     _ => unreachable!("Cannot negotiate an unknown version"),
-        //                 },
-        //                 _ => unreachable!("Cannot negotiate an unknown protocol"),
-        //             },
-        //             Err(e) => return Err(e),
-        //         }
-        //     }
-        //     None => Ok(None), // waiting for more bytes
-        // }
     }
 }
 
@@ -346,19 +254,3 @@ impl<TSpec: EthSpec> OutboundCodec for SSZSnappyOutboundCodec<TSpec> {
         }
     }
 }
-
-// pub struct SnappyBytes {
-//     encoder: snap::Encoder,
-//     decoder: snap::Decoder,
-//     len: Option<usize>,
-// }
-
-// impl SnappyBytes {
-//     pub fn new() -> Self {
-//         SnappyBytes {
-//             encoder: snap::Encoder::new(),
-//             decoder: snap::Decoder::new(),
-//             len: None,
-//         }
-//     }
-// }
