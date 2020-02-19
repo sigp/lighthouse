@@ -48,6 +48,7 @@ impl<TSpec: EthSpec> Encoder for SSZInboundCodec<TSpec> {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::Testing(_) => unreachable!(),
             },
             RPCErrorResponse::InvalidRequest(err) => err.as_ssz_bytes(),
             RPCErrorResponse::ServerError(err) => err.as_ssz_bytes(),
@@ -146,6 +147,7 @@ impl<TSpec: EthSpec> Encoder for SSZOutboundCodec<TSpec> {
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRange(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
+            RPCRequest::Testing(_) => unreachable!(),
             RPCRequest::Phantom(_) => unreachable!("Never encode phantom data"),
         };
         // length-prefix

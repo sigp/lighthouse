@@ -392,14 +392,16 @@ fn test_blocks_by_root_chunked_rpc() {
     let (mut sender, mut receiver) = common::build_node_pair(&log, 10515);
 
     // BlocksByRoot Request
-    let rpc_request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
-        block_roots: vec![Hash256::from_low_u64_be(0), Hash256::from_low_u64_be(0)],
-    });
+    // let rpc_request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
+    //     block_roots: vec![Hash256::from_low_u64_be(0), Hash256::from_low_u64_be(0)],
+    // });
+    let rpc_request = RPCRequest::Testing(TestingRequest);
 
     // BlocksByRoot Response
-    let spec = E::default_spec();
-    let rpc_response = RPCResponse::BlocksByRoot(Box::new(BeaconBlock::empty(&spec)));
+    // let spec = E::default_spec();
+    // let rpc_response = RPCResponse::BlocksByRoot(Box::new(BeaconBlock::empty(&spec)));
 
+    let rpc_response = RPCResponse::Testing(vec![0; 655360]);
     let sender_request = rpc_request.clone();
     let sender_log = log.clone();
     let sender_response = rpc_response.clone();
@@ -428,9 +430,7 @@ fn test_blocks_by_root_chunked_rpc() {
                                 *messages_received.lock().unwrap() += 1;
                                 warn!(sender_log, "Chunk received");
                             }
-                            RPCErrorResponse::StreamTermination(
-                                ResponseTermination::BlocksByRoot,
-                            ) => {
+                            RPCErrorResponse::StreamTermination(ResponseTermination::Testing) => {
                                 // should be exactly 10 messages before terminating
                                 assert_eq!(*messages_received.lock().unwrap(), messages_to_send);
                                 // end the test

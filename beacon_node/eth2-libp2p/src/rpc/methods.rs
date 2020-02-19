@@ -125,6 +125,9 @@ pub struct BlocksByRootRequest {
     pub block_roots: Vec<Hash256>,
 }
 
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct TestingRequest;
+
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
@@ -139,6 +142,7 @@ pub enum RPCResponse<T: EthSpec> {
 
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Box<BeaconBlock<T>>),
+    Testing(Vec<u8>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
@@ -149,6 +153,8 @@ pub enum ResponseTermination {
 
     /// Blocks by root stream termination.
     BlocksByRoot,
+
+    Testing,
 }
 
 #[derive(Debug)]
@@ -205,6 +211,7 @@ impl<T: EthSpec> RPCErrorResponse<T> {
                 RPCResponse::Status(_) => false,
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
+                RPCResponse::Testing(_) => true,
             },
             RPCErrorResponse::InvalidRequest(_) => true,
             RPCErrorResponse::ServerError(_) => true,
@@ -249,6 +256,7 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::BlocksByRange(block) => {
                 write!(f, "BlocksByRange: Block slot: {}", block.slot)
             }
+            RPCResponse::Testing(data) => write!(f, "Testing data: {:?}", data),
             RPCResponse::BlocksByRoot(block) => {
                 write!(f, "BlocksByRoot: BLock slot: {}", block.slot)
             }
