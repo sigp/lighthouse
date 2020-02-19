@@ -27,7 +27,7 @@ mod tests {
         let path = TempDir::new("persistence_test").unwrap();
         let store = Arc::new(SimpleDiskStore::open(&path.into_path()).unwrap());
         // Create a `BeaconChain` object to pass to `Service`
-        let validator_count = 8;
+        let validator_count = 1;
         let genesis_time = 13371337;
 
         let log = get_logger();
@@ -89,6 +89,13 @@ mod tests {
                 beacon_chain::events::NullEventHandler<types::eth_spec::MinimalEthSpec>,
             >,
         >(store);
-        assert_eq!(enrs, persisted_enrs, "should have persisted dht to store");
+        assert!(
+            persisted_enrs.contains(&enrs[0]),
+            "should have persisted the first ENR to store"
+        );
+        assert!(
+            persisted_enrs.contains(&enrs[1]),
+            "should have persisted the second ENR to store"
+        );
     }
 }
