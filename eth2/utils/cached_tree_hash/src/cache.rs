@@ -1,13 +1,13 @@
 use crate::cache_arena;
+use crate::SmallVec8;
 use crate::{Error, Hash256};
 use eth2_hashing::{hash32_concat, ZERO_HASHES};
-use smallvec::SmallVec;
+use smallvec::smallvec;
 use ssz_derive::{Decode, Encode};
 use tree_hash::BYTES_PER_CHUNK;
 
 type CacheArena = cache_arena::CacheArena<Hash256>;
 type CacheArenaAllocation = cache_arena::CacheArenaAllocation<Hash256>;
-type SmallVec8<T> = SmallVec<[T; 8]>;
 
 /// Sparse Merkle tree suitable for tree hashing vectors and lists.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
@@ -26,14 +26,14 @@ impl TreeHashCache {
     /// Create a new cache with the given `depth` with enough nodes allocated to suit `leaves`. All
     /// leaves are set to `Hash256::zero()`.
     pub fn new(arena: &mut CacheArena, depth: usize, leaves: usize) -> Self {
-        let mut layers = SmallVec::with_capacity(depth + 1);
+        let mut layers = SmallVec8::with_capacity(depth + 1);
 
         // TODO: what about when leaves is zero?
         for i in 0..=depth {
             let vec = arena.alloc();
             vec.extend_with_vec(
                 arena,
-                vec![Hash256::zero(); nodes_per_layer(i, depth, leaves)],
+                smallvec![Hash256::zero(); nodes_per_layer(i, depth, leaves)],
             )
             .expect("A newly allocated sub-arena cannot fail unless it has reached max capacity");
 

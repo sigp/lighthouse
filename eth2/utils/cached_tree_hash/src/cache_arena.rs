@@ -1,3 +1,4 @@
+use crate::SmallVec8;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
@@ -212,7 +213,11 @@ pub struct CacheArenaAllocation<T> {
 
 impl<T: Encode + Decode> CacheArenaAllocation<T> {
     /// Grow the allocation in `arena`, appending `vec` to the current values.
-    pub fn extend_with_vec(&self, arena: &mut CacheArena<T>, vec: Vec<T>) -> Result<(), Error> {
+    pub fn extend_with_vec(
+        &self,
+        arena: &mut CacheArena<T>,
+        vec: SmallVec8<T>,
+    ) -> Result<(), Error> {
         let len = arena.len(self.alloc_id)?;
         arena.splice_forgetful(self.alloc_id, len..len, vec)?;
         Ok(())
