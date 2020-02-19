@@ -540,7 +540,7 @@ mod test {
 
     #[test]
     fn recent_genesis() {
-        let validator_count = 8;
+        let validator_count = 1;
         let genesis_time = 13_371_337;
 
         let log = get_logger();

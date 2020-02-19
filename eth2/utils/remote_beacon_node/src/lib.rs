@@ -232,7 +232,7 @@ impl<E: EthSpec> Validator<E> {
         attestation: Vec<Attestation<E>>,
     ) -> impl Future<Item = PublishStatus, Error = Error> {
         let client = self.0.clone();
-        self.url("attestation")
+        self.url("attestations")
             .into_future()
             .and_then(move |url| client.json_post::<_>(url, attestation))
             .and_then(|mut response| {
@@ -342,6 +342,7 @@ impl<E: EthSpec> Validator<E> {
         })
     }
 
+    /// Subscribes a list of validators to particular slots for attestation production/publication.
     pub fn subscribe(
         &self,
         subscriptions: ValidatorSubscriptions,

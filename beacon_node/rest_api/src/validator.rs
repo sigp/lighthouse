@@ -48,6 +48,105 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
     Box::new(future)
 }
 
+/*
+/// HTTP Handler to retrieve subscriptions for a set of validators. This allows the node to
+/// organise peer discovery and topic subscription for known validators.
+pub fn post_validator_subscriptions<T: BeaconChainTypes>(
+    req: Request<Body>,
+    network_chan: NetworkChannel<T::EthSpec>,
+    log: Logger,
+) -> BoxFut {
+    try_future!(check_content_type_for_json(&req));
+    let response_builder = ResponseBuilder::new(&req);
+
+    let body = req.into_body();
+    Box::new(
+        body.concat2()
+            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+            .and_then(|chunks| {
+                serde_json::from_slice(&chunks).map_err(|e| {
+                    ApiError::BadRequest(format!("Unable to parse JSON into BeaconBlock: {:?}", e))
+                })
+            })
+            .and_then(move |subscriptions: ValidatorSubscriptions | {
+                network_chan
+
+                match beacon_chain.process_block(block.clone()) {
+                    Ok(BlockProcessingOutcome::Processed { block_root }) => {
+                        // Block was processed, publish via gossipsub
+                        info!(
+                            log,
+                            "Block from local validator";
+                            "block_root" => format!("{}", block_root),
+                            "block_slot" => slot,
+                        );
+
+                        publish_beacon_block_to_network::<T>(network_chan, block)?;
+
+                        // Run the fork choice algorithm and enshrine a new canonical head, if
+                        // found.
+                        //
+                        // The new head may or may not be the block we just received.
+                        if let Err(e) = beacon_chain.fork_choice() {
+                            error!(
+                                log,
+                                "Failed to find beacon chain head";
+                                "error" => format!("{:?}", e)
+                            );
+                        } else {
+                            // In the best case, validators should produce blocks that become the
+                            // head.
+                            //
+                            // Potential reasons this may not be the case:
+                            //
+                            // - A quick re-org between block produce and publish.
+                            // - Excessive time between block produce and publish.
+                            // - A validator is using another beacon node to produce blocks and
+                            // submitting them here.
+                            if beacon_chain.head()?.beacon_block_root != block_root {
+                                warn!(
+                                    log,
+                                    "Block from validator is not head";
+                                    "desc" => "potential re-org",
+                                );
+
+                            }
+                        }
+
+                        Ok(())
+                    }
+                    Ok(outcome) => {
+                        warn!(
+                            log,
+                            "Invalid block from local validator";
+                            "outcome" => format!("{:?}", outcome)
+                        );
+
+                        Err(ApiError::ProcessingError(format!(
+                            "The BeaconBlock could not be processed and has not been published: {:?}",
+                            outcome
+                        )))
+                    }
+                    Err(e) => {
+                        error!(
+                            log,
+                            "Error whilst processing block";
+                            "error" => format!("{:?}", e)
+                        );
+
+                        Err(ApiError::ServerError(format!(
+                            "Error while processing block: {:?}",
+                            e
+                        )))
+                    }
+                }
+        })
+        .and_then(|_| response_builder?.body_no_ssz(&()))
+    )
+}
+}
+*/
+
 /// HTTP Handler to retrieve all validator duties for the given epoch.
 pub fn get_all_validator_duties<T: BeaconChainTypes>(
     req: Request<Body>,
@@ -356,7 +455,7 @@ pub fn get_new_attestation<T: BeaconChainTypes>(
 }
 
 /// HTTP Handler to publish an Attestation, which has been signed by a validator.
-pub fn publish_attestation<T: BeaconChainTypes>(
+pub fn publish_attestations<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
     network_chan: NetworkChannel<T::EthSpec>,

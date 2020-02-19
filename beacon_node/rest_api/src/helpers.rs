@@ -1,4 +1,4 @@
-use crate::{ApiError, ApiResult};
+use crate::{ApiError, ApiResult, NetworkChannel};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKeyBytes;
 use eth2_libp2p::types::{GossipEncoding, GossipKind, GossipTopic, SubnetId};
@@ -226,7 +226,7 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
 }
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>>>,
+    mut chan: NetworkChannel<T::EthSpec>,
     block: BeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // create the network topic to send on
@@ -234,7 +234,7 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     let message = PubsubMessage::BeaconBlock(Box::new(block));
 
     // Publish the block to the p2p network via gossipsub.
-    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
+    if let Err(e) = chan.try_send(NetworkMessage::Publish {
         topics: vec![topic.into()],
         message,
     }) {
@@ -248,7 +248,7 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
 }
 
 pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>>>,
+    mut chan: NetworkChannel<T::EthSpec>,
     attestation: Attestation<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // create the network topic to send on
@@ -258,7 +258,7 @@ pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
     let message = PubsubMessage::Attestation(Box::new((subnet_id, attestation)));
 
     // Publish the attestation to the p2p network via gossipsub.
-    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
+    if let Err(e) = chan.try_send(NetworkMessage::Publish {
         topics: vec![topic.into()],
         message,
     }) {

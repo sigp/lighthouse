@@ -29,7 +29,6 @@ use hyper::rt::Future;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
-use parking_lot::RwLock;
 use slog::{info, warn};
 use std::net::SocketAddr;
 use std::ops::Deref;
@@ -43,11 +42,11 @@ pub use crate::helpers::parse_pubkey_bytes;
 pub use config::Config;
 
 pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
-pub type NetworkChannel<T> = Arc<RwLock<mpsc::UnboundedSender<NetworkMessage<T>>>>;
+pub type NetworkChannel<T> = mpsc::UnboundedSender<NetworkMessage<T>>;
 
 pub struct NetworkInfo<T: BeaconChainTypes> {
     pub network_service: Arc<NetworkService<T>>,
-    pub network_chan: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    pub network_chan: NetworkChannel<T::EthSpec>,
 }
 
 // Allowing more than 7 arguments.
@@ -71,7 +70,7 @@ pub fn start_server<T: BeaconChainTypes>(
         let log = inner_log.clone();
         let eth2_config = eth2_config.clone();
         let network_service = network_info.network_service.clone();
-        let network_channel = Arc::new(RwLock::new(network_info.network_chan.clone()));
+        let network_channel = network_info.network_chan.clone();
         let db_path = db_path.clone();
         let freezer_db_path = freezer_db_path.clone();
 
