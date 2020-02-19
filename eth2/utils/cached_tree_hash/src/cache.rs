@@ -1,6 +1,7 @@
 use crate::cache_arena;
 use crate::{Error, Hash256};
 use eth2_hashing::{hash32_concat, ZERO_HASHES};
+use smallvec::SmallVec;
 use ssz_derive::{Decode, Encode};
 use tree_hash::BYTES_PER_CHUNK;
 
@@ -17,7 +18,7 @@ pub struct TreeHashCache {
     ///
     /// The leaves are contained in `self.layers[self.depth]`, and each other layer `i`
     /// contains the parents of the nodes in layer `i + 1`.
-    layers: Vec<CacheArenaAllocation>,
+    layers: SmallVec<[CacheArenaAllocation; 8]>,
 }
 
 impl TreeHashCache {

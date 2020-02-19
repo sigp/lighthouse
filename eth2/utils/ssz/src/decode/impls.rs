@@ -1,6 +1,7 @@
 use super::*;
 use core::num::NonZeroUsize;
 use ethereum_types::{H256, U128, U256};
+use smallvec::SmallVec;
 
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
@@ -364,24 +365,38 @@ macro_rules! impl_decodable_for_u8_array {
 impl_decodable_for_u8_array!(4);
 impl_decodable_for_u8_array!(32);
 
-impl<T: Decode> Decode for Vec<T> {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
+macro_rules! impl_for_vec {
+    ($type: ty) => {
+        impl<T: Decode> Decode for $type {
+            fn is_ssz_fixed_len() -> bool {
+                false
+            }
 
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        if bytes.is_empty() {
-            Ok(vec![])
-        } else if T::is_ssz_fixed_len() {
-            bytes
-                .chunks(T::ssz_fixed_len())
-                .map(|chunk| T::from_ssz_bytes(chunk))
-                .collect()
-        } else {
-            decode_list_of_variable_length_items(bytes)
+            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+                if bytes.is_empty() {
+                    Ok(vec![].into())
+                } else if T::is_ssz_fixed_len() {
+                    bytes
+                        .chunks(T::ssz_fixed_len())
+                        .map(|chunk| T::from_ssz_bytes(chunk))
+                        .collect()
+                } else {
+                    decode_list_of_variable_length_items(bytes).map(|vec| vec.into())
+                }
+            }
         }
-    }
+    };
 }
+
+impl_for_vec!(Vec<T>);
+impl_for_vec!(SmallVec<[T; 1]>);
+impl_for_vec!(SmallVec<[T; 2]>);
+impl_for_vec!(SmallVec<[T; 3]>);
+impl_for_vec!(SmallVec<[T; 4]>);
+impl_for_vec!(SmallVec<[T; 5]>);
+impl_for_vec!(SmallVec<[T; 6]>);
+impl_for_vec!(SmallVec<[T; 7]>);
+impl_for_vec!(SmallVec<[T; 8]>);
 
 /// Decodes `bytes` as if it were a list of variable-length items.
 ///
