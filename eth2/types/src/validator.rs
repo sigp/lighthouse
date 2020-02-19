@@ -2,14 +2,15 @@ use crate::{
     test_utils::TestRandom, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes,
 };
 use serde_derive::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
+use ssz::{Decode, DecodeError};
+use ssz_derive::Encode;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// Information about a `BeaconChain` validator.
 ///
 /// Spec v0.10.1
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, TestRandom, TreeHash)]
 pub struct Validator {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
@@ -78,6 +79,54 @@ impl Default for Validator {
             slashed: false,
             effective_balance: std::u64::MAX,
         }
+    }
+}
+
+impl Decode for Validator {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <PublicKeyBytes as Decode>::ssz_fixed_len()
+            + <Hash256 as Decode>::ssz_fixed_len()
+            + <u64 as Decode>::ssz_fixed_len()
+            + <bool as Decode>::ssz_fixed_len()
+            + <Epoch as Decode>::ssz_fixed_len()
+            + <Epoch as Decode>::ssz_fixed_len()
+            + <Epoch as Decode>::ssz_fixed_len()
+            + <Epoch as Decode>::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.len() != <Self as Decode>::ssz_fixed_len() {
+            return Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: <Self as Decode>::ssz_fixed_len(),
+            });
+        }
+
+        let mut start = 0;
+        let mut end = 0;
+
+        macro_rules! decode_field {
+            ($type: ty) => {{
+                start = end;
+                end += <$type as Decode>::ssz_fixed_len();
+                <$type as Decode>::from_ssz_bytes(&bytes[start..end])?
+            }};
+        }
+
+        Ok(Self {
+            pubkey: decode_field!(PublicKeyBytes),
+            withdrawal_credentials: decode_field!(Hash256),
+            effective_balance: decode_field!(u64),
+            slashed: decode_field!(bool),
+            activation_eligibility_epoch: decode_field!(Epoch),
+            activation_epoch: decode_field!(Epoch),
+            exit_epoch: decode_field!(Epoch),
+            withdrawable_epoch: decode_field!(Epoch),
+        })
     }
 }
 
