@@ -13,7 +13,8 @@ use std::sync::Arc;
 use tempdir::TempDir;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature, Slot,
+    AggregateAndProof, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
+    PublicKey, Signature, SignedAggregateAndProof, Slot,
 };
 
 #[derive(Clone)]
@@ -205,18 +206,32 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// This is used to subscribe a validator to a beacon node and is used to determine if the
     /// validator is to aggregate attestations for this slot.
     pub fn sign_slot(&self, validator_pubkey: &PublicKey, slot: Slot) -> Option<Signature> {
-        let validator_dir = self.validators.read().get(validator_pubkey)?;
-
-        let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+        let validators = self.validators.read();
+        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
 
         let domain = self.spec.get_domain(
             slot.epoch(E::slots_per_epoch()),
-            Domain::BeaconAttester,
+            Domain::SelectionProof,
             &self.fork()?,
         );
 
         let message = slot.as_u64().tree_hash_root();
 
         Some(Signature::new(&message, domain, &voting_keypair.sk))
+    }
+
+    /// Signs an `AggregateAndProof` for a given validator.
+    ///
+    /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
+    /// modified by actors other than the signing validator.
+    pub fn sign_aggregate_and_proof(
+        &self,
+        validator_pubkey: &PublicKey,
+        aggregate_and_proof: AggregateAndProof<E>,
+    ) -> Option<SignedAggregateAndProof<E>> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
+
+        Some(aggregate_and_proof.into_signed(&voting_keypair.sk, &self.fork()?, &self.spec))
     }
 }

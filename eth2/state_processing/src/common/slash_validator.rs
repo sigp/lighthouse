@@ -12,7 +12,7 @@ pub fn slash_validator<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     if slashed_index >= state.validators.len() || slashed_index >= state.balances.len() {
-        return Err(BeaconStateError::UnknownValidator);
+        return Err(BeaconStateError::UnknownValidator(slashed_index as u64));
     }
 
     let epoch = state.current_epoch();

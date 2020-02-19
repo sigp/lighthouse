@@ -9,36 +9,14 @@ use beacon_chain::{
 use bls::PublicKeyBytes;
 use futures::{Future, Stream};
 use hyper::{Body, Request};
-use serde::{Deserialize, Serialize};
+use network::NetworkMessage;
+use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscriptions};
 use slog::{error, info, warn, Logger};
-use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, RelativeEpoch, Slot};
+use types::{Attestation, BeaconBlock, BeaconState, Epoch, RelativeEpoch, Slot};
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-pub struct ValidatorDuty {
-    /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
-    pub validator_pubkey: PublicKeyBytes,
-    /// The validator's index in `state.validators`
-    pub validator_index: Option<usize>,
-    /// The slot at which the validator must attest.
-    pub attestation_slot: Option<Slot>,
-    /// The index of the committee within `slot` of which the validator is a member.
-    pub attestation_committee_index: Option<CommitteeIndex>,
-    /// The position of the validator in the committee.
-    pub attestation_committee_position: Option<usize>,
-    /// The slots in which a validator must propose a block (can be empty).
-    pub block_proposal_slots: Vec<Slot>,
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct ValidatorDutiesRequest {
-    pub epoch: Epoch,
-    pub pubkeys: Vec<PublicKeyBytes>,
-}
-
-/// HTTP Handler to retrieve a the duties for a set of validators during a particular epoch. This
+/// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
 /// method allows for collecting bulk sets of validator duties without risking exceeding the max
 /// URL length with query pairs.
 pub fn post_validator_duties<T: BeaconChainTypes>(
@@ -69,6 +47,60 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
         .and_then(|duties| response_builder?.body_no_ssz(&duties));
 
     Box::new(future)
+}
+
+/// HTTP Handler to retrieve subscriptions for a set of validators. This allows the node to
+/// organise peer discovery and topic subscription for known validators.
+pub fn post_validator_subscriptions<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+    network_chan: NetworkChannel<T::EthSpec>,
+    log: Logger,
+) -> BoxFut {
+    try_future!(check_content_type_for_json(&req));
+    let response_builder = ResponseBuilder::new(&req);
+
+    let body = req.into_body();
+    Box::new(
+        body.concat2()
+            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+            .and_then(|chunks| {
+                serde_json::from_slice(&chunks).map_err(|e| {
+                    ApiError::BadRequest(format!("Unable to parse JSON into BeaconBlock: {:?}", e))
+                })
+            })
+            .and_then(move |subscriptions: ValidatorSubscriptions| {
+                let fork = beacon_chain
+                    .wall_clock_state()
+                    .map(|state| state.fork.clone())
+                    .map_err(|e| {
+                        error!(log, "Unable to get current beacon state");
+                        ApiError::ServerError(format!("Error getting current beacon state {:?}", e))
+                    })?;
+
+                // verify the signatures in parallel
+                subscriptions
+                    .verify(beacon_chain.spec, &fork, T::EthSpec::slots_per_epoch())
+                    .map_err(|e| {
+                        error!(log, "HTTP RPC sent invalid signatures");
+                        ApiError::ProcessingError(format!("Error verifying signatures {:?}", e))
+                    })?;
+                // subscriptions are verified, send them to the network thread
+
+                network_chan
+                    .try_send(NetworkMessage::Subscribe {
+                        subscriptions: Box::new(subscriptions),
+                    })
+                    .map_err(|e| {
+                        ApiError::ServerError(format!(
+                            "Unable to subscriptions to the network: {:?}",
+                            e
+                        ))
+                    })?;
+                Ok(())
+            })
+            .and_then(|_| response_builder?.body_no_ssz(&())),
+    )
 }
 
 /// HTTP Handler to retrieve all validator duties for the given epoch.
@@ -150,7 +182,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     epoch: Epoch,
     validator_pubkeys: Vec<PublicKeyBytes>,
-) -> Result<Vec<ValidatorDuty>, ApiError> {
+) -> Result<Vec<ValidatorDutyBytes>, ApiError> {
     let mut state = get_state_for_epoch(&beacon_chain, epoch)?;
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
@@ -199,28 +231,38 @@ fn return_validator_duties<T: BeaconChainTypes>(
                         ))
                     })?;
 
+                let aggregator_modulo = duties.map(|d| {
+                    std::cmp::max(
+                        1,
+                        d.committee_len as u64
+                            / &beacon_chain.spec.target_aggregators_per_committee,
+                    )
+                });
+
                 let block_proposal_slots = validator_proposers
                     .iter()
                     .filter(|(i, _slot)| validator_index == *i)
                     .map(|(_i, slot)| *slot)
                     .collect();
 
-                Ok(ValidatorDuty {
+                Ok(ValidatorDutyBytes {
                     validator_pubkey,
-                    validator_index: Some(validator_index),
+                    validator_index: Some(validator_index as u64),
                     attestation_slot: duties.map(|d| d.slot),
                     attestation_committee_index: duties.map(|d| d.index),
                     attestation_committee_position: duties.map(|d| d.committee_position),
                     block_proposal_slots,
+                    aggregator_modulo,
                 })
             } else {
-                Ok(ValidatorDuty {
+                Ok(ValidatorDutyBytes {
                     validator_pubkey,
                     validator_index: None,
                     attestation_slot: None,
                     attestation_committee_index: None,
                     attestation_committee_position: None,
                     block_proposal_slots: vec![],
+                    aggregator_modulo: None,
                 })
             }
         })
@@ -369,7 +411,7 @@ pub fn get_new_attestation<T: BeaconChainTypes>(
 }
 
 /// HTTP Handler to publish an Attestation, which has been signed by a validator.
-pub fn publish_attestation<T: BeaconChainTypes>(
+pub fn publish_attestations<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
     network_chan: NetworkChannel<T::EthSpec>,
