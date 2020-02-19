@@ -71,7 +71,7 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyInboundCodec<TSpec> {
         // self.inner
         //     .encode(Bytes::from(compressed_bytes), dst)
         //     .map_err(RPCError::from)
-        // println!("Encoder Size of uncompressed bytes: {}", bytes.len());
+        println!("Encoder Size of uncompressed bytes: {}", bytes.len());
         let mut writer = FrameEncoder::new(Vec::new());
         writer.write_all(&bytes).map_err(RPCError::from)?;
         writer.flush().map_err(RPCError::from)?;
@@ -192,53 +192,57 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        const len: usize = 30860;
+        const len: usize = 392;
         println!("Suprabhat");
         println!("Size of src: {}", src.len());
-        let mut reader = FrameDecoder::new(Cursor::new(Vec::new()));
-        if src.len() < len {
-            return Ok(None);
-        }
-        let inner = reader.get_mut();
-        let to_write = src.split_to(len);
-        println!(
-            "Size of to_write: {} and src after {}",
-            to_write.len(),
-            src.len()
-        );
-        inner.write_all(&to_write)?;
-        inner.set_position(0);
+        let mut reader = FrameDecoder::new(Cursor::new(&src));
+        // if src.len() < len {
+        //     return Ok(None);
+        // }
+        // let inner = reader.get_mut();
+        // // let to_write = src.split_to(len);
+        // // println!(
+        // //     "Size of to_write: {} and src after {}",
+        // //     to_write.len(),
+        // //     src.len()
+        // // );
+        // inner.write_all(&src)?;
+        // inner.set_position(0);
+        // let pos = inner.position();
         // dbg!(self.reader.get_ref());
-        match reader.read_to_end(&mut self.decoded_buffer) {
-            Ok(0) => {
-                dbg!("Dafuq");
-                return Ok(None);
-            }
-            Ok(n) => {
-                dbg!(n);
+        let mut decoded_buffer = [1; len];
+        match reader.read_exact(&mut decoded_buffer) {
+            // Ok(0) => {
+            //     dbg!("Dafuq");
+            //     return Ok(None);
+            // }
+            Ok(()) => {
+                // dbg!(n);
+                let n = reader.get_ref().position();
                 match self.protocol.message_name.as_str() {
                     RPC_STATUS => match self.protocol.version.as_str() {
                         "1" => {
                             let resp = RPCResponse::Status(StatusMessage::from_ssz_bytes(
-                                &self.decoded_buffer,
+                                &decoded_buffer,
                             )?);
+                            src.split_to(n as usize);
                             dbg!("Hey a status");
-                            self.decoded_buffer.clear();
                             return Ok(Some(resp));
                         }
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },
                     RPC_GOODBYE => {
                         let resp = RPCError::InvalidProtocol("GOODBYE doesn't have a response");
-                        self.decoded_buffer.clear();
+                        src.split_to(n as usize);
                         return Err(resp);
                     }
                     RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
                         "1" => {
                             let resp = RPCResponse::BlocksByRange(Box::new(
-                                BeaconBlock::from_ssz_bytes(&self.decoded_buffer)?,
+                                BeaconBlock::from_ssz_bytes(&decoded_buffer)?,
                             ));
-                            self.decoded_buffer.clear();
+                            src.split_to(n as usize);
+                            // self.decoded_buffer.clear();
                             return Ok(Some(resp));
                         }
                         _ => unreachable!("Cannot negotiate an unknown version"),
@@ -246,9 +250,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                     RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
                         "1" => {
                             let resp = RPCResponse::BlocksByRoot(Box::new(
-                                BeaconBlock::from_ssz_bytes(&self.decoded_buffer)?,
+                                BeaconBlock::from_ssz_bytes(&decoded_buffer)?,
                             ));
-                            self.decoded_buffer.clear();
+                            // decoded_buffer.clear();
+                            src.split_to(n as usize);
                             dbg!("Hey a block");
                             return Ok(Some(resp));
                         }
@@ -256,8 +261,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                     },
                     TESTING => match self.protocol.version.as_str() {
                         "1" => {
-                            let resp = RPCResponse::Testing(self.decoded_buffer.clone());
-                            self.decoded_buffer.clear();
+                            let resp = RPCResponse::Testing(decoded_buffer.to_vec());
+                            src.split_to(n as usize);
+
+                            // self.decoded_buffer.clear();
                             return Ok(Some(resp));
                         }
                         _ => unreachable!("Cannot negotiate an unknown version"),
@@ -265,16 +272,13 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                     _ => unreachable!("Cannot negotiate an unknown protocol"),
                 }
             }
-            Err(e) => {
-                dbg!(&e);
-                match e.kind() {
-                    std::io::ErrorKind::UnexpectedEof => {
-                        // dbg!(e.());
-                        return Ok(None);
-                    }
-                    _ => return Err(e).map_err(RPCError::from),
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::UnexpectedEof => {
+                    dbg!(e);
+                    return Ok(None);
                 }
-            }
+                _ => return Err(e).map_err(RPCError::from),
+            },
         }
 
         // // match self.reader.read_to_end(&mut self.decoded_buffer)? {
