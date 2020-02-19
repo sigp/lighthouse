@@ -108,11 +108,11 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
                 unreachable!("Struct should never be packed.")
             }
 
-            fn tree_hash_root(&self) -> Vec<u8> {
+            fn tree_hash_root(&self) -> tree_hash::Hash256 {
                 let mut leaves = Vec::with_capacity(4 * tree_hash::HASHSIZE);
 
                 #(
-                    leaves.append(&mut self.#idents.tree_hash_root());
+                    leaves.extend_from_slice(self.#idents.tree_hash_root().as_bytes());
                 )*
 
                 tree_hash::merkle_root(&leaves, 0)

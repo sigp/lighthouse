@@ -1,4 +1,4 @@
-use super::BYTES_PER_CHUNK;
+use super::{Hash256, BYTES_PER_CHUNK};
 use eth2_hashing::{hash, hash32_concat, ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
 
 /// The size of the cache that stores padding nodes for a given height.
@@ -34,12 +34,12 @@ pub const MAX_TREE_DEPTH: usize = ZERO_HASHES_MAX_INDEX;
 ///
 /// _Note: there are some minor memory overheads, including a handful of usizes and a list of
 /// `MAX_TREE_DEPTH` hashes as `lazy_static` constants._
-pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
+pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Hash256 {
     // If the bytes are just one chunk or less, pad to one chunk and return without hashing.
     if bytes.len() <= BYTES_PER_CHUNK && min_leaves <= 1 {
         let mut o = bytes.to_vec();
         o.resize(BYTES_PER_CHUNK, 0);
-        return o;
+        return Hash256::from_slice(&o);
     }
 
     assert!(
@@ -157,7 +157,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
 
     assert_eq!(root.len(), BYTES_PER_CHUNK, "Only one chunk should remain");
 
-    root
+    Hash256::from_slice(&root)
 }
 
 /// A helper struct for storing words of `BYTES_PER_CHUNK` size in a flat byte array.

@@ -78,10 +78,10 @@ impl BeaconTreeHashCache {
     ) -> Result<Hash256, Error> {
         let mut leaves = vec![];
 
-        leaves.append(&mut state.genesis_time.tree_hash_root());
-        leaves.append(&mut state.slot.tree_hash_root());
-        leaves.append(&mut state.fork.tree_hash_root());
-        leaves.append(&mut state.latest_block_header.tree_hash_root());
+        leaves.extend_from_slice(state.genesis_time.tree_hash_root().as_bytes());
+        leaves.extend_from_slice(state.slot.tree_hash_root().as_bytes());
+        leaves.extend_from_slice(state.fork.tree_hash_root().as_bytes());
+        leaves.extend_from_slice(state.latest_block_header.tree_hash_root().as_bytes());
         leaves.extend_from_slice(
             state
                 .block_roots
@@ -100,9 +100,9 @@ impl BeaconTreeHashCache {
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.historical_roots)?
                 .as_bytes(),
         );
-        leaves.append(&mut state.eth1_data.tree_hash_root());
-        leaves.append(&mut state.eth1_data_votes.tree_hash_root());
-        leaves.append(&mut state.eth1_deposit_index.tree_hash_root());
+        leaves.extend_from_slice(state.eth1_data.tree_hash_root().as_bytes());
+        leaves.extend_from_slice(state.eth1_data_votes.tree_hash_root().as_bytes());
+        leaves.extend_from_slice(state.eth1_deposit_index.tree_hash_root().as_bytes());
         leaves.extend_from_slice(
             self.validators
                 .recalculate_tree_hash_root(&state.validators[..])?
@@ -126,14 +126,29 @@ impl BeaconTreeHashCache {
                 .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?
                 .as_bytes(),
         );
-        leaves.append(&mut state.previous_epoch_attestations.tree_hash_root());
-        leaves.append(&mut state.current_epoch_attestations.tree_hash_root());
-        leaves.append(&mut state.justification_bits.tree_hash_root());
-        leaves.append(&mut state.previous_justified_checkpoint.tree_hash_root());
-        leaves.append(&mut state.current_justified_checkpoint.tree_hash_root());
-        leaves.append(&mut state.finalized_checkpoint.tree_hash_root());
+        leaves.extend_from_slice(
+            state
+                .previous_epoch_attestations
+                .tree_hash_root()
+                .as_bytes(),
+        );
+        leaves.extend_from_slice(state.current_epoch_attestations.tree_hash_root().as_bytes());
+        leaves.extend_from_slice(state.justification_bits.tree_hash_root().as_bytes());
+        leaves.extend_from_slice(
+            state
+                .previous_justified_checkpoint
+                .tree_hash_root()
+                .as_bytes(),
+        );
+        leaves.extend_from_slice(
+            state
+                .current_justified_checkpoint
+                .tree_hash_root()
+                .as_bytes(),
+        );
+        leaves.extend_from_slice(state.finalized_checkpoint.tree_hash_root().as_bytes());
 
-        Ok(Hash256::from_slice(&tree_hash::merkle_root(&leaves, 0)))
+        Ok(tree_hash::merkle_root(&leaves, 0))
     }
 }
 
@@ -184,10 +199,7 @@ impl ValidatorsListTreeHashCache {
 
         std::mem::replace(&mut self.list_arena, list_arena);
 
-        Ok(Hash256::from_slice(&mix_in_length(
-            list_root.as_bytes(),
-            validators.len(),
-        )))
+        Ok(mix_in_length(&list_root, validators.len()))
     }
 }
 

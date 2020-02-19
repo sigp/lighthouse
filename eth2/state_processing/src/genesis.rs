@@ -31,7 +31,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 
     for deposit in deposits.iter() {
         deposit_tree
-            .push_leaf(Hash256::from_slice(&deposit.data.tree_hash_root()))
+            .push_leaf(deposit.data.tree_hash_root())
             .map_err(BlockProcessingError::MerkleTreeError)?;
         state.eth1_data.deposit_root = deposit_tree.root();
         process_deposit(&mut state, &deposit, spec, true)?;

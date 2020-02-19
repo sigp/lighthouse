@@ -56,7 +56,7 @@ macro_rules! impl_tree_hash {
                 unreachable!("Vector should never be packed.")
             }
 
-            fn tree_hash_root(&self) -> Vec<u8> {
+            fn tree_hash_root(&self) -> tree_hash::Hash256 {
                 // We could use the tree hash implementation for `FixedVec<u8, $byte_size>`,
                 // but benchmarks have show that to be at least 15% slower because of the
                 // unnecessary copying and allocation (one Vec per byte)

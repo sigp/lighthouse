@@ -61,6 +61,8 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
             domain,
         }
         .tree_hash_root()
+        .as_bytes()
+        .to_vec()
     } else {
         block.signing_root(domain).as_bytes().to_vec()
     };

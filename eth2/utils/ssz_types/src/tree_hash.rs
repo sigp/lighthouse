@@ -1,9 +1,9 @@
-use tree_hash::{merkle_root, TreeHash, TreeHashType, BYTES_PER_CHUNK};
+use tree_hash::{merkle_root, Hash256, TreeHash, TreeHashType, BYTES_PER_CHUNK};
 use typenum::Unsigned;
 
 /// A helper function providing common functionality between the `TreeHash` implementations for
 /// `FixedVector` and `VariableList`.
-pub fn vec_tree_hash_root<T, N>(vec: &[T]) -> Vec<u8>
+pub fn vec_tree_hash_root<T, N>(vec: &[T]) -> Hash256
 where
     T: TreeHash,
     N: Unsigned,
@@ -26,7 +26,7 @@ where
             let mut leaves = Vec::with_capacity(vec.len() * BYTES_PER_CHUNK);
 
             for item in vec {
-                leaves.append(&mut item.tree_hash_root())
+                leaves.extend_from_slice(&mut item.tree_hash_root()[..])
             }
 
             let minimum_chunk_count = N::to_usize();
@@ -40,7 +40,7 @@ where
 
 /// A helper function providing common functionality for finding the Merkle root of some bytes that
 /// represent a bitfield.
-pub fn bitfield_bytes_tree_hash_root<N: Unsigned>(bytes: &[u8]) -> Vec<u8> {
+pub fn bitfield_bytes_tree_hash_root<N: Unsigned>(bytes: &[u8]) -> Hash256 {
     let byte_size = (N::to_usize() + 7) / 8;
     let minimum_chunk_count = (byte_size + BYTES_PER_CHUNK - 1) / BYTES_PER_CHUNK;
 

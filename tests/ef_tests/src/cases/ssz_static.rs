@@ -82,7 +82,7 @@ pub fn check_tree_hash(expected_str: &str, actual_root: &[u8]) -> Result<(), Err
 impl<T: SszStaticType> Case for SszStatic<T> {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         check_serialization(&self.value, &self.serialized)?;
-        check_tree_hash(&self.roots.root, &self.value.tree_hash_root())?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
         Ok(())
     }
 }
@@ -90,7 +90,7 @@ impl<T: SszStaticType> Case for SszStatic<T> {
 impl<T: SszStaticType + CachedTreeHash<C>, C: Debug + Sync> Case for SszStaticTHC<T, C> {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         check_serialization(&self.value, &self.serialized)?;
-        check_tree_hash(&self.roots.root, &self.value.tree_hash_root())?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
 
         let arena = &mut CacheArena::default();
         let mut cache = self.value.new_tree_hash_cache(arena);

@@ -9,22 +9,24 @@ pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
 pub const MERKLE_HASH_CHUNK: usize = 2 * BYTES_PER_CHUNK;
 
+pub type Hash256 = ethereum_types::H256;
+
 /// Alias to `merkleize_padded(&bytes, minimum_chunk_count)`
 ///
 /// If `minimum_chunk_count < bytes / BYTES_PER_CHUNK`, padding will be added for the difference
 /// between the two.
-pub fn merkle_root(bytes: &[u8], minimum_chunk_count: usize) -> Vec<u8> {
+pub fn merkle_root(bytes: &[u8], minimum_chunk_count: usize) -> Hash256 {
     merkleize_padded(&bytes, minimum_chunk_count)
 }
 
 /// Returns the node created by hashing `root` and `length`.
 ///
 /// Used in `TreeHash` for inserting the length of a list above it's root.
-pub fn mix_in_length(root: &[u8], length: usize) -> Vec<u8> {
+pub fn mix_in_length(root: &Hash256, length: usize) -> Hash256 {
     let mut length_bytes = length.to_le_bytes().to_vec();
     length_bytes.resize(BYTES_PER_CHUNK, 0);
 
-    eth2_hashing::hash32_concat(root, &length_bytes)[..].to_vec()
+    Hash256::from_slice(&eth2_hashing::hash32_concat(root.as_bytes(), &length_bytes)[..])
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -42,7 +44,7 @@ pub trait TreeHash {
 
     fn tree_hash_packing_factor() -> usize;
 
-    fn tree_hash_root(&self) -> Vec<u8>;
+    fn tree_hash_root(&self) -> Hash256;
 }
 
 #[macro_export]
