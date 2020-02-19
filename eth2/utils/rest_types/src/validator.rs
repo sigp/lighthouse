@@ -3,7 +3,8 @@ use eth2_hashing::hash;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
-use types::{CommitteeIndex, Epoch, Slot};
+use tree_hash::TreeHash;
+use types::{ChainSpec, CommitteeIndex, Domain, Epoch, Fork, Slot};
 
 /// A Validator duty with the validator public key represented a `PublicKeyBytes`.
 pub type ValidatorDutyBytes = ValidatorDutyBase<PublicKeyBytes>;
@@ -70,6 +71,47 @@ impl ValidatorSubscriptions {
             pubkeys: Vec::new(),
             slots: Vec::new(),
             slot_signatures: Vec::new(),
+        }
+    }
+
+    /// Verifies the list of subscriptions in parallel.
+    pub fn verify(
+        &self,
+        spec: ChainSpec,
+        fork: &Fork,
+        slots_per_epoch: u64,
+    ) -> Result<(), &'static str> {
+        // invalid lengths
+        if self.pubkeys.len() != self.slots.len()
+            || self.pubkeys.len() != self.slot_signatures.len()
+        {
+            return Err("The lengths of public keys, signatures and slots are not equal");
+        }
+
+        if (0..self.pubkeys.len())
+            .try_for_each(|index| {
+                let domain = spec.get_domain(
+                    self.slots[index].epoch(slots_per_epoch),
+                    Domain::SelectionProof,
+                    &fork,
+                );
+                let message = self.slots[index].as_u64().tree_hash_root();
+
+                let pubkey: PublicKey = (&self.pubkeys[index])
+                    .try_into()
+                    .map_err(|_| "could not decode signature")?;
+
+                if self.slot_signatures[index].verify(&message, domain, &pubkey) {
+                    Ok(())
+                } else {
+                    Err("Invalid Sig")
+                }
+            })
+            .is_ok()
+        {
+            Ok(())
+        } else {
+            Err("There was an invalid signature")
         }
     }
 }

@@ -109,16 +109,14 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::POST, "/validator/duties") => {
                 validator::post_validator_duties::<T>(req, beacon_chain)
             }
-            /*
             (&Method::POST, "/validator/subscribe") => {
-                validator::post_validator_subscribtions::<T>(
+                validator::post_validator_subscriptions::<T>(
                     req,
                     beacon_chain,
                     network_channel,
                     log,
                 )
             }
-            */
             (&Method::GET, "/validator/duties/all") => {
                 into_boxfut(validator::get_all_validator_duties::<T>(req, beacon_chain))
             }
@@ -138,9 +136,11 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/validator/aggregate_attestation") => {
                 into_boxfut(validator::get_aggregate_attestation::<T>(req, beacon_chain))
             }
+            */
             (&Method::POST, "/validator/attestations") => {
                 validator::publish_attestations::<T>(req, beacon_chain, network_channel, log)
             }
+            /*
             (&Method::POST, "/validator/aggregate_and_proofs") => {
                 validator::publish_aggregate_and_proofs::<T>(
                     req,

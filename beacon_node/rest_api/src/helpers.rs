@@ -7,11 +7,8 @@ use hex;
 use http::header;
 use hyper::{Body, Request};
 use network::NetworkMessage;
-use parking_lot::RwLock;
 use ssz::Decode;
-use std::sync::Arc;
 use store::{iter::AncestorIter, Store};
-use tokio::sync::mpsc;
 use types::{
     Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
     Signature, Slot,

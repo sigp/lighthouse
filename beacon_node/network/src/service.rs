@@ -9,6 +9,7 @@ use eth2_libp2p::{
     rpc::RPCRequest, Enr, GossipTopic, Libp2pEvent, MessageId, Multiaddr, NetworkGlobals, PeerId, Swarm,
 };
 use eth2_libp2p::{PubsubMessage, RPCEvent};
+use rest_types::ValidatorSubscriptions;
 use futures::prelude::*;
 use futures::Stream;
 use slog::{debug, error, info, trace};
@@ -230,6 +231,10 @@ fn spawn_service<T: BeaconChainTypes>(
                             std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
                         );
                     }
+                    NetworkMessage::Subscribe { subscriptions: _ } => 
+                    {
+                        // TODO: Implement
+                    }
                 },
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) => {
@@ -308,6 +313,10 @@ fn spawn_service<T: BeaconChainTypes>(
 /// Types of messages that the network service can receive.
 #[derive(Debug)]
 pub enum NetworkMessage<T: EthSpec> {
+    /// Subscribes a list of validators to specific slots for attestation duties.
+    Subscribe {
+        subscriptions: Box<ValidatorSubscriptions>
+    },
     /// Send an RPC message to the libp2p service.
     RPC(PeerId, RPCEvent<T>),
     /// Publish a message to gossipsub.
