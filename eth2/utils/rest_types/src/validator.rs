@@ -77,7 +77,7 @@ impl ValidatorSubscriptions {
     /// Verifies the list of subscriptions in parallel.
     pub fn verify(
         &self,
-        spec: ChainSpec,
+        spec: &ChainSpec,
         fork: &Fork,
         slots_per_epoch: u64,
     ) -> Result<(), &'static str> {

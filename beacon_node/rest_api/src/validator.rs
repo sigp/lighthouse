@@ -54,7 +54,7 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
 pub fn post_validator_subscriptions<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_chan: NetworkChannel<T::EthSpec>,
+    mut network_chan: NetworkChannel<T::EthSpec>,
     log: Logger,
 ) -> BoxFut {
     try_future!(check_content_type_for_json(&req));
@@ -80,7 +80,7 @@ pub fn post_validator_subscriptions<T: BeaconChainTypes>(
 
                 // verify the signatures in parallel
                 subscriptions
-                    .verify(beacon_chain.spec, &fork, T::EthSpec::slots_per_epoch())
+                    .verify(&beacon_chain.spec, &fork, T::EthSpec::slots_per_epoch())
                     .map_err(|e| {
                         error!(log, "HTTP RPC sent invalid signatures");
                         ApiError::ProcessingError(format!("Error verifying signatures {:?}", e))
