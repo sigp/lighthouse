@@ -11,6 +11,7 @@ use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
 use std::io::Cursor;
+use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use tokio::codec::{Decoder, Encoder};
@@ -164,15 +165,31 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Decode the length of the uncompressed bytes
-        let length = self.len.unwrap_or_else(|| {
-            let (length, remaining) = decode::u64(src).unwrap();
-            let input_len = src.len();
-            let remaining_len = remaining.len();
-            src.split_to(input_len - remaining_len);
-            self.len = Some(length as usize);
-            length as usize
-        });
+        if self.len.is_none() {
+            match decode::u64(src) {
+                Err(decode::Error::Insufficient) => return Ok(None), // Need more bytes to read len
+                Err(decode::Error::Overflow) => {
+                    return Err(RPCError::Custom(
+                        "Overflow while reading uncompressed length from snappy frame".into(),
+                    ))
+                }
+                Err(_) => {
+                    return Err(RPCError::Custom(
+                        "Failed to read length from snappy frame".into(),
+                    ))
+                }
+                Ok((length, remaining)) => {
+                    // split the incoming buffer to remove the read length bytes
+                    let input_len = src.len();
+                    let remaining_len = remaining.len();
+                    src.split_to(input_len - remaining_len);
+                    self.len = Some(length as usize);
+                }
+            }
+        };
 
+        // TODO: Double check that this never panics
+        let length = self.len.expect("length should be Some");
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];
         match reader.read_exact(&mut decoded_buffer) {
@@ -183,34 +200,24 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 src.split_to(n as usize);
                 match self.protocol.message_name.as_str() {
                     RPC_STATUS => match self.protocol.version.as_str() {
-                        "1" => {
-                            let resp = RPCResponse::Status(StatusMessage::from_ssz_bytes(
-                                &decoded_buffer,
-                            )?);
-                            return Ok(Some(resp));
-                        }
+                        "1" => Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
+                            &decoded_buffer,
+                        )?))),
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },
                     RPC_GOODBYE => {
-                        let resp = RPCError::InvalidProtocol("GOODBYE doesn't have a response");
-                        return Err(resp);
+                        Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response"))
                     }
                     RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-                        "1" => {
-                            let resp = RPCResponse::BlocksByRange(Box::new(
-                                BeaconBlock::from_ssz_bytes(&decoded_buffer)?,
-                            ));
-                            return Ok(Some(resp));
-                        }
+                        "1" => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                            BeaconBlock::from_ssz_bytes(&decoded_buffer)?,
+                        )))),
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },
                     RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-                        "1" => {
-                            let resp = RPCResponse::BlocksByRoot(Box::new(
-                                BeaconBlock::from_ssz_bytes(&decoded_buffer)?,
-                            ));
-                            return Ok(Some(resp));
-                        }
+                        "1" => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                            BeaconBlock::from_ssz_bytes(&decoded_buffer)?,
+                        )))),
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },
                     _ => unreachable!("Cannot negotiate an unknown protocol"),
@@ -218,7 +225,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
             }
             Err(e) => match e.kind() {
                 // Haven't received enough bytes to decode yet
-                std::io::ErrorKind::UnexpectedEof => {
+                // TODO: check if this is the only Error variant where we return `Ok(None)`
+                ErrorKind::UnexpectedEof => {
                     return Ok(None);
                 }
                 _ => return Err(e).map_err(RPCError::from),
