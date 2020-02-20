@@ -24,6 +24,8 @@ pub struct SSZSnappyInboundCodec<TSpec: EthSpec> {
     decoder: snap::raw::Decoder,
     protocol: ProtocolId,
     phantom: PhantomData<TSpec>,
+    /// Maximum bytes that can be sent in one req/resp chunked responses.
+    max_packet_size: usize,
 }
 
 impl<T: EthSpec> SSZSnappyInboundCodec<T> {
@@ -35,6 +37,7 @@ impl<T: EthSpec> SSZSnappyInboundCodec<T> {
             decoder: snap::raw::Decoder::new(),
             protocol,
             phantom: PhantomData,
+            max_packet_size,
         }
     }
 }
@@ -58,11 +61,17 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyInboundCodec<TSpec> {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
         };
+        // SSZ encoded bytes should be within `max_packet_size`
+        if bytes.len() > self.max_packet_size {
+            return Err(RPCError::Custom(
+                "attempting to encode data > max_packet_size".into(),
+            ));
+        }
         let mut writer = FrameEncoder::new(Vec::new());
         writer.write_all(&bytes).map_err(RPCError::from)?;
         writer.flush().map_err(RPCError::from)?;
 
-        // Length prefix of uncompressed bytes
+        // Length prefix uncompressed bytes
         dst.extend_from_slice(encode::u64(bytes.len() as u64, &mut encode::u64_buffer()));
         // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
@@ -115,6 +124,8 @@ pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
     decoder: snap::raw::Decoder,
     len: Option<usize>,
     protocol: ProtocolId,
+    /// Maximum bytes that can be sent in one req/resp chunked responses.
+    max_packet_size: usize,
     phantom: PhantomData<TSpec>,
 }
 
@@ -127,6 +138,7 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
             encoder: snap::raw::Encoder::new(),
             decoder: snap::raw::Decoder::new(),
             protocol,
+            max_packet_size,
             len: None,
             phantom: PhantomData,
         }
@@ -190,6 +202,13 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
         // TODO: Double check that this never panics
         let length = self.len.expect("length should be Some");
+
+        // Should not attempt to decode rpc chunks with length > max_packet_size
+        if length > self.max_packet_size {
+            return Err(RPCError::Custom(
+                "attempting to decode data > max_packet_size".into(),
+            ));
+        }
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];
         match reader.read_exact(&mut decoded_buffer) {
