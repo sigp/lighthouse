@@ -199,7 +199,6 @@ pub enum RPCRequest<TSpec: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(BlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
-    Testing(TestingRequest),
     Phantom(PhantomData<TSpec>),
 }
 
@@ -234,7 +233,6 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
                 ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz_snappy"),
                 ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
             ],
-            RPCRequest::Testing(_) => vec![ProtocolId::new(TESTING, "1", "ssz_snappy")],
             RPCRequest::Phantom(_) => Vec::new(),
         }
     }
@@ -249,7 +247,6 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
             RPCRequest::Goodbye(_) => false,
             RPCRequest::BlocksByRange(_) => true,
             RPCRequest::BlocksByRoot(_) => true,
-            RPCRequest::Testing(_) => true,
             RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
         }
     }
@@ -262,7 +259,6 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
             RPCRequest::Goodbye(_) => false,
             RPCRequest::BlocksByRange(_) => true,
             RPCRequest::BlocksByRoot(_) => true,
-            RPCRequest::Testing(_) => true,
             RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
         }
     }
@@ -275,7 +271,6 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
             // variants that have `multiple_responses()` can have values.
             RPCRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             RPCRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
-            RPCRequest::Testing(_) => ResponseTermination::Testing,
             RPCRequest::Status(_) => unreachable!(),
             RPCRequest::Goodbye(_) => unreachable!(),
             RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
@@ -420,7 +415,6 @@ impl<TSpec: EthSpec> std::fmt::Display for RPCRequest<TSpec> {
             RPCRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             RPCRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             RPCRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
-            RPCRequest::Testing(_) => write!(f, "Testing"),
             RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
         }
     }

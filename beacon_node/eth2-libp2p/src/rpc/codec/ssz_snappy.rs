@@ -3,7 +3,6 @@ use crate::rpc::{
     codec::base::OutboundCodec,
     protocol::{
         ProtocolId, RPCError, RPC_BLOCKS_BY_RANGE, RPC_BLOCKS_BY_ROOT, RPC_GOODBYE, RPC_STATUS,
-        TESTING,
     },
 };
 use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
@@ -50,7 +49,6 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyInboundCodec<TSpec> {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
-                RPCResponse::Testing(res) => res,
             },
             RPCErrorResponse::InvalidRequest(err) => err.as_ssz_bytes(),
             RPCErrorResponse::ServerError(err) => err.as_ssz_bytes(),
@@ -103,10 +101,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                     }))),
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                TESTING => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCRequest::Testing(TestingRequest))),
-                    _ => unreachable!("Cannot negotiate an unknown version"),
-                },
                 _ => unreachable!("Cannot negotiate an unknown protocol"),
             },
             Err(e) => Err(e),
@@ -149,7 +143,6 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyOutboundCodec<TSpec> {
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRange(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
-            RPCRequest::Testing(req) => req.as_ssz_bytes(),
             RPCRequest::Phantom(_) => unreachable!("Never encode phantom data"),
         };
         // Compressed RpcRequests are not UVI encoded since they don't have chunks.
@@ -220,13 +213,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                         }
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },
-                    TESTING => match self.protocol.version.as_str() {
-                        "1" => {
-                            let resp = RPCResponse::Testing(decoded_buffer.to_vec());
-                            return Ok(Some(resp));
-                        }
-                        _ => unreachable!("Cannot negotiate an unknown version"),
-                    },
                     _ => unreachable!("Cannot negotiate an unknown protocol"),
                 }
             }
@@ -247,10 +233,7 @@ impl<TSpec: EthSpec> OutboundCodec for SSZSnappyOutboundCodec<TSpec> {
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {
         match self.decoder.decompress_vec(src).map_err(RPCError::from) {
             Ok(packet) => Ok(Some(ErrorMessage::from_ssz_bytes(&packet)?)),
-            Err(e) => {
-                println!("Got errror: {:?}", e);
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 }
