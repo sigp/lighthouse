@@ -45,7 +45,6 @@ pub const RPC_GOODBYE: &str = "goodbye";
 pub const RPC_BLOCKS_BY_RANGE: &str = "beacon_blocks_by_range";
 /// The `BlocksByRoot` protocol name.
 pub const RPC_BLOCKS_BY_ROOT: &str = "beacon_blocks_by_root";
-pub const TESTING: &str = "testing";
 
 #[derive(Debug, Clone)]
 pub struct RPCProtocol<TSpec: EthSpec> {
@@ -66,7 +65,6 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
             ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz_snappy"),
             ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
-            ProtocolId::new(TESTING, "1", "ssz_snappy"),
         ]
     }
 }
@@ -146,45 +144,31 @@ where
         socket: upgrade::Negotiated<TSocket>,
         protocol: ProtocolId,
     ) -> Self::Future {
-        match protocol.encoding.as_str() {
+        let codec = match protocol.encoding.as_str() {
             "ssz_snappy" => {
                 let ssz_snappy_codec =
                     BaseInboundCodec::new(SSZSnappyInboundCodec::new(protocol, MAX_RPC_SIZE));
-                let codec = InboundCodec::SSZSnappy(ssz_snappy_codec);
-                let mut timed_socket = TimeoutStream::new(socket);
-                timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
-                Framed::new(timed_socket, codec)
-                    .into_future()
-                    .timeout(Duration::from_secs(REQUEST_TIMEOUT))
-                    .map_err(RPCError::from as FnMapErr<TSocket, TSpec>)
-                    .and_then({
-                        |(req, stream)| match req {
-                            Some(req) => futures::future::ok((req, stream)),
-                            None => futures::future::err(RPCError::Custom(
-                                "Stream terminated early".into(),
-                            )),
-                        }
-                    } as FnAndThen<TSocket, TSpec>)
+                InboundCodec::SSZSnappy(ssz_snappy_codec)
             }
             "ssz" | _ => {
                 let ssz_codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol, MAX_RPC_SIZE));
-                let codec = InboundCodec::SSZ(ssz_codec);
-                let mut timed_socket = TimeoutStream::new(socket);
-                timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
-                Framed::new(timed_socket, codec)
-                    .into_future()
-                    .timeout(Duration::from_secs(REQUEST_TIMEOUT))
-                    .map_err(RPCError::from as FnMapErr<TSocket, TSpec>)
-                    .and_then({
-                        |(req, stream)| match req {
-                            Some(req) => futures::future::ok((req, stream)),
-                            None => futures::future::err(RPCError::Custom(
-                                "Stream terminated early".into(),
-                            )),
-                        }
-                    } as FnAndThen<TSocket, TSpec>)
+                InboundCodec::SSZ(ssz_codec)
             }
-        }
+        };
+        let mut timed_socket = TimeoutStream::new(socket);
+        timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
+        Framed::new(timed_socket, codec)
+            .into_future()
+            .timeout(Duration::from_secs(REQUEST_TIMEOUT))
+            .map_err(RPCError::from as FnMapErr<TSocket, TSpec>)
+            .and_then({
+                |(req, stream)| match req {
+                    Some(req) => futures::future::ok((req, stream)),
+                    None => {
+                        futures::future::err(RPCError::Custom("Stream terminated early".into()))
+                    }
+                }
+            } as FnAndThen<TSocket, TSpec>)
     }
 }
 
@@ -298,20 +282,19 @@ where
         socket: upgrade::Negotiated<TSocket>,
         protocol: Self::Info,
     ) -> Self::Future {
-        match protocol.encoding.as_str() {
+        let codec = match protocol.encoding.as_str() {
             "ssz_snappy" => {
                 let ssz_snappy_codec =
                     BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(protocol, MAX_RPC_SIZE));
-                let codec = OutboundCodec::SSZSnappy(ssz_snappy_codec);
-                Framed::new(socket, codec).send(self)
+                OutboundCodec::SSZSnappy(ssz_snappy_codec)
             }
             "ssz" | _ => {
                 let ssz_codec =
                     BaseOutboundCodec::new(SSZOutboundCodec::new(protocol, MAX_RPC_SIZE));
-                let codec = OutboundCodec::SSZ(ssz_codec);
-                Framed::new(socket, codec).send(self)
+                OutboundCodec::SSZ(ssz_codec)
             }
-        }
+        };
+        Framed::new(socket, codec).send(self)
     }
 }
 
