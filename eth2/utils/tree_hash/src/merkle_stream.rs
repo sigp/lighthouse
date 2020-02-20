@@ -89,19 +89,11 @@ impl MerkleStream {
             } else {
                 if let Some(node) = self.half_nodes.last() {
                     let right_child = node.id * 2 + 1;
-                    let digest = Hash256::from_slice(get_zero_hash(
-                        self.depth - (get_depth(right_child) + 1),
-                    ));
-
-                    self.process_right_node(right_child, digest);
+                    self.process_right_node(right_child, self.zero_hash(right_child));
                 } else if self.next_leaf == 1 {
                     break Hash256::zero();
                 } else {
-                    let digest = &Hash256::from_slice(get_zero_hash(
-                        self.depth - (get_depth(self.next_leaf) + 1),
-                    ));
-
-                    self.process_left_node(self.next_leaf, &digest)
+                    self.process_left_node(self.next_leaf, &self.zero_hash(self.next_leaf))
                 }
             }
         }
@@ -137,6 +129,10 @@ impl MerkleStream {
                 }
             }
         }
+    }
+
+    fn zero_hash(&self, id: usize) -> Hash256 {
+        Hash256::from_slice(get_zero_hash(self.depth - (get_depth(id) + 1)))
     }
 }
 
