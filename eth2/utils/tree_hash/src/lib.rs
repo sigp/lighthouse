@@ -1,9 +1,12 @@
 pub mod impls;
+mod merkle_stream;
 mod merkleize_padded;
 mod merkleize_standard;
 
 pub use merkleize_padded::merkleize_padded;
 pub use merkleize_standard::merkleize_standard;
+
+use eth2_hashing::{ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
 
 pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
@@ -27,6 +30,15 @@ pub fn mix_in_length(root: &Hash256, length: usize) -> Hash256 {
     length_bytes.resize(BYTES_PER_CHUNK, 0);
 
     Hash256::from_slice(&eth2_hashing::hash32_concat(root.as_bytes(), &length_bytes)[..])
+}
+
+/// Returns a cached padding node for a given height.
+fn get_zero_hash(height: usize) -> &'static [u8] {
+    if height <= ZERO_HASHES_MAX_INDEX {
+        &ZERO_HASHES[height]
+    } else {
+        panic!("Tree exceeds MAX_TREE_DEPTH of {}", ZERO_HASHES_MAX_INDEX)
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]

@@ -48,6 +48,9 @@ members = [
     "lighthouse/environment"
 ]
 
+[profile.release]
+debug = true
+
 [patch]
 [patch.crates-io]
 tree_hash = { path = "eth2/utils/tree_hash" }

@@ -1,10 +1,5 @@
-use super::{Hash256, BYTES_PER_CHUNK};
-use eth2_hashing::{hash, hash32_concat, ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
-
-/// The size of the cache that stores padding nodes for a given height.
-///
-/// Currently, we panic if we encounter a tree with a height larger than `MAX_TREE_DEPTH`.
-pub const MAX_TREE_DEPTH: usize = ZERO_HASHES_MAX_INDEX;
+use super::{get_zero_hash, Hash256, BYTES_PER_CHUNK};
+use eth2_hashing::{hash, hash32_concat};
 
 /// Merkleize `bytes` and return the root, optionally padding the tree out to `min_leaves` number of
 /// leaves.
@@ -212,15 +207,6 @@ impl ChunkStore {
     }
 }
 
-/// Returns a cached padding node for a given height.
-fn get_zero_hash(height: usize) -> &'static [u8] {
-    if height <= MAX_TREE_DEPTH {
-        &ZERO_HASHES[height]
-    } else {
-        panic!("Tree exceeds MAX_TREE_DEPTH of {}", MAX_TREE_DEPTH)
-    }
-}
-
 /// Returns the next even number following `n`. If `n` is even, `n` is returned.
 fn next_even_number(n: usize) -> usize {
     n + n % 2
@@ -229,6 +215,7 @@ fn next_even_number(n: usize) -> usize {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ZERO_HASHES_MAX_INDEX;
 
     pub fn reference_root(bytes: &[u8]) -> Hash256 {
         crate::merkleize_standard(&bytes)
@@ -288,10 +275,10 @@ mod test {
             #[test]
             fn max_tree_depth_min_nodes() {
                 let input = vec![0; 10 * BYTES_PER_CHUNK];
-                let min_nodes = 2usize.pow(MAX_TREE_DEPTH as u32);
+                let min_nodes = 2usize.pow(ZERO_HASHES_MAX_INDEX as u32);
                 assert_eq!(
                     merkleize_padded(&input, min_nodes).as_bytes(),
-                    get_zero_hash(MAX_TREE_DEPTH)
+                    get_zero_hash(ZERO_HASHES_MAX_INDEX)
                 );
             }
         };
