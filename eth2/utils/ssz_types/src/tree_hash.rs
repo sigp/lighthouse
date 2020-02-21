@@ -1,4 +1,4 @@
-use tree_hash::{merkle_root, Hash256, MerkleStream, TreeHash, TreeHashType, BYTES_PER_CHUNK};
+use tree_hash::{Hash256, MerkleStream, TreeHash, TreeHashType, BYTES_PER_CHUNK, HASHSIZE};
 use typenum::Unsigned;
 
 /// A helper function providing common functionality between the `TreeHash` implementations for
@@ -10,28 +10,32 @@ where
 {
     match T::tree_hash_type() {
         TreeHashType::Basic => {
-            let mut leaves =
-                Vec::with_capacity((BYTES_PER_CHUNK / T::tree_hash_packing_factor()) * vec.len());
+            let mut hasher = MerkleStream::new_for_leaf_count(
+                (N::to_usize() + T::tree_hash_packing_factor() - 1) / T::tree_hash_packing_factor(),
+            );
 
             for item in vec {
-                leaves.append(&mut item.tree_hash_packed_encoding());
+                hasher
+                    .write(&item.tree_hash_packed_encoding())
+                    .expect("ssz_types variable vec should not contain more elements than max");
             }
 
-            let values_per_chunk = T::tree_hash_packing_factor();
-            let minimum_chunk_count = (N::to_usize() + values_per_chunk - 1) / values_per_chunk;
-
-            merkle_root(&leaves, minimum_chunk_count)
+            hasher
+                .finish()
+                .expect("ssz_types variable vec should not have a remaining buffer")
         }
         TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
             let mut hasher = MerkleStream::new_for_leaf_count(N::to_usize());
 
             for item in vec {
                 hasher
-                    .process_leaf(&item.tree_hash_root())
+                    .write(item.tree_hash_root().as_bytes())
                     .expect("ssz_types vec should not contain more elements than max");
             }
 
-            hasher.finish()
+            hasher
+                .finish()
+                .expect("ssz_types vec should not have a remaining buffer")
         }
     }
 }
@@ -40,7 +44,19 @@ where
 /// represent a bitfield.
 pub fn bitfield_bytes_tree_hash_root<N: Unsigned>(bytes: &[u8]) -> Hash256 {
     let byte_size = (N::to_usize() + 7) / 8;
-    let minimum_chunk_count = (byte_size + BYTES_PER_CHUNK - 1) / BYTES_PER_CHUNK;
+    let leaf_count = (byte_size + BYTES_PER_CHUNK - 1) / BYTES_PER_CHUNK;
 
-    merkle_root(bytes, minimum_chunk_count)
+    let mut hasher = MerkleStream::new_for_leaf_count(leaf_count);
+
+    let mut ptr = 0;
+    while ptr <= bytes.len() {
+        hasher
+            .write(&bytes[ptr..std::cmp::min(bytes.len(), ptr + HASHSIZE)])
+            .expect("bitfield should not exceed leaf limit");
+        ptr += HASHSIZE
+    }
+
+    hasher
+        .finish()
+        .expect("bitfield tree hash buffer should not exceed leaf limit")
 }

@@ -1,4 +1,4 @@
-use crate::{get_zero_hash, Hash256};
+use crate::{get_zero_hash, Hash256, HASHSIZE};
 use eth2_hashing::{Context, Digest, SHA256};
 use smallvec::{smallvec, SmallVec};
 use std::mem;
@@ -131,6 +131,8 @@ pub struct MerkleStream {
     depth: usize,
     /// The next leaf that we are expecting to process.
     next_leaf: usize,
+    /// A buffer of bytes that are waiting to be written to a leaf.
+    buffer: SmallVec<[u8; 32]>,
     /// Set to Some(root) when the root of the tree is known.
     root: Option<Hash256>,
 }
@@ -174,7 +176,37 @@ impl MerkleStream {
             half_nodes: smallvec![],
             depth,
             next_leaf: 1 << (depth - 1),
+            buffer: SmallVec::with_capacity(32),
             root: None,
+        }
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        if self.buffer.is_empty() && bytes.len() == HASHSIZE {
+            self.process_leaf(bytes)
+        } else if self.buffer.is_empty() && bytes.len() > HASHSIZE {
+            let (left, right) = bytes.split_at(HASHSIZE);
+            self.process_leaf(left)?;
+            self.write(right)
+        } else if self.buffer.len() + bytes.len() < HASHSIZE {
+            self.buffer.extend_from_slice(bytes);
+            Ok(())
+        } else {
+            let buf_len = self.buffer.len();
+            let (left, right) = bytes.split_at(HASHSIZE - buf_len);
+
+            let mut leaf = [0; HASHSIZE];
+            leaf[..buf_len].copy_from_slice(&self.buffer);
+            leaf[buf_len..].copy_from_slice(left);
+
+            self.process_leaf(&leaf)?;
+            self.buffer = smallvec![];
+
+            if !right.is_empty() {
+                self.write(right)
+            } else {
+                Ok(())
+            }
         }
     }
 
@@ -185,18 +217,20 @@ impl MerkleStream {
     /// Returns an error if the given leaf would exceed the maximum permissible number of leaves
     /// defined by the initialization `depth`. E.g., a tree of `depth == 2` can only accept 2
     /// leaves. A tree of `depth == 14` can only accept 8,192 leaves.
-    pub fn process_leaf(&mut self, leaf: &Hash256) -> Result<(), Error> {
+    fn process_leaf(&mut self, leaf: &[u8]) -> Result<(), Error> {
+        assert_eq!(leaf.len(), HASHSIZE, "a leaf must be 32 bytes");
+
         let max_leaves = 1 << (self.depth + 1);
 
         if self.next_leaf > max_leaves {
             return Err(Error::MaximumLeavesExceeded { max_leaves });
         } else if self.next_leaf == 1 {
             // A tree of height one has a root that is equal to the first given leaf.
-            self.root = Some(*leaf)
+            self.root = Some(Hash256::from_slice(leaf))
         } else if self.next_leaf % 2 == 0 {
-            self.process_left_node(self.next_leaf, Preimage::Slice(leaf.as_bytes()))
+            self.process_left_node(self.next_leaf, Preimage::Slice(leaf))
         } else {
-            self.process_right_node(self.next_leaf, Preimage::Slice(leaf.as_bytes()))
+            self.process_right_node(self.next_leaf, Preimage::Slice(leaf))
         }
 
         self.next_leaf += 1;
@@ -208,11 +242,17 @@ impl MerkleStream {
     ///
     /// If not all leaves have been provided, the tree will be efficiently completed under the
     /// assumption that all not-yet-provided leaves are equal to `[0; 32]`.
-    pub fn finish(mut self) -> Hash256 {
+    pub fn finish(mut self) -> Result<Hash256, Error> {
+        if !self.buffer.is_empty() {
+            let mut leaf = [0; HASHSIZE];
+            leaf[..self.buffer.len()].copy_from_slice(&self.buffer);
+            self.process_leaf(&leaf)?
+        }
+
         // If the tree is incomplete, we must complete it by providing zero-hashes.
         loop {
             if let Some(root) = self.root {
-                break root;
+                break Ok(root);
             } else {
                 if let Some(node) = self.half_nodes.last() {
                     let right_child = node.id * 2 + 1;
@@ -220,7 +260,7 @@ impl MerkleStream {
                 } else if self.next_leaf == 1 {
                     // The next_leaf can only be 1 if the tree has a height of one. If have been no
                     // leaves supplied, assume a root of zero.
-                    break Hash256::zero();
+                    break Ok(Hash256::zero());
                 } else {
                     // The only scenario where there are (a) no half nodes and (b) a tree of height
                     // two or more is where no leaves have been supplied at all.
@@ -322,18 +362,47 @@ mod test {
             .collect::<Vec<_>>();
 
         let reference_root = merkleize_padded(&reference_bytes, 1 << (depth - 1));
-        let merklizer_root = {
+
+        let merklizer_root_32_bytes = {
             let mut m =
                 MerkleStream::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
             for leaf in leaves.iter() {
-                m.process_leaf(leaf).expect("should process leaf");
+                m.write(leaf.as_bytes()).expect("should process leaf");
             }
-            m.finish()
+            m.finish().expect("should finish")
         };
 
         assert_eq!(
-            reference_root, merklizer_root,
-            "should match reference root"
+            reference_root, merklizer_root_32_bytes,
+            "32 bytes should match reference root"
+        );
+
+        let merklizer_root_individual_3_bytes = {
+            let mut m =
+                MerkleStream::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
+            for bytes in reference_bytes.clone().chunks(3) {
+                m.write(bytes).expect("should process byte");
+            }
+            m.finish().expect("should finish")
+        };
+
+        assert_eq!(
+            reference_root, merklizer_root_individual_3_bytes,
+            "3 bytes should match reference root"
+        );
+
+        let merklizer_root_individual_single_bytes = {
+            let mut m =
+                MerkleStream::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
+            for byte in reference_bytes.iter() {
+                m.write(&[*byte]).expect("should process byte");
+            }
+            m.finish().expect("should finish")
+        };
+
+        assert_eq!(
+            reference_root, merklizer_root_individual_single_bytes,
+            "single bytes should match reference root"
         );
     }
 
@@ -357,7 +426,7 @@ mod test {
             let mut m =
                 MerkleStream::new(NonZeroUsize::new(height).expect("depth should not be zero"));
             for leaf in leaves.iter() {
-                m.process_leaf(leaf).expect("should process leaf");
+                m.write(leaf.as_bytes()).expect("should process leaf");
             }
             m.finish()
         };
@@ -365,7 +434,8 @@ mod test {
         let from_num_leaves = {
             let mut m = MerkleStream::new_for_leaf_count(num_leaves as usize);
             for leaf in leaves.iter() {
-                m.process_leaf(leaf).expect("should process leaf");
+                m.process_leaf(leaf.as_bytes())
+                    .expect("should process leaf");
             }
             m.finish()
         };
@@ -458,5 +528,25 @@ mod test {
         compare_reference_with_len(0, 14);
         compare_reference_with_len(13, 14);
         compare_reference_with_len(8191, 14);
+    }
+
+    #[test]
+    fn remaining_buffer() {
+        let a = {
+            let mut m = MerkleStream::new_for_leaf_count(2);
+            m.write(&[1]).expect("should write");
+            m.finish().expect("should finish")
+        };
+
+        let b = {
+            let mut m = MerkleStream::new_for_leaf_count(2);
+            let mut leaf = vec![1];
+            leaf.extend_from_slice(&[0; 31]);
+            m.write(&leaf).expect("should write");
+            m.write(&[0; 32]).expect("should write");
+            m.finish().expect("should finish")
+        };
+
+        assert_eq!(a, b, "should complete buffer");
     }
 }

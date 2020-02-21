@@ -113,11 +113,11 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
                 let mut hasher = tree_hash::MerkleStream::new_for_leaf_count(#num_leaves);
 
                 #(
-                    hasher.process_leaf(&self.#idents.tree_hash_root())
+                    hasher.write(self.#idents.tree_hash_root().as_bytes())
                         .expect("tree hash derive should not apply too many leaves");
                 )*
 
-                hasher.finish()
+                hasher.finish().expect("tree hash derive should not have a remaining buffer")
             }
         }
     };
