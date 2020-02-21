@@ -1,7 +1,10 @@
 use crate::{get_zero_hash, Hash256};
 use eth2_hashing::{Context, Digest, SHA256};
+use smallvec::{smallvec, SmallVec};
 use std::mem;
 use std::num::NonZeroUsize;
+
+type SmallVec8<T> = SmallVec<[T; 8]>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -118,11 +121,17 @@ impl HalfNode {
 ///       L  L L  L
 /// ```
 ///
-struct MerkleStream {
-    // TODO: smallvec.
-    half_nodes: Vec<HalfNode>,
+pub struct MerkleStream {
+    /// Stores the nodes that are half-complete and awaiting a right node.
+    ///
+    /// A smallvec of size 8 means we can hash a tree with 128 leaves without allocating on the
+    /// heap. Each half-node is 224 bytes, so this smallvec may store 1,792 bytes on the stack.
+    half_nodes: SmallVec8<HalfNode>,
+    /// The depth of the tree that will be produced.
     depth: usize,
+    /// The next leaf that we are expecting to process.
     next_leaf: usize,
+    /// Set to Some(root) when the root of the tree is known.
     root: Option<Hash256>,
 }
 
@@ -150,7 +159,7 @@ impl MerkleStream {
         let depth = depth.get();
 
         Self {
-            half_nodes: vec![],
+            half_nodes: smallvec![],
             depth,
             next_leaf: 1 << (depth - 1),
             root: None,
@@ -282,6 +291,17 @@ impl MerkleStream {
 mod test {
     use super::*;
     use crate::merkleize_padded;
+
+    /// This test is just to ensure that the stack size of the `Context` remains the same. We choose
+    /// our smallvec size based upon this, so it's good to know if it suddenly changes in size.
+    #[test]
+    fn context_size() {
+        assert_eq!(
+            mem::size_of::<HalfNode>(),
+            216 + 8,
+            "Halfnode size should be as expected"
+        );
+    }
 
     fn do_test(leaves: &[Hash256], depth: usize) {
         let reference_bytes = leaves
