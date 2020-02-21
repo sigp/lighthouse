@@ -379,6 +379,9 @@ fn test_blocks_by_range_single_empty_rpc() {
 
 #[test]
 // Tests a streamed, chunked BlocksByRoot RPC Message
+// The size of the reponse is a full `BeaconBlock`
+// which is greater than the Snappy frame size. Hence, this test
+// serves to test the snappy framing format as well.
 fn test_blocks_by_root_chunked_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
@@ -398,8 +401,7 @@ fn test_blocks_by_root_chunked_rpc() {
     });
 
     // BlocksByRoot Response
-    let block = BeaconBlock::empty(&spec);
-    let rpc_response = RPCResponse::BlocksByRoot(Box::new(block));
+    let rpc_response = RPCResponse::BlocksByRoot(Box::new(BeaconBlock::full(&spec)));
 
     let sender_request = rpc_request.clone();
     let sender_log = log.clone();
