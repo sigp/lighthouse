@@ -1,4 +1,4 @@
-use tree_hash::{merkle_root, Hash256, TreeHash, TreeHashType, BYTES_PER_CHUNK};
+use tree_hash::{merkle_root, Hash256, MerkleStream, TreeHash, TreeHashType, BYTES_PER_CHUNK};
 use typenum::Unsigned;
 
 /// A helper function providing common functionality between the `TreeHash` implementations for
@@ -8,7 +8,7 @@ where
     T: TreeHash,
     N: Unsigned,
 {
-    let (leaves, minimum_chunk_count) = match T::tree_hash_type() {
+    match T::tree_hash_type() {
         TreeHashType::Basic => {
             let mut leaves =
                 Vec::with_capacity((BYTES_PER_CHUNK / T::tree_hash_packing_factor()) * vec.len());
@@ -20,22 +20,20 @@ where
             let values_per_chunk = T::tree_hash_packing_factor();
             let minimum_chunk_count = (N::to_usize() + values_per_chunk - 1) / values_per_chunk;
 
-            (leaves, minimum_chunk_count)
+            merkle_root(&leaves, minimum_chunk_count)
         }
         TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
-            let mut leaves = Vec::with_capacity(vec.len() * BYTES_PER_CHUNK);
+            let mut hasher = MerkleStream::new_for_leaf_count(N::to_usize());
 
             for item in vec {
-                leaves.extend_from_slice(&mut item.tree_hash_root()[..])
+                hasher
+                    .process_leaf(&item.tree_hash_root())
+                    .expect("ssz_types vec should not contain more elements than max");
             }
 
-            let minimum_chunk_count = N::to_usize();
-
-            (leaves, minimum_chunk_count)
+            hasher.finish()
         }
-    };
-
-    merkle_root(&leaves, minimum_chunk_count)
+    }
 }
 
 /// A helper function providing common functionality for finding the Merkle root of some bytes that
