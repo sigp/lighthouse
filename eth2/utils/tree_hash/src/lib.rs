@@ -27,8 +27,10 @@ pub fn merkle_root(bytes: &[u8], minimum_chunk_count: usize) -> Hash256 {
 ///
 /// Used in `TreeHash` for inserting the length of a list above it's root.
 pub fn mix_in_length(root: &Hash256, length: usize) -> Hash256 {
-    let mut length_bytes = length.to_le_bytes().to_vec();
-    length_bytes.resize(BYTES_PER_CHUNK, 0);
+    let usize_len = std::mem::size_of::<usize>();
+
+    let mut length_bytes = [0; BYTES_PER_CHUNK];
+    length_bytes[0..usize_len].copy_from_slice(&length.to_le_bytes());
 
     Hash256::from_slice(&eth2_hashing::hash32_concat(root.as_bytes(), &length_bytes)[..])
 }
