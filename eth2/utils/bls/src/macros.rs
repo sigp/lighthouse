@@ -62,7 +62,14 @@ macro_rules! impl_tree_hash {
                 // unnecessary copying and allocation (one Vec per byte)
                 let values_per_chunk = tree_hash::BYTES_PER_CHUNK;
                 let minimum_chunk_count = ($byte_size + values_per_chunk - 1) / values_per_chunk;
-                tree_hash::merkle_root(&self.as_ssz_bytes(), minimum_chunk_count)
+
+                let mut hasher = tree_hash::MerkleStream::new_for_leaf_count(minimum_chunk_count);
+                hasher
+                    .write(&self.as_ssz_bytes())
+                    .expect("bls should not exceed leaf count");
+                hasher
+                    .finish()
+                    .expect("bls should not exceed leaf count from buffer")
             }
         }
     };
@@ -175,7 +182,28 @@ macro_rules! bytes_struct {
 
         impl_ssz!($name, $byte_size, "$type");
 
-        impl_tree_hash!($name, $byte_size);
+        impl tree_hash::TreeHash for $name {
+            fn tree_hash_type() -> tree_hash::TreeHashType {
+                tree_hash::TreeHashType::Vector
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                unreachable!("Vector should never be packed.")
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                unreachable!("Vector should never be packed.")
+            }
+
+            fn tree_hash_root(&self) -> tree_hash::Hash256 {
+                let values_per_chunk = tree_hash::BYTES_PER_CHUNK;
+                let minimum_chunk_count = ($byte_size + values_per_chunk - 1) / values_per_chunk;
+
+                let mut hasher = tree_hash::MerkleStream::new_for_leaf_count(minimum_chunk_count);
+                hasher.write(&self.bytes).expect("bls should not exceed leaf count");
+                hasher.finish().expect("bls should not exceed leaf count from buffer")
+            }
+        }
 
         impl serde::ser::Serialize for $name {
             /// Serde serialization is compliant the Ethereum YAML test format.
