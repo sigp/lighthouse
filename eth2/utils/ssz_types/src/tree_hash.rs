@@ -1,4 +1,4 @@
-use tree_hash::{Hash256, MerkleStream, TreeHash, TreeHashType, BYTES_PER_CHUNK, HASHSIZE};
+use tree_hash::{Hash256, MerkleStream, TreeHash, TreeHashType, BYTES_PER_CHUNK};
 use typenum::Unsigned;
 
 /// A helper function providing common functionality between the `TreeHash` implementations for
@@ -48,13 +48,9 @@ pub fn bitfield_bytes_tree_hash_root<N: Unsigned>(bytes: &[u8]) -> Hash256 {
 
     let mut hasher = MerkleStream::new_for_leaf_count(leaf_count);
 
-    let mut ptr = 0;
-    while ptr <= bytes.len() {
-        hasher
-            .write(&bytes[ptr..std::cmp::min(bytes.len(), ptr + HASHSIZE)])
-            .expect("bitfield should not exceed leaf limit");
-        ptr += HASHSIZE
-    }
+    hasher
+        .write(bytes)
+        .expect("bitfield should not exceed tree hash leaf limit");
 
     hasher
         .finish()

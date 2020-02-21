@@ -181,33 +181,40 @@ impl MerkleStream {
         }
     }
 
+    /// Write some bytes to the hasher.
+    ///
+    /// ## Errors
+    ///
+    /// Returns an error if the given bytes would create a leaf that would exceed the maximum
+    /// permissible number of leaves defined by the initialization `depth`. E.g., a tree of `depth
+    /// == 2` can only accept 2 leaves. A tree of `depth == 14` can only accept 8,192 leaves.
     pub fn write(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        if self.buffer.is_empty() && bytes.len() == HASHSIZE {
-            self.process_leaf(bytes)
-        } else if self.buffer.is_empty() && bytes.len() > HASHSIZE {
-            let (left, right) = bytes.split_at(HASHSIZE);
-            self.process_leaf(left)?;
-            self.write(right)
-        } else if self.buffer.len() + bytes.len() < HASHSIZE {
-            self.buffer.extend_from_slice(bytes);
-            Ok(())
-        } else {
-            let buf_len = self.buffer.len();
-            let (left, right) = bytes.split_at(HASHSIZE - buf_len);
+        let mut ptr = 0;
+        while ptr <= bytes.len() {
+            let slice = &bytes[ptr..std::cmp::min(bytes.len(), ptr + HASHSIZE)];
 
-            let mut leaf = [0; HASHSIZE];
-            leaf[..buf_len].copy_from_slice(&self.buffer);
-            leaf[buf_len..].copy_from_slice(left);
-
-            self.process_leaf(&leaf)?;
-            self.buffer = smallvec![];
-
-            if !right.is_empty() {
-                self.write(right)
+            if self.buffer.is_empty() && slice.len() == HASHSIZE {
+                self.process_leaf(slice)?;
+                ptr += HASHSIZE
+            } else if self.buffer.len() + slice.len() < HASHSIZE {
+                self.buffer.extend_from_slice(slice);
+                ptr += HASHSIZE
             } else {
-                Ok(())
+                let buf_len = self.buffer.len();
+                let required = HASHSIZE - buf_len;
+
+                let mut leaf = [0; HASHSIZE];
+                leaf[..buf_len].copy_from_slice(&self.buffer);
+                leaf[buf_len..].copy_from_slice(&slice[0..required]);
+
+                self.process_leaf(&leaf)?;
+                self.buffer = smallvec![];
+
+                ptr += required
             }
         }
+
+        Ok(())
     }
 
     /// Process the next leaf in the tree.
@@ -242,6 +249,11 @@ impl MerkleStream {
     ///
     /// If not all leaves have been provided, the tree will be efficiently completed under the
     /// assumption that all not-yet-provided leaves are equal to `[0; 32]`.
+    ///
+    /// ## Errors
+    ///
+    /// Returns an error if the bytes remaining in the buffer would create a leaf that would exceed
+    /// the maximum permissible number of leaves defined by the initialization `depth`.
     pub fn finish(mut self) -> Result<Hash256, Error> {
         if !self.buffer.is_empty() {
             let mut leaf = [0; HASHSIZE];
