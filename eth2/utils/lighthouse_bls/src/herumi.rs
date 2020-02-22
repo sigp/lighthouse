@@ -60,11 +60,15 @@ impl TSignature<PublicKey> for Signature {
     }
 }
 
-impl TSecretKey<Signature> for SecretKey {
+impl TSecretKey<Signature, PublicKey> for SecretKey {
     fn random() -> Self {
         let mut sk = Self::default();
         sk.set_by_csprng();
         sk
+    }
+
+    fn public_key(&self) -> PublicKey {
+        self.get_publickey()
     }
 
     fn sign(&mut self, msg: &[u8]) -> Signature {

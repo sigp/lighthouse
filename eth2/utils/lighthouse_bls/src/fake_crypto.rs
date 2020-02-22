@@ -59,9 +59,13 @@ impl TSignature<PublicKey> for Signature {
 
 pub struct SecretKey([u8; SECRET_KEY_BYTES_LEN]);
 
-impl TSecretKey<Signature> for SecretKey {
+impl TSecretKey<Signature, PublicKey> for SecretKey {
     fn random() -> Self {
         Self([0; SECRET_KEY_BYTES_LEN])
+    }
+
+    fn public_key(&self) -> PublicKey {
+        PublicKey::zero()
     }
 
     fn sign(&mut self, _msg: &[u8]) -> Signature {

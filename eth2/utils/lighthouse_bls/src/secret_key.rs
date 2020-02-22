@@ -5,27 +5,35 @@ use tree_hash::TreeHash;
 
 pub const SECRET_KEY_BYTES_LEN: usize = 48;
 
-pub trait TSecretKey<Signature>: Sized {
+pub trait TSecretKey<Signature, PublicKey>: Sized {
     fn random() -> Self;
 
     fn sign(&mut self, msg: &[u8]) -> Signature;
+
+    fn public_key(&self) -> PublicKey;
 
     fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN];
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 }
 
-pub struct SecretKey<Signature, T: TSecretKey<Signature>> {
+pub struct SecretKey<Signature, PublicKey, T: TSecretKey<Signature, PublicKey>> {
     point: T,
-    _phantom: PhantomData<Signature>,
+    _phantom_signature: PhantomData<Signature>,
+    _phantom_public_key: PhantomData<PublicKey>,
 }
 
-impl<Signature, T: TSecretKey<Signature>> SecretKey<Signature, T> {
+impl<Signature, PublicKey, T: TSecretKey<Signature, PublicKey>> SecretKey<Signature, PublicKey, T> {
     pub fn random() -> Self {
         Self {
             point: T::random(),
-            _phantom: PhantomData,
+            _phantom_signature: PhantomData,
+            _phantom_public_key: PhantomData,
         }
+    }
+
+    pub fn public_key(&self) -> PublicKey {
+        self.point.public_key()
     }
 
     pub fn sign(&mut self, msg: &[u8]) -> Signature {
@@ -39,19 +47,26 @@ impl<Signature, T: TSecretKey<Signature>> SecretKey<Signature, T> {
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self {
             point: T::deserialize(bytes)?,
-            _phantom: PhantomData,
+            _phantom_signature: PhantomData,
+            _phantom_public_key: PhantomData,
         })
     }
 }
 
-impl<Signature, T: TSecretKey<Signature>> Encode for SecretKey<Signature, T> {
+impl<Signature, PublicKey, T: TSecretKey<Signature, PublicKey>> Encode
+    for SecretKey<Signature, PublicKey, T>
+{
     impl_ssz_encode!(SECRET_KEY_BYTES_LEN);
 }
 
-impl<Signature, T: TSecretKey<Signature>> Decode for SecretKey<Signature, T> {
+impl<Signature, PublicKey, T: TSecretKey<Signature, PublicKey>> Decode
+    for SecretKey<Signature, PublicKey, T>
+{
     impl_ssz_decode!(SECRET_KEY_BYTES_LEN);
 }
 
-impl<Signature, T: TSecretKey<Signature>> TreeHash for SecretKey<Signature, T> {
+impl<Signature, PublicKey, T: TSecretKey<Signature, PublicKey>> TreeHash
+    for SecretKey<Signature, PublicKey, T>
+{
     impl_tree_hash!(SECRET_KEY_BYTES_LEN);
 }

@@ -36,8 +36,11 @@ macro_rules! define_mod {
             pub type PublicKey = crate::public_key::PublicKey<bls_variant::PublicKey>;
             pub type Signature =
                 crate::signature::Signature<bls_variant::PublicKey, bls_variant::Signature>;
-            pub type SecretKey =
-                crate::secret_key::SecretKey<bls_variant::Signature, bls_variant::SecretKey>;
+            pub type SecretKey = crate::secret_key::SecretKey<
+                bls_variant::Signature,
+                bls_variant::PublicKey,
+                bls_variant::SecretKey,
+            >;
         }
     };
 }
