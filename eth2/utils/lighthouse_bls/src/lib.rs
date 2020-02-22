@@ -2,6 +2,7 @@
 mod macros;
 mod fake_crypto;
 mod herumi;
+mod keypair;
 mod milagro;
 mod public_key;
 mod public_key_bytes;
@@ -49,6 +50,11 @@ macro_rules! define_mod {
                 bls_variant::Signature,
                 bls_variant::PublicKey,
                 bls_variant::SecretKey,
+            >;
+            pub type Keypair = crate::keypair::Keypair<
+                bls_variant::PublicKey,
+                bls_variant::SecretKey,
+                bls_variant::Signature,
             >;
         }
     };
