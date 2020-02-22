@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
 pub const SIGNATURE_BYTES_LEN: usize = 96;
+pub const MSG_SIZE: usize = 32;
 
 pub trait TSignature<PublicKey>: Sized {
     fn zero() -> Self;
@@ -16,7 +17,7 @@ pub trait TSignature<PublicKey>: Sized {
 
     fn verify(&self, pubkey: &PublicKey, msg: &[u8]) -> bool;
 
-    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msg: &[u8]) -> bool;
+    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[[u8; MSG_SIZE]]) -> bool;
 }
 
 pub struct Signature<PublicKey, T: TSignature<PublicKey>> {
@@ -48,11 +49,11 @@ impl<PublicKey, T: TSignature<PublicKey>> Signature<PublicKey, T> {
     }
 
     pub fn verify(&self, pubkey: &PublicKey, msg: &[u8]) -> bool {
-        self.verify(pubkey, msg)
+        self.point.verify(pubkey, msg)
     }
 
-    pub fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msg: &[u8]) -> bool {
-        self.fast_aggregate_verify(pubkeys, msg)
+    pub fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[[u8; MSG_SIZE]]) -> bool {
+        self.point.fast_aggregate_verify(pubkeys, msgs)
     }
 }
 

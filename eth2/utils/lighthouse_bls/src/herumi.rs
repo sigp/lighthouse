@@ -1,7 +1,7 @@
 use crate::{
     public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error,
+    Error, MSG_SIZE,
 };
 use bls_eth_rust::{PublicKey, Signature};
 
@@ -48,7 +48,13 @@ impl TSignature<PublicKey> for Signature {
         self.verify(pubkey, msg)
     }
 
-    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msg: &[u8]) -> bool {
-        self.fast_aggregate_verify(pubkeys, msg)
+    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[[u8; MSG_SIZE]]) -> bool {
+        let msg = msgs
+            .iter()
+            .map(|a| a.to_vec())
+            .flatten()
+            .collect::<Vec<_>>();
+
+        self.fast_aggregate_verify(pubkeys, &msg)
     }
 }
