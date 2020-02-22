@@ -1,5 +1,6 @@
 use crate::{
     public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, MSG_SIZE,
 };
@@ -53,5 +54,29 @@ impl TSignature<PublicKey> for Signature {
 
     fn fast_aggregate_verify(&self, _pubkeys: &[PublicKey], _msgs: &[[u8; MSG_SIZE]]) -> bool {
         true
+    }
+}
+
+pub struct SecretKey([u8; SECRET_KEY_BYTES_LEN]);
+
+impl TSecretKey<Signature> for SecretKey {
+    fn random() -> Self {
+        Self([0; SECRET_KEY_BYTES_LEN])
+    }
+
+    fn sign(&mut self, _msg: &[u8]) -> Signature {
+        Signature::zero()
+    }
+
+    fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {
+        let mut bytes = [0; SECRET_KEY_BYTES_LEN];
+        bytes[..].copy_from_slice(&self.0[..]);
+        bytes
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        let mut sk = Self::random();
+        sk.0[..].copy_from_slice(&bytes[0..SECRET_KEY_BYTES_LEN]);
+        Ok(sk)
     }
 }

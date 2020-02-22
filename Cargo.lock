@@ -2388,6 +2388,7 @@ dependencies = [
  "bls_eth_rust 0.0.2 (git+https://github.com/herumi/bls-eth-rust.git)",
  "eth2_ssz 0.1.2",
  "milagro_bls 1.0.0 (git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10)",
+ "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "tree_hash 0.1.1",
 ]
 

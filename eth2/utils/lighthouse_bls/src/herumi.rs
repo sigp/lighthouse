@@ -1,9 +1,10 @@
 use crate::{
     public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, MSG_SIZE,
 };
-use bls_eth_rust::{PublicKey, Signature};
+pub use bls_eth_rust::{PublicKey, SecretKey, Signature};
 
 impl TPublicKey for PublicKey {
     fn zero() -> Self {
@@ -56,5 +57,27 @@ impl TSignature<PublicKey> for Signature {
             .collect::<Vec<_>>();
 
         self.fast_aggregate_verify(pubkeys, &msg)
+    }
+}
+
+impl TSecretKey<Signature> for SecretKey {
+    fn random() -> Self {
+        let mut sk = Self::default();
+        sk.set_by_csprng();
+        sk
+    }
+
+    fn sign(&mut self, msg: &[u8]) -> Signature {
+        SecretKey::sign(self, msg)
+    }
+
+    fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {
+        let mut bytes = [0; SECRET_KEY_BYTES_LEN];
+        bytes[..].copy_from_slice(&self.serialize());
+        bytes
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        Self::from_serialized(bytes).map_err(Into::into)
     }
 }

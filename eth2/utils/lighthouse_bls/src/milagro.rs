@@ -1,9 +1,11 @@
 use crate::{
     public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, MSG_SIZE,
 };
-use milagro_bls::{AggregatePublicKey as PublicKey, AggregateSignature};
+pub use milagro_bls::{AggregatePublicKey as PublicKey, AggregateSignature, SecretKey};
+use rand::thread_rng;
 
 impl TPublicKey for PublicKey {
     fn zero() -> Self {
@@ -27,6 +29,7 @@ impl TPublicKey for PublicKey {
 
 pub struct Signature {
     signature: AggregateSignature,
+    // TODO: make this an option.
     is_empty: bool,
 }
 
@@ -35,7 +38,7 @@ impl TSignature<PublicKey> for Signature {
         Self {
             signature: AggregateSignature::new(),
             // The `zero()` function creates a signature at the zero point, _not_ from all zero
-            // bytes. Only a signature will all zero bytes is considered "empty".
+            // bytes. Only a signature with all zero bytes is considered "empty".
             is_empty: false,
         }
     }
@@ -94,5 +97,25 @@ impl TSignature<PublicKey> for Signature {
             self.signature
                 .verify_multiple(&msg_slices[..], &pubkey_refs[..])
         }
+    }
+}
+
+impl TSecretKey<Signature> for SecretKey {
+    fn random() -> Self {
+        Self::random(&mut thread_rng())
+    }
+
+    fn sign(&mut self, _msg: &[u8]) -> Signature {
+        Signature::zero()
+    }
+
+    fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {
+        let mut bytes = [0; SECRET_KEY_BYTES_LEN];
+        bytes[..].copy_from_slice(&self.as_bytes());
+        bytes
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        Self::from_bytes(&bytes).map_err(Into::into)
     }
 }

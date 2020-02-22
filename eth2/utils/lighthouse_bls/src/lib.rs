@@ -28,28 +28,28 @@ impl From<milagro_bls::DecodeError> for Error {
     }
 }
 
+macro_rules! define_mod {
+    ($name: ident, $mod: path) => {
+        pub mod $name {
+            use $mod as bls_variant;
+
+            pub type PublicKey = crate::public_key::PublicKey<bls_variant::PublicKey>;
+            pub type Signature =
+                crate::signature::Signature<bls_variant::PublicKey, bls_variant::Signature>;
+            pub type SecretKey =
+                crate::secret_key::SecretKey<bls_variant::Signature, bls_variant::SecretKey>;
+        }
+    };
+}
+
+define_mod!(herumi_implementations, crate::herumi);
 #[cfg(feature = "herumi")]
 pub use herumi_implementations::*;
 
-pub mod herumi_implementations {
-    pub type PublicKey = crate::public_key::PublicKey<bls_eth_rust::PublicKey>;
-    pub type Signature =
-        crate::signature::Signature<bls_eth_rust::PublicKey, bls_eth_rust::Signature>;
-}
-
+define_mod!(fake_crypto_implementations, crate::fake_crypto);
 #[cfg(feature = "fake_crypto")]
 pub use fake_crypto_implementations::*;
 
-pub mod fake_crypto_implementations {
-    pub type PublicKey = crate::public_key::PublicKey<crate::fake_crypto::PublicKey>;
-    pub type Signature =
-        crate::signature::Signature<crate::fake_crypto::PublicKey, crate::fake_crypto::Signature>;
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+define_mod!(milagro_implementations, crate::milagro);
+#[cfg(feature = "milagro")]
+pub use milagro_implementations::*;
