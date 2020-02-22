@@ -4,8 +4,10 @@ mod fake_crypto;
 mod herumi;
 mod milagro;
 mod public_key;
+mod public_key_bytes;
 mod secret_key;
 mod signature;
+mod signature_bytes;
 
 pub use public_key::PUBLIC_KEY_BYTES_LEN;
 pub use signature::{MSG_SIZE, SIGNATURE_BYTES_LEN};
@@ -14,6 +16,7 @@ pub use signature::{MSG_SIZE, SIGNATURE_BYTES_LEN};
 pub enum Error {
     HerumiError(bls_eth_rust::BlsError),
     MilagroError(milagro_bls::DecodeError),
+    InvalidByteLength { got: usize, expected: usize },
 }
 
 impl From<bls_eth_rust::BlsError> for Error {
@@ -34,8 +37,14 @@ macro_rules! define_mod {
             use $mod as bls_variant;
 
             pub type PublicKey = crate::public_key::PublicKey<bls_variant::PublicKey>;
+            pub type PublicKeyBytes =
+                crate::public_key_bytes::PublicKeyBytes<bls_variant::PublicKey>;
             pub type Signature =
                 crate::signature::Signature<bls_variant::PublicKey, bls_variant::Signature>;
+            pub type SignatureBytes = crate::signature_bytes::SignatureBytes<
+                bls_variant::Signature,
+                bls_variant::PublicKey,
+            >;
             pub type SecretKey = crate::secret_key::SecretKey<
                 bls_variant::Signature,
                 bls_variant::PublicKey,
