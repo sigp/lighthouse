@@ -71,7 +71,7 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
         self.get_publickey()
     }
 
-    fn sign(&mut self, msg: &[u8]) -> Signature {
+    fn sign(&self, msg: &[u8]) -> Signature {
         SecretKey::sign(self, msg)
     }
 

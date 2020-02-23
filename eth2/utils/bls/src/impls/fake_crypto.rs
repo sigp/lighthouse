@@ -68,7 +68,7 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
         PublicKey::zero()
     }
 
-    fn sign(&mut self, _msg: &[u8]) -> Signature {
+    fn sign(&self, _msg: &[u8]) -> Signature {
         Signature::zero()
     }
 

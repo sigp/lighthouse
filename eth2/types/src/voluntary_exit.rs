@@ -1,5 +1,5 @@
 use crate::{
-    test_utils::TestRandom, ChainSpec, Domain, Epoch, Fork, SecretKey, Signature, SignedRoot,
+    test_utils::TestRandom, ChainSpec, Domain, Epoch, Fork, SecretKey, SignedRoot,
     SignedVoluntaryExit,
 };
 

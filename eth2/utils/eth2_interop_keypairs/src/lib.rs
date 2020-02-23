@@ -19,8 +19,8 @@
 #[macro_use]
 extern crate lazy_static;
 
+use bls::{Keypair, PublicKey, SecretKey};
 use eth2_hashing::hash;
-use milagro_bls::{Keypair, PublicKey, SecretKey};
 use num_bigint::BigUint;
 use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
@@ -58,17 +58,14 @@ pub fn be_private_key(validator_index: usize) -> [u8; PRIVATE_KEY_BYTES] {
 
 /// Return a public and private keypair for a given `validator_index`.
 pub fn keypair(validator_index: usize) -> Keypair {
-    let sk = SecretKey::from_bytes(&be_private_key(validator_index)).unwrap_or_else(|_| {
+    let sk = SecretKey::deserialize(&be_private_key(validator_index)).unwrap_or_else(|_| {
         panic!(
             "Should build valid private key for validator index {}",
             validator_index
         )
     });
 
-    Keypair {
-        pk: PublicKey::from_secret_key(&sk),
-        sk,
-    }
+    Keypair::from_components(sk.public_key(), sk)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -93,18 +90,18 @@ impl TryInto<Keypair> for YamlKeypair {
         let sk = {
             let mut bytes = vec![0; PRIVATE_KEY_BYTES - privkey.len()];
             bytes.extend_from_slice(&privkey);
-            SecretKey::from_bytes(&bytes)
+            SecretKey::deserialize(&bytes)
                 .map_err(|e| format!("Failed to decode bytes into secret key: {:?}", e))?
         };
 
         let pk = {
             let mut bytes = vec![0; PUBLIC_KEY_BYTES - pubkey.len()];
             bytes.extend_from_slice(&pubkey);
-            PublicKey::from_bytes(&bytes)
+            PublicKey::deserialize(&bytes)
                 .map_err(|e| format!("Failed to decode bytes into public key: {:?}", e))?
         };
 
-        Ok(Keypair { pk, sk })
+        Ok(Keypair::from_components(pk, sk))
     }
 }
 

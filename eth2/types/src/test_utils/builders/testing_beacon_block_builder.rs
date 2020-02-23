@@ -104,12 +104,12 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         let epoch = self.block.slot.epoch(T::slots_per_epoch());
         let domain = spec.get_domain(epoch, Domain::Randao, fork);
         let message = epoch.signing_root(domain);
-        self.block.body.randao_reveal = Signature::new(message.as_bytes(), sk);
+        self.block.body.randao_reveal = sk.sign(message.as_bytes());
     }
 
     /// Has the randao reveal been set?
     pub fn randao_reveal_not_set(&mut self) -> bool {
-        self.block.body.randao_reveal.is_empty()
+        self.block.body.randao_reveal == Signature::zero()
     }
 
     /// Inserts a signed, valid `ProposerSlashing` for the validator.
@@ -369,7 +369,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
     pub fn build_without_signing(self) -> SignedBeaconBlock<T> {
         SignedBeaconBlock {
             message: self.block,
-            signature: Signature::empty_signature(),
+            signature: Signature::zero(),
         }
     }
 }
@@ -408,7 +408,7 @@ pub fn build_double_vote_attester_slashing<T: EthSpec>(
             .iter()
             .position(|&i| i == validator_index)
             .expect("Unable to find attester slashing key");
-        Signature::new(message, secret_keys[key_index])
+        secret_keys[key_index].sign(message)
     };
 
     TestingAttesterSlashingBuilder::double_vote(test_task, validator_indices, signer, fork, spec)

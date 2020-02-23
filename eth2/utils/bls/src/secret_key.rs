@@ -12,7 +12,7 @@ pub const SECRET_KEY_BYTES_LEN: usize = 48;
 pub trait TSecretKey<SignaturePoint, PublicKeyPoint>: Sized {
     fn random() -> Self;
 
-    fn sign(&mut self, msg: &[u8]) -> SignaturePoint;
+    fn sign(&self, msg: &[u8]) -> SignaturePoint;
 
     fn public_key(&self) -> PublicKeyPoint;
 
@@ -49,7 +49,7 @@ where
         PublicKey::from_point(self.point.public_key())
     }
 
-    pub fn sign(&mut self, msg: &[u8]) -> Signature<Pub, Sig> {
+    pub fn sign(&self, msg: &[u8]) -> Signature<Pub, Sig> {
         Signature::from_point(self.point.sign(msg))
     }
 

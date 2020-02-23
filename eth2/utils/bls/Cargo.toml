@@ -17,6 +17,7 @@ serde = "1.0.102"
 serde_derive = "1.0.102"
 serde_hex = { path = "../serde_hex" }
 hex = "0.3"
+eth2_hashing = "0.1.0"
 
 [features]
 default = ["milagro"]

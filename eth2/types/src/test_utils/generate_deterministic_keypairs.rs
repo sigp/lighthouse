@@ -27,20 +27,10 @@ pub fn generate_deterministic_keypairs(validator_count: usize) -> Vec<Keypair> {
 ///
 /// This is used for testing only, and not to be used in production!
 pub fn generate_deterministic_keypair(validator_index: usize) -> Keypair {
-    let raw = keypair(validator_index);
-    Keypair {
-        pk: PublicKey::from_raw(raw.pk),
-        sk: SecretKey::from_raw(raw.sk),
-    }
+    keypair(validator_index)
 }
 
 /// Loads a list of keypairs from file.
 pub fn load_keypairs_from_yaml(path: PathBuf) -> Result<Vec<Keypair>, String> {
-    Ok(keypairs_from_yaml_file(path)?
-        .into_iter()
-        .map(|raw| Keypair {
-            pk: PublicKey::from_raw(raw.pk),
-            sk: SecretKey::from_raw(raw.sk),
-        })
-        .collect())
+    keypairs_from_yaml_file(path)
 }
