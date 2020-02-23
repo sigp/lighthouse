@@ -1,43 +1,48 @@
-use ssz::{Decode, DecodeError, Encode};
+use crate::{public_key::TPublicKey, Error, PUBLIC_KEY_BYTES_LEN};
+use ssz::{Decode, Encode};
+use std::marker::PhantomData;
+use tree_hash::TreeHash;
 
-use super::{PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
+#[derive(Clone)]
+pub struct PublicKeyBytes<T> {
+    bytes: [u8; PUBLIC_KEY_BYTES_LEN],
+    _phantom: PhantomData<T>,
+}
 
-bytes_struct!(
-    PublicKeyBytes,
-    PublicKey,
-    BLS_PUBLIC_KEY_BYTE_SIZE,
-    "public key"
-);
-
-#[cfg(test)]
-mod tests {
-    use std::convert::TryInto;
-
-    use ssz::ssz_encode;
-
-    use super::super::Keypair;
-    use super::*;
-
-    #[test]
-    pub fn test_valid_public_key() {
-        let keypair = Keypair::random();
-
-        let bytes = ssz_encode(&keypair.pk);
-        let public_key_bytes = PublicKeyBytes::from_bytes(&bytes).unwrap();
-        let public_key: Result<PublicKey, _> = (&public_key_bytes).try_into();
-        assert!(public_key.is_ok());
-        assert_eq!(keypair.pk, public_key.unwrap());
+impl<T: TPublicKey> PublicKeyBytes<T> {
+    pub fn decompress(&self) -> Result<T, Error> {
+        T::deserialize(&self.bytes)
     }
 
-    #[test]
-    #[cfg(not(feature = "fake_crypto"))]
-    pub fn test_invalid_public_key() {
-        let mut public_key_bytes = [0; BLS_PUBLIC_KEY_BYTE_SIZE];
-        public_key_bytes[0] = 255; //a_flag1 == b_flag1 == c_flag1 == 1 and x1 = 0 shouldn't be allowed
-        let public_key_bytes = PublicKeyBytes::from_bytes(&public_key_bytes[..]);
-        assert!(public_key_bytes.is_ok());
-
-        let public_key: Result<PublicKey, _> = public_key_bytes.as_ref().unwrap().try_into();
-        assert!(public_key.is_err());
+    pub fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
+        self.bytes.clone()
     }
+
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.len() == PUBLIC_KEY_BYTES_LEN {
+            let mut pk_bytes = [0; PUBLIC_KEY_BYTES_LEN];
+            pk_bytes[..].copy_from_slice(bytes);
+            Ok(Self {
+                bytes: pk_bytes,
+                _phantom: PhantomData,
+            })
+        } else {
+            Err(Error::InvalidByteLength {
+                got: bytes.len(),
+                expected: PUBLIC_KEY_BYTES_LEN,
+            })
+        }
+    }
+}
+
+impl<T: TPublicKey> Encode for PublicKeyBytes<T> {
+    impl_ssz_encode!(PUBLIC_KEY_BYTES_LEN);
+}
+
+impl<T: TPublicKey> Decode for PublicKeyBytes<T> {
+    impl_ssz_decode!(PUBLIC_KEY_BYTES_LEN);
+}
+
+impl<T: TPublicKey> TreeHash for PublicKeyBytes<T> {
+    impl_tree_hash!(PUBLIC_KEY_BYTES_LEN);
 }

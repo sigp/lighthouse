@@ -1,42 +1,68 @@
-use super::{PublicKey, SecretKey};
-use serde_derive::{Deserialize, Serialize};
-use std::fmt;
-use std::hash::{Hash, Hasher};
+use crate::{
+    public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
+    Error,
+};
+use ssz::{Decode, Encode};
+use std::marker::PhantomData;
+use tree_hash::TreeHash;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Keypair {
-    pub sk: SecretKey,
-    pub pk: PublicKey,
+pub const KEYPAIR_BYTES_LEN: usize = PUBLIC_KEY_BYTES_LEN + SECRET_KEY_BYTES_LEN;
+
+#[derive(Clone)]
+pub struct Keypair<PK, SK, Signature> {
+    pk: PK,
+    sk: SK,
+    _phantom: PhantomData<Signature>,
 }
 
-impl Keypair {
-    /// Instantiate a Keypair using SecretKey::random().
+impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Keypair<PK, SK, Signature> {
     pub fn random() -> Self {
-        let sk = SecretKey::random();
-        let pk = PublicKey::from_secret_key(&sk);
-        Keypair { sk, pk }
+        let sk = SK::random();
+        Self {
+            pk: sk.public_key(),
+            sk,
+            _phantom: PhantomData,
+        }
     }
 
-    pub fn identifier(&self) -> String {
-        self.pk.concatenated_hex_id()
+    pub fn serialize(&self) -> [u8; KEYPAIR_BYTES_LEN] {
+        let mut bytes = [0; KEYPAIR_BYTES_LEN];
+        bytes[..SECRET_KEY_BYTES_LEN].copy_from_slice(&self.sk.serialize());
+        bytes[SECRET_KEY_BYTES_LEN..].copy_from_slice(&self.pk.serialize());
+        bytes
+    }
+
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.len() == KEYPAIR_BYTES_LEN {
+            Ok(Self {
+                sk: SK::deserialize(&bytes[..SECRET_KEY_BYTES_LEN])?,
+                pk: PK::deserialize(&bytes[SECRET_KEY_BYTES_LEN..])?,
+                _phantom: PhantomData,
+            })
+        } else {
+            Err(Error::InvalidByteLength {
+                got: bytes.len(),
+                expected: KEYPAIR_BYTES_LEN,
+            })
+        }
     }
 }
 
-#[allow(clippy::derive_hash_xor_eq)]
-impl Hash for Keypair {
-    /// Note: this is distinct from consensus serialization, it will produce a different hash.
-    ///
-    /// This method uses the uncompressed bytes, which are much faster to obtain than the
-    /// compressed bytes required for consensus serialization.
-    ///
-    /// Use `ssz::Encode` to obtain the bytes required for consensus hashing.
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.pk.as_uncompressed_bytes().hash(state)
-    }
+impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Encode
+    for Keypair<PK, SK, Signature>
+{
+    impl_ssz_encode!(KEYPAIR_BYTES_LEN);
 }
 
-impl fmt::Display for Keypair {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.pk)
-    }
+impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Decode
+    for Keypair<PK, SK, Signature>
+{
+    impl_ssz_decode!(KEYPAIR_BYTES_LEN);
+}
+
+impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> TreeHash
+    for Keypair<PK, SK, Signature>
+{
+    impl_tree_hash!(KEYPAIR_BYTES_LEN);
 }
