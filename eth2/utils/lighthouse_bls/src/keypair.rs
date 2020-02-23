@@ -51,17 +51,17 @@ impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Keypair<PK, SK, S
 impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Encode
     for Keypair<PK, SK, Signature>
 {
-    impl_ssz_encode!(PUBLIC_KEY_BYTES_LEN);
+    impl_ssz_encode!(KEYPAIR_BYTES_LEN);
 }
 
 impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Decode
     for Keypair<PK, SK, Signature>
 {
-    impl_ssz_decode!(PUBLIC_KEY_BYTES_LEN);
+    impl_ssz_decode!(KEYPAIR_BYTES_LEN);
 }
 
 impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> TreeHash
     for Keypair<PK, SK, Signature>
 {
-    impl_tree_hash!(PUBLIC_KEY_BYTES_LEN);
+    impl_tree_hash!(KEYPAIR_BYTES_LEN);
 }
