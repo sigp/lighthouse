@@ -1,5 +1,9 @@
 use crate::Error;
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
+use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
+use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
@@ -20,7 +24,7 @@ pub trait TSignature<PublicKey>: Sized {
     fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[[u8; MSG_SIZE]]) -> bool;
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Signature<PublicKey, T: TSignature<PublicKey>> {
     point: T,
     _phantom: PhantomData<PublicKey>,
@@ -68,4 +72,16 @@ impl<PublicKey, T: TSignature<PublicKey>> Decode for Signature<PublicKey, T> {
 
 impl<PublicKey, T: TSignature<PublicKey>> TreeHash for Signature<PublicKey, T> {
     impl_tree_hash!(SIGNATURE_BYTES_LEN);
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> Serialize for Signature<PublicKey, T> {
+    impl_serde_serialize!();
+}
+
+impl<'de, PublicKey, T: TSignature<PublicKey>> Deserialize<'de> for Signature<PublicKey, T> {
+    impl_serde_deserialize!();
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> fmt::Debug for Signature<PublicKey, T> {
+    impl_debug!();
 }

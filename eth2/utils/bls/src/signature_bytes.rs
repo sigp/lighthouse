@@ -1,5 +1,9 @@
 use crate::{signature::TSignature, Error, SIGNATURE_BYTES_LEN};
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
+use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
+use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
@@ -37,6 +41,12 @@ impl<PublicKey, T: TSignature<PublicKey>> SignatureBytes<T, PublicKey> {
     }
 }
 
+impl<Signature, PublicKey> PartialEq for SignatureBytes<Signature, PublicKey> {
+    fn eq(&self, other: &Self) -> bool {
+        &self.bytes[..] == &other.bytes[..]
+    }
+}
+
 impl<PublicKey, T: TSignature<PublicKey>> Encode for SignatureBytes<T, PublicKey> {
     impl_ssz_encode!(SIGNATURE_BYTES_LEN);
 }
@@ -47,4 +57,16 @@ impl<PublicKey, T: TSignature<PublicKey>> Decode for SignatureBytes<T, PublicKey
 
 impl<PublicKey, T: TSignature<PublicKey>> TreeHash for SignatureBytes<T, PublicKey> {
     impl_tree_hash!(SIGNATURE_BYTES_LEN);
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> Serialize for SignatureBytes<T, PublicKey> {
+    impl_serde_serialize!();
+}
+
+impl<'de, PublicKey, T: TSignature<PublicKey>> Deserialize<'de> for SignatureBytes<T, PublicKey> {
+    impl_serde_deserialize!();
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> fmt::Debug for SignatureBytes<T, PublicKey> {
+    impl_debug!();
 }

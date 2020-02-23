@@ -360,8 +360,12 @@ version = "0.1.0"
 dependencies = [
  "bls_eth_rust 0.0.2 (git+https://github.com/herumi/bls-eth-rust.git)",
  "eth2_ssz 0.1.2",
+ "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "milagro_bls 1.0.0 (git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10)",
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_hex 0.1.0",
  "tree_hash 0.1.1",
 ]
 
@@ -2746,22 +2750,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "hermit-abi 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.66 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "old_bls"
-version = "0.1.0"
-dependencies = [
- "eth2_hashing 0.1.1",
- "eth2_ssz 0.1.2",
- "eth2_ssz_types 0.2.0",
- "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "milagro_bls 1.0.0 (git+https://github.com/sigp/milagro_bls?branch=eth2.0-v0.10)",
- "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_hex 0.1.0",
- "tree_hash 0.1.1",
 ]
 
 [[package]]

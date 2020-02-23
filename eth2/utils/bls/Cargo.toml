@@ -3,6 +3,7 @@ name = "bls"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
+links = "/home/paul/development/bls-eth-go-binary/bls/lib/linux/amd64/"
 
 [dependencies]
 bls_eth_rust = { git = "https://github.com/herumi/bls-eth-rust.git" }
@@ -10,6 +11,10 @@ eth2_ssz = "0.1.2"
 tree_hash = "0.1.0"
 milagro_bls = { git = "https://github.com/sigp/milagro_bls", branch = "eth2.0-v0.10" }
 rand = "0.7.2"
+serde = "1.0.102"
+serde_derive = "1.0.102"
+serde_hex = { path = "../serde_hex" }
+hex = "0.3"
 
 [features]
 default = ["milagro"]

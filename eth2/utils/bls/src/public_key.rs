@@ -1,5 +1,9 @@
 use crate::Error;
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
+use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
+use std::fmt;
 use tree_hash::TreeHash;
 
 pub const PUBLIC_KEY_BYTES_LEN: usize = 48;
@@ -49,4 +53,16 @@ impl<T: TPublicKey> Decode for PublicKey<T> {
 
 impl<T: TPublicKey> TreeHash for PublicKey<T> {
     impl_tree_hash!(PUBLIC_KEY_BYTES_LEN);
+}
+
+impl<T: TPublicKey> Serialize for PublicKey<T> {
+    impl_serde_serialize!();
+}
+
+impl<'de, T: TPublicKey> Deserialize<'de> for PublicKey<T> {
+    impl_serde_deserialize!();
+}
+
+impl<T: TPublicKey> fmt::Debug for PublicKey<T> {
+    impl_debug!();
 }

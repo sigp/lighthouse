@@ -1,5 +1,9 @@
 use crate::{public_key::TPublicKey, Error, PUBLIC_KEY_BYTES_LEN};
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
+use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
+use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
@@ -10,6 +14,13 @@ pub struct PublicKeyBytes<T> {
 }
 
 impl<T: TPublicKey> PublicKeyBytes<T> {
+    pub fn empty() -> Self {
+        Self {
+            bytes: [0; PUBLIC_KEY_BYTES_LEN],
+            _phantom: PhantomData,
+        }
+    }
+
     pub fn decompress(&self) -> Result<T, Error> {
         T::deserialize(&self.bytes)
     }
@@ -35,6 +46,12 @@ impl<T: TPublicKey> PublicKeyBytes<T> {
     }
 }
 
+impl<T> PartialEq for PublicKeyBytes<T> {
+    fn eq(&self, other: &Self) -> bool {
+        &self.bytes[..] == &other.bytes[..]
+    }
+}
+
 impl<T: TPublicKey> Encode for PublicKeyBytes<T> {
     impl_ssz_encode!(PUBLIC_KEY_BYTES_LEN);
 }
@@ -45,4 +62,16 @@ impl<T: TPublicKey> Decode for PublicKeyBytes<T> {
 
 impl<T: TPublicKey> TreeHash for PublicKeyBytes<T> {
     impl_tree_hash!(PUBLIC_KEY_BYTES_LEN);
+}
+
+impl<T: TPublicKey> Serialize for PublicKeyBytes<T> {
+    impl_serde_serialize!();
+}
+
+impl<'de, T: TPublicKey> Deserialize<'de> for PublicKeyBytes<T> {
+    impl_serde_deserialize!();
+}
+
+impl<T: TPublicKey> fmt::Debug for PublicKeyBytes<T> {
+    impl_debug!();
 }

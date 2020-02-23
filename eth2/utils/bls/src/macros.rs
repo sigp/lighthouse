@@ -66,3 +66,35 @@ macro_rules! impl_ssz_decode {
         }
     };
 }
+
+macro_rules! impl_serde_serialize {
+    () => {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(&hex_encode(self.serialize().to_vec()))
+        }
+    };
+}
+
+macro_rules! impl_serde_deserialize {
+    () => {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
+            Self::deserialize(&bytes[..])
+                .map_err(|e| serde::de::Error::custom(format!("invalid pubkey ({:?})", e)))
+        }
+    };
+}
+
+macro_rules! impl_debug {
+    () => {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "0x{}", hex_encode(&self.serialize().to_vec()))
+        }
+    };
+}

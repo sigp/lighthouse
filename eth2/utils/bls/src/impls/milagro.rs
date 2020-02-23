@@ -29,6 +29,7 @@ impl TPublicKey for PublicKey {
     }
 }
 
+#[derive(Clone, PartialEq)]
 pub struct Signature {
     signature: AggregateSignature,
     // TODO: make this an option.
