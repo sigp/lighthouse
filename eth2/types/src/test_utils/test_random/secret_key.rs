@@ -10,7 +10,7 @@ impl TestRandom for SecretKey {
          * fixed-length byte slice. Also, this should only be used during testing so a panic is
          * acceptable.
          */
-        match SecretKey::from_bytes(&key_bytes) {
+        match SecretKey::deserialize(&key_bytes) {
             Ok(key) => key,
             Err(_) => unreachable!(),
         }

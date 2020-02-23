@@ -38,6 +38,13 @@ impl<PublicKey, T: TSignature<PublicKey>> Signature<PublicKey, T> {
         }
     }
 
+    pub(crate) fn from_point(point: T) -> Self {
+        Self {
+            point,
+            _phantom: PhantomData,
+        }
+    }
+
     pub fn add_assign(&mut self, other: &Self) {
         self.point.add_assign(&other.point)
     }

@@ -41,7 +41,7 @@ impl TestingDepositBuilder {
                 // Creating invalid public key bytes
                 let mut public_key_bytes: Vec<u8> = vec![0; 48];
                 public_key_bytes[0] = 255;
-                pubkeybytes = PublicKeyBytes::from_bytes(&public_key_bytes).unwrap();
+                pubkeybytes = PublicKeyBytes::deserialize(&public_key_bytes).unwrap();
             }
             DepositTestTask::BadSig => secret_key = new_key.sk,
             _ => (),

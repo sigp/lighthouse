@@ -77,8 +77,5 @@ pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
 pub type Address = H160;
 
-pub use bls::{
-    AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
-    Signature, SignatureBytes,
-};
+pub use bls::{Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};

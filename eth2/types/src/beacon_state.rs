@@ -67,7 +67,7 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
     CachedTreeHashError(cached_tree_hash::Error),
-    InvalidValidatorPubkey(ssz::DecodeError),
+    InvalidValidatorPubkey(bls::Error),
     ValidatorRegistryShrunk,
     TreeHashCacheInconsistent,
 }

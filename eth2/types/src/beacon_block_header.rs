@@ -50,7 +50,7 @@ impl BeaconBlockHeader {
         let epoch = self.slot.epoch(E::slots_per_epoch());
         let domain = spec.get_domain(epoch, Domain::BeaconProposer, fork);
         let message = self.signing_root(domain);
-        let signature = Signature::new(message.as_bytes(), secret_key);
+        let signature = secret_key.sign(message.as_bytes());
         SignedBeaconBlockHeader {
             message: self,
             signature,

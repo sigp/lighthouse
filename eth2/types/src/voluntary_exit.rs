@@ -29,7 +29,7 @@ impl VoluntaryExit {
     ) -> SignedVoluntaryExit {
         let domain = spec.get_domain(self.epoch, Domain::VoluntaryExit, fork);
         let message = self.signing_root(domain);
-        let signature = Signature::new(message.as_bytes(), &secret_key);
+        let signature = secret_key.sign(message.as_bytes());
         SignedVoluntaryExit {
             message: self,
             signature,

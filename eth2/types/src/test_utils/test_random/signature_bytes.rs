@@ -1,17 +1,16 @@
-use bls::{SignatureBytes, BLS_SIG_BYTE_SIZE};
+use bls::{SignatureBytes, SIGNATURE_BYTES_LEN};
 
 use super::*;
-use std::convert::From;
 
 impl TestRandom for SignatureBytes {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         //50-50 chance for signature to be "valid" or invalid
         if bool::random_for_test(rng) {
             //valid signature
-            SignatureBytes::from(Signature::random_for_test(rng))
+            SignatureBytes::from(Signature::random_for_test(rng).serialize())
         } else {
             //invalid signature, just random bytes
-            SignatureBytes::from_bytes(&<[u8; BLS_SIG_BYTE_SIZE]>::random_for_test(rng)).unwrap()
+            SignatureBytes::deserialize(&<[u8; SIGNATURE_BYTES_LEN]>::random_for_test(rng)).unwrap()
         }
     }
 }

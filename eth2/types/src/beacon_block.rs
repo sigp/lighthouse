@@ -32,7 +32,7 @@ impl<T: EthSpec> BeaconBlock<T> {
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
             body: BeaconBlockBody {
-                randao_reveal: Signature::empty_signature(),
+                randao_reveal: Signature::zero(),
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
@@ -96,7 +96,7 @@ impl<T: EthSpec> BeaconBlock<T> {
     ) -> SignedBeaconBlock<T> {
         let domain = spec.get_domain(self.epoch(), Domain::BeaconProposer, fork);
         let message = self.signing_root(domain);
-        let signature = Signature::new(message.as_bytes(), secret_key);
+        let signature = secret_key.sign(message.as_bytes());
         SignedBeaconBlock {
             message: self,
             signature,

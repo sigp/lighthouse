@@ -1,6 +1,5 @@
 use super::{
-    AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
-    Signature, SignedRoot,
+    AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey, Signature, SignedRoot,
 };
 use crate::test_utils::TestRandom;
 
@@ -23,7 +22,7 @@ pub enum Error {
 pub struct Attestation<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
-    pub signature: AggregateSignature,
+    pub signature: Signature,
 }
 
 impl<T: EthSpec> Attestation<T> {
@@ -42,7 +41,7 @@ impl<T: EthSpec> Attestation<T> {
         debug_assert!(self.signers_disjoint_from(other));
 
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
-        self.signature.add_aggregate(&other.signature);
+        self.signature.add_assign(&other.signature);
     }
 
     /// Signs `self`, setting the `committee_position`'th bit of `aggregation_bits` to `true`.
@@ -70,7 +69,7 @@ impl<T: EthSpec> Attestation<T> {
             let message = self.data.signing_root(domain);
 
             self.signature
-                .add(&Signature::new(message.as_bytes(), secret_key));
+                .add_assign(&secret_key.sign(message.as_bytes()));
 
             Ok(())
         }

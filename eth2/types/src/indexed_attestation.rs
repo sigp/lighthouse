@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
+use crate::{test_utils::TestRandom, AttestationData, EthSpec, Signature, VariableList};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -15,7 +15,7 @@ pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
     pub attesting_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
-    pub signature: AggregateSignature,
+    pub signature: Signature,
 }
 
 impl<T: EthSpec> IndexedAttestation<T> {

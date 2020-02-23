@@ -30,8 +30,8 @@ impl KeypairsFile for Vec<Keypair> {
             let mut buf = Vec::with_capacity(BATCH_BYTE_LEN);
 
             for keypair in keypair_batch {
-                buf.append(&mut keypair.sk.as_raw().as_bytes());
-                buf.append(&mut keypair.pk.clone().as_uncompressed_bytes());
+                buf.extend_from_slice(&keypair.sk.serialize());
+                buf.extend_from_slice(&keypair.pk.serialize());
             }
 
             keypairs_file.write_all(&buf)?;
@@ -59,17 +59,17 @@ impl KeypairsFile for Vec<Keypair> {
                 .map(|(i, _)| {
                     let sk_start = i * KEYPAIR_BYTES_LEN;
                     let sk_end = sk_start + SECRET_KEY_BYTES_LEN;
-                    let sk = SecretKey::from_bytes(&buf[sk_start..sk_end])
+                    let sk = SecretKey::deserialize(&buf[sk_start..sk_end])
                         .map_err(|_| Error::new(ErrorKind::Other, "Invalid SecretKey bytes"))
                         .unwrap();
 
                     let pk_start = sk_end;
                     let pk_end = pk_start + PUBLIC_KEY_BYTES_LEN;
-                    let pk = PublicKey::from_uncompressed_bytes(&buf[pk_start..pk_end])
+                    let pk = PublicKey::deserialize(&buf[pk_start..pk_end])
                         .map_err(|_| Error::new(ErrorKind::Other, "Invalid PublicKey bytes"))
                         .unwrap();
 
-                    Keypair { sk, pk }
+                    Keypair::from_components(pk, sk)
                 })
                 .collect();
 
@@ -108,7 +108,7 @@ mod tests {
         let decoded = Vec::from_raw_file(&keypairs_path, num_keypairs).unwrap();
         remove_file(keypairs_path).unwrap();
 
-        assert_eq!(keypairs, decoded);
+        assert!(keypairs == decoded);
     }
 
     #[test]
@@ -123,6 +123,6 @@ mod tests {
         let decoded = Vec::from_raw_file(&keypairs_path, num_keypairs).unwrap();
         remove_file(keypairs_path).unwrap();
 
-        assert_eq!(keypairs, decoded);
+        assert!(keypairs == decoded);
     }
 }

@@ -18,14 +18,21 @@ pub trait TPublicKey: Sized {
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 }
 
-#[derive(Clone)]
-pub struct PublicKey<T: TPublicKey> {
-    point: T,
+#[derive(Clone, PartialEq)]
+pub struct PublicKey<Pub> {
+    point: Pub,
 }
 
-impl<T: TPublicKey> PublicKey<T> {
+impl<Pub> PublicKey<Pub>
+where
+    Pub: TPublicKey,
+{
     pub fn zero() -> Self {
-        Self { point: T::zero() }
+        Self { point: Pub::zero() }
+    }
+
+    pub(crate) fn from_point(point: Pub) -> Self {
+        Self { point }
     }
 
     pub fn add_assign(&mut self, other: &Self) {
@@ -38,31 +45,31 @@ impl<T: TPublicKey> PublicKey<T> {
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self {
-            point: T::deserialize(bytes)?,
+            point: Pub::deserialize(bytes)?,
         })
     }
 }
 
-impl<T: TPublicKey> Encode for PublicKey<T> {
+impl<Pub: TPublicKey> Encode for PublicKey<Pub> {
     impl_ssz_encode!(PUBLIC_KEY_BYTES_LEN);
 }
 
-impl<T: TPublicKey> Decode for PublicKey<T> {
+impl<Pub: TPublicKey> Decode for PublicKey<Pub> {
     impl_ssz_decode!(PUBLIC_KEY_BYTES_LEN);
 }
 
-impl<T: TPublicKey> TreeHash for PublicKey<T> {
+impl<Pub: TPublicKey> TreeHash for PublicKey<Pub> {
     impl_tree_hash!(PUBLIC_KEY_BYTES_LEN);
 }
 
-impl<T: TPublicKey> Serialize for PublicKey<T> {
+impl<Pub: TPublicKey> Serialize for PublicKey<Pub> {
     impl_serde_serialize!();
 }
 
-impl<'de, T: TPublicKey> Deserialize<'de> for PublicKey<T> {
+impl<'de, Pub: TPublicKey> Deserialize<'de> for PublicKey<Pub> {
     impl_serde_deserialize!();
 }
 
-impl<T: TPublicKey> fmt::Debug for PublicKey<T> {
+impl<Pub: TPublicKey> fmt::Debug for PublicKey<Pub> {
     impl_debug!();
 }

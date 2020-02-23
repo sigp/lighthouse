@@ -13,8 +13,8 @@ macro_rules! define_mod {
             pub type Signature =
                 crate::signature::Signature<bls_variant::PublicKey, bls_variant::Signature>;
             pub type SignatureBytes = crate::signature_bytes::SignatureBytes<
-                bls_variant::Signature,
                 bls_variant::PublicKey,
+                bls_variant::Signature,
             >;
             pub type SecretKey = crate::secret_key::SecretKey<
                 bls_variant::Signature,

@@ -1,6 +1,7 @@
 use crate::{
-    public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
-    secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
+    public_key::{PublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    secret_key::{SecretKey, TSecretKey, SECRET_KEY_BYTES_LEN},
+    signature::TSignature,
     Error,
 };
 use ssz::{Decode, Encode};
@@ -9,16 +10,29 @@ use tree_hash::TreeHash;
 
 pub const KEYPAIR_BYTES_LEN: usize = PUBLIC_KEY_BYTES_LEN + SECRET_KEY_BYTES_LEN;
 
-#[derive(Clone)]
-pub struct Keypair<PK, SK, Signature> {
-    pk: PK,
-    sk: SK,
-    _phantom: PhantomData<Signature>,
+#[derive(Clone, PartialEq)]
+pub struct Keypair<Pub, Sec, Sig> {
+    pub pk: PublicKey<Pub>,
+    pub sk: SecretKey<Sig, Pub, Sec>,
+    _phantom: PhantomData<Sig>,
 }
 
-impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Keypair<PK, SK, Signature> {
+impl<Pub, Sec, Sig> Keypair<Pub, Sec, Sig>
+where
+    Pub: TPublicKey,
+    Sec: TSecretKey<Sig, Pub>,
+    Sig: TSignature<Pub>,
+{
+    pub fn from_components(pk: PublicKey<Pub>, sk: SecretKey<Sig, Pub, Sec>) -> Self {
+        Self {
+            pk,
+            sk,
+            _phantom: PhantomData,
+        }
+    }
+
     pub fn random() -> Self {
-        let sk = SK::random();
+        let sk = SecretKey::random();
         Self {
             pk: sk.public_key(),
             sk,
@@ -36,8 +50,8 @@ impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Keypair<PK, SK, S
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() == KEYPAIR_BYTES_LEN {
             Ok(Self {
-                sk: SK::deserialize(&bytes[..SECRET_KEY_BYTES_LEN])?,
-                pk: PK::deserialize(&bytes[SECRET_KEY_BYTES_LEN..])?,
+                sk: SecretKey::deserialize(&bytes[..SECRET_KEY_BYTES_LEN])?,
+                pk: PublicKey::deserialize(&bytes[SECRET_KEY_BYTES_LEN..])?,
                 _phantom: PhantomData,
             })
         } else {
@@ -49,20 +63,29 @@ impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Keypair<PK, SK, S
     }
 }
 
-impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Encode
-    for Keypair<PK, SK, Signature>
+impl<Pub, Sec, Sig> Encode for Keypair<Pub, Sec, Sig>
+where
+    Pub: TPublicKey,
+    Sec: TSecretKey<Sig, Pub>,
+    Sig: TSignature<Pub>,
 {
     impl_ssz_encode!(KEYPAIR_BYTES_LEN);
 }
 
-impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> Decode
-    for Keypair<PK, SK, Signature>
+impl<Pub, Sec, Sig> Decode for Keypair<Pub, Sec, Sig>
+where
+    Pub: TPublicKey,
+    Sec: TSecretKey<Sig, Pub>,
+    Sig: TSignature<Pub>,
 {
     impl_ssz_decode!(KEYPAIR_BYTES_LEN);
 }
 
-impl<PK: TPublicKey, SK: TSecretKey<Signature, PK>, Signature> TreeHash
-    for Keypair<PK, SK, Signature>
+impl<Pub, Sec, Sig> TreeHash for Keypair<Pub, Sec, Sig>
+where
+    Pub: TPublicKey,
+    Sec: TSecretKey<Sig, Pub>,
+    Sig: TSignature<Pub>,
 {
     impl_tree_hash!(KEYPAIR_BYTES_LEN);
 }
