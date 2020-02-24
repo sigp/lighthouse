@@ -21,6 +21,7 @@ pub struct SignatureBytes<Pub, Sig> {
 impl<Pub, Sig> SignatureBytes<Pub, Sig>
 where
     Sig: TSignature<Pub>,
+    Pub: TPublicKey,
 {
     pub fn decompress(&self) -> Result<Signature<Pub, Sig>, Error> {
         Sig::deserialize(&self.bytes).map(Signature::from_point)

@@ -1,4 +1,7 @@
-use crate::Error;
+use crate::{
+    public_key::{PublicKey, TPublicKey},
+    Error,
+};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -25,20 +28,23 @@ pub trait TSignature<PublicKey>: Sized {
 }
 
 #[derive(Clone, PartialEq)]
-pub struct Signature<PublicKey, T: TSignature<PublicKey>> {
-    point: T,
-    _phantom: PhantomData<PublicKey>,
+pub struct Signature<Pub, Sig> {
+    point: Sig,
+    _phantom: PhantomData<Pub>,
 }
 
-impl<PublicKey, T: TSignature<PublicKey>> Signature<PublicKey, T> {
+impl<Pub, Sig> Signature<Pub, Sig>
+where
+    Sig: TSignature<Pub>,
+{
     pub fn zero() -> Self {
         Self {
-            point: T::zero(),
+            point: Sig::zero(),
             _phantom: PhantomData,
         }
     }
 
-    pub(crate) fn from_point(point: T) -> Self {
+    pub(crate) fn from_point(point: Sig) -> Self {
         Self {
             point,
             _phantom: PhantomData,
@@ -55,16 +61,22 @@ impl<PublicKey, T: TSignature<PublicKey>> Signature<PublicKey, T> {
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self {
-            point: T::deserialize(bytes)?,
+            point: Sig::deserialize(bytes)?,
             _phantom: PhantomData,
         })
     }
+}
 
-    pub fn verify(&self, pubkey: &PublicKey, msg: &[u8]) -> bool {
-        self.point.verify(pubkey, msg)
+impl<Pub, Sig> Signature<Pub, Sig>
+where
+    Sig: TSignature<Pub>,
+    Pub: TPublicKey,
+{
+    pub fn verify(&self, pubkey: &PublicKey<Pub>, msg: &[u8]) -> bool {
+        self.point.verify(pubkey.point(), msg)
     }
 
-    pub fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[[u8; MSG_SIZE]]) -> bool {
+    pub fn fast_aggregate_verify(&self, pubkeys: &[Pub], msgs: &[[u8; MSG_SIZE]]) -> bool {
         self.point.fast_aggregate_verify(pubkeys, msgs)
     }
 }

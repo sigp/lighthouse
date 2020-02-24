@@ -8,12 +8,14 @@ mod public_key_bytes;
 mod secret_key;
 mod signature;
 mod signature_bytes;
+mod signature_set;
 
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
 pub use impls::*;
 pub use public_key::PUBLIC_KEY_BYTES_LEN;
 pub use secret_key::SECRET_KEY_BYTES_LEN;
 pub use signature::{MSG_SIZE, SIGNATURE_BYTES_LEN};
+pub use signature_set::SignatureSet;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {

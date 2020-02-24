@@ -13,6 +13,8 @@ pub trait TPublicKey: Sized {
 
     fn add_assign(&mut self, other: &Self);
 
+    fn add_assign_multiple<'a>(&'a mut self, others: impl Iterator<Item = &'a Self>);
+
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN];
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
@@ -37,6 +39,10 @@ where
 
     pub fn add_assign(&mut self, other: &Self) {
         self.point.add_assign(&other.point)
+    }
+
+    pub fn add_assign_multiple<'a>(&'a mut self, others: impl Iterator<Item = &'a Self>) {
+        self.point.add_assign_multiple(others.map(|pk| &pk.point))
     }
 
     pub fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {

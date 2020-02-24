@@ -16,6 +16,10 @@ impl TPublicKey for PublicKey {
         // Do nothing.
     }
 
+    fn add_assign_multiple<'a>(&'a mut self, _others: impl Iterator<Item = &'a Self>) {
+        // Do nothing.
+    }
+
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
         self.0.clone()
     }

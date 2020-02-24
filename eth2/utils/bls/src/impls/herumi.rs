@@ -15,6 +15,10 @@ impl TPublicKey for PublicKey {
         self.add_assign(other)
     }
 
+    fn add_assign_multiple<'a>(&'a mut self, others: impl Iterator<Item = &'a Self>) {
+        others.for_each(|other| self.add_assign(other))
+    }
+
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
         let mut bytes = [0; PUBLIC_KEY_BYTES_LEN];
         bytes[..].copy_from_slice(&self.serialize());
