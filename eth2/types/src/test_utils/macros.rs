@@ -39,9 +39,8 @@ macro_rules! tree_hash_tests {
             let mut rng = XorShiftRng::from_seed([42; 16]);
             let original = <$type>::random_for_test(&mut rng);
 
-            let result = original.tree_hash_root();
-
-            assert_eq!(result.len(), 32);
+            // Tree hashing should not panic.
+            original.tree_hash_root();
         }
     };
 }

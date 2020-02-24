@@ -277,6 +277,7 @@ impl<T: Encode + Decode> CacheArenaAllocation<T> {
 #[cfg(test)]
 mod tests {
     use crate::Hash256;
+    use smallvec::smallvec;
 
     type CacheArena = super::CacheArena<Hash256>;
     type CacheArenaAllocation = super::CacheArenaAllocation<Hash256>;
@@ -313,7 +314,7 @@ mod tests {
             len
         );
 
-        sub.extend_with_vec(arena, vec![hash(len), hash(len + 1)])
+        sub.extend_with_vec(arena, smallvec![hash(len), hash(len + 1)])
             .expect("should extend with vec");
         len += 2;
 
