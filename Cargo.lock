@@ -220,6 +220,7 @@ dependencies = [
  "lighthouse_bootstrap 0.1.0",
  "lighthouse_metrics 0.1.0",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lru 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "merkle_proof 0.1.0",
  "operation_pool 0.1.0",
  "parking_lot 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",

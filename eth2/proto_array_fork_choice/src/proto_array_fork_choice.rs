@@ -60,6 +60,7 @@ impl PartialEq for ProtoArrayForkChoice {
 impl ProtoArrayForkChoice {
     pub fn new(
         finalized_block_slot: Slot,
+        finalized_block_state_root: Hash256,
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
         finalized_root: Hash256,
@@ -77,6 +78,7 @@ impl ProtoArrayForkChoice {
                 finalized_block_slot,
                 finalized_root,
                 None,
+                finalized_block_state_root,
                 justified_epoch,
                 finalized_epoch,
             )
@@ -111,6 +113,7 @@ impl ProtoArrayForkChoice {
         slot: Slot,
         block_root: Hash256,
         parent_root: Hash256,
+        state_root: Hash256,
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
     ) -> Result<(), String> {
@@ -120,6 +123,7 @@ impl ProtoArrayForkChoice {
                 slot,
                 block_root,
                 Some(parent_root),
+                state_root,
                 justified_epoch,
                 finalized_epoch,
             )
@@ -184,6 +188,15 @@ impl ProtoArrayForkChoice {
         let block = proto_array.nodes.get(*i)?;
 
         Some(block.slot)
+    }
+
+    pub fn block_slot_and_state_root(&self, block_root: &Hash256) -> Option<(Slot, Hash256)> {
+        let proto_array = self.proto_array.read();
+
+        let i = proto_array.indices.get(block_root)?;
+        let block = proto_array.nodes.get(*i)?;
+
+        Some((block.slot, block.state_root))
     }
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {

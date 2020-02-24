@@ -410,6 +410,7 @@ where
                                 let message = data.signing_root(domain);
 
                                 let mut agg_sig = AggregateSignature::new();
+
                                 agg_sig.add(&Signature::new(
                                     message.as_bytes(),
                                     self.get_sk(*validator_index),

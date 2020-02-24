@@ -3,12 +3,13 @@
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
 use bls::{G1Point, G1Ref, SignatureSet, SignedMessage};
+use ssz::DecodeError;
 use std::borrow::Cow;
 use std::convert::TryInto;
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
-    DepositData, Domain, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
+    DepositData, Domain, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
     Signature, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot, SignedVoluntaryExit,
     SigningRoot,
 };
@@ -18,7 +19,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     /// Signature verification failed. The block is invalid.
-    SignatureInvalid,
+    SignatureInvalid(DecodeError),
     /// There was an error attempting to read from a `BeaconState`. Block
     /// validity was not determined.
     BeaconStateError(BeaconStateError),
@@ -39,13 +40,36 @@ impl From<BeaconStateError> for Error {
     }
 }
 
-/// A signature set that is valid if a block was signed by the expected block producer.
-pub fn block_proposal_signature_set<'a, T: EthSpec>(
+pub fn get_pubkey_from_state<'a, T>(
     state: &'a BeaconState<T>,
+) -> impl Fn(usize) -> Option<Cow<'a, G1Point>> + Clone
+where
+    T: EthSpec,
+{
+    move |validator_index: usize| -> Option<Cow<'a, G1Point>> {
+        state
+            .validators
+            .get(validator_index)
+            .and_then(|v| {
+                let pk: Option<PublicKey> = (&v.pubkey).try_into().ok();
+                pk
+            })
+            .map(|pk| Cow::Owned(pk.into_point()))
+    }
+}
+
+/// A signature set that is valid if a block was signed by the expected block producer.
+pub fn block_proposal_signature_set<'a, T, F>(
+    state: &'a BeaconState<T>,
+    get_pubkey: F,
     signed_block: &'a SignedBeaconBlock<T>,
     block_root: Option<Hash256>,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>> {
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+{
     let block = &signed_block.message;
     let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
 
@@ -67,17 +91,22 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
 
     Ok(SignatureSet::single(
         &signed_block.signature,
-        validator_pubkey(state, proposer_index)?,
+        get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))
 }
 
 /// A signature set that is valid if the block proposers randao reveal signature is correct.
-pub fn randao_signature_set<'a, T: EthSpec>(
+pub fn randao_signature_set<'a, T, F>(
     state: &'a BeaconState<T>,
+    get_pubkey: F,
     block: &'a BeaconBlock<T>,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>> {
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+{
     let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
 
     let domain = spec.get_domain(
@@ -90,30 +119,37 @@ pub fn randao_signature_set<'a, T: EthSpec>(
 
     Ok(SignatureSet::single(
         &block.body.randao_reveal,
-        validator_pubkey(state, proposer_index)?,
+        get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message.as_bytes().to_vec(),
     ))
 }
 
 /// Returns two signature sets, one for each `BlockHeader` included in the `ProposerSlashing`.
-pub fn proposer_slashing_signature_set<'a, T: EthSpec>(
+pub fn proposer_slashing_signature_set<'a, T, F>(
     state: &'a BeaconState<T>,
+    get_pubkey: F,
     proposer_slashing: &'a ProposerSlashing,
     spec: &'a ChainSpec,
-) -> Result<(SignatureSet<'a>, SignatureSet<'a>)> {
+) -> Result<(SignatureSet<'a>, SignatureSet<'a>)>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+{
     let proposer_index = proposer_slashing.proposer_index as usize;
 
     Ok((
         block_header_signature_set(
             state,
             &proposer_slashing.signed_header_1,
-            validator_pubkey(state, proposer_index)?,
+            get_pubkey(proposer_index)
+                .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
             spec,
         )?,
         block_header_signature_set(
             state,
             &proposer_slashing.signed_header_2,
-            validator_pubkey(state, proposer_index)?,
+            get_pubkey(proposer_index)
+                .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
             spec,
         )?,
     ))
@@ -146,16 +182,24 @@ fn block_header_signature_set<'a, T: EthSpec>(
 }
 
 /// Returns the signature set for the given `indexed_attestation`.
-pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
+pub fn indexed_attestation_signature_set<'a, 'b, T, F>(
     state: &'a BeaconState<T>,
+    get_pubkey: F,
     signature: &'a AggregateSignature,
     indexed_attestation: &'b IndexedAttestation<T>,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>> {
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+{
     let pubkeys = indexed_attestation
         .attesting_indices
         .into_iter()
-        .map(|&validator_idx| Ok(validator_pubkey(state, validator_idx as usize)?))
+        .map(|&validator_idx| {
+            Ok(get_pubkey(validator_idx as usize)
+                .ok_or_else(|| Error::ValidatorUnknown(validator_idx))?)
+        })
         .collect::<Result<_>>()?;
 
     let domain = spec.get_domain(
@@ -170,21 +214,63 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
     Ok(SignatureSet::new(signature, vec![signed_message]))
 }
 
+// TODO: try and combine this and the above function into one.
+/// Returns the signature set for the given `indexed_attestation` but pubkeys are supplied directly
+/// instead of from the state.
+pub fn indexed_attestation_signature_set_from_pubkeys<'a, 'b, T, F>(
+    get_pubkey: F,
+    signature: &'a AggregateSignature,
+    indexed_attestation: &'b IndexedAttestation<T>,
+    fork: &Fork,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+{
+    let pubkeys = indexed_attestation
+        .attesting_indices
+        .into_iter()
+        .map(|&validator_idx| {
+            Ok(get_pubkey(validator_idx as usize)
+                .ok_or_else(|| Error::ValidatorUnknown(validator_idx))?)
+        })
+        .collect::<Result<_>>()?;
+
+    let domain = spec.get_domain(
+        indexed_attestation.data.target.epoch,
+        Domain::BeaconAttester,
+        &fork,
+    );
+
+    let message = indexed_attestation.data.signing_root(domain);
+    let signed_message = SignedMessage::new(pubkeys, message.as_bytes().to_vec());
+
+    Ok(SignatureSet::new(signature, vec![signed_message]))
+}
+
 /// Returns the signature set for the given `attester_slashing` and corresponding `pubkeys`.
-pub fn attester_slashing_signature_sets<'a, T: EthSpec>(
+pub fn attester_slashing_signature_sets<'a, T, F>(
     state: &'a BeaconState<T>,
+    get_pubkey: F,
     attester_slashing: &'a AttesterSlashing<T>,
     spec: &'a ChainSpec,
-) -> Result<(SignatureSet<'a>, SignatureSet<'a>)> {
+) -> Result<(SignatureSet<'a>, SignatureSet<'a>)>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, G1Point>> + Clone,
+{
     Ok((
         indexed_attestation_signature_set(
             state,
+            get_pubkey.clone(),
             &attester_slashing.attestation_1.signature,
             &attester_slashing.attestation_1,
             spec,
         )?,
         indexed_attestation_signature_set(
             state,
+            get_pubkey,
             &attester_slashing.attestation_2.signature,
             &attester_slashing.attestation_2,
             spec,
@@ -224,11 +310,16 @@ pub fn deposit_signature_set<'a>(
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
 /// validator.
-pub fn exit_signature_set<'a, T: EthSpec>(
+pub fn exit_signature_set<'a, T, F>(
     state: &'a BeaconState<T>,
+    get_pubkey: F,
     signed_exit: &'a SignedVoluntaryExit,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>> {
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+{
     let exit = &signed_exit.message;
     let proposer_index = exit.validator_index as usize;
 
@@ -238,11 +329,12 @@ pub fn exit_signature_set<'a, T: EthSpec>(
 
     Ok(SignatureSet::single(
         &signed_exit.signature,
-        validator_pubkey(state, proposer_index)?,
+        get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))
 }
 
+/*
 /// Maps a validator index to a `PublicKey`.
 pub fn validator_pubkey<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
@@ -265,3 +357,4 @@ pub fn validator_pubkey<'a, T: EthSpec>(
             })
     }
 }
+*/

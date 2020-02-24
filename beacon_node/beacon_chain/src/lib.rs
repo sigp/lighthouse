@@ -12,8 +12,10 @@ mod fork_choice;
 mod head_tracker;
 mod metrics;
 mod persisted_beacon_chain;
+mod shuffling_cache;
 pub mod test_utils;
 mod timeout_rw_lock;
+mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
