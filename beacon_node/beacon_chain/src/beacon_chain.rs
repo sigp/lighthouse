@@ -659,14 +659,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    ///  an aggregate attestation that has been collected for this slot and committee.
-    pub fn produce_aggregate_attestation(
+    /// Produce an aggregate attestation that has been collected for this slot and committee.
+    pub fn return_aggregate_attestation(
         &self,
         slot: Slot,
         index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
-        //NOTE: Michael Check this code modification before merge
-        let data = self.produce_attestation_data(slot, index)?;
+        let state = self.state_at_slot(slot)?;
+        let head = self.head()?;
+
+        let data = self.produce_attestation_data_for_block(
+            index,
+            head.beacon_block_root,
+            head.beacon_block.slot,
+            &state,
+        )?;
 
         let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
 
@@ -685,8 +692,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
-        //NOTE: Michael Check this code modification before merge
-        let data = self.produce_attestation_data(slot, index)?;
+        let state = self.state_at_slot(slot)?;
+        let head = self.head()?;
+
+        let data = self.produce_attestation_data_for_block(
+            index,
+            head.beacon_block_root,
+            head.beacon_block.slot,
+            &state,
+        )?;
 
         let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
 
@@ -796,11 +810,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// - Whilst the `attestation` is added to fork choice, the head is not updated. That must be
     /// done separately.
+    ///
+    /// The `store_raw` parameter determines if this attestation is to be stored in the operation
+    /// pool. `None` indicates the attestation is not stored in the operation pool (we don't have a
+    /// validator required to aggregate these attestations). `Some(true)` indicates we are storing a
+    /// raw un-aggregated attestation from a subnet into the `op_pool` which is short-lived and `Some(false)`
+    /// indicates that we are storing an aggregate attestation in the `op_pool`.
     pub fn process_attestation(
         &self,
         attestation: Attestation<T::EthSpec>,
+        store_raw: Option<bool>,
     ) -> Result<AttestationProcessingOutcome, Error> {
-        let outcome = self.process_attestation_internal(attestation.clone());
+        let outcome = self.process_attestation_internal(attestation.clone(), store_raw);
 
         match &outcome {
             Ok(outcome) => match outcome {
@@ -852,6 +873,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_attestation_internal(
         &self,
         attestation: Attestation<T::EthSpec>,
+        store_raw: Option<bool>,
     ) -> Result<AttestationProcessingOutcome, Error> {
         metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
         let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
@@ -877,7 +899,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     attestation: attestation.data.slot,
                 })
             } else {
-                self.process_attestation_for_state_and_block(attestation, &state, &block)
+                self.process_attestation_for_state_and_block(attestation, &state, &block, store_raw)
             }
         } else {
             // Drop any attestation where we have not processed `attestation.data.beacon_block_root`.
@@ -980,11 +1002,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// If the given conditions are not fulfilled, the function may error or provide a false
     /// negative (indicating that a given `attestation` is invalid when it is was validly formed).
+    ///
+    /// The `store_raw` parameter determines if this attestation is to be stored in the operation
+    /// pool. `None` indicates the attestation is not stored in the operation pool (we don't have a
+    /// validator required to aggregate these attestations). `Some(true)` indicates we are storing a
+    /// raw un-aggregated attestation from a subnet into the `op_pool` which is short-lived and `Some(false)`
+    /// indicates that we are storing an aggregate attestation in the `op_pool`.
     fn process_attestation_for_state_and_block(
         &self,
         attestation: Attestation<T::EthSpec>,
         state: &BeaconState<T::EthSpec>,
         block: &BeaconBlock<T::EthSpec>,
+        store_raw: Option<bool>,
     ) -> Result<AttestationProcessingOutcome, Error> {
         // Find the highest between:
         //
@@ -1052,9 +1081,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             // Provide the valid attestation to op pool, which may choose to retain the
-            // attestation for inclusion in a future block.
-            self.op_pool
-                .insert_attestation(attestation, state, &self.spec)?;
+            // attestation for inclusion in a future block. If we receive an attestation from a
+            // subnet without a validator responsible for aggregating it, we don't store it in the
+            // op pool.
+            if let Some(is_raw) = store_raw {
+                if is_raw {
+                    // This is a raw un-aggregated attestation received from a subnet with a
+                    // connected validator required to aggregate and publish these attestations
+                    self.op_pool
+                        .insert_raw_attestation(attestation, state, &self.spec)?;
+                } else {
+                    // This an aggregate attestation received from the aggregate attestation
+                    // channel
+                    self.op_pool
+                        .insert_aggregate_attestation(attestation, state, &self.spec)?;
+                }
+            }
 
             // Update the metrics.
             metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_SUCCESSES);
@@ -1920,16 +1962,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Performs slot-based pruning.
     pub fn per_slot_task(&self) {
-        self.op_pool
-            .prune_committee_attestations(self.slot_clock.now())
+        trace!(self.log, "Running beacon chain per slot tasks");
+        if let Some(slot) = self.slot_clock.now() {
+            self.op_pool.prune_committee_attestations(&slot)
+        }
     }
 
     /// Called by the timer on every epoch.
     ///
     /// Performs epoch-based pruning.
     pub fn per_epoch_task(&self) {
-        let current_epoch = self.slot_clock.now().epoch(T::EthSpec::slots_per_epoch());
-        self.op_pool.prune_all(&current_epoch, &self.spec);
+        trace!(self.log, "Running beacon chain per epoch tasks");
+        if let Some(slot) = self.slot_clock.now() {
+            let current_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+            self.op_pool.prune_attestations(&current_epoch);
+        }
     }
 
     /// Called after `self` has had a new block finalized.
@@ -1961,6 +2008,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Some(finalized_block.slot),
                 )?
                 .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
+
+            self.op_pool.prune_all(&finalized_state, &self.spec);
 
             // TODO: configurable max finality distance
             let max_finality_distance = 0;

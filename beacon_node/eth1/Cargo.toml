@@ -26,7 +26,6 @@ parking_lot = "0.7"
 slog = "^2.2.3"
 tokio = "0.1.22"
 state_processing = { path = "../../eth2/state_processing" }
-exit-future = "0.1.4"
 libflate = "0.1"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics"}
 lazy_static = "1.4.0"

@@ -1,6 +1,5 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use environment::RuntimeContext;
-use exit_future::Signal;
 use futures::{Future, Stream};
 use network::Service as NetworkService;
 use parking_lot::Mutex;
@@ -31,7 +30,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkService<T>>,
     milliseconds_per_slot: u64,
-) -> Result<Signal, String> {
+) -> Result<tokio::sync::oneshot::Sender<()>, String> {
     let log_1 = context.log.clone();
     let log_2 = context.log.clone();
     let log_3 = context.log.clone();
@@ -164,10 +163,11 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 Ok(())
             } } });
 
-    let (exit_signal, exit) = exit_future::signal();
+    let (exit_signal, exit) = tokio::sync::oneshot::channel();
+
     context
         .executor
-        .spawn(exit.until(interval_future).map(|_| ()));
+        .spawn(interval_future.select(exit).map(|_| ()).map_err(|_| ()));
 
     Ok(exit_signal)
 }

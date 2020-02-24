@@ -35,7 +35,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
@@ -60,7 +60,7 @@ pub fn start_server<T: BeaconChainTypes>(
     freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
     log: slog::Logger,
-) -> Result<(exit_future::Signal, SocketAddr), hyper::Error> {
+) -> Result<(oneshot::Sender<()>, SocketAddr), hyper::Error> {
     let inner_log = log.clone();
     let eth2_config = Arc::new(eth2_config);
 
@@ -98,7 +98,7 @@ pub fn start_server<T: BeaconChainTypes>(
     let actual_listen_addr = server.local_addr();
 
     // Build a channel to kill the HTTP server.
-    let (exit_signal, exit) = exit_future::signal();
+    let (exit_signal, exit) = oneshot::channel();
     let inner_log = log.clone();
     let server_exit = exit.and_then(move |_| {
         info!(inner_log, "HTTP service shutdown");

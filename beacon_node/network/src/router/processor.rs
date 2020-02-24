@@ -548,7 +548,9 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// Process a gossip message declaring a new attestation.
     ///
     /// Not currently implemented.
-    pub fn on_attestation_gossip(&mut self, peer_id: PeerId, msg: Attestation<T::EthSpec>) {
+    pub fn on_attestation_gossip(&mut self, _peer_id: PeerId, _msg: Attestation<T::EthSpec>) {
+        // TODO: Handle subnet gossip
+        /*
         match self.chain.process_attestation(msg.clone()) {
             Ok(outcome) => match outcome {
                 AttestationProcessingOutcome::Processed => {
@@ -589,6 +591,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 );
             }
         };
+        */
     }
 }
 

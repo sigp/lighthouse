@@ -14,7 +14,6 @@ use beacon_chain::{
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_config::Eth2Config;
-use exit_future::Signal;
 use futures::{future, Future, IntoFuture};
 use genesis::{
     generate_deterministic_keypairs, interop_genesis_state, state_from_ssz_file, Eth1GenesisService,
@@ -56,7 +55,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     eth1_service: Option<Eth1Service>,
-    exit_signals: Vec<Signal>,
+    exit_channels: Vec<tokio::sync::oneshot::Sender<()>>,
     event_handler: Option<T::EventHandler>,
     libp2p_network: Option<Arc<NetworkService<T>>>,
     libp2p_network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
@@ -90,7 +89,7 @@ where
             beacon_chain_builder: None,
             beacon_chain: None,
             eth1_service: None,
-            exit_signals: vec![],
+            exit_channels: vec![],
             event_handler: None,
             libp2p_network: None,
             libp2p_network_send: None,
@@ -139,7 +138,8 @@ where
                     .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
 
                 let builder = BeaconChainBuilder::new(eth_spec_instance)
-                    .logger(context.log.clone())a                    .store(store)
+                    .logger(context.log.clone())
+                    .store(store)
                     .store_migrator(store_migrator)
                     .custom_spec(spec.clone());
 
@@ -245,11 +245,8 @@ where
                 self.beacon_chain_builder = Some(beacon_chain_builder);
                 self
             })
-            .and_then(move |self| {
-                // All beacon chains must have a timer attached
-                self.timer();
-                self
-            })
+            // each beacon chain should have an associated timer
+            .and_then(|builder| builder.timer())
     }
 
     /// Immediately starts the libp2p networking stack.
@@ -275,7 +272,7 @@ where
     }
 
     /// Immediately starts the timer service.
-   fn timer(&mut self) -> Result<Self, String> {
+    fn timer(mut self) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -291,10 +288,15 @@ where
             .ok_or_else(|| "node timer requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let timer_exit = timer::spawn(context, beacon_chain, network, milliseconds_per_slot)
-            .map_err(|e| format!("Unable to start node timer: {}", e))?;
+        let timer_exit = timer::spawn(
+            &context.executor,
+            beacon_chain,
+            milliseconds_per_slot,
+            context.log,
+        )
+        .map_err(|e| format!("Unable to start node timer: {}", e))?;
 
-        self.exit_signals.push(timer_exit);
+        self.exit_channels.push(timer_exit);
 
         Ok(self)
     }
@@ -328,7 +330,7 @@ where
             network_chan: network_send,
         };
 
-        let (exit_signal, listening_addr) = rest_api::start_server(
+        let (exit_channel, listening_addr) = rest_api::start_server(
             &client_config.rest_api,
             &context.executor,
             beacon_chain,
@@ -344,7 +346,7 @@ where
         )
         .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
 
-        self.exit_signals.push(exit_signal);
+        self.exit_channels.push(exit_channel);
         self.http_listen_addr = Some(listening_addr);
 
         Ok(self)
@@ -371,10 +373,10 @@ where
             .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let exit_signal = spawn_notifier(context, beacon_chain, network, milliseconds_per_slot)
+        let exit_channel = spawn_notifier(context, beacon_chain, network, milliseconds_per_slot)
             .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
-        self.exit_signals.push(exit_signal);
+        self.exit_channels.push(exit_channel);
 
         Ok(self)
     }
@@ -392,7 +394,7 @@ where
             libp2p_network: self.libp2p_network,
             http_listen_addr: self.http_listen_addr,
             websocket_listen_addr: self.websocket_listen_addr,
-            _exit_signals: self.exit_signals,
+            _exit_channels: self.exit_channels,
         }
     }
 }
@@ -462,7 +464,7 @@ where
             .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
             .service_context("ws".into());
 
-        let (sender, exit_signal, listening_addr): (
+        let (sender, exit_channel, listening_addr): (
             WebSocketSender<TEthSpec>,
             Option<_>,
             Option<_>,
@@ -474,8 +476,8 @@ where
             (WebSocketSender::dummy(), None, None)
         };
 
-        if let Some(signal) = exit_signal {
-            self.exit_signals.push(signal);
+        if let Some(channel) = exit_channel {
+            self.exit_channels.push(channel);
         }
         self.event_handler = Some(sender);
         self.websocket_listen_addr = listening_addr;
@@ -663,8 +665,8 @@ where
         self.eth1_service = None;
 
         let exit = {
-            let (tx, rx) = exit_future::signal();
-            self.exit_signals.push(tx);
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            self.exit_channels.push(tx);
             rx
         };
 

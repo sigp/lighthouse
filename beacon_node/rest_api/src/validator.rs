@@ -421,7 +421,7 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     let index = query.committee_index()?;
 
     let aggregate_attestation = beacon_chain
-        .produce_aggregate_attestation(slot, index)
+        .return_aggregate_attestation(slot, index)
         .map_err(|e| ApiError::BadRequest(format!("Unable to produce attestation: {:?}", e)))?;
 
     ResponseBuilder::new(&req)?.body(&aggregate_attestation)
@@ -451,7 +451,14 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                 })
             })
             .and_then(move |attestation: Attestation<T::EthSpec>| {
-                match beacon_chain.process_attestation(attestation.clone()) {
+                // Note: This is a new attestation from a validator. We want to process this and
+                // inform the validator whether the attestation was valid. In doing so, we store
+                // this un-aggregated raw attestation in the op_pool by default. This is
+                // sub-optimal as if we have no validators needing to aggregate, these don't need
+                // to be stored in the op-pool. This is minimal however as the op_pool gets pruned
+                // every slot
+                
+                match beacon_chain.process_attestation(attestation.clone(), Some(true)) {
                     Ok(AttestationProcessingOutcome::Processed) => {
                         // Block was processed, publish via gossipsub
                         info!(

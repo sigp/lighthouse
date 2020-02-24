@@ -51,6 +51,7 @@ pub struct OperationPool<T: EthSpec + Default> {
     proposer_slashings: RwLock<HashMap<u64, ProposerSlashing>>,
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, VoluntaryExit>>,
+    /// Marker to pin the generics.
     _phantom: PhantomData<T>,
 }
 
@@ -117,18 +118,19 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn insert_raw_attestation(
         &self,
         attestation: Attestation<T>,
-        slot: &Slot,
-        committee_index: &CommitteeIndex,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), AttestationValidationError> {
         let id = AttestationId::from_data(&attestation.data, state, spec);
 
+        let slot = attestation.data.slot.clone();
+        let committee_index = attestation.data.index.clone();
+
         // Take a write lock on the attestations map.
         let mut attestations = self.committee_attestations.write();
 
         let slot_index_map = attestations
-            .entry((*slot, *committee_index))
+            .entry((slot, committee_index))
             .or_insert_with(|| HashMap::new());
 
         let existing_attestations = match slot_index_map.entry(id) {
@@ -431,8 +433,8 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Prune all types of transactions given the latest finalized state.
+    // TODO: Michael - Can we shift these to per-epoch?
     pub fn prune_all(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
-        self.prune_attestations(finalized_state);
         self.prune_proposer_slashings(finalized_state);
         self.prune_attester_slashings(finalized_state, spec);
         self.prune_voluntary_exits(finalized_state);
@@ -482,7 +484,8 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
 /// Compare two operation pools.
 impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
     fn eq(&self, other: &Self) -> bool {
-        *self.attestations.read() == *other.attestations.read()
+        *self.aggregate_attestations.read() == *other.aggregate_attestations.read()
+            && *self.committee_attestations.read() == *other.committee_attestations.read()
             && *self.attester_slashings.read() == *other.attester_slashings.read()
             && *self.proposer_slashings.read() == *other.proposer_slashings.read()
             && *self.voluntary_exits.read() == *other.voluntary_exits.read()

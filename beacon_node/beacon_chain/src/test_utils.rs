@@ -348,7 +348,7 @@ where
         .for_each(|attestation| {
             match self
                 .chain
-                .process_attestation(attestation)
+                .process_attestation(attestation, Some(false))
                 .expect("should not error during attestation processing")
             {
                 AttestationProcessingOutcome::Processed => (),

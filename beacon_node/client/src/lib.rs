@@ -8,7 +8,6 @@ pub mod error;
 
 use beacon_chain::BeaconChain;
 use eth2_libp2p::{Enr, Multiaddr};
-use exit_future::Signal;
 use network::Service as NetworkService;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -26,8 +25,8 @@ pub struct Client<T: BeaconChainTypes> {
     libp2p_network: Option<Arc<NetworkService<T>>>,
     http_listen_addr: Option<SocketAddr>,
     websocket_listen_addr: Option<SocketAddr>,
-    /// Exit signals will "fire" when dropped, causing each service to exit gracefully.
-    _exit_signals: Vec<Signal>,
+    /// Exit channels will complete/error when dropped, causing each service to exit gracefully.
+    _exit_channels: Vec<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl<T: BeaconChainTypes> Client<T> {
