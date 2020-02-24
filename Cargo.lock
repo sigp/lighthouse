@@ -359,7 +359,7 @@ dependencies = [
 name = "bls"
 version = "0.1.0"
 dependencies = [
- "bls_eth_rust 0.0.2 (git+https://github.com/herumi/bls-eth-rust.git)",
+ "bls_eth_rust 0.0.2 (git+https://github.com/sigp/bls-eth-rust.git?branch=linking)",
  "eth2_hashing 0.1.1",
  "eth2_ssz 0.1.2",
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -374,7 +374,7 @@ dependencies = [
 [[package]]
 name = "bls_eth_rust"
 version = "0.0.2"
-source = "git+https://github.com/herumi/bls-eth-rust.git#18ed72a58d77674363b84dc482af6fe6fd88d0f8"
+source = "git+https://github.com/sigp/bls-eth-rust.git?branch=linking#2b49c9157339821a5c8e45a11eb2ab1fd2851b39"
 dependencies = [
  "criterion 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -5160,7 +5160,7 @@ dependencies = [
 "checksum block-buffer 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)" = "c0940dc441f31689269e10ac70eb1002a3a1d3ad1390e030043662eb7fe4688b"
 "checksum block-cipher-trait 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1c924d49bd09e7c06003acda26cd9742e796e34282ec6c1189404dee0c1f4774"
 "checksum block-padding 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "fa79dedbb091f449f1f39e53edf88d5dbe95f895dae6135a8d7b881fb5af73f5"
-"checksum bls_eth_rust 0.0.2 (git+https://github.com/herumi/bls-eth-rust.git)" = "<none>"
+"checksum bls_eth_rust 0.0.2 (git+https://github.com/sigp/bls-eth-rust.git?branch=linking)" = "<none>"
 "checksum bs58 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "c95ee6bba9d950218b6cc910cf62bc9e0a171d0f4537e3627b0f54d08549b188"
 "checksum bs58 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b170cd256a3f9fa6b9edae3e44a7dfdfc77e8124dbc3e2612d75f9c3e2396dae"
 "checksum bstr 0.2.9 (registry+https://github.com/rust-lang/crates.io-index)" = "3ede750122d9d1f87919570cb2cccee38c84fbc8c5599b25c289af40625b7030"

@@ -8,7 +8,7 @@ links = "/home/paul/development/bls-eth-go-binary/bls/lib/linux/amd64/"
 build = "build.rs"
 
 [dependencies]
-bls_eth_rust = { git = "https://github.com/herumi/bls-eth-rust.git" }
+bls_eth_rust = { git = "https://github.com/sigp/bls-eth-rust.git", branch = "linking" }
 eth2_ssz = "0.1.2"
 tree_hash = "0.1.0"
 milagro_bls = { git = "https://github.com/sigp/milagro_bls", branch = "eth2.0-v0.10" }
