@@ -4025,7 +4025,6 @@ dependencies = [
  "eth2_hashing 0.1.1",
  "ethereum-types 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "int_to_bytes 0.1.0",
  "yaml-rust 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
