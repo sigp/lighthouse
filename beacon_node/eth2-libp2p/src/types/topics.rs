@@ -16,8 +16,6 @@ pub const COMMITEE_INDEX_TOPIC_POSTFIX: &str = "_beacon_attestation";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
-/// The maximum number of attestation subnets.
-pub const ATTESTATION_SUBNET_COUNT: u64 = 64;
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
 /// the pubsub protocol and the way the messages should be encoded.

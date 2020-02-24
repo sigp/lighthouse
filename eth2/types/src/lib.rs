@@ -35,6 +35,7 @@ pub mod slot_epoch_macros;
 pub mod relative_epoch;
 pub mod slot_epoch;
 pub mod slot_height;
+pub mod subnet_id;
 mod tree_hash_impls;
 pub mod validator;
 
@@ -64,6 +65,7 @@ pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::slot_height::SlotHeight;
+pub use crate::subnet_id::SubnetId;
 pub use crate::validator::Validator;
 pub use crate::voluntary_exit::VoluntaryExit;
 

@@ -1,5 +1,6 @@
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use eth2_hashing::hash;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
@@ -89,6 +90,7 @@ impl ValidatorSubscriptions {
         }
 
         if (0..self.pubkeys.len())
+            .into_par_iter()
             .try_for_each(|index| {
                 let domain = spec.get_domain(
                     self.slots[index].epoch(slots_per_epoch),

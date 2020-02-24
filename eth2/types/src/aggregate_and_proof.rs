@@ -54,7 +54,7 @@ impl<T: EthSpec> AggregateAndProof<T> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 #[serde(bound = "T: EthSpec")]
 pub struct SignedAggregateAndProof<T: EthSpec> {
-    /// The index of the validator that created the attestation.
+    /// The `AggregateAndProof` that was signed.
     pub message: AggregateAndProof<T>,
     /// The aggregate attestation.
     pub signature: Signature,

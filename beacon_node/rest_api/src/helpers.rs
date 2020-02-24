@@ -1,7 +1,7 @@
 use crate::{ApiError, ApiResult, NetworkChannel};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKeyBytes;
-use eth2_libp2p::types::{GossipEncoding, GossipKind, GossipTopic, SubnetId};
+use eth2_libp2p::types::{GossipEncoding, GossipKind, GossipTopic};
 use eth2_libp2p::PubsubMessage;
 use hex;
 use http::header;
@@ -244,25 +244,28 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     Ok(())
 }
 
-pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
+/// Publishes a raw un-aggregated attestation to the network.
+///
+pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
     mut chan: NetworkChannel<T::EthSpec>,
-    attestation: Attestation<T::EthSpec>,
+    attestations: Vec<Attestation<T::EthSpec>>,
 ) -> Result<(), ApiError> {
-    // create the network topic to send on
-    // TODO: Currently a placeholder
-    let subnet_id = SubnetId::new(0);
-    let topic = GossipTopic::new(GossipKind::CommitteeIndex(subnet_id), GossipEncoding::SSZ);
-    let message = PubsubMessage::Attestation(Box::new((subnet_id, attestation)));
+    for attestation in attestations {
+        // create the network topic to send on
+        let subnet_id = attestation.subnet_id();
+        let topic = GossipTopic::new(GossipKind::CommitteeIndex(subnet_id), GossipEncoding::SSZ);
+        let message = PubsubMessage::Attestation(Box::new((subnet_id, attestation)));
 
-    // Publish the attestation to the p2p network via gossipsub.
-    if let Err(e) = chan.try_send(NetworkMessage::Publish {
-        topics: vec![topic.into()],
-        message,
-    }) {
-        return Err(ApiError::ServerError(format!(
-            "Unable to send new attestation to network: {:?}",
-            e
-        )));
+        // Publish the attestation to the p2p network via gossipsub.
+        if let Err(e) = chan.try_send(NetworkMessage::Publish {
+            topics: vec![topic.into()],
+            message,
+        }) {
+            return Err(ApiError::ServerError(format!(
+                "Unable to send new attestation to network: {:?}",
+                e
+            )));
+        }
     }
 
     Ok(())

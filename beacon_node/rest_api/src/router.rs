@@ -138,7 +138,6 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::POST, "/validator/attestations") => {
                 validator::publish_attestations::<T>(req, beacon_chain, network_channel, log)
             }
-            /*
             (&Method::POST, "/validator/aggregate_and_proofs") => {
                 validator::publish_aggregate_and_proofs::<T>(
                     req,
@@ -147,7 +146,7 @@ pub fn route<T: BeaconChainTypes>(
                     log,
                 )
             }
-            */
+
             // Methods for consensus
             (&Method::GET, "/consensus/global_votes") => {
                 into_boxfut(consensus::get_vote_count::<T>(req, beacon_chain))
