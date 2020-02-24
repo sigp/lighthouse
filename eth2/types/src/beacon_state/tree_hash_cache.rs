@@ -3,7 +3,10 @@ use crate::{BeaconState, EthSpec, Hash256, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
-use tree_hash::{mix_in_length, TreeHash};
+use tree_hash::{mix_in_length, MerkleStream, TreeHash};
+
+/// The number of fields on a beacon state.
+const NUM_BEACON_STATE_HASHING_FIELDS: usize = 20;
 
 /// The number of nodes in the Merkle tree of a validator record.
 const NODES_PER_VALIDATOR: usize = 15;
@@ -76,79 +79,79 @@ impl BeaconTreeHashCache {
         &mut self,
         state: &BeaconState<T>,
     ) -> Result<Hash256, Error> {
-        let mut leaves = vec![];
+        let mut hasher = MerkleStream::new_for_leaf_count(NUM_BEACON_STATE_HASHING_FIELDS);
 
-        leaves.extend_from_slice(state.genesis_time.tree_hash_root().as_bytes());
-        leaves.extend_from_slice(state.slot.tree_hash_root().as_bytes());
-        leaves.extend_from_slice(state.fork.tree_hash_root().as_bytes());
-        leaves.extend_from_slice(state.latest_block_header.tree_hash_root().as_bytes());
-        leaves.extend_from_slice(
+        hasher.write(state.genesis_time.tree_hash_root().as_bytes())?;
+        hasher.write(state.slot.tree_hash_root().as_bytes())?;
+        hasher.write(state.fork.tree_hash_root().as_bytes())?;
+        hasher.write(state.latest_block_header.tree_hash_root().as_bytes())?;
+        hasher.write(
             state
                 .block_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.block_roots)?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .state_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.state_roots)?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .historical_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.historical_roots)?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(state.eth1_data.tree_hash_root().as_bytes());
-        leaves.extend_from_slice(state.eth1_data_votes.tree_hash_root().as_bytes());
-        leaves.extend_from_slice(state.eth1_deposit_index.tree_hash_root().as_bytes());
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(state.eth1_data.tree_hash_root().as_bytes())?;
+        hasher.write(state.eth1_data_votes.tree_hash_root().as_bytes())?;
+        hasher.write(state.eth1_deposit_index.tree_hash_root().as_bytes())?;
+        hasher.write(
             self.validators
                 .recalculate_tree_hash_root(&state.validators[..])?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .balances
                 .recalculate_tree_hash_root(&mut self.balances_arena, &mut self.balances)?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .randao_mixes
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.randao_mixes)?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .slashings
                 .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .previous_epoch_attestations
                 .tree_hash_root()
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(state.current_epoch_attestations.tree_hash_root().as_bytes());
-        leaves.extend_from_slice(state.justification_bits.tree_hash_root().as_bytes());
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(state.current_epoch_attestations.tree_hash_root().as_bytes())?;
+        hasher.write(state.justification_bits.tree_hash_root().as_bytes())?;
+        hasher.write(
             state
                 .previous_justified_checkpoint
                 .tree_hash_root()
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .current_justified_checkpoint
                 .tree_hash_root()
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(state.finalized_checkpoint.tree_hash_root().as_bytes());
+        )?;
+        hasher.write(state.finalized_checkpoint.tree_hash_root().as_bytes())?;
 
-        Ok(tree_hash::merkle_root(&leaves, 0))
+        hasher.finish().map_err(Into::into)
     }
 }
 

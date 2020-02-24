@@ -3,7 +3,7 @@ mod merkle_stream;
 mod merkleize_padded;
 mod merkleize_standard;
 
-pub use merkle_stream::MerkleStream;
+pub use merkle_stream::{Error, MerkleStream};
 pub use merkleize_padded::merkleize_padded;
 pub use merkleize_standard::merkleize_standard;
 
