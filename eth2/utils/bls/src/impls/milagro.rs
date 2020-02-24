@@ -80,7 +80,7 @@ impl TSignature<PublicKey> for Signature {
     }
 
     fn verify(&self, pubkey: &PublicKey, msg: &[u8]) -> bool {
-        if self.is_empty {
+        if self.is_empty || msg.len() != MSG_SIZE {
             false
         } else {
             self.signature.verify(msg, pubkey)

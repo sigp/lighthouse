@@ -46,6 +46,9 @@ impl TSignature<PublicKey> for Signature {
     }
 
     fn verify(&self, pubkey: &PublicKey, msg: &[u8]) -> bool {
+        if msg.len() != MSG_SIZE {
+            return false;
+        }
         self.verify(pubkey, msg)
     }
 
