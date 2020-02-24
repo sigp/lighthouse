@@ -2,7 +2,7 @@ use super::signature_sets::{Error as SignatureSetError, Result as SignatureSetRe
 
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
-use bls::{verify_signature_sets, G1Point, SignatureSet};
+use bls::{verify_signature_sets, SignatureSet};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use types::{

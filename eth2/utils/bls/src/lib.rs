@@ -15,7 +15,6 @@ pub use impls::*;
 pub use public_key::PUBLIC_KEY_BYTES_LEN;
 pub use secret_key::SECRET_KEY_BYTES_LEN;
 pub use signature::{MSG_SIZE, SIGNATURE_BYTES_LEN};
-pub use signature_set::SignatureSet;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {

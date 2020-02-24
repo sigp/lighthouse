@@ -6,6 +6,30 @@ use crate::{
 };
 pub use bls_eth_rust::{PublicKey, SecretKey, Signature};
 
+pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
+
+pub fn verify_signature_sets<'a>(signature_sets: impl Iterator<Item = SignatureSet<'a>>) -> bool {
+    for set in signature_sets {
+        for signed_message in set.signed_messages {
+            let pubkeys = signed_message
+                .signing_keys
+                .into_iter()
+                .map(|pubkey| pubkey.point().clone())
+                .collect::<Vec<_>>();
+            let is_valid = set
+                .signature
+                .point()
+                .fast_aggregate_verify(&pubkeys[..], &signed_message.message[..]);
+
+            if !is_valid {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
 impl TPublicKey for PublicKey {
     fn zero() -> Self {
         Self::zero()

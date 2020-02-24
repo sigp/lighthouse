@@ -5,6 +5,13 @@ use crate::{
     Error, MSG_SIZE,
 };
 
+pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
+
+pub fn verify_signature_sets<'a>(_iter: impl Iterator<Item = SignatureSet<'a>>) -> bool {
+    true
+}
+
+#[derive(Clone)]
 pub struct PublicKey([u8; PUBLIC_KEY_BYTES_LEN]);
 
 impl TPublicKey for PublicKey {
@@ -31,6 +38,7 @@ impl TPublicKey for PublicKey {
     }
 }
 
+#[derive(Clone)]
 pub struct Signature([u8; SIGNATURE_BYTES_LEN]);
 
 impl TSignature<PublicKey> for Signature {

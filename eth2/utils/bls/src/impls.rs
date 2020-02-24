@@ -7,6 +7,8 @@ macro_rules! define_mod {
         pub mod $name {
             use $mod as bls_variant;
 
+            pub use bls_variant::{verify_signature_sets, SignatureSet};
+
             pub type PublicKey = crate::public_key::PublicKey<bls_variant::PublicKey>;
             pub type PublicKeyBytes =
                 crate::public_key_bytes::PublicKeyBytes<bls_variant::PublicKey>;

@@ -5,9 +5,44 @@ use crate::{
     Error, MSG_SIZE,
 };
 pub use milagro_bls::{
-    AggregatePublicKey as PublicKey, AggregateSignature, PublicKey as SinglePublicKey, SecretKey,
+    AggregatePublicKey as PublicKey, AggregateSignature, G1Point, PublicKey as SinglePublicKey,
+    SecretKey,
 };
 use rand::thread_rng;
+
+pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
+
+pub fn verify_signature_sets<'a>(signature_sets: impl Iterator<Item = SignatureSet<'a>>) -> bool {
+    let signatures_iter = signature_sets.map(|set| {
+        let (pubkeys, messages): (Vec<G1Point>, Vec<Vec<u8>>) = set
+            .signed_messages
+            .into_iter()
+            .map(|signed_message| {
+                let key = if signed_message.signing_keys.len() == 1 {
+                    signed_message.signing_keys[0].point().clone()
+                } else {
+                    let mut aggregate = PublicKey::new();
+                    for signing_key in signed_message.signing_keys {
+                        aggregate.add(&SinglePublicKey {
+                            point: signing_key.point().point.clone(),
+                        })
+                    }
+                    aggregate
+                };
+
+                (key.point, signed_message.message.to_vec())
+            })
+            .unzip();
+
+        (
+            set.signature.point().signature.point.clone(),
+            pubkeys,
+            messages,
+        )
+    });
+
+    AggregateSignature::verify_multiple_signatures(&mut rand::thread_rng(), signatures_iter)
+}
 
 impl TPublicKey for PublicKey {
     fn zero() -> Self {

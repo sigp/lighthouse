@@ -1,16 +1,25 @@
-use crate::{PublicKey, Signature};
+use crate::{
+    public_key::{PublicKey, TPublicKey},
+    signature::{Signature, TSignature},
+};
 use std::borrow::Cow;
 
 type Message = [u8; 32];
 
 #[derive(Clone, Debug)]
-pub struct SignedMessage<'a> {
-    signing_keys: Vec<Cow<'a, PublicKey>>,
-    message: Message,
+pub struct SignedMessage<'a, Pub>
+where
+    Pub: TPublicKey + Clone,
+{
+    pub(crate) signing_keys: Vec<Cow<'a, PublicKey<Pub>>>,
+    pub(crate) message: Message,
 }
 
-impl<'a> SignedMessage<'a> {
-    pub fn new(signing_keys: Vec<Cow<'a, PublicKey>>, message: Message) -> Self {
+impl<'a, Pub> SignedMessage<'a, Pub>
+where
+    Pub: TPublicKey + Clone,
+{
+    pub fn new(signing_keys: Vec<Cow<'a, PublicKey<Pub>>>, message: Message) -> Self {
         Self {
             signing_keys,
             message,
@@ -18,16 +27,23 @@ impl<'a> SignedMessage<'a> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct SignatureSet<'a> {
-    pub signature: &'a Signature,
-    signed_messages: Vec<SignedMessage<'a>>,
+#[derive(Clone)]
+pub struct SignatureSet<'a, Pub, Sig>
+where
+    Pub: TPublicKey + Clone,
+{
+    pub signature: &'a Signature<Pub, Sig>,
+    pub(crate) signed_messages: Vec<SignedMessage<'a, Pub>>,
 }
 
-impl<'a> SignatureSet<'a> {
+impl<'a, Pub, Sig> SignatureSet<'a, Pub, Sig>
+where
+    Pub: TPublicKey + Clone,
+    Sig: TSignature<Pub>,
+{
     pub fn single<S>(
-        signature: &'a Signature,
-        signing_key: Cow<'a, PublicKey>,
+        signature: &'a Signature<Pub, Sig>,
+        signing_key: Cow<'a, PublicKey<Pub>>,
         message: Message,
     ) -> Self {
         Self {
@@ -36,7 +52,10 @@ impl<'a> SignatureSet<'a> {
         }
     }
 
-    pub fn new<S>(signature: &'a Signature, signed_messages: Vec<SignedMessage<'a>>) -> Self {
+    pub fn new<S>(
+        signature: &'a Signature<Pub, Sig>,
+        signed_messages: Vec<SignedMessage<'a, Pub>>,
+    ) -> Self {
         Self {
             signature,
             signed_messages,
@@ -51,22 +70,27 @@ impl<'a> SignatureSet<'a> {
             messages.push(signed_message.message.clone());
 
             let pubkey = if signed_message.signing_keys.len() == 1 {
-                signed_message.signing_keys[0].clone().into_owned()
+                signed_message.signing_keys[0]
+                    .clone()
+                    .into_owned()
+                    .into_point()
             } else {
                 let mut aggregate = PublicKey::zero();
                 aggregate.add_assign_multiple(
                     signed_message.signing_keys.iter().map(|cow| cow.as_ref()),
                 );
-                aggregate
+                aggregate.into_point()
             };
 
-            pubkeys.push(pubkey.point);
+            pubkeys.push(pubkey);
         });
 
-        self.signature.fast_aggregate_verify(&pubkeys, &messages)
+        self.signature
+            .fast_aggregate_verify(&pubkeys[..], &messages)
     }
 }
 
+/*
 type VerifySet<'a> = (Signature, Vec<PublicKey>, Vec<Message>);
 
 impl<'a> Into<VerifySet<'a>> for SignatureSet<'a> {
@@ -93,18 +117,10 @@ impl<'a> Into<VerifySet<'a>> for SignatureSet<'a> {
 
 /// Create an aggregate public key for a list of validators, failing if any key can't be found.
 fn aggregate_public_keys<'a>(public_keys: &'a [Cow<'a, PublicKey>]) -> PublicKey {
-    let aggregate = public_keys
-        .iter()
-        .fold(PublicKey::zero(), |mut aggregate, pubkey| {
-            aggregate.add_assign(&pubkey);
-            aggregate
-        });
+    let mut aggregate = PublicKey::zero();
 
-    // Milagro requires that the `affine` function is called after aggregating keys.
-    #[cfg(feature = "milagro")]
-    #[cfg(not(feature = "herumi"))]
-    #[cfg(not(feature = "fake_crypto"))]
-    aggregate.point_mut().affine();
+    aggregate.add_assign_multiple(public_keys.iter().map(|cow| cow.as_ref()));
 
     aggregate
 }
+*/

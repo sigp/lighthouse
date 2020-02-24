@@ -51,6 +51,10 @@ where
         }
     }
 
+    pub(crate) fn point(&self) -> &Sig {
+        &self.point
+    }
+
     pub fn add_assign(&mut self, other: &Self) {
         self.point.add_assign(&other.point)
     }
