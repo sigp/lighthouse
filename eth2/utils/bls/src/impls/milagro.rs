@@ -11,6 +11,7 @@ pub use milagro_bls::{
 use rand::thread_rng;
 
 pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
+pub type SignedMessage<'a> = crate::signature_set::SignedMessage<'a, PublicKey>;
 
 pub fn verify_signature_sets<'a>(signature_sets: impl Iterator<Item = SignatureSet<'a>>) -> bool {
     let signatures_iter = signature_sets.map(|set| {

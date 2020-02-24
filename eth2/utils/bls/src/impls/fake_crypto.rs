@@ -6,6 +6,7 @@ use crate::{
 };
 
 pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
+pub type SignedMessage<'a> = crate::signature_set::SignedMessage<'a, PublicKey>;
 
 pub fn verify_signature_sets<'a>(_iter: impl Iterator<Item = SignatureSet<'a>>) -> bool {
     true
@@ -35,6 +36,12 @@ impl TPublicKey for PublicKey {
         let mut pubkey = Self::zero();
         pubkey.0[..].copy_from_slice(&bytes[0..PUBLIC_KEY_BYTES_LEN]);
         Ok(pubkey)
+    }
+}
+
+impl PartialEq for PublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        &self.0[..] == &other.0[..]
     }
 }
 
@@ -69,6 +76,13 @@ impl TSignature<PublicKey> for Signature {
     }
 }
 
+impl PartialEq for Signature {
+    fn eq(&self, other: &Self) -> bool {
+        &self.0[..] == &other.0[..]
+    }
+}
+
+#[derive(Clone)]
 pub struct SecretKey([u8; SECRET_KEY_BYTES_LEN]);
 
 impl TSecretKey<Signature, PublicKey> for SecretKey {

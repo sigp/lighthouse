@@ -7,6 +7,7 @@ use crate::{
 pub use bls_eth_rust::{PublicKey, SecretKey, Signature};
 
 pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
+pub type SignedMessage<'a> = crate::signature_set::SignedMessage<'a, PublicKey>;
 
 pub fn verify_signature_sets<'a>(signature_sets: impl Iterator<Item = SignatureSet<'a>>) -> bool {
     for set in signature_sets {
