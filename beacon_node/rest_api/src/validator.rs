@@ -410,6 +410,23 @@ pub fn get_new_attestation<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&attestation)
 }
 
+/// HTTP Handler to retrieve the aggregate attestation for a slot
+pub fn get_aggregate_attestation<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    let query = UrlQuery::from_request(&req)?;
+
+    let slot = query.slot()?;
+    let index = query.committee_index()?;
+
+    let aggregate_attestation = beacon_chain
+        .produce_aggregate_attestation(slot, index)
+        .map_err(|e| ApiError::BadRequest(format!("Unable to produce attestation: {:?}", e)))?;
+
+    ResponseBuilder::new(&req)?.body(&aggregate_attestation)
+}
+
 /// HTTP Handler to publish an Attestation, which has been signed by a validator.
 pub fn publish_attestations<T: BeaconChainTypes>(
     req: Request<Body>,

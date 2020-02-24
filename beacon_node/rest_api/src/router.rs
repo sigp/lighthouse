@@ -132,11 +132,9 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/validator/attestation") => {
                 into_boxfut(validator::get_new_attestation::<T>(req, beacon_chain))
             }
-            /*
             (&Method::GET, "/validator/aggregate_attestation") => {
                 into_boxfut(validator::get_aggregate_attestation::<T>(req, beacon_chain))
             }
-            */
             (&Method::POST, "/validator/attestations") => {
                 validator::publish_attestations::<T>(req, beacon_chain, network_channel, log)
             }

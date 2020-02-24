@@ -139,8 +139,7 @@ where
                     .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
 
                 let builder = BeaconChainBuilder::new(eth_spec_instance)
-                    .logger(context.log.clone())
-                    .store(store)
+                    .logger(context.log.clone())a                    .store(store)
                     .store_migrator(store_migrator)
                     .custom_spec(spec.clone());
 
@@ -246,6 +245,11 @@ where
                 self.beacon_chain_builder = Some(beacon_chain_builder);
                 self
             })
+            .and_then(move |self| {
+                // All beacon chains must have a timer attached
+                self.timer();
+                self
+            })
     }
 
     /// Immediately starts the libp2p networking stack.
@@ -266,6 +270,31 @@ where
 
         self.libp2p_network = Some(network);
         self.libp2p_network_send = Some(network_send);
+
+        Ok(self)
+    }
+
+    /// Immediately starts the timer service.
+   fn timer(&mut self) -> Result<Self, String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "node timer requires a runtime_context")?
+            .service_context("node_timer".into());
+        let beacon_chain = self
+            .beacon_chain
+            .clone()
+            .ok_or_else(|| "node timer requires a beacon chain")?;
+        let milliseconds_per_slot = self
+            .chain_spec
+            .as_ref()
+            .ok_or_else(|| "node timer requires a chain spec".to_string())?
+            .milliseconds_per_slot;
+
+        let timer_exit = timer::spawn(context, beacon_chain, network, milliseconds_per_slot)
+            .map_err(|e| format!("Unable to start node timer: {}", e))?;
+
+        self.exit_signals.push(timer_exit);
 
         Ok(self)
     }

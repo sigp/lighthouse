@@ -22,13 +22,29 @@ use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    EthSpec, ProposerSlashing, RelativeEpoch, Validator, VoluntaryExit,
+    CommitteeIndex, Epoch, EthSpec, ProposerSlashing, RelativeEpoch, Slot, Validator,
+    VoluntaryExit,
 };
+
+/// The number of slots we keep shard subnet attestations in the operation pool for. A value of 0
+/// means we remove the attestation pool as soon as the slot ends.
+const ATTESTATION_SUBNET_SLOT_DURATION: u64 = 1;
 
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
-    /// Map from attestation ID (see below) to vectors of attestations.
-    attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
+    /// Map from attestation ID (see `attestation_id`) to vectors of attestations.
+    ///
+    /// These are collected from the aggregate channel. They should already be aggregated but we
+    /// check for disjoint attestations in the unlikely event we receive disjoint attestations.
+    aggregate_attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
+    /// A collection of aggregated attestations for a particular slot and committee index.
+    ///
+    /// Un-aggregated attestations are collected on a shard subnet and if a connected validator is
+    /// required to aggregate these attestations they are aggregated and stored here until the
+    /// validator is required to publish the aggregate attestation.
+    /// This segregates attestations into (slot,committee_index) then by `AttestationId`.
+    committee_attestations:
+        RwLock<HashMap<(Slot, CommitteeIndex), HashMap<AttestationId, Vec<Attestation<T>>>>>,
     /// Map from two attestation IDs to a slashing for those IDs.
     attester_slashings: RwLock<HashMap<(AttestationId, AttestationId), AttesterSlashing<T>>>,
     /// Map from proposer index to slashing.
@@ -49,12 +65,13 @@ impl<T: EthSpec> OperationPool<T> {
         Self::default()
     }
 
-    /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
+    /// Insert an attestation from the aggregate channel into the pool, checking if the
+    /// aggregate can be further aggregated
     ///
     /// ## Note
     ///
     /// This function assumes the given `attestation` is valid.
-    pub fn insert_attestation(
+    pub fn insert_aggregate_attestation(
         &self,
         attestation: Attestation<T>,
         state: &BeaconState<T>,
@@ -63,7 +80,7 @@ impl<T: EthSpec> OperationPool<T> {
         let id = AttestationId::from_data(&attestation.data, state, spec);
 
         // Take a write lock on the attestations map.
-        let mut attestations = self.attestations.write();
+        let mut attestations = self.aggregate_attestations.write();
 
         let existing_attestations = match attestations.entry(id) {
             hash_map::Entry::Vacant(entry) => {
@@ -90,9 +107,73 @@ impl<T: EthSpec> OperationPool<T> {
         Ok(())
     }
 
-    /// Total number of attestations in the pool, including attestations for the same data.
+    /// Insert a raw un-aggregated attestation into the pool, for a given (slot, committee_index).
+    ///
+    /// ## Note
+    ///
+    /// It would be a fair assumption that all attestations here are unaggregated and we
+    /// therefore do not need to check if `signers_disjoint_form`. However the cost of doing
+    /// so is low, so we perform this check for added safety.
+    pub fn insert_raw_attestation(
+        &self,
+        attestation: Attestation<T>,
+        slot: &Slot,
+        committee_index: &CommitteeIndex,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Result<(), AttestationValidationError> {
+        let id = AttestationId::from_data(&attestation.data, state, spec);
+
+        // Take a write lock on the attestations map.
+        let mut attestations = self.committee_attestations.write();
+
+        let slot_index_map = attestations
+            .entry((*slot, *committee_index))
+            .or_insert_with(|| HashMap::new());
+
+        let existing_attestations = match slot_index_map.entry(id) {
+            hash_map::Entry::Vacant(entry) => {
+                entry.insert(vec![attestation]);
+                return Ok(());
+            }
+            hash_map::Entry::Occupied(entry) => entry.into_mut(),
+        };
+
+        let mut aggregated = false;
+        for existing_attestation in existing_attestations.iter_mut() {
+            if existing_attestation.signers_disjoint_from(&attestation) {
+                existing_attestation.aggregate(&attestation);
+                aggregated = true;
+            } else if *existing_attestation == attestation {
+                aggregated = true;
+            }
+        }
+
+        if !aggregated {
+            existing_attestations.push(attestation);
+        }
+
+        Ok(())
+    }
+
+    /// Total number of aggregate attestations in the pool from the aggregate channel, including attestations for the same data.
     pub fn num_attestations(&self) -> usize {
-        self.attestations.read().values().map(Vec::len).sum()
+        self.aggregate_attestations
+            .read()
+            .values()
+            .map(Vec::len)
+            .sum()
+    }
+
+    /// Total number of attestations in the pool, including attestations for the same data.
+    pub fn total_num_attestations(&self) -> usize {
+        self.num_attestations().saturating_add(
+            self.committee_attestations
+                .read()
+                .values()
+                .map(|map| map.values().map(Vec::len).sum::<usize>())
+                .sum(),
+        )
     }
 
     /// Get a list of attestations for inclusion in a block.
@@ -108,7 +189,7 @@ impl<T: EthSpec> OperationPool<T> {
         let current_epoch = state.current_epoch();
         let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, state, spec);
         let curr_domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
-        let reader = self.attestations.read();
+        let reader = self.aggregate_attestations.read();
         let active_indices = state
             .get_cached_active_validator_indices(RelativeEpoch::Current)
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
@@ -140,19 +221,38 @@ impl<T: EthSpec> OperationPool<T> {
         ))
     }
 
-    /// Remove attestations which are too old to be included in a block.
-    pub fn prune_attestations(&self, finalized_state: &BeaconState<T>) {
+    /// Removes aggregate attestations which are too old to be included in a block.
+    ///
+    /// This leaves the committee_attestations intact. The committee attestations have their own
+    /// prune function as these are not for block inclusion and can be pruned more frequently.
+    /// See `prune_committee_attestations`.
+    //TODO: Michael to check this before merge
+    pub fn prune_attestations(&self, current_epoch: &Epoch) {
         // We know we can include an attestation if:
         // state.slot <= attestation_slot + SLOTS_PER_EPOCH
         // We approximate this check using the attestation's epoch, to avoid computing
         // the slot or relying on the committee cache of the finalized state.
-        self.attestations.write().retain(|_, attestations| {
-            // All the attestations in this bucket have the same data, so we only need to
-            // check the first one.
-            attestations.first().map_or(false, |att| {
-                finalized_state.current_epoch() <= att.data.target.epoch + 1
-            })
-        });
+        self.aggregate_attestations
+            .write()
+            .retain(|_, attestations| {
+                // All the attestations in this bucket have the same data, so we only need to
+                // check the first one.
+                attestations
+                    .first()
+                    .map_or(false, |att| *current_epoch <= att.data.target.epoch + 1)
+            });
+    }
+
+    /// Removes old committee attestations. These should be used in the slot that they are
+    /// collected. We keep these around for one extra slot (i.e current_slot + 1) to account for
+    /// potential delays.
+    ///
+    /// The beacon chain should call this function every slot with the current slot as the
+    /// parameter.
+    pub fn prune_committee_attestations(&self, current_slot: &Slot) {
+        self.committee_attestations
+            .write()
+            .retain(|(slot, _), _| *slot + ATTESTATION_SUBNET_SLOT_DURATION >= *current_slot)
     }
 
     /// Insert a proposer slashing into the pool.

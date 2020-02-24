@@ -659,7 +659,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Produce an `Attestation` that is valid for the given `slot` and `index`.
+    ///  an aggregate attestation that has been collected for this slot and committee.
+    pub fn produce_aggregate_attestation(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+    ) -> Result<Attestation<T::EthSpec>, Error> {
+        //NOTE: Michael Check this code modification before merge
+        let data = self.produce_attestation_data(slot, index)?;
+
+        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+
+        Ok(Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)?,
+            data,
+            signature: AggregateSignature::new(),
+        })
+    }
+
+    /// Produce a raw unsigned `Attestation` that is valid for the given `slot` and `index`.
     ///
     /// Always attests to the canonical chain.
     pub fn produce_attestation(
@@ -667,15 +685,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
-        let state = self.state_at_slot(slot)?;
-        let head = self.head()?;
-
-        let data = self.produce_attestation_data_for_block(
-            index,
-            head.beacon_block_root,
-            head.beacon_block.slot,
-            &state,
-        )?;
+        //NOTE: Michael Check this code modification before merge
+        let data = self.produce_attestation_data(slot, index)?;
 
         let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
 
@@ -1905,6 +1916,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         result
     }
 
+    /// Called by the timer on every slot.
+    ///
+    /// Performs slot-based pruning.
+    pub fn per_slot_task(&self) {
+        self.op_pool
+            .prune_committee_attestations(self.slot_clock.now())
+    }
+
+    /// Called by the timer on every epoch.
+    ///
+    /// Performs epoch-based pruning.
+    pub fn per_epoch_task(&self) {
+        let current_epoch = self.slot_clock.now().epoch(T::EthSpec::slots_per_epoch());
+        self.op_pool.prune_all(&current_epoch, &self.spec);
+    }
+
     /// Called after `self` has had a new block finalized.
     ///
     /// Performs pruning and finality-based optimizations.
@@ -1934,8 +1961,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Some(finalized_block.slot),
                 )?
                 .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
-
-            self.op_pool.prune_all(&finalized_state, &self.spec);
 
             // TODO: configurable max finality distance
             let max_finality_distance = 0;
