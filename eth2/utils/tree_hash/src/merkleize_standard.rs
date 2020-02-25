@@ -4,9 +4,10 @@ use eth2_hashing::hash;
 /// Merkleizes bytes and returns the root, using a simple algorithm that does not optimize to avoid
 /// processing or storing padding bytes.
 ///
-/// The input `bytes` will be padded to ensure that the number of leaves is a power-of-two.
+/// **Note**: This function is generally worse than using the `crate::merkle_root` which uses
+/// `MerkleStream`. We only keep this function around for reference testing.
 ///
-/// It is likely a better choice to use [merkleize_padded](fn.merkleize_padded.html) instead.
+/// The input `bytes` will be padded to ensure that the number of leaves is a power-of-two.
 ///
 /// ## CPU Performance
 ///
