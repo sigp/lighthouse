@@ -15,7 +15,7 @@ pub mod rpc;
 mod service;
 pub mod types;
 
-pub use crate::types::{error, topics, GossipTopic, SubnetId};
+pub use crate::types::{error, topics, GossipMessage, GossipTopic};
 pub use config::Config as NetworkConfig;
 pub use globals::NetworkGlobals;
 pub use libp2p::enr::Enr;

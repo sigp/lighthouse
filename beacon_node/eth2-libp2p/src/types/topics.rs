@@ -1,6 +1,6 @@
-use crate::types::SubnetId;
 use libp2p::gossipsub::Topic;
 use serde_derive::{Deserialize, Serialize};
+use types::SubnetId;
 
 /// The gossipsub topic names.
 // These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
@@ -19,7 +19,7 @@ pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
 /// the pubsub protocol and the way the messages should be encoded.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GossipTopic {
     /// The encoding of the topic.
     encoding: GossipEncoding,
@@ -28,7 +28,7 @@ pub struct GossipTopic {
 }
 
 /// Enum that brings these topics into the rust type system.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum GossipKind {
     BeaconBlock,
     BeaconAggregateAndProof,
@@ -39,7 +39,7 @@ pub enum GossipKind {
 }
 
 /// The known encoding types for gossipsub messages.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum GossipEncoding {
     SSZ,
 }

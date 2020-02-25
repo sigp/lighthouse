@@ -1,5 +1,5 @@
 use crate::helpers::{
-    check_content_type_for_json, publish_attestation_to_network, publish_beacon_block_to_network,
+    check_content_type_for_json, publish_raw_attestations_to_network, publish_beacon_block_to_network, publish_aggregate_attestations_to_network,
 };
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
@@ -471,7 +471,7 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                             "index" => attestation.data.index,
                             "slot" => attestation.data.slot,
                         );
-                        publish_attestation_to_network::<T>(network_chan, attestation)
+                        
                     }
                     Ok(outcome) => {
                         warn!(
@@ -498,7 +498,12 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                         )))
                     }
                 }
-            })})
+            })
+            Ok(attestations)
+            })
+            .and_then(|attestations| {
+                   publish_raw_attestations_to_network::<T>(network_chan, attestations)
+            })
             .and_then(|_| response_builder?.body_no_ssz(&())),
     )
 }
@@ -562,7 +567,7 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                             "index" => attestation.data.index,
                             "slot" => attestation.data.slot,
                         );
-                        publish_attestation_to_network::<T>(network_chan, attestation)
+                        publish_aggregate_attestation_to_network::<T>(network_chan, attestation)
                     }
                     Ok(outcome) => {
                         warn!(
@@ -589,13 +594,8 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                         )))
                     }
                 }
-            })
 
-
-
-
-                    }
-                    else {
+                } else {
                         error!(
                             log,
                             "Invalid AggregateAndProof Signature"
@@ -605,47 +605,6 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                         )))
                     }
                     })?;
-
-                // Forward this list to the network service to publish
-                
-                match beacon_chain.process_attestation(attestation.clone(), Some(true)) {
-                    Ok(AttestationProcessingOutcome::Processed) => {
-                        // Block was processed, publish via gossipsub
-                        info!(
-                            log,
-                            "Attestation from local validator";
-                            "target" => attestation.data.source.epoch,
-                            "source" => attestation.data.source.epoch,
-                            "index" => attestation.data.index,
-                            "slot" => attestation.data.slot,
-                        );
-                        publish_attestation_to_network::<T>(network_chan, attestation)
-                    }
-                    Ok(outcome) => {
-                        warn!(
-                            log,
-                            "Invalid attestation from local validator";
-                            "outcome" => format!("{:?}", outcome)
-                        );
-
-                        Err(ApiError::ProcessingError(format!(
-                            "The Attestation could not be processed and has not been published: {:?}",
-                            outcome
-                        )))
-                    }
-                    Err(e) => {
-                        error!(
-                            log,
-                            "Error whilst processing attestation";
-                            "error" => format!("{:?}", e)
-                        );
-
-                        Err(ApiError::ServerError(format!(
-                            "Error while processing attestation: {:?}",
-                            e
-                        )))
-                    }
-                }
             })
             .and_then(|_| response_builder?.body_no_ssz(&())),
     )

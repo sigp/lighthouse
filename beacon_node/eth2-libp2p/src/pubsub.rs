@@ -1,10 +1,10 @@
 //! Handles the encoding and decoding of pubsub messages.
 
 use crate::topics::{GossipEncoding, GossipKind, GossipTopic};
-use crate::SubnetId;
 use crate::TopicHash;
 use ssz::{Decode, Encode};
 use std::boxed::Box;
+use types::SubnetId;
 use types::{
     AggregateAndProof, Attestation, AttesterSlashing, BeaconBlock, EthSpec, ProposerSlashing,
     VoluntaryExit,

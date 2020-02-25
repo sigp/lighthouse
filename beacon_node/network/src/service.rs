@@ -6,9 +6,9 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{
-    rpc::RPCRequest, Enr, GossipTopic, Libp2pEvent, MessageId, Multiaddr, NetworkGlobals, PeerId, Swarm,
+    rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, NetworkGlobals, PeerId, Swarm,
 };
-use eth2_libp2p::{PubsubMessage, RPCEvent};
+use eth2_libp2p::{RPCEvent, GossipMessage};
 use rest_types::ValidatorSubscriptions;
 use futures::prelude::*;
 use futures::Stream;
@@ -206,7 +206,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 .propagate_message(&propagation_source, message_id);
                         }
                     }
-                    NetworkMessage::Publish { topics, message } => {
+                    NetworkMessage::Publish { messages } => {
                         // TODO: Remove this for mainnet
                         // randomly prevents propagation
                         let mut should_send = true;
@@ -219,10 +219,18 @@ fn spawn_service<T: BeaconChainTypes>(
                             }
                         }
                         if !should_send {
-                            info!(log, "Random filter did not publish message");
+                            info!(log, "Random filter did not publish messages");
                         } else {
-                            debug!(log, "Sending pubsub message"; "topics" => format!("{:?}",topics));
-                            libp2p_service.swarm.publish(topics, message);
+                            let mut unique_topics = Vec::new();
+                            for message in &messages {
+                                for topic in message.topics() {
+                                    if !unique_topics.contains(&topic) {
+                                        unique_topics.push(topic);
+                                    }
+                                }
+                            }
+                            debug!(log, "Sending pubsub messages"; "count" => messages.len(), "topics" => format!("{:?}", unique_topics));
+                            libp2p_service.swarm.publish(messages);
                         }
                     }
                     NetworkMessage::Disconnect { peer_id } => {
@@ -319,10 +327,9 @@ pub enum NetworkMessage<T: EthSpec> {
     },
     /// Send an RPC message to the libp2p service.
     RPC(PeerId, RPCEvent<T>),
-    /// Publish a message to gossipsub.
+    /// Publish a list of messages to the gossipsub protocol.
     Publish {
-        topics: Vec<GossipTopic>,
-        message: PubsubMessage<T>,
+        messages: Vec<GossipMessage<T>>
     },
     /// Propagate a received gossipsub message.
     Propagate {
