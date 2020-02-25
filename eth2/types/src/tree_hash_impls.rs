@@ -5,7 +5,7 @@
 use crate::{Epoch, Hash256, PublicKeyBytes, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, Error, TreeHashCache};
 use int_to_bytes::int_to_fixed_bytes32;
-use ring::digest::{Context, SHA256};
+use tree_hash::merkle_root;
 
 /// Number of struct fields on `Validator`.
 const NUM_VALIDATOR_FIELDS: usize = 8;
@@ -73,12 +73,8 @@ fn process_pubkey_bytes_field(
     leaf: &mut Hash256,
     force_update: bool,
 ) -> bool {
-    let mut context = Context::new(&SHA256);
-    context.update(val.as_slice());
-    context.update(&[0; 64 - bls::BLS_PUBLIC_KEY_BYTE_SIZE]);
-    let digest = context.finish();
-
-    process_slice_field(digest.as_ref(), leaf, force_update)
+    let new_tree_hash = merkle_root(val.as_slice(), 0);
+    process_slice_field(new_tree_hash.as_bytes(), leaf, force_update)
 }
 
 fn process_slice_field(new_tree_hash: &[u8], leaf: &mut Hash256, force_update: bool) -> bool {
