@@ -15,12 +15,22 @@ pub const MERKLE_HASH_CHUNK: usize = 2 * BYTES_PER_CHUNK;
 
 pub type Hash256 = ethereum_types::H256;
 
-/// Alias to `merkleize_padded(&bytes, minimum_chunk_count)`
+/// Convenience method for `MerkleStream`.
 ///
-/// If `minimum_chunk_count < bytes / BYTES_PER_CHUNK`, padding will be added for the difference
-/// between the two.
-pub fn merkle_root(bytes: &[u8], minimum_chunk_count: usize) -> Hash256 {
-    merkleize_padded(&bytes, minimum_chunk_count)
+/// `minimum_leaf_count` will only be used if it is greater than or equal to the minimum number of leaves that can be created from `bytes`.
+pub fn merkle_root(bytes: &[u8], minimum_leaf_count: usize) -> Hash256 {
+    let leaves = std::cmp::max(
+        (bytes.len() + (HASHSIZE - 1)) / HASHSIZE,
+        minimum_leaf_count,
+    );
+
+    let mut hasher = MerkleStream::new_for_leaf_count(leaves);
+    hasher
+        .write(bytes)
+        .expect("the number of leaves is adequate for the number of bytes");
+    hasher
+        .finish()
+        .expect("the number of leaves is adequate for the number of bytes")
 }
 
 /// Returns the node created by hashing `root` and `length`.
