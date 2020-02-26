@@ -41,7 +41,7 @@ where
     Pub: TPublicKey + Clone,
     Sig: TSignature<Pub>,
 {
-    pub fn single<S>(
+    pub fn single(
         signature: &'a Signature<Pub, Sig>,
         signing_key: Cow<'a, PublicKey<Pub>>,
         message: Message,
@@ -52,7 +52,7 @@ where
         }
     }
 
-    pub fn new<S>(
+    pub fn new(
         signature: &'a Signature<Pub, Sig>,
         signed_messages: Vec<SignedMessage<'a, Pub>>,
     ) -> Self {

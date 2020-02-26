@@ -6,7 +6,7 @@ use bls::{verify_signature_sets, SignatureSet};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256, IndexedAttestation,
+    BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256, IndexedAttestation, PublicKey,
     SignedBeaconBlock,
 };
 
@@ -50,7 +50,7 @@ impl From<BlockOperationError<AttestationInvalid>> for Error {
 pub struct BlockSignatureVerifier<'a, T, F>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>> + Clone,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
 {
     block: &'a SignedBeaconBlock<T>,
     get_pubkey: Box<F>,
@@ -62,7 +62,7 @@ where
 impl<'a, T, F> BlockSignatureVerifier<'a, T, F>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>> + Clone,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
 {
     /// Create a new verifier without any included signatures. See the `include...` functions to
     /// add signatures, and the `verify`
