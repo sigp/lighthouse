@@ -124,7 +124,7 @@ impl HalfNode {
 pub struct MerkleHasher {
     /// Stores the nodes that are half-complete and awaiting a right node.
     ///
-    /// A smallvec of size 8 means we can hash a tree with 128 leaves without allocating on the
+    /// A smallvec of size 8 means we can hash a tree with 256 leaves without allocating on the
     /// heap. Each half-node is 224 bytes, so this smallvec may store 1,792 bytes on the stack.
     half_nodes: SmallVec8<HalfNode>,
     /// The depth of the tree that will be produced.
@@ -156,8 +156,11 @@ fn get_depth(i: usize) -> usize {
 }
 
 impl MerkleHasher {
-    /// A convenience method for generating a tree with a given number of leaves. Determines the
-    /// smallest tree that can accommodate the given number of leaves.
+    /// Instantiate a hasher for a tree with a given number of leaves.
+    ///
+    /// `num_leaves` will be rounded to the next power of two. E.g., if `num_leaves == 6`, then the
+    /// tree will _actually_ be able to accomodate 8 leaves and the resulting hasher is exactly the
+    /// same as one that was instantiated with `Self::with_leaves(8)`.
     ///
     /// ## Notes
     ///
@@ -172,11 +175,11 @@ impl MerkleHasher {
     /// for `1 << (depth - 1)` leaf nodes.
     ///
     /// It is not possible to grow the depth of the tree after instantiation.
-    pub fn new(depth: NonZeroUsize) -> Self {
+    fn new(depth: NonZeroUsize) -> Self {
         let depth = depth.get();
 
         Self {
-            half_nodes: smallvec![],
+            half_nodes: SmallVec::with_capacity(depth - 1),
             depth,
             next_leaf: 1 << (depth - 1),
             buffer: SmallVec::with_capacity(32),
@@ -490,6 +493,12 @@ mod test {
         assert_eq!(get_depth(6), 2);
         assert_eq!(get_depth(7), 2);
         assert_eq!(get_depth(8), 3);
+    }
+
+    #[test]
+    fn with_0_leaves() {
+        let hasher = MerkleHasher::with_leaves(0);
+        assert_eq!(hasher.finish().unwrap(), Hash256::zero());
     }
 
     #[test]
