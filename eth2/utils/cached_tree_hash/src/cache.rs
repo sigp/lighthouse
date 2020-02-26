@@ -28,7 +28,6 @@ impl TreeHashCache {
     pub fn new(arena: &mut CacheArena, depth: usize, leaves: usize) -> Self {
         let mut layers = SmallVec8::with_capacity(depth + 1);
 
-        // TODO: what about when leaves is zero?
         for i in 0..=depth {
             let vec = arena.alloc();
             vec.extend_with_vec(
@@ -204,6 +203,21 @@ fn nodes_per_layer(layer: usize, depth: usize, leaves: usize) -> usize {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn zero_leaves() {
+        let arena = &mut CacheArena::default();
+
+        let depth = 3;
+        let num_leaves = 0;
+
+        let mut cache = TreeHashCache::new(arena, depth, num_leaves);
+        let leaves: Vec<[u8; BYTES_PER_CHUNK]> = vec![];
+
+        cache
+            .recalculate_merkle_root(arena, leaves.into_iter())
+            .expect("should calculate root");
+    }
 
     #[test]
     fn test_node_per_layer_unbalanced_tree() {
