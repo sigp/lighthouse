@@ -66,6 +66,7 @@ pub enum Error {
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
+    TreeHashError(tree_hash::Error),
     CachedTreeHashError(cached_tree_hash::Error),
     InvalidValidatorPubkey(bls::Error),
     ValidatorRegistryShrunk,
@@ -1024,5 +1025,11 @@ impl From<ssz_types::Error> for Error {
 impl From<cached_tree_hash::Error> for Error {
     fn from(e: cached_tree_hash::Error) -> Error {
         Error::CachedTreeHashError(e)
+    }
+}
+
+impl From<tree_hash::Error> for Error {
+    fn from(e: tree_hash::Error) -> Error {
+        Error::TreeHashError(e)
     }
 }

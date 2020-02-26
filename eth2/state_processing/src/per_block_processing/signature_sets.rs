@@ -86,13 +86,13 @@ where
         }
         .tree_hash_root()
     } else {
-        block.signing_root(domain).as_bytes().to_vec()
+        block.signing_root(domain)
     };
 
     Ok(SignatureSet::single(
         &signed_block.signature,
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
-        message,
+        message.as_bytes().to_vec(),
     ))
 }
 

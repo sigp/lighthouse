@@ -22,9 +22,6 @@ const DAYS_PER_WEEK: f64 = 7.0;
 const HOURS_PER_DAY: f64 = 24.0;
 const MINUTES_PER_HOUR: f64 = 60.0;
 
-/// How long to wait for the lock on `network.libp2p_service()` before we give up.
-const LIBP2P_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
-
 /// The number of historical observations that should be used to determine the average sync time.
 const SPEEDO_OBSERVATIONS: usize = 4;
 
@@ -60,15 +57,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         .for_each(move |_| {
             let log = log_2.clone();
 
-            let connected_peer_count = if let Some(libp2p) = network
-                .libp2p_service()
-                .try_lock_until(Instant::now() + LIBP2P_LOCK_TIMEOUT)
-            {
-                libp2p.swarm.connected_peers()
-            } else {
-                // Use max_value here and we'll print something pretty later.
-                usize::max_value()
-            };
+            let connected_peer_count = network.connected_peers();
 
             let head_info = beacon_chain.head_info()
                 .map_err(|e| error!(

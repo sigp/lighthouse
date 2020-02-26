@@ -529,7 +529,7 @@ mod deposit_tree {
             for (j, deposit) in deposits.iter().enumerate() {
                 assert!(
                     verify_merkle_proof(
-                        Hash256::from_slice(&deposit.data.tree_hash_root()),
+                        deposit.data.tree_hash_root(),
                         &deposit.proof,
                         DEPOSIT_CONTRACT_TREE_DEPTH + 1,
                         j,
