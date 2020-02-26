@@ -5,7 +5,7 @@ use eth2_hashing::hash;
 /// processing or storing padding bytes.
 ///
 /// **Note**: This function is generally worse than using the `crate::merkle_root` which uses
-/// `MerkleStream`. We only keep this function around for reference testing.
+/// `MerkleHasher`. We only keep this function around for reference testing.
 ///
 /// The input `bytes` will be padded to ensure that the number of leaves is a power-of-two.
 ///

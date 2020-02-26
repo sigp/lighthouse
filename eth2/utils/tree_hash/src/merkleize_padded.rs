@@ -5,7 +5,7 @@ use eth2_hashing::{hash, hash32_concat};
 /// leaves.
 ///
 /// **Note**: This function is generally worse than using the `crate::merkle_root` which uses
-/// `MerkleStream`. We only keep this function around for reference testing.
+/// `MerkleHasher`. We only keep this function around for reference testing.
 ///
 /// First all nodes are extracted from `bytes` and then a padding node is added until the number of
 /// leaf chunks is greater than or equal to `min_leaves`. Callers may set `min_leaves` to `0` if no

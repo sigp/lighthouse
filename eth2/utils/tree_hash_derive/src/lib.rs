@@ -110,7 +110,7 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
             }
 
             fn tree_hash_root(&self) -> tree_hash::Hash256 {
-                let mut hasher = tree_hash::MerkleStream::new_for_leaf_count(#num_leaves);
+                let mut hasher = tree_hash::MerkleHasher::new_for_leaf_count(#num_leaves);
 
                 #(
                     hasher.write(self.#idents.tree_hash_root().as_bytes())

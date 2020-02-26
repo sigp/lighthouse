@@ -3,7 +3,7 @@ use crate::{BeaconState, EthSpec, Hash256, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
-use tree_hash::{mix_in_length, MerkleStream, TreeHash};
+use tree_hash::{mix_in_length, MerkleHasher, TreeHash};
 
 /// The number of fields on a beacon state.
 const NUM_BEACON_STATE_HASHING_FIELDS: usize = 20;
@@ -79,7 +79,7 @@ impl BeaconTreeHashCache {
         &mut self,
         state: &BeaconState<T>,
     ) -> Result<Hash256, Error> {
-        let mut hasher = MerkleStream::new_for_leaf_count(NUM_BEACON_STATE_HASHING_FIELDS);
+        let mut hasher = MerkleHasher::new_for_leaf_count(NUM_BEACON_STATE_HASHING_FIELDS);
 
         hasher.write(state.genesis_time.tree_hash_root().as_bytes())?;
         hasher.write(state.slot.tree_hash_root().as_bytes())?;

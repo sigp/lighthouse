@@ -56,14 +56,14 @@ impl HalfNode {
     }
 }
 
-/// Provides a Merkle-root hasher that allows for streaming leaves (viz., providing them
-/// one-by-one) and also for efficiently handling the cases where not all leaves have been
-/// provided (by assuming all non-provided leaves are `[0; 32]` and pre-computing the zero-value
-/// hashes at all depths of the tree).
+/// Provides a Merkle-root hasher that allows for streaming bytes (i.e., providing any-length byte
+/// slices without need to separate into leaves). Efficiently handles cases where not all leaves
+/// have been provided by assuming all non-provided leaves are `[0; 32]` and pre-computing the
+/// zero-value hashes at all depths of the tree.
 ///
 /// This algorithm aims to allocate as little memory as possible and it does this by "folding" up
 /// the tree has each leaf is provided. Consider this step-by-step functional diagram of hashing a
-/// tree with height three:
+/// tree with depth three:
 ///
 /// ## Functional Diagram
 ///
@@ -121,13 +121,16 @@ impl HalfNode {
 ///       L  L L  L
 /// ```
 ///
-pub struct MerkleStream {
+pub struct MerkleHasher {
     /// Stores the nodes that are half-complete and awaiting a right node.
     ///
     /// A smallvec of size 8 means we can hash a tree with 128 leaves without allocating on the
     /// heap. Each half-node is 224 bytes, so this smallvec may store 1,792 bytes on the stack.
     half_nodes: SmallVec8<HalfNode>,
     /// The depth of the tree that will be produced.
+    ///
+    /// Depth is counted top-down (i.e., the root node is at depth 0). A tree with 1 leaf has a
+    /// depth of 1, a tree with 4 leaves has a depth of 3.
     depth: usize,
     /// The next leaf that we are expecting to process.
     next_leaf: usize,
@@ -152,7 +155,7 @@ fn get_depth(i: usize) -> usize {
     total_bits - i.leading_zeros() as usize - 1
 }
 
-impl MerkleStream {
+impl MerkleHasher {
     /// A convenience method for generating a tree with a given number of leaves. Determines the
     /// smallest tree that can accommodate the given number of leaves.
     ///
@@ -232,7 +235,7 @@ impl MerkleStream {
         if self.next_leaf > max_leaves {
             return Err(Error::MaximumLeavesExceeded { max_leaves });
         } else if self.next_leaf == 1 {
-            // A tree of height one has a root that is equal to the first given leaf.
+            // A tree of depth one has a root that is equal to the first given leaf.
             self.root = Some(Hash256::from_slice(leaf))
         } else if self.next_leaf % 2 == 0 {
             self.process_left_node(self.next_leaf, Preimage::Slice(leaf))
@@ -270,11 +273,11 @@ impl MerkleStream {
                     let right_child = node.id * 2 + 1;
                     self.process_right_node(right_child, self.zero_hash(right_child));
                 } else if self.next_leaf == 1 {
-                    // The next_leaf can only be 1 if the tree has a height of one. If have been no
+                    // The next_leaf can only be 1 if the tree has a depth of one. If have been no
                     // leaves supplied, assume a root of zero.
                     break Ok(Hash256::zero());
                 } else {
-                    // The only scenario where there are (a) no half nodes and (b) a tree of height
+                    // The only scenario where there are (a) no half nodes and (b) a tree of depth
                     // two or more is where no leaves have been supplied at all.
                     //
                     // Once we supply this first zero-hash leaf then all future operations will be
@@ -300,7 +303,7 @@ impl MerkleStream {
     /// is a leaf node it will be the value of that leaf).
     ///
     /// This operation will always complete one node, then it will attempt to crawl up the tree and
-    /// collapse and other viable nodes. For example, consider a tree of height 3 (see diagram
+    /// collapse and other viable nodes. For example, consider a tree of depth 3 (see diagram
     /// below). When providing the node with id `7`, the node with id `3` will be completed which
     /// will also provide the right-node for the `1` node. This function will complete both of
     /// those nodes and ultimately find the root of the tree.
@@ -377,7 +380,7 @@ mod test {
 
         let merklizer_root_32_bytes = {
             let mut m =
-                MerkleStream::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
+                MerkleHasher::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
             for leaf in leaves.iter() {
                 m.write(leaf.as_bytes()).expect("should process leaf");
             }
@@ -391,7 +394,7 @@ mod test {
 
         let merklizer_root_individual_3_bytes = {
             let mut m =
-                MerkleStream::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
+                MerkleHasher::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
             for bytes in reference_bytes.clone().chunks(3) {
                 m.write(bytes).expect("should process byte");
             }
@@ -405,7 +408,7 @@ mod test {
 
         let merklizer_root_individual_single_bytes = {
             let mut m =
-                MerkleStream::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
+                MerkleHasher::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
             for byte in reference_bytes.iter() {
                 m.write(&[*byte]).expect("should process byte");
             }
@@ -418,25 +421,25 @@ mod test {
         );
     }
 
-    /// A simple wrapper to compare MerkleStream to the reference function by just giving a number
-    /// of leaves and a height.
-    fn compare_reference_with_len(leaves: u64, height: usize) {
+    /// A simple wrapper to compare MerkleHasher to the reference function by just giving a number
+    /// of leaves and a depth.
+    fn compare_reference_with_len(leaves: u64, depth: usize) {
         let leaves = (0..leaves)
             .map(|i| Hash256::from_low_u64_be(i))
             .collect::<Vec<_>>();
-        compare_with_reference(&leaves, height)
+        compare_with_reference(&leaves, depth)
     }
 
-    /// Compares the `MerkleStream::new` and `MerkleStream::new_for_leaf_count` generate consistent
+    /// Compares the `MerkleHasher::new` and `MerkleHasher::new_for_leaf_count` generate consistent
     /// results.
-    fn compare_new_with_leaf_count(num_leaves: u64, height: usize) {
+    fn compare_new_with_leaf_count(num_leaves: u64, depth: usize) {
         let leaves = (0..num_leaves)
             .map(|i| Hash256::from_low_u64_be(i))
             .collect::<Vec<_>>();
 
         let from_depth = {
             let mut m =
-                MerkleStream::new(NonZeroUsize::new(height).expect("depth should not be zero"));
+                MerkleHasher::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
             for leaf in leaves.iter() {
                 m.write(leaf.as_bytes()).expect("should process leaf");
             }
@@ -444,7 +447,7 @@ mod test {
         };
 
         let from_num_leaves = {
-            let mut m = MerkleStream::new_for_leaf_count(num_leaves as usize);
+            let mut m = MerkleHasher::new_for_leaf_count(num_leaves as usize);
             for leaf in leaves.iter() {
                 m.process_leaf(leaf.as_bytes())
                     .expect("should process leaf");
@@ -478,7 +481,7 @@ mod test {
     }
 
     #[test]
-    fn height() {
+    fn depth() {
         assert_eq!(get_depth(1), 0);
         assert_eq!(get_depth(2), 1);
         assert_eq!(get_depth(3), 1);
@@ -545,13 +548,13 @@ mod test {
     #[test]
     fn remaining_buffer() {
         let a = {
-            let mut m = MerkleStream::new_for_leaf_count(2);
+            let mut m = MerkleHasher::new_for_leaf_count(2);
             m.write(&[1]).expect("should write");
             m.finish().expect("should finish")
         };
 
         let b = {
-            let mut m = MerkleStream::new_for_leaf_count(2);
+            let mut m = MerkleHasher::new_for_leaf_count(2);
             let mut leaf = vec![1];
             leaf.extend_from_slice(&[0; 31]);
             m.write(&leaf).expect("should write");

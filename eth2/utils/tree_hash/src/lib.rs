@@ -1,9 +1,9 @@
 pub mod impls;
-mod merkle_stream;
+mod merkle_hasher;
 mod merkleize_padded;
 mod merkleize_standard;
 
-pub use merkle_stream::{Error, MerkleStream};
+pub use merkle_hasher::{Error, MerkleHasher};
 pub use merkleize_padded::merkleize_padded;
 pub use merkleize_standard::merkleize_standard;
 
@@ -16,7 +16,7 @@ pub const MERKLE_HASH_CHUNK: usize = 2 * BYTES_PER_CHUNK;
 
 pub type Hash256 = ethereum_types::H256;
 
-/// Convenience method for `MerkleStream` which also provides some fast-paths for small trees.
+/// Convenience method for `MerkleHasher` which also provides some fast-paths for small trees.
 ///
 /// `minimum_leaf_count` will only be used if it is greater than or equal to the minimum number of leaves that can be created from `bytes`.
 pub fn merkle_root(bytes: &[u8], minimum_leaf_count: usize) -> Hash256 {
@@ -35,7 +35,7 @@ pub fn merkle_root(bytes: &[u8], minimum_leaf_count: usize) -> Hash256 {
         Hash256::from_slice(&hash)
     } else if leaves == 2 {
         // If there are only two leaves (this is common with BLS pubkeys), we can avoid some
-        // overhead with `MerkleStream` and just do a simple 3-node tree here.
+        // overhead with `MerkleHasher` and just do a simple 3-node tree here.
         let mut leaves = [0; HASHSIZE * 2];
         leaves[0..bytes.len()].copy_from_slice(bytes);
 
@@ -45,8 +45,8 @@ pub fn merkle_root(bytes: &[u8], minimum_leaf_count: usize) -> Hash256 {
 
         Hash256::from_slice(digest.as_ref())
     } else {
-        // If there are 3 or more leaves, use `MerkleStream`.
-        let mut hasher = MerkleStream::new_for_leaf_count(leaves);
+        // If there are 3 or more leaves, use `MerkleHasher`.
+        let mut hasher = MerkleHasher::new_for_leaf_count(leaves);
         hasher
             .write(bytes)
             .expect("the number of leaves is adequate for the number of bytes");
