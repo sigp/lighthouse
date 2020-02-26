@@ -58,6 +58,7 @@ pub struct Config {
     pub propagation_percentage: Option<u8>,
 
     /// Flag to decide if the node should support noise protocol
+    /// Used for testing purposes currently.
     /// TODO: Remove this once secio gets phased out
     pub has_noise_support: bool,
 }

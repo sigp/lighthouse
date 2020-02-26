@@ -74,7 +74,7 @@ impl Service {
 
         let mut swarm = {
             // Set up the transport - tcp/ws with secio and mplex/yamux
-            let transport = build_transport(local_keypair.clone(), config.has_noise_support, &log);
+            let transport = build_transport(local_keypair.clone(), config.has_noise_support);
             // Lighthouse network behaviour
             let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
             Swarm::new(transport, behaviour, local_peer_id.clone())
@@ -260,7 +260,6 @@ impl Stream for Service {
 fn build_transport(
     local_private_key: Keypair,
     has_noise_support: bool,
-    log: &slog::Logger,
 ) -> Boxed<(PeerId, StreamMuxerBox), Error> {
     // TODO: The Wire protocol currently doesn't specify encryption and this will need to be customised
     // in the future.
@@ -271,7 +270,6 @@ fn build_transport(
         let trans_clone = transport.clone();
         transport.or_transport(websocket::WsConfig::new(trans_clone))
     };
-    let log = log.clone();
     if has_noise_support {
         // Authentication
         let transport = transport
@@ -285,12 +283,10 @@ fn build_transport(
                         match out {
                             // Noise was negotiated
                             core::either::EitherOutput::First((remote_id, out)) => {
-                                debug!(log, "Negotiated noise connection with peer {}", remote_id);
                                 Ok((core::either::EitherOutput::First(out), remote_id))
                             }
                             // Secio was negotiated
                             core::either::EitherOutput::Second((remote_id, out)) => {
-                                debug!(log, "Negotiated secio connection with peer {}", remote_id);
                                 Ok((core::either::EitherOutput::Second(out), remote_id))
                             }
                         }
@@ -331,8 +327,6 @@ fn build_transport(
             .boxed()
     }
 }
-
-// Result<(EitherOutput<NoiseOutput<Negotiated<TcpTransStream>>, SecioOutput<Negotiated<TcpTransStream>>>, PeerId), _>
 
 #[derive(Debug)]
 /// Events that can be obtained from polling the Libp2p Service.
@@ -427,9 +421,8 @@ fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
 fn generate_noise_config(
     identity_keypair: &Keypair,
 ) -> noise::NoiseAuthenticated<noise::XX, noise::X25519, ()> {
-    //remove unwrap
     let static_dh_keys = noise::Keypair::<noise::X25519>::new()
         .into_authentic(identity_keypair)
-        .unwrap();
+        .expect("signing can fail only once during starting a node");
     noise::NoiseConfig::xx(static_dh_keys).into_authenticated()
 }
