@@ -2,7 +2,6 @@ use crate::{get_zero_hash, Hash256, HASHSIZE};
 use eth2_hashing::{Context, Digest, SHA256};
 use smallvec::{smallvec, SmallVec};
 use std::mem;
-use std::num::NonZeroUsize;
 
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
@@ -168,15 +167,19 @@ impl MerkleHasher {
     /// return a root of `[0; 32]`.
     pub fn with_leaves(num_leaves: usize) -> Self {
         let depth = get_depth(num_leaves.next_power_of_two()) + 1;
-        Self::new(NonZeroUsize::new(depth).expect("adding 1 ensures this is never zero"))
+        Self::with_depth(depth)
     }
 
     /// Instantiates a new, empty hasher for a tree with `depth` layers which will have capacity
     /// for `1 << (depth - 1)` leaf nodes.
     ///
     /// It is not possible to grow the depth of the tree after instantiation.
-    fn new(depth: NonZeroUsize) -> Self {
-        let depth = depth.get();
+    ///
+    /// ## Panics
+    ///
+    /// Panics if `depth == 0`.
+    fn with_depth(depth: usize) -> Self {
+        assert!(depth > 0, "merkle tree cannot have a depth of zero");
 
         Self {
             half_nodes: SmallVec::with_capacity(depth - 1),
@@ -382,8 +385,7 @@ mod test {
         let reference_root = merkleize_padded(&reference_bytes, 1 << (depth - 1));
 
         let merklizer_root_32_bytes = {
-            let mut m =
-                MerkleHasher::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
+            let mut m = MerkleHasher::with_depth(depth);
             for leaf in leaves.iter() {
                 m.write(leaf.as_bytes()).expect("should process leaf");
             }
@@ -396,8 +398,7 @@ mod test {
         );
 
         let merklizer_root_individual_3_bytes = {
-            let mut m =
-                MerkleHasher::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
+            let mut m = MerkleHasher::with_depth(depth);
             for bytes in reference_bytes.clone().chunks(3) {
                 m.write(bytes).expect("should process byte");
             }
@@ -410,8 +411,7 @@ mod test {
         );
 
         let merklizer_root_individual_single_bytes = {
-            let mut m =
-                MerkleHasher::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
+            let mut m = MerkleHasher::with_depth(depth);
             for byte in reference_bytes.iter() {
                 m.write(&[*byte]).expect("should process byte");
             }
@@ -433,7 +433,7 @@ mod test {
         compare_with_reference(&leaves, depth)
     }
 
-    /// Compares the `MerkleHasher::new` and `MerkleHasher::with_leaves` generate consistent
+    /// Compares the `MerkleHasher::with_depth` and `MerkleHasher::with_leaves` generate consistent
     /// results.
     fn compare_new_with_leaf_count(num_leaves: u64, depth: usize) {
         let leaves = (0..num_leaves)
@@ -441,8 +441,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let from_depth = {
-            let mut m =
-                MerkleHasher::new(NonZeroUsize::new(depth).expect("depth should not be zero"));
+            let mut m = MerkleHasher::with_depth(depth);
             for leaf in leaves.iter() {
                 m.write(leaf.as_bytes()).expect("should process leaf");
             }
