@@ -65,6 +65,8 @@ mod tests {
         let executor = runtime.executor();
 
         let mut config = NetworkConfig::default();
+        config.libp2p_port = 21212;
+        config.discovery_port = 21212;
         config.boot_nodes = enrs.clone();
         runtime
             .block_on_all(
