@@ -163,7 +163,7 @@ impl MerkleHasher {
     ///
     /// If `num_leaves == 0`, a tree of depth 1 will be created. If no leaves are provided it will
     /// return a root of `[0; 32]`.
-    pub fn new_for_leaf_count(num_leaves: usize) -> Self {
+    pub fn with_leaves(num_leaves: usize) -> Self {
         let depth = get_depth(num_leaves.next_power_of_two()) + 1;
         Self::new(NonZeroUsize::new(depth).expect("adding 1 ensures this is never zero"))
     }
@@ -430,7 +430,7 @@ mod test {
         compare_with_reference(&leaves, depth)
     }
 
-    /// Compares the `MerkleHasher::new` and `MerkleHasher::new_for_leaf_count` generate consistent
+    /// Compares the `MerkleHasher::new` and `MerkleHasher::with_leaves` generate consistent
     /// results.
     fn compare_new_with_leaf_count(num_leaves: u64, depth: usize) {
         let leaves = (0..num_leaves)
@@ -447,7 +447,7 @@ mod test {
         };
 
         let from_num_leaves = {
-            let mut m = MerkleHasher::new_for_leaf_count(num_leaves as usize);
+            let mut m = MerkleHasher::with_leaves(num_leaves as usize);
             for leaf in leaves.iter() {
                 m.process_leaf(leaf.as_bytes())
                     .expect("should process leaf");
@@ -462,7 +462,7 @@ mod test {
     }
 
     #[test]
-    fn new_for_leaf_count() {
+    fn with_leaves() {
         compare_new_with_leaf_count(1, 1);
         compare_new_with_leaf_count(2, 2);
         compare_new_with_leaf_count(3, 3);
@@ -548,13 +548,13 @@ mod test {
     #[test]
     fn remaining_buffer() {
         let a = {
-            let mut m = MerkleHasher::new_for_leaf_count(2);
+            let mut m = MerkleHasher::with_leaves(2);
             m.write(&[1]).expect("should write");
             m.finish().expect("should finish")
         };
 
         let b = {
-            let mut m = MerkleHasher::new_for_leaf_count(2);
+            let mut m = MerkleHasher::with_leaves(2);
             let mut leaf = vec![1];
             leaf.extend_from_slice(&[0; 31]);
             m.write(&leaf).expect("should write");

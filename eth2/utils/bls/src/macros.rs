@@ -63,7 +63,7 @@ macro_rules! impl_tree_hash {
                 let values_per_chunk = tree_hash::BYTES_PER_CHUNK;
                 let minimum_chunk_count = ($byte_size + values_per_chunk - 1) / values_per_chunk;
 
-                let mut hasher = tree_hash::MerkleHasher::new_for_leaf_count(minimum_chunk_count);
+                let mut hasher = tree_hash::MerkleHasher::with_leaves(minimum_chunk_count);
                 hasher
                     .write(&self.as_ssz_bytes())
                     .expect("bls should not exceed leaf count");
@@ -199,7 +199,7 @@ macro_rules! bytes_struct {
                 let values_per_chunk = tree_hash::BYTES_PER_CHUNK;
                 let minimum_chunk_count = ($byte_size + values_per_chunk - 1) / values_per_chunk;
 
-                let mut hasher = tree_hash::MerkleHasher::new_for_leaf_count(minimum_chunk_count);
+                let mut hasher = tree_hash::MerkleHasher::with_leaves(minimum_chunk_count);
                 hasher.write(&self.bytes).expect("bls should not exceed leaf count");
                 hasher.finish().expect("bls should not exceed leaf count from buffer")
             }

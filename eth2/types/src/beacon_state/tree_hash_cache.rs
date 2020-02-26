@@ -79,7 +79,7 @@ impl BeaconTreeHashCache {
         &mut self,
         state: &BeaconState<T>,
     ) -> Result<Hash256, Error> {
-        let mut hasher = MerkleHasher::new_for_leaf_count(NUM_BEACON_STATE_HASHING_FIELDS);
+        let mut hasher = MerkleHasher::with_leaves(NUM_BEACON_STATE_HASHING_FIELDS);
 
         hasher.write(state.genesis_time.tree_hash_root().as_bytes())?;
         hasher.write(state.slot.tree_hash_root().as_bytes())?;

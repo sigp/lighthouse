@@ -46,7 +46,7 @@ pub fn merkle_root(bytes: &[u8], minimum_leaf_count: usize) -> Hash256 {
         Hash256::from_slice(digest.as_ref())
     } else {
         // If there are 3 or more leaves, use `MerkleHasher`.
-        let mut hasher = MerkleHasher::new_for_leaf_count(leaves);
+        let mut hasher = MerkleHasher::with_leaves(leaves);
         hasher
             .write(bytes)
             .expect("the number of leaves is adequate for the number of bytes");

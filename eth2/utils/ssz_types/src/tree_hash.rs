@@ -10,7 +10,7 @@ where
 {
     match T::tree_hash_type() {
         TreeHashType::Basic => {
-            let mut hasher = MerkleHasher::new_for_leaf_count(
+            let mut hasher = MerkleHasher::with_leaves(
                 (N::to_usize() + T::tree_hash_packing_factor() - 1) / T::tree_hash_packing_factor(),
             );
 
@@ -25,7 +25,7 @@ where
                 .expect("ssz_types variable vec should not have a remaining buffer")
         }
         TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
-            let mut hasher = MerkleHasher::new_for_leaf_count(N::to_usize());
+            let mut hasher = MerkleHasher::with_leaves(N::to_usize());
 
             for item in vec {
                 hasher
@@ -46,7 +46,7 @@ pub fn bitfield_bytes_tree_hash_root<N: Unsigned>(bytes: &[u8]) -> Hash256 {
     let byte_size = (N::to_usize() + 7) / 8;
     let leaf_count = (byte_size + BYTES_PER_CHUNK - 1) / BYTES_PER_CHUNK;
 
-    let mut hasher = MerkleHasher::new_for_leaf_count(leaf_count);
+    let mut hasher = MerkleHasher::with_leaves(leaf_count);
 
     hasher
         .write(bytes)
