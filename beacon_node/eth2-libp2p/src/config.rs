@@ -56,6 +56,10 @@ pub struct Config {
     /// testing purposes and will likely be removed in future versions.
     // TODO: Remove this functionality for mainnet
     pub propagation_percentage: Option<u8>,
+
+    /// Flag to decide if the node should support noise protocol
+    /// TODO: Remove this once secio gets phased out
+    pub has_noise_support: bool,
 }
 
 impl Default for Config {
@@ -105,6 +109,7 @@ impl Default for Config {
             client_version: version::version(),
             topics,
             propagation_percentage: None,
+            has_noise_support: true,
         }
     }
 }
