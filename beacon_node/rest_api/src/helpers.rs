@@ -229,7 +229,7 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     // create the network topic to send on
     let topic = GossipTopic::new(GossipKind::BeaconBlock, GossipEncoding::SSZ);
     let message = PubsubMessage::BeaconBlock(Box::new(block));
-    let messages = vec![GossipMessage::new(topics, message).expect("topics exist")];
+    let messages = vec![GossipMessage::new(vec![topic], message).expect("topics exist")];
 
     // Publish the block to the p2p network via gossipsub.
     if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {

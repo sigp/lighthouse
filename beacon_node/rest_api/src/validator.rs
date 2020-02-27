@@ -14,7 +14,7 @@ use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscripti
 use slog::{error, info, warn, Logger};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, BeaconState, Epoch, RelativeEpoch, Slot};
+use types::{Attestation, BeaconBlock, BeaconState, Epoch, RelativeEpoch, Slot, SignedAggregateAndProof, Domain};
 use rayon::prelude::*;
 
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
@@ -459,7 +459,7 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                 // to be stored in the op-pool. This is minimal however as the op_pool gets pruned
                 // every slot
                 
-            attestations.into_par_iter().try_for_each(|attestation| {
+            attestations.par_iter().try_for_each(|attestation| {
                 match beacon_chain.process_attestation(attestation.clone(), Some(true)) {
                     Ok(AttestationProcessingOutcome::Processed) => {
                         // Block was processed, publish via gossipsub
@@ -471,6 +471,7 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                             "index" => attestation.data.index,
                             "slot" => attestation.data.slot,
                         );
+                        Ok(())
                         
                     }
                     Ok(outcome) => {
@@ -498,7 +499,7 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                         )))
                     }
                 }
-            })
+            })?;
             Ok(attestations)
             })
             .and_then(|attestations| {
@@ -538,24 +539,19 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                 
                 // TODO: Double check speed and logic consistency of handling current fork vs
                 // validator fork for signatures.
-                let beacon_state = beacon_chain.get_head()?.beacon_state;
+                let beacon_state = beacon_chain.head()?.beacon_state;
                 let domain = beacon_chain.spec.get_domain(
                     beacon_state.slot.epoch(T::EthSpec::slots_per_epoch()),
                     Domain::AggregateAndProof,
-                    &state.fork,
-            );
+                    &beacon_state.fork,
+                );
 
                 signed_proofs.par_iter().try_for_each(|signed_proof| {
-                    let agg_proof = signed_proof.message;
-                    let validator_pubkey = beacon_state.get_validator_index(agg_proof.aggregator_index);
-                    let domain = beacon_chain.spec.get_domain(
-                        agg_proof.aggregate.data.slot.epoch(T::EthSpec::slots_per_epoch()),
-                        Domain::AggregateAndProof,
-                        &beacon_state.fork,
-                    );
+                    let agg_proof = &signed_proof.message;
+                    let validator_pubkey = &beacon_state.get_validator_pubkey(agg_proof.aggregator_index)?;
                     if signed_proof.is_valid_signature(validator_pubkey, domain) {
                 
-                let attestation = agg_proof.aggregate;
+                let attestation = &agg_proof.aggregate;
                 match beacon_chain.process_attestation(attestation.clone(), Some(false)) {
                     Ok(AttestationProcessingOutcome::Processed) => {
                         // Block was processed, publish via gossipsub
@@ -567,7 +563,7 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                             "index" => attestation.data.index,
                             "slot" => attestation.data.slot,
                         );
-                        publish_aggregate_attestation_to_network::<T>(network_chan, attestation)
+                        Ok(())
                     }
                     Ok(outcome) => {
                         warn!(
@@ -603,8 +599,13 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                         Err(ApiError::ServerError(format!(
                             "Invalid AggregateAndProof Signature"
                         )))
-                    }
+                }
                     })?;
+                Ok(signed_proofs)
+            })
+            .and_then(move |signed_proofs| {
+                let attestations = signed_proofs.into_iter().map(|sp| sp.message.aggregate).collect::<Vec<_>>();
+                   publish_aggregate_attestations_to_network::<T>(network_chan, attestations)
             })
             .and_then(|_| response_builder?.body_no_ssz(&())),
     )
