@@ -1,5 +1,5 @@
 //! A collection of variables that are accessible outside of the network thread itself.
-use crate::{Enr, Multiaddr, PeerId};
+use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::atomic::AtomicUsize;
@@ -15,6 +15,8 @@ pub struct NetworkGlobals {
     pub connected_peers: AtomicUsize,
     /// The collection of currently connected peers.
     pub connected_peer_set: RwLock<HashSet<PeerId>>,
+    /// The current gossipsub topic subscriptions.
+    pub gossipsub_subscriptions: RwLock<Vec<GossipTopic>>,
 }
 
 impl NetworkGlobals {
@@ -25,6 +27,7 @@ impl NetworkGlobals {
             listen_multiaddrs: RwLock::new(Vec::new()),
             connected_peers: AtomicUsize::new(0),
             connected_peer_set: RwLock::new(HashSet::new()),
+            gossipsub_subscriptions: RwLock::new(Vec::new()),
         }
     }
 }

@@ -135,6 +135,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
             if swarm.subscribe(topic.clone()) {
                 trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic_string));
                 subscribed_topics.push(topic_string);
+                network_globals
+                    .gossipsub_subscriptions
+                    .write()
+                    .push(topic.clone());
             } else {
                 warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_string));
             }

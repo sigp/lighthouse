@@ -42,6 +42,9 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
     /// duplicates that may still be seen over gossipsub.
     #[behaviour(ignore)]
     seen_gossip_messages: LruCache<MessageId, ()>,
+    /// A collections of variables accessible outside the network service.
+    #[behaviour(ignore)]
+    network_globals: Arc<NetworkGlobals>,
     #[behaviour(ignore)]
     /// Logger for behaviour actions.
     log: slog::Logger,
@@ -66,10 +69,11 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
             gossipsub: Gossipsub::new(local_peer_id, net_conf.gs_config.clone()),
-            discovery: Discovery::new(local_key, net_conf, network_globals, log)?,
+            discovery: Discovery::new(local_key, net_conf, network_globals.clone(), log)?,
             identify,
             events: Vec::new(),
             seen_gossip_messages: LruCache::new(100_000),
+            network_globals,
             log: behaviour_log,
         })
     }
@@ -196,11 +200,34 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
 
     /// Subscribes to a gossipsub topic.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
+        if !self
+            .network_globals
+            .gossipsub_subscriptions
+            .read()
+            .contains(&topic)
+        {
+            self.network_globals
+                .gossipsub_subscriptions
+                .write()
+                .push(topic.clone());
+        }
         self.gossipsub.subscribe(topic.into())
     }
 
     /// Unsubscribe from a gossipsub topic.
     pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
+        let pos = self
+            .network_globals
+            .gossipsub_subscriptions
+            .read()
+            .iter()
+            .position(|s| s == &topic);
+        if let Some(pos) = pos {
+            self.network_globals
+                .gossipsub_subscriptions
+                .write()
+                .swap_remove(pos);
+        }
         self.gossipsub.unsubscribe(topic.into())
     }
 
